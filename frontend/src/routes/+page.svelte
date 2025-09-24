@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { localeData, t, switchLocale } from '$lib/i18n';
-	import HRMaster from '$lib/components/admin/HRMaster.svelte';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
 	import WelcomeWindow from '$lib/components/WelcomeWindow.svelte';

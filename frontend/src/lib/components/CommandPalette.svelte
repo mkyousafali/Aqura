@@ -52,15 +52,6 @@
 
 		// Navigation
 		{
-			id: 'open-hr',
-			title: 'HR Master',
-			description: 'Open employee management',
-			category: 'Admin',
-			icon: '👥',
-			action: () => openWindow('hr-master'),
-			keywords: ['employee', 'staff', 'human resources']
-		},
-		{
 			id: 'open-branches',
 			title: 'Branch Master',
 			description: 'Manage company branches',
@@ -157,11 +148,6 @@
 		// This would normally import the actual components
 		// For now, just create placeholder windows
 		const config = {
-			'hr-master': {
-				title: 'HR Master',
-				component: null, // Would be actual component
-				icon: '👥'
-			},
 			'branch-master': {
 				title: 'Branch Master', 
 				component: null,

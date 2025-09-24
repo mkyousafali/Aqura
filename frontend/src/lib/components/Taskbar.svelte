@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 	import { onMount } from 'svelte';
-	import HRMaster from '$lib/components/admin/HRMaster.svelte';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
-	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
+	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 
 	// Subscribe to taskbar items
 	$: taskbarItems = windowManager.taskbarItems;
@@ -58,21 +57,6 @@
 		showStartMenuDropdown = false;
 	}
 
-	function openHR() {
-		windowManager.openWindow({
-			id: 'hr-master',
-			title: 'HR Master',
-			component: HRMaster,
-			size: { width: 1200, height: 800 },
-			icon: '👥',
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		closeStartMenu();
-	}
-
 	function openBranches() {
 		windowManager.openWindow({
 			id: 'branch-master',
@@ -88,12 +72,12 @@
 		closeStartMenu();
 	}
 
-	function openVendors() {
+	function openTaskMaster() {
 		windowManager.openWindow({
-			id: 'vendor-master',
-			title: 'Vendor Master',
-			component: VendorMaster,
-			icon: '🤝',
+			id: 'task-master',
+			title: 'Task Master',
+			component: TaskMaster,
+			icon: '📋',
 			size: { width: 1200, height: 800 },
 			resizable: true,
 			minimizable: true,
@@ -160,17 +144,13 @@
 					<div class="menu-section">
 						<h3 class="section-title">Applications</h3>
 						<div class="menu-items">
-							<button class="menu-item" on:click={openHR}>
-								<span class="menu-icon">👥</span>
-								<span class="menu-text">HR Master</span>
-							</button>
 							<button class="menu-item" on:click={openBranches}>
 								<span class="menu-icon">🏢</span>
-								<span class="menu-text">Branches</span>
+								<span class="menu-text">Branches Master</span>
 							</button>
-							<button class="menu-item" on:click={openVendors}>
-								<span class="menu-icon">🤝</span>
-								<span class="menu-text">Vendors</span>
+							<button class="menu-item" on:click={openTaskMaster}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">Task Master</span>
 							</button>
 						</div>
 					</div>
