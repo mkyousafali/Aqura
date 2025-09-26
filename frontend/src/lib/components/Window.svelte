@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { windowManager, type WindowConfig } from '$lib/stores/windowManager';
+	import { sidebar } from '$lib/stores/sidebar';
 	
 	export let window: WindowConfig;
 	
@@ -31,9 +32,9 @@
 	// Window bounds
 	$: windowStyle = `
 		left: ${isMaximized ? '0px !important' : window.position.x + 'px'};
-		top: ${isMaximized ? '60px !important' : window.position.y + 'px'};
-		width: ${isMaximized ? '100vw !important' : window.size.width + 'px'};
-		height: ${isMaximized ? 'calc(100vh - 60px) !important' : window.size.height + 'px'};
+		top: ${isMaximized ? '0px !important' : window.position.y + 'px'};
+		width: ${isMaximized ? '100% !important' : window.size.width + 'px'};
+		height: ${isMaximized ? 'calc(100vh - 48px) !important' : window.size.height + 'px'};
 		z-index: ${window.zIndex};
 		display: ${isMinimized ? 'none' : 'flex'};
 	`;
@@ -345,12 +346,12 @@
 		border-radius: 0 !important;
 		border: none !important;
 		left: 0 !important;
-		top: 60px !important;
-		width: 100vw !important;
-		height: calc(100vh - 60px) !important;
-		position: fixed !important;
-		max-width: 100vw !important;
-		max-height: calc(100vh - 60px) !important;
+		top: 0 !important;
+		width: 100% !important;
+		height: 100vh !important;
+		position: absolute !important;
+		max-width: 100% !important;
+		max-height: 100vh !important;
 	}
 
 	.title-bar {
@@ -443,8 +444,8 @@
 	}
 
 	.window-maximized .window-content {
-		height: calc(100vh - 100px) !important;
-		width: 100vw !important;
+		height: calc(100vh - 40px) !important;
+		width: 100% !important;
 	}
 
 	/* Resize Handles */

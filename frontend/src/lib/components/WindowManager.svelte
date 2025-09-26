@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
+	import { sidebar } from '$lib/stores/sidebar';
 	import Window from '$lib/components/Window.svelte';
 
 	// Subscribe to window list
@@ -7,7 +8,7 @@
 </script>
 
 <!-- Window Container -->
-<div class="window-manager">
+<div class="window-manager" style="left: {$sidebar.width}px; width: calc(100vw - {$sidebar.width}px);">
 	{#each $windows as window (window.id)}
 		<Window {window} />
 	{/each}
@@ -22,11 +23,10 @@
 	.window-manager {
 		position: fixed;
 		top: 0;
-		left: 0;
-		width: 100vw;
 		height: 100vh;
 		pointer-events: none;
 		z-index: 1000;
+		transition: left 0.3s ease, width 0.3s ease;
 	}
 
 	.window-manager :global(.window) {

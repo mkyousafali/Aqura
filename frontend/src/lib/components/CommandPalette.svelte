@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { t } from '$lib/i18n';
 
 	export let visible = false;
 
@@ -26,25 +27,25 @@
 		// Window Management
 		{
 			id: 'minimize-all',
-			title: 'Minimize All Windows',
-			description: 'Minimize all open windows',
-			category: 'Window',
+			title: t('commands.minimizeAll') || 'Minimize All Windows',
+			description: t('commands.minimizeAllDesc') || 'Minimize all open windows',
+			category: t('commands.window') || 'Window',
 			icon: '🔽',
 			action: () => windowManager.minimizeAllWindows()
 		},
 		{
 			id: 'close-all',
-			title: 'Close All Windows',
-			description: 'Close all open windows',
-			category: 'Window',
+			title: t('commands.closeAll') || 'Close All Windows',
+			description: t('commands.closeAllDesc') || 'Close all open windows',
+			category: t('commands.window') || 'Window',
 			icon: '❌',
 			action: () => windowManager.closeAllWindows()
 		},
 		{
 			id: 'show-desktop',
-			title: 'Show Desktop',
-			description: 'Show desktop by minimizing all windows',
-			category: 'Window',
+			title: t('commands.showDesktop') || 'Show Desktop',
+			description: t('commands.showDesktopDesc') || 'Show desktop by minimizing all windows',
+			category: t('commands.window') || 'Window',
 			icon: '🖥️',
 			action: () => windowManager.minimizeAllWindows(),
 			keywords: ['desktop', 'minimize']
@@ -53,45 +54,45 @@
 		// Navigation
 		{
 			id: 'open-branches',
-			title: 'Branch Master',
-			description: 'Manage company branches',
-			category: 'Admin',
+			title: t('admin.branchesMaster') || 'Branch Master',
+			description: t('commands.manageBranches') || 'Manage company branches',
+			category: t('admin.title') || 'Admin',
 			icon: '🏢',
 			action: () => openWindow('branch-master'),
 			keywords: ['office', 'location']
 		},
 		{
 			id: 'open-vendors',
-			title: 'Vendor Master',
-			description: 'Manage vendors and suppliers',
-			category: 'Admin',
+			title: t('admin.vendorsMaster') || 'Vendor Master',
+			description: t('commands.manageVendors') || 'Manage vendors and suppliers',
+			category: t('admin.title') || 'Admin',
 			icon: '🤝',
 			action: () => openWindow('vendor-master'),
 			keywords: ['supplier', 'contractor']
 		},
 		{
 			id: 'open-invoices',
-			title: 'Invoice Management',
-			description: 'Manage invoices and billing',
-			category: 'Finance',
+			title: t('admin.invoiceMaster') || 'Invoice Management',
+			description: t('commands.manageInvoices') || 'Manage invoices and billing',
+			category: t('nav.finance') || 'Finance',
 			icon: '📄',
 			action: () => openWindow('invoice-master'),
 			keywords: ['bill', 'payment', 'finance']
 		},
 		{
 			id: 'open-users',
-			title: 'User Management',
-			description: 'Manage system users and roles',
-			category: 'Admin',
+			title: t('admin.userManagement') || 'User Management',
+			description: t('commands.manageUsers') || 'Manage system users and roles',
+			category: t('admin.title') || 'Admin',
 			icon: '👤',
 			action: () => openWindow('user-master'),
 			keywords: ['account', 'permission', 'role']
 		},
 		{
 			id: 'open-import',
-			title: 'Data Import',
-			description: 'Import data from Excel files',
-			category: 'Tools',
+			title: t('admin.importData') || 'Data Import',
+			description: t('commands.importData') || 'Import data from Excel files',
+			category: t('commands.tools') || 'Tools',
 			icon: '📥',
 			action: () => openWindow('data-import'),
 			keywords: ['excel', 'xlsx', 'upload']
@@ -100,18 +101,18 @@
 		// System
 		{
 			id: 'help',
-			title: 'Help & Documentation',
-			description: 'View system documentation',
-			category: 'Help',
+			title: t('commands.help') || 'Help & Documentation',
+			description: t('commands.helpDesc') || 'View system documentation',
+			category: t('commands.helpCategory') || 'Help',
 			icon: '❓',
 			action: () => openWindow('help'),
 			keywords: ['docs', 'manual', 'guide']
 		},
 		{
 			id: 'about',
-			title: 'About Aqura',
-			description: 'System information and version',
-			category: 'Help',
+			title: t('commands.about') || 'About Aqura',
+			description: t('commands.aboutDesc') || 'System information and version',
+			category: t('commands.helpCategory') || 'Help',
 			icon: 'ℹ️',
 			action: () => openWindow('about'),
 			keywords: ['version', 'info']
@@ -262,7 +263,7 @@
 					bind:this={searchInput}
 					bind:value={searchQuery}
 					type="text"
-					placeholder="Type a command or search..."
+					placeholder={t('commands.searchPlaceholder') || 'Type a command or search...'}
 					class="search-input"
 					on:keydown={handleKeydown}
 				/>
@@ -270,8 +271,8 @@
 					<button 
 						class="clear-button"
 						on:click={() => searchQuery = ''}
-						title="Clear search"
-						aria-label="Clear search"
+						title={t('commands.clearSearch') || 'Clear search'}
+						aria-label={t('commands.clearSearch') || 'Clear search'}
 					>
 						<svg viewBox="0 0 20 20" width="16" height="16">
 							<path fill="currentColor" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
@@ -285,7 +286,7 @@
 				{#if filteredCommands.length === 0}
 					<div class="no-results">
 						<div class="no-results-icon">🔍</div>
-						<div class="no-results-text">No commands found</div>
+						<div class="no-results-text">{t('commands.noResults') || 'No commands found'}</div>
 					</div>
 				{:else}
 					{#each filteredCommands as command, index (command.id)}
@@ -316,10 +317,10 @@
 						<kbd>↑↓</kbd> Navigate
 					</span>
 					<span class="hint">
-						<kbd>Enter</kbd> Execute
+						<kbd>Enter</kbd> {t('commands.execute') || 'Execute'}
 					</span>
 					<span class="hint">
-						<kbd>Esc</kbd> Close
+						<kbd>Esc</kbd> {t('commands.close') || 'Close'}
 					</span>
 				</div>
 			</div>

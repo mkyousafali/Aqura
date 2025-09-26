@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
-	import { localeData, t, switchLocale } from '$lib/i18n';
+	import { localeData, t } from '$lib/i18n';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
-	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
 	import WelcomeWindow from '$lib/components/WelcomeWindow.svelte';
 
 	let mounted = false;
@@ -35,12 +34,6 @@
 			closable: true
 		});
 	}
-
-	// Language toggle
-	function toggleLanguage() {
-		const newLocale = $localeData?.code === 'ar' ? 'en' : 'ar';
-		switchLocale(newLocale);
-	}
 </script>
 
 <svelte:head>
@@ -50,17 +43,6 @@
 
 <div class="desktop-content">
 	{#if mounted}
-		<!-- Top Bar -->
-		<div class="top-bar">
-			<div class="top-bar-spacer"></div>
-			
-			<div class="top-bar-actions">
-				<button class="top-bar-btn" on:click={toggleLanguage} title="Switch Language">
-					🌐 {$localeData?.code === 'ar' ? 'EN' : 'العربية'}
-				</button>
-			</div>
-		</div>
-
 		<!-- Welcome Screen -->
 		<div class="welcome-screen">
 			<div class="welcome-card">
@@ -69,7 +51,7 @@
 						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
 					</div>
 					<h1 class="app-title">Aqura</h1>
-					<p class="app-subtitle">Your AI management system</p>
+					<p class="app-subtitle">{$localeData ? t('app.description') : 'Your AI management system'}</p>
 				</div>
 			</div>
 		</div>
@@ -77,51 +59,6 @@
 </div>
 
 <style>
-	.top-bar {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 60px;
-		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
-		backdrop-filter: blur(10px);
-		border-bottom: 2px solid rgba(245, 158, 11, 0.3);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 2rem;
-		z-index: 1000;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-	}
-
-	.top-bar-spacer {
-		flex: 1;
-	}
-
-	.top-bar-actions {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.top-bar-btn {
-		padding: 0.5rem 1rem;
-		background: rgba(255, 255, 255, 0.2);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		border-radius: 8px;
-		color: white;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.top-bar-btn:hover {
-		background: rgba(245, 158, 11, 0.9);
-		border-color: #F59E0B;
-		color: #0B1220;
-		transform: translateY(-1px);
-	}
-
 	.desktop-content {
 		width: 100%;
 		height: 100%;
@@ -129,7 +66,6 @@
 		align-items: center;
 		justify-content: center;
 		padding: 2rem;
-		padding-top: 6rem; /* Account for top bar */
 	}
 
 	.welcome-screen {
@@ -166,7 +102,7 @@
 	}
 
 	.logo {
-		width: 120px;
+		width: 200px;
 		height: 120px;
 		margin: 0 auto 1.5rem;
 		background: #FFFFFF;
@@ -197,10 +133,11 @@
 		}
 	}
 
-	.logo-text {
-		font-size: 2.5rem;
-		font-weight: 700;
-		color: white;
+	.logo-image {
+		width: 140px;
+		height: 80px;
+		border-radius: 12px;
+		object-fit: contain;
 	}
 
 	.app-title {
@@ -233,21 +170,12 @@
 			padding: 1rem;
 		}
 
-		.action-grid {
-			grid-template-columns: 1fr;
-		}
-
 		.logo-section {
 			padding: 2rem 1rem 1.5rem;
 		}
 
 		.app-title {
 			font-size: 2rem;
-		}
-
-		.footer-actions {
-			flex-direction: column;
-			gap: 1rem;
 		}
 	}
 </style>

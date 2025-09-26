@@ -8,7 +8,6 @@ require (
 	github.com/joho/godotenv v1.4.0
 	github.com/shopspring/decimal v1.3.1
 	golang.org/x/crypto v0.31.0
-	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.0
 )
 
@@ -33,4 +32,5 @@ require (
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
+	gorm.io/driver/postgres v1.6.0 // indirect
 )

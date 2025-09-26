@@ -38,16 +38,12 @@ export interface Employee {
 
 export interface Branch {
 	id: string;
-	name: string;
-	code: string;
-	region: string;
-	address: string;
-	phone: string;
-	email: string;
-	manager_id?: string;
-	employee_count: number;
-	status: 'active' | 'inactive';
-	established_date: string;
+	name_en: string;
+	name_ar: string;
+	location_en: string;
+	location_ar: string;
+	is_active: boolean;
+	is_main_branch: boolean;
 	created_at: string;
 	updated_at: string;
 }

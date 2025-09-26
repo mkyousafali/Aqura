@@ -22,7 +22,7 @@ export const englishLocale: LocaleData = {
 		app: {
 			name: 'Aqura Management System',
 			shortName: 'Aqura',
-			description: 'PWA-first windowed management platform',
+			description: 'AI-powered management system',
 			loading: 'Loading Aqura...',
 			offline: 'You are currently offline',
 			updateAvailable: 'New version available',
@@ -34,11 +34,46 @@ export const englishLocale: LocaleData = {
 		// Navigation & UI
 		nav: {
 			dashboard: 'Dashboard',
+			master: 'Master',
 			admin: 'Admin',
 			user: 'User Interface',
+			work: 'Work',
+			reports: 'Reports',
 			settings: 'Settings',
+			finance: 'Finance',
 			help: 'Help',
 			logout: 'Sign Out'
+		},
+
+		// Commands
+		commands: {
+			// Window management
+			window: 'Window',
+			minimizeAll: 'Minimize All Windows',
+			minimizeAllDesc: 'Minimize all open windows',
+			closeAll: 'Close All Windows',
+			closeAllDesc: 'Close all open windows',
+			showDesktop: 'Show Desktop',
+			showDesktopDesc: 'Show desktop by minimizing all windows',
+			// Admin functions
+			manageBranches: 'Manage company branches',
+			manageVendors: 'Manage vendors and suppliers',
+			manageInvoices: 'Manage invoices and billing',
+			manageUsers: 'Manage system users and roles',
+			importData: 'Import data from Excel files',
+			// Tools and help
+			tools: 'Tools',
+			help: 'Help & Documentation',
+			helpDesc: 'View system documentation',
+			helpCategory: 'Help',
+			about: 'About Aqura',
+			aboutDesc: 'System information and version',
+			// UI
+			searchPlaceholder: 'Type a command or search...',
+			clearSearch: 'Clear search',
+			noResults: 'No commands found',
+			execute: 'Execute',
+			close: 'Close'
 		},
 
 		// Window Management
@@ -81,6 +116,7 @@ export const englishLocale: LocaleData = {
 			title: 'Administration',
 			hrMaster: 'HR Master',
 			branchesMaster: 'Branches Master',
+			taskMaster: 'Task Master',
 			vendorsMaster: 'Vendors Master',
 			invoiceMaster: 'Invoice Master',
 			userRoles: 'User Roles',
@@ -133,7 +169,24 @@ export const englishLocale: LocaleData = {
 			timezone: 'Timezone',
 			contactPerson: 'Contact Person',
 			contactEmail: 'Contact Email',
-			contactPhone: 'Contact Phone'
+			contactPhone: 'Contact Phone',
+			// New fields for multilingual support
+			createBranch: 'Create Branch',
+			nameEnglish: 'Name (English)',
+			nameArabic: 'Name (Arabic)',
+			locationEnglish: 'Location (English)',
+			locationArabic: 'Location (Arabic)',
+			save: 'Save',
+			cancel: 'Cancel',
+			edit: 'Edit',
+			update: 'Update',
+			delete: 'Delete',
+			active: 'Active',
+			inactive: 'Inactive',
+			mainBranch: 'Main Branch',
+			createdAt: 'Created At',
+			updatedAt: 'Updated At',
+			actions: 'Actions'
 		},
 
 		// Vendors Master
@@ -222,6 +275,15 @@ export const englishLocale: LocaleData = {
 			previous: 'Previous',
 			continue: 'Continue',
 			finish: 'Finish'
+		},
+
+		// Common Messages
+		common: {
+			confirmDelete: 'Are you sure you want to delete this item?',
+			noData: 'No data available',
+			status: 'Status',
+			loading: 'Loading...',
+			error: 'An error occurred'
 		},
 
 		// Status Messages

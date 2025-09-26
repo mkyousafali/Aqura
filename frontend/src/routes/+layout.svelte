@@ -1,19 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { initI18n, currentLocale, localeData } from '$lib/i18n';
+	import { sidebar } from '$lib/stores/sidebar';
 	import { browser } from '$app/environment';
 	import '../app.css';
 	import WindowManager from '$lib/components/WindowManager.svelte';
 	import Taskbar from '$lib/components/Taskbar.svelte';
+	import Sidebar from '$lib/components/Sidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import PWAInstallPrompt from '$lib/components/PWAInstallPrompt.svelte';
 
-	// Initialize i18n
-	onMount(async () => {
-		if (browser) {
-			await initI18n();
-		}
-	});
+	// Initialize i18n system
+	initI18n();
 
 	// Command palette state
 	let showCommandPalette = false;
@@ -39,8 +37,11 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>
+	<!-- Sidebar Navigation -->
+	<Sidebar />
+	
 	<!-- Desktop Background -->
-	<div class="desktop">
+	<div class="desktop" style="margin-left: {$sidebar.width}px">
 		<!-- Main content area -->
 		<main class="main-content">
 			<slot />
@@ -91,10 +92,11 @@
 	}
 
 	.desktop {
-		height: calc(100vh - 48px);
+		height: calc(100vh - 56px); /* Fixed taskbar height */
 		position: relative;
 		overflow: hidden;
 		z-index: 1;
+		transition: margin-left 0.3s ease;
 	}
 
 	.main-content {

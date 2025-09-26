@@ -1,521 +1,458 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { localeData, t } from '$lib/i18n';
+	import { branchApiService, type Branch, type CreateBranchRequest, type UpdateBranchRequest } from '../../utils/branchApi';
 
-	// Mock data for demonstration
-	let branches = [
-		{
-			id: '1',
-			branchId: 'BR001',
-			name: 'Riyadh Headquarters',
-			code: 'RUH-HQ',
-			region: 'Central',
-			address: 'King Fahd Road, Olaya District, Riyadh 11564',
-			timezone: 'Asia/Riyadh',
-			contactPerson: 'Mohammed Al-Rashid',
-			contactEmail: 'mohammed.rashid@aqura.com',
-			contactPhone: '+966 11 234 5678',
-			managerName: 'Ahmed Al-Rahman',
-			status: 'active',
-			openingDate: '2020-01-15',
-			employeeCount: 45
-		},
-		{
-			id: '2',
-			branchId: 'BR002',
-			name: 'Jeddah Commercial Center',
-			code: 'JED-CC',
-			region: 'Western',
-			address: 'Tahlia Street, Jeddah 21451',
-			timezone: 'Asia/Riyadh',
-			contactPerson: 'Fatima Mohammed',
-			contactEmail: 'fatima.mohammed@aqura.com',
-			contactPhone: '+966 12 987 6543',
-			managerName: 'Omar Hassan',
-			status: 'active',
-			openingDate: '2021-06-01',
-			employeeCount: 32
-		},
-		{
-			id: '3',
-			branchId: 'BR003',
-			name: 'Dammam Operations',
-			code: 'DMM-OP',
-			region: 'Eastern',
-			address: 'Al Khobar Corniche, Dammam 31952',
-			timezone: 'Asia/Riyadh',
-			contactPerson: 'Abdullah Al-Qahtani',
-			contactEmail: 'abdullah.qahtani@aqura.com',
-			contactPhone: '+966 13 555 1234',
-			managerName: 'Sarah Al-Zahrani',
-			status: 'inactive',
-			openingDate: '2022-03-20',
-			employeeCount: 18
-		}
-	];
-
-	let searchQuery = '';
-	let selectedRegion = '';
-	let selectedStatus = '';
-	let showAddModal = false;
-	let showEditModal = false;
-	let selectedBranch = null;
-
-	// Form data
-	let formData = {
-		branchId: '',
-		name: '',
-		code: '',
-		region: '',
-		address: '',
-		timezone: 'Asia/Riyadh',
-		contactPerson: '',
-		contactEmail: '',
-		contactPhone: '',
-		managerName: '',
-		status: 'active',
-		openingDate: ''
+	// State management
+	let branches: Branch[] = [];
+	let showCreatePopup = false;
+	let showEditPopup = false;
+	let currentBranch: Partial<Branch> = {
+		name_en: '',
+		name_ar: '',
+		location_en: '',
+		location_ar: '',
+		is_active: true,
+		is_main_branch: false
 	};
+	let editingBranch: Branch | null = null;
+	let isLoading = false;
+	let errorMessage = '';
 
-	const regions = ['Central', 'Western', 'Eastern', 'Northern', 'Southern'];
-	const statuses = ['active', 'inactive', 'pending'];
-	const timezones = ['Asia/Riyadh', 'Asia/Qatar', 'Asia/Kuwait'];
-
-	$: filteredBranches = branches.filter(branch => {
-		const matchesSearch = searchQuery === '' || 
-			branch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			branch.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			branch.branchId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			branch.address.toLowerCase().includes(searchQuery.toLowerCase());
-		
-		const matchesRegion = selectedRegion === '' || branch.region === selectedRegion;
-		const matchesStatus = selectedStatus === '' || branch.status === selectedStatus;
-		
-		return matchesSearch && matchesRegion && matchesStatus;
+	// Load branches on component mount
+	onMount(async () => {
+		await loadBranches();
 	});
 
-	function resetForm() {
-		formData = {
-			branchId: '',
-			name: '',
-			code: '',
-			region: '',
-			address: '',
-			timezone: 'Asia/Riyadh',
-			contactPerson: '',
-			contactEmail: '',
-			contactPhone: '',
-			managerName: '',
-			status: 'active',
-			openingDate: ''
-		};
-	}
-
-	function openAddModal() {
-		resetForm();
-		showAddModal = true;
-	}
-
-	function closeAddModal() {
-		showAddModal = false;
-		resetForm();
-	}
-
-	function openEditModal(branch) {
-		selectedBranch = branch;
-		formData = { ...branch };
-		showEditModal = true;
-	}
-
-	function closeEditModal() {
-		showEditModal = false;
-		selectedBranch = null;
-		resetForm();
-	}
-
-	function handleAddBranch() {
-		const newBranch = {
-			...formData,
-			id: (branches.length + 1).toString(),
-			employeeCount: 0
-		};
-		branches = [...branches, newBranch];
-		closeAddModal();
-	}
-
-	function handleEditBranch() {
-		branches = branches.map(branch => 
-			branch.id === selectedBranch.id ? 
-				{ ...formData, id: selectedBranch.id, employeeCount: selectedBranch.employeeCount } : 
-				branch
-		);
-		closeEditModal();
-	}
-
-	function handleDeleteBranch(branch) {
-		if (confirm(`Are you sure you want to delete ${branch.name}?`)) {
-			branches = branches.filter(b => b.id !== branch.id);
+	// Load branches from API
+	async function loadBranches() {
+		isLoading = true;
+		errorMessage = '';
+		
+		try {
+			const response = await branchApiService.getAllBranches();
+			
+			if (response.error) {
+				errorMessage = response.error;
+				console.error('Failed to load branches:', response.error);
+			} else if (response.data) {
+				branches = response.data;
+			}
+		} catch (error) {
+			errorMessage = 'Failed to connect to server';
+			console.error('Error loading branches:', error);
+		} finally {
+			isLoading = false;
 		}
 	}
 
-	function exportData() {
-		alert('Export functionality will be implemented with actual data export');
+	// Functions
+	function openCreatePopup() {
+		currentBranch = {
+			name_en: '',
+			name_ar: '',
+			location_en: '',
+			location_ar: '',
+			is_active: true,
+			is_main_branch: false
+		};
+		showCreatePopup = true;
 	}
 
-	function importData() {
-		alert('Import functionality will be implemented with XLSX import');
+	function closeCreatePopup() {
+		showCreatePopup = false;
+		currentBranch = {
+			name_en: '',
+			name_ar: '',
+			location_en: '',
+			location_ar: '',
+			is_active: true,
+			is_main_branch: false
+		};
+	}
+
+	function openEditPopup(branch: Branch) {
+		editingBranch = branch;
+		currentBranch = { ...branch };
+		showEditPopup = true;
+	}
+
+	function closeEditPopup() {
+		showEditPopup = false;
+		editingBranch = null;
+		currentBranch = {
+			name_en: '',
+			name_ar: '',
+			location_en: '',
+			location_ar: '',
+			is_active: true,
+			is_main_branch: false
+		};
+	}
+
+	async function saveBranch() {
+		if (!currentBranch.name_en || !currentBranch.name_ar || !currentBranch.location_en || !currentBranch.location_ar) {
+			alert('Please fill in all fields');
+			return;
+		}
+
+		isLoading = true;
+		errorMessage = '';
+
+		try {
+			if (showCreatePopup) {
+				// Create new branch
+				const branchData: CreateBranchRequest = {
+					name_en: currentBranch.name_en!,
+					name_ar: currentBranch.name_ar!,
+					location_en: currentBranch.location_en!,
+					location_ar: currentBranch.location_ar!,
+					is_active: currentBranch.is_active || true,
+					is_main_branch: currentBranch.is_main_branch || false
+				};
+
+				const response = await branchApiService.createBranch(branchData);
+				
+				if (response.error) {
+					errorMessage = response.error;
+					alert('Error creating branch: ' + response.error);
+				} else if (response.data) {
+					// Refresh the branches list
+					await loadBranches();
+					closeCreatePopup();
+				}
+			} else if (showEditPopup && editingBranch) {
+				// Update existing branch
+				const branchData: UpdateBranchRequest = {
+					name_en: currentBranch.name_en!,
+					name_ar: currentBranch.name_ar!,
+					location_en: currentBranch.location_en!,
+					location_ar: currentBranch.location_ar!,
+					is_active: currentBranch.is_active || true,
+					is_main_branch: currentBranch.is_main_branch || false
+				};
+
+				const response = await branchApiService.updateBranch(editingBranch.id, branchData);
+				
+				if (response.error) {
+					errorMessage = response.error;
+					alert('Error updating branch: ' + response.error);
+				} else if (response.data) {
+					// Refresh the branches list
+					await loadBranches();
+					closeEditPopup();
+				}
+			}
+		} catch (error) {
+			errorMessage = 'Failed to save branch';
+			alert('Error saving branch: ' + errorMessage);
+			console.error('Error saving branch:', error);
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	async function deleteBranch(id: string) {
+		if (confirm('Are you sure you want to delete this branch?')) {
+			isLoading = true;
+			errorMessage = '';
+
+			try {
+				const response = await branchApiService.deleteBranch(id);
+				
+				if (response.error) {
+					errorMessage = response.error;
+					alert('Error deleting branch: ' + response.error);
+				} else {
+					// Refresh the branches list
+					await loadBranches();
+				}
+			} catch (error) {
+				errorMessage = 'Failed to delete branch';
+				alert('Error deleting branch: ' + errorMessage);
+				console.error('Error deleting branch:', error);
+			} finally {
+				isLoading = false;
+			}
+		}
+	}
+
+	function formatDate(dateString: string) {
+		return new Date(dateString).toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
 	}
 </script>
 
 <div class="branch-master">
-	<!-- Header -->
+	<!-- Header with Create Button -->
 	<div class="header">
-		<div class="title-section">
-			<h1 class="title">🏢 Branch Master</h1>
-			<p class="subtitle">Manage company branches and locations</p>
-		</div>
-		
-		<div class="header-actions">
-			<button class="btn btn-secondary" on:click={importData}>
-				📥 Import
-			</button>
-			<button class="btn btn-secondary" on:click={exportData}>
-				📤 Export
-			</button>
-			<button class="btn btn-primary" on:click={openAddModal}>
-				➕ Add Branch
-			</button>
-		</div>
+		<h1 class="title">Branches Master</h1>
+		<button class="create-btn" on:click={openCreatePopup} disabled={isLoading}>
+			<span class="icon">+</span>
+			Create Branch
+		</button>
 	</div>
 
-	<!-- Filters -->
-	<div class="filters">
-		<div class="search-container">
-			<input
-				bind:value={searchQuery}
-				type="text"
-				placeholder="Search branches..."
-				class="search-input"
-			/>
-		</div>
-		
-		<select bind:value={selectedRegion} class="filter-select">
-			<option value="">All Regions</option>
-			{#each regions as region}
-				<option value={region}>{region}</option>
-			{/each}
-		</select>
-		
-		<select bind:value={selectedStatus} class="filter-select">
-			<option value="">All Statuses</option>
-			{#each statuses as status}
-				<option value={status}>{status}</option>
-			{/each}
-		</select>
-
-		<div class="results-count">
-			{filteredBranches.length} branches found
-		</div>
-	</div>
-
-	<!-- Stats Cards -->
-	<div class="stats-grid">
-		<div class="stat-card">
-			<div class="stat-value">{branches.filter(b => b.status === 'active').length}</div>
-			<div class="stat-label">Active Branches</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-value">{regions.length}</div>
-			<div class="stat-label">Regions</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-value">{branches.reduce((sum, b) => sum + b.employeeCount, 0)}</div>
-			<div class="stat-label">Total Employees</div>
-		</div>
-		<div class="stat-card">
-			<div class="stat-value">{branches.filter(b => b.status === 'pending').length}</div>
-			<div class="stat-label">Pending Setup</div>
-		</div>
-	</div>
-
-	<!-- Branch Cards -->
-	<div class="branch-grid">
-		{#each filteredBranches as branch}
-			<div class="branch-card">
-				<div class="branch-header">
-					<div class="branch-info">
-						<h3 class="branch-name">{branch.name}</h3>
-						<div class="branch-code">{branch.code}</div>
-					</div>
-					<span class="status-badge status-{branch.status}">
-						{branch.status}
-					</span>
-				</div>
-
-				<div class="branch-details">
-					<div class="detail-row">
-						<span class="detail-label">Region:</span>
-						<span class="detail-value">{branch.region}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Manager:</span>
-						<span class="detail-value">{branch.managerName}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Employees:</span>
-						<span class="detail-value">{branch.employeeCount}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Contact:</span>
-						<span class="detail-value">{branch.contactPerson}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Phone:</span>
-						<span class="detail-value">{branch.contactPhone}</span>
-					</div>
-					<div class="detail-row">
-						<span class="detail-label">Email:</span>
-						<span class="detail-value">{branch.contactEmail}</span>
-					</div>
-				</div>
-
-				<div class="branch-address">
-					📍 {branch.address}
-				</div>
-
-				<div class="branch-actions">
-					<button 
-						class="action-btn edit-btn"
-						on:click={() => openEditModal(branch)}
-					>
-						✏️ Edit
-					</button>
-					<button 
-						class="action-btn delete-btn"
-						on:click={() => handleDeleteBranch(branch)}
-					>
-						🗑️ Delete
-					</button>
-				</div>
-			</div>
-		{/each}
-	</div>
-
-	{#if filteredBranches.length === 0}
-		<div class="empty-state">
-			<div class="empty-icon">🏢</div>
-			<div class="empty-title">No branches found</div>
-			<div class="empty-subtitle">Try adjusting your search criteria</div>
+	<!-- Error Message -->
+	{#if errorMessage}
+		<div class="error-message">
+			<strong>Error:</strong> {errorMessage}
+			<button class="retry-btn" on:click={loadBranches}>Retry</button>
 		</div>
 	{/if}
+
+	<!-- Loading State -->
+	{#if isLoading}
+		<div class="loading-state">
+			<div class="spinner"></div>
+			<p>Loading branches...</p>
+		</div>
+	{/if}
+
+	<!-- Branches Table -->
+	<div class="table-container">
+		<table class="branches-table">
+			<thead>
+				<tr>
+					<th>Branch ID</th>
+					<th>Name (English)</th>
+					<th>Name (Arabic)</th>
+					<th>Location (English)</th>
+					<th>Location (Arabic)</th>
+					<th>Status</th>
+					<th>Main Branch</th>
+					<th>Created At</th>
+					<th>Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each branches as branch (branch.id)}
+					<tr class={branch.is_active ? 'active' : 'inactive'}>
+						<td>{branch.id}</td>
+						<td>{branch.name_en}</td>
+						<td class="arabic">{branch.name_ar}</td>
+						<td>{branch.location_en}</td>
+						<td class="arabic">{branch.location_ar}</td>
+						<td>
+							<span class="status-badge {branch.is_active ? 'active' : 'inactive'}">
+								{branch.is_active ? 'Active' : 'Inactive'}
+							</span>
+						</td>
+						<td>
+							{#if branch.is_main_branch}
+								<span class="main-branch-badge">✓</span>
+							{:else}
+								-
+							{/if}
+						</td>
+						<td>{branch.created_at ? formatDate(branch.created_at) : '-'}</td>
+						<td>
+							<div class="actions">
+								<button class="edit-btn" on:click={() => openEditPopup(branch)} disabled={isLoading}>
+									Edit
+								</button>
+								<button class="delete-btn" on:click={() => deleteBranch(branch.id)} disabled={isLoading}>
+									Delete
+								</button>
+							</div>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+
+		{#if branches.length === 0 && !isLoading}
+			<div class="empty-state">
+				<p>No branches available</p>
+				<button class="create-btn" on:click={openCreatePopup}>
+					<span class="icon">+</span>
+					Create Your First Branch
+				</button>
+			</div>
+		{/if}
+	</div>
 </div>
 
-<!-- Add Branch Modal -->
-{#if showAddModal}
-	<div class="modal-backdrop" on:click={closeAddModal}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>Add New Branch</h2>
-				<button class="modal-close" on:click={closeAddModal}>✕</button>
+<!-- Create Branch Popup -->
+{#if showCreatePopup}
+	<div class="popup-overlay" on:click={closeCreatePopup}>
+		<div class="popup" on:click|stopPropagation>
+			<div class="popup-header">
+				<h2>Create Branch</h2>
+				<button class="close-btn" on:click={closeCreatePopup}>×</button>
 			</div>
 			
-			<form class="modal-body" on:submit|preventDefault={handleAddBranch}>
-				<div class="form-row">
-					<div class="form-group">
-						<label>Branch ID</label>
-						<input bind:value={formData.branchId} type="text" required />
+			<div class="popup-content">
+				<form on:submit|preventDefault={saveBranch}>
+					<div class="form-row">
+						<div class="form-group">
+							<label for="name-en">Name (English)</label>
+							<input
+								id="name-en"
+								type="text"
+								bind:value={currentBranch.name_en}
+								placeholder="Enter branch name in English"
+								required
+							/>
+						</div>
+						<div class="form-group">
+							<label for="name-ar">Name (Arabic)</label>
+							<input
+								id="name-ar"
+								type="text"
+								bind:value={currentBranch.name_ar}
+								placeholder="أدخل اسم الفرع بالعربية"
+								class="arabic"
+								dir="rtl"
+								required
+							/>
+						</div>
 					</div>
-					<div class="form-group">
-						<label>Branch Code</label>
-						<input bind:value={formData.code} type="text" required />
+					
+					<div class="form-row">
+						<div class="form-group">
+							<label for="location-en">Location (English)</label>
+							<input
+								id="location-en"
+								type="text"
+								bind:value={currentBranch.location_en}
+								placeholder="Enter location in English"
+								required
+							/>
+						</div>
+						<div class="form-group">
+							<label for="location-ar">Location (Arabic)</label>
+							<input
+								id="location-ar"
+								type="text"
+								bind:value={currentBranch.location_ar}
+								placeholder="أدخل الموقع بالعربية"
+								class="arabic"
+								dir="rtl"
+								required
+							/>
+						</div>
 					</div>
-				</div>
 
-				<div class="form-row">
-					<div class="form-group full-width">
-						<label>Branch Name</label>
-						<input bind:value={formData.name} type="text" required />
+					<div class="form-row">
+						<div class="form-group">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={currentBranch.is_active} />
+								Active
+							</label>
+						</div>
+						<div class="form-group">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={currentBranch.is_main_branch} />
+								Main Branch
+							</label>
+						</div>
 					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Region</label>
-						<select bind:value={formData.region} required>
-							<option value="">Select Region</option>
-							{#each regions as region}
-								<option value={region}>{region}</option>
-							{/each}
-						</select>
+					
+					<div class="form-actions">
+						<button type="button" class="cancel-btn" on:click={closeCreatePopup}>
+							Cancel
+						</button>
+						<button type="submit" class="save-btn">
+							Save
+						</button>
 					</div>
-					<div class="form-group">
-						<label>Status</label>
-						<select bind:value={formData.status}>
-							{#each statuses as status}
-								<option value={status}>{status}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group full-width">
-						<label>Address</label>
-						<textarea bind:value={formData.address} rows="2" required></textarea>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Contact Person</label>
-						<input bind:value={formData.contactPerson} type="text" required />
-					</div>
-					<div class="form-group">
-						<label>Manager Name</label>
-						<input bind:value={formData.managerName} type="text" />
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Contact Email</label>
-						<input bind:value={formData.contactEmail} type="email" required />
-					</div>
-					<div class="form-group">
-						<label>Contact Phone</label>
-						<input bind:value={formData.contactPhone} type="tel" />
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Timezone</label>
-						<select bind:value={formData.timezone}>
-							{#each timezones as tz}
-								<option value={tz}>{tz}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="form-group">
-						<label>Opening Date</label>
-						<input bind:value={formData.openingDate} type="date" required />
-					</div>
-				</div>
-
-				<div class="modal-footer">
-					<button type="button" class="btn btn-secondary" on:click={closeAddModal}>
-						Cancel
-					</button>
-					<button type="submit" class="btn btn-primary">
-						Add Branch
-					</button>
-				</div>
-			</form>
+				</form>
+			</div>
 		</div>
 	</div>
 {/if}
 
-<!-- Edit Branch Modal -->
-{#if showEditModal}
-	<div class="modal-backdrop" on:click={closeEditModal}>
-		<div class="modal" on:click|stopPropagation>
-			<div class="modal-header">
+<!-- Edit Branch Popup -->
+{#if showEditPopup}
+	<div class="popup-overlay" on:click={closeEditPopup}>
+		<div class="popup" on:click|stopPropagation>
+			<div class="popup-header">
 				<h2>Edit Branch</h2>
-				<button class="modal-close" on:click={closeEditModal}>✕</button>
+				<button class="close-btn" on:click={closeEditPopup}>×</button>
 			</div>
 			
-			<form class="modal-body" on:submit|preventDefault={handleEditBranch}>
-				<div class="form-row">
-					<div class="form-group">
-						<label>Branch ID</label>
-						<input bind:value={formData.branchId} type="text" required readonly />
+			<div class="popup-content">
+				<form on:submit|preventDefault={saveBranch}>
+					<div class="form-row">
+						<div class="form-group">
+							<label for="edit-name-en">Name (English)</label>
+							<input
+								id="edit-name-en"
+								type="text"
+								bind:value={currentBranch.name_en}
+								placeholder="Enter branch name in English"
+								required
+							/>
+						</div>
+						<div class="form-group">
+							<label for="edit-name-ar">Name (Arabic)</label>
+							<input
+								id="edit-name-ar"
+								type="text"
+								bind:value={currentBranch.name_ar}
+								placeholder="أدخل اسم الفرع بالعربية"
+								class="arabic"
+								dir="rtl"
+								required
+							/>
+						</div>
 					</div>
-					<div class="form-group">
-						<label>Branch Code</label>
-						<input bind:value={formData.code} type="text" required />
+					
+					<div class="form-row">
+						<div class="form-group">
+							<label for="edit-location-en">Location (English)</label>
+							<input
+								id="edit-location-en"
+								type="text"
+								bind:value={currentBranch.location_en}
+								placeholder="Enter location in English"
+								required
+							/>
+						</div>
+						<div class="form-group">
+							<label for="edit-location-ar">Location (Arabic)</label>
+							<input
+								id="edit-location-ar"
+								type="text"
+								bind:value={currentBranch.location_ar}
+								placeholder="أدخل الموقع بالعربية"
+								class="arabic"
+								dir="rtl"
+								required
+							/>
+						</div>
 					</div>
-				</div>
 
-				<div class="form-row">
-					<div class="form-group full-width">
-						<label>Branch Name</label>
-						<input bind:value={formData.name} type="text" required />
+					<div class="form-row">
+						<div class="form-group">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={currentBranch.is_active} />
+								Active
+							</label>
+						</div>
+						<div class="form-group">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={currentBranch.is_main_branch} />
+								Main Branch
+							</label>
+						</div>
 					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Region</label>
-						<select bind:value={formData.region} required>
-							<option value="">Select Region</option>
-							{#each regions as region}
-								<option value={region}>{region}</option>
-							{/each}
-						</select>
+					
+					<div class="form-actions">
+						<button type="button" class="cancel-btn" on:click={closeEditPopup}>
+							Cancel
+						</button>
+						<button type="submit" class="save-btn">
+							Update
+						</button>
 					</div>
-					<div class="form-group">
-						<label>Status</label>
-						<select bind:value={formData.status}>
-							{#each statuses as status}
-								<option value={status}>{status}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group full-width">
-						<label>Address</label>
-						<textarea bind:value={formData.address} rows="2" required></textarea>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Contact Person</label>
-						<input bind:value={formData.contactPerson} type="text" required />
-					</div>
-					<div class="form-group">
-						<label>Manager Name</label>
-						<input bind:value={formData.managerName} type="text" />
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Contact Email</label>
-						<input bind:value={formData.contactEmail} type="email" required />
-					</div>
-					<div class="form-group">
-						<label>Contact Phone</label>
-						<input bind:value={formData.contactPhone} type="tel" />
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-group">
-						<label>Timezone</label>
-						<select bind:value={formData.timezone}>
-							{#each timezones as tz}
-								<option value={tz}>{tz}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="form-group">
-						<label>Opening Date</label>
-						<input bind:value={formData.openingDate} type="date" required />
-					</div>
-				</div>
-
-				<div class="modal-footer">
-					<button type="button" class="btn btn-secondary" on:click={closeEditModal}>
-						Cancel
-					</button>
-					<button type="submit" class="btn btn-primary">
-						Update Branch
-					</button>
-				</div>
-			</form>
+				</form>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -526,307 +463,227 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
+		background: white;
 		gap: 24px;
-		overflow: hidden;
 	}
 
 	.header {
 		display: flex;
 		justify-content: space-between;
-		align-items: flex-start;
-		gap: 16px;
-	}
-
-	.title-section {
-		flex: 1;
+		align-items: center;
+		padding-bottom: 16px;
+		border-bottom: 1px solid #e5e7eb;
 	}
 
 	.title {
 		font-size: 24px;
-		font-weight: 700;
-		margin: 0 0 4px 0;
-		color: #1a1a1a;
-	}
-
-	.subtitle {
-		font-size: 14px;
-		color: #666;
+		font-weight: 600;
+		color: #111827;
 		margin: 0;
 	}
 
-	.header-actions {
-		display: flex;
-		gap: 12px;
-	}
-
-	.btn {
-		padding: 8px 16px;
+	.create-btn {
+		background: #10b981;
+		color: white;
 		border: none;
-		border-radius: 6px;
-		font-size: 14px;
+		border-radius: 8px;
+		padding: 12px 20px;
 		font-weight: 500;
 		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		gap: 6px;
 	}
 
-	.btn-primary {
-		background: #f08300;
-		color: white;
+	.create-btn:hover {
+		background: #059669;
+		transform: translateY(-1px);
 	}
 
-	.btn-primary:hover {
-		background: #e07600;
+	.create-btn .icon {
+		font-size: 18px;
+		font-weight: bold;
 	}
 
-	.btn-secondary {
-		background: #f5f5f5;
-		color: #333;
-		border: 1px solid #ddd;
-	}
-
-	.btn-secondary:hover {
-		background: #e5e5e5;
-	}
-
-	.filters {
-		display: flex;
-		gap: 16px;
-		align-items: center;
-		padding: 16px;
-		background: #f9f9f9;
-		border-radius: 8px;
-		border: 1px solid #e0e0e0;
-	}
-
-	.search-container {
+	.table-container {
 		flex: 1;
+		overflow: auto;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
 	}
 
-	.search-input {
+	.branches-table {
 		width: 100%;
-		padding: 8px 12px;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		font-size: 14px;
-	}
-
-	.filter-select {
-		padding: 8px 12px;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		font-size: 14px;
+		border-collapse: collapse;
 		background: white;
-		min-width: 140px;
 	}
 
-	.results-count {
-		font-size: 14px;
-		color: #666;
+	.branches-table th {
+		background: #f9fafb;
+		padding: 12px 16px;
+		text-align: left;
+		font-weight: 600;
+		color: #374151;
+		border-bottom: 1px solid #e5e7eb;
 		white-space: nowrap;
 	}
 
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 16px;
+	.branches-table td {
+		padding: 12px 16px;
+		border-bottom: 1px solid #f3f4f6;
+		color: #111827;
 	}
 
-	.stat-card {
-		background: white;
-		padding: 20px;
-		border-radius: 8px;
-		border: 1px solid #e0e0e0;
-		text-align: center;
+	.branches-table tr:hover {
+		background: #f9fafb;
 	}
 
-	.stat-value {
-		font-size: 32px;
-		font-weight: 700;
-		color: #f08300;
-		margin-bottom: 4px;
+	.branches-table tr.inactive {
+		opacity: 0.6;
 	}
 
-	.stat-label {
-		font-size: 14px;
-		color: #666;
-	}
-
-	.branch-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-		gap: 20px;
-		overflow-y: auto;
-		flex: 1;
-	}
-
-	.branch-card {
-		background: white;
-		border-radius: 8px;
-		border: 1px solid #e0e0e0;
-		padding: 20px;
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		transition: all 0.2s;
-	}
-
-	.branch-card:hover {
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-	}
-
-	.branch-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 12px;
-	}
-
-	.branch-info {
-		flex: 1;
-	}
-
-	.branch-name {
-		font-size: 18px;
-		font-weight: 600;
-		margin: 0 0 4px 0;
-		color: #333;
-	}
-
-	.branch-code {
-		font-size: 14px;
-		color: #666;
-		font-family: monospace;
-		background: #f5f5f5;
-		padding: 2px 6px;
-		border-radius: 4px;
-		display: inline-block;
-	}
-
-	.status-badge {
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-size: 12px;
-		font-weight: 500;
-		text-transform: capitalize;
-	}
-
-	.status-active {
-		background: #e8f5e8;
-		color: #13A538;
-	}
-
-	.status-inactive {
-		background: #f5e8e8;
-		color: #d32f2f;
-	}
-
-	.status-pending {
-		background: #fff3e0;
-		color: #f08300;
-	}
-
-	.branch-details {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.detail-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.detail-label {
-		font-size: 14px;
-		color: #666;
-		font-weight: 500;
-		min-width: 80px;
-	}
-
-	.detail-value {
-		font-size: 14px;
-		color: #333;
+	.arabic {
+		font-family: 'Tajawal', 'Cairo', Arial, sans-serif;
+		direction: rtl;
 		text-align: right;
 	}
 
-	.branch-address {
-		background: #f9f9f9;
-		padding: 12px;
-		border-radius: 6px;
-		font-size: 14px;
-		color: #666;
-		line-height: 1.4;
+	.status-badge {
+		padding: 4px 12px;
+		border-radius: 20px;
+		font-size: 12px;
+		font-weight: 500;
+		text-transform: uppercase;
 	}
 
-	.branch-actions {
+	.status-badge.active {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	.status-badge.inactive {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.main-branch-badge {
+		background: #dbeafe;
+		color: #1d4ed8;
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-weight: 500;
+	}
+
+	.actions {
 		display: flex;
 		gap: 8px;
-		margin-top: auto;
 	}
 
-	.action-btn {
-		flex: 1;
-		padding: 8px 12px;
-		border: none;
-		border-radius: 6px;
-		font-size: 14px;
+	.edit-btn, .delete-btn {
+		padding: 6px 12px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 500;
 		cursor: pointer;
+		border: 1px solid;
 		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
 	}
 
 	.edit-btn {
-		background: #fff3e0;
-		color: #f08300;
+		background: #eff6ff;
+		color: #1d4ed8;
+		border-color: #3b82f6;
 	}
 
 	.edit-btn:hover {
-		background: #f08300;
-		color: white;
+		background: #dbeafe;
 	}
 
 	.delete-btn {
-		background: #f5e8e8;
-		color: #d32f2f;
+		background: #fef2f2;
+		color: #dc2626;
+		border-color: #ef4444;
 	}
 
 	.delete-btn:hover {
-		background: #d32f2f;
-		color: white;
+		background: #fee2e2;
 	}
 
 	.empty-state {
+		padding: 48px;
 		text-align: center;
-		padding: 48px 24px;
-		color: #666;
-		grid-column: 1 / -1;
+		color: #6b7280;
 	}
 
-	.empty-icon {
-		font-size: 48px;
+	.empty-state .create-btn {
+		margin-top: 16px;
+		background: #3b82f6;
+	}
+
+	.empty-state .create-btn:hover {
+		background: #2563eb;
+	}
+
+	/* Loading and Error States */
+	.loading-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 48px;
+		color: #6b7280;
+	}
+
+	.spinner {
+		width: 40px;
+		height: 40px;
+		border: 4px solid #f3f4f6;
+		border-top: 4px solid #3b82f6;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
 		margin-bottom: 16px;
 	}
 
-	.empty-title {
-		font-size: 18px;
+	@keyframes spin {
+		0% { transform: rotate(0deg); }
+		100% { transform: rotate(360deg); }
+	}
+
+	.error-message {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #dc2626;
+		padding: 12px 16px;
+		border-radius: 8px;
+		margin-bottom: 16px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.retry-btn {
+		background: #dc2626;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 6px 12px;
+		font-size: 12px;
+		cursor: pointer;
 		font-weight: 500;
-		margin-bottom: 8px;
 	}
 
-	.empty-subtitle {
-		font-size: 14px;
+	.retry-btn:hover {
+		background: #b91c1c;
 	}
 
-	/* Modal Styles */
-	.modal-backdrop {
+	button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	/* Popup Styles */
+	.popup-overlay {
 		position: fixed;
 		top: 0;
 		left: 0;
@@ -839,10 +696,11 @@
 		z-index: 1000;
 	}
 
-	.modal {
+	.popup {
 		background: white;
-		border-radius: 8px;
-		max-width: 700px;
+		border-radius: 12px;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+		max-width: 600px;
 		width: 90%;
 		max-height: 90vh;
 		overflow: hidden;
@@ -850,33 +708,46 @@
 		flex-direction: column;
 	}
 
-	.modal-header {
+	.popup-header {
+		padding: 20px 24px;
+		border-bottom: 1px solid #e5e7eb;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 20px 24px;
-		border-bottom: 1px solid #e0e0e0;
+		background: #f9fafb;
 	}
 
-	.modal-header h2 {
+	.popup-header h2 {
 		margin: 0;
 		font-size: 18px;
 		font-weight: 600;
+		color: #111827;
 	}
 
-	.modal-close {
+	.close-btn {
 		background: none;
 		border: none;
-		font-size: 18px;
+		font-size: 24px;
+		color: #6b7280;
 		cursor: pointer;
-		color: #666;
-		padding: 4px;
+		padding: 0;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
 	}
 
-	.modal-body {
+	.close-btn:hover {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.popup-content {
 		padding: 24px;
-		overflow-y: auto;
 		flex: 1;
+		overflow-y: auto;
 	}
 
 	.form-row {
@@ -889,52 +760,96 @@
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-	}
-
-	.form-group.full-width {
-		grid-column: 1 / -1;
 	}
 
 	.form-group label {
-		font-size: 14px;
+		margin-bottom: 6px;
 		font-weight: 500;
-		color: #333;
+		color: #374151;
 	}
 
-	.form-group input,
-	.form-group select,
-	.form-group textarea {
-		padding: 8px 12px;
-		border: 1px solid #ddd;
+	.form-group input {
+		padding: 12px;
+		border: 1px solid #d1d5db;
 		border-radius: 6px;
 		font-size: 14px;
-		font-family: inherit;
+		transition: border-color 0.2s;
 	}
 
-	.form-group input:focus,
-	.form-group select:focus,
-	.form-group textarea:focus {
+	.form-group input:focus {
 		outline: none;
-		border-color: #f08300;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
-	.form-group input[readonly] {
-		background: #f5f5f5;
-		color: #666;
+	.checkbox-label {
+		display: flex !important;
+		flex-direction: row !important;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
 	}
 
-	.form-group textarea {
-		resize: vertical;
-		min-height: 60px;
+	.checkbox-label input {
+		width: auto;
+		margin: 0;
 	}
 
-	.modal-footer {
+	.form-actions {
 		display: flex;
-		gap: 12px;
 		justify-content: flex-end;
-		margin-top: 24px;
-		padding-top: 16px;
-		border-top: 1px solid #e0e0e0;
+		gap: 12px;
+		padding-top: 20px;
+		border-top: 1px solid #e5e7eb;
+		margin-top: 20px;
+	}
+
+	.cancel-btn, .save-btn {
+		padding: 12px 20px;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		border: 1px solid;
+		transition: all 0.2s;
+	}
+
+	.cancel-btn {
+		background: white;
+		color: #6b7280;
+		border-color: #d1d5db;
+	}
+
+	.cancel-btn:hover {
+		background: #f9fafb;
+	}
+
+	.save-btn {
+		background: #10b981;
+		color: white;
+		border-color: #10b981;
+	}
+
+	.save-btn:hover {
+		background: #059669;
+	}
+
+	@media (max-width: 768px) {
+		.form-row {
+			grid-template-columns: 1fr;
+		}
+		
+		.popup {
+			width: 95%;
+			margin: 20px;
+		}
+		
+		.branches-table {
+			font-size: 12px;
+		}
+		
+		.branches-table th,
+		.branches-table td {
+			padding: 8px 12px;
+		}
 	}
 </style>

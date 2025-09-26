@@ -24,7 +24,7 @@ export const arabicLocale: LocaleData = {
 		app: {
 			name: 'نظام إدارة أكوا',
 			shortName: 'أكوا',
-			description: 'منصة إدارة بنوافذ متعددة مع دعم تطبيقات الويب التقدمية',
+			description: 'نظام إدارة مدعوم بالذكاء الاصطناعي',
 			loading: 'جاري تحميل أكوا...',
 			offline: 'أنت غير متصل حالياً',
 			updateAvailable: 'إصدار جديد متوفر',
@@ -83,6 +83,7 @@ export const arabicLocale: LocaleData = {
 			title: 'الإدارة',
 			hrMaster: 'إدارة الموارد البشرية',
 			branchesMaster: 'إدارة الفروع',
+			taskMaster: 'إدارة المهام',
 			vendorsMaster: 'إدارة الموردين',
 			invoiceMaster: 'إدارة الفواتير',
 			userRoles: 'أدوار المستخدمين',
@@ -125,7 +126,24 @@ export const arabicLocale: LocaleData = {
 			timezone: 'المنطقة الزمنية',
 			contactPerson: 'جهة الاتصال',
 			contactEmail: 'بريد الاتصال',
-			contactPhone: 'هاتف الاتصال'
+			contactPhone: 'هاتف الاتصال',
+			// New fields for multilingual support
+			createBranch: 'إنشاء فرع',
+			nameEnglish: 'الاسم (إنجليزي)',
+			nameArabic: 'الاسم (عربي)',
+			locationEnglish: 'الموقع (إنجليزي)',
+			locationArabic: 'الموقع (عربي)',
+			save: 'حفظ',
+			cancel: 'إلغاء',
+			edit: 'تعديل',
+			update: 'تحديث',
+			delete: 'حذف',
+			active: 'نشط',
+			inactive: 'غير نشط',
+			mainBranch: 'الفرع الرئيسي',
+			createdAt: 'تاريخ الإنشاء',
+			updatedAt: 'تاريخ التحديث',
+			actions: 'الإجراءات'
 		},
 
 		// Vendors Master
@@ -214,6 +232,15 @@ export const arabicLocale: LocaleData = {
 			previous: 'السابق',
 			continue: 'متابعة',
 			finish: 'إنهاء'
+		},
+
+		// Common Messages
+		common: {
+			confirmDelete: 'هل أنت متأكد من حذف هذا العنصر؟',
+			noData: 'لا توجد بيانات',
+			status: 'الحالة',
+			loading: 'جاري التحميل...',
+			error: 'حدث خطأ'
 		},
 
 		// Status Messages

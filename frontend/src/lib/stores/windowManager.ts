@@ -47,7 +47,6 @@ class WindowManager {
 	public readonly taskbarItems: Readable<TaskbarItem[]> = derived(
 		this.windows,
 		($windows) => Array.from($windows.values())
-			.filter(w => w.state !== 'normal' || w.isActive)
 			.map(w => ({
 				windowId: w.id,
 				title: w.title,

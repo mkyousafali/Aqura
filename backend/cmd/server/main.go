@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -13,9 +15,61 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Branch represents a branch in the system
+type Branch struct {
+	ID           string    `json:"id"`
+	NameEn       string    `json:"name_en"`
+	NameAr       string    `json:"name_ar"`
+	LocationEn   string    `json:"location_en"`
+	LocationAr   string    `json:"location_ar"`
+	IsActive     bool      `json:"is_active"`
+	IsMainBranch bool      `json:"is_main_branch"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// In-memory branch storage (replace with database later)
+var branches = []Branch{
+	{
+		ID:           "1",
+		NameEn:       "Urban Market (AB)",
+		NameAr:       "ايربن ماركت (AB)",
+		LocationEn:   "Abu Arish",
+		LocationAr:   "أبو عريش",
+		IsActive:     true,
+		IsMainBranch: true,
+		CreatedAt:    time.Now().Add(-time.Hour * 24 * 30),
+		UpdatedAt:    time.Now().Add(-time.Hour * 24 * 30),
+	},
+	{
+		ID:           "2",
+		NameEn:       "Ali Hassan bin Mohammed Sahli Trading Grocery Store",
+		NameAr:       "تموينات علي حسن بن محمد سهلي للتجارة",
+		LocationEn:   "Ahad al Masarah",
+		LocationAr:   "أحد المسارحة",
+		IsActive:     true,
+		IsMainBranch: false,
+		CreatedAt:    time.Now().Add(-time.Hour * 24 * 25),
+		UpdatedAt:    time.Now().Add(-time.Hour * 24 * 25),
+	},
+	{
+		ID:           "3",
+		NameEn:       "Urban Market (AR)",
+		NameAr:       "ايربن ماركت (AR)",
+		LocationEn:   "Al-Aridhah",
+		LocationAr:   "العارضة",
+		IsActive:     true,
+		IsMainBranch: false,
+		CreatedAt:    time.Now().Add(-time.Hour * 24 * 20),
+		UpdatedAt:    time.Now().Add(-time.Hour * 24 * 20),
+	},
+}
+
+var nextBranchID = 4
+
 func main() {
 	// Load environment variables
-	if err := godotenv.Load("../../.env"); err != nil {
+	if err := godotenv.Load(".env"); err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 
@@ -36,7 +90,7 @@ func main() {
 	
 	// CORS configuration
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:5173,https://*.vercel.app,https://*.netlify.app",
+		AllowOrigins:     "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,https://*.vercel.app,https://*.netlify.app",
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders:     "Origin,Content-Type,Accept,Authorization",
 		AllowCredentials: true,
@@ -193,19 +247,81 @@ func importEmployees(c *fiber.Ctx) error {
 }
 
 func getBranches(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{"message": "Get branches endpoint"})
+	return c.JSON(branches)
 }
 
 func createBranch(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{"message": "Create branch endpoint"})
+	var newBranch Branch
+	
+	if err := c.BodyParser(&newBranch); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+	
+	// Validate required fields
+	if newBranch.NameEn == "" || newBranch.NameAr == "" || newBranch.LocationEn == "" || newBranch.LocationAr == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Missing required fields"})
+	}
+	
+	// Set automatic fields
+	newBranch.ID = strconv.Itoa(nextBranchID)
+	nextBranchID++
+	newBranch.CreatedAt = time.Now()
+	newBranch.UpdatedAt = time.Now()
+	
+	// Add to in-memory storage
+	branches = append(branches, newBranch)
+	
+	return c.Status(201).JSON(newBranch)
 }
 
 func updateBranch(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{"message": "Update branch endpoint"})
+	id := c.Params("id")
+	
+	var updateData Branch
+	if err := c.BodyParser(&updateData); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+	
+	// Find branch by ID
+	for i, branch := range branches {
+		if branch.ID == id {
+			// Update fields if provided
+			if updateData.NameEn != "" {
+				branches[i].NameEn = updateData.NameEn
+			}
+			if updateData.NameAr != "" {
+				branches[i].NameAr = updateData.NameAr
+			}
+			if updateData.LocationEn != "" {
+				branches[i].LocationEn = updateData.LocationEn
+			}
+			if updateData.LocationAr != "" {
+				branches[i].LocationAr = updateData.LocationAr
+			}
+			
+			branches[i].IsActive = updateData.IsActive
+			branches[i].IsMainBranch = updateData.IsMainBranch
+			branches[i].UpdatedAt = time.Now()
+			
+			return c.JSON(branches[i])
+		}
+	}
+	
+	return c.Status(404).JSON(fiber.Map{"error": "Branch not found"})
 }
 
 func deleteBranch(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{"message": "Delete branch endpoint"})
+	id := c.Params("id")
+	
+	// Find and remove branch by ID
+	for i, branch := range branches {
+		if branch.ID == id {
+			branches = append(branches[:i], branches[i+1:]...)
+			return c.JSON(fiber.Map{"message": "Branch deleted successfully"})
+		}
+	}
+	
+	return c.Status(404).JSON(fiber.Map{"error": "Branch not found"})
 }
 
 func importBranches(c *fiber.Ctx) error {
