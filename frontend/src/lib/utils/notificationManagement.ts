@@ -406,3 +406,6 @@ export class NotificationManagementService {
 
 // Export singleton instance
 export const notificationService = new NotificationManagementService();
+
+// Export the service instance with the expected name for backward compatibility
+export const notificationManagement = notificationService;
