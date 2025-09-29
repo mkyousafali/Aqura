@@ -78,6 +78,76 @@ export interface User {
 	updated_at: string;
 }
 
+export interface Task {
+	id: string;
+	title: string;
+	description?: string;
+	require_task_finished: boolean;
+	require_photo_upload: boolean;
+	require_erp_reference: boolean;
+	can_escalate: boolean;
+	can_reassign: boolean;
+	created_by: string;
+	created_by_name?: string;
+	created_by_role?: string;
+	status: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
+	priority: 'low' | 'medium' | 'high';
+	created_at: string;
+	updated_at: string;
+	deleted_at?: string;
+	due_date?: string;
+	due_time?: string;
+	due_datetime?: string;
+}
+
+export interface TaskImage {
+	id: string;
+	task_id: string;
+	file_name: string;
+	file_size: number;
+	file_type: string;
+	file_url: string;
+	image_type: 'task_creation' | 'task_completion';
+	uploaded_by: string;
+	uploaded_by_name?: string;
+	created_at: string;
+	image_width?: number;
+	image_height?: number;
+}
+
+export interface TaskAssignment {
+	id: string;
+	task_id: string;
+	assignment_type: 'user' | 'branch' | 'all';
+	assigned_to_user_id?: string;
+	assigned_to_branch_id?: string;
+	assigned_by: string;
+	assigned_by_name?: string;
+	assigned_at: string;
+	status: 'assigned' | 'in_progress' | 'completed' | 'escalated' | 'reassigned';
+	started_at?: string;
+	completed_at?: string;
+}
+
+export interface TaskCompletion {
+	id: string;
+	task_id: string;
+	assignment_id: string;
+	completed_by: string;
+	completed_by_name?: string;
+	completed_by_branch_id?: string;
+	task_finished_completed: boolean;
+	photo_uploaded_completed: boolean;
+	erp_reference_completed: boolean;
+	erp_reference_number?: string;
+	completion_notes?: string;
+	verified_by?: string;
+	verified_at?: string;
+	verification_notes?: string;
+	completed_at: string;
+	created_at: string;
+}
+
 // Auth helpers
 export const auth = {
 	// Sign in with email and password
@@ -189,7 +259,7 @@ export const db = {
 			const { data, error } = await supabase
 				.from('branches')
 				.select('*')
-				.order('name');
+				.order('name_en');
 			return { data, error };
 		},
 
@@ -321,6 +391,187 @@ export const db = {
 				.delete()
 				.eq('id', id);
 			return { error };
+		}
+	},
+
+	// Task operations
+	tasks: {
+		async getAll(limit: number = 50, offset: number = 0, status?: string, created_by?: string) {
+			let query = supabase
+				.from('tasks')
+				.select('*')
+				.is('deleted_at', null)
+				.order('created_at', { ascending: false })
+				.range(offset, offset + limit - 1);
+
+			if (status) {
+				query = query.eq('status', status);
+			}
+			if (created_by) {
+				query = query.eq('created_by', created_by);
+			}
+
+			const { data, error, count } = await query;
+			return { data, error, count };
+		},
+
+		async getById(id: string) {
+			const { data, error } = await supabase
+				.from('tasks')
+				.select('*')
+				.eq('id', id)
+				.is('deleted_at', null)
+				.single();
+			return { data, error };
+		},
+
+		async create(task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) {
+			const { data, error } = await supabase
+				.from('tasks')
+				.insert(task)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async update(id: string, updates: Partial<Task>) {
+			const { data, error } = await supabase
+				.from('tasks')
+				.update({ ...updates, updated_at: new Date().toISOString() })
+				.eq('id', id)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async delete(id: string, user_id: string) {
+			// Soft delete by setting deleted_at
+			const { data, error } = await supabase
+				.from('tasks')
+				.update({ 
+					deleted_at: new Date().toISOString(),
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', id)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async search(query: string, user_id?: string, limit: number = 50, offset: number = 0) {
+			const { data, error } = await supabase.rpc('search_tasks', {
+				search_query: query,
+				user_id_param: user_id,
+				limit_param: limit,
+				offset_param: offset
+			});
+			return { data, error };
+		},
+
+		async getStatistics(user_id?: string) {
+			const { data, error } = await supabase.rpc('get_task_statistics', {
+				user_id_param: user_id
+			});
+			return { data: data?.[0] || null, error };
+		},
+
+		// Task status operations
+		async activate(id: string, user_id: string) {
+			return this.update(id, { status: 'active' });
+		},
+
+		async pause(id: string, user_id: string) {
+			return this.update(id, { status: 'paused' });
+		},
+
+		async resume(id: string, user_id: string) {
+			return this.update(id, { status: 'active' });
+		},
+
+		async complete(id: string, user_id: string) {
+			return this.update(id, { status: 'completed' });
+		}
+	},
+
+	// Task assignments operations
+	taskAssignments: {
+		async getByTaskId(task_id: string) {
+			const { data, error } = await supabase
+				.from('task_assignments')
+				.select('*')
+				.eq('task_id', task_id);
+			return { data, error };
+		},
+
+		async create(assignment: Omit<TaskAssignment, 'id' | 'assigned_at'>) {
+			const { data, error } = await supabase
+				.from('task_assignments')
+				.insert(assignment)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async assignTasks(task_ids: string[], assignment_type: 'user' | 'branch' | 'all', assigned_by: string, assigned_by_name?: string, assigned_to_user_id?: string, assigned_to_branch_id?: string) {
+			const assignments = task_ids.map(task_id => ({
+				task_id,
+				assignment_type,
+				assigned_to_user_id,
+				assigned_to_branch_id,
+				assigned_by,
+				assigned_by_name
+			}));
+
+			const { data, error } = await supabase
+				.from('task_assignments')
+				.insert(assignments)
+				.select();
+			return { data, error };
+		}
+	},
+
+	// Task images operations
+	taskImages: {
+		async getByTaskId(task_id: string) {
+			const { data, error } = await supabase
+				.from('task_images')
+				.select('*')
+				.eq('task_id', task_id)
+				.order('created_at', { ascending: false });
+			return { data, error };
+		},
+
+		async create(image: Omit<TaskImage, 'id' | 'created_at'>) {
+			const { data, error } = await supabase
+				.from('task_images')
+				.insert(image)
+				.select()
+				.single();
+			return { data, error };
+		}
+	},
+
+	// Task completions operations
+	taskCompletions: {
+		async getByTaskId(task_id: string) {
+			const { data, error } = await supabase
+				.from('task_completions')
+				.select('*')
+				.eq('task_id', task_id)
+				.order('completed_at', { ascending: false });
+			return { data, error };
+		},
+
+		async create(completion: Omit<TaskCompletion, 'id' | 'created_at' | 'completed_at'>) {
+			const { data, error } = await supabase
+				.from('task_completions')
+				.insert({
+					...completion,
+					completed_at: new Date().toISOString()
+				})
+				.select()
+				.single();
+			return { data, error };
 		}
 	}
 };

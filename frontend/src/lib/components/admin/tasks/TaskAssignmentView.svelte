@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { loadTasks, assignTasks } from '$lib/stores/taskStore';
+	import { db } from '$lib/utils/supabase';
 
 	export let windowId: string = '';
 
@@ -51,56 +53,29 @@
 		assignmentSettings.deadline = defaultDeadline.toISOString().slice(0, 16);
 	});
 
-	async function loadData() {
+	async function loadDataFromSupabase() {
 		try {
 			isLoading = true;
 			
-			// Load tasks (only assignable ones)
-			const taskResponse = await fetch('http://localhost:8080/api/v1/admin/tasks?status=active&status=draft&assignable=true', {
-				headers: {
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				}
-			});
-			
-			if (taskResponse.ok) {
-				const taskData = await taskResponse.json();
-				if (taskData.success) {
-					tasks = taskData.data || [];
-				}
+			// Load tasks (only assignable ones - active and draft status)
+			const taskResult = await loadTasks(100, 0, undefined);
+			if (taskResult.success) {
+				// Filter for assignable tasks (active and draft)
+				tasks = (taskResult.data || []).filter(task => 
+					task.status === 'active' || task.status === 'draft'
+				);
 			}
 
-			// Load branches
-			const branchResponse = await fetch('/api/v1/admin/branches', {
-				headers: {
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				}
-			});
-			
-			if (branchResponse.ok) {
-				const branchData = await branchResponse.json();
-				if (branchData.success) {
-					branches = branchData.data || [];
-				}
+			// Load branches from Supabase
+			const { data: branchData, error: branchError } = await db.branches.getAll();
+			if (!branchError && branchData) {
+				branches = branchData;
 			}
 
-			// Load users
-			const userResponse = await fetch('/api/v1/admin/users', {
-				headers: {
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				}
-			});
-			
-			if (userResponse.ok) {
-				const userData = await userResponse.json();
-				if (userData.success) {
-					users = userData.data || [];
-				}
+			// Load users from Supabase  
+			const { data: userData, error: userError } = await db.users.getAll();
+			if (!userError && userData) {
+				users = userData;
 			}
 
 			// Apply initial filters
@@ -188,7 +163,7 @@
 		updateSelectAllStates();
 	}
 
-	async function assignTasks() {
+	async function assignTasksToUsers() {
 		if (selectedTasks.size === 0) {
 			notifications.add({
 				type: 'warning',
@@ -219,25 +194,23 @@
 		isAssigning = true;
 
 		try {
-			const assignmentData = {
-				task_ids: Array.from(selectedTasks),
-				assignee_ids: Array.from(selectedUsers),
-				notify_assignees: assignmentSettings.notify_assignees,
-				deadline: assignmentSettings.set_deadline ? assignmentSettings.deadline : null,
-				assignment_note: assignmentSettings.add_note.trim() || null,
-				priority_override: assignmentSettings.priority_override || null
-			};
-
-			const response = await fetch('http://localhost:8080/api/v1/admin/tasks/assign', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				},
-				body: JSON.stringify(assignmentData)
-			});
+			// For each selected user, create assignments for all selected tasks
+			const taskIds = Array.from(selectedTasks);
+			
+			for (const userId of selectedUsers) {
+				const result = await assignTasks(
+					taskIds,
+					'user', // assignment type
+					'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b', // assigned by
+					'Admin User', // assigned by name
+					userId, // assigned to user ID
+					undefined // no branch ID for user assignments
+				);
+				
+				if (!result.success) {
+					throw new Error(result.error || 'Failed to assign tasks');
+				}
+			}
 
 			const result = await response.json();
 
@@ -593,7 +566,7 @@
 				Close
 			</button>
 			<button
-				on:click={assignTasks}
+				on:click={assignTasksToUsers}
 				disabled={selectedTasks.size === 0 || selectedUsers.size === 0 || isAssigning}
 				class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
 			>

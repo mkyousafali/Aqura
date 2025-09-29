@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { windowManager } from '$lib/stores/windowManager';
-	import { deleteTask as deleteTaskStore } from '$lib/stores/taskStore';
+	import { deleteTask as deleteTaskStore, loadTasks, searchTasks } from '$lib/stores/taskStore';
+	import { db } from '$lib/utils/supabase';
 	import TaskCreateForm from './TaskCreateForm.svelte';
 
 	export let windowId: string = '';
@@ -34,47 +35,41 @@
 	const taskPriorities = ['low', 'medium', 'high', 'urgent'];
 
 	onMount(() => {
-		loadTasks();
+		loadTasksFromSupabase();
 	});
 
-	async function loadTasks() {
+	async function loadTasksFromSupabase() {
 		try {
 			isLoading = true;
 			
-			// Build query parameters
-			const params = new URLSearchParams({
-				page: currentPage.toString(),
-				limit: itemsPerPage.toString(),
-				sort_by: sortBy,
-				sort_order: sortOrder
-			});
-
+			// Calculate offset for pagination
+			const offset = (currentPage - 1) * itemsPerPage;
+			
+			// If there's a search term, use search function
+			let result;
 			if (searchTerm.trim()) {
-				params.append('search', searchTerm.trim());
-			}
-			if (statusFilter) {
-				params.append('status', statusFilter);
-			}
-			if (priorityFilter) {
-				params.append('priority', priorityFilter);
+				result = await searchTasks(
+					searchTerm.trim(), 
+					'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b', 
+					itemsPerPage, 
+					offset
+				);
+			} else {
+				result = await loadTasks(itemsPerPage, offset, statusFilter);
 			}
 
-			const response = await fetch(`http://localhost:8080/api/v1/admin/tasks?${params}`, {
-				headers: {
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				}
-			});
-
-			if (response.ok) {
-				const data = await response.json();
-				if (data.success) {
-					tasks = data.data || [];
-					totalItems = data.total || 0;
-					totalPages = Math.ceil(totalItems / itemsPerPage);
-					filterTasks();
-				}
+			if (result.success) {
+				tasks = result.data || [];
+				totalItems = result.total || 0;
+				totalPages = Math.ceil(totalItems / itemsPerPage);
+				filterTasks();
+			} else {
+				console.error('Error loading tasks:', result.error);
+				notifications.add({
+					type: 'error',
+					message: 'Failed to load tasks',
+					duration: 5000
+				});
 			}
 		} catch (error) {
 			console.error('Error loading tasks:', error);
@@ -124,12 +119,12 @@
 
 	function handleSearch() {
 		currentPage = 1;
-		loadTasks();
+		loadTasksFromSupabase();
 	}
 
 	function handleFilterChange() {
 		currentPage = 1;
-		loadTasks();
+		loadTasksFromSupabase();
 	}
 
 	function handleSort(column: string) {
@@ -139,12 +134,12 @@
 			sortBy = column;
 			sortOrder = 'asc';
 		}
-		loadTasks();
+		loadTasksFromSupabase();
 	}
 
 	function changePage(page: number) {
 		currentPage = page;
-		loadTasks();
+		loadTasksFromSupabase();
 	}
 
 	async function deleteTask(taskId: string) {
@@ -161,7 +156,7 @@
 					message: 'Task deleted successfully',
 					duration: 3000
 				});
-				loadTasks(); // Reload to sync UI
+				loadTasksFromSupabase(); // Reload to sync UI
 			} else {
 				throw new Error(result.error || 'Failed to delete task');
 			}
@@ -184,7 +179,7 @@
 				editMode: true, 
 				taskData: task,
 				onTaskUpdated: () => {
-					loadTasks(); // Refresh the tasks list after update
+					loadTasksFromSupabase(); // Refresh the tasks list after update
 				}
 			},
 			size: { width: 800, height: 600 },
@@ -197,28 +192,20 @@
 
 	async function updateTaskStatus(taskId: string, newStatus: string) {
 		try {
-			const response = await fetch(`http://localhost:8080/api/v1/admin/tasks/${taskId}/status`, {
-				method: 'PATCH',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				},
-				body: JSON.stringify({ status: newStatus })
-			});
+			const { data, error } = await db.tasks.update(taskId, { status: newStatus });
 
-			if (response.ok) {
-				notifications.add({
-					type: 'success',
-					message: `Task status updated to ${newStatus}`,
-					duration: 3000
-				});
-				loadTasks();
-			} else {
-				throw new Error('Failed to update task status');
+			if (error) {
+				throw error;
 			}
+
+			notifications.add({
+				type: 'success',
+				message: `Task status updated to ${newStatus}`,
+				duration: 3000
+			});
+			loadTasksFromSupabase();
 		} catch (error) {
+			console.error('Failed to update task status:', error);
 			notifications.add({
 				type: 'error',
 				message: 'Failed to update task status',

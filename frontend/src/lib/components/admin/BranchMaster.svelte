@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { branchApiService, type Branch, type CreateBranchRequest, type UpdateBranchRequest } from '../../utils/branchApi';
+	import { db, type Branch } from '../../utils/supabase';
 
 	// State management
 	let branches: Branch[] = [];
@@ -23,19 +23,19 @@
 		await loadBranches();
 	});
 
-	// Load branches from API
+	// Load branches from Supabase
 	async function loadBranches() {
 		isLoading = true;
 		errorMessage = '';
 		
 		try {
-			const response = await branchApiService.getAllBranches();
+			const { data, error } = await db.branches.getAll();
 			
-			if (response.error) {
-				errorMessage = response.error;
-				console.error('Failed to load branches:', response.error);
-			} else if (response.data) {
-				branches = response.data;
+			if (error) {
+				errorMessage = error.message || 'Failed to load branches';
+				console.error('Failed to load branches:', error);
+			} else if (data) {
+				branches = data;
 			}
 		} catch (error) {
 			errorMessage = 'Failed to connect to server';
@@ -101,7 +101,7 @@
 		try {
 			if (showCreatePopup) {
 				// Create new branch
-				const branchData: CreateBranchRequest = {
+				const branchData = {
 					name_en: currentBranch.name_en!,
 					name_ar: currentBranch.name_ar!,
 					location_en: currentBranch.location_en!,
@@ -110,19 +110,19 @@
 					is_main_branch: currentBranch.is_main_branch || false
 				};
 
-				const response = await branchApiService.createBranch(branchData);
+				const { data, error } = await db.branches.create(branchData);
 				
-				if (response.error) {
-					errorMessage = response.error;
-					alert('Error creating branch: ' + response.error);
-				} else if (response.data) {
+				if (error) {
+					errorMessage = error.message || 'Failed to create branch';
+					alert('Error creating branch: ' + errorMessage);
+				} else if (data) {
 					// Refresh the branches list
 					await loadBranches();
 					closeCreatePopup();
 				}
 			} else if (showEditPopup && editingBranch) {
 				// Update existing branch
-				const branchData: UpdateBranchRequest = {
+				const branchData = {
 					name_en: currentBranch.name_en!,
 					name_ar: currentBranch.name_ar!,
 					location_en: currentBranch.location_en!,
@@ -131,12 +131,12 @@
 					is_main_branch: currentBranch.is_main_branch || false
 				};
 
-				const response = await branchApiService.updateBranch(editingBranch.id, branchData);
+				const { data, error } = await db.branches.update(editingBranch.id, branchData);
 				
-				if (response.error) {
-					errorMessage = response.error;
-					alert('Error updating branch: ' + response.error);
-				} else if (response.data) {
+				if (error) {
+					errorMessage = error.message || 'Failed to update branch';
+					alert('Error updating branch: ' + errorMessage);
+				} else if (data) {
 					// Refresh the branches list
 					await loadBranches();
 					closeEditPopup();
@@ -157,11 +157,11 @@
 			errorMessage = '';
 
 			try {
-				const response = await branchApiService.deleteBranch(id);
+				const { error } = await db.branches.delete(id);
 				
-				if (response.error) {
-					errorMessage = response.error;
-					alert('Error deleting branch: ' + response.error);
+				if (error) {
+					errorMessage = error.message || 'Failed to delete branch';
+					alert('Error deleting branch: ' + errorMessage);
 				} else {
 					// Refresh the branches list
 					await loadBranches();

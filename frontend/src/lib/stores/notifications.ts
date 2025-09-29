@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { supabase } from '$lib/utils/supabase';
 
 export interface NotificationCounts {
 	unread: number;
@@ -54,34 +55,40 @@ export const notifications = {
 	}
 };
 
-// Function to fetch notification counts from API
+// Function to fetch notification counts from Supabase
 export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b') {
 	// Set loading state
 	notificationCounts.update(counts => ({ ...counts, loading: true }));
 	
 	try {
-		const response = await fetch('/api/v1/admin/notifications', {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-User-ID': userId
-			}
-		});
+		// Get notifications for user
+		const { data: notifications, error } = await supabase
+			.from('notifications')
+			.select(`
+				*,
+				notification_read_states!inner(
+					is_read,
+					user_id
+				)
+			`)
+			.eq('notification_read_states.user_id', userId)
+			.eq('status', 'active');
 
-		if (response.ok) {
-			const data = await response.json();
-			if (data.success && data.data) {
-				const totalCount = data.total || data.data.length;
-				const unreadCount = data.data.filter((notification: any) => !notification.is_read_by_user).length;
-				
-				// Update store
-				notificationCounts.set({
-					unread: unreadCount,
-					total: totalCount,
-					loading: false
-				});
-			}
+		if (error) {
+			throw error;
 		}
+
+		const totalCount = notifications?.length || 0;
+		const unreadCount = notifications?.filter((notification: any) => 
+			!notification.notification_read_states?.[0]?.is_read
+		).length || 0;
+		
+		// Update store
+		notificationCounts.set({
+			unread: unreadCount,
+			total: totalCount,
+			loading: false
+		});
 	} catch (error) {
 		console.error('Error fetching notification counts:', error);
 		// Keep previous counts, just update loading state

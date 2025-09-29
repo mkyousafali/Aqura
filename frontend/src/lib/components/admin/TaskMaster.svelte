@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { getStatistics } from '$lib/stores/taskStore';
 	import TaskCreateForm from './tasks/TaskCreateForm.svelte';
 	import TaskViewTable from './tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from './tasks/TaskAssignmentView.svelte';
@@ -21,25 +22,16 @@
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
-	// Fetch task statistics from API
+	// Fetch task statistics from Supabase
 	async function fetchTaskStatistics() {
 		try {
 			isLoading = true;
-			const response = await fetch('http://localhost:8080/api/v1/admin/tasks/statistics', {
-				method: 'GET',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-User-ID': 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b',
-					'X-User-Name': 'Admin User',
-					'X-User-Role': 'Master Admin'
-				}
-			});
-
-			if (response.ok) {
-				const data = await response.json();
-				if (data.success && data.data) {
-					taskStats = data.data;
-				}
+			const result = await getStatistics('e1fdaee2-97f0-4fc1-872f-9d99c6bd684b');
+			
+			if (result.success && result.data) {
+				taskStats = result.data;
+			} else {
+				console.error('Error fetching task statistics:', result.error);
 			}
 		} catch (error) {
 			console.error('Error fetching task statistics:', error);
