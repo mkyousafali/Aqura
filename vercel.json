@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm install --ignore-scripts --include=dev && pnpm build",
-  "outputDirectory": "build",
+  "buildCommand": "pnpm install --ignore-scripts --include=dev && pnpm --filter frontend build",
+  "outputDirectory": "frontend/build",
   "installCommand": "echo 'Skipping root install'",
   "framework": null,
   "routes": [
