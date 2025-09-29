@@ -1,5 +1,6 @@
 {
-  "framework": "sveltekit",
-  "buildCommand": "cd frontend && pnpm build",
-  "outputDirectory": "frontend/build"
+  "buildCommand": "pnpm --filter aqura-frontend build",
+  "outputDirectory": "frontend/build",
+  "installCommand": "pnpm install",
+  "framework": "sveltekit"
 }
