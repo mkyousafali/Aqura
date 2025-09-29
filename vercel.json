@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm install --ignore-scripts && pnpm build",
+  "buildCommand": "pnpm install --ignore-scripts --include=dev && pnpm build",
   "outputDirectory": "build",
   "installCommand": "echo 'Skipping root install'",
   "framework": null,
