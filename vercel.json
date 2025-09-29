@@ -1,12 +1,6 @@
 {
-  "buildCommand": "pnpm install --ignore-scripts --include=dev --filter frontend && pnpm --filter frontend build",
+  "buildCommand": "pnpm --filter frontend install --include=dev && pnpm --filter frontend build",
   "outputDirectory": "frontend/build",
   "installCommand": "echo 'Skipping root install'",
-  "framework": null,
-  "routes": [
-    {
-      "src": "/.*",
-      "dest": "/index.html"
-    }
-  ]
+  "framework": "sveltekit"
 }
