@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm --filter frontend install --include=dev && pnpm --filter frontend build",
+  "buildCommand": "npm install -g pnpm && pnpm install && pnpm --filter frontend build",
   "outputDirectory": "frontend/build",
   "installCommand": "echo 'Skipping root install'",
-  "framework": "sveltekit"
+  "framework": null
 }
