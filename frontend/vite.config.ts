@@ -182,9 +182,7 @@ export default defineConfig(({ mode }) => ({
 		rollupOptions: {
 			output: {
 				manualChunks: {
-					vendor: ['svelte'],
-					supabase: ['@supabase/supabase-js'],
-					utils: ['clsx', 'tailwind-merge', 'date-fns', 'zod']
+					vendor: ['svelte']
 				}
 			}
 		}

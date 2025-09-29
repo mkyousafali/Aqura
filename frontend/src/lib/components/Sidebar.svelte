@@ -5,10 +5,14 @@
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
+	import UserManagement from '$lib/components/admin/UserManagement.svelte';
+	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 
 	let showMasterSubmenu = false;
+	let showSettingsSubmenu = false;
 	let submenuTimeout: ReturnType<typeof setTimeout> | null = null;
 	let masterButtonElement: HTMLButtonElement;
+	let settingsButtonElement: HTMLButtonElement;
 	let submenuTop = 0;
 	
 	// Force reactivity when locale changes
@@ -90,6 +94,50 @@
 		alert(`${section} - ${t('status.pending') || 'pending'}...`);
 	}
 
+	function openUserManagement() {
+		const windowId = generateWindowId('user-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `User Management #${instanceNumber}`,
+			component: UserManagement,
+			icon: '👤',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openCommunicationCenter() {
+		const windowId = generateWindowId('communication-center');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Communication Center #${instanceNumber}`,
+			component: CommunicationCenter,
+			icon: '📞',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMasterSubmenu = false;
+	}
+
 	function handleMasterMouseEnter() {
 		if (submenuTimeout) {
 			clearTimeout(submenuTimeout);
@@ -119,6 +167,38 @@
 	function handleSubmenuMouseLeave() {
 		submenuTimeout = setTimeout(() => {
 			showMasterSubmenu = false;
+		}, 300);
+	}
+
+	function handleSettingsMouseEnter() {
+		if (submenuTimeout) {
+			clearTimeout(submenuTimeout);
+			submenuTimeout = null;
+		}
+		// Calculate the position of the submenu
+		if (settingsButtonElement) {
+			const rect = settingsButtonElement.getBoundingClientRect();
+			submenuTop = rect.top;
+		}
+		showSettingsSubmenu = true;
+	}
+
+	function handleSettingsMouseLeave() {
+		submenuTimeout = setTimeout(() => {
+			showSettingsSubmenu = false;
+		}, 300);
+	}
+
+	function handleSettingsSubmenuMouseEnter() {
+		if (submenuTimeout) {
+			clearTimeout(submenuTimeout);
+			submenuTimeout = null;
+		}
+	}
+
+	function handleSettingsSubmenuMouseLeave() {
+		submenuTimeout = setTimeout(() => {
+			showSettingsSubmenu = false;
 		}, 300);
 	}
 </script>
@@ -164,11 +244,14 @@
 		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
-				class="section-button"
-				on:click={() => showComingSoon(t('nav.settings') || 'Settings')}
+				bind:this={settingsButtonElement}
+				class="section-button master-button"
+				on:mouseenter={handleSettingsMouseEnter}
+				on:mouseleave={handleSettingsMouseLeave}
 			>
 				<span class="section-icon">⚙️</span>
 				<span class="section-text">{t('nav.settings') || 'Settings'}</span>
+				<span class="arrow">▶</span>
 			</button>
 		</div>
 	</div>
@@ -177,6 +260,8 @@
 <!-- Master Submenu - positioned outside sidebar to overlay on top -->
 {#if showMasterSubmenu}
 	<div 
+		role="menu"
+		tabindex="-1"
 		class="submenu"
 		style="top: {submenuTop}px;"
 		on:mouseenter={handleSubmenuMouseEnter}
@@ -193,6 +278,27 @@
 		<button class="submenu-item" on:click={openTaskMaster}>
 			<span class="menu-icon">📋</span>
 			<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
+		</button>
+		<button class="submenu-item" on:click={openCommunicationCenter}>
+			<span class="menu-icon">📞</span>
+			<span class="menu-text">Communication Center</span>
+		</button>
+	</div>
+{/if}
+
+<!-- Settings Submenu - positioned outside sidebar to overlay on top -->
+{#if showSettingsSubmenu}
+	<div 
+		role="menu"
+		tabindex="-1"
+		class="submenu"
+		style="top: {submenuTop}px;"
+		on:mouseenter={handleSettingsSubmenuMouseEnter}
+		on:mouseleave={handleSettingsSubmenuMouseLeave}
+	>
+		<button class="submenu-item" on:click={openUserManagement}>
+			<span class="menu-icon">👤</span>
+			<span class="menu-text">User Management</span>
 		</button>
 	</div>
 {/if}
@@ -337,60 +443,6 @@
 
 	.submenu-item:last-child {
 		margin-bottom: 0;
-	}
-
-	.section-title {
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		color: #a0aec0;
-		margin: 0;
-		letter-spacing: 1px;
-		padding-left: 5px;
-	}
-
-	.menu-items {
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-	}
-
-	.menu-item {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 12px 15px;
-		background: none;
-		border: none;
-		color: #e2e8f0;
-		cursor: pointer;
-		border-radius: 8px;
-		transition: all 0.2s ease;
-		font-size: 14px;
-		width: 100%;
-		text-align: left;
-	}
-
-
-	.menu-item:hover {
-		background: rgba(255, 255, 255, 0.1);
-		color: white;
-		transform: translateX(2px);
-	}
-
-	.menu-item:active {
-		transform: translateX(2px) scale(0.98);
-	}
-
-	.menu-icon {
-		font-size: 16px;
-		flex-shrink: 0;
-		width: 20px; /* Fixed width for consistent alignment */
-		height: 16px; /* Fixed height */
-		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
 	}
 
 	.menu-text {

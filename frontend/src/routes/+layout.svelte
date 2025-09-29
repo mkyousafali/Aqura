@@ -2,22 +2,53 @@
 	import { onMount } from 'svelte';
 	import { initI18n, currentLocale, localeData } from '$lib/i18n';
 	import { sidebar } from '$lib/stores/sidebar';
-	import { browser } from '$app/environment';
+	import { auth } from '$lib/stores/auth';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import '../app.css';
 	import WindowManager from '$lib/components/WindowManager.svelte';
 	import Taskbar from '$lib/components/Taskbar.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import PWAInstallPrompt from '$lib/components/PWAInstallPrompt.svelte';
+	import ToastNotifications from '$lib/components/ToastNotifications.svelte';
 
 	// Initialize i18n system
 	initI18n();
 
 	// Command palette state
 	let showCommandPalette = false;
+	
+	// Authentication state
+	let isAuthenticated = false;
+	let isLoading = true;
+
+	onMount(async () => {
+		// Initialize auth store
+		await auth.init();
+		
+		// Subscribe to auth state changes
+		const unsubscribe = auth.subscribe(session => {
+			console.log('Auth state changed:', session ? 'authenticated' : 'not authenticated');
+			isAuthenticated = !!session;
+			isLoading = false;
+			
+			// If not authenticated and not on login page, redirect to login
+			if (!session && $page.url.pathname !== '/login') {
+				console.log('Not authenticated, redirecting to login');
+				goto('/login');
+			}
+		});
+		
+		// Cleanup subscription on component destroy
+		return unsubscribe;
+	});
 
 	// Global keyboard shortcuts
 	function handleGlobalKeydown(event: KeyboardEvent) {
+		// Only handle shortcuts if user is authenticated
+		if (!isAuthenticated) return;
+		
 		// Ctrl+Shift+P or Cmd+Shift+P for command palette
 		if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'P') {
 			event.preventDefault();
@@ -32,39 +63,101 @@
 
 	// Direction class for RTL support
 	$: directionClass = $localeData?.direction === 'rtl' ? 'rtl' : 'ltr';
+	
+	// Check if current route is login page
+	$: isLoginPage = $page.url.pathname === '/login';
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
 
-<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>
-	<!-- Sidebar Navigation -->
-	<Sidebar />
-	
-	<!-- Desktop Background -->
-	<div class="desktop" style="margin-left: {$sidebar.width}px">
-		<!-- Main content area -->
-		<main class="main-content">
-			<slot />
-		</main>
-		
-		<!-- Window Management System -->
-		<WindowManager />
-		
-		<!-- Command Palette -->
-		<CommandPalette 
-			bind:visible={showCommandPalette}
-			on:close={() => showCommandPalette = false}
-		/>
+<!-- Show loading screen while checking authentication -->
+{#if isLoading}
+	<div class="loading-screen">
+		<div class="loading-spinner"></div>
+		<p>Loading...</p>
 	</div>
-	
-	<!-- Taskbar -->
-	<Taskbar />
-</div>
+{:else}
+	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>
+		<!-- Show full UI only if authenticated and not on login page -->
+		{#if isAuthenticated && !isLoginPage}
+			<!-- Sidebar Navigation -->
+			<Sidebar />
+			
+			<!-- Desktop Background -->
+			<div class="desktop" style="margin-left: {$sidebar.width}px">
+				<!-- Main content area -->
+				<main class="main-content">
+					<slot />
+				</main>
+				
+				<!-- Window Management System -->
+				<WindowManager />
+				
+				<!-- Command Palette -->
+				<CommandPalette 
+					bind:visible={showCommandPalette}
+					on:close={() => showCommandPalette = false}
+				/>
+			</div>
+			
+			<!-- Taskbar -->
+			<Taskbar />
+			
+			<!-- Toast Notifications -->
+			<ToastNotifications />
+		{:else}
+			<!-- Simple layout for login page or unauthenticated users -->
+			<main class="simple-layout">
+				<slot />
+			</main>
+		{/if}
+	</div>
+{/if}
 
 <!-- PWA Install Prompt -->
 <PWAInstallPrompt />
 
 <style>
+	.loading-screen {
+		min-height: 100vh;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		font-family: 'Inter', 'Segoe UI', sans-serif;
+	}
+
+	.loading-spinner {
+		width: 40px;
+		height: 40px;
+		border: 3px solid rgba(255, 255, 255, 0.3);
+		border-top: 3px solid white;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+		margin-bottom: 1rem;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.loading-screen p {
+		font-size: 1.1rem;
+		opacity: 0.9;
+	}
+
+	.simple-layout {
+		min-height: 100vh;
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
 	.app {
 		min-height: 100vh;
 		background: #F9FAFB;

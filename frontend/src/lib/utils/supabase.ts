@@ -395,6 +395,60 @@ export const offline = {
 	}
 };
 
+// File storage utilities
+export const storage = {
+	// Upload file to Supabase storage
+	async uploadFile(file: File, bucket: string, path?: string) {
+		const fileName = path || `${Date.now()}-${file.name}`;
+		
+		const { data, error } = await supabase.storage
+			.from(bucket)
+			.upload(fileName, file, {
+				cacheControl: '3600',
+				upsert: false
+			});
+		
+		if (error) {
+			return { data: null, error };
+		}
+		
+		// Get public URL
+		const { data: publicUrlData } = supabase.storage
+			.from(bucket)
+			.getPublicUrl(fileName);
+		
+		return { 
+			data: { 
+				...data, 
+				publicUrl: publicUrlData.publicUrl,
+				fileName: fileName
+			}, 
+			error: null 
+		};
+	},
+	
+	// Delete file from storage
+	async deleteFile(bucket: string, fileName: string) {
+		const { error } = await supabase.storage
+			.from(bucket)
+			.remove([fileName]);
+		
+		return { error };
+	},
+	
+	// Get file URL
+	getFileUrl(bucket: string, fileName: string) {
+		const { data } = supabase.storage
+			.from(bucket)
+			.getPublicUrl(fileName);
+		
+		return data.publicUrl;
+	}
+};
+
+// Export the uploadToSupabase function for backward compatibility
+export const uploadToSupabase = storage.uploadFile;
+
 // Initialize offline sync
 if (browser) {
 	// Sync on app load

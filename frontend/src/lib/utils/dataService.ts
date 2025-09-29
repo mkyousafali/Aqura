@@ -1715,7 +1715,6 @@ export const dataService = {
 			document_type: string;
 			document_name: string;
 			file_path: string;
-			file_size?: number;
 			file_type?: string;
 			expiry_date?: string;
 		}): Promise<{ data: any | null; error: any }> {

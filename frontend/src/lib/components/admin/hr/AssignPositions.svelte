@@ -112,30 +112,51 @@
 				return;
 			}
 
-			// Check if employee already has this position
-			const existingAssignment = assignments.find(
-				a => a.employee_id === employeeId && a.position_id === positionId && a.is_current === true
-			);
+		// Check if employee already has this position
+		const existingAssignment = branchAssignments.find(
+			a => a.employee_id === employeeId && a.position_id === positionId && a.is_current === true
+		);
 
-			if (existingAssignment) {
-				errorMessage = 'Employee already assigned to this position';
-				isLoading = false;
-				return;
+		if (existingAssignment) {
+			errorMessage = 'Employee already assigned to this position';
+			isLoading = false;
+			return;
+		}		// Create new assignment
+		const assignmentData = {
+			employee_id: employeeId,
+			position_id: positionId,
+			department_id: position.department_id || position.hr_departments?.id,
+			level_id: position.level_id || position.hr_levels?.id,
+			branch_id: parseInt(selectedBranch) // Convert to number if needed
+		};
+
+		console.log('Creating assignment with data:', assignmentData);
+		console.log('Position object:', position);
+
+		// Validate required fields
+		if (!assignmentData.department_id) {
+			errorMessage = 'Position is missing department information';
+			isLoading = false;
+			return;
+		}
+
+		if (!assignmentData.level_id) {
+			errorMessage = 'Position is missing level information';
+			isLoading = false;
+			return;
+		}
+
+		const { data, error } = await dataService.hrAssignments.create(assignmentData);
+		
+		if (error) {
+			console.error('Assignment creation error:', error);
+			errorMessage = `Failed to assign position: ${error.message || error}`;
+			if (error.details) {
+				errorMessage += ` Details: ${error.details}`;
 			}
-
-			// Create new assignment
-			const { data, error } = await dataService.hrAssignments.create({
-				employee_id: employeeId,
-				position_id: positionId,
-				department_id: position.department_id,
-				level_id: position.level_id,
-				branch_id: selectedBranch
-			});
-
-			if (error) {
-				errorMessage = 'Failed to assign position: ' + (error.message || error);
-				return;
-			}
+			isLoading = false;
+			return;
+		}
 
 			// Reload assignments to get updated data
 			await loadEmployeesByBranch(selectedBranch);

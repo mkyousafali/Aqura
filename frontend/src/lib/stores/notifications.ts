@@ -1,0 +1,95 @@
+import { writable } from 'svelte/store';
+
+export interface NotificationCounts {
+	unread: number;
+	total: number;
+	loading: boolean;
+}
+
+export interface ToastNotification {
+	id: string;
+	type: 'success' | 'error' | 'warning' | 'info';
+	message: string;
+	duration?: number;
+}
+
+// Create notification counts store
+export const notificationCounts = writable<NotificationCounts>({
+	unread: 0,
+	total: 0,
+	loading: true
+});
+
+// Create toast notifications store
+export const toastNotifications = writable<ToastNotification[]>([]);
+
+// Toast notification functions
+export const notifications = {
+	add: (notification: Omit<ToastNotification, 'id'>) => {
+		const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+		const toast: ToastNotification = {
+			id,
+			...notification,
+			duration: notification.duration || 5000
+		};
+		
+		toastNotifications.update(notifications => [...notifications, toast]);
+		
+		// Auto remove after duration
+		if (toast.duration > 0) {
+			setTimeout(() => {
+				notifications.remove(id);
+			}, toast.duration);
+		}
+	},
+	
+	remove: (id: string) => {
+		toastNotifications.update(notifications => 
+			notifications.filter(notification => notification.id !== id)
+		);
+	},
+	
+	clear: () => {
+		toastNotifications.set([]);
+	}
+};
+
+// Function to fetch notification counts from API
+export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b') {
+	// Set loading state
+	notificationCounts.update(counts => ({ ...counts, loading: true }));
+	
+	try {
+		const response = await fetch('/api/v1/admin/notifications', {
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-User-ID': userId
+			}
+		});
+
+		if (response.ok) {
+			const data = await response.json();
+			if (data.success && data.data) {
+				const totalCount = data.total || data.data.length;
+				const unreadCount = data.data.filter((notification: any) => !notification.is_read_by_user).length;
+				
+				// Update store
+				notificationCounts.set({
+					unread: unreadCount,
+					total: totalCount,
+					loading: false
+				});
+			}
+		}
+	} catch (error) {
+		console.error('Error fetching notification counts:', error);
+		// Keep previous counts, just update loading state
+		notificationCounts.update(counts => ({ ...counts, loading: false }));
+	}
+}
+
+// Function to refresh counts (can be called from components)
+export function refreshNotificationCounts() {
+	fetchNotificationCounts();
+}

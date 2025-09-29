@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { dataService } from '$lib/utils/dataService';
+	import { supabase } from '$lib/utils/supabase';
 
 	// State management
 	let branches = [];
@@ -27,56 +28,80 @@
 			label: 'Health Card', 
 			icon: '🏥', 
 			accepts: '.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: true 
+			requiresExpiry: true,
+			description: 'Upload a clear photo/scan of the health card',
+			maxSize: '5MB',
+			formats: ['JPG', 'JPEG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'resident_id', 
 			label: 'Resident ID', 
 			icon: '🆔', 
 			accepts: '.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: true 
+			requiresExpiry: true,
+			description: 'Upload both front and back sides if applicable',
+			maxSize: '5MB',
+			formats: ['JPG', 'JPEG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'passport', 
 			label: 'Passport', 
 			icon: '📘', 
 			accepts: '.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: true 
+			requiresExpiry: true,
+			description: 'Upload the main page with photo and details',
+			maxSize: '5MB',
+			formats: ['JPG', 'JPEG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'resume', 
 			label: 'Résumé', 
 			icon: '📄', 
 			accepts: '.pdf,.doc,.docx', 
-			requiresExpiry: false 
+			requiresExpiry: false,
+			description: 'Upload latest CV/Resume document',
+			maxSize: '10MB',
+			formats: ['PDF', 'DOC', 'DOCX']
 		},
 		{ 
 			key: 'other_1', 
 			label: 'Other Document 1', 
 			icon: '📋', 
 			accepts: '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: false 
+			requiresExpiry: false,
+			description: 'Upload any additional document (specify name below)',
+			maxSize: '10MB',
+			formats: ['PDF', 'DOC', 'DOCX', 'JPG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'other_2', 
 			label: 'Other Document 2', 
 			icon: '📋', 
 			accepts: '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: false 
+			requiresExpiry: false,
+			description: 'Upload any additional document (specify name below)',
+			maxSize: '10MB',
+			formats: ['PDF', 'DOC', 'DOCX', 'JPG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'other_3', 
 			label: 'Other Document 3', 
 			icon: '📋', 
 			accepts: '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: false 
+			requiresExpiry: false,
+			description: 'Upload any additional document (specify name below)',
+			maxSize: '10MB',
+			formats: ['PDF', 'DOC', 'DOCX', 'JPG', 'PNG', 'WebP']
 		},
 		{ 
 			key: 'other_4', 
 			label: 'Other Document 4', 
 			icon: '📋', 
 			accepts: '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp', 
-			requiresExpiry: false 
+			requiresExpiry: false,
+			description: 'Upload any additional document (specify name below)',
+			maxSize: '10MB',
+			formats: ['PDF', 'DOC', 'DOCX', 'JPG', 'PNG', 'WebP']
 		}
 	];
 
@@ -248,12 +273,36 @@
 		successMessage = '';
 
 		try {
-			// Generate file path
+			// Upload file to Supabase Storage first
 			const fileExtension = file.name.split('.').pop();
 			const fileName = `${selectedEmployee.employee_id}_${documentKey}_${Date.now()}.${fileExtension}`;
-			const filePath = `/documents/employees/${selectedEmployee.employee_id}/${fileName}`;
+			const storagePath = `employees/${selectedEmployee.employee_id}/${fileName}`;
 
-			// Prepare document data
+			console.log('Uploading file to storage:', { fileName, storagePath, fileSize: file.size });
+
+			// Upload to Supabase Storage bucket
+			const { data: uploadData, error: uploadError } = await supabase.storage
+				.from('employee-documents')
+				.upload(storagePath, file, {
+					cacheControl: '3600',
+					upsert: false
+				});
+
+			if (uploadError) {
+				console.error('Storage upload error:', uploadError);
+				throw new Error(`File upload failed: ${uploadError.message}`);
+			}
+
+			console.log('File uploaded successfully:', uploadData);
+
+			// Get the public URL for the uploaded file
+			const { data: { publicUrl } } = supabase.storage
+				.from('employee-documents')
+				.getPublicUrl(storagePath);
+
+			console.log('Public URL:', publicUrl);
+
+			// Prepare document data for database (without file_size to avoid schema error)
 			let documentName = docType.label;
 			if (documentKey.startsWith('other_')) {
 				const otherIndex = documentKey.split('_')[1];
@@ -264,16 +313,25 @@
 				employee_id: selectedEmployee.id,
 				document_type: documentKey,
 				document_name: documentName,
-				file_path: filePath,
-				file_size: file.size,
+				file_path: publicUrl,
 				file_type: file.type,
 				expiry_date: expiryDates[documentKey] || null
 			};
 
+			console.log('Saving document metadata to database:', documentData);
+
 			const result = await dataService.hrDocuments.create(documentData);
 			
+			console.log('Database save result:', result);
+			
 			if (result.error) {
-				throw new Error(result.error);
+				// If database save fails, try to clean up the uploaded file
+				try {
+					await supabase.storage.from('employee-documents').remove([storagePath]);
+				} catch (cleanupError) {
+					console.error('Failed to cleanup uploaded file:', cleanupError);
+				}
+				throw new Error(typeof result.error === 'string' ? result.error : JSON.stringify(result.error));
 			}
 
 			// Reset this document's form
@@ -563,32 +621,65 @@
 							{:else}
 								<!-- Upload form for this document type -->
 								<div class="upload-form">
+									<!-- Document Information -->
+									<div class="document-info">
+										<p class="doc-description">{docType.description}</p>
+										<div class="file-requirements">
+											<div class="requirement-item">
+												<strong>📎 Supported Formats:</strong>
+												<span class="format-tags">
+													{#each docType.formats as format}
+														<span class="format-tag">{format}</span>
+													{/each}
+												</span>
+											</div>
+											<div class="requirement-item">
+												<strong>📏 Max File Size:</strong>
+												<span class="size-limit">{docType.maxSize}</span>
+											</div>
+											{#if docType.requiresExpiry}
+												<div class="requirement-item">
+													<strong>📅 Expiry Date:</strong>
+													<span class="expiry-required">Required</span>
+												</div>
+											{/if}
+										</div>
+									</div>
+
 									{#if docType.key.startsWith('other_')}
 										<div class="form-group">
-											<label>Document Name</label>
+											<label>Document Name *</label>
 											<input 
 												type="text" 
 												bind:value={otherDocumentNames[docType.key.split('_')[1]]}
-												placeholder="Enter document name"
+												placeholder="Enter document name (e.g., Driving License, Certificate)"
 												class="form-input"
+												required
 											/>
 										</div>
 									{/if}
 
 									<div class="form-group">
-										<label>Select File</label>
+										<label>Select File *</label>
 										<input 
 											type="file" 
 											accept={docType.accepts}
 											on:change={(e) => handleFileSelect(docType.key, e)}
 											data-document={docType.key}
 											class="form-input file-input"
+											required
 										/>
+										<div class="file-help-text">
+											Accepted formats: {docType.formats.join(', ')} • Max size: {docType.maxSize}
+										</div>
 										{#if selectedFiles[docType.key]}
-											<p class="file-selected">
-												Selected: {selectedFiles[docType.key].name} 
-												({formatFileSize(selectedFiles[docType.key].size)})
-											</p>
+											<div class="file-selected">
+												<span class="file-icon">📄</span>
+												<div class="file-details">
+													<div class="file-name">{selectedFiles[docType.key].name}</div>
+													<div class="file-size">({formatFileSize(selectedFiles[docType.key].size)})</div>
+												</div>
+											</div>
 										{/if}
 									</div>
 
@@ -1114,9 +1205,99 @@
 	}
 
 	.file-selected {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+		padding: 8px 12px;
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+		border-radius: 6px;
+	}
+
+	.file-icon {
+		font-size: 16px;
+	}
+
+	.file-details {
+		flex: 1;
+	}
+
+	.file-name {
+		font-weight: 500;
+		color: #065f46;
+		font-size: 13px;
+	}
+
+	.file-size {
+		color: #059669;
 		font-size: 12px;
+	}
+
+	.file-help-text {
+		font-size: 11px;
 		color: #6b7280;
-		margin: 4px 0 0 0;
+		margin-top: 4px;
+		font-style: italic;
+	}
+
+	.document-info {
+		margin-bottom: 16px;
+		padding: 12px;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 6px;
+	}
+
+	.doc-description {
+		margin: 0 0 12px 0;
+		color: #475569;
+		font-size: 13px;
+		line-height: 1.4;
+	}
+
+	.file-requirements {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.requirement-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+	}
+
+	.requirement-item strong {
+		color: #374151;
+		font-weight: 500;
+		min-width: 120px;
+	}
+
+	.format-tags {
+		display: flex;
+		gap: 4px;
+		flex-wrap: wrap;
+	}
+
+	.format-tag {
+		background: #dbeafe;
+		color: #1e40af;
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-size: 10px;
+		font-weight: 500;
+	}
+
+	.size-limit {
+		color: #dc2626;
+		font-weight: 500;
+	}
+
+	.expiry-required {
+		color: #d97706;
+		font-weight: 500;
 	}
 
 	.upload-doc-btn {
