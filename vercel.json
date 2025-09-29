@@ -1,7 +1,7 @@
 {
   "buildCommand": "pnpm --filter aqura-frontend build",
   "outputDirectory": "frontend/build",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --include=dev",
   "framework": null,
   "routes": [
     {
