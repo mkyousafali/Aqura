@@ -1,9 +1,13 @@
 {
-  "builds": [
+  "buildCommand": "cd frontend && pnpm build",
+  "outputDirectory": "frontend/build",
+  "installCommand": "pnpm install",
+  "framework": null,
+  "functions": {},
+  "routes": [
     {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "build" }
+      "src": "/.*",
+      "dest": "/index.html"
     }
   ]
 }
