@@ -1,6 +1,6 @@
 {
-  "buildCommand": "ls -la && pwd && cd frontend && pwd && pnpm install --ignore-scripts && pnpm build",
-  "outputDirectory": "frontend/build",
+  "buildCommand": "pnpm install --ignore-scripts && pnpm build",
+  "outputDirectory": "build",
   "installCommand": "echo 'Skipping root install'",
   "framework": null,
   "routes": [
