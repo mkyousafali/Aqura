@@ -120,31 +120,10 @@
 			};
 
 			// Create the notification
-			const result = await notificationManagement.createNotification(apiData);
+			const result = await notificationManagement.createNotification(apiData, currentUser?.username || 'Unknown User');
 			
-			if (result.success && result.notification) {
-				// Handle file uploads if present
-				const notificationId = result.notification.id;
-				
-				if (notificationData.attachment) {
-					try {
-						await notificationManagement.uploadAttachment(notificationId, notificationData.attachment);
-					} catch (attachmentError) {
-						console.error('Error uploading attachment:', attachmentError);
-						// Don't fail the whole process for attachment errors
-					}
-				}
-
-				if (notificationData.photo) {
-					try {
-						await notificationManagement.uploadAttachment(notificationId, notificationData.photo);
-					} catch (photoError) {
-						console.error('Error uploading photo:', photoError);
-						// Don't fail the whole process for photo errors
-					}
-				}
-
-				successMessage = 'Notification created successfully!';
+			if (result && result.id) {
+				successMessage = 'Notification published successfully!';
 				
 				// Reset form after delay
 				setTimeout(() => {
@@ -152,12 +131,12 @@
 					successMessage = '';
 				}, 2000);
 			} else {
-				errorMessage = 'Failed to create notification. Please try again.';
+				errorMessage = 'Failed to publish notification. Please try again.';
 			}
 
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to create notification. Please try again.';
-			console.error('Create notification error:', error);
+			errorMessage = error instanceof Error ? error.message : 'Failed to publish notification. Please try again.';
+			console.error('Publish notification error:', error);
 		} finally {
 			isLoading = false;
 		}
@@ -393,7 +372,7 @@
 						<span class="loading-spinner"></span>
 						Sending...
 					{:else}
-						📤 Send Notification
+						📋 Publish
 					{/if}
 				</button>
 			</div>

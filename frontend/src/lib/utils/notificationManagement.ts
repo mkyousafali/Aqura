@@ -4,13 +4,12 @@ import { supabase } from './supabase';
 interface CreateNotificationRequest {
 	title: string;
 	message: string;
-	type: 'info' | 'success' | 'warning' | 'error' | 'announcement';
+	type: 'info' | 'warning' | 'error' | 'success' | 'announcement' | 'task_assigned' | 'task_completed' | 'task_overdue' | 'system_alert' | 'marketing' | 'assignment_updated' | 'deadline_reminder' | 'assignment_rejected' | 'assignment_approved';
 	priority: 'low' | 'medium' | 'high' | 'urgent';
-	target_type: 'all_users' | 'all_admins' | 'all_employees' | 'all_managers' | 'specific_users' | 'specific_roles' | 'specific_branches' | 'specific_positions';
+	target_type: 'all_users' | 'all_admins' | 'specific_users' | 'specific_roles' | 'specific_branches';
 	target_branches?: number[];
 	target_users?: string[];
 	target_roles?: string[];
-	target_positions?: string[];
 	scheduled_at?: string; // ISO string
 	expires_at?: string; // ISO string
 }
@@ -19,7 +18,7 @@ interface UpdateNotificationRequest {
 	title?: string;
 	message?: string;
 	priority?: 'low' | 'medium' | 'high' | 'urgent';
-	status?: 'draft' | 'sent' | 'scheduled' | 'expired' | 'cancelled';
+	status?: 'draft' | 'published' | 'scheduled' | 'expired' | 'cancelled';
 	expires_at?: string;
 }
 
@@ -27,14 +26,13 @@ interface NotificationItem {
 	id: string;
 	title: string;
 	message: string;
-	type: 'info' | 'success' | 'warning' | 'error' | 'announcement';
+	type: 'info' | 'warning' | 'error' | 'success' | 'announcement' | 'task_assigned' | 'task_completed' | 'task_overdue' | 'system_alert' | 'marketing' | 'assignment_updated' | 'deadline_reminder' | 'assignment_rejected' | 'assignment_approved';
 	priority: 'low' | 'medium' | 'high' | 'urgent';
-	status: 'draft' | 'sent' | 'scheduled' | 'expired' | 'cancelled';
+	status: 'draft' | 'published' | 'scheduled' | 'expired' | 'cancelled';
 	target_type: string;
 	target_branches?: number[];
 	target_users?: string[];
 	target_roles?: string[];
-	target_positions?: string[];
 	scheduled_at?: string;
 	expires_at?: string;
 	created_at: string;
@@ -47,11 +45,13 @@ interface UserNotificationItem {
 	notification_id: string;
 	title: string;
 	message: string;
-	type: 'info' | 'success' | 'warning' | 'error' | 'announcement';
+	type: 'info' | 'warning' | 'error' | 'success' | 'announcement' | 'task_assigned' | 'task_completed' | 'task_overdue' | 'system_alert' | 'marketing' | 'assignment_updated' | 'deadline_reminder' | 'assignment_rejected' | 'assignment_approved';
 	priority: 'low' | 'medium' | 'high' | 'urgent';
 	is_read: boolean;
 	read_at?: string;
 	created_at: string;
+	created_by_name?: string;
+	recipient_id?: string;
 }
 
 export class NotificationManagementService {
@@ -64,16 +64,43 @@ export class NotificationManagementService {
 	 */
 	async getAllNotifications(userId?: string): Promise<NotificationItem[]> {
 		try {
-			const { data, error } = await supabase
-				.from('notifications')
-				.select('*')
-				.order('created_at', { ascending: false });
+			if (userId) {
+				// Include read states for the specific user
+				const { data, error } = await supabase
+					.from('notifications')
+					.select(`
+						*,
+						notification_read_states!left(
+							is_read,
+							read_at
+						)
+					`)
+					.eq('notification_read_states.user_id', userId)
+					.order('created_at', { ascending: false });
 
-			if (error) {
-				throw error;
+				if (error) {
+					throw error;
+				}
+
+				// Transform to include read status
+				return data?.map(notification => ({
+					...notification,
+					is_read: notification.notification_read_states?.[0]?.is_read || false,
+					read_at: notification.notification_read_states?.[0]?.read_at
+				})) || [];
+			} else {
+				// Fallback: get all notifications without read states
+				const { data, error } = await supabase
+					.from('notifications')
+					.select('*')
+					.order('created_at', { ascending: false });
+
+				if (error) {
+					throw error;
+				}
+
+				return data || [];
 			}
-
-			return data || [];
 		} catch (error) {
 			console.error('Error fetching notifications:', error);
 			throw new Error('Failed to fetch notifications');
@@ -95,7 +122,7 @@ export class NotificationManagementService {
 					)
 				`)
 				.eq('notification_read_states.user_id', userId)
-				.eq('status', 'sent')
+				.eq('status', 'published')
 				.order('created_at', { ascending: false });
 
 			if (error) {
@@ -127,12 +154,27 @@ export class NotificationManagementService {
 	 */
 	async createNotification(notification: CreateNotificationRequest, createdBy: string): Promise<NotificationItem> {
 		try {
+			// Get user info for proper attribution
+			const { data: userData, error: userError } = await supabase
+				.from('users')
+				.select('username, role_type')
+				.eq('username', createdBy)
+				.single();
+
+			const createdByName = userData?.username || createdBy;
+			const createdByRole = userData?.role_type || 'Admin';
+
 			const { data, error } = await supabase
 				.from('notifications')
 				.insert({
 					...notification,
 					created_by: createdBy,
-					status: 'draft'
+					created_by_name: createdByName,
+					created_by_role: createdByRole,
+					status: 'published', // Publish immediately
+					has_attachments: false,
+					read_count: 0,
+					total_recipients: 0
 				})
 				.select()
 				.single();
@@ -174,7 +216,7 @@ export class NotificationManagementService {
 	/**
 	 * Delete a notification
 	 */
-	async deleteNotification(id: string): Promise<void> {
+	async deleteNotification(id: string): Promise<{success: boolean}> {
 		try {
 			const { error } = await supabase
 				.from('notifications')
@@ -184,6 +226,8 @@ export class NotificationManagementService {
 			if (error) {
 				throw error;
 			}
+
+			return { success: true };
 		} catch (error) {
 			console.error('Error deleting notification:', error);
 			throw new Error('Failed to delete notification');
@@ -193,7 +237,7 @@ export class NotificationManagementService {
 	/**
 	 * Mark notification as read for a user
 	 */
-	async markAsRead(notificationId: string, userId: string): Promise<void> {
+	async markAsRead(notificationId: string, userId: string): Promise<{success: boolean}> {
 		try {
 			const { error } = await supabase
 				.from('notification_read_states')
@@ -207,6 +251,8 @@ export class NotificationManagementService {
 			if (error) {
 				throw error;
 			}
+
+			return { success: true };
 		} catch (error) {
 			console.error('Error marking notification as read:', error);
 			throw new Error('Failed to mark notification as read');
@@ -239,13 +285,13 @@ export class NotificationManagementService {
 	/**
 	 * Mark all notifications as read for a user
 	 */
-	async markAllAsRead(userId: string): Promise<void> {
+	async markAllAsRead(userId: string): Promise<{success: boolean}> {
 		try {
 			// First get all active notifications
 			const { data: notifications, error: fetchError } = await supabase
 				.from('notifications')
 				.select('id')
-				.eq('status', 'sent');
+				.eq('status', 'published');
 
 			if (fetchError) {
 				throw fetchError;
@@ -266,6 +312,8 @@ export class NotificationManagementService {
 			if (error) {
 				throw error;
 			}
+
+			return { success: true };
 		} catch (error) {
 			console.error('Error marking all notifications as read:', error);
 			throw new Error('Failed to mark all notifications as read');
@@ -350,14 +398,14 @@ export class NotificationManagementService {
 				throw totalError;
 			}
 
-			// Get sent notifications
-			const { count: sentNotifications, error: sentError } = await supabase
+			// Get published notifications
+			const { count: publishedNotifications, error: publishedError } = await supabase
 				.from('notifications')
 				.select('*', { count: 'exact', head: true })
-				.eq('status', 'sent');
+				.eq('status', 'published');
 
-			if (sentError) {
-				throw sentError;
+			if (publishedError) {
+				throw publishedError;
 			}
 
 			// Get scheduled notifications
@@ -372,9 +420,9 @@ export class NotificationManagementService {
 
 			return {
 				total: totalNotifications || 0,
-				sent: sentNotifications || 0,
+				published: publishedNotifications || 0,
 				scheduled: scheduledNotifications || 0,
-				draft: (totalNotifications || 0) - (sentNotifications || 0) - (scheduledNotifications || 0)
+				draft: (totalNotifications || 0) - (publishedNotifications || 0) - (scheduledNotifications || 0)
 			};
 		} catch (error) {
 			console.error('Error fetching notification statistics:', error);
@@ -400,6 +448,64 @@ export class NotificationManagementService {
 		} catch (error) {
 			console.error('Error fetching read status:', error);
 			throw new Error('Failed to fetch read status');
+		}
+	}
+
+	/**
+	 * Create notification for task assignment
+	 */
+	async createTaskAssignmentNotification(
+		taskId: string, 
+		taskTitle: string, 
+		assignedToUserIds: string[], 
+		assignedBy: string, 
+		assignedByName: string,
+		deadline?: string,
+		notes?: string,
+		taskData?: any
+	): Promise<NotificationItem> {
+		try {
+			// Create notification data with task metadata
+			const notificationData: CreateNotificationRequest = {
+				title: `New Task Assigned: ${taskTitle}`,
+				message: `You have been assigned a new task: "${taskTitle}"${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ''}${notes ? `\n\nNotes: ${notes}` : ''}`,
+				type: 'task_assigned',
+				priority: 'medium',
+				target_type: 'specific_users',
+				target_users: assignedToUserIds
+			};
+
+			// Create the notification with task metadata
+			const { data, error } = await supabase
+				.from('notifications')
+				.insert({
+					...notificationData,
+					created_by: assignedBy,
+					created_by_name: assignedByName,
+					status: 'published',
+					metadata: {
+						task_id: taskId,
+						task_title: taskTitle,
+						assignment_id: taskData?.assignmentId,
+						require_task_finished: taskData?.require_task_finished || false,
+						require_photo_upload: taskData?.require_photo_upload || false,
+						require_erp_reference: taskData?.require_erp_reference || false,
+						deadline: deadline,
+						notes: notes
+					}
+				})
+				.select()
+				.single();
+
+			if (error) {
+				throw error;
+			}
+
+			console.log('Task assignment notification created:', data);
+			return data;
+		} catch (error) {
+			console.error('Error creating task assignment notification:', error);
+			throw new Error('Failed to create task assignment notification');
 		}
 	}
 }

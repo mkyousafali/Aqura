@@ -30,6 +30,10 @@
 	let selectedTasks: Set<string> = new Set();
 	let selectAll = false;
 
+	// Image modal
+	let showImageModal = false;
+	let modalImageUrl = '';
+
 	// Task statuses and priorities
 	const taskStatuses = ['draft', 'active', 'paused', 'completed', 'cancelled'];
 	const taskPriorities = ['low', 'medium', 'high', 'urgent'];
@@ -60,6 +64,30 @@
 
 			if (result.success) {
 				tasks = result.data || [];
+				
+				// Load image data for each task
+				for (let task of tasks) {
+					try {
+						console.log(`Loading images for task: ${task.id} (${task.title})`);
+						const imageResult = await db.taskImages.getByTaskId(task.id);
+						console.log(`Image result for task ${task.id}:`, imageResult);
+						
+						if (imageResult.data && imageResult.data.length > 0) {
+							// Get the first image URL - note: column is 'file_url' not 'image_url'
+							task.image_url = imageResult.data[0].file_url;
+							console.log(`Found image for task ${task.id}: ${task.image_url}`);
+						} else {
+							console.log(`No images found for task ${task.id}`);
+							// Check if task might have image stored differently (for debugging)
+							if (task.title.toLowerCase().includes('image')) {
+								console.warn(`Task "${task.title}" suggests it has an image but none found in database`);
+							}
+						}
+					} catch (error) {
+						console.warn(`Failed to load image for task ${task.id}:`, error);
+					}
+				}
+				
 				totalItems = result.total || 0;
 				totalPages = Math.ceil(totalItems / itemsPerPage);
 				filterTasks();
@@ -246,6 +274,17 @@
 			windowManager.closeWindow(windowId);
 		}
 	}
+
+	function openImageModal(imageUrl: string) {
+		console.log('Opening image modal with URL:', imageUrl);
+		modalImageUrl = imageUrl;
+		showImageModal = true;
+	}
+
+	function closeImageModal() {
+		showImageModal = false;
+		modalImageUrl = '';
+	}
 </script>
 
 <div class="task-view-table bg-white rounded-lg shadow-lg p-6 h-full flex flex-col">
@@ -395,6 +434,9 @@
 							</button>
 						</th>
 						<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+							Image
+						</th>
+						<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 							Status
 						</th>
 						<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -461,6 +503,45 @@
 										</p>
 									{/if}
 								</div>
+							</td>
+							<td class="px-6 py-4">
+								{#if task.image_url}
+									<div class="flex items-center">
+										<button
+											type="button"
+											on:click={() => openImageModal(task.image_url)}
+											class="relative group focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg"
+											title="Click to view full image"
+										>
+											<img 
+												src={task.image_url} 
+												alt="Task image for {task.title}"
+												class="w-12 h-12 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity"
+												on:error={(e) => {
+													console.error('Failed to load image:', task.image_url);
+													e.target.style.display = 'none';
+													e.target.parentElement.nextElementSibling.style.display = 'flex';
+												}}
+											/>
+											<div class="absolute inset-0 rounded-lg bg-black bg-opacity-0 hover:bg-opacity-10 transition-all flex items-center justify-center opacity-0 hover:opacity-100">
+												<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+												</svg>
+											</div>
+										</button>
+										<div class="w-12 h-12 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hidden">
+											<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+											</svg>
+										</div>
+									</div>
+								{:else}
+									<div class="w-12 h-12 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400">
+										<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+										</svg>
+									</div>
+								{/if}
 							</td>
 							<td class="px-6 py-4">
 								<select
@@ -581,6 +662,48 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Image Modal -->
+{#if showImageModal}
+	<div 
+		class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+		on:click={closeImageModal}
+		on:keydown={(e) => e.key === 'Escape' && closeImageModal()}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<div class="bg-white rounded-lg p-4 max-w-4xl max-h-[90vh] overflow-auto" on:click|stopPropagation>
+			<div class="flex justify-between items-center mb-4">
+				<h3 class="text-lg font-medium text-gray-900">Task Image</h3>
+				<button
+					on:click={closeImageModal}
+					class="text-gray-400 hover:text-gray-600 transition-colors"
+					aria-label="Close image modal"
+				>
+					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+					</svg>
+				</button>
+			</div>
+			<div class="flex justify-center">
+				<img 
+					src={modalImageUrl} 
+					alt="Task image" 
+					class="max-w-full h-auto rounded-lg shadow-lg"
+					on:error={() => {
+						notifications.add({
+							type: 'error',
+							message: 'Failed to load image',
+							duration: 3000
+						});
+						closeImageModal();
+					}}
+				/>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.task-view-table {

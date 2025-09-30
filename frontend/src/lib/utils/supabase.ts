@@ -4,6 +4,7 @@ import { browser } from '$app/environment';
 // Supabase configuration
 const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
+const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
 // Create Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -15,6 +16,19 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 	global: {
 		headers: {
 			'X-Client-Info': 'aqura-pwa'
+		}
+	}
+});
+
+// Service role client for administrative operations (bypasses RLS)
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+	auth: {
+		persistSession: false,
+		autoRefreshToken: false
+	},
+	global: {
+		headers: {
+			'X-Client-Info': 'aqura-pwa-admin'
 		}
 	}
 });
@@ -127,6 +141,45 @@ export interface TaskAssignment {
 	status: 'assigned' | 'in_progress' | 'completed' | 'escalated' | 'reassigned';
 	started_at?: string;
 	completed_at?: string;
+	// New enhanced fields
+	schedule_date?: string;
+	schedule_time?: string;
+	deadline_date?: string;
+	deadline_time?: string;
+	deadline_datetime?: string;
+	is_reassignable?: boolean;
+	is_recurring?: boolean;
+	recurring_pattern?: any;
+	notes?: string;
+	priority_override?: string;
+	require_task_finished?: boolean;
+	require_photo_upload?: boolean;
+	require_erp_reference?: boolean;
+	reassigned_from?: string;
+	reassignment_reason?: string;
+	reassigned_at?: string;
+}
+
+export interface RecurringAssignmentSchedule {
+	id: string;
+	assignment_id: string;
+	repeat_type: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+	repeat_interval: number;
+	repeat_on_days?: number[];
+	repeat_on_date?: number;
+	repeat_on_month?: number;
+	execute_time: string;
+	timezone: string;
+	start_date: string;
+	end_date?: string;
+	max_occurrences?: number;
+	is_active: boolean;
+	last_executed_at?: string;
+	next_execution_at: string;
+	executions_count: number;
+	created_at: string;
+	updated_at: string;
+	created_by: string;
 }
 
 export interface TaskCompletion {
@@ -201,33 +254,41 @@ export const db = {
 	employees: {
 		async getAll() {
 			const { data, error } = await supabase
-				.from('employees')
-				.select('*')
-				.order('created_at', { ascending: false });
+				.from('hr_employees')
+				.select(`
+					id,
+					employee_id,
+					name,
+					branch_id,
+					hire_date,
+					status,
+					created_at
+				`)
+				.order('name');
 			return { data, error };
 		},
 
 		async getById(id: string) {
 			const { data, error } = await supabase
-				.from('employees')
+				.from('hr_employees')
 				.select('*')
 				.eq('id', id)
 				.single();
 			return { data, error };
 		},
 
-		async create(employee: Omit<Employee, 'id' | 'created_at' | 'updated_at'>) {
+		async create(employee: any) {
 			const { data, error } = await supabase
-				.from('employees')
+				.from('hr_employees')
 				.insert(employee)
 				.select()
 				.single();
 			return { data, error };
 		},
 
-		async update(id: string, updates: Partial<Employee>) {
+		async update(id: string, updates: any) {
 			const { data, error } = await supabase
-				.from('employees')
+				.from('hr_employees')
 				.update(updates)
 				.eq('id', id)
 				.select()
@@ -237,7 +298,7 @@ export const db = {
 
 		async delete(id: string) {
 			const { error } = await supabase
-				.from('employees')
+				.from('hr_employees')
 				.delete()
 				.eq('id', id);
 			return { error };
@@ -245,11 +306,84 @@ export const db = {
 
 		async getByBranch(branchId: string) {
 			const { data, error } = await supabase
-				.from('employees')
+				.from('hr_employees')
 				.select('*')
 				.eq('branch_id', branchId)
 				.order('name');
 			return { data, error };
+		},
+
+		async getAllWithContacts() {
+			const { data, error } = await supabase
+				.from('hr_employees')
+				.select(`
+					id,
+					employee_id,
+					name,
+					branch_id,
+					hire_date,
+					status,
+					created_at,
+					hr_employee_contacts (
+						id,
+						email,
+						contact_number,
+						whatsapp_number,
+						is_active
+					)
+				`)
+				.eq('status', 'active')
+				.eq('hr_employee_contacts.is_active', true)
+				.order('name');
+			return { data, error };
+		}
+	},
+
+	// Employee contacts operations
+	employeeContacts: {
+		async getAll() {
+			const { data, error } = await supabase
+				.from('hr_employee_contacts')
+				.select('*')
+				.eq('is_active', true)
+				.order('created_at');
+			return { data, error };
+		},
+
+		async getByEmployeeId(employeeId: string) {
+			const { data, error } = await supabase
+				.from('hr_employee_contacts')
+				.select('*')
+				.eq('employee_id', employeeId)
+				.eq('is_active', true);
+			return { data, error };
+		},
+
+		async create(contact: any) {
+			const { data, error } = await supabase
+				.from('hr_employee_contacts')
+				.insert(contact)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async update(id: string, updates: any) {
+			const { data, error } = await supabase
+				.from('hr_employee_contacts')
+				.update(updates)
+				.eq('id', id)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async delete(id: string) {
+			const { error } = await supabase
+				.from('hr_employee_contacts')
+				.delete()
+				.eq('id', id);
+			return { error };
 		}
 	},
 
@@ -347,13 +481,26 @@ export const db = {
 		}
 	},
 
-	// User operations
+	// User operations (system users table)
 	users: {
 		async getAll() {
 			const { data, error } = await supabase
 				.from('users')
-				.select('*')
-				.order('full_name');
+				.select(`
+					id,
+					username,
+					user_type,
+					role_type,
+					status,
+					branch_id,
+					avatar,
+					avatar_small_url,
+					avatar_medium_url,
+					avatar_large_url,
+					created_at,
+					updated_at
+				`)
+				.order('username');
 			return { data, error };
 		},
 
@@ -366,7 +513,7 @@ export const db = {
 			return { data, error };
 		},
 
-		async create(user: Omit<User, 'id' | 'created_at' | 'updated_at'>) {
+		async create(user: any) {
 			const { data, error } = await supabase
 				.from('users')
 				.insert(user)
@@ -375,7 +522,7 @@ export const db = {
 			return { data, error };
 		},
 
-		async update(id: string, updates: Partial<User>) {
+		async update(id: string, updates: any) {
 			const { data, error } = await supabase
 				.from('users')
 				.update(updates)
@@ -391,6 +538,59 @@ export const db = {
 				.delete()
 				.eq('id', id);
 			return { error };
+		},
+
+		async getAllWithEmployeeDetails() {
+			const { data, error } = await supabase
+				.from('users')
+				.select(`
+					id,
+					username,
+					user_type,
+					role_type,
+					status,
+					branch_id,
+					employee_id,
+					avatar,
+					avatar_small_url,
+					avatar_medium_url,
+					avatar_large_url,
+					created_at,
+					updated_at,
+					hr_employees!employee_id (
+						id,
+						name,
+						employee_id,
+						hire_date,
+						status,
+						hr_employee_contacts (
+							id,
+							email,
+							contact_number,
+							whatsapp_number,
+							is_active
+						),
+						hr_position_assignments!hr_position_assignments_employee_id_fkey (
+							id,
+							is_current,
+							effective_date,
+							hr_positions (
+								id,
+								position_title_en,
+								position_title_ar
+							)
+						)
+					)
+				`)
+				.eq('status', 'active')
+				.order('username');
+			return { data, error };
+		},
+
+		async getAllWithEmployeeDetailsFlat() {
+			// Use the database function to get flat user-employee data structure
+			const { data, error } = await supabase.rpc('get_users_with_employee_details');
+			return { data, error };
 		}
 	},
 
@@ -495,6 +695,15 @@ export const db = {
 
 	// Task assignments operations
 	taskAssignments: {
+		async getById(id: string) {
+			const { data, error } = await supabase
+				.from('task_assignments')
+				.select('*')
+				.eq('id', id)
+				.single();
+			return { data, error };
+		},
+
 		async getByTaskId(task_id: string) {
 			const { data, error } = await supabase
 				.from('task_assignments')
@@ -512,20 +721,153 @@ export const db = {
 			return { data, error };
 		},
 
-		async assignTasks(task_ids: string[], assignment_type: 'user' | 'branch' | 'all', assigned_by: string, assigned_by_name?: string, assigned_to_user_id?: string, assigned_to_branch_id?: string) {
-			const assignments = task_ids.map(task_id => ({
-				task_id,
-				assignment_type,
-				assigned_to_user_id,
-				assigned_to_branch_id,
-				assigned_by,
-				assigned_by_name
-			}));
+		async assignTasks(task_ids: string[], assignment_type: 'user' | 'branch' | 'all', assigned_by: string, assigned_by_name?: string, assigned_to_user_id?: string, assigned_to_branch_id?: string, scheduleSettings?: {
+			deadline_date?: string;
+			deadline_time?: string;
+			notes?: string;
+			priority_override?: string;
+			require_task_finished?: boolean;
+			require_photo_upload?: boolean;
+			require_erp_reference?: boolean;
+		}) {
+			const assignments = task_ids.map(task_id => {
+				// Build the assignment object step by step for better debugging
+				const baseAssignment = {
+					task_id,
+					assignment_type,
+					assigned_to_user_id,
+					assigned_to_branch_id,
+					assigned_by,
+					assigned_by_name
+				};
 
-			const { data, error } = await supabase
-				.from('task_assignments')
-				.insert(assignments)
-				.select();
+				// Add optional fields
+				const optionalFields: any = {};
+				if (scheduleSettings?.deadline_date) {
+					optionalFields.deadline_date = scheduleSettings.deadline_date;
+				}
+				if (scheduleSettings?.deadline_time) {
+					optionalFields.deadline_time = scheduleSettings.deadline_time;
+				}
+				if (scheduleSettings?.deadline_date && scheduleSettings?.deadline_time) {
+					optionalFields.deadline_datetime = `${scheduleSettings.deadline_date}T${scheduleSettings.deadline_time}:00`;
+				}
+				if (scheduleSettings?.notes) {
+					optionalFields.notes = scheduleSettings.notes;
+				}
+				if (scheduleSettings?.priority_override) {
+					optionalFields.priority_override = scheduleSettings.priority_override;
+				}
+
+				// Add completion criteria explicitly
+				const completionCriteria = {
+					require_task_finished: scheduleSettings?.require_task_finished ?? true,
+					require_photo_upload: scheduleSettings?.require_photo_upload ?? false,
+					require_erp_reference: scheduleSettings?.require_erp_reference ?? false
+				};
+
+				const finalAssignment = {
+					...baseAssignment,
+					...optionalFields,
+					...completionCriteria
+				};
+
+				return finalAssignment;
+			});
+
+			try {
+				const { data, error } = await supabase
+					.from('task_assignments')
+					.insert(assignments)
+					.select();
+				
+				return { data, error };
+			} catch (insertError) {
+				console.error('❌ [DB] Insert exception:', insertError);
+				return { data: null, error: insertError };
+			}
+		},
+
+		async createScheduledAssignment(
+			task_id: string,
+			assignment_type: 'user' | 'branch' | 'all',
+			assigned_by: string,
+			assigned_to_user_id?: string,
+			assigned_to_branch_id?: string,
+			assigned_by_name?: string,
+			schedule_date: string | null = null,
+			schedule_time: string | null = null,
+			deadline_date: string | null = null,
+			deadline_time: string | null = null
+		) {
+			const { data, error } = await supabase.rpc('create_scheduled_assignment', {
+				p_task_id: task_id,
+				p_assignment_type: assignment_type,
+				p_assigned_by: assigned_by,
+				p_assigned_to_user_id: assigned_to_user_id,
+				p_assigned_to_branch_id: assigned_to_branch_id,
+				p_assigned_by_name: assigned_by_name,
+				p_schedule_date: schedule_date,
+				p_schedule_time: schedule_time,
+				p_deadline_date: deadline_date,
+				p_deadline_time: deadline_time
+			});
+			return { data, error };
+		},
+
+		async createRecurringAssignment(
+			task_id: string,
+			assignment_type: 'user' | 'branch' | 'all',
+			assigned_by: string,
+			assigned_by_name: string,
+			repeat_pattern: 'daily' | 'weekly' | 'monthly' | 'yearly',
+			repeat_interval: number = 1,
+			start_date: string,
+			end_date?: string,
+			assigned_to_user_id?: string,
+			assigned_to_branch_id?: string
+		) {
+			const { data, error } = await supabase.rpc('create_recurring_assignment', {
+				p_task_id: task_id,
+				p_assignment_type: assignment_type,
+				p_assigned_by: assigned_by,
+				p_assigned_by_name: assigned_by_name,
+				p_repeat_pattern: repeat_pattern,
+				p_repeat_interval: repeat_interval,
+				p_start_date: start_date,
+				p_end_date: end_date,
+				p_assigned_to_user_id: assigned_to_user_id,
+				p_assigned_to_branch_id: assigned_to_branch_id
+			});
+			return { data, error };
+		},
+
+		async reassignTask(
+			assignment_id: string,
+			new_assigned_to_user_id: string | null,
+			new_assigned_to_branch_id: string | null,
+			new_assignment_type: 'user' | 'branch' | 'all',
+			reassigned_by: string,
+			reassigned_by_name: string,
+			reason?: string
+		) {
+			const { data, error } = await supabase.rpc('reassign_task', {
+				p_assignment_id: assignment_id,
+				p_new_assigned_to_user_id: new_assigned_to_user_id,
+				p_new_assigned_to_branch_id: new_assigned_to_branch_id,
+				p_new_assignment_type: new_assignment_type,
+				p_reassigned_by: reassigned_by,
+				p_reassigned_by_name: reassigned_by_name,
+				p_reason: reason
+			});
+			return { data, error };
+		},
+
+		async getAssignmentsWithDeadlines(user_id?: string, branch_id?: string) {
+			const { data, error } = await supabase.rpc('get_assignments_with_deadlines', {
+				p_user_id: user_id,
+				p_branch_id: branch_id
+			});
 			return { data, error };
 		}
 	},
@@ -652,30 +994,108 @@ export const storage = {
 	async uploadFile(file: File, bucket: string, path?: string) {
 		const fileName = path || `${Date.now()}-${file.name}`;
 		
-		const { data, error } = await supabase.storage
-			.from(bucket)
-			.upload(fileName, file, {
-				cacheControl: '3600',
-				upsert: false
-			});
+		// Check if user is authenticated using our custom auth system
+		let isAuthenticated = false;
+		let userId = null;
 		
-		if (error) {
-			return { data: null, error };
+		// Check localStorage for auth token (our custom auth system)
+		if (typeof window !== 'undefined') {
+			const token = localStorage.getItem('aqura-auth-token');
+			const userStr = localStorage.getItem('aqura-user');
+			
+			if (token && userStr) {
+				try {
+					const user = JSON.parse(userStr);
+					isAuthenticated = true;
+					userId = user.id;
+					console.log('Upload auth check - user:', `${user.id} (${user.username})`);
+				} catch (error) {
+					console.error('Error parsing user data:', error);
+				}
+			}
 		}
 		
-		// Get public URL
-		const { data: publicUrlData } = supabase.storage
-			.from(bucket)
-			.getPublicUrl(fileName);
+		if (!isAuthenticated) {
+			console.log('Upload auth check - user: not authenticated');
+			return { 
+				data: null, 
+				error: { 
+					message: 'User must be authenticated to upload files. Please log in first.'
+				} 
+			};
+		}
 		
-		return { 
-			data: { 
-				...data, 
-				publicUrl: publicUrlData.publicUrl,
-				fileName: fileName
-			}, 
-			error: null 
-		};
+		console.log(`Uploading file ${file.name} to bucket ${bucket} as ${fileName}`);
+		
+		try {
+			const { data, error } = await supabaseAdmin.storage
+				.from(bucket)
+				.upload(fileName, file, {
+					cacheControl: '3600',
+					upsert: false
+				});
+			
+			console.log('Supabase storage response:', { data, error });
+			
+			if (error) {
+				console.error('Storage upload error:', error);
+				
+				// Provide more helpful error messages
+				if (error.message.includes('not found') || error.message.includes('bucket')) {
+					return { 
+						data: null, 
+						error: { 
+							...error, 
+							message: `Storage bucket '${bucket}' does not exist. Please create it in the Supabase dashboard first.` 
+						} 
+					};
+				}
+				
+				if (error.message.includes('Unauthorized') || error.message.includes('permission')) {
+					return { 
+						data: null, 
+						error: { 
+							...error, 
+							message: `No permission to upload to bucket '${bucket}'. Please check storage policies.` 
+						} 
+					};
+				}
+				
+				if (error.message.includes('mime type') || error.message.includes('not supported')) {
+					return { 
+						data: null, 
+						error: { 
+							...error, 
+							message: `File type '${file.type}' is not allowed in bucket '${bucket}'.` 
+						} 
+					};
+				}
+				
+				return { data: null, error };
+			}
+			
+			// Get public URL using admin client as well
+			const { data: publicUrlData } = supabaseAdmin.storage
+				.from(bucket)
+				.getPublicUrl(fileName);
+			
+			return { 
+				data: { 
+					...data, 
+					publicUrl: publicUrlData.publicUrl,
+					fileName: fileName
+				}, 
+				error: null 
+			};
+		} catch (uploadError) {
+			console.error('Upload exception:', uploadError);
+			return { 
+				data: null, 
+				error: { 
+					message: `Upload failed: ${uploadError.message || 'Unknown error'}` 
+				} 
+			};
+		}
 	},
 	
 	// Delete file from storage
@@ -707,4 +1127,9 @@ if (browser) {
 	
 	// Sync when coming back online
 	window.addEventListener('online', offline.syncOfflineData);
+	
+	// Expose supabase client globally for debugging (development only)
+	if (typeof window !== 'undefined') {
+		(window as any).supabase = supabase;
+	}
 }

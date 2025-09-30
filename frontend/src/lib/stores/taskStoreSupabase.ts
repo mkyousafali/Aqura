@@ -256,22 +256,40 @@ function createTaskStore() {
 		},
 
 		// Assign tasks
-		async assignTasks(taskIds: string[], assignmentType: 'user' | 'branch' | 'all', assignedBy: string, assignedByName?: string, assignedToUserId?: string, assignedToBranchId?: string) {
+		async assignTasks(taskIds: string[], assignmentType: 'user' | 'branch' | 'all', assignedBy: string, assignedByName?: string, assignedToUserId?: string, assignedToBranchId?: string, scheduleSettings?: {
+			schedule_date?: string;
+			schedule_time?: string;
+			deadline_date?: string;
+			deadline_time?: string;
+			notes?: string;
+			priority_override?: string;
+			is_recurring?: boolean;
+			repeat_type?: string;
+			repeat_interval?: number;
+			repeat_days?: string[];
+			repeat_end_type?: string;
+			repeat_end_count?: number;
+			repeat_end_date?: string;
+			require_task_finished?: boolean;
+			require_photo_upload?: boolean;
+			require_erp_reference?: boolean;
+		}) {
 			try {
-				const { error } = await db.taskAssignments.assignTasks(
+				const { data, error } = await db.taskAssignments.assignTasks(
 					taskIds, 
 					assignmentType, 
 					assignedBy, 
 					assignedByName,
 					assignedToUserId, 
-					assignedToBranchId
+					assignedToBranchId,
+					scheduleSettings
 				);
 
 				if (error) {
 					throw new Error(error.message);
 				}
 
-				return { success: true };
+				return { success: true, data };
 			} catch (error) {
 				console.error('Failed to assign tasks:', error);
 				const errorMessage = error instanceof Error ? error.message : 'Failed to assign tasks';

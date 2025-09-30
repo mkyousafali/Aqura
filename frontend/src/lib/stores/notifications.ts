@@ -66,22 +66,25 @@ export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4f
 			.from('notifications')
 			.select(`
 				*,
-				notification_read_states!inner(
-					is_read,
+				notification_read_states(
+					read_at,
 					user_id
 				)
 			`)
-			.eq('notification_read_states.user_id', userId)
-			.eq('status', 'active');
+			.eq('status', 'published');
 
 		if (error) {
 			throw error;
 		}
 
 		const totalCount = notifications?.length || 0;
-		const unreadCount = notifications?.filter((notification: any) => 
-			!notification.notification_read_states?.[0]?.is_read
-		).length || 0;
+		const unreadCount = notifications?.filter((notification: any) => {
+			// Check if current user has read this notification
+			const userReadState = notification.notification_read_states?.find(
+				(readState: any) => readState.user_id === userId
+			);
+			return !userReadState?.read_at; // Unread if no read state or no read_at timestamp
+		}).length || 0;
 		
 		// Update store
 		notificationCounts.set({

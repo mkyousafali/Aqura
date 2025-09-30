@@ -88,6 +88,10 @@ export default {
 				'18': '4.5rem',
 				'88': '22rem',
 			},
+			gridTemplateColumns: {
+				'14': 'repeat(14, minmax(0, 1fr))',
+				'16': 'repeat(16, minmax(0, 1fr))',
+			},
 			zIndex: {
 				'modal': '1000',
 				'dropdown': '1010',

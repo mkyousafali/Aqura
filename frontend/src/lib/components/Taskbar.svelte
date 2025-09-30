@@ -219,7 +219,11 @@
 				title={item.title}
 			>
 				{#if item.icon}
-					<img src={item.icon} alt="" class="task-icon" />
+					{#if item.icon.startsWith('http') || item.icon.startsWith('/') || item.icon.includes('.')}
+						<img src={item.icon} alt="" class="task-icon" />
+					{:else}
+						<span class="task-icon-emoji">{item.icon}</span>
+					{/if}
 				{/if}
 				<span class="task-title">{item.title}</span>
 			</button>
@@ -479,6 +483,16 @@
 		width: 16px;
 		height: 16px;
 		flex-shrink: 0;
+	}
+
+	.task-icon-emoji {
+		font-size: 16px;
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.task-title {

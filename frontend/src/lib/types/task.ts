@@ -12,11 +12,6 @@ export interface Task {
 	assigned_to?: string;
 	image_url?: string;
 	
-	// Completion criteria
-	require_task_finished: boolean;
-	require_photo_upload: boolean;
-	require_erp_reference: boolean;
-	
 	// Additional options
 	can_escalate: boolean;
 	can_reassign: boolean;
@@ -87,11 +82,19 @@ export interface TaskFilter {
 }
 
 export interface TaskAssignment {
+	id?: string;
 	task_id: string;
-	assigned_to: string;
+	assigned_to_user_id: string;
 	assigned_by: string;
 	assigned_at: string;
+	status: string;
 	notes?: string;
+	deadline_date?: string;
+	deadline_time?: string;
+	is_reassignable?: boolean;
+	require_task_finished: boolean;
+	require_photo_upload: boolean;
+	require_erp_reference: boolean;
 }
 
 export interface TaskEscalation {
@@ -115,9 +118,6 @@ export interface CreateTaskRequest {
 	due_time: string;
 	assigned_to?: string;
 	image_url?: string;
-	require_task_finished: boolean;
-	require_photo_upload: boolean;
-	require_erp_reference: boolean;
 	can_escalate: boolean;
 	can_reassign: boolean;
 }
@@ -131,9 +131,6 @@ export interface UpdateTaskRequest {
 	due_time?: string;
 	assigned_to?: string;
 	image_url?: string;
-	require_task_finished?: boolean;
-	require_photo_upload?: boolean;
-	require_erp_reference?: boolean;
 	can_escalate?: boolean;
 	can_reassign?: boolean;
 }

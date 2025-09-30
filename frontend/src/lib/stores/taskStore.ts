@@ -256,19 +256,56 @@ function createTaskStore() {
 		},
 
 		// Assign tasks
-		async assignTasks(taskIds: string[], assignmentType: 'user' | 'branch' | 'all', assignedBy: string, assignedByName?: string, assignedToUserId?: string, assignedToBranchId?: string) {
+		async assignTasks(taskIds: string[], assignmentType: 'user' | 'branch' | 'all', assignedBy: string, assignedByName?: string, assignedToUserId?: string, assignedToBranchId?: string, scheduleSettings?: {
+			schedule_date?: string;
+			schedule_time?: string;
+			deadline_date?: string;
+			deadline_time?: string;
+			notes?: string;
+			priority_override?: string;
+			is_recurring?: boolean;
+			repeat_type?: string;
+			repeat_interval?: number;
+			repeat_days?: string[];
+			repeat_end_type?: string;
+			repeat_end_count?: number;
+			repeat_end_date?: string;
+		}) {
 			try {
-				const { error } = await db.taskAssignments.assignTasks(
-					taskIds, 
-					assignmentType, 
-					assignedBy, 
-					assignedByName,
-					assignedToUserId, 
-					assignedToBranchId
-				);
+				// If scheduling is enabled, use the scheduled assignment function
+				if (scheduleSettings && (scheduleSettings.schedule_date || scheduleSettings.deadline_date)) {
+					for (const taskId of taskIds) {
+						const { error } = await db.taskAssignments.createScheduledAssignment(
+							taskId,
+							assignmentType,
+							assignedBy,
+							assignedToUserId,
+							assignedToBranchId,
+							assignedByName || 'Unknown User',
+							scheduleSettings.schedule_date,
+							scheduleSettings.schedule_time,
+							scheduleSettings.deadline_date,
+							scheduleSettings.deadline_time
+						);
 
-				if (error) {
-					throw new Error(error.message);
+						if (error) {
+							throw new Error(error.message);
+						}
+					}
+				} else {
+					// Use basic assignment for immediate assignments
+					const { error } = await db.taskAssignments.assignTasks(
+						taskIds, 
+						assignmentType, 
+						assignedBy, 
+						assignedByName,
+						assignedToUserId, 
+						assignedToBranchId
+					);
+
+					if (error) {
+						throw new Error(error.message);
+					}
 				}
 
 				return { success: true };

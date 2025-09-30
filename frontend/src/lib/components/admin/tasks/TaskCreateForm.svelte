@@ -2,6 +2,8 @@
 	import { createEventDispatcher } from 'svelte';
 	import { uploadToSupabase } from '$lib/utils/supabase';
 	import { createTask, updateTask } from '$lib/stores/taskStore';
+	import { auth } from '$lib/stores/auth';
+	import { notifications } from '$lib/stores/notifications';
 	
 	// Props
 	export let editMode = false;
@@ -10,42 +12,11 @@
 	
 	const dispatch = createEventDispatcher();
 	
-	// Time conversion functions
-	const convertTo12Hour = (time24h) => {
-		if (!time24h || time24h.trim() === '') {
-			return '';
-		}
-		
-		// Handle time formats like "14:30:00" or "14:30"
-		const timeParts = time24h.split(':');
-		let hours = parseInt(timeParts[0], 10);
-		const minutes = timeParts[1] || '00';
-		
-		const modifier = hours >= 12 ? 'PM' : 'AM';
-		
-		if (hours === 0) {
-			hours = 12; // 00:xx becomes 12:xx AM
-		} else if (hours > 12) {
-			hours = hours - 12; // 13-23 becomes 1-11 PM
-		}
-		
-		return `${hours}:${minutes} ${modifier}`;
-	};
-	
 	// Form data - initialize with task data if in edit mode
 	let formData = {
 		title: editMode && taskData ? taskData.title : '',
 		description: editMode && taskData ? taskData.description : '',
-		priority: editMode && taskData ? taskData.priority : 'medium',
-		due_date: editMode && taskData && taskData.due_date ? new Date(taskData.due_date).toISOString().split('T')[0] : '',
-		due_time: editMode && taskData && taskData.due_time ? convertTo12Hour(taskData.due_time) : '',
-		require_task_finished: editMode && taskData ? taskData.require_task_finished : false,
-		require_photo_upload: editMode && taskData ? taskData.require_photo_upload : false,
-		require_erp_reference: editMode && taskData ? taskData.require_erp_reference : false,
-		can_escalate: editMode && taskData ? taskData.can_escalate : false,
-		can_reassign: editMode && taskData ? taskData.can_reassign : false,
-		assigned_to: '',
-		image_url: ''
+		created_by: editMode && taskData ? taskData.created_by : ($auth?.user?.id || '')
 	};
 	
 	// Form state
@@ -59,43 +30,14 @@
 		formData = {
 			title: taskData.title || '',
 			description: taskData.description || '',
-			priority: taskData.priority || 'medium',
-			due_date: taskData.due_date ? new Date(taskData.due_date).toISOString().split('T')[0] : '',
-			due_time: taskData.due_time ? convertTo12Hour(taskData.due_time) : '',
-			require_task_finished: taskData.require_task_finished || false,
-			require_photo_upload: taskData.require_photo_upload || false,
-			require_erp_reference: taskData.require_erp_reference || false,
-			can_escalate: taskData.can_escalate || false,
-			can_reassign: taskData.can_reassign || false,
-			assigned_to: '',
-			image_url: taskData.image_url || ''
+			created_by: taskData.created_by || ($auth?.user?.id || '')
 		};
 	}
 	
-	// Priority options
-	const priorityOptions = [
-		{ value: 'low', label: 'Low', color: 'bg-green-100 text-green-800' },
-		{ value: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800' },
-		{ value: 'high', label: 'High', color: 'bg-red-100 text-red-800' }
-	];
-	
-	// Time options (12-hour format with AM/PM)
-	const generateTimeOptions = () => {
-		const times = [];
-		for (let hour = 1; hour <= 12; hour++) {
-			for (let minute of ['00', '15', '30', '45']) {
-				times.push(`${hour}:${minute} AM`);
-			}
-		}
-		for (let hour = 1; hour <= 12; hour++) {
-			for (let minute of ['00', '15', '30', '45']) {
-				times.push(`${hour}:${minute} PM`);
-			}
-		}
-		return times;
-	};
-	
-	const timeOptions = generateTimeOptions();
+	// Ensure created_by is always set when user auth changes
+	$: if ($auth?.user?.id && !editMode) {
+		formData.created_by = $auth.user.id;
+	}
 	
 	// Image handling
 	const handleImageUpload = (event) => {
@@ -128,7 +70,6 @@
 	const removeImage = () => {
 		imageFile = null;
 		imagePreview = null;
-		formData.image_url = '';
 		// Clear the file input
 		document.getElementById('image-upload').value = '';
 	};
@@ -145,17 +86,8 @@
 			errors.description = 'Task description is required';
 		}
 		
-		if (!formData.due_date) {
-			errors.due_date = 'Due date is required';
-		}
-		
-		if (!formData.due_time) {
-			errors.due_time = 'Due time is required';
-		}
-		
-		// Validate that at least one completion criteria is selected
-		if (!formData.require_task_finished && !formData.require_photo_upload && !formData.require_erp_reference) {
-			errors.completion_criteria = 'At least one completion criteria must be selected';
+		if (!formData.created_by) {
+			errors.created_by = 'User authentication required to create tasks';
 		}
 		
 		return Object.keys(errors).length === 0;
@@ -170,54 +102,91 @@
 		isSubmitting = true;
 		
 		try {
+			let uploadResult = null;
+			
 			// Upload image if present
 			if (imageFile) {
-				const uploadResult = await uploadToSupabase(imageFile, 'task-images');
+				console.log('🔍 [TaskCreate] Attempting to upload image:', imageFile.name, imageFile.type, imageFile.size);
+				uploadResult = await uploadToSupabase(imageFile, 'task-images');
+				console.log('📤 [TaskCreate] Upload result:', uploadResult);
+				
 				if (uploadResult.error) {
-					errors.image = 'Failed to upload image';
+					console.error('❌ [TaskCreate] Upload error details:', uploadResult.error);
+					const errorMsg = `Failed to upload image: ${uploadResult.error.message || JSON.stringify(uploadResult.error)}`;
+					
+					// Show error notification for image upload
+					notifications.add({
+						type: 'error',
+						message: errorMsg,
+						duration: 6000
+					});
+					errors.image = errorMsg;
 					return;
 				}
-				formData.image_url = uploadResult.data.publicUrl;
 			}
-			
-			// Convert 12-hour time to 24-hour format for database
-			const convertTo24Hour = (time12h) => {
-				if (!time12h || time12h.trim() === '') {
-					return null; // Return null for empty time
-				}
-				
-				const [time, modifier] = time12h.split(' ');
-				let [hours, minutes] = time.split(':');
-				
-				// Convert to 24-hour format
-				if (hours === '12') {
-					hours = modifier === 'AM' ? '00' : '12';
-				} else if (modifier === 'PM') {
-					hours = (parseInt(hours, 10) + 12).toString();
-				}
-				
-				// Return only time portion (HH:MM:SS)
-				return `${hours.toString().padStart(2, '0')}:${minutes}:00`;
-			};
-			
-			const convertedTime = convertTo24Hour(formData.due_time);
-			const taskSubmitData = {
-				...formData,
-				due_time: convertedTime
-			};
-			
+
 			// Create or update the task
 			let result;
 			if (editMode && taskData?.id) {
-				result = await updateTask(taskData.id, taskSubmitData);
+				result = await updateTask(taskData.id, formData);
 			} else {
-				result = await createTask(taskSubmitData);
+				result = await createTask(formData);
 			}
-			
+
 			if (result.success) {
+				// If we uploaded an image and created a task successfully, save the image record
+				if (uploadResult && uploadResult.data && result.data?.id) {
+					console.log('💾 [TaskCreate] Saving image record to task_images table...');
+					try {
+						// Import the db module for direct database access
+						const { db } = await import('$lib/utils/supabase');
+						
+						const imageRecord = {
+							task_id: result.data.id,
+							file_name: imageFile.name,
+							file_size: imageFile.size,
+							file_type: imageFile.type,
+							file_url: uploadResult.data.publicUrl,
+							image_type: 'task_creation',
+							uploaded_by: $auth?.user?.id || formData.created_by,
+							uploaded_by_name: $auth?.user?.username || 'Unknown User'
+						};
+						
+						console.log('📝 [TaskCreate] Creating image record:', imageRecord);
+						const imageInsertResult = await db.taskImages.create(imageRecord);
+						
+						if (imageInsertResult.error) {
+							console.error('❌ [TaskCreate] Failed to save image record:', imageInsertResult.error);
+							// Don't fail the task creation if image record fails, just warn
+							notifications.add({
+								type: 'warning',
+								message: 'Task created successfully, but failed to save image reference',
+								duration: 4000
+							});
+						} else {
+							console.log('✅ [TaskCreate] Image record saved successfully');
+						}
+					} catch (imageError) {
+						console.error('❌ [TaskCreate] Error saving image record:', imageError);
+						// Don't fail the task creation if image record fails, just warn
+						notifications.add({
+							type: 'warning',
+							message: 'Task created successfully, but failed to save image reference',
+							duration: 4000
+						});
+					}
+				}
+
+				// Show success notification
+				notifications.add({
+					type: 'success',
+					message: `Task "${formData.title}" ${editMode ? 'updated' : 'created'} successfully!`,
+					duration: 4000
+				});
+				
 				if (editMode) {
 					dispatch('taskUpdated', result.data);
-					if (onTaskUpdated) {
+					if (onTaskUpdated && typeof onTaskUpdated === 'function') {
 						onTaskUpdated(result.data);
 					}
 				} else {
@@ -225,11 +194,26 @@
 				}
 				dispatch('close');
 			} else {
-				errors.submit = result.error || `Failed to ${editMode ? 'update' : 'create'} task`;
+				// Show error notification
+				const errorMsg = result.error || `Failed to ${editMode ? 'update' : 'create'} task`;
+				notifications.add({
+					type: 'error',
+					message: errorMsg,
+					duration: 6000
+				});
+				errors.submit = errorMsg;
 			}
 		} catch (error) {
 			console.error(`Error ${editMode ? 'updating' : 'creating'} task:`, error);
-			errors.submit = 'An unexpected error occurred';
+			const errorMsg = 'An unexpected error occurred';
+			
+			// Show error notification
+			notifications.add({
+				type: 'error',
+				message: errorMsg,
+				duration: 6000
+			});
+			errors.submit = errorMsg;
 		} finally {
 			isSubmitting = false;
 		}
@@ -248,14 +232,6 @@
 				<h2 class="text-xl font-semibold text-gray-900">
 					{editMode ? 'Edit Task' : 'Create New Task'}
 				</h2>
-				<button
-					on:click={handleClose}
-					class="text-gray-400 hover:text-gray-600 transition-colors"
-				>
-					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-					</svg>
-				</button>
 			</div>
 
 			<form on:submit|preventDefault={handleSubmit} class="space-y-6">
@@ -304,13 +280,6 @@
 						{#if imagePreview}
 							<div class="relative inline-block">
 								<img src={imagePreview} alt="Preview" class="w-32 h-32 object-cover rounded-lg" />
-								<button
-									type="button"
-									on:click={removeImage}
-									class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-red-600 transition-colors"
-								>
-									×
-								</button>
 							</div>
 						{/if}
 						<input
@@ -323,139 +292,6 @@
 						{#if errors.image}
 							<p class="text-sm text-red-600">{errors.image}</p>
 						{/if}
-					</div>
-				</div>
-
-				<!-- Priority Section -->
-				<div>
-					<label class="block text-sm font-medium text-gray-700 mb-2">
-						Priority *
-					</label>
-					<div class="grid grid-cols-3 gap-3">
-						{#each priorityOptions as option}
-							<label class="relative cursor-pointer">
-								<input
-									type="radio"
-									name="priority"
-									value={option.value}
-									bind:group={formData.priority}
-									class="sr-only"
-								/>
-								<div
-									class="p-3 text-center rounded-lg border-2 transition-all {formData.priority === option.value
-										? 'border-blue-500 ' + option.color
-										: 'border-gray-200 hover:border-gray-300'}"
-								>
-									<span class="font-medium">{option.label}</span>
-								</div>
-							</label>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Date and Time -->
-				<div class="grid grid-cols-2 gap-4">
-					<!-- Date -->
-					<div>
-						<label for="due-date" class="block text-sm font-medium text-gray-700 mb-2">
-							Date *
-						</label>
-						<input
-							id="due-date"
-							type="date"
-							bind:value={formData.due_date}
-							min={new Date().toISOString().split('T')[0]}
-							class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-							class:border-red-500={errors.due_date}
-						/>
-						{#if errors.due_date}
-							<p class="mt-1 text-sm text-red-600">{errors.due_date}</p>
-						{/if}
-					</div>
-
-					<!-- Time -->
-					<div>
-						<label for="due-time" class="block text-sm font-medium text-gray-700 mb-2">
-							Time (12-hour format with AM/PM) *
-						</label>
-						<select
-							id="due-time"
-							bind:value={formData.due_time}
-							class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-							class:border-red-500={errors.due_time}
-						>
-							<option value="">Select time</option>
-							{#each timeOptions as time}
-								<option value={time}>{time}</option>
-							{/each}
-						</select>
-						{#if errors.due_time}
-							<p class="mt-1 text-sm text-red-600">{errors.due_time}</p>
-						{/if}
-					</div>
-				</div>
-
-				<!-- Completion Criteria -->
-				<div>
-					<label class="block text-sm font-medium text-gray-700 mb-3">
-						Completion Criteria *
-					</label>
-					<div class="space-y-3">
-						<label class="flex items-center space-x-3 cursor-pointer">
-							<input
-								type="checkbox"
-								bind:checked={formData.require_task_finished}
-								class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-							/>
-							<span class="text-sm text-gray-700">☐ Task finished</span>
-						</label>
-						
-						<label class="flex items-center space-x-3 cursor-pointer">
-							<input
-								type="checkbox"
-								bind:checked={formData.require_photo_upload}
-								class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-							/>
-							<span class="text-sm text-gray-700">☐ Upload photo or take photo</span>
-						</label>
-						
-						<label class="flex items-center space-x-3 cursor-pointer">
-							<input
-								type="checkbox"
-								bind:checked={formData.require_erp_reference}
-								class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-							/>
-							<span class="text-sm text-gray-700">☐ ERP reference number</span>
-						</label>
-					</div>
-					{#if errors.completion_criteria}
-						<p class="mt-1 text-sm text-red-600">{errors.completion_criteria}</p>
-					{/if}
-				</div>
-
-				<!-- Additional Options -->
-				<div>
-					<label class="block text-sm font-medium text-gray-700 mb-3">
-						Additional Options
-					</label>
-					<div class="space-y-3">
-						<label class="flex items-center space-x-3 cursor-pointer">
-							<input
-								type="checkbox"
-								bind:checked={formData.can_escalate}
-								class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-							/>
-							<span class="text-sm text-gray-700">Can Escalate Task</span>
-						</label>
-						
-						<label class="flex items-center space-x-3 cursor-pointer">
-							<input
-								type="checkbox"
-								bind:checked={formData.can_reassign}
-								class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-							/>
-							<span class="text-sm text-gray-700">Can Reassign Task</span>
-						</label>
 					</div>
 				</div>
 
@@ -502,11 +338,5 @@
 	/* File input styling */
 	input[type="file"]::-webkit-file-upload-button {
 		cursor: pointer;
-	}
-	
-	/* Radio button styling for priority */
-	input[type="radio"]:checked + div {
-		transform: scale(1.02);
-		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 	}
 </style>

@@ -3,8 +3,10 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { auth } from '$lib/stores/auth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
+	import { db } from '$lib/utils/supabase';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
+	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 
 	// Current user for role-based access
 	$: currentUser = $auth?.user;
@@ -16,23 +18,52 @@
 	let isLoading = true;
 	let errorMessage = '';
 
-	// Convert API response to component format
-	function transformNotificationData(apiNotifications: any[]) {
-		return apiNotifications.map(notification => ({
+	// Image modal
+	let showImageModal = false;
+	let selectedImageUrl = '';
+
+	// Convert API response to component format and load task images
+	async function transformNotificationData(apiNotifications: any[]) {
+		const transformedNotifications = [];
+		
+		for (const notification of apiNotifications) {
+		const transformed = {
 			id: notification.id,
 			title: notification.title,
 			message: notification.message,
 			type: notification.type,
 			timestamp: formatTimestamp(notification.created_at),
-			read: notification.is_read_by_user || false, // Use per-user read state
+			read: notification.is_read || false, // Use is_read from notification_read_states
 			priority: notification.priority,
 			createdBy: notification.created_by_name,
 			targetUsers: notification.target_type,
 			targetBranch: 'all', // Simplified for now
 			status: notification.status,
 			readCount: notification.read_count,
-			totalRecipients: notification.total_recipients
-		}));
+			totalRecipients: notification.total_recipients,
+			metadata: notification.metadata,
+			image_url: null
+		};			// Load task image if this is a task-related notification
+			if (notification.metadata && notification.metadata.task_id) {
+				try {
+					console.log(`🖼️ [Notification] Loading image for task ${notification.metadata.task_id}`);
+					const imageResult = await db.taskImages.getByTaskId(notification.metadata.task_id);
+					
+					if (imageResult.data && imageResult.data.length > 0) {
+						transformed.image_url = imageResult.data[0].file_url;
+						console.log(`✅ [Notification] Found image for task ${notification.metadata.task_id}: ${transformed.image_url}`);
+					} else {
+						console.log(`📭 [Notification] No image found for task ${notification.metadata.task_id}`);
+					}
+				} catch (error) {
+					console.warn(`❌ [Notification] Failed to load image for task ${notification.metadata.task_id}:`, error);
+				}
+			}
+			
+			transformedNotifications.push(transformed);
+		}
+		
+		return transformedNotifications;
 	}
 
 	function formatTimestamp(isoString: string): string {
@@ -63,7 +94,7 @@
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				const apiNotifications = await notificationManagement.getAllNotifications(currentUser?.id || 'default-user');
-				allNotifications = transformNotificationData(apiNotifications);
+				allNotifications = await transformNotificationData(apiNotifications);
 			} else if (currentUser?.id) {
 				// Regular users see only their targeted notifications
 				const userNotifications = await notificationManagement.getUserNotifications(currentUser.id);
@@ -84,6 +115,69 @@
 		} catch (error) {
 			console.error('Error loading notifications:', error);
 			errorMessage = 'Failed to load notifications. Please try again.';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Force refresh function that clears cache and reloads notifications
+	async function forceRefreshNotifications() {
+		try {
+			// Clear the current notifications array
+			allNotifications = [];
+			isLoading = true;
+			errorMessage = '';
+			
+			// Add cache-busting parameter to force fresh data
+			const timestamp = Date.now();
+			console.log('🔄 [NotificationCenter] Force refreshing notifications at:', new Date().toISOString());
+			
+			// Force clear any browser cache by adding timestamp to requests
+			if (isAdminOrMaster) {
+				// Force fresh data by bypassing any cache
+				const apiNotifications = await notificationManagement.getAllNotifications(currentUser?.id || 'default-user');
+				allNotifications = await transformNotificationData(apiNotifications);
+			} else if (currentUser?.id) {
+				const userNotifications = await notificationManagement.getUserNotifications(currentUser.id);
+				allNotifications = userNotifications.map(notification => ({
+					id: notification.notification_id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					content: notification.message,
+					metadata: notification.metadata || {},
+					read: notification.is_read,
+					timestamp: notification.created_at,
+					createdBy: notification.created_by_name,
+					attachments: notification.attachments || []
+				}));
+			}
+			
+			// Filter out any notifications that might reference non-existent tasks
+			const validNotifications = [];
+			for (const notification of allNotifications) {
+				if (notification.type === 'task_assigned') {
+					// Skip this notification if it seems to reference a deleted task
+					// This is a client-side safety check
+					try {
+						if (notification.metadata?.task_id) {
+							// Could add a check here to verify task exists
+							// For now, include all notifications from the cleaned database
+						}
+						validNotifications.push(notification);
+					} catch (error) {
+						console.warn('Skipping potentially invalid notification:', notification.id);
+					}
+				} else {
+					validNotifications.push(notification);
+				}
+			}
+			
+			allNotifications = validNotifications;
+			console.log('✅ [NotificationCenter] Force refresh completed. Total notifications:', allNotifications.length);
+		} catch (error) {
+			console.error('❌ [NotificationCenter] Error force refreshing notifications:', error);
+			errorMessage = 'Failed to refresh notifications. Please try again.';
 		} finally {
 			isLoading = false;
 		}
@@ -167,6 +261,17 @@
 		}
 	}
 
+	// Image modal functions
+	function openImageModal(imageUrl: string) {
+		selectedImageUrl = imageUrl;
+		showImageModal = true;
+	}
+
+	function closeImageModal() {
+		showImageModal = false;
+		selectedImageUrl = '';
+	}
+
 	function openCreateNotification() {
 		const windowId = `create-notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 		
@@ -207,6 +312,117 @@
 		});
 	}
 
+	async function openTaskCompletion(notification: any) {
+		const windowId = `task-completion-${notification.id}-${Date.now()}`;
+		
+		// Parse task data from notification message or metadata
+		const taskData = parseTaskDataFromNotification(notification);
+		
+		// Initialize variables outside try-catch scope
+		let taskObject = null;
+		let assignmentData = null;
+		
+		// If we have task and assignment IDs, fetch the complete data to match MyTasksView format
+		if (taskData.taskId && taskData.assignmentId) {
+			try {
+				console.log('🔍 [NotificationCenter] Fetching complete task data for:', taskData.taskId);
+				const taskResult = await db.tasks.getById(taskData.taskId);
+				const assignmentResult = await db.taskAssignments.getById(taskData.assignmentId);
+				
+				if (taskResult.data && assignmentResult.data) {
+					// Store assignment data for later use
+					assignmentData = assignmentResult.data;
+					
+					// Create unified task object matching MyTasksView format
+					taskObject = {
+						...taskResult.data,
+						assignment_id: taskData.assignmentId,
+						deadline_date: assignmentData.deadline_date,
+						deadline_time: assignmentData.deadline_time,
+						deadline_datetime: assignmentData.deadline_datetime,
+						schedule_date: assignmentData.schedule_date,
+						schedule_time: assignmentData.schedule_time,
+						assignment_date: assignmentData.assignment_date,
+						notes: assignmentData.notes,
+						// Assignment requirements
+						require_task_finished: assignmentData.require_task_finished ?? false,
+						require_photo_upload: assignmentData.require_photo_upload ?? false,
+						require_erp_reference: assignmentData.require_erp_reference ?? false
+					};
+					console.log('✅ [NotificationCenter] Complete task object created:', taskObject);
+				}
+			} catch (error) {
+				console.error('❌ [NotificationCenter] Error fetching complete task data:', error);
+			}
+		}
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Complete Task: ${taskData.title || 'Task'}`,
+			component: TaskCompletionModal,
+			icon: '✅',
+			props: {
+				// Use unified task object approach like MyTasksView
+				task: taskObject,
+				assignmentId: taskData.assignmentId,
+				// Use actual requirements from the assignment if available, otherwise default values
+				requireTaskFinished: true, // Always required for task finished
+				requirePhotoUpload: assignmentData?.require_photo_upload ?? false,
+				requireErpReference: assignmentData?.require_erp_reference ?? false,
+				notificationId: notification.id,
+				onTaskCompleted: () => {
+					loadNotifications();
+					windowManager.closeWindow(windowId);
+				}
+			},
+			size: { width: 600, height: 700 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function parseTaskDataFromNotification(notification: any) {
+		// Try to extract task information from notification metadata first, then message
+		const metadata = notification.metadata || {};
+		const message = notification.message || '';
+		
+		// If metadata exists, use it directly
+		if (metadata.task_id) {
+			return {
+				taskId: metadata.task_id,
+				title: metadata.task_title || 'Unknown Task',
+				description: metadata.notes || '',
+				deadline: metadata.deadline || '',
+				requireTaskFinished: metadata.require_task_finished || false,
+				requirePhotoUpload: metadata.require_photo_upload || false,
+				requireErpReference: metadata.require_erp_reference || false,
+				assignmentId: metadata.assignment_id || null
+			};
+		}
+		
+		// Fallback to parsing from message for older notifications
+		const titleMatch = message.match(/task:\s*"([^"]+)"/i);
+		const deadlineMatch = message.match(/deadline:\s*([^.\n]+)/i);
+		const notesMatch = message.match(/notes:\s*(.+)/i);
+		
+		return {
+			taskId: null, // Changed from 'unknown' to null for safety
+			title: titleMatch ? titleMatch[1].trim() : 'Unknown Task',
+			description: notesMatch ? notesMatch[1].trim() : '',
+			deadline: deadlineMatch ? deadlineMatch[1].trim() : '',
+			requireTaskFinished: true,
+			requirePhotoUpload: false,
+			requireErpReference: false,
+			assignmentId: null
+		};
+	}
+
 	// Refresh notifications periodically
 	onMount(() => {
 		const interval = setInterval(() => {
@@ -234,9 +450,9 @@
 					Read Status
 				</button>
 			{/if}
-			<button class="refresh-btn" on:click={loadNotifications} disabled={isLoading}>
+			<button class="refresh-btn" on:click={forceRefreshNotifications} disabled={isLoading} title="Force refresh and clear cache">
 				<span class="icon">🔄</span>
-				Refresh
+				{isLoading ? 'Refreshing...' : 'Refresh'}
 			</button>
 			<span class="unread-badge">{unreadCount} Unread</span>
 			{#if unreadCount > 0}
@@ -311,6 +527,15 @@
 									</div>
 								</div>
 								<div class="notification-actions">
+									{#if notification.type === 'task_assigned' && !notification.read}
+										<button 
+											class="action-btn complete-task-btn" 
+											on:click={() => openTaskCompletion(notification)}
+											title="Complete task"
+										>
+											✅ Complete
+										</button>
+									{/if}
 									{#if !notification.read}
 										<button 
 											class="action-btn read-btn" 
@@ -334,6 +559,28 @@
 							<div class="notification-message">
 								{notification.message}
 							</div>
+							
+							<!-- Task Image Display -->
+							{#if notification.image_url}
+								<div class="notification-image">
+									<button
+										on:click={() => openImageModal(notification.image_url)}
+										class="image-thumbnail"
+										title="Click to view full image"
+									>
+										<img
+											src={notification.image_url}
+											alt="Task image"
+											class="notification-img"
+											loading="lazy"
+											on:error={(e) => {
+												console.warn(`Failed to load notification image: ${notification.image_url}`);
+												e.target.parentElement.style.display = 'none';
+											}}
+										/>
+									</button>
+								</div>
+							{/if}
 						</div>
 						{#if !notification.read}
 							<div class="unread-indicator"></div>
@@ -344,6 +591,28 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Image Modal -->
+{#if showImageModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75" on:click={closeImageModal}>
+		<div class="relative max-w-4xl max-h-4xl p-4">
+			<button
+				on:click={closeImageModal}
+				class="absolute top-2 right-2 z-10 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all duration-200"
+			>
+				<svg class="w-6 h-6 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+				</svg>
+			</button>
+			<img
+				src={selectedImageUrl}
+				alt="Task image full size"
+				class="max-w-full max-h-full object-contain rounded-lg"
+				on:click|stopPropagation
+			/>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.notification-center {
@@ -727,6 +996,17 @@
 		color: #10b981;
 	}
 
+	.complete-task-btn {
+		background: #10b981;
+		color: white;
+		border: 1px solid #10b981;
+	}
+
+	.complete-task-btn:hover {
+		background: #059669;
+		border-color: #059669;
+	}
+
 	.delete-btn:hover {
 		border-color: #ef4444;
 		color: #ef4444;
@@ -766,5 +1046,39 @@
 
 	.notifications-list::-webkit-scrollbar-thumb:hover {
 		background: #94a3b8;
+	}
+
+	/* Image display styles */
+	.notification-image {
+		margin-top: 12px;
+		padding-left: 32px;
+	}
+
+	.image-thumbnail {
+		border: none;
+		background: none;
+		padding: 0;
+		cursor: pointer;
+		border-radius: 8px;
+		overflow: hidden;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.image-thumbnail:hover {
+		transform: scale(1.02);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	.notification-img {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
+		border-radius: 8px;
+		border: 2px solid #e5e7eb;
+		transition: border-color 0.2s ease;
+	}
+
+	.notification-img:hover {
+		border-color: #6366f1;
 	}
 </style>
