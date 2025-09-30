@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import WarningTemplate from './WarningTemplate.svelte';
+	import { generateWarning as generateWarningApi } from '$lib/utils/warningGenerator.js';
 	
 	export let assignment;
 	
@@ -34,27 +35,17 @@
 		error = null;
 
 		try {
-			// Prepare data for OpenAI API call
-			const prompt = createWarningPrompt();
+			console.log('Starting warning generation...');
+			console.log('Assignment data:', assignment);
+			console.log('Selected language:', selectedLanguage);
 			
-			// Call OpenAI API through your backend
-			const response = await fetch('/api/generate-warning', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					prompt,
-					language: selectedLanguage,
-					assignment: assignment
-				})
-			});
-
-			if (!response.ok) {
-				throw new Error('Failed to generate warning');
+			// Use the new warning generator utility
+			const result = await generateWarningApi(assignment, selectedLanguage);
+			
+			if (!result.warning) {
+				throw new Error('No warning content received from the server');
 			}
-
-			const result = await response.json();
+			
 			generatedWarning = result.warning;
 
 			// Prepare warning data for template
@@ -76,9 +67,19 @@
 			};
 
 			showTemplate = true;
+			console.log('Warning generated successfully');
 		} catch (err) {
 			console.error('Error generating warning:', err);
-			error = 'Failed to generate warning: ' + err.message;
+			error = `Failed to generate warning: ${err.message}`;
+			
+			// Provide more helpful error messages based on the error type
+			if (err.message.includes('404') || err.message.includes('not found')) {
+				error = 'Warning generation service is not available. Please contact your administrator.';
+			} else if (err.message.includes('500')) {
+				error = 'Server error occurred. Please try again later or contact support.';
+			} else if (err.message.includes('network') || err.message.includes('fetch')) {
+				error = 'Network error. Please check your internet connection and try again.';
+			}
 		} finally {
 			isGenerating = false;
 		}

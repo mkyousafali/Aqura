@@ -4,11 +4,24 @@ import { env } from '$env/dynamic/private';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
-	apiKey: env.VITE_OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
+	apiKey: env.OPENAI_API_KEY || env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
 });
 
 export async function POST({ request }) {
 	try {
+		console.log('API route accessed, checking environment...');
+		
+		// Check if OpenAI API key is available
+		const apiKey = env.OPENAI_API_KEY || env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY;
+		console.log('API key available:', !!apiKey);
+		
+		if (!apiKey) {
+			console.error('No OpenAI API key found in environment variables');
+			return json({ 
+				error: 'OpenAI API key not configured. Please check server environment variables.' 
+			}, { status: 500 });
+		}
+
 		const { 
 			assignment,
 			language = 'en'
