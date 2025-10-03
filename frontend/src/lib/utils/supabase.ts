@@ -6,46 +6,61 @@ const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
 const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
-// Create Supabase client with singleton pattern
+// Singleton instances to prevent multiple client creation
 let _supabase: any = null;
+let _supabaseAdmin: any = null;
 
+// Create Supabase client with singleton pattern
 export const supabase = (() => {
-	if (!_supabase) {
-		_supabase = createClient(supabaseUrl, supabaseAnonKey, {
-			auth: {
-				persistSession: true,
-				autoRefreshToken: true,
-				detectSessionInUrl: true,
-				storageKey: 'aqura-auth' // Use unique storage key
-			},
-			global: {
-				headers: {
-					'X-Client-Info': 'aqura-pwa'
-				}
-			}
-		});
+	if (_supabase) {
+		return _supabase;
 	}
+	
+	_supabase = createClient(supabaseUrl, supabaseAnonKey, {
+		auth: {
+			persistSession: true,
+			autoRefreshToken: true,
+			detectSessionInUrl: true,
+			storageKey: 'aqura-auth-v2' // Use unique storage key
+		},
+		global: {
+			headers: {
+				'X-Client-Info': 'aqura-pwa-v2'
+			}
+		},
+		realtime: {
+			params: {
+				eventsPerSecond: 10
+			}
+		}
+	});
+	
+	// Mark as singleton to avoid recreation
+	_supabase._isSingleton = true;
 	return _supabase;
 })();
 
 // Service role client for administrative operations (bypasses RLS)
-let _supabaseAdmin: any = null;
-
 export const supabaseAdmin = (() => {
-	if (!_supabaseAdmin) {
-		_supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-			auth: {
-				persistSession: false,
-				autoRefreshToken: false,
-				storageKey: 'aqura-admin-auth' // Use unique storage key
-			},
-			global: {
-				headers: {
-					'X-Client-Info': 'aqura-pwa-admin'
-				}
-			}
-		});
+	if (_supabaseAdmin) {
+		return _supabaseAdmin;
 	}
+	
+	_supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+		auth: {
+			persistSession: false,
+			autoRefreshToken: false,
+			storageKey: 'aqura-admin-auth-v2' // Use unique storage key
+		},
+		global: {
+			headers: {
+				'X-Client-Info': 'aqura-pwa-admin-v2'
+			}
+		}
+	});
+	
+	// Mark as singleton to avoid recreation
+	_supabaseAdmin._isSingleton = true;
 	return _supabaseAdmin;
 })();
 

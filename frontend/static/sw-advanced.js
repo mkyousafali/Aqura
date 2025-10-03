@@ -8,8 +8,7 @@ const DATA_CACHE_NAME = 'aqura-data-v1';
 const STATIC_CACHE_URLS = [
 	'/',
 	'/manifest.json',
-	'/offline.html', // Fallback page
-	// Add other critical static assets
+	'/offline.html'
 ];
 
 // API endpoints to cache with different strategies
@@ -26,10 +25,26 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME)
 			.then((cache) => {
-				console.log('[ServiceWorker] Pre-caching offline page');
-				return cache.addAll(STATIC_CACHE_URLS);
+				console.log('[ServiceWorker] Pre-caching offline resources');
+				// Cache each file individually to handle failures gracefully
+				return Promise.allSettled(
+					STATIC_CACHE_URLS.map(url => cache.add(url))
+				);
 			})
-			.then(() => self.skipWaiting())
+			.then((results) => {
+				// Log any failures but don't block installation
+				results.forEach((result, index) => {
+					if (result.status === 'rejected') {
+						console.warn(`[ServiceWorker] Failed to cache ${STATIC_CACHE_URLS[index]}:`, result.reason);
+					}
+				});
+				return self.skipWaiting();
+			})
+			.catch((error) => {
+				console.error('[ServiceWorker] Cache setup failed:', error);
+				// Continue anyway to prevent blocking
+				return self.skipWaiting();
+			})
 	);
 });
 
@@ -89,7 +104,16 @@ self.addEventListener('fetch', (event) => {
 			.catch(() => {
 				// Return offline page for navigation requests
 				if (request.mode === 'navigate') {
-					return caches.match('/offline.html');
+					return caches.match('/offline.html').then((cachedOffline) => {
+						if (cachedOffline) {
+							return cachedOffline;
+						}
+						// Fallback if offline.html isn't cached
+						return new Response(
+							'<html><body><h1>Offline</h1><p>You are offline. Please check your connection.</p></body></html>',
+							{ headers: { 'Content-Type': 'text/html' } }
+						);
+					});
 				}
 			})
 	);

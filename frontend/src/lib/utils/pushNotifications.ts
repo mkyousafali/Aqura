@@ -1,4 +1,5 @@
-import { supabase } from './supabase';
+// Import shared supabase clients to avoid multiple instances
+import { supabase, supabaseAdmin } from './supabase';
 import { browser } from '$app/environment';
 import { currentUser as persistentCurrentUser } from './persistentAuth';
 import { get } from 'svelte/store';
@@ -175,14 +176,9 @@ export class PushNotificationService {
 		});
 
 		try {
-			// Use singleton service role client to avoid multiple instances
-			if (!serviceRoleClient) {
-				const { createClient } = await import('@supabase/supabase-js');
-				serviceRoleClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-			}
-
+			// Use shared supabase admin client to avoid multiple instances
 			// Upsert device registration using service role
-			const { error } = await serviceRoleClient
+			const { error } = await supabaseAdmin
 				.from('push_subscriptions')
 				.upsert(deviceRegistration);
 
@@ -207,12 +203,9 @@ export class PushNotificationService {
 		if (!deviceId) return;
 
 		try {
-			// Create service role client for this operation
-			const { createClient } = await import('@supabase/supabase-js');
-			const serviceSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
+			// Use shared supabase admin client
 			// Mark device as inactive
-			const { error } = await serviceSupabase
+			const { error } = await supabaseAdmin
 				.from('push_subscriptions')
 				.update({ is_active: false })
 				.eq('device_id', deviceId);
@@ -297,13 +290,8 @@ export class PushNotificationService {
 		if (!deviceId) return;
 
 		try {
-			// Use singleton service role client to avoid multiple instances
-			if (!serviceRoleClient) {
-				const { createClient } = await import('@supabase/supabase-js');
-				serviceRoleClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-			}
-
-			await serviceRoleClient
+			// Use shared supabase admin client
+			await supabaseAdmin
 				.from('push_subscriptions')
 				.update({ 
 					last_seen: new Date().toISOString(),
