@@ -534,6 +534,7 @@
 		touch-action: manipulation;
 		-webkit-text-size-adjust: 100%;
 		overflow-x: hidden;
+		height: 100%;
 	}
 
 	:global(body) {
@@ -542,6 +543,9 @@
 		overflow-x: hidden;
 		min-height: 100vh;
 		min-height: 100dvh;
+		height: 100%;
+		-webkit-overflow-scrolling: touch; /* Enable smooth scrolling on iOS */
+		position: relative;
 	}
 
 	/* Prevent iOS zoom on input focus */
@@ -555,9 +559,10 @@
 		min-height: 100vh;
 		min-height: 100dvh; /* Use dynamic viewport height for mobile */
 		display: flex;
-		align-items: center;
+		align-items: flex-start; /* Change from center to flex-start for better mobile scrolling */
 		justify-content: center;
 		padding: 1rem;
+		padding-top: 2rem; /* Add top padding to center content visually */
 		background: #F9FAFB;
 		position: relative;
 		overflow-x: hidden;
@@ -1073,16 +1078,19 @@
 				padding: 0.75rem;
 				min-height: 100vh;
 				min-height: 100dvh; /* Dynamic viewport height */
+				height: auto; /* Allow height to expand */
 				align-items: flex-start;
 				padding-top: 1rem;
-				padding-bottom: 2rem;
+				padding-bottom: 4rem; /* Extra bottom padding for mobile */
 				overflow-y: auto; /* Ensure scrolling works */
+				-webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 			}
 
 			.login-content {
 				width: 100%;
 				max-width: 500px;
 				margin: 0;
+				flex-shrink: 0; /* Prevent shrinking */
 			}
 
 		.logo-section {
@@ -1359,7 +1367,9 @@
 	@media (max-height: 700px) and (max-width: 768px) {
 		.login-page {
 			align-items: flex-start;
-			padding-top: 1rem;
+			padding-top: 0.5rem;
+			padding-bottom: 3rem;
+			height: auto; /* Allow content to expand beyond viewport */
 		}
 
 		.logo-section {

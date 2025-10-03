@@ -330,26 +330,6 @@
 				<div class="quick-badge">{counts.unread > 99 ? '99+' : counts.unread}</div>
 			{/if}
 		</button>
-
-		<!-- Quick Announcements -->
-		<button 
-			class="quick-btn announcements-btn"
-			on:click={openQuickAnnouncements}
-			title="My Announcements (2 active)"
-		>
-			<div class="quick-icon">📢</div>
-			<div class="quick-badge">2</div>
-		</button>
-
-		<!-- Quick Calendar -->
-		<button 
-			class="quick-btn calendar-btn"
-			on:click={openQuickCalendar}
-			title="My Calendar Events (4 today)"
-		>
-			<div class="quick-icon">📅</div>
-			<div class="quick-badge">4</div>
-		</button>
 	</div>
 
 	<!-- System Tray -->
@@ -359,7 +339,7 @@
 			<button 
 				class="tray-button logout-button" 
 				on:click|stopPropagation={handleLogout}
-				title="Logout ({currentUser.username})"
+				title="Logout ({currentUser?.employeeName || currentUser?.username})"
 				aria-label="Logout from system"
 				type="button"
 			>
@@ -406,82 +386,16 @@
 			</button>
 
 			<!-- User Information -->
-			<div class="user-info-taskbar" class:has-menu={showUserMenu}>
-				<button 
-					class="user-button"
-					on:click={toggleUserMenu}
-					title="User Menu"
-				>
+			<div class="user-info-taskbar">
+				<div class="user-display">
 					<div class="user-avatar-taskbar">
-						<span>{currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}</span>
+						<span>{(currentUser?.employeeName || currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
 					</div>
 					<div class="user-details-taskbar">
-						<div class="user-name-taskbar">{currentUser?.username || 'User'}</div>
+						<div class="user-name-taskbar">{currentUser?.employeeName || currentUser?.username || 'User'}</div>
 						<div class="user-role-taskbar">{currentUser?.role || 'Role'}</div>
 					</div>
-					<span class="dropdown-arrow">▼</span>
-				</button>
-				
-				{#if showUserMenu}
-					<div class="user-menu">
-						<div class="user-menu-header">
-							<div class="user-avatar-large">
-								<span>{currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}</span>
-							</div>
-							<div class="user-info">
-								<div class="user-name">{currentUser?.employeeName || currentUser?.username || 'User'}</div>
-								<div class="user-role">{currentUser?.role || 'Role'}</div>
-								<div class="user-branch">{currentUser?.branchName || 'Main Branch'}</div>
-							</div>
-						</div>
-						
-						<div class="menu-divider"></div>
-						
-						<div class="user-menu-actions">
-							<button class="menu-action" on:click={() => showUserMenu = false}>
-								<span class="action-icon">👤</span>
-								Profile
-							</button>
-							<button class="menu-action" on:click={() => showUserMenu = false}>
-								<span class="action-icon">⚙️</span>
-								Settings
-							</button>
-							
-							<!-- User switching if multiple users exist -->
-							{#if hasMultipleUsers}
-								<button class="menu-action" on:click={handleUserSwitchRequest}>
-									<span class="action-icon">🔄</span>
-									Switch User
-								</button>
-							{/if}
-							
-							<!-- Push notification settings -->
-							<button class="menu-action" on:click={handleNotificationSettingsRequest}>
-								<span class="action-icon">🔔</span>
-								Notifications
-							</button>
-							
-							<!-- Test notification (for development) -->
-							{#if import.meta.env.DEV}
-								<button class="menu-action" on:click={handleTestNotification}>
-									<span class="action-icon">🧪</span>
-									Test Notification
-								</button>
-							{/if}
-							
-							<div class="menu-divider"></div>
-							
-							<button class="menu-action logout" on:click={() => { 
-								console.log('🚪 [Taskbar] User menu logout clicked'); 
-								showUserMenu = false; 
-								handleLogout(); 
-							}}>
-								<span class="action-icon">🚪</span>
-								Logout
-							</button>
-						</div>
-					</div>
-				{/if}
+				</div>
 			</div>
 
 			<!-- Clock -->
@@ -508,10 +422,10 @@
 				<p>Are you sure you want to logout from your account?</p>
 				<div class="current-user-info">
 					<div class="user-avatar-dialog">
-						<span>{currentUser?.username?.charAt(0)?.toUpperCase() || 'U'}</span>
+						<span>{(currentUser?.employeeName || currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
 					</div>
 					<div class="user-details-dialog">
-						<div class="username">{currentUser?.username || 'User'}</div>
+						<div class="username">{currentUser?.employeeName || currentUser?.username || 'User'}</div>
 						<div class="role">{currentUser?.role || 'Role'}</div>
 					</div>
 				</div>
@@ -796,147 +710,17 @@
 		background: rgba(255, 255, 255, 0.95);
 		border: 1px solid rgba(229, 231, 235, 0.5);
 		border-radius: 4px;
-		padding: 0;
+		padding: 0 8px;
 		height: 32px; /* Same height as language toggle */
 		width: 100px; /* Fixed width same as language toggle */
-		position: relative;
 	}
 
-	.user-button {
+	.user-display {
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		background: none;
-		border: none;
-		padding: 0 8px;
+		width: 100%;
 		height: 100%;
-		width: 100%;
-		cursor: pointer;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-	}
-
-	.user-button:hover {
-		background: rgba(79, 70, 229, 0.1);
-	}
-
-	.dropdown-arrow {
-		font-size: 8px;
-		color: #6B7280;
-		margin-left: auto;
-		transition: transform 0.2s ease;
-	}
-
-	.user-info-taskbar.has-menu .dropdown-arrow {
-		transform: rotate(180deg);
-	}
-
-	.user-menu {
-		position: absolute;
-		bottom: 100%;
-		right: 0;
-		margin-bottom: 8px;
-		background: white;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		box-shadow: 
-			0 10px 25px rgba(0, 0, 0, 0.15),
-			0 4px 12px rgba(0, 0, 0, 0.1);
-		min-width: 280px;
-		z-index: 1000;
-		animation: slideUp 0.2s ease;
-	}
-
-	@keyframes slideUp {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.user-menu-header {
-		padding: 1rem;
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		border-bottom: 1px solid #F3F4F6;
-	}
-
-	.user-avatar-large {
-		width: 48px;
-		height: 48px;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: bold;
-		font-size: 18px;
-		color: white;
-		flex-shrink: 0;
-	}
-
-	.user-info .user-name {
-		font-weight: 600;
-		color: #1F2937;
-		font-size: 14px;
-		margin-bottom: 2px;
-	}
-
-	.user-info .user-role {
-		color: #6B7280;
-		font-size: 12px;
-		margin-bottom: 2px;
-	}
-
-	.user-info .user-branch {
-		color: #9CA3AF;
-		font-size: 11px;
-	}
-
-	.menu-divider {
-		height: 1px;
-		background: #F3F4F6;
-		margin: 0.5rem 0;
-	}
-
-	.user-menu-actions {
-		padding: 0.5rem 0;
-	}
-
-	.menu-action {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		width: 100%;
-		padding: 0.75rem 1rem;
-		border: none;
-		background: none;
-		color: #374151;
-		font-size: 14px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		text-align: left;
-	}
-
-	.menu-action:hover {
-		background: #F9FAFB;
-		color: #1F2937;
-	}
-
-	.menu-action.logout:hover {
-		background: #FEF2F2;
-		color: #DC2626;
-	}
-
-	.action-icon {
-		font-size: 16px;
-		width: 20px;
-		text-align: center;
 	}
 
 	.user-avatar-taskbar {

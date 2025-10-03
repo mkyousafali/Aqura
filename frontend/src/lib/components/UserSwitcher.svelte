@@ -83,8 +83,8 @@
 		}
 	}
 
-	function getUserInitials(username: string): string {
-		return username
+	function getUserInitials(displayName: string): string {
+		return displayName
 			.split(' ')
 			.map(word => word.charAt(0))
 			.join('')
@@ -184,14 +184,14 @@
 							>
 								<!-- User Avatar -->
 								<div class="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-medium">
-									{getUserInitials(user.username)}
+									{getUserInitials(user.employeeName || user.username)}
 								</div>
 
 								<!-- User Info -->
 								<div class="flex-1 ml-3 min-w-0">
 									<div class="flex items-center justify-between">
 										<p class="text-sm font-medium text-gray-900 truncate">
-											{user.username}
+											{user.employeeName || user.username}
 											{#if currentActiveUser?.id === user.id}
 												<span class="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
 													Active

@@ -423,7 +423,7 @@
 					p_assignment_id: resolvedAssignmentId,
 					p_reassigned_by: currentUser?.id || '',
 					p_new_user_id: userId,
-					p_reassignment_reason: `Reassigned from task completion modal by ${currentUser?.username || 'Unknown'}`,
+					p_reassignment_reason: `Reassigned from task completion modal by ${currentUser?.employeeName || currentUser?.username || 'Unknown'}`,
 					p_copy_deadline: true
 				});
 
@@ -714,7 +714,7 @@
 				task_id: resolvedTaskId,
 				assignment_id: resolvedAssignmentId,
 				completed_by: currentUserData.id,
-				completed_by_name: currentUserData.name || currentUserData.username,
+				completed_by_name: currentUserData.employeeName || currentUserData.name || currentUserData.username,
 				completed_by_branch_id: currentUserData.branch_id,
 				task_finished_completed: resolvedRequireTaskFinished ? completionData.task_finished_completed : null,
 				photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrl ? true : false) : null, // Only true if we have a URL
