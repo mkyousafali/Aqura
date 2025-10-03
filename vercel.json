@@ -1,14 +1,14 @@
 {
   "framework": "sveltekit",
   "buildCommand": "pnpm --filter aqura-frontend build",
-  "outputDirectory": "frontend/.svelte-kit/output/client",
+  "outputDirectory": "frontend/build",
   "installCommand": "pnpm install",
   "devCommand": "pnpm --filter aqura-frontend dev",
   "env": {
     "NODE_ENV": "production"
   },
   "functions": {
-    "frontend/.svelte-kit/output/client/**": {
+    "frontend/build/**": {
       "maxDuration": 30
     }
   },
