@@ -1471,10 +1471,8 @@
 			margin-bottom: 1rem;
 		}
 	}
-			}
-		}
 
-		/* Critical mobile fixes for very small screens */
+	/* Critical mobile fixes for very small screens */
 		@media (max-width: 320px) {
 			.login-page {
 				padding: 0.25rem;
