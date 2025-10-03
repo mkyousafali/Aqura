@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter backend dev\"",
-    "build": "cd frontend && npm install --legacy-peer-deps && npm run build",
+    "build": "pnpm --filter frontend build",
     "build:pwa": "pnpm --filter frontend build:pwa",
     "build:windows": "pnpm --filter frontend build:windows",
     "preview": "pnpm --filter frontend preview",
@@ -32,7 +32,7 @@
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
-  "packageManager": "npm@latest",
+  "packageManager": "pnpm@10.0.0",
   "keywords": [
     "management-system",
     "pwa",

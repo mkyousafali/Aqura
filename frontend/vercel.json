@@ -1,6 +1,0 @@
-{
-  "buildCommand": "npm install --include=dev && npm run build",
-  "outputDirectory": "build",
-  "installCommand": "echo 'Skipping install'",
-  "framework": "sveltekit"
-}
