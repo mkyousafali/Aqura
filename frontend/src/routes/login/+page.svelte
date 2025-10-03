@@ -271,8 +271,11 @@
 <svelte:head>
 	<title>Login - Aqura Management System</title>
 	<meta name="description" content="Access your Aqura Management System" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
 	<meta name="theme-color" content="#15A34A" />
+	<meta name="mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 </svelte:head>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -526,21 +529,43 @@
 </div>
 
 <style>
+	/* Global mobile fixes */
+	:global(html) {
+		touch-action: manipulation;
+		-webkit-text-size-adjust: 100%;
+		overflow-x: hidden;
+	}
+
+	:global(body) {
+		margin: 0;
+		padding: 0;
+		overflow-x: hidden;
+		min-height: 100vh;
+		min-height: 100dvh;
+	}
+
+	/* Prevent iOS zoom on input focus */
+	:global(input, select, textarea) {
+		font-size: 16px !important;
+	}
+
 	/* Full-page login layout matching main page structure */
 	.login-page {
 		width: 100%;
-		height: 100vh;
 		min-height: 100vh;
+		min-height: 100dvh; /* Use dynamic viewport height for mobile */
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 2rem;
+		padding: 1rem;
 		background: #F9FAFB;
 		position: relative;
-		overflow: hidden;
+		overflow-x: hidden;
+		overflow-y: auto; /* Allow vertical scrolling */
 		opacity: 0;
 		transition: opacity 0.8s ease;
 		font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+		box-sizing: border-box;
 	}
 
 	/* Background pattern matching main page */
@@ -570,6 +595,8 @@
 		max-width: 900px;
 		position: relative;
 		z-index: 1;
+		margin: 1rem 0; /* Add vertical margin for mobile */
+		min-height: 0; /* Allow content to shrink */
 	}
 
 	/* Main login card matching main page welcome card */
@@ -1026,29 +1053,37 @@
 		opacity: 0.9;
 	}
 
-	/* Enhanced responsive design */
-	@media (max-width: 1024px) {
-		.login-page {
-			padding: 1.5rem;
+		/* Enhanced responsive design */
+		@media (max-width: 1024px) {
+			.login-page {
+				padding: 1rem;
+				align-items: flex-start;
+				padding-top: 2rem;
+				padding-bottom: 2rem;
+			}
+
+			.login-content {
+				max-width: 600px;
+				margin: 0;
+			}
 		}
 
-		.login-content {
-			max-width: 600px;
-		}
-	}
+		@media (max-width: 768px) {
+			.login-page {
+				padding: 0.75rem;
+				min-height: 100vh;
+				min-height: 100dvh; /* Dynamic viewport height */
+				align-items: flex-start;
+				padding-top: 1rem;
+				padding-bottom: 2rem;
+				overflow-y: auto; /* Ensure scrolling works */
+			}
 
-	@media (max-width: 768px) {
-		.login-page {
-			padding: 1rem;
-			min-height: 100vh;
-			align-items: flex-start;
-			padding-top: 2rem;
-		}
-
-		.login-content {
-			width: 100%;
-			max-width: 500px;
-		}
+			.login-content {
+				width: 100%;
+				max-width: 500px;
+				margin: 0;
+			}
 
 		.logo-section {
 			padding: 2rem 1rem 1.5rem;
@@ -1133,13 +1168,13 @@
 		}
 	}
 
-	@media (max-width: 480px) {
-		.login-page {
-			padding: 0.75rem;
-			padding-top: 1rem;
-		}
-
-		.login-main-card {
+		@media (max-width: 480px) {
+			.login-page {
+				padding: 0.5rem;
+				padding-top: 0.75rem;
+				padding-bottom: 3rem; /* Extra bottom padding for safe area */
+				overflow-y: auto;
+			}		.login-main-card {
 			border-radius: 12px;
 		}
 
@@ -1231,12 +1266,15 @@
 			justify-content: center;
 		}
 
-		.auth-submit-btn {
-			padding: 0.875rem 1.25rem;
-			font-size: 0.95rem;
-		}
+			.auth-submit-btn {
+				padding: 1rem 1.5rem;
+				font-size: 1rem;
+				min-height: 52px; /* Larger touch target for mobile */
+				border-radius: 12px;
+				margin-top: 0.5rem;
+			}
 
-		.status-message {
+			.status-message {
 			margin: 1rem;
 			padding: 0.75rem 0.875rem;
 		}
@@ -1250,13 +1288,13 @@
 		}
 	}
 
-	@media (max-width: 375px) {
-		.login-page {
-			padding: 0.5rem;
-			padding-top: 0.75rem;
-		}
-
-		.logo-section {
+		@media (max-width: 375px) {
+			.login-page {
+				padding: 0.5rem;
+				padding-top: 0.75rem;
+				padding-bottom: 4rem; /* More bottom space for safe area */
+				overflow-y: auto;
+			}		.logo-section {
 			padding: 1.25rem 0.75rem;
 		}
 
@@ -1433,4 +1471,60 @@
 			margin-bottom: 1rem;
 		}
 	}
-</style>
+			}
+		}
+
+		/* Critical mobile fixes for very small screens */
+		@media (max-width: 320px) {
+			.login-page {
+				padding: 0.25rem;
+				padding-bottom: 5rem;
+			}
+
+			.auth-submit-btn {
+				font-size: 0.9rem;
+				padding: 1rem;
+				min-height: 48px;
+				margin-top: 1rem;
+				margin-bottom: 1rem;
+			}
+
+			.login-main-card {
+				border-radius: 8px;
+			}
+
+			.digit-input {
+				width: 30px;
+				height: 30px;
+				font-size: 0.9rem;
+			}
+
+			.quick-access-digits {
+				gap: 0.2rem;
+			}
+		}
+
+		/* Ensure content is always accessible */
+		@media (max-height: 600px) {
+			.login-page {
+				align-items: flex-start;
+				padding-top: 0.5rem;
+				padding-bottom: 3rem;
+			}
+
+			.auth-submit-btn {
+				position: sticky;
+				bottom: 1rem;
+				z-index: 100;
+				box-shadow: 0 8px 25px rgba(21, 163, 74, 0.4);
+			}
+		}
+
+		/* Force scrollable on mobile Safari */
+		@supports (-webkit-touch-callout: none) {
+			.login-page {
+				-webkit-overflow-scrolling: touch;
+				overflow-y: scroll;
+			}
+		}
+	</style>
