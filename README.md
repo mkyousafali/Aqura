@@ -1,5 +1,7 @@
 # Aqura Management System
 
+<!-- Updated for Vercel deployment test -->
+
 ## 🌊 Overview
 
 Aqura is a modern, PWA-first windowed management platform designed specifically for Saudi Arabian businesses. Built with cutting-edge technologies, it provides a comprehensive solution for managing employees, branches, vendors, and business operations with full bilingual support (Arabic/English) and advanced offline capabilities.
