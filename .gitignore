@@ -94,3 +94,4 @@ frontend/generate-icons.ps1
 # Lock files (keep pnpm-lock.yaml for consistency)
 package-lock.json
 yarn.lock
+.vercel
