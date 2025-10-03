@@ -14,6 +14,16 @@ pnpm-debug.log*
 .env.production.local
 .env.production
 
+# API Keys and Secrets
+*.key
+**/OPENAI_API_KEY*
+**/openai-api-key*
+sk-proj-*
+sk-*
+**/sk-proj-*
+VITE_OPENAI_API_KEY=sk-*
+OPENAI_API_KEY=sk-*
+
 # Security keys (VAPID keys, etc.)
 VAPID_PRIVATE_KEY.txt
 *.private.key

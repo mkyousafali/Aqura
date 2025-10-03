@@ -271,6 +271,8 @@
 <svelte:head>
 	<title>Login - Aqura Management System</title>
 	<meta name="description" content="Access your Aqura Management System" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<meta name="theme-color" content="#15A34A" />
 </svelte:head>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -687,6 +689,8 @@
 		cursor: pointer;
 		transition: all 0.3s ease;
 		text-align: left;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.method-btn:hover {
@@ -694,6 +698,10 @@
 		border-color: #CBD5E1;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(71, 85, 105, 0.1);
+	}
+
+	.method-btn:active {
+		transform: translateY(0);
 	}
 
 	.method-btn.active {
@@ -807,6 +815,9 @@
 		color: #1E293B;
 		transition: all 0.3s ease;
 		box-sizing: border-box;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
 	}
 
 	.field-input:focus {
@@ -824,15 +835,6 @@
 		background: #F9FAFB;
 		color: #9CA3AF;
 		cursor: not-allowed;
-	}
-
-	.quick-access-field {
-		text-align: center;
-		font-size: 1.5rem;
-		letter-spacing: 0.5rem;
-		font-weight: 600;
-		font-family: 'JetBrains Mono', 'Courier New', monospace;
-		background: #F8FAFC;
 	}
 
 	/* Quick Access Digit Boxes */
@@ -858,6 +860,10 @@
 		transition: all 0.3s ease;
 		box-sizing: border-box;
 		padding: 0;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		touch-action: manipulation;
 	}
 
 	.digit-input:focus {
@@ -932,6 +938,9 @@
 		gap: 0.75rem;
 		box-shadow: 0 4px 14px rgba(21, 163, 74, 0.3);
 		text-transform: none;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px; /* Minimum touch target size */
 	}
 
 	.auth-submit-btn:hover:not(:disabled) {
@@ -1017,10 +1026,28 @@
 		opacity: 0.9;
 	}
 
-	/* Responsive design */
+	/* Enhanced responsive design */
+	@media (max-width: 1024px) {
+		.login-page {
+			padding: 1.5rem;
+		}
+
+		.login-content {
+			max-width: 600px;
+		}
+	}
+
 	@media (max-width: 768px) {
 		.login-page {
 			padding: 1rem;
+			min-height: 100vh;
+			align-items: flex-start;
+			padding-top: 2rem;
+		}
+
+		.login-content {
+			width: 100%;
+			max-width: 500px;
 		}
 
 		.logo-section {
@@ -1030,6 +1057,7 @@
 		.logo {
 			width: 160px;
 			height: 100px;
+			margin-bottom: 1rem;
 		}
 
 		.logo-image {
@@ -1039,6 +1067,11 @@
 
 		.app-title {
 			font-size: 2rem;
+			margin-bottom: 0.25rem;
+		}
+
+		.app-subtitle {
+			font-size: 1rem;
 		}
 
 		.auth-section {
@@ -1048,10 +1081,44 @@
 		.method-selector {
 			grid-template-columns: 1fr;
 			gap: 0.75rem;
+			margin-bottom: 2rem;
 		}
 
 		.method-btn {
 			padding: 1.25rem;
+			gap: 0.75rem;
+		}
+
+		.method-icon {
+			width: 40px;
+			height: 40px;
+		}
+
+		.form-header {
+			margin-bottom: 1.5rem;
+		}
+
+		.form-header h2 {
+			font-size: 1.5rem;
+		}
+
+		.form-header p {
+			font-size: 0.9rem;
+		}
+
+		.field-input {
+			padding: 0.75rem;
+			font-size: 16px; /* Prevents zoom on iOS */
+		}
+
+		.digit-input {
+			width: 44px;
+			height: 44px;
+			font-size: 1.2rem;
+		}
+
+		.quick-access-digits {
+			gap: 0.5rem;
 		}
 
 		.form-options {
@@ -1062,10 +1129,20 @@
 
 		.status-message {
 			margin: 1.5rem 1.5rem;
+			padding: 0.875rem 1rem;
 		}
 	}
 
 	@media (max-width: 480px) {
+		.login-page {
+			padding: 0.75rem;
+			padding-top: 1rem;
+		}
+
+		.login-main-card {
+			border-radius: 12px;
+		}
+
 		.logo-section {
 			padding: 1.5rem 1rem;
 		}
@@ -1073,6 +1150,7 @@
 		.logo {
 			width: 140px;
 			height: 85px;
+			margin-bottom: 0.75rem;
 		}
 
 		.logo-image {
@@ -1082,10 +1160,20 @@
 
 		.app-title {
 			font-size: 1.75rem;
+			margin-bottom: 0.25rem;
+		}
+
+		.app-subtitle {
+			font-size: 0.9rem;
 		}
 
 		.auth-section {
 			padding: 1.5rem 1rem;
+		}
+
+		.method-selector {
+			gap: 0.5rem;
+			margin-bottom: 1.5rem;
 		}
 
 		.method-btn {
@@ -1095,31 +1183,254 @@
 			padding: 1rem;
 		}
 
+		.method-icon {
+			width: 36px;
+			height: 36px;
+			align-self: center;
+		}
+
 		.method-info h3 {
 			font-size: 1rem;
+			margin-bottom: 0.125rem;
 		}
 
 		.method-info p {
 			font-size: 0.8rem;
 		}
 
-		.form-header h2 {
-			font-size: 1.5rem;
+		.form-header {
+			margin-bottom: 1.25rem;
 		}
 
-		.quick-access-field {
-			font-size: 1.25rem;
-			letter-spacing: 0.25rem;
+		.form-header h2 {
+			font-size: 1.375rem;
+		}
+
+		.form-header p {
+			font-size: 0.875rem;
+		}
+
+		.field-group {
+			margin-bottom: 1.25rem;
+		}
+
+		.field-input {
+			padding: 0.75rem;
+			font-size: 16px;
 		}
 
 		.digit-input {
-			width: 40px;
-			height: 40px;
+			width: 38px;
+			height: 38px;
 			font-size: 1.1rem;
 		}
 
 		.quick-access-digits {
+			gap: 0.375rem;
+			flex-wrap: wrap;
+			justify-content: center;
+		}
+
+		.auth-submit-btn {
+			padding: 0.875rem 1.25rem;
+			font-size: 0.95rem;
+		}
+
+		.status-message {
+			margin: 1rem;
+			padding: 0.75rem 0.875rem;
+		}
+
+		.status-content h4 {
+			font-size: 0.8rem;
+		}
+
+		.status-content p {
+			font-size: 0.8rem;
+		}
+	}
+
+	@media (max-width: 375px) {
+		.login-page {
+			padding: 0.5rem;
+			padding-top: 0.75rem;
+		}
+
+		.logo-section {
+			padding: 1.25rem 0.75rem;
+		}
+
+		.logo {
+			width: 120px;
+			height: 75px;
+		}
+
+		.logo-image {
+			width: 85px;
+			height: 50px;
+		}
+
+		.app-title {
+			font-size: 1.5rem;
+		}
+
+		.app-subtitle {
+			font-size: 0.85rem;
+		}
+
+		.auth-section {
+			padding: 1.25rem 0.75rem;
+		}
+
+		.method-btn {
+			padding: 0.875rem;
+		}
+
+		.method-icon {
+			width: 32px;
+			height: 32px;
+		}
+
+		.method-info h3 {
+			font-size: 0.9rem;
+		}
+
+		.method-info p {
+			font-size: 0.75rem;
+		}
+
+		.form-header h2 {
+			font-size: 1.25rem;
+		}
+
+		.digit-input {
+			width: 34px;
+			height: 34px;
+			font-size: 1rem;
+		}
+
+		.quick-access-digits {
+			gap: 0.25rem;
+		}
+
+		.checkbox-option {
+			font-size: 0.8rem;
+		}
+	}
+
+	@media (max-height: 700px) and (max-width: 768px) {
+		.login-page {
+			align-items: flex-start;
+			padding-top: 1rem;
+		}
+
+		.logo-section {
+			padding: 1.5rem 1rem 1rem;
+		}
+
+		.logo {
+			width: 120px;
+			height: 75px;
+			margin-bottom: 0.75rem;
+		}
+
+		.logo-image {
+			width: 85px;
+			height: 50px;
+		}
+
+		.app-title {
+			font-size: 1.75rem;
+		}
+
+		.auth-section {
+			padding: 1.5rem;
+		}
+
+		.method-selector {
+			margin-bottom: 1.5rem;
+		}
+
+		.form-header {
+			margin-bottom: 1rem;
+		}
+	}
+
+	/* Landscape orientation fixes */
+	@media (orientation: landscape) and (max-height: 500px) {
+		.login-page {
+			padding: 0.75rem;
+			align-items: flex-start;
+		}
+
+		.login-main-card {
+			display: flex;
+		}
+
+		.logo-section {
+			flex: 0 0 280px;
+			padding: 1.5rem 1rem;
+		}
+
+		.logo {
+			width: 100px;
+			height: 60px;
+			margin-bottom: 0.5rem;
+		}
+
+		.logo-image {
+			width: 70px;
+			height: 40px;
+		}
+
+		.app-title {
+			font-size: 1.5rem;
+		}
+
+		.app-subtitle {
+			font-size: 0.875rem;
+		}
+
+		.auth-section {
+			flex: 1;
+			padding: 1.5rem;
+		}
+
+		.method-selector {
+			grid-template-columns: 1fr 1fr;
 			gap: 0.5rem;
+			margin-bottom: 1.5rem;
+		}
+
+		.method-btn {
+			flex-direction: column;
+			padding: 0.75rem 0.5rem;
+			gap: 0.5rem;
+		}
+
+		.method-icon {
+			width: 28px;
+			height: 28px;
+		}
+
+		.method-info h3 {
+			font-size: 0.85rem;
+		}
+
+		.method-info p {
+			font-size: 0.7rem;
+		}
+
+		.form-header {
+			margin-bottom: 1rem;
+		}
+
+		.form-header h2 {
+			font-size: 1.25rem;
+		}
+
+		.field-group {
+			margin-bottom: 1rem;
 		}
 	}
 </style>
