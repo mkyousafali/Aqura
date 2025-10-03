@@ -2,14 +2,15 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { auth } from '$lib/stores/auth';
+	import { currentUser as persistentCurrentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db } from '$lib/utils/supabase';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 
-	// Current user for role-based access
-	$: currentUser = $auth?.user;
+	// Current user for role-based access - use persistent auth with fallback
+	$: currentUser = $persistentCurrentUser || $auth?.user;
 	$: userRole = currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
@@ -91,12 +92,21 @@
 			isLoading = true;
 			errorMessage = '';
 			
+			console.log('🔍 [NotificationCenter] Loading notifications...');
+			console.log('🔍 [NotificationCenter] Current user:', currentUser);
+			console.log('🔍 [NotificationCenter] User role:', userRole);
+			console.log('🔍 [NotificationCenter] Is admin or master:', isAdminOrMaster);
+			
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
+				console.log('🔍 [NotificationCenter] Loading all notifications for admin user');
 				const apiNotifications = await notificationManagement.getAllNotifications(currentUser?.id || 'default-user');
+				console.log('🔍 [NotificationCenter] Raw API notifications:', apiNotifications);
 				allNotifications = await transformNotificationData(apiNotifications);
+				console.log('🔍 [NotificationCenter] Transformed notifications:', allNotifications);
 			} else if (currentUser?.id) {
 				// Regular users see only their targeted notifications
+				console.log('🔍 [NotificationCenter] Loading user-specific notifications');
 				const userNotifications = await notificationManagement.getUserNotifications(currentUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
@@ -318,6 +328,13 @@
 		// Parse task data from notification message or metadata
 		const taskData = parseTaskDataFromNotification(notification);
 		
+		// Check if we have a valid task ID
+		if (!taskData.taskId) {
+			console.error('❌ [NotificationCenter] Cannot open task completion - no task ID found in notification:', notification);
+			alert('Error: Cannot complete task. The notification does not contain valid task information. This may be an older notification format.');
+			return;
+		}
+		
 		// Initialize variables outside try-catch scope
 		let taskObject = null;
 		let assignmentData = null;
@@ -388,12 +405,21 @@
 	}
 
 	function parseTaskDataFromNotification(notification: any) {
-		// Try to extract task information from notification metadata first, then message
+		// Debug logging
+		console.log('🔍 [NotificationCenter] Parsing notification:', {
+			notification,
+			metadata: notification.metadata,
+			message: notification.message,
+			type: notification.type
+		});
+		
+		// Try to extract task information from notification metadata first, then notification properties, then message
 		const metadata = notification.metadata || {};
 		const message = notification.message || '';
 		
-		// If metadata exists, use it directly
+		// Check metadata first
 		if (metadata.task_id) {
+			console.log('✅ [NotificationCenter] Found task_id in metadata:', metadata.task_id);
 			return {
 				taskId: metadata.task_id,
 				title: metadata.task_title || 'Unknown Task',
@@ -402,7 +428,22 @@
 				requireTaskFinished: metadata.require_task_finished || false,
 				requirePhotoUpload: metadata.require_photo_upload || false,
 				requireErpReference: metadata.require_erp_reference || false,
-				assignmentId: metadata.assignment_id || null
+				assignmentId: metadata.task_assignment_id || null
+			};
+		}
+		
+		// Check notification properties (column values)
+		if (notification.task_id) {
+			console.log('✅ [NotificationCenter] Found task_id in notification properties:', notification.task_id);
+			return {
+				taskId: notification.task_id,
+				title: metadata.task_title || 'Unknown Task',
+				description: metadata.notes || '',
+				deadline: metadata.deadline || '',
+				requireTaskFinished: metadata.require_task_finished || false,
+				requirePhotoUpload: metadata.require_photo_upload || false,
+				requireErpReference: metadata.require_erp_reference || false,
+				assignmentId: notification.task_assignment_id || metadata.task_assignment_id || null
 			};
 		}
 		
@@ -410,6 +451,14 @@
 		const titleMatch = message.match(/task:\s*"([^"]+)"/i);
 		const deadlineMatch = message.match(/deadline:\s*([^.\n]+)/i);
 		const notesMatch = message.match(/notes:\s*(.+)/i);
+		
+		console.warn('⚠️ [NotificationCenter] No task_id in metadata, falling back to message parsing');
+		console.log('🔍 [NotificationCenter] Message parsing results:', {
+			titleMatch,
+			deadlineMatch,
+			notesMatch,
+			message
+		});
 		
 		return {
 			taskId: null, // Changed from 'unknown' to null for safety
@@ -443,9 +492,7 @@
 					<span class="icon">📝</span>
 					Create Notification
 				</button>
-			{/if}
-			{#if userRole === 'Master Admin'}
-				<button class="admin-status-btn" on:click={openAdminReadStatus}>
+				<button class="status-btn" on:click={openAdminReadStatus}>
 					<span class="icon">👥</span>
 					Read Status
 				</button>
@@ -508,7 +555,7 @@
 				</div>
 			{:else}
 				{#each filteredNotifications as notification (notification.id)}
-					<div class="notification-item {notification.read ? 'read' : 'unread'} {getPriorityColor(notification.priority)}">
+					<div class="notification-item {notification.read ? 'read' : 'unread'} {getPriorityColor(notification.priority)}" data-notification-id={notification.id}>
 						<div class="notification-content">
 							<div class="notification-header">
 								<div class="notification-icon">
@@ -670,7 +717,7 @@
 		font-size: 16px;
 	}
 
-	.admin-status-btn {
+	.status-btn {
 		background: #3b82f6;
 		color: white;
 		border: none;
@@ -685,12 +732,12 @@
 		gap: 6px;
 	}
 
-	.admin-status-btn:hover {
+	.status-btn:hover {
 		background: #2563eb;
 		transform: translateY(-1px);
 	}
 
-	.admin-status-btn .icon {
+	.status-btn .icon {
 		font-size: 16px;
 	}
 

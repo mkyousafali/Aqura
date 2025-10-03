@@ -3,15 +3,28 @@
 	import { auth } from '$lib/stores/auth';
 	import { currentLocale, switchLocale, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
-	import { onMount } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
+	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
 	import NotificationCenter from './admin/communication/NotificationCenter.svelte';
+	import { persistentAuthService, currentUser as persistentCurrentUser, deviceSessions } from '$lib/utils/persistentAuth';
+	import { notificationService } from '$lib/utils/notificationManagement';
+
+	// Event dispatcher for communicating with layout
+	const dispatch = createEventDispatcher();
 
 	// Subscribe to taskbar items and auth state
 	$: taskbarItems = windowManager.taskbarItems;
 	$: activeWindow = windowManager.activeWindow;
-	$: currentUser = $auth?.user;
+	
+	// Reactive statement to determine current user from both auth systems
+	$: {
+		currentUser = $persistentCurrentUser || $auth?.user;
+		console.log('🔍 [Taskbar] Auth state:', $auth);
+		console.log('🔍 [Taskbar] Persistent user:', $persistentCurrentUser);
+		console.log('🔍 [Taskbar] Final currentUser:', currentUser);
+	}
 
 	// Subscribe to notification counts store
 	$: counts = $notificationCounts;
@@ -24,6 +37,9 @@
 	let isExpanded = false;
 	let showUserMenu = false;
 	let showLogoutConfirm = false;
+	
+	// Current user state
+	let currentUser: any = undefined;
 
 	// Show current time and date
 	let currentTime = '';
@@ -77,7 +93,8 @@
 		
 		// If expanding, also minimize all windows
 		if (isExpanded) {
-			const windows = windowManager.windowList;
+			// Use get() to access the current value of the windowList store
+			const windows = get(windowManager.windowList);
 			windows.forEach(window => {
 				if (window.state !== 'minimized') {
 					windowManager.minimizeWindow(window.id);
@@ -98,23 +115,93 @@
 	}
 
 	function handleLogout() {
-		console.log('Handle logout clicked');
+		console.log('🚪 [Taskbar] Handle logout clicked');
+		console.log('🚪 [Taskbar] Current user:', currentUser);
 		showLogoutConfirm = true;
 		showUserMenu = false;
+		console.log('🚪 [Taskbar] Logout confirmation dialog should show:', showLogoutConfirm);
+	}
+
+	// New handlers for persistent auth features
+	function handleUserSwitchRequest() {
+		showUserMenu = false;
+		dispatch('user-switch-request');
+	}
+
+	function handleNotificationSettingsRequest() {
+		showUserMenu = false;
+		dispatch('notification-settings-request');
+	}
+
+	async function handlePersistentLogout() {
+		try {
+			await persistentAuthService.logout();
+			showLogoutConfirm = false;
+			showUserMenu = false;
+		} catch (error) {
+			console.error('Error during logout:', error);
+		}
+	}
+
+	async function handleTestNotification() {
+		try {
+			await notificationService.sendTestNotification();
+			showUserMenu = false;
+		} catch (error) {
+			console.error('Error sending test notification:', error);
+		}
+	}
+
+	// Check if there are multiple users on device
+	let hasMultipleUsers = false;
+	$: {
+		// Subscribe to device sessions to check for multiple users
+		if ($deviceSessions && $deviceSessions.users) {
+			hasMultipleUsers = $deviceSessions.users.filter(u => u.isActive).length > 1;
+		}
 	}
 
 	function confirmLogout() {
-		console.log('Confirming logout...');
+		console.log('🚪 [Taskbar] Confirming logout...');
+		console.log('🚪 [Taskbar] Auth store:', $auth);
+		console.log('🚪 [Taskbar] Persistent auth user:', $persistentCurrentUser);
+		
+		showLogoutConfirm = false;
+		showUserMenu = false;
+		
 		try {
-			auth.logout();
-			showLogoutConfirm = false;
-			showUserMenu = false;
-			console.log('Logout successful, redirecting to login...');
-			goto('/login');
+			console.log('🚪 [Taskbar] Calling logout methods...');
+			
+			// Try both logout methods but don't await to avoid blocking
+			if ($auth) {
+				console.log('🚪 [Taskbar] Logging out from auth store...');
+				auth.logout().catch(err => console.warn('Auth logout error:', err));
+			}
+			
+			// Also logout from persistent auth
+			if ($persistentCurrentUser) {
+				console.log('🚪 [Taskbar] Logging out from persistent auth...');
+				persistentAuthService.logout().catch(err => console.warn('Persistent auth logout error:', err));
+			}
+			
+			// Clear local storage manually as backup
+			if (typeof window !== 'undefined' && window.localStorage) {
+				console.log('🚪 [Taskbar] Clearing localStorage...');
+				localStorage.removeItem('aqura-auth-token');
+				localStorage.removeItem('aqura-user');
+				localStorage.removeItem('aqura-session');
+				localStorage.removeItem('aqura-persistent-sessions');
+			}
+			
+			console.log('🚪 [Taskbar] Logout completed, redirecting to login...');
+			
+			// Force redirect to login page
+			window.location.href = '/login';
+			
 		} catch (error) {
-			console.error('Logout error:', error);
-			// Still try to redirect even if there's an error
-			goto('/login');
+			console.error('🚪 [Taskbar] Logout error:', error);
+			// Force redirect even if there's an error
+			window.location.href = '/login';
 		}
 	}
 
@@ -359,8 +446,33 @@
 								<span class="action-icon">⚙️</span>
 								Settings
 							</button>
+							
+							<!-- User switching if multiple users exist -->
+							{#if hasMultipleUsers}
+								<button class="menu-action" on:click={handleUserSwitchRequest}>
+									<span class="action-icon">🔄</span>
+									Switch User
+								</button>
+							{/if}
+							
+							<!-- Push notification settings -->
+							<button class="menu-action" on:click={handleNotificationSettingsRequest}>
+								<span class="action-icon">🔔</span>
+								Notifications
+							</button>
+							
+							<!-- Test notification (for development) -->
+							{#if import.meta.env.DEV}
+								<button class="menu-action" on:click={handleTestNotification}>
+									<span class="action-icon">🧪</span>
+									Test Notification
+								</button>
+							{/if}
+							
+							<div class="menu-divider"></div>
+							
 							<button class="menu-action logout" on:click={() => { 
-								console.log('User menu logout clicked'); 
+								console.log('🚪 [Taskbar] User menu logout clicked'); 
 								showUserMenu = false; 
 								handleLogout(); 
 							}}>

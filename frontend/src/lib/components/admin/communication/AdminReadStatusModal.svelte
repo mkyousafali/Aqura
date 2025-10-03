@@ -41,8 +41,17 @@
 	// Computed filtered data
 	$: filteredData = readStatusData.filter(item => {
 		if (selectedNotification !== 'all' && item.notification_id !== selectedNotification) return false;
-		if (selectedUser !== 'all' && item.user_id !== selectedUser) return false;
-		if (searchTerm && !item.notification_title?.toLowerCase().includes(searchTerm.toLowerCase()) && 
+		
+		// Fix user filtering to match both user ID and username
+		if (selectedUser !== 'all') {
+			const matchingUser = users.find(u => u.id === selectedUser);
+			if (matchingUser && item.user_id !== matchingUser.id && item.user_id !== matchingUser.username) {
+				return false;
+			}
+		}
+		
+		if (searchTerm && !item.notification?.title?.toLowerCase().includes(searchTerm.toLowerCase()) && 
+		    !item.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
 		    !item.user_id?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
 		return true;
 	});
@@ -68,14 +77,51 @@
 
 	// Group data by user
 	$: groupedByUser = users.map(user => {
-		const userReadStates = filteredData.filter(item => item.user_id === user.id);
+		const userReadStates = filteredData.filter(item => item.user_id === user.id || item.user_id === user.username);
 		const readCount = userReadStates.length;
 		const totalNotifications = notifications.length;
 		const unreadCount = totalNotifications - readCount;
 		
+		// Get display name from read states or fallback to user data
+		const displayName = userReadStates[0]?.display_name || 
+		                   (user.hr_employees?.[0]?.name) || 
+		                   user.username || 
+		                   user.id;
+		
+		// Create unread notifications list
+		const readNotificationIds = userReadStates.map(state => state.notification_id);
+		const unreadNotifications = notifications
+			.filter(notification => notification && !readNotificationIds.includes(notification.id))
+			.map(notification => ({
+				notification_id: notification.id,
+				notification: {
+					title: notification.title,
+					type: notification.type,
+					priority: notification.priority,
+					created_at: notification.created_at
+				},
+				user_id: user.id,
+				is_read: false,
+				read_at: null,
+				created_at: notification.created_at
+			}));
+		
+		// Combine read and unread notifications
+		const allNotifications = [
+			...userReadStates.map(state => ({ ...state, is_read: true })),
+			...unreadNotifications
+		].sort((a, b) => {
+			// Safe date extraction with fallbacks
+			const dateA = a.notification?.created_at || a.created_at || a.read_at || new Date().toISOString();
+			const dateB = b.notification?.created_at || b.created_at || b.read_at || new Date().toISOString();
+			return new Date(dateB) - new Date(dateA);
+		});
+		
 		return {
 			...user,
+			name: displayName, // Override the name with display name
 			readStates: userReadStates,
+			allNotifications: allNotifications, // Both read and unread
 			readCount,
 			totalNotifications,
 			unreadCount,
@@ -165,7 +211,9 @@
 				<select bind:value={selectedUser} class="filter-select">
 					<option value="all">All Users</option>
 					{#each users as user}
-						<option value={user.id}>{user.name}</option>
+						<option value={user.id}>
+							{user.hr_employees?.[0]?.name || user.username || user.id}
+						</option>
 					{/each}
 				</select>
 
@@ -221,7 +269,7 @@
 									<div class="read-list">
 										{#each notificationGroup.readStates as readState}
 											<div class="read-item">
-												<span class="user-id">{readState.user_name || readState.user_id}</span>
+												<span class="user-id">{readState.display_name || readState.user_name || readState.user_id}</span>
 												<span class="read-time">{formatTimestamp(readState.read_at)}</span>
 											</div>
 										{/each}
@@ -262,14 +310,25 @@
 								</div>
 							</div>
 
-							{#if userGroup.readStates.length > 0}
-								<div class="read-details">
-									<h4 class="details-title">Notifications read by this user:</h4>
-									<div class="read-list">
-										{#each userGroup.readStates as readState}
-											<div class="read-item">
-												<span class="notification-title">{readState.notification_title}</span>
-												<span class="read-time">{formatTimestamp(readState.read_at)}</span>
+							{#if userGroup.allNotifications.length > 0}
+								<div class="notification-details">
+									<h4 class="details-title">All Notifications for this user:</h4>
+									<div class="notification-list">
+										{#each userGroup.allNotifications as notification}
+											<div class="notification-item {notification.is_read ? 'read' : 'unread'}">
+												<div class="notification-content">
+													<span class="notification-title">{notification.notification?.title || 'Unknown Notification'}</span>
+													<span class="notification-type">{notification.notification?.type || ''}</span>
+												</div>
+												<div class="notification-status">
+													{#if notification.is_read}
+														<span class="status-badge read">✓ Read</span>
+														<span class="read-time">{formatTimestamp(notification.read_at)}</span>
+													{:else}
+														<span class="status-badge unread">⚪ Unread</span>
+														<span class="created-time">{formatTimestamp(notification.notification?.created_at)}</span>
+													{/if}
+												</div>
 											</div>
 										{/each}
 									</div>
@@ -560,6 +619,69 @@
 		background: #f9fafb;
 		border-radius: 4px;
 		font-size: 14px;
+	}
+
+	/* New notification item styles */
+	.notification-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 12px 16px;
+		border-radius: 6px;
+		font-size: 14px;
+		border-left: 4px solid;
+	}
+
+	.notification-item.read {
+		background: #f0f9ff;
+		border-left-color: #22c55e;
+	}
+
+	.notification-item.unread {
+		background: #fef3f2;
+		border-left-color: #ef4444;
+	}
+
+	.notification-content {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		flex: 1;
+	}
+
+	.notification-type {
+		font-size: 12px;
+		color: #6b7280;
+		text-transform: capitalize;
+	}
+
+	.notification-status {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 2px;
+	}
+
+	.status-badge {
+		padding: 2px 8px;
+		border-radius: 12px;
+		font-size: 11px;
+		font-weight: 500;
+	}
+
+	.status-badge.read {
+		background: #dcfce7;
+		color: #166534;
+	}
+
+	.status-badge.unread {
+		background: #fecaca;
+		color: #991b1b;
+	}
+
+	.created-time {
+		font-size: 11px;
+		color: #6b7280;
 	}
 
 	.user-id, .notification-title {

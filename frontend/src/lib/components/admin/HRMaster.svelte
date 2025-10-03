@@ -12,6 +12,7 @@
 	import ReportingMap from './hr/ReportingMap.svelte';
 	import AssignPositions from './hr/AssignPositions.svelte';
 	import UploadFingerprint from './hr/UploadFingerprint.svelte';
+	import WarningMaster from './warnings/WarningMaster.svelte';
 
 	// Dashboard buttons configuration
 	const dashboardButtons = [
@@ -84,6 +85,13 @@
 			icon: '💰',
 			description: 'Manage employee salaries, allowances, and deductions',
 			color: 'bg-emerald-500'
+		},
+		{
+			id: 'warning-master',
+			title: 'Warning Master',
+			icon: '⚠️',
+			description: 'Comprehensive warning management system',
+			color: 'bg-amber-500'
 		}
 	];
 
@@ -130,6 +138,9 @@
 				break;
 			case 'salary-management':
 				component = SalaryManagement;
+				break;
+			case 'warning-master':
+				component = WarningMaster;
 				break;
 			default:
 				return;
@@ -315,6 +326,7 @@
 	.dashboard-card:nth-child(8) { --card-color: #84cc16; }
 	.dashboard-card:nth-child(9) { --card-color: #f97316; }
 	.dashboard-card:nth-child(10) { --card-color: #10b981; }
+	.dashboard-card:nth-child(11) { --card-color: #f59e0b; }
 
 	.dashboard-card:nth-child(1) .card-icon { background: rgba(16, 185, 129, 0.1); }
 	.dashboard-card:nth-child(2) .card-icon { background: rgba(59, 130, 246, 0.1); }
@@ -326,6 +338,7 @@
 	.dashboard-card:nth-child(8) .card-icon { background: rgba(132, 204, 22, 0.1); }
 	.dashboard-card:nth-child(9) .card-icon { background: rgba(249, 115, 22, 0.1); }
 	.dashboard-card:nth-child(10) .card-icon { background: rgba(16, 185, 129, 0.1); }
+	.dashboard-card:nth-child(11) .card-icon { background: rgba(245, 158, 11, 0.1); }
 
 	@media (max-width: 768px) {
 		.dashboard-grid {

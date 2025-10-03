@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { auth } from '$lib/stores/auth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
+	import { supabase } from '$lib/utils/supabase';
 
 	// Current user and role information
 	$: currentUser = $auth?.user;
@@ -14,28 +15,46 @@
 		message: '',
 		priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
 		type: 'info' as 'info' | 'success' | 'warning' | 'error' | 'announcement',
-		target_type: 'all_users' as any,
-		target_branches: [] as number[],
-		target_users: [] as string[],
-		target_roles: [] as string[],
-		attachment: null as File | null,
-		photo: null as File | null
+		target_type: 'all_users' as 'all_users' | 'specific_users',
+		target_users: [] as string[]
 	};
 
-	// Available branches from API
+	// Available branches and users from API
 	let branches: Array<{ id: string; name: string }> = [];
+	let allUsers: Array<{ 
+		id: string; 
+		username: string; 
+		employee_name?: string; 
+		employee_id?: string;
+		position_name?: string;
+		role_type: string; 
+		branch_id?: string; 
+		branch_name?: string 
+	}> = [];
+	let filteredUsers: Array<{ 
+		id: string; 
+		username: string; 
+		employee_name?: string; 
+		employee_id?: string;
+		position_name?: string;
+		role_type: string; 
+		branch_id?: string; 
+		branch_name?: string; 
+		selected: boolean 
+	}> = [];
+	let selectedBranchFilter = 'all';
 	let isLoadingBranches = true;
+	let isLoadingUsers = false;
 
 	// Form state
 	let isLoading = false;
 	let successMessage = '';
 	let errorMessage = '';
-	let attachmentInput: HTMLInputElement;
-	let cameraInput: HTMLInputElement;
 
-	// Load branches on mount
+	// Load branches and users on mount
 	onMount(async () => {
 		await loadBranches();
+		await loadUsers();
 	});
 
 	async function loadBranches() {
@@ -44,7 +63,7 @@
 			const branchesData = await notificationManagement.getBranches();
 			branches = [
 				{ id: 'all', name: 'All Branches' },
-				...branchesData
+				...branchesData.map(branch => ({ id: branch.id.toString(), name: branch.name_en || branch.name }))
 			];
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -60,46 +79,173 @@
 		}
 	}
 
-	// File handling
-	function handleFileUpload(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const file = target.files?.[0];
-		
-		if (file) {
-			if (file.size > 5 * 1024 * 1024) { // 5MB limit
-				errorMessage = 'File size must be less than 5MB';
-				return;
-			}
+	async function loadUsers() {
+		try {
+			isLoadingUsers = true;
 			
-			notificationData.attachment = file;
-			errorMessage = '';
+			// Get users with employee information, position, and branch details
+			const { data: users, error } = await supabase
+				.from('users')
+				.select(`
+					id,
+					username,
+					role_type,
+					employee_id,
+					branch_id,
+					hr_employees(
+						id,
+						name,
+						employee_id,
+						branch_id,
+						hr_position_assignments(
+							id,
+							position_id,
+							is_current,
+							hr_positions(position_title_en, position_title_ar)
+						)
+					),
+					branches(
+						id,
+						name_en
+					)
+				`)
+				.order('username');
+
+			if (error) {
+				console.error('Supabase error loading users:', error);
+				throw error;
+			}
+
+			// Transform users data with proper relationships
+			console.log('🔍 Raw users data from Supabase:', users);
+			
+			allUsers = users?.map(user => {
+				const employee = user.hr_employees;
+				const branch = user.branches;
+				
+				console.log(`👤 Processing user ${user.username}:`, {
+					employee_data: employee,
+					branch_data: branch,
+					raw_user: user
+				});
+				
+				// Get current position assignment
+				const currentPosition = employee?.hr_position_assignments?.find(
+					assignment => assignment.is_current === true
+				);
+				
+				const transformed = {
+					id: user.id,
+					username: user.username,
+					employee_name: employee?.name || null,
+					employee_id: employee?.employee_id || null,
+					position_name: currentPosition?.hr_positions?.position_title_en || null,
+					role_type: user.role_type,
+					branch_id: user.branch_id?.toString() || null,
+					branch_name: branch?.name_en || 'Unknown Branch'
+				};
+				
+				console.log(`✅ Transformed user ${user.username}:`, transformed);
+				return transformed;
+			}) || [];
+
+			// Initialize filtered users
+			updateFilteredUsers();
+		} catch (error) {
+			console.error('Error loading users:', error);
+			// Fallback: try to get basic user data
+			try {
+				const usersData = await notificationManagement.getUsers();
+				allUsers = usersData.map(user => ({
+					id: user.id,
+					username: user.username,
+					employee_name: null,
+					employee_id: null,
+					position_name: null,
+					role_type: user.role_type || 'Employee',
+					branch_id: null,
+					branch_name: 'Unknown Branch'
+				}));
+				updateFilteredUsers();
+			} catch (fallbackError) {
+				console.error('Fallback user loading failed:', fallbackError);
+				allUsers = [];
+				filteredUsers = [];
+			}
+		} finally {
+			isLoadingUsers = false;
 		}
 	}
 
-	function handleCameraCapture(event: Event) {
-		const target = event.target as HTMLInputElement;
-		const file = target.files?.[0];
+	function updateFilteredUsers() {
+		let filtered = allUsers;
 		
-		if (file) {
-			notificationData.photo = file;
-			errorMessage = '';
+		// Filter by branch if specific branch is selected
+		if (selectedBranchFilter !== 'all') {
+			filtered = allUsers.filter(user => user.branch_id === selectedBranchFilter);
 		}
+		
+		// Add selected property and preserve existing selections
+		filteredUsers = filtered.map(user => ({
+			...user,
+			selected: notificationData.target_users.includes(user.id)
+		}));
 	}
 
-	function removeAttachment() {
-		notificationData.attachment = null;
-		if (attachmentInput) attachmentInput.value = '';
+	// Handle branch filter change
+	function onBranchFilterChange() {
+		updateFilteredUsers();
 	}
 
-	function removePhoto() {
-		notificationData.photo = null;
-		if (cameraInput) cameraInput.value = '';
+	// Handle user selection change
+	function onUserSelectionChange(userId: string, selected: boolean) {
+		if (selected) {
+			notificationData.target_users = [...notificationData.target_users, userId];
+		} else {
+			notificationData.target_users = notificationData.target_users.filter(id => id !== userId);
+		}
+		
+		// Update local state
+		filteredUsers = filteredUsers.map(user => 
+			user.id === userId ? { ...user, selected } : user
+		);
+	}
+
+	// Select/deselect all visible users
+	function toggleSelectAll() {
+		const allSelected = filteredUsers.every(user => user.selected);
+		
+		if (allSelected) {
+			// Deselect all visible users
+			filteredUsers.forEach(user => {
+				notificationData.target_users = notificationData.target_users.filter(id => id !== user.id);
+				user.selected = false;
+			});
+		} else {
+			// Select all visible users
+			filteredUsers.forEach(user => {
+				if (!user.selected) {
+					notificationData.target_users = [...notificationData.target_users, user.id];
+					user.selected = true;
+				}
+			});
+		}
+		
+		// Trigger reactivity
+		filteredUsers = [...filteredUsers];
+		notificationData.target_users = [...notificationData.target_users];
 	}
 
 	async function createNotification() {
 		// Validate required fields
 		if (!notificationData.title.trim() || !notificationData.message.trim()) {
 			errorMessage = 'Title and message are required';
+			return;
+		}
+
+		// Validate user selection for specific users
+		if (notificationData.target_type === 'specific_users' && notificationData.target_users.length === 0) {
+			errorMessage = 'Please select at least one user for specific user targeting';
 			return;
 		}
 
@@ -114,15 +260,17 @@
 				type: notificationData.type,
 				priority: notificationData.priority,
 				target_type: notificationData.target_type,
-				target_branches: notificationData.target_branches.length > 0 ? notificationData.target_branches : undefined,
-				target_users: notificationData.target_users.length > 0 ? notificationData.target_users : undefined,
-				target_roles: notificationData.target_roles.length > 0 ? notificationData.target_roles : undefined
+				target_users: notificationData.target_type === 'specific_users' ? notificationData.target_users : undefined
 			};
 
-			// Create the notification
-			const result = await notificationManagement.createNotification(apiData, currentUser?.username || 'Unknown User');
-			
-			if (result && result.id) {
+		// Create the notification
+		console.log('🧪 Debug currentUser:', currentUser);
+		console.log('🧪 Debug auth store:', $auth);
+		
+		const createdByUser = currentUser?.username || $auth?.user?.username || 'madmin'; // Fallback to known user
+		console.log('🧪 Using createdByUser:', createdByUser);
+		
+		const result = await notificationManagement.createNotification(apiData, createdByUser);			if (result && result.id) {
 				successMessage = 'Notification published successfully!';
 				
 				// Reset form after delay
@@ -149,21 +297,13 @@
 			priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
 			type: 'info' as 'info' | 'success' | 'warning' | 'error' | 'announcement',
 			target_type: 'all_users',
-			target_branches: [],
-			target_users: [],
-			target_roles: [],
-			attachment: null,
-			photo: null
+			target_users: []
 		};
-		if (attachmentInput) attachmentInput.value = '';
-		if (cameraInput) cameraInput.value = '';
-	}
-
-	function getFileSize(file: File): string {
-		const size = file.size;
-		if (size < 1024) return size + ' B';
-		if (size < 1024 * 1024) return Math.round(size / 1024) + ' KB';
-		return Math.round(size / (1024 * 1024)) + ' MB';
+		
+		// Reset user selections
+		filteredUsers = filteredUsers.map(user => ({ ...user, selected: false }));
+		selectedBranchFilter = 'all';
+		updateFilteredUsers();
 	}
 </script>
 
@@ -252,114 +392,83 @@
 				
 				<div class="form-group">
 					<label for="target_type">Target Type</label>
-					<select id="target_type" bind:value={notificationData.target_type}>
+					<select id="target_type" bind:value={notificationData.target_type} on:change={() => { notificationData.target_users = []; updateFilteredUsers(); }}>
 						<option value="all_users">All Users</option>
-						<option value="all_admins">All Admins</option>
-						<option value="all_employees">All Employees</option>
-						<option value="all_managers">All Managers</option>
-						<option value="specific_branches">Specific Branches</option>
-						<option value="specific_roles">Specific Roles</option>
-						<option value="specific_users">Specific Users</option>
+						<option value="specific_users">User Specific</option>
 					</select>
 				</div>
 
-				{#if notificationData.target_type === 'specific_branches'}
-					<div class="form-group">
-						<label for="branches">Target Branches</label>
-						{#if isLoadingBranches}
-							<p class="loading-text">Loading branches...</p>
-						{:else}
-							<div class="multi-select">
-								{#each branches as branch}
-									{#if branch.id !== 'all'}
-										<label class="checkbox-option">
-											<input 
-												type="checkbox" 
-												bind:group={notificationData.target_branches} 
-												value={parseInt(branch.id)}
-											/>
-											{branch.name}
-										</label>
-									{/if}
-								{/each}
+				{#if notificationData.target_type === 'specific_users'}
+					<div class="users-selection">
+						<div class="users-header">
+							<h4 class="users-title">Select Users</h4>
+							<div class="users-controls">
+								<div class="branch-filter">
+									<label for="branch_filter">Filter by Branch:</label>
+									<select id="branch_filter" bind:value={selectedBranchFilter} on:change={onBranchFilterChange}>
+										{#if isLoadingBranches}
+											<option value="all">Loading branches...</option>
+										{:else}
+											{#each branches as branch}
+												<option value={branch.id}>{branch.name}</option>
+											{/each}
+										{/if}
+									</select>
+								</div>
+								<button type="button" class="select-all-btn" on:click={toggleSelectAll}>
+									{filteredUsers.every(user => user.selected) ? 'Deselect All' : 'Select All'}
+								</button>
 							</div>
-						{/if}
-					</div>
-				{/if}
-
-				{#if notificationData.target_type === 'specific_roles'}
-					<div class="form-group">
-						<label for="roles">Target Roles</label>
-						<div class="multi-select">
-							<label class="checkbox-option">
-								<input type="checkbox" bind:group={notificationData.target_roles} value="Admin" />
-								Admin
-							</label>
-							<label class="checkbox-option">
-								<input type="checkbox" bind:group={notificationData.target_roles} value="Manager" />
-								Manager
-							</label>
-							<label class="checkbox-option">
-								<input type="checkbox" bind:group={notificationData.target_roles} value="Employee" />
-								Employee
-							</label>
-							<label class="checkbox-option">
-								<input type="checkbox" bind:group={notificationData.target_roles} value="Position-based" />
-								Position-based
-							</label>
 						</div>
+
+						{#if isLoadingUsers}
+							<div class="loading-users">
+								<div class="loading-spinner-small"></div>
+								<p>Loading users...</p>
+							</div>
+						{:else if filteredUsers.length === 0}
+							<div class="no-users">
+								<p>No users found for the selected branch.</p>
+							</div>
+						{:else}
+							<div class="users-table">
+								<div class="table-header">
+									<div class="col-select">Select</div>
+									<div class="col-username">Username</div>
+									<div class="col-name">Employee Name</div>
+									<div class="col-employee-id">Employee ID</div>
+									<div class="col-position">Position</div>
+									<div class="col-role">Role</div>
+									<div class="col-branch">Branch</div>
+								</div>
+								<div class="table-body">
+									{#each filteredUsers as user}
+										<div class="table-row" class:selected={user.selected}>
+											<div class="col-select">
+												<input 
+													type="checkbox" 
+													checked={user.selected}
+													on:change={(e) => onUserSelectionChange(user.id, e.target.checked)}
+												/>
+											</div>
+											<div class="col-username">{user.username}</div>
+											<div class="col-name">{user.employee_name || '-'}</div>
+											<div class="col-employee-id">{user.employee_id || '-'}</div>
+											<div class="col-position">{user.position_name || '-'}</div>
+											<div class="col-role">{user.role_type}</div>
+											<div class="col-branch">{user.branch_name}</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+							{#if notificationData.target_users.length > 0}
+								<div class="selection-summary">
+									<strong>{notificationData.target_users.length} user(s) selected</strong>
+								</div>
+							{/if}
+						{/if}
 					</div>
 				{/if}
-			</div>
-
-			<!-- Attachments -->
-			<div class="form-section">
-				<h3 class="section-title">Attachments (Optional)</h3>
-				
-				<div class="attachment-controls">
-					<!-- File Upload -->
-					<div class="upload-group">
-						<label class="upload-btn">
-							<input 
-								type="file" 
-								bind:this={attachmentInput}
-								on:change={handleFileUpload}
-								accept="image/*,application/pdf,.doc,.docx,.txt"
-								hidden
-							/>
-							📎 Upload File
-						</label>
-						{#if notificationData.attachment}
-							<div class="file-preview">
-								<span class="file-name">{notificationData.attachment.name}</span>
-								<span class="file-size">({getFileSize(notificationData.attachment)})</span>
-								<button type="button" class="remove-btn" on:click={removeAttachment}>×</button>
-							</div>
-						{/if}
-					</div>
-
-					<!-- Camera Capture -->
-					<div class="upload-group">
-						<label class="upload-btn camera-btn">
-							<input 
-								type="file" 
-								bind:this={cameraInput}
-								on:change={handleCameraCapture}
-								accept="image/*"
-								capture="environment"
-								hidden
-							/>
-							📷 Take Photo
-						</label>
-						{#if notificationData.photo}
-							<div class="file-preview">
-								<span class="file-name">{notificationData.photo.name}</span>
-								<span class="file-size">({getFileSize(notificationData.photo)})</span>
-								<button type="button" class="remove-btn" on:click={removePhoto}>×</button>
-							</div>
-						{/if}
-					</div>
-				</div>
 			</div>
 
 			<!-- Action Buttons -->
@@ -518,110 +627,6 @@
 		min-height: 80px;
 	}
 
-	.attachment-controls {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.upload-group {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.upload-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 16px;
-		background: #f9fafb;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-		color: #374151;
-		transition: all 0.2s;
-		width: fit-content;
-	}
-
-	.upload-btn:hover {
-		background: #f3f4f6;
-		border-color: #10b981;
-	}
-
-	.camera-btn {
-		background: #eff6ff;
-		border-color: #3b82f6;
-		color: #1e40af;
-	}
-
-	.camera-btn:hover {
-		background: #dbeafe;
-	}
-
-	.file-preview {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 12px;
-		background: #f0fdf4;
-		border: 1px solid #10b981;
-		border-radius: 6px;
-		font-size: 13px;
-	}
-
-	.file-name {
-		color: #065f46;
-		font-weight: 500;
-	}
-
-	.file-size {
-		color: #6b7280;
-	}
-
-	.remove-btn {
-		background: #ef4444;
-		color: white;
-		border: none;
-		border-radius: 50%;
-		width: 20px;
-		height: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		font-size: 12px;
-		margin-left: auto;
-	}
-
-	.multi-select {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		padding: 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		background: white;
-		max-height: 150px;
-		overflow-y: auto;
-	}
-
-	.checkbox-option {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 14px;
-		color: #374151;
-		cursor: pointer;
-	}
-
-	.checkbox-option input[type="checkbox"] {
-		width: auto;
-		margin: 0;
-	}
-
 	.loading-text {
 		color: #6b7280;
 		font-style: italic;
@@ -706,5 +711,213 @@
 
 	.form-content::-webkit-scrollbar-thumb:hover {
 		background: #94a3b8;
+	}
+
+	/* User Table Styles */
+	.users-selection {
+		margin-top: 16px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		background: white;
+	}
+
+	.users-header {
+		padding: 16px;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.users-title {
+		font-size: 16px;
+		font-weight: 600;
+		color: #374151;
+		margin: 0 0 12px 0;
+	}
+
+	.users-controls {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 16px;
+	}
+
+	.branch-filter {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.branch-filter label {
+		font-size: 14px;
+		font-weight: 500;
+		margin: 0;
+		white-space: nowrap;
+	}
+
+	.branch-filter select {
+		min-width: 150px;
+		padding: 6px 10px;
+		font-size: 14px;
+	}
+
+	.select-all-btn {
+		padding: 6px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 4px;
+		background: white;
+		color: #374151;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.select-all-btn:hover {
+		background: #f3f4f6;
+		border-color: #10b981;
+	}
+
+	.loading-users {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		padding: 40px;
+		color: #6b7280;
+	}
+
+	.loading-spinner-small {
+		width: 20px;
+		height: 20px;
+		border: 2px solid #f3f4f6;
+		border-top: 2px solid #10b981;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	.no-users {
+		padding: 40px;
+		text-align: center;
+		color: #6b7280;
+	}
+
+	.users-table {
+		max-height: 300px;
+		overflow-y: auto;
+	}
+
+	.table-header {
+		display: grid;
+		grid-template-columns: 60px 120px 150px 100px 140px 100px 120px;
+		gap: 8px;
+		padding: 12px 16px;
+		background: #f8fafc;
+		border-bottom: 1px solid #e5e7eb;
+		font-size: 13px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.table-body {
+		min-height: 100px;
+		max-height: 240px;
+		overflow-y: auto;
+	}
+
+	.table-row {
+		display: grid;
+		grid-template-columns: 60px 120px 150px 100px 140px 100px 120px;
+		gap: 8px;
+		padding: 10px 16px;
+		border-bottom: 1px solid #f3f4f6;
+		transition: background-color 0.2s;
+		align-items: center;
+		font-size: 13px;
+	}
+
+	.table-row:hover {
+		background: #f8fafc;
+	}
+
+	.table-row.selected {
+		background: #f0fdf4;
+		border-color: #bbf7d0;
+	}
+
+	.col-select {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.col-select input[type="checkbox"] {
+		width: 16px !important;
+		height: 16px !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		transform: scale(1.2);
+		cursor: pointer;
+		appearance: auto !important;
+		-webkit-appearance: checkbox !important;
+		-moz-appearance: checkbox !important;
+		background: white !important;
+		border: 1px solid #d1d5db !important;
+		border-radius: 2px !important;
+		display: inline-block !important;
+		position: relative;
+	}
+
+	.col-select input[type="checkbox"]:checked {
+		background-color: #10b981 !important;
+		border-color: #10b981 !important;
+	}
+
+	.col-select input[type="checkbox"]:focus {
+		outline: 2px solid #10b981 !important;
+		outline-offset: 2px;
+	}
+
+	.col-username {
+		color: #6b7280;
+		font-family: monospace;
+		font-size: 12px;
+		word-break: break-all;
+	}
+
+	.col-name {
+		font-weight: 500;
+		color: #111827;
+	}
+
+	.col-employee-id {
+		color: #6b7280;
+		font-family: monospace;
+		font-size: 12px;
+	}
+
+	.col-position {
+		font-size: 12px;
+		color: #374151;
+		word-break: break-word;
+	}
+
+	.col-role {
+		font-size: 12px;
+		color: #374151;
+	}
+
+	.col-branch {
+		font-size: 12px;
+		color: #6b7280;
+		word-break: break-word;
+	}
+
+	.selection-summary {
+		padding: 12px 16px;
+		background: #f0fdf4;
+		border-top: 1px solid #bbf7d0;
+		color: #065f46;
+		font-size: 14px;
+		text-align: center;
 	}
 </style>

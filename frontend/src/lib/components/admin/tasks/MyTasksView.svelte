@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { windowManager } from '$lib/stores/windowManager';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
@@ -20,16 +20,19 @@
 	let showImageModal = false;
 	let selectedImageUrl = '';
 	
-	// Get current user from auth store
-	$: currentUser = $auth?.user;
+	// Get current user from persistent auth service
+	$: currentUserData = $currentUser;
+	$: authenticated = $isAuthenticated;
+	$: console.log('🔍 [MyTasks] Auth state:', { authenticated, currentUserData });
 
 	// Subscribe to auth changes and reload tasks when user changes
-	$: if (currentUser?.id) {
+	$: if (authenticated && currentUserData?.id) {
 		loadMyTasks();
 	}
 
 	onMount(() => {
-		if (currentUser?.id) {
+		// Try to load tasks on mount if user is available
+		if (authenticated && currentUserData?.id) {
 			loadMyTasks();
 		}
 		
@@ -43,8 +46,22 @@
 	});
 
 	async function loadMyTasks() {
-		if (!currentUser?.id) return;
+		// Get the current user ID from persistent auth
+		let userId = currentUserData?.id;
 		
+		console.log('🔍 [MyTasks] Attempting to get user ID:', {
+			currentUserData,
+			authenticated,
+			userId
+		});
+		
+		if (!authenticated || !userId) {
+			console.warn('❌ [MyTasks] No current user ID available or not authenticated');
+			loading = false;
+			return;
+		}
+		
+		console.log('🔄 [MyTasks] Loading tasks for user:', userId);
 		loading = true;
 		try {
 			// First, fetch task assignments with task details
@@ -66,9 +83,11 @@
 						created_by_role
 					)
 				`)
-				.eq('assigned_to_user_id', currentUser.id)
+				.eq('assigned_to_user_id', userId)
 				.order('assigned_at', { ascending: false });
 
+			console.log('📊 [MyTasks] Query result:', { data, error, userID: userId });
+			
 			if (error) throw error;
 
 			// Load task images and assigned_by user details for each task
@@ -148,8 +167,9 @@
 
 			tasks = tasksWithImages;
 			filterTasks();
+			console.log('✅ [MyTasks] Successfully loaded tasks:', tasks.length);
 		} catch (error) {
-			console.error('Error loading my tasks:', error);
+			console.error('❌ [MyTasks] Error loading my tasks:', error);
 		} finally {
 			loading = false;
 		}
@@ -555,7 +575,7 @@
 										</div>
 										<div>
 											<span class="font-medium">Assigned to:</span> 
-											{currentUser?.name || currentUser?.username || 'You'}
+											{currentUserData?.name || currentUserData?.username || 'You'}
 										</div>
 										<div>
 											<span class="font-medium">Assigned on:</span> 

@@ -78,15 +78,20 @@ function createTaskStore() {
 
 		// Create new task
 		async createTask(taskData: Omit<Task, 'id' | 'created_at' | 'updated_at'>) {
+			console.log('🎯 [TaskStore] createTask called with data:', taskData);
 			update(state => ({ ...state, loading: true, error: null }));
 			
 			try {
+				console.log('📤 [TaskStore] Calling db.tasks.create...');
 				const { data: newTask, error } = await db.tasks.create(taskData);
+				console.log('📥 [TaskStore] db.tasks.create result:', { data: newTask, error });
 				
 				if (error) {
+					console.error('❌ [TaskStore] Database error:', error);
 					throw new Error(error.message);
 				}
 				
+				console.log('✅ [TaskStore] Task created successfully:', newTask);
 				update(state => {
 					const updatedTasks = [newTask!, ...state.tasks];
 					const taskCounts = updateTaskCounts(updatedTasks);
@@ -102,7 +107,13 @@ function createTaskStore() {
 				
 				return { success: true, data: newTask };
 			} catch (error) {
-				console.error('Failed to create task:', error);
+				console.error('❌ [TaskStore] Failed to create task:', error);
+				console.error('❌ [TaskStore] Error details:', {
+					message: error?.message,
+					stack: error?.stack,
+					name: error?.name,
+					taskData: taskData
+				});
 				const errorMessage = error instanceof Error ? error.message : 'Failed to create task';
 				update(state => ({
 					...state,

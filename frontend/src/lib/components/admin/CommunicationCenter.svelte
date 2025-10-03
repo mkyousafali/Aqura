@@ -2,10 +2,17 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
+	import { auth } from '$lib/stores/auth';
 	import NotificationCenter from './communication/NotificationCenter.svelte';
+	import AdminReadStatusModal from './communication/AdminReadStatusModal.svelte';
 
 	// Subscribe to notification counts store
 	$: counts = $notificationCounts;
+
+	// Current user for role-based access
+	$: currentUser = $auth?.user;
+	$: userRole = currentUser?.role || 'Position-based';
+	$: isMasterAdmin = userRole === 'Master Admin';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type: string): string {
@@ -44,9 +51,27 @@
 		setTimeout(refreshNotificationCounts, 1000);
 	}
 
-	function showComingSoon(feature: string) {
-		alert(`${feature} - Coming soon...`);
+	function openAdminReadStatus() {
+		const windowId = `admin-read-status-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: 'Admin: Read Status Per User',
+			component: AdminReadStatusModal,
+			icon: '👥',
+			size: { width: 800, height: 600 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
+
+
 </script>
 
 <div class="communication-center">
@@ -82,62 +107,12 @@
 					<button class="action-btn primary" on:click={openNotificationCenter}>
 						Open Notification Center
 					</button>
-				</div>
-			</div>
-
-			<!-- Announcements Card -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<div class="card-icon">📢</div>
-					<div class="card-title">
-						<h3>Announcements</h3>
-						<p>Company-wide announcements</p>
-					</div>
-				</div>
-				<div class="card-content">
-					<div class="stats">
-						<div class="stat-item">
-							<span class="stat-number">2</span>
-							<span class="stat-label">Active</span>
-						</div>
-						<div class="stat-item">
-							<span class="stat-number">15</span>
-							<span class="stat-label">Archive</span>
-						</div>
-					</div>
-				</div>
-				<div class="card-footer">
-					<button class="action-btn" on:click={() => showComingSoon('Announcements')}>
-						Manage Announcements
-					</button>
-				</div>
-			</div>
-
-			<!-- Calendar Card -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<div class="card-icon">📅</div>
-					<div class="card-title">
-						<h3>Calendar Events</h3>
-						<p>Meetings and appointments</p>
-					</div>
-				</div>
-				<div class="card-content">
-					<div class="stats">
-						<div class="stat-item">
-							<span class="stat-number">4</span>
-							<span class="stat-label">Today</span>
-						</div>
-						<div class="stat-item">
-							<span class="stat-number">18</span>
-							<span class="stat-label">Week</span>
-						</div>
-					</div>
-				</div>
-				<div class="card-footer">
-					<button class="action-btn" on:click={() => showComingSoon('Calendar Events')}>
-						View Calendar
-					</button>
+					{#if isMasterAdmin}
+						<button class="action-btn secondary" on:click={openAdminReadStatus}>
+							<span class="btn-icon">👥</span>
+							Read Status
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -176,9 +151,8 @@
 	}
 
 	.dashboard-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-		gap: 20px;
+		display: flex;
+		justify-content: center;
 		max-width: 1200px;
 		margin: 0 auto;
 	}
@@ -190,6 +164,8 @@
 		overflow: hidden;
 		transition: all 0.3s ease;
 		border: 1px solid #e5e7eb;
+		width: 400px;
+		max-width: 100%;
 	}
 
 	.dashboard-card:hover {
@@ -277,6 +253,9 @@
 
 	.card-footer {
 		padding: 15px 20px 20px 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
 	}
 
 	.action-btn {
@@ -306,6 +285,24 @@
 
 	.action-btn.primary:hover {
 		background: #059669;
+	}
+
+	.action-btn.secondary {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+	}
+
+	.action-btn.secondary:hover {
+		background: #2563eb;
+	}
+
+	.btn-icon {
+		font-size: 14px;
 	}
 
 	.action-btn:active {

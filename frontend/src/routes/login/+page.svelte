@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { localeData, t } from '$lib/i18n';
 	import { auth } from '$lib/stores/auth';
+	import { persistentAuthService } from '$lib/utils/persistentAuth';
 
 	// Login form states
 	let loginMethod: 'username' | 'quickAccess' = 'username';
@@ -96,14 +97,18 @@
 		errorMessage = '';
 
 		try {
-			const result = await auth.loginWithCredentials(username, password, rememberMe);
+			const result = await persistentAuthService.login(username, password);
 			
-			successMessage = 'Login successful! Redirecting...';
-			
-			// Redirect to main page after a short delay
-			setTimeout(() => {
-				goto('/');
-			}, 1500);
+			if (result.success) {
+				successMessage = 'Login successful! Redirecting...';
+				
+				// Redirect to main page after a short delay
+				setTimeout(() => {
+					goto('/');
+				}, 1500);
+			} else {
+				errorMessage = result.error || 'Login failed. Please try again.';
+			}
 
 		} catch (error) {
 			errorMessage = error.message || 'Login failed. Please try again.';
@@ -122,17 +127,21 @@
 		errorMessage = '';
 
 		try {
-			const result = await auth.loginWithQuickAccess(quickAccessCode);
-
-			successMessage = 'Quick access successful! Redirecting...';
+			const result = await persistentAuthService.loginWithQuickAccess(quickAccessCode);
 			
-			// Redirect to main page after a short delay
-			setTimeout(() => {
-				goto('/');
-			}, 1500);
+			if (result.success) {
+				successMessage = 'Quick access successful! Redirecting...';
+				
+				// Redirect to main page after a short delay
+				setTimeout(() => {
+					goto('/');
+				}, 1500);
+			} else {
+				errorMessage = result.error || 'Quick access login failed. Please try again.';
+			}
 
 		} catch (error) {
-			errorMessage = error.message || 'Login failed. Please try again.';
+			errorMessage = error instanceof Error ? error.message : 'Login failed. Please try again.';
 		} finally {
 			isLoading = false;
 		}

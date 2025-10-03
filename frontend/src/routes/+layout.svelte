@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import { initI18n, currentLocale, localeData } from '$lib/i18n';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { auth } from '$lib/stores/auth';
@@ -12,6 +13,15 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import PWAInstallPrompt from '$lib/components/PWAInstallPrompt.svelte';
 	import ToastNotifications from '$lib/components/ToastNotifications.svelte';
+	import UserSwitcher from '$lib/components/UserSwitcher.svelte';
+	import PushNotificationSettings from '$lib/components/PushNotificationSettings.svelte';
+	
+	// Enhanced imports for persistent auth and push notifications
+	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
+	import { notificationService } from '$lib/utils/notificationManagement';
+	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
+	import { windowManager } from '$lib/stores/windowManager';
+	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
 
 	// Initialize i18n system
 	initI18n();
@@ -19,32 +29,156 @@
 	// Command palette state
 	let showCommandPalette = false;
 	
+	// User management states
+	let showUserSwitcher = false;
+	let showNotificationSettings = false;
+	
 	// Authentication state
 	let isAuthenticated = false;
 	let isLoading = true;
+	let currentUserData = null;
+	let unsubscribePersistent: (() => void) | undefined;
+	let unsubscribeUser: (() => void) | undefined;
+	
+	// Debug flag to temporarily disable redirects
+	let allowRedirects = false;
 
 	onMount(async () => {
-		// Initialize auth store
-		await auth.init();
-		
-		// Subscribe to auth state changes
-		const unsubscribe = auth.subscribe(session => {
-			console.log('Auth state changed:', session ? 'authenticated' : 'not authenticated');
-			isAuthenticated = !!session;
-			isLoading = false;
+		try {
+			// Initialize persistent authentication first
+			await persistentAuthService.initializeAuth();
 			
-			// If not authenticated and not on login page, redirect to login
-			if (!session && $page.url.pathname !== '/login') {
-				console.log('Not authenticated, redirecting to login');
-				goto('/login');
+			// Add a small delay to allow auth state to stabilize
+			await new Promise(resolve => setTimeout(resolve, 100));
+			
+			// Skip legacy auth initialization to prevent conflicts
+			// await auth.init(); // Disabled - using persistent auth instead
+			
+			// Clear any legacy auth data once on startup
+			localStorage.removeItem('aqura-auth-token');
+			localStorage.removeItem('aqura-user-data');
+			console.log('🔐 Legacy auth data cleared on startup');
+			
+			// Subscribe to persistent auth state
+			unsubscribePersistent = persistentAuthState.subscribe(authenticated => {
+				console.log('🔐 Persistent auth state changed:', authenticated);
+				isAuthenticated = authenticated;
+				
+				// Set loading to false after we get the first auth state
+				isLoading = false;
+				
+				// Enable redirects after initial auth check is complete
+				if (!allowRedirects) {
+					setTimeout(() => {
+						allowRedirects = true;
+						console.log('🔐 Redirects enabled');
+					}, 1500); // Allow 1.5 seconds for auth synchronization
+				}
+				
+				// Only redirect if we're definitely not authenticated and redirects are allowed
+				if (!authenticated && $page.url.pathname !== '/login' && allowRedirects) {
+					console.log('🔐 Not authenticated, redirecting to login');
+					setTimeout(() => {
+						// Double-check we're still not authenticated before redirecting
+						if (!isAuthenticated && $page.url.pathname !== '/login') {
+							goto('/login');
+						}
+					}, 100);
+				}
+			});
+
+			// Subscribe to current user changes
+			unsubscribeUser = currentUser.subscribe(user => {
+				currentUserData = user;
+				console.log('Current user changed:', user);
+			});
+
+			// Legacy auth subscription disabled - using persistent auth only
+			// unsubscribeLegacy = auth.subscribe(session => {
+			//	console.log('Legacy auth state changed:', session ? 'authenticated' : 'not authenticated');
+			// });
+
+			// Initialize push notifications and real-time listeners for authenticated users
+			if (isAuthenticated) {
+				await initializeNotificationServices();
 			}
-		});
-		
-		// Cleanup subscription on component destroy
-		return unsubscribe;
+		} catch (error) {
+			console.error('Error initializing layout:', error);
+			isLoading = false;
+		}
+	});
+	
+	onDestroy(() => {
+		// Cleanup subscriptions on component destroy
+		if (unsubscribePersistent) unsubscribePersistent();
+		if (unsubscribeUser) unsubscribeUser();
+		// unsubscribeLegacy not used anymore
 	});
 
-	// Global keyboard shortcuts
+	async function initializeNotificationServices() {
+		try {
+			// Check if push notifications are supported and user wants them
+			const isSupported = notificationService.isPushNotificationSupported();
+			const permission = notificationService.getPushNotificationPermission();
+			
+			if (isSupported && permission === 'granted') {
+				// Auto-register for push notifications
+				await notificationService.registerForPushNotifications();
+				
+				// Start real-time notification listener
+				await notificationService.startRealtimeNotificationListener();
+			}
+			
+			// Start the push notification processor
+			console.log('🚀 Starting push notification processor...');
+			pushNotificationProcessor.start();
+			
+		} catch (error) {
+			console.error('Error initializing notification services:', error);
+		}
+
+		// Listen for custom events from service worker
+		const handleOpenNotificationWindow = (event: CustomEvent) => {
+			console.log('🔔 Opening notification window from push notification:', event.detail);
+			openNotificationWindow(event.detail.notificationId);
+		};
+
+		// Add event listener for opening notification windows
+		window.addEventListener('openNotificationWindow', handleOpenNotificationWindow as EventListener);
+
+		// Cleanup function
+		return () => {
+			window.removeEventListener('openNotificationWindow', handleOpenNotificationWindow as EventListener);
+		};
+	}
+
+	// Function to open notification window
+	function openNotificationWindow(notificationId: string | null = null) {
+		const windowId = `notification-center-${Date.now()}`;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: notificationId ? 'Notifications - Specific Item' : 'Notifications',
+			component: NotificationWindow,
+			props: {
+				targetNotificationId: notificationId
+			},
+			icon: '🔔',
+			size: { width: 900, height: 600 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+
+		console.log('🔔 Notification window opened:', windowId, 'targeting notification:', notificationId);
+	}
+
+	// Enhanced keyboard shortcuts
 	function handleGlobalKeydown(event: KeyboardEvent) {
 		// Only handle shortcuts if user is authenticated
 		if (!isAuthenticated) return;
@@ -55,9 +189,23 @@
 			showCommandPalette = !showCommandPalette;
 		}
 		
-		// Escape to close command palette
-		if (event.key === 'Escape' && showCommandPalette) {
+		// Ctrl+Shift+U or Cmd+Shift+U for user switcher
+		if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'U') {
+			event.preventDefault();
+			showUserSwitcher = !showUserSwitcher;
+		}
+		
+		// Ctrl+Shift+N or Cmd+Shift+N for notification settings
+		if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'N') {
+			event.preventDefault();
+			showNotificationSettings = !showNotificationSettings;
+		}
+		
+		// Escape to close all modals
+		if (event.key === 'Escape') {
 			showCommandPalette = false;
+			showUserSwitcher = false;
+			showNotificationSettings = false;
 		}
 	}
 
@@ -66,6 +214,16 @@
 	
 	// Check if current route is login page
 	$: isLoginPage = $page.url.pathname === '/login';
+
+	// Handle user switching
+	function handleUserSwitchRequest() {
+		showUserSwitcher = true;
+	}
+
+	// Handle notification settings request
+	function handleNotificationSettingsRequest() {
+		showNotificationSettings = true;
+	}
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -98,10 +256,43 @@
 					bind:visible={showCommandPalette}
 					on:close={() => showCommandPalette = false}
 				/>
+
+				<!-- User Switcher Modal -->
+				<UserSwitcher
+					isOpen={showUserSwitcher}
+					onClose={() => showUserSwitcher = false}
+				/>
+
+				<!-- Push Notification Settings Modal -->
+				{#if showNotificationSettings}
+					<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+						<div class="max-w-lg w-full mx-4">
+							<div class="bg-white rounded-lg shadow-xl">
+								<div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+									<h2 class="text-lg font-semibold text-gray-900">Notification Settings</h2>
+									<button
+										on:click={() => showNotificationSettings = false}
+										class="text-gray-400 hover:text-gray-600 transition-colors"
+									>
+										<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+										</svg>
+									</button>
+								</div>
+								<div class="p-6">
+									<PushNotificationSettings />
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
 			</div>
 			
 			<!-- Taskbar -->
-			<Taskbar />
+			<Taskbar 
+				on:user-switch-request={handleUserSwitchRequest}
+				on:notification-settings-request={handleNotificationSettingsRequest}
+			/>
 			
 			<!-- Toast Notifications -->
 			<ToastNotifications />

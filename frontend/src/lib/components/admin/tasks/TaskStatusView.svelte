@@ -24,10 +24,6 @@
 	// Task Assignment Data (Section 2)
 	let assignmentData = [];
 	let filteredAssignmentData = [];
-	
-	// UI States
-	let showWarningModal = false;
-	let selectedAssignment = null;
 
 	onMount(() => {
 		loadData();
@@ -303,13 +299,21 @@
 	}
 
 	function openWarningModal(assignment) {
-		selectedAssignment = assignment;
-		showWarningModal = true;
-	}
-
-	function closeWarningModal() {
-		showWarningModal = false;
-		selectedAssignment = null;
+		// Open SendWarningModal as a window instead of a modal
+		windowManager.openWindow({
+			component: SendWarningModal,
+			title: 'Generate Warning',
+			props: {
+				assignment: assignment,
+				onClose: () => {
+					// Refresh the data when warning is completed
+					loadDataFromSupabase();
+				}
+			},
+			width: 600,
+			height: 700,
+			resizable: true
+		});
 	}
 </script>
 
@@ -498,14 +502,6 @@
 		</div>
 	{/if}
 </div>
-
-<!-- Warning Modal -->
-{#if showWarningModal && selectedAssignment}
-	<SendWarningModal 
-		assignment={selectedAssignment}
-		on:close={closeWarningModal}
-	/>
-{/if}
 
 <style>
 	.task-status-view {

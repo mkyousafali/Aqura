@@ -24,5 +24,63 @@
 	</head>
 	<body data-sveltekit-preload-data="hover" class="h-full bg-gray-50 overflow-hidden">
 		<div style="display: contents" class="h-full">%sveltekit.body%</div>
+		
+		<!-- Service Worker Registration -->
+		<script>
+			// Register service worker for push notifications
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', async () => {
+					try {
+						const registration = await navigator.serviceWorker.register('/sw.js', {
+							scope: '/'
+						});
+						console.log('Service Worker registered successfully:', registration);
+						
+						// Listen for messages from service worker
+						navigator.serviceWorker.addEventListener('message', (event) => {
+							console.log('Message from service worker:', event.data);
+							
+							// Handle different message types
+							if (event.data.type === 'navigate' && event.data.url) {
+								window.location.href = event.data.url;
+							} else if (event.data.type === 'open_notification_window') {
+								// Dispatch custom event to open notification window
+								window.dispatchEvent(new CustomEvent('openNotificationWindow', {
+									detail: { notificationId: event.data.notificationId }
+								}));
+							}
+						});
+						
+						// Handle service worker updates
+						registration.addEventListener('updatefound', () => {
+							const newWorker = registration.installing;
+							if (newWorker) {
+								newWorker.addEventListener('statechange', () => {
+									if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+										// New service worker available
+										if (confirm('A new version is available. Reload to update?')) {
+											newWorker.postMessage({ type: 'SKIP_WAITING' });
+											window.location.reload();
+										}
+									}
+								});
+							}
+						});
+						
+						// Handle service worker activation
+						let refreshing = false;
+						navigator.serviceWorker.addEventListener('controllerchange', () => {
+							if (!refreshing) {
+								refreshing = true;
+								window.location.reload();
+							}
+						});
+						
+					} catch (error) {
+						console.error('Service Worker registration failed:', error);
+					}
+				});
+			}
+		</script>
 	</body>
 </html>

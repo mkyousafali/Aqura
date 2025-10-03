@@ -183,19 +183,6 @@
 				
 				<div class="space-y-3">
 					<div>
-						<span class="font-medium text-gray-700">Due Date:</span>
-						<div class="ml-2">
-							{formatDate(task.due_date)}
-							{#if task.due_time}
-								<span class="text-sm text-gray-500">at {formatTime(task.due_time)}</span>
-							{/if}
-							{#if isOverdue(task.due_date, task.due_time)}
-								<span class="ml-2 px-2 py-1 bg-red-100 text-red-600 text-xs rounded font-medium">OVERDUE</span>
-							{/if}
-						</div>
-					</div>
-					
-					<div>
 						<span class="font-medium text-gray-700">Created by:</span>
 						<div class="ml-2">{createdByUsername || task.created_by_name || task.created_by_username || task.assigned_by_name || task.assigned_by_username || 'Unknown User'}</div>
 					</div>

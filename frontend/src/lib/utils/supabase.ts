@@ -6,32 +6,48 @@ const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
 const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-	auth: {
-		persistSession: true,
-		autoRefreshToken: true,
-		detectSessionInUrl: true
-	},
-	global: {
-		headers: {
-			'X-Client-Info': 'aqura-pwa'
-		}
+// Create Supabase client with singleton pattern
+let _supabase: any = null;
+
+export const supabase = (() => {
+	if (!_supabase) {
+		_supabase = createClient(supabaseUrl, supabaseAnonKey, {
+			auth: {
+				persistSession: true,
+				autoRefreshToken: true,
+				detectSessionInUrl: true,
+				storageKey: 'aqura-auth' // Use unique storage key
+			},
+			global: {
+				headers: {
+					'X-Client-Info': 'aqura-pwa'
+				}
+			}
+		});
 	}
-});
+	return _supabase;
+})();
 
 // Service role client for administrative operations (bypasses RLS)
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-	auth: {
-		persistSession: false,
-		autoRefreshToken: false
-	},
-	global: {
-		headers: {
-			'X-Client-Info': 'aqura-pwa-admin'
-		}
+let _supabaseAdmin: any = null;
+
+export const supabaseAdmin = (() => {
+	if (!_supabaseAdmin) {
+		_supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+			auth: {
+				persistSession: false,
+				autoRefreshToken: false,
+				storageKey: 'aqura-admin-auth' // Use unique storage key
+			},
+			global: {
+				headers: {
+					'X-Client-Info': 'aqura-pwa-admin'
+				}
+			}
+		});
 	}
-});
+	return _supabaseAdmin;
+})();
 
 // Database types based on our models
 export interface Employee {
@@ -626,11 +642,40 @@ export const db = {
 		},
 
 		async create(task: Omit<Task, 'id' | 'created_at' | 'updated_at'>) {
+			console.log('🗄️ [DB] tasks.create called with:', task);
+			console.log('🗄️ [DB] task data types:', {
+				title: typeof task.title,
+				description: typeof task.description,
+				created_by: typeof task.created_by,
+				require_task_finished: typeof task.require_task_finished,
+				require_photo_upload: typeof task.require_photo_upload,
+				require_erp_reference: typeof task.require_erp_reference,
+				can_escalate: typeof task.can_escalate,
+				can_reassign: typeof task.can_reassign,
+				status: typeof task.status,
+				priority: typeof task.priority,
+				due_date: typeof task.due_date,
+				due_time: typeof task.due_time,
+				due_datetime: typeof task.due_datetime
+			});
+			
 			const { data, error } = await supabase
 				.from('tasks')
 				.insert(task)
 				.select()
 				.single();
+				
+			console.log('🗄️ [DB] tasks.create result:', { data, error });
+			
+			if (error) {
+				console.error('❌ [DB] Database insert error details:', {
+					message: error.message,
+					details: error.details,
+					hint: error.hint,
+					code: error.code
+				});
+			}
+			
 			return { data, error };
 		},
 

@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import { userManagement } from '$lib/utils/userManagement';
 	import CreateUser from './user/CreateUser.svelte';
 	import EditUser from './user/EditUser.svelte';
@@ -54,9 +54,9 @@
 		}
 	}
 
-	// Get current user from auth store
-	$: currentUser = $auth.user || { role_type: 'Position-based' };
-	$: userRoleType = currentUser?.role_type || 'Position-based';
+	// Get current user from persistent auth store with null safety
+	$: currentUserData = $currentUser || { roleType: 'Position-based' };
+	$: userRoleType = currentUserData?.roleType || 'Position-based';
 	const dashboardButtons = [
 		{
 			id: 'create-user',

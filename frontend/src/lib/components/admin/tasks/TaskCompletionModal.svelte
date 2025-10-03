@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { db } from '$lib/utils/supabase';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	
 	const dispatch = createEventDispatcher();
@@ -67,7 +67,7 @@
 	let countdownInterval: NodeJS.Timeout | null = null;
 	
 	// Current user
-	$: currentUser = $auth?.user;
+	$: currentUserData = $currentUser;
 	
 	// Resolve requirement flags from assignment details first, then task object, then props
 	$: resolvedRequireTaskFinished = assignmentDetails?.require_task_finished ?? task?.require_task_finished ?? requireTaskFinished ?? true; // Task finished is always mandatory
@@ -232,9 +232,28 @@
 		try {
 			isLoading = true;
 			
+			// Debug logging for task ID resolution
+			console.log('🔍 [TaskCompletion] Debug values:', {
+				task: task,
+				taskId: taskId,
+				resolvedTaskId: resolvedTaskId,
+				taskTitle: taskTitle,
+				assignmentId: assignmentId
+			});
+			
 			// Validate taskId
 			if (!resolvedTaskId || resolvedTaskId === 'unknown' || resolvedTaskId === 'null') {
-				throw new Error('Invalid task ID provided');
+				console.error('❌ [TaskCompletion] Invalid task ID detected:', {
+					resolvedTaskId,
+					task,
+					taskId,
+					originalProps: { taskId, taskTitle, taskDescription, assignmentId }
+				});
+				
+				// Show user-friendly error message and close modal
+				alert('Error: Cannot load task details. The task information is missing or invalid. Please try refreshing the page or contact support.');
+				onClose();
+				return;
 			}
 			
 			// Load task details
@@ -623,7 +642,7 @@
 	}
 	
 	async function uploadPhoto(): Promise<string | null> {
-		if (!photoFile || !currentUser) return null;
+		if (!photoFile || !currentUserData) return null;
 		
 		try {
 			const fileExt = photoFile.name.split('.').pop();
@@ -633,7 +652,7 @@
 				fileName,
 				fileSize: photoFile.size,
 				fileType: photoFile.type,
-				currentUser: currentUser.id,
+				currentUser: currentUserData.id,
 				bucket: 'completion-photos'
 			});
 			
@@ -667,7 +686,7 @@
 	}
 	
 	async function submitCompletion() {
-		if (!currentUser || !canSubmit) return;
+		if (!currentUserData || !canSubmit) return;
 		
 		isSubmitting = true;
 		errorMessage = '';
@@ -694,14 +713,14 @@
 			const completionRecord = {
 				task_id: resolvedTaskId,
 				assignment_id: resolvedAssignmentId,
-				completed_by: currentUser.id,
-				completed_by_name: currentUser.name || currentUser.username,
-				completed_by_branch_id: currentUser.branch_id,
-				task_finished_completed: requireTaskFinished ? completionData.task_finished_completed : null,
-				photo_uploaded_completed: requirePhotoUpload ? (photoUrl ? true : false) : null, // Only true if we have a URL
+				completed_by: currentUserData.id,
+				completed_by_name: currentUserData.name || currentUserData.username,
+				completed_by_branch_id: currentUserData.branch_id,
+				task_finished_completed: resolvedRequireTaskFinished ? completionData.task_finished_completed : null,
+				photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrl ? true : false) : null, // Only true if we have a URL
 				completion_photo_url: photoUrl, // Store the photo URL in completion record
-				erp_reference_completed: requireErpReference ? completionData.erp_reference_completed : null,
-				erp_reference_number: requireErpReference ? completionData.erp_reference_number : null,
+				erp_reference_completed: resolvedRequireErpReference ? completionData.erp_reference_completed : null,
+				erp_reference_number: resolvedRequireErpReference ? completionData.erp_reference_number : null,
 				completion_notes: completionData.completion_notes || null,
 				completed_at: new Date().toISOString()
 			};
@@ -726,7 +745,7 @@
 					status: 'completed',
 					completed_at: new Date().toISOString()
 				})
-				.eq('id', assignmentId);
+				.eq('id', resolvedAssignmentId);
 			
 			if (assignmentError) {
 				console.error('Error updating assignment status:', assignmentError);
@@ -734,14 +753,19 @@
 			
 			// Mark notification as read
 			if (notificationId) {
-				await notificationManagement.markAsRead(notificationId, currentUser.id);
+				await notificationManagement.markAsRead(notificationId, currentUserData.id);
 			}
 			
 			successMessage = 'Task completed successfully!';
 			
+			// Call the callback function
+			if (onTaskCompleted) {
+				onTaskCompleted();
+			}
+			
 			// Dispatch completion event
 			dispatch('taskCompleted', {
-				taskId,
+				taskId: resolvedTaskId,
 				completionId: data.id,
 				completionData: completionRecord
 			});
@@ -749,6 +773,7 @@
 			// Close modal after short delay
 			setTimeout(() => {
 				dispatch('close');
+				onClose();
 			}, 2000);
 			
 		} catch (error) {

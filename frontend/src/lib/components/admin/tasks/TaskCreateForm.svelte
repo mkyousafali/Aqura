@@ -19,6 +19,12 @@
 		created_by: editMode && taskData ? taskData.created_by : ($auth?.user?.id || '')
 	};
 	
+	// For testing when auth is not available
+	let testUserId = '';
+	$: if (!formData.created_by && testUserId) {
+		formData.created_by = testUserId;
+	}
+	
 	// Form state
 	let isSubmitting = false;
 	let imageFile = null;
@@ -95,7 +101,12 @@
 	
 	// Form submission
 	const handleSubmit = async () => {
+		console.log('🚀 [TaskCreate] Form submission started');
+		console.log('📋 [TaskCreate] Form data:', formData);
+		console.log('🔐 [TaskCreate] Auth user:', $auth?.user);
+		
 		if (!validateForm()) {
+			console.log('❌ [TaskCreate] Form validation failed:', errors);
 			return;
 		}
 		
@@ -126,12 +137,15 @@
 			}
 
 			// Create or update the task
+			console.log('📝 [TaskCreate] Creating/updating task with data:', formData);
 			let result;
 			if (editMode && taskData?.id) {
 				result = await updateTask(taskData.id, formData);
 			} else {
 				result = await createTask(formData);
 			}
+			
+			console.log('📊 [TaskCreate] Task creation result:', result);
 
 			if (result.success) {
 				// If we uploaded an image and created a task successfully, save the image record
@@ -204,8 +218,17 @@
 				errors.submit = errorMsg;
 			}
 		} catch (error) {
-			console.error(`Error ${editMode ? 'updating' : 'creating'} task:`, error);
-			const errorMsg = 'An unexpected error occurred';
+			console.error(`❌ [TaskCreate] Error ${editMode ? 'updating' : 'creating'} task:`, error);
+			console.error('❌ [TaskCreate] Error details:', {
+				message: error?.message,
+				stack: error?.stack,
+				name: error?.name,
+				cause: error?.cause,
+				formData: formData,
+				editMode: editMode,
+				taskData: taskData
+			});
+			const errorMsg = `An unexpected error occurred: ${error?.message || 'Unknown error'}`;
 			
 			// Show error notification
 			notifications.add({
@@ -235,6 +258,37 @@
 			</div>
 
 			<form on:submit|preventDefault={handleSubmit} class="space-y-6">
+				<!-- Test User ID (only show when not authenticated) -->
+				{#if !$auth?.user}
+					<div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+						<div class="flex">
+							<div class="flex-shrink-0">
+								<svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+								</svg>
+							</div>
+							<div class="ml-3">
+								<h3 class="text-sm font-medium text-yellow-800">Authentication Required</h3>
+								<div class="mt-2 text-sm text-yellow-700">
+									<p>For testing purposes, enter a valid user ID below:</p>
+								</div>
+								<div class="mt-3">
+									<label for="test-user-id" class="block text-sm font-medium text-yellow-800 mb-1">
+										User ID for Testing
+									</label>
+									<input
+										id="test-user-id"
+										type="text"
+										bind:value={testUserId}
+										placeholder="Enter user ID (UUID format)"
+										class="w-full px-3 py-2 border border-yellow-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+									/>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Task Title -->
 				<div>
 					<label for="task-title" class="block text-sm font-medium text-gray-700 mb-2">

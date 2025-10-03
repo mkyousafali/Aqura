@@ -1,4 +1,7 @@
 import { supabase } from './supabase';
+import { pushNotificationService } from './pushNotifications';
+import { persistentAuthService, currentUser } from './persistentAuth';
+import { pushNotificationProcessor } from './pushNotificationProcessor';
 
 // Types for notification management
 interface CreateNotificationRequest {
@@ -154,35 +157,82 @@ export class NotificationManagementService {
 	 */
 	async createNotification(notification: CreateNotificationRequest, createdBy: string): Promise<NotificationItem> {
 		try {
-			// Get user info for proper attribution
+			// Get user UUID instead of username for created_by field
 			const { data: userData, error: userError } = await supabase
 				.from('users')
-				.select('username, role_type')
+				.select('id, username, role_type')
 				.eq('username', createdBy)
 				.single();
 
-			const createdByName = userData?.username || createdBy;
-			const createdByRole = userData?.role_type || 'Admin';
+			if (userError || !userData) {
+				console.error('❌ [NotificationManagement] Could not find user:', createdBy, userError);
+				throw new Error('User not found');
+			}
+
+			const currentUserId = userData.id; // Use UUID from database
+			const currentUserName = userData.username;
+			const currentUserRole = userData.role_type || 'Admin';
+			
+			// Fix enum values to match database schema
+			let validType = notification.type;
+			if (!['info', 'warning', 'error', 'success', 'announcement', 'task_assigned', 'task_completed', 'task_overdue', 'system_maintenance', 'policy_update', 'birthday_reminder', 'leave_approved', 'leave_rejected', 'document_uploaded', 'meeting_scheduled'].includes(notification.type)) {
+				validType = 'info'; // Default fallback
+			}
+			
+			let validPriority = notification.priority;
+			if (!['low', 'medium', 'high', 'urgent', 'critical'].includes(notification.priority)) {
+				validPriority = 'medium'; // Default fallback
+			}
+			
+			// Prepare notification data with username for created_by (not UUID)
+			const notificationPayload = {
+				title: notification.title,
+				message: notification.message,
+				type: validType,
+				priority: validPriority,
+				target_type: notification.target_type,
+				target_users: notification.target_users || null,
+				target_roles: notification.target_roles || null,
+				target_branches: notification.target_branches || null,
+				created_by: createdBy, // Use username (string) as per schema
+				created_by_name: currentUserName,
+				created_by_role: currentUserRole,
+				status: 'published',
+				scheduled_for: notification.scheduled_at ? new Date(notification.scheduled_at).toISOString() : null,
+				expires_at: notification.expires_at ? new Date(notification.expires_at).toISOString() : null,
+				has_attachments: false,
+				read_count: 0,
+				total_recipients: notification.target_users?.length || 0
+			};
+
+			console.log('📝 [NotificationManagement] Creating notification with username:', notificationPayload);
 
 			const { data, error } = await supabase
 				.from('notifications')
-				.insert({
-					...notification,
-					created_by: createdBy,
-					created_by_name: createdByName,
-					created_by_role: createdByRole,
-					status: 'published', // Publish immediately
-					has_attachments: false,
-					read_count: 0,
-					total_recipients: 0
-				})
-				.select()
+				.insert(notificationPayload)
+				.select('*')
 				.single();
 
 			if (error) {
+				console.error('❌ [NotificationManagement] Database error:', error);
 				throw error;
 			}
 
+			console.log('✅ [NotificationManagement] Notification created successfully:', data);
+			
+			// Automatically trigger push notification processing
+			try {
+				console.log('🔄 [NotificationManagement] Triggering automatic push notification processing...');
+				// Wait a moment for the database trigger to complete, then process
+				setTimeout(() => {
+					pushNotificationProcessor.processOnce().catch(error => {
+						console.error('❌ [NotificationManagement] Auto push processing failed:', error);
+					});
+				}, 1000);
+			} catch (error) {
+				console.error('❌ [NotificationManagement] Failed to trigger automatic push processing:', error);
+			}
+			
 			return data;
 		} catch (error) {
 			console.error('Error creating notification:', error);
@@ -297,20 +347,56 @@ export class NotificationManagementService {
 				throw fetchError;
 			}
 
-			// Create read states for all notifications
-			const readStates = notifications?.map(notification => ({
-				notification_id: notification.id,
-				user_id: userId,
-				is_read: true,
-				read_at: new Date().toISOString()
-			})) || [];
-
-			const { error } = await supabase
+			// Get existing read states for this user
+			const { data: existingReadStates, error: existingError } = await supabase
 				.from('notification_read_states')
-				.upsert(readStates);
+				.select('notification_id')
+				.eq('user_id', userId);
 
-			if (error) {
-				throw error;
+			if (existingError) {
+				throw existingError;
+			}
+
+			// Create a Set of existing notification IDs for quick lookup
+			const existingNotificationIds = new Set(
+				existingReadStates?.map(state => state.notification_id) || []
+			);
+
+			// Create read states only for notifications that don't already have read states
+			const newReadStates = notifications
+				?.filter(notification => !existingNotificationIds.has(notification.id))
+				?.map(notification => ({
+					notification_id: notification.id,
+					user_id: userId,
+					is_read: true,
+					read_at: new Date().toISOString()
+				})) || [];
+
+			// Insert new read states if any
+			if (newReadStates.length > 0) {
+				const { error: insertError } = await supabase
+					.from('notification_read_states')
+					.insert(newReadStates);
+
+				if (insertError) {
+					throw insertError;
+				}
+			}
+
+			// Update existing read states to mark them as read
+			if (existingReadStates && existingReadStates.length > 0) {
+				const { error: updateError } = await supabase
+					.from('notification_read_states')
+					.update({ 
+						is_read: true, 
+						read_at: new Date().toISOString() 
+					})
+					.eq('user_id', userId)
+					.eq('is_read', false);
+
+				if (updateError) {
+					throw updateError;
+				}
 			}
 
 			return { success: true };
@@ -371,7 +457,7 @@ export class NotificationManagementService {
 			const { data, error } = await supabase
 				.from('users')
 				.select('*')
-				.order('full_name');
+				.order('username');
 
 			if (error) {
 				throw error;
@@ -431,7 +517,7 @@ export class NotificationManagementService {
 	}
 
 	/**
-	 * Get read status for notifications
+	 * Get read status for notifications (admin view)
 	 */
 	async getReadStatus(userId: string): Promise<any[]> {
 		try {
@@ -452,6 +538,93 @@ export class NotificationManagementService {
 	}
 
 	/**
+	 * Get admin read status overview for all notifications and users
+	 */
+	async getAdminReadStatus(): Promise<{readStates: any[], notifications: any[], users: any[]}> {
+		try {
+			// Get all published notifications
+			const { data: notifications, error: notifyError } = await supabase
+				.from('notifications')
+				.select('*')
+				.eq('status', 'published')
+				.order('created_at', { ascending: false });
+
+			if (notifyError) {
+				throw notifyError;
+			}
+
+			// Get all users with employee information
+			const { data: users, error: usersError } = await supabase
+				.from('users')
+				.select(`
+					id, 
+					username, 
+					role_type,
+					employee_id,
+					hr_employees(name, employee_id)
+				`)
+				.order('username');
+
+			if (usersError) {
+				throw usersError;
+			}
+
+			// Get all read states without joins since there's no FK relationship
+			const { data: readStates, error: readError } = await supabase
+				.from('notification_read_states')
+				.select('*')
+				.order('created_at', { ascending: false });
+
+			if (readError) {
+				throw readError;
+			}
+
+			// Manually join the data on the frontend
+			const enrichedReadStates = readStates?.map(state => {
+				const notification = notifications?.find(n => n.id === state.notification_id);
+				const user = users?.find(u => u.username === state.user_id || u.id === state.user_id);
+				
+				// Determine display name: Employee name > Username
+				let displayName = state.user_id; // fallback to user_id
+				if (user) {
+					const employee = user.hr_employees?.[0]; // Get first employee record
+					if (employee?.name) {
+						displayName = employee.name;
+					} else {
+						displayName = user.username;
+					}
+				}
+				
+				return {
+					...state,
+					display_name: displayName,
+					notification: notification ? {
+						title: notification.title,
+						type: notification.type,
+						priority: notification.priority,
+						created_at: notification.created_at
+					} : null,
+					user: user ? {
+						username: user.username,
+						role_type: user.role_type,
+						employee_name: user.hr_employees?.[0]?.name || null,
+						employee_id: user.hr_employees?.[0]?.employee_id || null
+					} : null
+				};
+			}) || [];
+
+			return {
+				readStates: enrichedReadStates,
+				notifications: notifications || [],
+				users: users || []
+			};
+		} catch (error) {
+			console.error('Error fetching admin read status:', error);
+			throw new Error('Failed to fetch admin read status');
+		}
+	}
+
+	/**
 	 * Create notification for task assignment
 	 */
 	async createTaskAssignmentNotification(
@@ -465,28 +638,68 @@ export class NotificationManagementService {
 		taskData?: any
 	): Promise<NotificationItem> {
 		try {
-			// Create notification data with task metadata
+			// Check if assignedBy is a UUID (if it contains dashes, assume it's a UUID)
+			let assignedByUsername = assignedBy;
+			let assignedByUserName = assignedByName;
+			
+			if (assignedBy.includes('-')) {
+				// It's a UUID, we need to get the username
+				const { data: userData, error: userError } = await supabase
+					.from('users')
+					.select('username')
+					.eq('id', assignedBy)
+					.single();
+
+				if (userError || !userData) {
+					console.error('❌ [NotificationManagement] Could not find user for UUID:', assignedBy, userError);
+					// Fallback to using the provided name
+					assignedByUsername = assignedByName || 'Admin';
+				} else {
+					assignedByUsername = userData.username;
+				}
+			}
+
+			// Create notification data with task details in message
 			const notificationData: CreateNotificationRequest = {
 				title: `New Task Assigned: ${taskTitle}`,
-				message: `You have been assigned a new task: "${taskTitle}"${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ''}${notes ? `\n\nNotes: ${notes}` : ''}`,
+				message: `You have been assigned a new task: "${taskTitle}"${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ''}${notes ? `\n\nNotes: ${notes}` : ''}${taskData?.require_photo_upload ? '\n📷 Photo upload required' : ''}${taskData?.require_erp_reference ? '\n📋 ERP reference required' : ''}`,
 				type: 'task_assigned',
 				priority: 'medium',
 				target_type: 'specific_users',
 				target_users: assignedToUserIds
 			};
 
-			// Create the notification with task metadata
+			// Create the notification with proper data types matching the schema
+			console.log('🔄 [NotificationManagement] Creating notification with data:', {
+				title: notificationData.title,
+				type: notificationData.type,
+				target_type: notificationData.target_type,
+				target_users: assignedToUserIds,
+				created_by: assignedByUsername,
+				task_id: taskId,
+				task_assignment_id: taskData?.assignmentId
+			});
+
 			const { data, error } = await supabase
 				.from('notifications')
 				.insert({
-					...notificationData,
-					created_by: assignedBy,
-					created_by_name: assignedByName,
+					title: notificationData.title,
+					message: notificationData.message,
+					type: notificationData.type,
+					priority: notificationData.priority,
+					target_type: notificationData.target_type,
+					target_users: assignedToUserIds, // Keep as array - Supabase will handle JSONB conversion
+					created_by: assignedByUsername, // Use username, not UUID
+					created_by_name: assignedByUserName,
+					created_by_role: 'Admin',
 					status: 'published',
+					total_recipients: assignedToUserIds.length,
+					task_id: taskId, // This should work as UUID string
+					task_assignment_id: taskData?.assignmentId || null, // This should work as UUID string
 					metadata: {
-						task_id: taskId,
+						task_id: taskId, // Add task_id to metadata for easy access in UI
+						task_assignment_id: taskData?.assignmentId || null, // Add assignment_id to metadata
 						task_title: taskTitle,
-						assignment_id: taskData?.assignmentId,
 						require_task_finished: taskData?.require_task_finished || false,
 						require_photo_upload: taskData?.require_photo_upload || false,
 						require_erp_reference: taskData?.require_erp_reference || false,
@@ -494,7 +707,7 @@ export class NotificationManagementService {
 						notes: notes
 					}
 				})
-				.select()
+				.select('*')
 				.single();
 
 			if (error) {
@@ -502,11 +715,176 @@ export class NotificationManagementService {
 			}
 
 			console.log('Task assignment notification created:', data);
+			
+			// Automatically trigger push notification processing
+			try {
+				console.log('🔄 [NotificationManagement] Triggering automatic push notification processing for task assignment...');
+				// Wait a moment for the database trigger to complete, then process
+				setTimeout(() => {
+					pushNotificationProcessor.processOnce().catch(error => {
+						console.error('❌ [NotificationManagement] Auto push processing failed for task assignment:', error);
+					});
+				}, 1000);
+			} catch (error) {
+				console.error('❌ [NotificationManagement] Failed to trigger automatic push processing for task assignment:', error);
+			}
+			
 			return data;
 		} catch (error) {
 			console.error('Error creating task assignment notification:', error);
 			throw new Error('Failed to create task assignment notification');
 		}
+	}
+
+	/**
+	 * Send a push notification to specific users or all users
+	 */
+	async sendPushNotification(
+		title: string,
+		body: string,
+		userIds?: string[],
+		data?: any
+	): Promise<void> {
+		try {
+			// Send browser notification if user is online
+			await pushNotificationService.showNotification({
+				title,
+				body,
+				data
+			});
+
+			// For offline users, the backend should handle push notifications
+			// This would typically be done via a server-side push service
+			console.log('Push notification sent:', { title, body, userIds, data });
+		} catch (error) {
+			console.error('Error sending push notification:', error);
+		}
+	}
+
+	/**
+	 * Register current device for push notifications
+	 */
+	async registerForPushNotifications(): Promise<boolean> {
+		try {
+			return await pushNotificationService.initialize();
+		} catch (error) {
+			console.error('Error registering for push notifications:', error);
+			return false;
+		}
+	}
+
+	/**
+	 * Unregister device from push notifications
+	 */
+	async unregisterFromPushNotifications(): Promise<void> {
+		try {
+			await pushNotificationService.unregisterDevice();
+		} catch (error) {
+			console.error('Error unregistering from push notifications:', error);
+		}
+	}
+
+	/**
+	 * Check if push notifications are supported and enabled
+	 */
+	isPushNotificationSupported(): boolean {
+		if (typeof window === 'undefined') return false;
+		return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+	}
+
+	/**
+	 * Get push notification permission status
+	 */
+	getPushNotificationPermission(): NotificationPermission {
+		if (typeof window === 'undefined') return 'denied';
+		return Notification.permission;
+	}
+
+	/**
+	 * Request push notification permission
+	 */
+	async requestPushNotificationPermission(): Promise<NotificationPermission> {
+		try {
+			return await pushNotificationService.requestPermission();
+		} catch (error) {
+			console.error('Error requesting push notification permission:', error);
+			return 'denied';
+		}
+	}
+
+	/**
+	 * Send test notification
+	 */
+	async sendTestNotification(): Promise<void> {
+		try {
+			await pushNotificationService.sendTestNotification();
+		} catch (error) {
+			console.error('Error sending test notification:', error);
+		}
+	}
+
+	/**
+	 * Listen for real-time notifications and show push notifications
+	 */
+	async startRealtimeNotificationListener(): Promise<void> {
+		try {
+			const currentUser = await this.getCurrentUser();
+			if (!currentUser) return;
+
+			// Subscribe to new notifications for this user
+			const subscription = supabase
+				.channel('user-notifications')
+				.on(
+					'postgres_changes',
+					{
+						event: 'INSERT',
+						schema: 'public',
+						table: 'notification_recipients',
+						filter: `user_id=eq.${currentUser.id}`
+					},
+					async (payload) => {
+						console.log('New notification received:', payload);
+						
+						// Get notification details
+						const { data: notification } = await supabase
+							.from('notifications')
+							.select('*')
+							.eq('id', payload.new.notification_id)
+							.single();
+
+						if (notification) {
+							// Show push notification
+							await this.sendPushNotification(
+								notification.title,
+								notification.message,
+								[currentUser.id],
+								{
+									notification_id: notification.id,
+									url: `/notifications?id=${notification.id}`
+								}
+							);
+						}
+					}
+				)
+				.subscribe();
+
+			console.log('Real-time notification listener started');
+		} catch (error) {
+			console.error('Error starting real-time notification listener:', error);
+		}
+	}
+
+	/**
+	 * Get current user from persistent auth
+	 */
+	private async getCurrentUser(): Promise<any> {
+		return new Promise((resolve) => {
+			let unsubscribe: () => void;
+			unsubscribe = currentUser.subscribe((user) => {
+				if (unsubscribe) unsubscribe();
+				resolve(user);
+			});
+		});
 	}
 }
 
