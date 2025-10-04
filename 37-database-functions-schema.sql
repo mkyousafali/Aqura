@@ -72,26 +72,62 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION create_warning_history()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO employee_warning_history (
-        warning_id,
-        employee_id,
-        action_type,
-        field_name,
-        old_value,
-        new_value,
-        changed_by,
-        changed_at
-    ) VALUES (
-        NEW.id,
-        NEW.employee_id,
-        TG_OP,
-        'status',
-        OLD.status,
-        NEW.status,
-        NEW.updated_by,
-        NEW.updated_at
-    );
-    RETURN NEW;
+    -- Handle different trigger operations
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO employee_warning_history (
+            warning_id,
+            action_type,
+            new_values,
+            changed_by,
+            changed_by_username,
+            change_reason
+        ) VALUES (
+            NEW.id,
+            'created',
+            row_to_json(NEW),
+            NEW.issued_by,
+            NEW.issued_by_username,
+            'Warning created'
+        );
+        RETURN NEW;
+    ELSIF TG_OP = 'UPDATE' THEN
+        INSERT INTO employee_warning_history (
+            warning_id,
+            action_type,
+            old_values,
+            new_values,
+            changed_by,
+            changed_by_username,
+            change_reason
+        ) VALUES (
+            NEW.id,
+            'updated',
+            row_to_json(OLD),
+            row_to_json(NEW),
+            NEW.issued_by,
+            NEW.issued_by_username,
+            'Warning updated'
+        );
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        INSERT INTO employee_warning_history (
+            warning_id,
+            action_type,
+            old_values,
+            changed_by,
+            changed_by_username,
+            change_reason
+        ) VALUES (
+            OLD.id,
+            'deleted',
+            row_to_json(OLD),
+            OLD.deleted_by,
+            'system',
+            'Warning deleted'
+        );
+        RETURN OLD;
+    END IF;
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -113,11 +149,16 @@ CREATE SEQUENCE IF NOT EXISTS warning_ref_seq START 1;
 CREATE OR REPLACE FUNCTION sync_fine_paid_columns()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Update fine_paid based on fine_payment_status
-    IF NEW.fine_payment_status = 'paid' THEN
-        NEW.fine_paid = true;
-    ELSIF NEW.fine_payment_status = 'pending' OR NEW.fine_payment_status = 'overdue' THEN
-        NEW.fine_paid = false;
+    -- Update fine_paid based on fine_status
+    IF NEW.fine_status = 'paid' THEN
+        NEW.fine_paid_date = COALESCE(NEW.fine_paid_date, CURRENT_TIMESTAMP);
+        NEW.fine_paid_at = COALESCE(NEW.fine_paid_at, CURRENT_TIMESTAMP);
+    ELSIF NEW.fine_status = 'pending' OR NEW.fine_status = 'cancelled' OR NEW.fine_status = 'waived' THEN
+        -- Keep the paid date/time if it was already set
+        IF NEW.fine_status != 'paid' AND OLD.fine_status = 'paid' THEN
+            NEW.fine_paid_date = NULL;
+            NEW.fine_paid_at = NULL;
+        END IF;
     END IF;
     RETURN NEW;
 END;
