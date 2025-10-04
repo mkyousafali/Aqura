@@ -10,7 +10,6 @@
 	import Taskbar from '$lib/components/Taskbar.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
-	import PWAInstallPrompt from '$lib/components/PWAInstallPrompt.svelte';
 	import ToastNotifications from '$lib/components/ToastNotifications.svelte';
 	import UserSwitcher from '$lib/components/UserSwitcher.svelte';
 	import PushNotificationSettings from '$lib/components/PushNotificationSettings.svelte';
@@ -20,6 +19,7 @@
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
 
 	// Initialize i18n system
@@ -49,6 +49,9 @@
 			
 			// Add a small delay to allow auth state to stabilize
 			await new Promise(resolve => setTimeout(resolve, 100));
+			
+			// Initialize PWA install detection
+			initPWAInstall();
 			
 			// Skip legacy auth initialization to prevent conflicts
 			// await auth.init(); // Disabled - using persistent auth instead
@@ -303,9 +306,6 @@
 		{/if}
 	</div>
 {/if}
-
-<!-- PWA Install Prompt -->
-<PWAInstallPrompt />
 
 <style>
 	.loading-screen {

@@ -2,6 +2,8 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { t, currentLocale } from '$lib/i18n';
+	import { showInstallPrompt, isInstalled, installPWA, initPWAInstall } from '$lib/stores/pwaInstall';
+	import { onMount } from 'svelte';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
@@ -18,6 +20,26 @@
 	
 	// Force reactivity when locale changes
 	$: locale = $currentLocale;
+
+	// Initialize PWA install detection
+	onMount(() => {
+		initPWAInstall();
+	});
+
+	// Handle PWA installation
+	async function handlePWAInstall() {
+		try {
+			const success = await installPWA();
+			if (success) {
+				console.log('PWA installed successfully');
+			} else {
+				console.log('PWA installation instructions shown');
+			}
+		} catch (error) {
+			console.error('Error installing PWA:', error);
+			// The installPWA function already handles showing appropriate instructions
+		}
+	}
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type: string): string {
@@ -278,6 +300,34 @@
 			</button>
 		</div>
 	</div>
+
+	<!-- Sidebar Footer with PWA Install Button -->
+	<div class="sidebar-footer">
+		{#if $isInstalled}
+			<div class="pwa-installed">
+				<span class="pwa-icon">✅</span>
+				<span class="pwa-text">App Installed</span>
+			</div>
+		{:else if $showInstallPrompt}
+			<button 
+				class="pwa-install-button"
+				on:click={handlePWAInstall}
+				title="Install Aqura App"
+			>
+				<span class="pwa-icon">📱</span>
+				<span class="pwa-text">Install App</span>
+			</button>
+		{:else}
+			<button 
+				class="pwa-install-button pwa-not-supported"
+				on:click={handlePWAInstall}
+				title="PWA Installation (Browser dependent)"
+			>
+				<span class="pwa-icon">📱</span>
+				<span class="pwa-text">Install App</span>
+			</button>
+		{/if}
+	</div>
 </div>
 
 <!-- Master Submenu - positioned outside sidebar to overlay on top -->
@@ -353,6 +403,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 15px;
+		/* Reserve space for footer */
+		padding-bottom: 60px;
 	}
 
 	.menu-section {
@@ -495,5 +547,82 @@
 
 	.sidebar-content::-webkit-scrollbar-thumb:hover {
 		background: rgba(255, 255, 255, 0.3);
+	}
+
+	/* Sidebar Footer */
+	.sidebar-footer {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		padding: 10px 15px;
+		border-top: 1px solid #4a5568;
+		background: rgba(0, 0, 0, 0.3);
+		backdrop-filter: blur(10px);
+	}
+
+	.pwa-install-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 8px 12px;
+		background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+		border: none;
+		color: white;
+		cursor: pointer;
+		border-radius: 6px;
+		transition: all 0.2s ease;
+		font-size: 11px;
+		width: 100%;
+		height: 36px;
+		text-align: center;
+		font-weight: 500;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.pwa-install-button:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.pwa-install-button:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.pwa-not-supported {
+		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+		opacity: 0.7;
+	}
+
+	.pwa-not-supported:hover {
+		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+		opacity: 0.8;
+	}
+
+	.pwa-installed {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 8px 12px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		border-radius: 6px;
+		color: white;
+		font-size: 11px;
+		font-weight: 500;
+		opacity: 0.8;
+	}
+
+	.pwa-icon {
+		font-size: 14px;
+		flex-shrink: 0;
+	}
+
+	.pwa-text {
+		font-weight: 500;
+		white-space: nowrap;
 	}
 </style>

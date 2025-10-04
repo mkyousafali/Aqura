@@ -8,12 +8,12 @@ export default defineConfig(({ mode }) => ({
 		VitePWA({
 			registerType: 'autoUpdate',
 			workbox: {
-				importScripts: ['/sw-advanced.js'],
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 				navigateFallback: '/offline.html',
 				navigateFallbackDenylist: [/^\/api\//],
 				skipWaiting: true,
 				clientsClaim: true,
+				cleanupOutdatedCaches: true,
 				runtimeCaching: [
 					{
 						urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -60,6 +60,8 @@ export default defineConfig(({ mode }) => ({
 				]
 			},
 			includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'safari-pinned-tab.svg'],
+			manifestFilename: 'manifest.webmanifest',
+			injectRegister: 'auto',
 			manifest: {
 				name: 'Aqura Management System',
 				short_name: 'Aqura',
@@ -70,10 +72,12 @@ export default defineConfig(({ mode }) => ({
 				orientation: 'any',
 				scope: '/',
 				start_url: '/',
+				id: '/',
 				categories: ['business', 'productivity', 'utilities'],
 				lang: 'en',
 				dir: 'ltr',
 				display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'] as any,
+				prefer_related_applications: false,
 				icons: [
 					{
 						src: 'icons/icon-72x72.png',
@@ -162,7 +166,8 @@ export default defineConfig(({ mode }) => ({
 				]
 			},
 			devOptions: {
-				enabled: mode === 'development'
+				enabled: mode === 'development',
+				type: 'module'
 			}
 		})
 	],
