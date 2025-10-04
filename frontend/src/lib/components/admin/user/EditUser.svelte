@@ -18,7 +18,7 @@
 		userType: user?.user_type || 'branch_specific',
 		branchId: user?.branch_id || '',
 		employeeId: user?.employee_id || '',
-		roleType: user?.role_type || 'position_based',
+		roleType: user?.role_type || 'Position-based',
 		roleId: user?.role_id || '',
 		positionId: user?.position_id || '',
 		status: user?.status || 'active',
@@ -27,43 +27,84 @@
 
 	// Real data from database
 	let branches: Array<{ id: string; name: string }> = [];
-	let employees: Array<{ id: string; name: string; branch_id: string }> = [];
+	let employees: Array<{ id: string; name: string; branch_id: string; employee_id: string; position_title_en: string }> = [];
 	let roles: Array<{ id: string; name: string; code: string }> = [];
 	let positions: Array<{ id: string; name: string }> = [];
+
+	// Search and filtering for employees
+	let employeeSearchTerm = '';
+	let selectedEmployee = null;
+	let isLoading = false;
+	let loadingData = true;
+	let errors: Record<string, string> = {};
+	let dataError = '';
 
 	// Load data from database
 	async function loadInitialData() {
 		try {
-			// Load branches
-			const branchesData = await userManagement.getBranches();
-			branches = branchesData.map(branch => ({
-				id: branch.id.toString(),
-				name: branch.name
-			}));
+			loadingData = true;
+			dataError = '';
 
-			// Load roles
-			const rolesData = await userManagement.getUserRoles();
-			roles = rolesData.map(role => ({
-				id: role.id,
-				name: role.role_name,
-				code: role.role_code
-			}));
+			console.log('🔄 [EditUser] Loading initial data...');
 
-			// Note: Employees and positions would need additional API methods
-			// For now, keeping them empty until those endpoints are implemented
-			
+			// Load all necessary data concurrently
+			const [branchesResult, rolesResult, employeesResult, positionsResult] = await Promise.all([
+				userManagement.getBranches(),
+				userManagement.getUserRoles(),
+				userManagement.getEmployees(),
+				userManagement.getPositions()
+			]);
+
+			// Transform and set data exactly like CreateUser
+			branches = branchesResult;
+			roles = rolesResult;
+			employees = employeesResult;
+			positions = positionsResult;
+
+			console.log('✅ [EditUser] Data loaded successfully:', {
+				branches: branches.length,
+				roles: roles.length,
+				employees: employees.length,
+				positions: positions.length
+			});
+			console.log('🔍 [EditUser] Loaded branches:', branches);
+			console.log('🔍 [EditUser] Loaded roles:', roles);
+			console.log('🔍 [EditUser] Loaded positions:', positions);
+			console.log('🔍 [EditUser] Loaded employees:', employees.slice(0, 3), '...');
+
+			// Set selected employee if user has one assigned
+			if (formData.employeeId) {
+				selectedEmployee = employees.find(emp => emp.id === formData.employeeId) || null;
+				console.log('🔍 [EditUser] Found selected employee:', selectedEmployee);
+			}
+
 		} catch (error) {
-			console.error('Error loading initial data:', error);
+			console.error('❌ [EditUser] Error loading data:', error);
+			dataError = 'Failed to load required data. Please try again.';
+		} finally {
+			loadingData = false;
 		}
 	}
 
-	onMount(() => {
-		loadInitialData();
+	onMount(async () => {
+		await loadInitialData();
 	});
 
-	// State variables
-	let isLoading = false;
-	let errors: Record<string, string> = {};
+	// Employee selection function (exactly like CreateUser)
+	function selectEmployee(employee: any) {
+		selectedEmployee = employee;
+		formData.employeeId = employee.id;
+		employeeSearchTerm = '';
+		console.log('📝 [EditUser] Selected employee:', employee);
+		
+		// Clear any previous employee error
+		if (errors.employeeId) {
+			delete errors.employeeId;
+			errors = { ...errors };
+		}
+	}
+
+	// State variables that weren't already declared
 	let successMessage = '';
 	let avatarPreview = user?.avatar_url || null;
 	let avatarFile = null;
@@ -89,10 +130,47 @@
 	let canChangeStatus = currentUser.role_type === 'Master Admin' || 
 		(currentUser.role_type === 'Admin' && user?.role_type !== 'Master Admin');
 
-	// Filtered employees based on selected branch
+	// Filtered employees based on selected branch (enhanced like CreateUser)
 	$: filteredEmployees = formData.branchId 
-		? employees.filter(emp => emp.branch_id === formData.branchId)
+		? employees.filter(emp => {
+			// Handle both string and number comparison for branch_id
+			const selectedBranchId = parseInt(formData.branchId);
+			const empBranchId = typeof emp.branch_id === 'string' ? parseInt(emp.branch_id) : emp.branch_id;
+			return empBranchId === selectedBranchId;
+		})
 		: employees;
+	
+	// Further filter employees by search term
+	$: searchedEmployees = filteredEmployees.filter(emp => 
+		emp.name?.toLowerCase().includes(employeeSearchTerm.toLowerCase()) ||
+		emp.employee_id?.toLowerCase().includes(employeeSearchTerm.toLowerCase()) ||
+		emp.position_title_en?.toLowerCase().includes(employeeSearchTerm.toLowerCase())
+	);
+
+	// Clear employee selection when branch changes (exactly like CreateUser)
+	let previousBranchId = '';
+	$: if (formData.branchId !== previousBranchId) {
+		console.log('🔄 [EditUser] Branch changed from', previousBranchId, 'to', formData.branchId);
+		if (previousBranchId !== '') { // Only clear if this isn't the initial load
+			selectedEmployee = null;
+			formData.employeeId = '';
+			employeeSearchTerm = '';
+			console.log('🔄 [EditUser] Cleared employee selection due to branch change');
+		}
+		previousBranchId = formData.branchId;
+	}
+
+	// Clear role/position selection when role type changes (exactly like CreateUser)
+	let previousRoleType = '';
+	$: if (formData.roleType !== previousRoleType) {
+		console.log('🔄 [EditUser] Role type changed from', previousRoleType, 'to', formData.roleType);
+		if (previousRoleType !== '') { // Only clear if this isn't the initial load
+			formData.roleId = '';
+			formData.positionId = '';
+			console.log('🔄 [EditUser] Cleared role/position selection due to role type change');
+		}
+		previousRoleType = formData.roleType;
+	}
 
 	// Password validation reactive
 	$: if (showPasswordFields) {
@@ -205,9 +283,9 @@
 			errors.employeeId = 'Employee selection is required';
 		}
 
-		if (formData.roleType === 'position_based' && !formData.positionId) {
+		if (formData.roleType === 'Position-based' && !formData.positionId) {
 			errors.positionId = 'Position is required for position-based roles';
-		} else if (formData.roleType !== 'position_based' && !formData.roleId) {
+		} else if (formData.roleType !== 'Position-based' && !formData.roleId) {
 			errors.roleId = 'Role is required';
 		}
 
@@ -491,46 +569,128 @@
 			<div class="form-section">
 				<h2 class="section-title">Assignment</h2>
 				
-				<div class="form-row">
-					{#if formData.userType === 'branch_specific'}
-						<div class="form-group">
-							<label for="branchId" class="form-label">Branch *</label>
-							<select
-								id="branchId"
-								bind:value={formData.branchId}
-								class="form-select"
-								class:error={errors.branchId}
-							>
-								<option value="">Select Branch</option>
-								{#each branches as branch}
-									<option value={branch.id}>{branch.name}</option>
-								{/each}
-							</select>
-							{#if errors.branchId}
-								<span class="error-message">{errors.branchId}</span>
-							{/if}
-						</div>
-					{/if}
-
+				<!-- Branch Selection -->
+				{#if formData.userType === 'branch_specific'}
 					<div class="form-group">
-						<label for="employeeId" class="form-label">Employee *</label>
+						<label for="branchId" class="form-label">Branch *</label>
 						<select
-							id="employeeId"
-							bind:value={formData.employeeId}
+							id="branchId"
+							bind:value={formData.branchId}
 							class="form-select"
-							class:error={errors.employeeId}
+							class:error={errors.branchId}
 						>
-							<option value="">Select Employee</option>
-							{#each filteredEmployees as employee}
-								<option value={employee.id}>{employee.name}</option>
+							<option value="">Select Branch</option>
+							{#each branches as branch}
+								<option value={branch.id}>{branch.name_en || branch.name}</option>
 							{/each}
 						</select>
+						{#if errors.branchId}
+							<span class="error-message">{errors.branchId}</span>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- Employee Selection -->
+				<div class="form-group">
+					<label for="employeeId" class="form-label">Employee *</label>
+						
+						{#if loadingData}
+							<div class="loading-state">
+								<div class="spinner"></div>
+								<span>Loading employees...</span>
+							</div>
+						{:else if dataError}
+							<div class="error-state">
+								<p>Failed to load employees</p>
+								<button class="retry-btn" on:click={loadInitialData}>Retry</button>
+							</div>
+						{:else}
+							<!-- Branch Selection Required Notice -->
+							{#if !formData.branchId}
+								<div class="info-message">
+									<p>👆 Please select a branch first</p>
+									<p class="help-text">Employee selection is filtered by branch for better organization.</p>
+								</div>
+							{:else}
+								<!-- Selected Employee Display -->
+								{#if selectedEmployee}
+									<div class="selected-employee">
+										<div class="employee-info">
+											<span class="employee-name">{selectedEmployee.name}</span>
+											<span class="employee-id">({selectedEmployee.employee_id || selectedEmployee.id})</span>
+											{#if selectedEmployee.position_title_en}
+												<span class="employee-position">- {selectedEmployee.position_title_en}</span>
+											{/if}
+										</div>
+										<button type="button" class="change-btn" on:click={() => { selectedEmployee = null; formData.employeeId = ''; }}>
+											Change Employee
+										</button>
+									</div>
+								{:else}
+									<!-- Employee Search and Selection -->
+									{#if !selectedEmployee}
+										<!-- Search Input -->
+										<div class="employee-search">
+											<input
+												type="text"
+												bind:value={employeeSearchTerm}
+												placeholder="Search employees by name, ID, or position..."
+												class="search-input"
+											>
+											<span class="search-icon">🔍</span>
+										</div>
+
+										<!-- Employee Table -->
+										<div class="employee-table-container">
+											{#if searchedEmployees.length > 0}
+												<table class="employee-table">
+													<thead>
+														<tr>
+															<th>Employee ID</th>
+															<th>Name</th>
+															<th>Position</th>
+															<th>Action</th>
+														</tr>
+													</thead>
+													<tbody>
+														{#each searchedEmployees as employee}
+															<tr class="employee-row" on:click={() => selectEmployee(employee)}>
+																<td class="employee-id-cell">{employee.employee_id || employee.id}</td>
+																<td class="employee-name-cell">{employee.name}</td>
+																<td class="employee-position-cell">
+																	{employee.position_title_en || 'No position assigned'}
+																</td>
+																<td class="employee-action-cell">
+																	<button type="button" class="select-btn" on:click|stopPropagation={() => selectEmployee(employee)}>
+																		Select
+																	</button>
+																</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											{:else if employeeSearchTerm && searchedEmployees.length === 0}
+												<div class="no-results">
+													<p>No employees found matching "{employeeSearchTerm}"</p>
+													<p class="help-text">Try adjusting your search or check if employees are properly assigned to this branch.</p>
+												</div>
+											{:else if formData.branchId && filteredEmployees.length === 0}
+												<div class="no-results">
+													<p>No employees found in the selected branch</p>
+												</div>
+											{/if}
+										</div>
+									{/if}
+								{/if}
+							{/if}
+						{/if}
+						
 						{#if errors.employeeId}
 							<span class="error-message">{errors.employeeId}</span>
 						{/if}
-					</div>
 				</div>
 
+				<!-- Role Assignment -->
 				<div class="form-row">
 					<div class="form-group">
 						<label for="roleType" class="form-label">Role Type *</label>
@@ -540,13 +700,13 @@
 							class="form-select"
 							class:error={errors.roleType}
 						>
-							<option value="position_based">Position-based</option>
-							<option value="admin">Admin</option>
-							<option value="master_admin">Master Admin</option>
+							<option value="Position-based">Position-based</option>
+							<option value="Admin">Admin</option>
+							<option value="Master Admin">Master Admin</option>
 						</select>
 					</div>
 
-					{#if formData.roleType === 'position_based'}
+					{#if formData.roleType === 'Position-based'}
 						<div class="form-group">
 							<label for="positionId" class="form-label">Position *</label>
 							<select
@@ -557,7 +717,7 @@
 							>
 								<option value="">Select Position</option>
 								{#each positions as position}
-									<option value={position.id}>{position.name}</option>
+									<option value={position.id}>{position.position_title_en}</option>
 								{/each}
 							</select>
 							{#if errors.positionId}
@@ -575,7 +735,7 @@
 							>
 								<option value="">Select Role</option>
 								{#each roles as role}
-									<option value={role.id}>{role.name}</option>
+									<option value={role.id}>{role.role_name}</option>
 								{/each}
 							</select>
 							{#if errors.roleId}
@@ -1073,6 +1233,252 @@
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
+	}
+
+	/* Employee Search Styles */
+	.search-container {
+		position: relative;
+		margin-bottom: 8px;
+	}
+
+	.search-input {
+		padding-right: 35px;
+	}
+
+	.search-icon {
+		position: absolute;
+		right: 10px;
+		top: 50%;
+		transform: translateY(-50%);
+		color: #9ca3af;
+		pointer-events: none;
+	}
+
+	.employee-dropdown {
+		min-height: 45px;
+	}
+
+	.employee-dropdown.disabled {
+		opacity: 0.6;
+	}
+
+	.info-message {
+		padding: 12px;
+		background: #f3f4f6;
+		border-radius: 6px;
+		text-align: center;
+	}
+
+	.info-message p {
+		margin: 0 0 4px 0;
+		color: #6b7280;
+	}
+
+	.help-text {
+		font-size: 12px !important;
+		color: #9ca3af !important;
+	}
+
+	.no-results {
+		padding: 12px;
+		text-align: center;
+		color: #6b7280;
+		background: #f9fafb;
+		border-radius: 6px;
+		border: 1px dashed #d1d5db;
+	}
+
+	.no-results p {
+		margin: 0 0 4px 0;
+	}
+
+	.loading-state, .error-state {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px;
+		background: #f9fafb;
+		border-radius: 6px;
+		color: #6b7280;
+	}
+
+	.retry-btn {
+		padding: 4px 8px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 12px;
+	}
+
+	.retry-btn:hover {
+		background: #2563eb;
+	}
+
+	/* Employee Selection Styles (from CreateUser) */
+	.selected-employee {
+		background: #f0f9ff;
+		border: 1px solid #0ea5e9;
+		border-radius: 8px;
+		padding: 16px;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.employee-info {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.employee-name {
+		font-weight: 600;
+		color: #0f172a;
+	}
+
+	.employee-id {
+		font-size: 13px;
+		color: #64748b;
+		font-family: 'Courier New', monospace;
+	}
+
+	.employee-position {
+		font-size: 13px;
+		color: #059669;
+	}
+
+	.change-btn {
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 8px 16px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.change-btn:hover {
+		background: #dc2626;
+	}
+
+	.employee-search {
+		position: relative;
+		margin-bottom: 16px;
+	}
+
+	.search-input {
+		width: 100%;
+		padding: 10px 40px 10px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		transition: border-color 0.2s, box-shadow 0.2s;
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.search-icon {
+		position: absolute;
+		right: 12px;
+		top: 50%;
+		transform: translateY(-50%);
+		color: #6b7280;
+		font-size: 16px;
+		pointer-events: none;
+	}
+
+	.employee-table-container {
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		overflow: hidden;
+		background: white;
+		max-height: 300px;
+		overflow-y: auto;
+	}
+
+	.employee-table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.employee-table th {
+		background: #f9fafb;
+		padding: 12px;
+		text-align: left;
+		font-size: 13px;
+		font-weight: 600;
+		color: #374151;
+		border-bottom: 1px solid #e5e7eb;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+	}
+
+	.employee-table td {
+		padding: 12px;
+		font-size: 14px;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.employee-row {
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.employee-row:hover {
+		background: #f9fafb;
+	}
+
+	.employee-row:last-child td {
+		border-bottom: none;
+	}
+
+	.employee-id-cell {
+		font-family: 'Courier New', monospace;
+		color: #6b7280;
+		font-size: 13px;
+		min-width: 120px;
+	}
+
+	.employee-name-cell {
+		color: #111827;
+		font-weight: 500;
+		min-width: 150px;
+	}
+
+	.employee-position-cell {
+		color: #059669;
+		font-size: 13px;
+		min-width: 150px;
+	}
+
+	.employee-action-cell {
+		width: 100px;
+		text-align: center;
+	}
+
+	.select-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 6px 12px;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.select-btn:hover {
+		background: #2563eb;
 	}
 
 	.icon {
