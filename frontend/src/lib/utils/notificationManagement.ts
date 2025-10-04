@@ -73,24 +73,31 @@ export class NotificationManagementService {
 					.from('notifications')
 					.select(`
 						*,
-						notification_read_states!left(
+						notification_read_states(
 							is_read,
-							read_at
+							read_at,
+							user_id
 						)
 					`)
-					.eq('notification_read_states.user_id', userId)
 					.order('created_at', { ascending: false });
 
 				if (error) {
 					throw error;
 				}
 
-				// Transform to include read status
-				return data?.map(notification => ({
-					...notification,
-					is_read: notification.notification_read_states?.[0]?.is_read || false,
-					read_at: notification.notification_read_states?.[0]?.read_at
-				})) || [];
+				// Transform to include read status for the specific user
+				return data?.map(notification => {
+					// Find read state for this specific user
+					const userReadState = notification.notification_read_states?.find(
+						(readState: any) => readState.user_id === userId
+					);
+					
+					return {
+						...notification,
+						is_read: userReadState?.is_read || false,
+						read_at: userReadState?.read_at || null
+					};
+				}) || [];
 			} else {
 				// Fallback: get all notifications without read states
 				const { data, error } = await supabase

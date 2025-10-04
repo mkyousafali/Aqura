@@ -4,6 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db } from '$lib/utils/supabase';
+	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
@@ -98,10 +99,13 @@
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				console.log('🔍 [NotificationCenter] Loading all notifications for admin user');
-				const apiNotifications = await notificationManagement.getAllNotifications(currentUser?.id || 'default-user');
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
 				console.log('🔍 [NotificationCenter] Raw API notifications:', apiNotifications);
+				console.log('🔍 [NotificationCenter] First notification read states:', apiNotifications[0]?.notification_read_states);
+				console.log('🔍 [NotificationCenter] First notification is_read:', apiNotifications[0]?.is_read);
 				allNotifications = await transformNotificationData(apiNotifications);
 				console.log('🔍 [NotificationCenter] Transformed notifications:', allNotifications);
+				console.log('🔍 [NotificationCenter] First transformed notification read status:', allNotifications[0]?.read);
 			} else if ($currentUser?.id) {
 				// Regular users see only their targeted notifications
 				console.log('🔍 [NotificationCenter] Loading user-specific notifications');
@@ -210,12 +214,17 @@
 		if (!$currentUser?.id) return;
 		
 		try {
+			console.log('🔴 [NotificationCenter] Marking notification as read:', id);
 			const result = await notificationManagement.markAsRead(id, $currentUser.id);
+			console.log('🔴 [NotificationCenter] Mark as read result:', result);
 			if (result.success) {
 				// Update local state
 				allNotifications = allNotifications.map(n => 
 					n.id === id ? { ...n, read: true } : n
 				);
+				console.log('🔴 [NotificationCenter] Updated local state for notification:', id);
+				// Refresh the notification counts store for taskbar
+				refreshNotificationCounts();
 			}
 		} catch (error) {
 			console.error('Error marking notification as read:', error);
@@ -230,6 +239,8 @@
 			if (result.success) {
 				// Update local state
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));
+				// Refresh the notification counts store for taskbar
+				refreshNotificationCounts();
 			}
 		} catch (error) {
 			console.error('Error marking all notifications as read:', error);

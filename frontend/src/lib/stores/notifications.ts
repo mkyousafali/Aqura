@@ -1,5 +1,7 @@
 import { writable } from 'svelte/store';
 import { supabase } from '$lib/utils/supabase';
+import { currentUser } from '$lib/utils/persistentAuth';
+import { get } from 'svelte/store';
 
 export interface NotificationCounts {
 	unread: number;
@@ -56,7 +58,16 @@ export const notifications = {
 };
 
 // Function to fetch notification counts from Supabase
-export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b') {
+export async function fetchNotificationCounts(userId?: string) {
+	// Get userId from parameter or current user
+	const user = get(currentUser);
+	const targetUserId = userId || user?.id;
+	
+	if (!targetUserId) {
+		console.warn('No user ID available for fetching notification counts');
+		return;
+	}
+	
 	// Set loading state
 	notificationCounts.update(counts => ({ ...counts, loading: true }));
 	
@@ -81,7 +92,7 @@ export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4f
 		const unreadCount = notifications?.filter((notification: any) => {
 			// Check if current user has read this notification
 			const userReadState = notification.notification_read_states?.find(
-				(readState: any) => readState.user_id === userId
+				(readState: any) => readState.user_id === targetUserId
 			);
 			return !userReadState?.read_at; // Unread if no read state or no read_at timestamp
 		}).length || 0;
@@ -100,6 +111,6 @@ export async function fetchNotificationCounts(userId: string = 'e1fdaee2-97f0-4f
 }
 
 // Function to refresh counts (can be called from components)
-export function refreshNotificationCounts() {
-	fetchNotificationCounts();
+export function refreshNotificationCounts(userId?: string) {
+	fetchNotificationCounts(userId);
 }
