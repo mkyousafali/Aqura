@@ -2,7 +2,8 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { notificationManagement } from '$lib/utils/notificationManagement';
 	
 	export let data;
 	
@@ -251,28 +252,19 @@
 				await saveWarningRecord();
 			}
 
-			// Create notification with the warning template
-			const { error } = await supabase
-				.from('notifications')
-				.insert({
-					title: 'Performance Warning',
-					message: `Warning: Performance Review Required - ${editableWarning}`,
-					type: 'warning',
-					priority: 'high',
-					target_type: 'specific_users',
-					target_users: JSON.stringify([data.assignmentData.assignedToUserId]),
-					created_by: data.assignmentData.assignedByUserId,
-					created_by_name: data.assignedBy,
-					created_by_role: 'Manager',
-					status: 'published',
-					has_attachments: false,
-					read_count: 0,
-					total_recipients: 1
-				});
+			// Create notification using notificationManagement for proper push notification support
+			const notificationData = {
+				title: 'Performance Warning',
+				message: `Warning: Performance Review Required\n\n${editableWarning}`,
+				type: 'warning',
+				priority: 'high',
+				target_type: 'specific_users',
+				target_users: [data.assignmentData.assignedToUserId]
+			};
 
-			if (error) throw error;
+			await notificationManagement.createNotification(notificationData, data.assignedBy);
 
-			alert('Warning notification sent successfully through internal notification center!');
+			alert('Warning notification sent successfully with push notification!');
 			dispatch('close');
 		} catch (err) {
 			console.error('Error sending notification:', err);

@@ -1,17 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
-	import { auth } from '$lib/stores/auth';
-	import { currentUser as persistentCurrentUser } from '$lib/utils/persistentAuth';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db } from '$lib/utils/supabase';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 
-	// Current user for role-based access - use persistent auth with fallback
-	$: currentUser = $persistentCurrentUser || $auth?.user;
-	$: userRole = currentUser?.role || 'Position-based';
+	// Current user for role-based access
+	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
 	// Notification data from API
@@ -104,10 +102,10 @@
 				console.log('🔍 [NotificationCenter] Raw API notifications:', apiNotifications);
 				allNotifications = await transformNotificationData(apiNotifications);
 				console.log('🔍 [NotificationCenter] Transformed notifications:', allNotifications);
-			} else if (currentUser?.id) {
+			} else if ($currentUser?.id) {
 				// Regular users see only their targeted notifications
 				console.log('🔍 [NotificationCenter] Loading user-specific notifications');
-				const userNotifications = await notificationManagement.getUserNotifications(currentUser.id);
+				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -145,10 +143,10 @@
 			// Force clear any browser cache by adding timestamp to requests
 			if (isAdminOrMaster) {
 				// Force fresh data by bypassing any cache
-				const apiNotifications = await notificationManagement.getAllNotifications(currentUser?.id || 'default-user');
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
 				allNotifications = await transformNotificationData(apiNotifications);
-			} else if (currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications(currentUser.id);
+			} else if ($currentUser?.id) {
+				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -209,10 +207,10 @@
 	$: unreadCount = notifications.filter(n => !n.read).length;
 
 	async function markAsRead(id: string) {
-		if (!currentUser?.id) return;
+		if (!$currentUser?.id) return;
 		
 		try {
-			const result = await notificationManagement.markAsRead(id, currentUser.id);
+			const result = await notificationManagement.markAsRead(id, $currentUser.id);
 			if (result.success) {
 				// Update local state
 				allNotifications = allNotifications.map(n => 
@@ -225,10 +223,10 @@
 	}
 
 	async function markAllAsRead() {
-		if (!currentUser?.id) return;
+		if (!$currentUser?.id) return;
 		
 		try {
-			const result = await notificationManagement.markAllAsRead(currentUser.id);
+			const result = await notificationManagement.markAllAsRead($currentUser.id);
 			if (result.success) {
 				// Update local state
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));

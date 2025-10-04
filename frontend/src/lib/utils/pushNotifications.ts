@@ -180,7 +180,9 @@ export class PushNotificationService {
 			// Upsert device registration using service role
 			const { error } = await supabaseAdmin
 				.from('push_subscriptions')
-				.upsert(deviceRegistration);
+				.upsert(deviceRegistration, {
+					onConflict: 'user_id,device_id'
+				});
 
 			if (error) {
 				throw error;

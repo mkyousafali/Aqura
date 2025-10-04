@@ -220,15 +220,32 @@ export class NotificationManagementService {
 
 			console.log('✅ [NotificationManagement] Notification created successfully:', data);
 			
+			// Queue the notification for push delivery
+			try {
+				console.log('📨 [NotificationManagement] Queueing notification for push delivery...');
+				const { data: queueResult, error: queueError } = await supabase
+					.rpc('queue_push_notification', {
+						p_notification_id: data.id
+					});
+				
+				if (queueError) {
+					console.error('❌ [NotificationManagement] Failed to queue notification:', queueError);
+				} else {
+					console.log('✅ [NotificationManagement] Notification queued successfully:', queueResult);
+				}
+			} catch (error) {
+				console.error('❌ [NotificationManagement] Queue function failed:', error);
+			}
+			
 			// Automatically trigger push notification processing
 			try {
 				console.log('🔄 [NotificationManagement] Triggering automatic push notification processing...');
-				// Wait a moment for the database trigger to complete, then process
+				// Wait a moment for the queueing to complete, then process
 				setTimeout(() => {
 					pushNotificationProcessor.processOnce().catch(error => {
 						console.error('❌ [NotificationManagement] Auto push processing failed:', error);
 					});
-				}, 1000);
+				}, 1500); // Increased delay to allow queueing to complete
 			} catch (error) {
 				console.error('❌ [NotificationManagement] Failed to trigger automatic push processing:', error);
 			}
@@ -296,6 +313,8 @@ export class NotificationManagementService {
 					user_id: userId,
 					is_read: true,
 					read_at: new Date().toISOString()
+				}, {
+					onConflict: 'notification_id,user_id'
 				});
 
 			if (error) {
@@ -321,6 +340,8 @@ export class NotificationManagementService {
 					user_id: userId,
 					is_read: false,
 					read_at: null
+				}, {
+					onConflict: 'notification_id,user_id'
 				});
 
 			if (error) {
@@ -716,17 +737,53 @@ export class NotificationManagementService {
 
 			console.log('Task assignment notification created:', data);
 			
-			// Automatically trigger push notification processing
+			// Create notification_recipients entries for each assigned user
 			try {
-				console.log('🔄 [NotificationManagement] Triggering automatic push notification processing for task assignment...');
-				// Wait a moment for the database trigger to complete, then process
-				setTimeout(() => {
-					pushNotificationProcessor.processOnce().catch(error => {
-						console.error('❌ [NotificationManagement] Auto push processing failed for task assignment:', error);
+				console.log('� [NotificationManagement] Creating notification_recipients entries for task assignment...');
+				const recipientEntries = assignedToUserIds.map(userId => ({
+					notification_id: data.id,
+					user_id: userId,
+					is_read: false,
+					is_dismissed: false
+				}));
+
+				const { error: recipientsError } = await supabase
+					.from('notification_recipients')
+					.insert(recipientEntries);
+
+				if (recipientsError) {
+					console.error('❌ [NotificationManagement] Failed to create notification recipients:', recipientsError);
+				} else {
+					console.log('✅ [NotificationManagement] Created notification recipients for', assignedToUserIds.length, 'users');
+				}
+			} catch (recipientsError) {
+				console.error('❌ [NotificationManagement] Error creating notification recipients:', recipientsError);
+			}
+			
+			// Manually queue push notifications immediately (don't rely on database trigger)
+			try {
+				console.log('🔄 [NotificationManagement] Manually queuing push notifications for immediate delivery...');
+				
+				// Call the queue_push_notification function directly
+				const { data: queueResult, error: queueError } = await supabase
+					.rpc('queue_push_notification', {
+						p_notification_id: data.id
 					});
-				}, 1000);
-			} catch (error) {
-				console.error('❌ [NotificationManagement] Failed to trigger automatic push processing for task assignment:', error);
+				
+				if (queueError) {
+					console.error('❌ [NotificationManagement] Failed to queue push notifications:', queueError);
+				} else {
+					console.log('✅ [NotificationManagement] Push notifications queued successfully');
+					
+					// Immediately trigger push notification processing
+					setTimeout(() => {
+						pushNotificationProcessor.processOnce().catch(error => {
+							console.error('❌ [NotificationManagement] Failed to process push notifications:', error);
+						});
+					}, 1000); // Reduced delay for faster task assignment notifications
+				}
+			} catch (queueError) {
+				console.error('❌ [NotificationManagement] Error in manual queue process:', queueError);
 			}
 			
 			return data;

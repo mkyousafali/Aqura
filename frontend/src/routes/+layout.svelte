@@ -3,7 +3,6 @@
 	import { get } from 'svelte/store';
 	import { initI18n, currentLocale, localeData } from '$lib/i18n';
 	import { sidebar } from '$lib/stores/sidebar';
-	import { auth } from '$lib/stores/auth';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import '../app.css';

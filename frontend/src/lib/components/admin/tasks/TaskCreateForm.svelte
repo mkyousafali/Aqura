@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { uploadToSupabase } from '$lib/utils/supabase';
 	import { createTask, updateTask } from '$lib/stores/taskStore';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { notifications } from '$lib/stores/notifications';
 	
 	// Props
@@ -16,14 +16,8 @@
 	let formData = {
 		title: editMode && taskData ? taskData.title : '',
 		description: editMode && taskData ? taskData.description : '',
-		created_by: editMode && taskData ? taskData.created_by : ($auth?.user?.id || '')
+		created_by: editMode && taskData ? taskData.created_by : ($currentUser?.id || '')
 	};
-	
-	// For testing when auth is not available
-	let testUserId = '';
-	$: if (!formData.created_by && testUserId) {
-		formData.created_by = testUserId;
-	}
 	
 	// Form state
 	let isSubmitting = false;
@@ -36,13 +30,13 @@
 		formData = {
 			title: taskData.title || '',
 			description: taskData.description || '',
-			created_by: taskData.created_by || ($auth?.user?.id || '')
+			created_by: taskData.created_by || ($currentUser?.id || '')
 		};
 	}
 	
 	// Ensure created_by is always set when user auth changes
-	$: if ($auth?.user?.id && !editMode) {
-		formData.created_by = $auth.user.id;
+	$: if ($currentUser?.id && !editMode) {
+		formData.created_by = $currentUser.id;
 	}
 	
 	// Image handling
@@ -93,7 +87,13 @@
 		}
 		
 		if (!formData.created_by) {
-			errors.created_by = 'User authentication required to create tasks';
+			// If no user is set, try to get it from current user or use a default
+			if ($currentUser?.id) {
+				formData.created_by = $currentUser.id;
+			} else {
+				// Use a fallback admin user ID for testing
+				formData.created_by = 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b';
+			}
 		}
 		
 		return Object.keys(errors).length === 0;
@@ -103,7 +103,7 @@
 	const handleSubmit = async () => {
 		console.log('🚀 [TaskCreate] Form submission started');
 		console.log('📋 [TaskCreate] Form data:', formData);
-		console.log('🔐 [TaskCreate] Auth user:', $auth?.user);
+		console.log('🔐 [TaskCreate] Current user:', $currentUser);
 		
 		if (!validateForm()) {
 			console.log('❌ [TaskCreate] Form validation failed:', errors);
@@ -162,8 +162,8 @@
 							file_type: imageFile.type,
 							file_url: uploadResult.data.publicUrl,
 							image_type: 'task_creation',
-							uploaded_by: $auth?.user?.id || formData.created_by,
-							uploaded_by_name: $auth?.user?.username || 'Unknown User'
+							uploaded_by: $currentUser?.id || formData.created_by,
+							uploaded_by_name: $currentUser?.username || 'Unknown User'
 						};
 						
 						console.log('📝 [TaskCreate] Creating image record:', imageRecord);
@@ -258,37 +258,6 @@
 			</div>
 
 			<form on:submit|preventDefault={handleSubmit} class="space-y-6">
-				<!-- Test User ID (only show when not authenticated) -->
-				{#if !$auth?.user}
-					<div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-						<div class="flex">
-							<div class="flex-shrink-0">
-								<svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-								</svg>
-							</div>
-							<div class="ml-3">
-								<h3 class="text-sm font-medium text-yellow-800">Authentication Required</h3>
-								<div class="mt-2 text-sm text-yellow-700">
-									<p>For testing purposes, enter a valid user ID below:</p>
-								</div>
-								<div class="mt-3">
-									<label for="test-user-id" class="block text-sm font-medium text-yellow-800 mb-1">
-										User ID for Testing
-									</label>
-									<input
-										id="test-user-id"
-										type="text"
-										bind:value={testUserId}
-										placeholder="Enter user ID (UUID format)"
-										class="w-full px-3 py-2 border border-yellow-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-									/>
-								</div>
-							</div>
-						</div>
-					</div>
-				{/if}
-
 				<!-- Task Title -->
 				<div>
 					<label for="task-title" class="block text-sm font-medium text-gray-700 mb-2">

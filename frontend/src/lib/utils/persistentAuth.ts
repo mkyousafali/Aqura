@@ -3,7 +3,7 @@ import { browser } from '$app/environment';
 import { supabase } from './supabase';
 import { pushNotificationService } from './pushNotifications';
 import { userAuth } from './userAuth';
-import type { User } from '$lib/stores/auth';
+import type { User } from '$lib/types/auth';
 
 // Types
 interface UserSession {

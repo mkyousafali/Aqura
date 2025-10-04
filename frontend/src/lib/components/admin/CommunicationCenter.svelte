@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import NotificationCenter from './communication/NotificationCenter.svelte';
 	import AdminReadStatusModal from './communication/AdminReadStatusModal.svelte';
 
@@ -10,8 +10,7 @@
 	$: counts = $notificationCounts;
 
 	// Current user for role-based access
-	$: currentUser = $auth?.user;
-	$: userRole = currentUser?.role || 'Position-based';
+	$: userRole = $currentUser?.role || 'Position-based';
 	$: isMasterAdmin = userRole === 'Master Admin';
 
 	// Generate unique window ID using timestamp and random number

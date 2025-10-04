@@ -2,8 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { localeData, t } from '$lib/i18n';
-	import { auth } from '$lib/stores/auth';
-	import { persistentAuthService } from '$lib/utils/persistentAuth';
+	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 
 	// Login form states
 	let loginMethod: 'username' | 'quickAccess' = 'username';
@@ -35,22 +34,16 @@
 			showContent = true;
 		}, 300);
 
-		// Initialize auth store and check if user is already logged in
-		await auth.init();
+		// Check if user is already logged in
 		checkExistingAuth();
 	});
 
 	function checkExistingAuth() {
-		// Check if user is already authenticated
-		const unsubscribe = auth.subscribe(session => {
-			if (session && session.user) {
-				// User is already logged in, redirect to main page
-				goto('/');
-			}
-		});
-		
-		// Clean up subscription
-		setTimeout(unsubscribe, 100);
+		// Check if user is already authenticated using persistent auth
+		if ($isAuthenticated && $currentUser) {
+			// User is already logged in, redirect to main page
+			goto('/');
+		}
 	}
 
 	function switchLoginMethod() {

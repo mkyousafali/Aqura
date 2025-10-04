@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { User, UserPermissions, AuthSession } from '../stores/auth';
+import type { User, UserPermissions, AuthSession } from '$lib/types/auth';
 
 // Database types matching our deployed schema
 interface DatabaseUser {

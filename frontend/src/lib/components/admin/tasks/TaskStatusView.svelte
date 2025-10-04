@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { supabase } from '$lib/utils/supabase';
+	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import SendWarningModal from './SendWarningModal.svelte';
 	
 	let loading = true;
@@ -270,28 +271,19 @@
 
 	async function sendReminder(assignment) {
 		try {
-			// Create reminder notification using the same structure as task assignments
-			const { error } = await supabase
-				.from('notifications')
-				.insert({
-					title: 'Task Reminder',
-					message: `Reminder: You have pending tasks assigned by ${assignment.assignedBy}`,
-					type: 'info',
-					priority: 'medium',
-					target_type: 'specific_users',
-					target_users: JSON.stringify([assignment.assignedToUserId]),
-					created_by: assignment.assignedByUserId,
-					created_by_name: assignment.assignedBy,
-					created_by_role: 'Manager',
-					status: 'published',
-					has_attachments: false,
-					read_count: 0,
-					total_recipients: 1
-				});
+			// Create reminder notification using notificationManagement for proper push notification support
+			const notificationData = {
+				title: 'Task Reminder',
+				message: `Reminder: You have pending tasks assigned by ${assignment.assignedBy}.\n\nPlease check your tasks and complete them as soon as possible.`,
+				type: 'info',
+				priority: 'medium',
+				target_type: 'specific_users',
+				target_users: [assignment.assignedToUserId]
+			};
 
-			if (error) throw error;
+			await notificationManagement.createNotification(notificationData, assignment.assignedBy);
 
-			alert('Reminder notification sent successfully!');
+			alert('Reminder notification sent successfully with push notification!');
 		} catch (err) {
 			console.error('Error sending reminder:', err);
 			alert('Failed to send reminder notification: ' + err.message);

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
-	import { auth } from '$lib/stores/auth';
 	import { currentLocale, switchLocale, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
 	import { onMount, createEventDispatcher } from 'svelte';
@@ -8,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
 	import NotificationCenter from './admin/communication/NotificationCenter.svelte';
-	import { persistentAuthService, currentUser as persistentCurrentUser, deviceSessions } from '$lib/utils/persistentAuth';
+	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 
 	// Event dispatcher for communicating with layout
@@ -18,13 +17,8 @@
 	$: taskbarItems = windowManager.taskbarItems;
 	$: activeWindow = windowManager.activeWindow;
 	
-	// Reactive statement to determine current user from both auth systems
-	$: {
-		currentUser = $persistentCurrentUser || $auth?.user;
-		console.log('🔍 [Taskbar] Auth state:', $auth);
-		console.log('🔍 [Taskbar] Persistent user:', $persistentCurrentUser);
-		console.log('🔍 [Taskbar] Final currentUser:', currentUser);
-	}
+	// Use persistent auth system
+	// No need for displayUser variable anymore
 
 	// Subscribe to notification counts store
 	$: counts = $notificationCounts;
@@ -37,9 +31,6 @@
 	let isExpanded = false;
 	let showUserMenu = false;
 	let showLogoutConfirm = false;
-	
-	// Current user state
-	let currentUser: any = undefined;
 
 	// Show current time and date
 	let currentTime = '';
@@ -116,10 +107,12 @@
 
 	function handleLogout() {
 		console.log('🚪 [Taskbar] Handle logout clicked');
-		console.log('🚪 [Taskbar] Current user:', currentUser);
+		console.log('🚪 [Taskbar] Current user:', $currentUser);
+		console.log('🚪 [Taskbar] Current showLogoutConfirm state:', showLogoutConfirm);
 		showLogoutConfirm = true;
 		showUserMenu = false;
 		console.log('🚪 [Taskbar] Logout confirmation dialog should show:', showLogoutConfirm);
+		console.log('🚪 [Taskbar] showUserMenu set to:', showUserMenu);
 	}
 
 	// New handlers for persistent auth features
@@ -161,10 +154,9 @@
 		}
 	}
 
-	function confirmLogout() {
+	async function confirmLogout() {
 		console.log('🚪 [Taskbar] Confirming logout...');
-		console.log('🚪 [Taskbar] Auth store:', $auth);
-		console.log('🚪 [Taskbar] Persistent auth user:', $persistentCurrentUser);
+		console.log('🚪 [Taskbar] Persistent auth user:', $currentUser);
 		
 		showLogoutConfirm = false;
 		showUserMenu = false;
@@ -172,16 +164,11 @@
 		try {
 			console.log('🚪 [Taskbar] Calling logout methods...');
 			
-			// Try both logout methods but don't await to avoid blocking
-			if ($auth) {
-				console.log('🚪 [Taskbar] Logging out from auth store...');
-				auth.logout().catch(err => console.warn('Auth logout error:', err));
-			}
-			
-			// Also logout from persistent auth
-			if ($persistentCurrentUser) {
+			// Logout from persistent auth
+			if ($currentUser) {
 				console.log('🚪 [Taskbar] Logging out from persistent auth...');
-				persistentAuthService.logout().catch(err => console.warn('Persistent auth logout error:', err));
+				await persistentAuthService.logout();
+				console.log('🚪 [Taskbar] Persistent auth logout completed');
 			}
 			
 			// Clear local storage manually as backup
@@ -191,17 +178,30 @@
 				localStorage.removeItem('aqura-user');
 				localStorage.removeItem('aqura-session');
 				localStorage.removeItem('aqura-persistent-sessions');
+				localStorage.clear(); // Clear all local storage as extra measure
+			}
+			
+			// Clear session storage too
+			if (typeof window !== 'undefined' && window.sessionStorage) {
+				console.log('🚪 [Taskbar] Clearing sessionStorage...');
+				sessionStorage.clear();
 			}
 			
 			console.log('🚪 [Taskbar] Logout completed, redirecting to login...');
 			
-			// Force redirect to login page
-			window.location.href = '/login';
+			// Use a short delay to ensure cleanup completes
+			setTimeout(() => {
+				console.log('🚪 [Taskbar] Executing redirect to login...');
+				window.location.href = '/login';
+			}, 100);
 			
 		} catch (error) {
 			console.error('🚪 [Taskbar] Logout error:', error);
 			// Force redirect even if there's an error
-			window.location.href = '/login';
+			setTimeout(() => {
+				console.log('🚪 [Taskbar] Error occurred, forcing redirect...');
+				window.location.href = '/login';
+			}, 100);
 		}
 	}
 
@@ -335,11 +335,11 @@
 	<!-- System Tray -->
 	<div class="system-tray">
 		<!-- Logout Button -->
-		{#if currentUser}
+		{#if $currentUser}
 			<button 
 				class="tray-button logout-button" 
 				on:click|stopPropagation={handleLogout}
-				title="Logout ({currentUser?.employeeName || currentUser?.username})"
+				title="Logout ({$currentUser?.employeeName || $currentUser?.username})"
 				aria-label="Logout from system"
 				type="button"
 			>
@@ -389,11 +389,11 @@
 			<div class="user-info-taskbar">
 				<div class="user-display">
 					<div class="user-avatar-taskbar">
-						<span>{(currentUser?.employeeName || currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
+						<span>{($currentUser?.employeeName || $currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
 					</div>
 					<div class="user-details-taskbar">
-						<div class="user-name-taskbar">{currentUser?.employeeName || currentUser?.username || 'User'}</div>
-						<div class="user-role-taskbar">{currentUser?.role || 'Role'}</div>
+						<div class="user-name-taskbar">{$currentUser?.employeeName || $currentUser?.username || 'User'}</div>
+						<div class="user-role-taskbar">{$currentUser?.role || 'Role'}</div>
 					</div>
 				</div>
 			</div>
@@ -422,11 +422,11 @@
 				<p>Are you sure you want to logout from your account?</p>
 				<div class="current-user-info">
 					<div class="user-avatar-dialog">
-						<span>{(currentUser?.employeeName || currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
+						<span>{($currentUser?.employeeName || $currentUser?.username)?.charAt(0)?.toUpperCase() || 'U'}</span>
 					</div>
 					<div class="user-details-dialog">
-						<div class="username">{currentUser?.employeeName || currentUser?.username || 'User'}</div>
-						<div class="role">{currentUser?.role || 'Role'}</div>
+						<div class="username">{$currentUser?.employeeName || $currentUser?.username || 'User'}</div>
+						<div class="role">{$currentUser?.role || 'Role'}</div>
 					</div>
 				</div>
 			</div>

@@ -80,8 +80,8 @@ class PushNotificationProcessor {
                     )
                 `)
                 .eq('status', 'pending')
-                .order('created_at', { ascending: true })
-                .limit(20); // Process 20 at a time
+                .order('created_at', { ascending: true }) // Process oldest first (FIFO)
+                .limit(10); // Reduced batch size for more frequent processing
 
             if (error) {
                 console.error('❌ Error fetching queued notifications:', error);
@@ -163,12 +163,6 @@ class PushNotificationProcessor {
                 throw new Error(`Notification permission not granted: ${Notification.permission}`);
             }
 
-            // Mark as processing
-            await supabaseAdmin
-                .from('notification_queue')
-                .update({ status: 'processing' })
-                .eq('id', queueItem.id);
-
             // Use the browser's notification API instead of web-push library
             if ('serviceWorker' in navigator && 'Notification' in window) {
                 console.log('🔍 Service Worker and Notification API available');
@@ -201,6 +195,31 @@ class PushNotificationProcessor {
                     .eq('id', queueItem.id);
 
                 console.log(`✅ Push notification ${queueItem.id} sent successfully`);
+
+                // Delete all other pending notifications for this user+notification combination
+                // Once a user receives a notification on ANY device, they don't need it on other devices
+                // Deleting instead of marking as delivered keeps the queue table clean
+                try {
+                    console.log(`🗑️ Deleting other pending notifications for user ${queueItem.user_id} and notification ${queueItem.notification_id}...`);
+                    
+                    const { data: deletedNotifications, error: deleteError } = await supabaseAdmin
+                        .from('notification_queue')
+                        .delete()
+                        .eq('notification_id', queueItem.notification_id)
+                        .eq('user_id', queueItem.user_id)
+                        .eq('status', 'pending')
+                        .neq('id', queueItem.id) // Don't delete the current notification
+                        .select(); // Select to get count of deleted items
+
+                    if (deleteError) {
+                        console.error('❌ Error deleting duplicate pending notifications:', deleteError);
+                    } else {
+                        console.log(`✅ Deleted ${deletedNotifications?.length || 0} duplicate pending notifications for user`);
+                        console.log('🧹 Queue table cleaned up - duplicate entries removed permanently');
+                    }
+                } catch (deleteError) {
+                    console.error('❌ Error in auto-delete process:', deleteError);
+                }
             } else {
                 console.error('❌ Service Worker or Notifications not supported');
                 throw new Error('Service Worker or Notifications not supported');
@@ -214,10 +233,39 @@ class PushNotificationProcessor {
                 .from('notification_queue')
                 .update({ 
                     status: 'failed',
-                    error_message: error instanceof Error ? error.message : 'Unknown error',
-                    failed_at: new Date().toISOString()
+                    error_message: error instanceof Error ? error.message : 'Unknown error'
                 })
                 .eq('id', queueItem.id);
+        }
+    }
+
+    /**
+     * Clean up old processed notifications from the queue table
+     * Removes entries older than specified days that are 'sent', 'delivered', or 'failed'
+     */
+    async cleanupOldQueueEntries(olderThanDays: number = 7) {
+        try {
+            console.log(`🧹 Cleaning up queue entries older than ${olderThanDays} days...`);
+            
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+            
+            const { data: deletedEntries, error } = await supabaseAdmin
+                .from('notification_queue')
+                .delete()
+                .in('status', ['sent', 'delivered', 'failed'])
+                .lt('created_at', cutoffDate.toISOString())
+                .select(); // Get count of deleted items
+                
+            if (error) {
+                console.error('❌ Error cleaning up old queue entries:', error);
+            } else {
+                console.log(`✅ Cleaned up ${deletedEntries?.length || 0} old queue entries`);
+                console.log('🗃️ Queue table optimized - old processed notifications removed');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error in cleanup process:', error);
         }
     }
 
@@ -293,6 +341,34 @@ if (typeof window !== 'undefined') {
     (window as any).stopPushNotificationProcessor = () => {
         pushNotificationProcessor.stop();
         console.log('🛑 Emergency stop: Push notification processor stopped');
+    };
+
+    // Add cleanup function for old queue entries
+    (window as any).cleanupOldNotifications = (days = 7) => {
+        pushNotificationProcessor.cleanupOldQueueEntries(days);
+        console.log(`🧹 Cleaning up notifications older than ${days} days...`);
+    };
+
+    // Add function to manually delete duplicate pending notifications for testing
+    (window as any).deleteDuplicateNotifications = async (notificationId: string, userId: string) => {
+        console.log(`🗑️ Manually deleting duplicate notifications for notification ${notificationId} and user ${userId}...`);
+        try {
+            const { data: deletedEntries, error } = await supabaseAdmin
+                .from('notification_queue')
+                .delete()
+                .eq('notification_id', notificationId)
+                .eq('user_id', userId)
+                .eq('status', 'pending')
+                .select();
+
+            if (error) {
+                console.error('❌ Error deleting duplicates:', error);
+            } else {
+                console.log(`✅ Deleted ${deletedEntries?.length || 0} duplicate pending notifications`);
+            }
+        } catch (error) {
+            console.error('❌ Manual delete failed:', error);
+        }
     };
 
     // Test if database trigger is working by manually calling the queue function

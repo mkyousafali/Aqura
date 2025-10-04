@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { auth } from '$lib/stores/auth';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { supabase } from '$lib/utils/supabase';
 
 	// Current user and role information
-	$: currentUser = $auth?.user;
-	$: userRole = currentUser?.role || 'Position-based';
+	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
 	// Form data
@@ -264,10 +263,9 @@
 			};
 
 		// Create the notification
-		console.log('🧪 Debug currentUser:', currentUser);
-		console.log('🧪 Debug auth store:', $auth);
+		console.log('🧪 Debug currentUser:', $currentUser);
 		
-		const createdByUser = currentUser?.username || $auth?.user?.username || 'madmin'; // Fallback to known user
+		const createdByUser = $currentUser?.username || 'madmin'; // Fallback to known user
 		console.log('🧪 Using createdByUser:', createdByUser);
 		
 		const result = await notificationManagement.createNotification(apiData, createdByUser);			if (result && result.id) {

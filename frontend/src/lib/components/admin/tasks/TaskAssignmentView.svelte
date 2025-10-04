@@ -5,6 +5,7 @@
 	import { loadTasks, assignTasks } from '$lib/stores/taskStoreSupabase';
 	import { db } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import TaskCreateForm from './TaskCreateForm.svelte';
 
 	export let windowId: string = '';
@@ -184,10 +185,10 @@
 					console.log('Processing user:', user.username, 'Data:', user);
 					
 					// Check if user has employee connection (use correct column names)
-					const hasEmployeeData = user.emp_id && user.emp_name;
+					const hasEmployeeData = user.employee_id && user.employee_name;
 					
 					// Employee display name
-					const displayName = user.emp_name || user.username || 'Unknown User';
+					const displayName = user.employee_name || user.username || 'Unknown User';
 					
 					// Contact information
 					const displayEmail = user.email || 'No email';
@@ -195,10 +196,10 @@
 					const displayWhatsApp = user.whatsapp_number || 'No WhatsApp';
 					
 					// Position information
-					const displayPosition = user.position_title_en || (hasEmployeeData ? 'No position assigned' : 'Employee not assigned');
+					const displayPosition = user.position_title || (hasEmployeeData ? 'No position assigned' : 'Employee not assigned');
 					
 					return {
-						id: user.user_id, // Use correct column name
+						id: user.id, // Use correct column name from database function
 						name: displayName,
 						email: displayEmail,
 						phone: displayPhone,
@@ -206,14 +207,14 @@
 						position: displayPosition,
 						role: user.role_type || 'User',
 						branch_id: user.branch_id,
-						branch_name: user.branch_name_en || 'Unknown Branch',
+						branch_name: user.branch_name || 'Unknown Branch',
 						status: user.status || 'active',
 						has_employee_data: hasEmployeeData, // Add this flag
-						employee_name: user.emp_name, // Add employee name
+						employee_name: user.employee_name, // Use correct column name
 						username: user.username, // Add username (fixed syntax)
 						user_type: user.user_type,
-						employee_id: user.emp_id, // Use correct column name
-						hire_date: null, // Not available in our function
+						employee_id: user.employee_id, // Use correct column name
+						hire_date: user.hire_date, // Now available in our function
 						contact_info: {
 							email: user.email || null,
 							contact_number: user.contact_number || null,
@@ -288,8 +289,17 @@
 	}
 
 	function updateSelectAllStates() {
-		selectAllTasks = filteredTasks.length > 0 && filteredTasks.every(task => selectedTasks.has(task.id));
-		selectAllUsers = filteredUsers.length > 0 && filteredUsers.every(user => selectedUsers.has(user.id));
+		// Update states without triggering reactive bindings
+		const newSelectAllTasks = filteredTasks.length > 0 && filteredTasks.every(task => selectedTasks.has(task.id));
+		const newSelectAllUsers = filteredUsers.length > 0 && filteredUsers.every(user => selectedUsers.has(user.id));
+		
+		// Only update if values actually changed to avoid unnecessary reactivity
+		if (selectAllTasks !== newSelectAllTasks) {
+			selectAllTasks = newSelectAllTasks;
+		}
+		if (selectAllUsers !== newSelectAllUsers) {
+			selectAllUsers = newSelectAllUsers;
+		}
 	}
 
 	function handleSelectAllTasks() {
@@ -299,15 +309,6 @@
 			filteredTasks.forEach(task => selectedTasks.delete(task.id));
 		}
 		selectedTasks = new Set(selectedTasks);
-	}
-
-	function handleSelectAllUsers() {
-		if (selectAllUsers) {
-			filteredUsers.forEach(user => selectedUsers.add(user.id));
-		} else {
-			filteredUsers.forEach(user => selectedUsers.delete(user.id));
-		}
-		selectedUsers = new Set(selectedUsers);
 	}
 
 	function handleTaskSelect(taskId: string, checked: boolean) {
@@ -321,12 +322,19 @@
 	}
 
 	function handleUserSelect(userId: string, checked: boolean) {
+		console.log('👤 [TaskAssignment] User select:', userId, checked);
+		console.log('👤 [TaskAssignment] Before - selectedUsers:', Array.from(selectedUsers));
+		console.log('👤 [TaskAssignment] User object keys available:', Object.keys(filteredUsers[0] || {}));
+		console.log('👤 [TaskAssignment] First user sample:', filteredUsers[0]);
+		
 		if (checked) {
 			selectedUsers.add(userId);
 		} else {
 			selectedUsers.delete(userId);
 		}
 		selectedUsers = new Set(selectedUsers);
+		
+		console.log('👤 [TaskAssignment] After - selectedUsers:', Array.from(selectedUsers));
 		updateSelectAllStates();
 	}
 
@@ -357,6 +365,16 @@
 			notifications.add({
 				type: 'warning',
 				message: 'Please select at least one user to assign tasks to',
+				duration: 3000
+			});
+			return;
+		}
+
+		// Check authentication
+		if (!$isAuthenticated || !$currentUser) {
+			notifications.add({
+				type: 'error',
+				message: 'You must be logged in to assign tasks',
 				duration: 3000
 			});
 			return;
@@ -511,8 +529,8 @@
 				const result = await assignTasks(
 					taskIds,
 					'user', // assignment type
-					'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b', // assigned by
-					'Admin User', // assigned by name
+					$currentUser?.id || 'unknown', // assigned by - use current user
+					$currentUser?.employeeName || $currentUser?.username || 'Admin User', // assigned by name
 					userId, // assigned to user ID
 					undefined, // no branch ID for user assignments
 					scheduleSettings // pass deadline information
@@ -561,8 +579,8 @@
 							taskId,
 							task.title,
 							Array.from(selectedUsers),
-							'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b', // assigned by ID
-							'Admin User', // assigned by name
+							$currentUser?.id || 'unknown', // assigned by ID - use current user
+							$currentUser?.employeeName || $currentUser?.username || 'Admin User', // assigned by name
 							fullDeadline, // deadline
 							assignmentSettings.add_note, // notes
 							{
@@ -895,8 +913,16 @@
 						<label class="flex items-center space-x-2 px-3 py-2">
 							<input
 								type="checkbox"
-								bind:checked={selectAllUsers}
-								on:change={handleSelectAllUsers}
+								checked={selectAllUsers}
+								on:change={(e) => {
+									const checked = (e.target as HTMLInputElement)?.checked || false;
+									if (checked) {
+										filteredUsers.forEach(user => selectedUsers.add(user.id));
+									} else {
+										filteredUsers.forEach(user => selectedUsers.delete(user.id));
+									}
+									selectedUsers = new Set(selectedUsers);
+								}}
 								class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500"
 							/>
 							<span class="text-sm text-gray-700">Select All</span>
