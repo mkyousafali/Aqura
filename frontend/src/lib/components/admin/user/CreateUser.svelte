@@ -46,6 +46,8 @@
 			loadingData = true;
 			dataError = '';
 
+			console.log('🔄 [CreateUser] Loading initial data...');
+
 			// Load all necessary data concurrently
 			const [branchesResult, rolesResult, employeesResult, positionsResult] = await Promise.all([
 				userManagement.getBranches(),
@@ -59,13 +61,18 @@
 			employees = employeesResult;
 			positions = positionsResult;
 
-			console.log('CreateUser - Loaded branches:', branches);
-			console.log('CreateUser - Loaded roles:', roles);
-			console.log('CreateUser - Loaded employees:', employees);
-			console.log('CreateUser - Loaded positions:', positions);
+			console.log('✅ [CreateUser] Loaded branches:', branches?.length || 0, branches);
+			console.log('✅ [CreateUser] Loaded roles:', roles?.length || 0, roles);
+			console.log('✅ [CreateUser] Loaded employees:', employees?.length || 0, employees);
+			console.log('✅ [CreateUser] Loaded positions:', positions?.length || 0, positions);
+
+			// Check if any data is missing
+			if (!employees || employees.length === 0) {
+				console.warn('⚠️ [CreateUser] No employees loaded - this will prevent user creation');
+			}
 
 		} catch (err) {
-			console.error('Error loading create user data:', err);
+			console.error('❌ [CreateUser] Error loading create user data:', err);
 			dataError = err.message;
 		} finally {
 			loadingData = false;
@@ -91,28 +98,53 @@
 	
 	// Filtered employees based on selected branch
 	$: filteredEmployees = formData.branchId 
-		? employees.filter(emp => emp.branch_id === parseInt(formData.branchId))
+		? employees.filter(emp => {
+			// Handle both string and number comparison for branch_id
+			const selectedBranchId = parseInt(formData.branchId);
+			const empBranchId = typeof emp.branch_id === 'string' ? parseInt(emp.branch_id) : emp.branch_id;
+			return empBranchId === selectedBranchId;
+		})
 		: employees;
 	
 	// Further filter employees by search term
 	$: searchedEmployees = filteredEmployees.filter(emp => 
-		emp.name.toLowerCase().includes(employeeSearchTerm.toLowerCase()) ||
+		emp.name?.toLowerCase().includes(employeeSearchTerm.toLowerCase()) ||
 		emp.employee_id?.toLowerCase().includes(employeeSearchTerm.toLowerCase()) ||
 		emp.position_title_en?.toLowerCase().includes(employeeSearchTerm.toLowerCase())
 	);
 
+	// Debug logging for employee filtering
+	$: {
+		console.log('🔍 [CreateUser] Branch filtering debug:', {
+			selectedBranch: formData.branchId,
+			totalEmployees: employees?.length || 0,
+			filteredEmployees: filteredEmployees?.length || 0,
+			searchedEmployees: searchedEmployees?.length || 0,
+			searchTerm: employeeSearchTerm
+		});
+	}
+
 	// Update form data when employee is selected
 	function selectEmployee(employee) {
+		console.log('👤 [CreateUser] Selecting employee:', employee);
 		selectedEmployee = employee;
 		formData.employeeId = employee.id;
 		errors.employeeId = '';
+		console.log('👤 [CreateUser] Employee selected - formData.employeeId:', formData.employeeId);
+		console.log('👤 [CreateUser] Selected employee object:', selectedEmployee);
 	}
 
-	// Clear employee selection when branch changes
-	$: if (formData.branchId) {
-		selectedEmployee = null;
-		formData.employeeId = '';
-		employeeSearchTerm = '';
+	// Clear employee selection when branch changes (not just when branch has value)
+	let previousBranchId = '';
+	$: if (formData.branchId !== previousBranchId) {
+		console.log('🔄 [CreateUser] Branch changed from', previousBranchId, 'to', formData.branchId);
+		if (previousBranchId !== '') { // Only clear if this isn't the initial load
+			selectedEmployee = null;
+			formData.employeeId = '';
+			employeeSearchTerm = '';
+			console.log('🔄 [CreateUser] Cleared employee selection due to branch change');
+		}
+		previousBranchId = formData.branchId;
 	}
 
 	// Clear role/position selection when role type changes
@@ -584,14 +616,22 @@
 							{:else if employeeSearchTerm}
 								<div class="no-results">
 									<p>No employees found matching "{employeeSearchTerm}"</p>
+									<p class="help-text">Try adjusting your search or check if employees are properly assigned to this branch.</p>
 								</div>
-							{:else if formData.branchId}
+							{:else if formData.branchId && filteredEmployees.length === 0}
 								<div class="no-results">
 									<p>No employees found in the selected branch</p>
+									<p class="help-text">This branch may not have any employees assigned yet. Please contact your administrator.</p>
 								</div>
-							{:else}
+							{:else if !formData.branchId}
 								<div class="no-results">
 									<p>Please select a branch to view employees</p>
+									<p class="help-text">Employee selection is filtered by branch for better organization.</p>
+								</div>
+							{:else if employees.length === 0}
+								<div class="no-results">
+									<p>No employees available in the system</p>
+									<p class="help-text">Please add employees to the HR system before creating users.</p>
 								</div>
 							{/if}
 						</div>
@@ -1072,6 +1112,13 @@
 	.no-results p {
 		margin: 0;
 		font-size: 14px;
+	}
+
+	.no-results .help-text {
+		margin-top: 8px;
+		font-size: 12px;
+		color: #9ca3af;
+		font-style: italic;
 	}
 
 	.form-label {

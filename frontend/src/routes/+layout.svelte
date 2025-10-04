@@ -21,6 +21,9 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
+	
+	// PWA Update imports
+	import { useRegisterSW } from 'virtual:pwa-register/svelte';
 
 	// Initialize i18n system
 	initI18n();
@@ -31,6 +34,70 @@
 	// User management states
 	let showUserSwitcher = false;
 	let showNotificationSettings = false;
+	
+	// PWA update state
+	let showUpdatePrompt = false;
+	let needRefresh;
+	let updateServiceWorker;
+	
+	// PWA update functions
+	async function handlePWAUpdate() {
+		console.log('PWA Update requested');
+		console.log('Navigator online:', navigator.onLine);
+		console.log('UpdateServiceWorker available:', !!updateServiceWorker);
+		
+		showUpdatePrompt = false;
+		
+		// Multiple connectivity checks
+		const isOnline = navigator.onLine;
+		let networkTest = false;
+		
+		try {
+			// Test actual network connectivity with a small fetch
+			const response = await fetch('/favicon.ico', { 
+				method: 'HEAD', 
+				cache: 'no-cache',
+				signal: AbortSignal.timeout(3000)
+			});
+			networkTest = response.ok;
+		} catch (error) {
+			console.warn('Network test failed:', error);
+			networkTest = false;
+		}
+		
+		console.log('Network test result:', networkTest);
+		
+		if (!isOnline || !networkTest) {
+			console.warn('No network connection detected');
+			alert('No internet connection. Please check your connection and try again.');
+			showUpdatePrompt = true;
+			return;
+		}
+		
+		if (updateServiceWorker) {
+			try {
+				console.log('Calling updateServiceWorker with skipWaiting=true');
+				await updateServiceWorker(true);
+				console.log('PWA update successful');
+				
+				// Optional: Show success message
+				setTimeout(() => {
+					window.location.reload();
+				}, 1000);
+			} catch (error) {
+				console.error('PWA update failed:', error);
+				alert('Update failed. Please refresh the page and try again.');
+				showUpdatePrompt = true;
+			}
+		} else {
+			console.error('updateServiceWorker function not available');
+			alert('Update not available. Please refresh the page manually.');
+		}
+	}
+	
+	function dismissUpdate() {
+		showUpdatePrompt = false;
+	}
 	
 	// Authentication state
 	let isAuthenticated = false;
@@ -52,6 +119,35 @@
 			
 			// Initialize PWA install detection
 			initPWAInstall();
+			
+			// Initialize PWA update handling
+			const pwaStore = useRegisterSW({
+				immediate: true,
+				onRegistered(r) {
+					console.log('SW Registered: ' + r);
+				},
+				onRegisterError(error) {
+					console.error('SW registration error', error);
+				},
+				onNeedRefresh() {
+					console.log('PWA needs refresh');
+				},
+				onOfflineReady() {
+					console.log('PWA offline ready');
+				}
+			});
+			
+			// Assign PWA functions
+			needRefresh = pwaStore.needRefresh;
+			updateServiceWorker = pwaStore.updateServiceWorker;
+			
+			// Handle PWA updates
+			needRefresh.subscribe((value) => {
+				console.log('needRefresh changed:', value);
+				if (value) {
+					showUpdatePrompt = true;
+				}
+			});
 			
 			// Skip legacy auth initialization to prevent conflicts
 			// await auth.init(); // Disabled - using persistent auth instead
@@ -283,6 +379,41 @@
 								</div>
 								<div class="p-6">
 									<PushNotificationSettings />
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+				
+				<!-- PWA Update Prompt -->
+				{#if showUpdatePrompt}
+					<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+						<div class="max-w-md w-full mx-4">
+							<div class="bg-white rounded-lg shadow-xl">
+								<div class="p-6">
+									<div class="flex items-center justify-center mb-4">
+										<div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+											<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+											</svg>
+										</div>
+									</div>
+									<h3 class="text-lg font-semibold text-gray-900 text-center mb-2">Update Available</h3>
+									<p class="text-gray-600 text-center mb-6">A new version of Aqura is available. Update now to get the latest features and improvements.</p>
+									<div class="flex gap-3">
+										<button
+											on:click={dismissUpdate}
+											class="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+										>
+											Later
+										</button>
+										<button
+											on:click={handlePWAUpdate}
+											class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+										>
+											Update Now
+										</button>
+									</div>
 								</div>
 							</div>
 						</div>

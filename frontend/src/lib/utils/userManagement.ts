@@ -341,6 +341,8 @@ export class UserManagementService {
 	 * Get branches for dropdown
 	 */
 	async getBranches(): Promise<Array<{ id: number; name_en: string; name_ar: string }>> {
+		console.log('🔍 [UserManagement] Fetching branches...');
+		
 		const { data, error } = await supabase
 			.from('branches')
 			.select('id, name_en, name_ar')
@@ -348,10 +350,11 @@ export class UserManagementService {
 			.order('name_en');
 
 		if (error) {
-			console.error('Error fetching branches:', error);
+			console.error('❌ [UserManagement] Error fetching branches:', error);
 			return [];
 		}
 
+		console.log('✅ [UserManagement] Loaded branches:', data?.length || 0, data);
 		return data || [];
 	}
 
@@ -359,53 +362,66 @@ export class UserManagementService {
 	 * Get HR employees for dropdown
 	 */
 	async getEmployees(): Promise<Array<{ id: string; employee_id?: string; name: string; branch_id?: number; position_title_en?: string }>> {
-		const { data, error } = await supabase
-			.from('hr_employees')
-			.select(`
-				id, 
-				employee_id,
-				name,
-				branch_id,
-				hr_position_assignments!inner(
-					hr_positions(position_title_en)
-				)
-			`)
-			.order('name');
-
-		if (error) {
-			console.error('Error fetching employees:', error);
-			// Try a simpler query without position information if the complex query fails
-			const { data: simpleData, error: simpleError } = await supabase
+		console.log('🔍 [UserManagement] Fetching employees...');
+		
+		try {
+			// First try with position information using left join
+			const { data, error } = await supabase
 				.from('hr_employees')
 				.select(`
 					id, 
 					employee_id,
 					name,
-					branch_id
+					branch_id,
+					hr_position_assignments(
+						hr_positions(position_title_en)
+					)
 				`)
 				.order('name');
-			
-			if (simpleError) {
-				console.error('Error fetching employees (simple query):', simpleError);
-				return [];
+
+			if (error) {
+				console.error('Error fetching employees with positions:', error);
+				// Fall back to simple query without position information
+				console.log('🔄 [UserManagement] Falling back to simple employee query...');
+				
+				const { data: simpleData, error: simpleError } = await supabase
+					.from('hr_employees')
+					.select(`
+						id, 
+						employee_id,
+						name,
+						branch_id
+					`)
+					.order('name');
+				
+				if (simpleError) {
+					console.error('Error fetching employees (simple query):', simpleError);
+					return [];
+				}
+
+				console.log('✅ [UserManagement] Loaded employees (simple):', simpleData?.length || 0);
+				return simpleData?.map((emp: any) => ({
+					id: emp.id,
+					employee_id: emp.employee_id,
+					name: emp.name,
+					branch_id: emp.branch_id,
+					position_title_en: null
+				})) || [];
 			}
 
-			return simpleData?.map((emp: any) => ({
+			console.log('✅ [UserManagement] Loaded employees with positions:', data?.length || 0);
+			return data?.map((emp: any) => ({
 				id: emp.id,
 				employee_id: emp.employee_id,
 				name: emp.name,
 				branch_id: emp.branch_id,
-				position_title_en: null
+				position_title_en: emp.hr_position_assignments?.[0]?.hr_positions?.position_title_en || null
 			})) || [];
+			
+		} catch (error) {
+			console.error('Unexpected error fetching employees:', error);
+			return [];
 		}
-
-		return data?.map((emp: any) => ({
-			id: emp.id,
-			employee_id: emp.employee_id,
-			name: emp.name,
-			branch_id: emp.branch_id,
-			position_title_en: emp.hr_position_assignments?.[0]?.hr_positions?.position_title_en
-		})) || [];
 	}
 
 	/**

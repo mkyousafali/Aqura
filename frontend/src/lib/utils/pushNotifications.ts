@@ -53,15 +53,9 @@ export class PushNotificationService {
 		}
 
 		try {
-			// Register service worker
-			this.swRegistration = await navigator.serviceWorker.register('/sw.js', {
-				scope: '/'
-			});
-
+			// Use existing service worker registration from VitePWA
+			this.swRegistration = await navigator.serviceWorker.ready;
 			console.log('Service Worker registered successfully');
-
-			// Wait for service worker to be ready
-			await navigator.serviceWorker.ready;
 
 			// Request notification permission
 			const permission = await this.requestPermission();

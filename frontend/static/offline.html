@@ -124,12 +124,8 @@
             window.location.reload();
         });
         
-        // Register service worker if not already registered
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw-advanced.js')
-                .then(() => console.log('SW registered from offline page'))
-                .catch(err => console.error('SW registration failed:', err));
-        }
+        // Note: Service worker is now handled by VitePWA
+        // No need to manually register here
     </script>
 </body>
 </html>
