@@ -71,9 +71,12 @@ export class PersistentAuthService {
 			// Start session monitoring
 			this.startSessionMonitoring();
 
-			// Initialize push notifications for authenticated user
+			// Initialize push notifications for authenticated user (non-blocking)
 			if (activeUser) {
-				await pushNotificationService.initialize();
+				// Don't await this to prevent hanging on push notification setup
+				pushNotificationService.initialize().catch(error => {
+					console.warn('🔔 Push notification initialization failed:', error);
+				});
 			}
 			
 			console.log('🔐 Persistent auth initialization complete');

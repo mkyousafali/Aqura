@@ -20,10 +20,11 @@
 	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
+	import { cacheManager } from '$lib/utils/cacheManager';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
 	
-	// PWA Update imports
-	import { useRegisterSW } from 'virtual:pwa-register/svelte';
+	// PWA Update imports - only in production
+	let useRegisterSW: any = null;
 
 	// Initialize i18n system
 	initI18n();
@@ -99,55 +100,172 @@
 		showUpdatePrompt = false;
 	}
 	
+	// Auto-cleanup existing service workers and clear all caches on app startup
+	async function autoCleanupServiceWorkers() {
+		console.log('🧹 Starting automatic service worker cleanup and cache clearing...');
+		
+		// Always clear all caches on app startup/refresh
+		try {
+			console.log('🗑️ Clearing all application caches...');
+			await cacheManager.clearAllCaches();
+			
+			// Get cache stats for logging
+			const stats = await cacheManager.getCacheStats();
+			console.log('📊 Cache stats after clearing:', stats);
+			
+		} catch (error) {
+			console.warn('⚠️ Cache clearing failed:', error);
+		}
+		
+		if ('serviceWorker' in navigator) {
+			try {
+				// Get all existing registrations
+				const registrations = await navigator.serviceWorker.getRegistrations();
+				
+				if (registrations.length > 0) {
+					console.log(`🔍 Found ${registrations.length} existing service worker(s)`);
+					
+					// Send cache clear message to all service workers before unregistering
+					for (let registration of registrations) {
+						if (registration.active) {
+							try {
+								registration.active.postMessage({
+									type: 'PAGE_REFRESH_DETECTED',
+									timestamp: Date.now()
+								});
+							} catch (error) {
+								console.warn('⚠️ Failed to notify service worker:', error);
+							}
+						}
+						
+						console.log(`🗑️ Unregistering SW: ${registration.scope}`);
+						await registration.unregister();
+					}
+					
+					console.log('✅ All existing service workers unregistered');
+				} else {
+					console.log('✨ No existing service workers found');
+				}
+				
+				console.log('🎉 Service worker cleanup and cache clearing completed successfully');
+				
+			} catch (error) {
+				console.warn('⚠️ Service worker cleanup failed:', error);
+			}
+		} else {
+			console.log('❌ Service workers not supported in this browser');
+		}
+	}
+	
 	// Authentication state
 	let isAuthenticated = false;
 	let isLoading = true;
 	let currentUserData = null;
 	let unsubscribePersistent: (() => void) | undefined;
 	let unsubscribeUser: (() => void) | undefined;
-	
-	// Debug flag to temporarily disable redirects
-	let allowRedirects = false;
 
 	onMount(async () => {
 		try {
+			// Detect app refresh/reopen and clear caches immediately
+			detectAppRefreshAndClearCaches();
+			
+			// Add service worker message listener for cache clearing
+			if ('serviceWorker' in navigator) {
+				navigator.serviceWorker.addEventListener('message', (event) => {
+					if (event.data && event.data.type === 'CLEAR_STORAGE_EXCEPT_AUTH') {
+						clearStorageExceptAuth();
+					}
+				});
+			}
+			
 			// Initialize persistent authentication first
-			await persistentAuthService.initializeAuth();
+			try {
+				await persistentAuthService.initializeAuth();
+				console.log('✅ Persistent auth initialization completed');
+			} catch (authError) {
+				console.error('❌ Persistent auth initialization failed:', authError);
+				// Continue with app initialization even if auth fails
+				isLoading = false;
+				isAuthenticated = false;
+			}
+			
+			// Force check auth state immediately to prevent loading hang
+			const currentAuthState = $persistentAuthState;
+			const currentUserState = $currentUser;
+			console.log('🔐 Initial auth state check:', { authenticated: currentAuthState, user: currentUserState });
+			
+			// Set initial state based on current auth status
+			isAuthenticated = currentAuthState;
+			currentUserData = currentUserState;
+			
+			// Only redirect if necessary and avoid loops
+			if (currentAuthState === false && $page.url.pathname !== '/login') {
+				console.log('🔐 Initial check: Not authenticated, will redirect to login');
+			} else if (currentAuthState === true && $page.url.pathname === '/login') {
+				console.log('🔐 Initial check: Already authenticated, will redirect to dashboard');
+			}
 			
 			// Add a small delay to allow auth state to stabilize
 			await new Promise(resolve => setTimeout(resolve, 100));
 			
+			// Set loading to false after initial auth check (fallback)
+			if (isLoading) {
+				console.log('🔐 Setting initial loading state to false');
+				isLoading = false;
+			}
+			
+			// Auto-cleanup existing service workers and clear caches on startup (non-blocking)
+			autoCleanupServiceWorkers().catch(error => {
+				console.warn('⚠️ Service worker cleanup failed (non-blocking):', error);
+			});
+			
 			// Initialize PWA install detection
 			initPWAInstall();
 			
-			// Initialize PWA update handling
-			const pwaStore = useRegisterSW({
-				immediate: true,
-				onRegistered(r) {
-					console.log('SW Registered: ' + r);
-				},
-				onRegisterError(error) {
-					console.error('SW registration error', error);
-				},
-				onNeedRefresh() {
-					console.log('PWA needs refresh');
-				},
-				onOfflineReady() {
-					console.log('PWA offline ready');
+			// Initialize PWA only in production and when enabled
+			if (import.meta.env.PROD && import.meta.env.VITE_PWA_ENABLED !== 'false') {
+				try {
+					// Use a string concatenation to avoid Vite analyzing this import in dev
+					const pwaPath = 'virtual:' + 'pwa-register/svelte';
+					const module = await import(/* @vite-ignore */ pwaPath);
+					useRegisterSW = module.useRegisterSW;
+				} catch (error) {
+					console.log('PWA module not available:', error);
 				}
-			});
+			}
 			
-			// Assign PWA functions
-			needRefresh = pwaStore.needRefresh;
-			updateServiceWorker = pwaStore.updateServiceWorker;
-			
-			// Handle PWA updates
-			needRefresh.subscribe((value) => {
-				console.log('needRefresh changed:', value);
-				if (value) {
-					showUpdatePrompt = true;
-				}
-			});
+			// Initialize PWA update handling - only in production
+			if (useRegisterSW && import.meta.env.PROD) {
+				const pwaStore = useRegisterSW({
+					immediate: true,
+					onRegistered(r) {
+						console.log('🆕 New SW Registered:', r);
+					},
+					onRegisterError(error) {
+						console.error('❌ SW registration error', error);
+					},
+					onNeedRefresh() {
+						console.log('🔄 PWA needs refresh');
+					},
+					onOfflineReady() {
+						console.log('✅ PWA offline ready');
+					}
+				});
+				
+				// Assign PWA functions
+				needRefresh = pwaStore.needRefresh;
+				updateServiceWorker = pwaStore.updateServiceWorker;
+				
+				// Handle PWA updates
+				needRefresh.subscribe((value) => {
+					console.log('needRefresh changed:', value);
+					if (value) {
+						showUpdatePrompt = true;
+					}
+				});
+			} else {
+				console.log('PWA disabled in development mode');
+			}
 			
 			// Skip legacy auth initialization to prevent conflicts
 			// await auth.init(); // Disabled - using persistent auth instead
@@ -165,23 +283,16 @@
 				// Set loading to false after we get the first auth state
 				isLoading = false;
 				
-				// Enable redirects after initial auth check is complete
-				if (!allowRedirects) {
-					setTimeout(() => {
-						allowRedirects = true;
-						console.log('🔐 Redirects enabled');
-					}, 1500); // Allow 1.5 seconds for auth synchronization
+				// Only redirect if we're not already on the target page to prevent loops
+				if (!authenticated && $page.url.pathname !== '/login') {
+					console.log('🔐 Not authenticated, redirecting to login');
+					goto('/login', { replaceState: true });
 				}
 				
-				// Only redirect if we're definitely not authenticated and redirects are allowed
-				if (!authenticated && $page.url.pathname !== '/login' && allowRedirects) {
-					console.log('🔐 Not authenticated, redirecting to login');
-					setTimeout(() => {
-						// Double-check we're still not authenticated before redirecting
-						if (!isAuthenticated && $page.url.pathname !== '/login') {
-							goto('/login');
-						}
-					}, 100);
+				// Redirect authenticated users away from login page
+				if (authenticated && $page.url.pathname === '/login') {
+					console.log('🔐 Already authenticated, redirecting to dashboard');
+					goto('/', { replaceState: true });
 				}
 			});
 
@@ -190,6 +301,25 @@
 				currentUserData = user;
 				console.log('Current user changed:', user);
 			});
+
+			// Fallback timeout to prevent infinite loading
+			const loadingTimeout = setTimeout(() => {
+				if (isLoading) {
+					console.warn('⚠️ Loading timeout reached, forcing loading state to false');
+					isLoading = false;
+					
+					// If still not authenticated after timeout, redirect to login
+					if (!isAuthenticated && $page.url.pathname !== '/login') {
+						console.log('🔐 Timeout reached, redirecting to login');
+						goto('/login');
+					}
+				}
+			}, 5000); // 5 second timeout
+			
+			// Return cleanup function for the timeout
+			return () => {
+				clearTimeout(loadingTimeout);
+			};
 
 			// Legacy auth subscription disabled - using persistent auth only
 			// unsubscribeLegacy = auth.subscribe(session => {
@@ -202,15 +332,51 @@
 			}
 		} catch (error) {
 			console.error('Error initializing layout:', error);
+			// Ensure loading state is always resolved even on error
 			isLoading = false;
+			isAuthenticated = false;
+			
+			// Only redirect to login if we're not already there
+			if ($page.url.pathname !== '/login') {
+				console.log('🔐 Initialization failed, redirecting to login');
+				goto('/login', { replaceState: true });
+			}
 		}
+		
+		// Listen for page visibility changes to clear caches when user returns
+		const handleVisibilityChange = () => {
+			if (!document.hidden) {
+				console.log('🔄 App became visible, clearing caches...');
+				cacheManager.clearAllCaches().catch(error => {
+					console.warn('⚠️ Failed to clear caches on visibility change:', error);
+				});
+			}
+		};
+		
+		// Listen for beforeunload to clear caches when leaving
+		const handleBeforeUnload = () => {
+			console.log('🚪 App closing/refreshing, clearing caches...');
+			// Use synchronous method for beforeunload
+			navigator.sendBeacon && navigator.sendBeacon('/api/clear-cache', JSON.stringify({
+				type: 'page_unload',
+				timestamp: Date.now()
+			}));
+		};
+		
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		
+		// Cleanup function
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('beforeunload', handleBeforeUnload);
+		};
 	});
 	
 	onDestroy(() => {
 		// Cleanup subscriptions on component destroy
 		if (unsubscribePersistent) unsubscribePersistent();
 		if (unsubscribeUser) unsubscribeUser();
-		// unsubscribeLegacy not used anymore
 	});
 
 	async function initializeNotificationServices() {
@@ -276,6 +442,84 @@
 		console.log('🔔 Notification window opened:', windowId, 'targeting notification:', notificationId);
 	}
 
+	// Detect app refresh/reopen and clear caches
+	function detectAppRefreshAndClearCaches() {
+		console.log('🔄 App startup detected, clearing caches...');
+		
+		// Set a flag to indicate this is a fresh app load
+		sessionStorage.setItem('aqura-fresh-load', 'true');
+		
+		// Always clear caches on app startup (non-blocking)
+		cacheManager.clearAllCaches().then(() => {
+			console.log('✅ Caches cleared on app startup');
+		}).catch((error) => {
+			console.warn('⚠️ Failed to clear caches on startup:', error);
+		});
+	}
+	
+	// Clear storage except authentication data
+	function clearStorageExceptAuth() {
+		console.log('🧹 Clearing storage except authentication data...');
+		
+		try {
+			// Get authentication-related keys to preserve
+			const authKeys = [
+				'aqura-device-session',
+				'aqura-device-id'
+			];
+			
+			// Preserve authentication data
+			const preservedData: {[key: string]: string} = {};
+			authKeys.forEach(key => {
+				const value = localStorage.getItem(key);
+				if (value) {
+					preservedData[key] = value;
+				}
+			});
+			
+			// Clear localStorage except auth data
+			const keysToRemove: string[] = [];
+			for (let i = 0; i < localStorage.length; i++) {
+				const key = localStorage.key(i);
+				if (key && !authKeys.includes(key)) {
+					keysToRemove.push(key);
+				}
+			}
+			
+			keysToRemove.forEach(key => {
+				localStorage.removeItem(key);
+			});
+			
+			// Restore preserved authentication data
+			Object.entries(preservedData).forEach(([key, value]) => {
+				localStorage.setItem(key, value);
+			});
+			
+			// Clear sessionStorage except for critical session data
+			const sessionAuthKeys = ['aqura-fresh-load'];
+			const preservedSessionData: {[key: string]: string} = {};
+			
+			sessionAuthKeys.forEach(key => {
+				const value = sessionStorage.getItem(key);
+				if (value) {
+					preservedSessionData[key] = value;
+				}
+			});
+			
+			sessionStorage.clear();
+			
+			// Restore preserved session data
+			Object.entries(preservedSessionData).forEach(([key, value]) => {
+				sessionStorage.setItem(key, value);
+			});
+			
+			console.log('✅ Storage cleared successfully (authentication data preserved)');
+			
+		} catch (error) {
+			console.warn('⚠️ Failed to clear storage:', error);
+		}
+	}
+	
 	// Enhanced keyboard shortcuts
 	function handleGlobalKeydown(event: KeyboardEvent) {
 		// Only handle shortcuts if user is authenticated

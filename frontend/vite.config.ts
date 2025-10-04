@@ -5,16 +5,26 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => ({
 	plugins: [
 		sveltekit(),
-		VitePWA({
+		// Only enable PWA in production
+		...(mode === 'production' ? [VitePWA({
 			registerType: 'prompt',
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-				navigateFallback: '/offline.html',
-				navigateFallbackDenylist: [/^\/api\//, /^\/__pwa__.*/],
+				navigateFallback: '/',
+				navigateFallbackDenylist: [/^\/api\//, /^\/__pwa__.*/, /^\/offline\.html$/, /^\/[^/]*$/],
 				skipWaiting: false,
 				clientsClaim: false,
 				cleanupOutdatedCaches: true,
 				disableDevLogs: false,
+				// Force service worker update on any change
+				mode: 'production',
+				// Add service worker lifecycle control
+				additionalManifestEntries: [
+					{
+						url: '/sw-cleanup.js',
+						revision: Date.now().toString() // Force update
+					}
+				],
 				runtimeCaching: [
 					{
 						urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -168,10 +178,10 @@ export default defineConfig(({ mode }) => ({
 				]
 			},
 			devOptions: {
-				enabled: mode === 'development',
+				enabled: false,
 				type: 'module'
 			}
-		})
+		})] : [])
 	],
 	server: {
 		port: 5173,
@@ -193,5 +203,8 @@ export default defineConfig(({ mode }) => ({
 				}
 			}
 		}
+	},
+	define: {
+		'import.meta.env.VITE_PWA_ENABLED': JSON.stringify(mode === 'production' ? 'true' : 'false')
 	}
 }));
