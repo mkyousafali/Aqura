@@ -6,8 +6,15 @@
 // This handles precaching of static assets
 const manifest = self.__WB_MANIFEST || [];
 
-// Skip waiting and claim clients immediately
+// Skip waiting and claim clients immediately for faster activation
 self.skipWaiting();
+
+// Listen for immediate activation
+self.addEventListener('message', (event) => {
+	if (event.data && event.data.type === 'SKIP_WAITING') {
+		self.skipWaiting();
+	}
+});
 
 const CACHE_NAME = 'aqura-v1';
 const DATA_CACHE_NAME = 'aqura-data-v1';
@@ -193,6 +200,10 @@ self.addEventListener('activate', (event) => {
 			// Always clear all caches on activation for fresh state
 			console.log('[ServiceWorker] 🧹 Clearing all caches on activation...');
 			await clearAllCaches();
+			
+			// Immediately claim all clients for faster activation
+			await self.clients.claim();
+			console.log('[ServiceWorker] ✅ Clients claimed immediately');
 			
 			// Then setup fresh caches
 			try {

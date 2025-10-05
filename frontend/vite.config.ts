@@ -8,16 +8,20 @@ export default defineConfig(({ mode }) => ({
 		// Only enable PWA in production
 		...(mode === 'production' ? [VitePWA({
 			registerType: 'prompt',
-			// Use our custom service worker instead of generated one
+			// Use our custom service worker with proper injection
 			strategies: 'injectManifest',
 			srcDir: 'static',
 			filename: 'sw-advanced.js',
+			// Enable automatic registration for proper SW lifecycle
+			injectRegister: 'auto',
+			selfDestroying: false,
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 				navigateFallback: '/',
 				navigateFallbackDenylist: [/^\/api\//, /^\/__pwa__.*/, /^\/offline\.html$/, /^\/[^/]*$/],
-				skipWaiting: true,
-				clientsClaim: true,
+				// Remove conflicting skipWaiting since we handle it in our SW
+				skipWaiting: false,
+				clientsClaim: false,
 				cleanupOutdatedCaches: true,
 				disableDevLogs: false,
 				// Force service worker update on any change
@@ -76,8 +80,8 @@ export default defineConfig(({ mode }) => ({
 			},
 			includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'safari-pinned-tab.svg'],
 			manifestFilename: 'manifest.webmanifest',
-			injectRegister: false, // Disable automatic registration since we do manual registration
-			selfDestroying: false,
+			// Enable automatic registration for proper SW lifecycle
+			injectRegister: 'auto',
 			manifest: {
 				name: 'Aqura Management System',
 				short_name: 'Aqura',
