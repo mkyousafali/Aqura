@@ -304,42 +304,40 @@ class PushNotificationProcessor {
                     console.log('🔍 Service Worker state:', registration.active?.state);
                     console.log('🔍 Service Worker scope:', registration.scope);
                     
-                    // Wait for Service Worker to be fully active if it's not yet
-                    if (!registration.active && registration.waiting) {
-                        console.log('🔄 Service Worker is waiting, activating...');
-                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                        
-                        // Wait for activation
-                        await new Promise((resolve) => {
-                            const checkActive = () => {
-                                if (registration.active) {
-                                    console.log('✅ Service Worker activated successfully');
-                                    resolve(true);
-                                } else {
-                                    setTimeout(checkActive, 100);
-                                }
-                            };
-                            setTimeout(checkActive, 500); // Initial delay
-                        });
-                    } else if (!registration.active && registration.installing) {
-                        console.log('🔄 Service Worker is installing, waiting for activation...');
-                        await new Promise((resolve) => {
-                            const checkActive = () => {
-                                if (registration.active) {
-                                    console.log('✅ Service Worker installed and activated');
-                                    resolve(true);
-                                } else {
-                                    setTimeout(checkActive, 100);
-                                }
-                            };
-                            setTimeout(checkActive, 1000); // Wait longer for installation
-                        });
+                    // Don't wait for activation in production - use Service Worker as-is for better performance
+                    if (!import.meta.env.PROD) {
+                        // Only wait for activation in development
+                        if (!registration.active && registration.waiting) {
+                            console.log('🔄 Service Worker is waiting, activating...');
+                            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                            
+                            // Wait for activation with timeout
+                            await new Promise((resolve) => {
+                                const checkActive = () => {
+                                    if (registration.active) {
+                                        console.log('✅ Service Worker activated successfully');
+                                        resolve(true);
+                                    } else {
+                                        setTimeout(checkActive, 100);
+                                    }
+                                };
+                                setTimeout(checkActive, 500); // Initial delay
+                                // Timeout after 2 seconds
+                                setTimeout(() => resolve(true), 2000);
+                            });
+                        } else if (!registration.active && registration.installing) {
+                            console.log('🔄 Service Worker is installing, waiting briefly...');
+                            // Wait briefly for installation but don't block
+                            await new Promise((resolve) => {
+                                setTimeout(resolve, 1000); // Wait max 1 second
+                            });
+                        }
+                    } else {
+                        console.log('🏭 Production mode: Using Service Worker in any state for optimal performance');
                     }
                     
-                    // Final check - ensure we have an active Service Worker
-                    if (!registration.active) {
-                        throw new Error('Service Worker registration succeeded but no active worker available');
-                    }
+                    // Use the Service Worker regardless of state in production
+                    console.log('✅ Using Service Worker registration for push notifications');
                     
                     // Enhanced service worker debugging
                     console.log('🔍 Service Worker details:', {
@@ -363,15 +361,15 @@ class PushNotificationProcessor {
                         prototype: Object.getOwnPropertyNames(Notification.prototype)
                     });
                     
-                    // Check if service worker is actually active
-                    if (!registration.active) {
-                        console.warn('⚠️ Service worker registration exists but no active worker found');
-                        throw new Error('No active service worker available');
+                    // Check if service worker registration is available (don't require active state)
+                    if (!registration) {
+                        console.warn('⚠️ No service worker registration found');
+                        throw new Error('No service worker registration available');
                     }
                     
-                    console.log('✅ Service worker is active and ready');
+                    console.log('✅ Service worker registration is available and ready');
                     
-                    // Show notification through service worker
+                    // Show notification through service worker (works even if not fully active)
                     console.log('🔔 Showing notification with title:', queueItem.payload.title);
                     console.log('🔔 Notification options:', {
                         body: queueItem.payload.body,
