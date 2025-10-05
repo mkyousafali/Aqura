@@ -77,10 +77,19 @@
 				// Store mobile interface preference
 				localStorage.setItem('aqura-interface-preference', 'mobile');
 				
-				// Redirect to mobile dashboard after a short delay
-				setTimeout(() => {
-					goto('/mobile');
-				}, 1500);
+				// Force immediate redirect with multiple fallback methods
+				console.log('🔄 [Mobile Login] Attempting navigation to /mobile...');
+				
+				try {
+					// Primary method: SvelteKit goto
+					await goto('/mobile');
+					console.log('✅ [Mobile Login] SvelteKit navigation successful');
+				} catch (gotoError) {
+					console.warn('⚠️ [Mobile Login] SvelteKit navigation failed, using window.location:', gotoError);
+					
+					// Fallback method: Direct window navigation
+					window.location.href = '/mobile';
+				}
 			} else {
 				console.error('❌ [Mobile Login] Login failed:', result.error);
 				errorMessage = result.error || 'Access code invalid. Please try again.';

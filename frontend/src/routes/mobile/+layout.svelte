@@ -9,22 +9,31 @@
 	let isLoading = true;
 
 	onMount(async () => {
+		console.log('🔍 [Mobile Layout] Starting mobile layout initialization...');
+		console.log('🔍 [Mobile Layout] Auth state:', $isAuthenticated);
+		console.log('🔍 [Mobile Layout] Current user:', $currentUser);
+		
 		// Check authentication
 		if (!$isAuthenticated) {
+			console.log('❌ [Mobile Layout] Not authenticated, redirecting to mobile login');
 			goto('/mobile-login');
 			return;
 		}
 
 		// Check interface preference
 		const interfacePreference = localStorage.getItem('aqura-interface-preference');
+		console.log('🔍 [Mobile Layout] Interface preference:', interfacePreference);
+		
 		if (interfacePreference !== 'mobile') {
 			// If no mobile preference, redirect to main login to choose
+			console.log('⚠️ [Mobile Layout] No mobile preference, redirecting to main login');
 			goto('/login');
 			return;
 		}
 
 		currentUserData = $currentUser;
 		isLoading = false;
+		console.log('✅ [Mobile Layout] Mobile layout initialization completed');
 	});
 
 	// Subscribe to auth changes

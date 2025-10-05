@@ -275,47 +275,58 @@
 			// Initialize PWA only in production and when enabled
 			if (import.meta.env.PROD && import.meta.env.VITE_PWA_ENABLED !== 'false') {
 				try {
-					// Use string concatenation to prevent Vite from resolving in dev
-					const virtualPWAPath = 'virtual:' + 'pwa-register' + '/svelte';
-					const pwaModule = await import(/* @vite-ignore */ virtualPWAPath);
-					const { useRegisterSW: pwaUseRegisterSW } = pwaModule;
+					console.log('🔧 Initializing PWA in production mode...');
 					
-					const pwaStore = pwaUseRegisterSW({
-						immediate: true,
-						onRegistered(r) {
-							console.log('🆕 New SW Registered:', r);
-							console.log('🔍 SW Registration state:', r?.installing, r?.waiting, r?.active);
-							console.log('🔍 SW Scope:', r?.scope);
-							
-							// Ensure Service Worker is ready for notifications
-							if (r?.active) {
-								console.log('✅ Service Worker is active and ready for notifications');
+					// Manual service worker registration since we disabled automatic injection
+					if ('serviceWorker' in navigator) {
+						const registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+							scope: '/',
+							updateViaCache: 'none'
+						});
+						
+						console.log('✅ PWA Service Worker registered:', registration);
+						
+						// Handle service worker updates
+						registration.addEventListener('updatefound', () => {
+							console.log('� PWA update found');
+							const newWorker = registration.installing;
+							if (newWorker) {
+								newWorker.addEventListener('statechange', () => {
+									if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+										console.log('🆕 New PWA version available');
+										showUpdatePrompt = true;
+									}
+								});
 							}
-						},
-						onRegisterError(error) {
-							console.error('❌ SW registration error', error);
-						},
-						onNeedRefresh() {
-							console.log('🔄 PWA needs refresh');
-						},
-						onOfflineReady() {
-							console.log('✅ PWA offline ready');
-						}
-					});
-					
-					// Assign PWA functions
-					needRefresh = pwaStore.needRefresh;
-					updateServiceWorker = pwaStore.updateServiceWorker;
-					
-					// Handle PWA updates
-					needRefresh.subscribe((value) => {
-						console.log('needRefresh changed:', value);
-						if (value) {
-							showUpdatePrompt = true;
-						}
-					});
+						});
+						
+						// Handle controller change (when new SW takes control)
+						navigator.serviceWorker.addEventListener('controllerchange', () => {
+							console.log('🔄 PWA Service Worker controller changed');
+							window.location.reload();
+						});
+						
+						// Set up update function
+						updateServiceWorker = async () => {
+							console.log('🔄 Updating PWA Service Worker...');
+							const newRegistration = await navigator.serviceWorker.register('/sw-advanced.js', {
+								scope: '/',
+								updateViaCache: 'none'
+							});
+							
+							if (newRegistration.waiting) {
+								newRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+							}
+							
+							showUpdatePrompt = false;
+						};
+						
+						console.log('✅ PWA initialization completed');
+					} else {
+						console.warn('⚠️ Service Workers not supported');
+					}
 				} catch (error) {
-					console.log('PWA module not available:', error);
+					console.error('❌ PWA initialization error:', error);
 				}
 			} else {
 				console.log('PWA disabled in development mode');
