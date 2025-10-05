@@ -47,12 +47,32 @@
 
 		isLoading = true;
 		errorMessage = '';
+		successMessage = '';
+
+		// Add timeout to prevent hanging
+		const timeoutMs = 30000; // 30 seconds timeout
+		let timeoutId: NodeJS.Timeout;
 
 		try {
-			const result = await persistentAuthService.loginWithQuickAccess(quickAccessCode);
+			console.log('🔍 [Mobile Login] Starting quick access login with code:', quickAccessCode);
+			
+			const loginPromise = persistentAuthService.loginWithQuickAccess(quickAccessCode);
+			const timeoutPromise = new Promise((_, reject) => {
+				timeoutId = setTimeout(() => {
+					reject(new Error('Login request timed out. Please check your connection and try again.'));
+				}, timeoutMs);
+			});
+
+			const result = await Promise.race([loginPromise, timeoutPromise]) as Awaited<ReturnType<typeof persistentAuthService.loginWithQuickAccess>>;
+			
+			// Clear timeout if login completed
+			if (timeoutId) clearTimeout(timeoutId);
+			
+			console.log('🔍 [Mobile Login] Login result:', result);
 			
 			if (result.success) {
 				successMessage = 'Access granted! Redirecting...';
+				console.log('✅ [Mobile Login] Login successful, redirecting to mobile dashboard');
 				
 				// Store mobile interface preference
 				localStorage.setItem('aqura-interface-preference', 'mobile');
@@ -62,18 +82,41 @@
 					goto('/mobile');
 				}, 1500);
 			} else {
+				console.error('❌ [Mobile Login] Login failed:', result.error);
 				errorMessage = result.error || 'Access code invalid. Please try again.';
 			}
 
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Login failed. Please try again.';
+			// Clear timeout on error
+			if (timeoutId) clearTimeout(timeoutId);
+			
+			console.error('❌ [Mobile Login] Login error:', error);
+			
+			// Handle different types of errors
+			if (error instanceof Error) {
+				if (error.message.includes('timed out')) {
+					errorMessage = 'Request timed out. Please check your connection and try again.';
+				} else if (error.message.includes('fetch')) {
+					errorMessage = 'Network error. Please check your connection and try again.';
+				} else {
+					errorMessage = error.message;
+				}
+			} else {
+				errorMessage = 'Login failed. Please try again.';
+			}
 		} finally {
+			// Ensure loading state is always reset
+			console.log('🔍 [Mobile Login] Resetting loading state');
 			isLoading = false;
+			
+			// Clear timeout just in case
+			if (timeoutId) clearTimeout(timeoutId);
 		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !isLoading) {
+		if (event.key === 'Enter' && !isLoading && quickAccessDigits.every(d => d !== '')) {
+			event.preventDefault();
 			handleQuickAccessLogin();
 		}
 	}

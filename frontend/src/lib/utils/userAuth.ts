@@ -125,11 +125,16 @@ export class UserAuthService {
 	 */
 	async loginWithQuickAccess(quickAccessCode: string): Promise<{ user: User; token: string }> {
 		try {
+			console.log('🔍 [UserAuth] Starting quick access login');
+			
 			// Step 1: Validate code format
 			if (!/^[0-9]{6}$/.test(quickAccessCode)) {
+				console.error('❌ [UserAuth] Invalid access code format:', quickAccessCode);
 				throw new Error('Invalid access code format');
 			}
 
+			console.log('🔍 [UserAuth] Querying database for user with quick access code');
+			
 			// Step 2: Get user by quick access code directly from database
 			const { data: users, error: userError } = await supabase
 				.from('users')
@@ -151,17 +156,20 @@ export class UserAuthService {
 				.limit(1);
 
 			if (userError) {
-				console.error('Database error:', userError);
-				throw new Error('Database error: ' + userError.message);
+				console.error('❌ [UserAuth] Database error:', userError);
+				throw new Error('Database connection error. Please try again.');
 			}
 
 			if (!users || users.length === 0) {
+				console.error('❌ [UserAuth] No user found with quick access code');
 				throw new Error('Invalid access code');
 			}
 
 			const dbUser = users[0];
+			console.log('✅ [UserAuth] Found user:', dbUser.username);
 
 			// Step 3: Get user details from view
+			console.log('🔍 [UserAuth] Getting user details from view');
 			const { data: userDetails, error: userDetailsError } = await supabase
 				.from('user_management_view')
 				.select('*')
@@ -169,28 +177,48 @@ export class UserAuthService {
 				.single();
 
 			if (userDetailsError || !userDetails) {
-				console.error('User details error:', userDetailsError);
-				throw new Error('User details not found');
+				console.error('❌ [UserAuth] User details error:', userDetailsError);
+				throw new Error('User account configuration error. Please contact support.');
 			}
 
+			console.log('✅ [UserAuth] User details retrieved successfully');
+
 			// Step 4: Get user permissions
+			console.log('🔍 [UserAuth] Getting user permissions');
 			const permissions = await this.getUserPermissions(dbUser.id);
+			console.log('✅ [UserAuth] User permissions retrieved');
 
 			// Step 5: Update last login
+			console.log('🔍 [UserAuth] Updating last login timestamp');
 			await this.updateLastLogin(dbUser.id);
 
 			// Step 6: Create session token and return user data
+			console.log('🔍 [UserAuth] Creating session token');
 			const token = this.generateSessionToken();
 			const user = this.mapDatabaseUserToUser(userDetails as DatabaseUserView, permissions);
 
 			// Step 7: Store session in database
+			console.log('🔍 [UserAuth] Storing session in database');
 			await this.createUserSession(dbUser.id, token, 'quick_access');
 
+			console.log('✅ [UserAuth] Quick access login completed successfully');
 			return { user, token };
 
 		} catch (error) {
-			console.error('Quick access login error:', error);
-			throw error;
+			console.error('❌ [UserAuth] Quick access login error:', error);
+			
+			// Rethrow with more specific error messages
+			if (error instanceof Error) {
+				if (error.message.includes('fetch')) {
+					throw new Error('Network connection error. Please check your internet connection.');
+				} else if (error.message.includes('Database')) {
+					throw new Error('Database connection error. Please try again.');
+				} else {
+					throw error;
+				}
+			} else {
+				throw new Error('Authentication service error. Please try again.');
+			}
 		}
 	}
 
