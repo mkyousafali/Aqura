@@ -196,16 +196,120 @@ class PushNotificationProcessor {
                     // Get the service worker registration with timeout
                     console.log('🔍 Getting service worker registration...');
                     
-                    // Add timeout to prevent hanging
-                    const registrationPromise = navigator.serviceWorker.ready;
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Service Worker registration timeout')), 5000)
-                    );
+                    // Production-friendly timeout: longer wait for production deployments
+                    const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+                    const timeoutMs = isProduction ? 15000 : 8000; // 15s for production, 8s for development
                     
-                    const registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
+                    console.log(`🔍 Using ${timeoutMs/1000}s timeout for ${isProduction ? 'production' : 'development'} environment`);
+                    
+                    let registration: ServiceWorkerRegistration;
+                    
+                    // First try to get existing registration
+                    try {
+                        const registrationPromise = navigator.serviceWorker.ready;
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error(`Service Worker registration timeout after ${timeoutMs/1000}s`)), timeoutMs)
+                        );
+                        
+                        registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
+                        console.log('🔍 Service Worker ready via navigator.serviceWorker.ready');
+                    } catch (readyError) {
+                        console.warn('⚠️ Service Worker not ready, attempting manual registration...', readyError);
+                        
+                        // Fallback: Try to register the service worker manually
+                        try {
+                            // Check for existing registrations first
+                            const existingRegistrations = await navigator.serviceWorker.getRegistrations();
+                            console.log(`🔍 Found ${existingRegistrations.length} existing registrations`);
+                            
+                            for (const existing of existingRegistrations) {
+                                console.log(`🔍 Existing registration scope: ${existing.scope}, active: ${!!existing.active}`);
+                                if (existing.active && existing.scope.includes(window.location.origin)) {
+                                    console.log('🔍 Found active Service Worker registration, using it');
+                                    registration = existing;
+                                    break;
+                                }
+                            }
+                            
+                            if (!registration) {
+                                const swPath = isProduction ? '/sw-advanced.js' : '/sw-advanced.js';
+                                console.log(`🔍 Attempting to register SW at: ${swPath}`);
+                                
+                                registration = await navigator.serviceWorker.register(swPath, {
+                                    scope: '/',
+                                    updateViaCache: 'none'
+                                });
+                                
+                                console.log('🔍 Service Worker registered manually:', registration);
+                                
+                                // Wait for it to become ready
+                                await registration.update(); // Force update check
+                                
+                                if (registration.active) {
+                                    console.log('🔍 Service Worker is now active');
+                                } else if (registration.waiting) {
+                                    console.log('🔍 Service Worker is waiting, attempting to activate...');
+                                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for activation
+                                } else if (registration.installing) {
+                                    console.log('🔍 Service Worker is installing, waiting for activation...');
+                                    await new Promise((resolve) => {
+                                        const checkState = () => {
+                                            if (registration.installing?.state === 'activated' || registration.active) {
+                                                resolve(true);
+                                            } else {
+                                                setTimeout(checkState, 100);
+                                            }
+                                        };
+                                        checkState();
+                                    });
+                                }
+                            }
+                        } catch (registerError) {
+                            console.error('❌ Failed to manually register Service Worker:', registerError);
+                            throw readyError; // Throw original error
+                        }
+                    }
                     console.log('🔍 Service Worker ready:', registration);
                     console.log('🔍 Service Worker state:', registration.active?.state);
                     console.log('🔍 Service Worker scope:', registration.scope);
+                    
+                    // Wait for Service Worker to be fully active if it's not yet
+                    if (!registration.active && registration.waiting) {
+                        console.log('🔄 Service Worker is waiting, activating...');
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        
+                        // Wait for activation
+                        await new Promise((resolve) => {
+                            const checkActive = () => {
+                                if (registration.active) {
+                                    console.log('✅ Service Worker activated successfully');
+                                    resolve(true);
+                                } else {
+                                    setTimeout(checkActive, 100);
+                                }
+                            };
+                            setTimeout(checkActive, 500); // Initial delay
+                        });
+                    } else if (!registration.active && registration.installing) {
+                        console.log('🔄 Service Worker is installing, waiting for activation...');
+                        await new Promise((resolve) => {
+                            const checkActive = () => {
+                                if (registration.active) {
+                                    console.log('✅ Service Worker installed and activated');
+                                    resolve(true);
+                                } else {
+                                    setTimeout(checkActive, 100);
+                                }
+                            };
+                            setTimeout(checkActive, 1000); // Wait longer for installation
+                        });
+                    }
+                    
+                    // Final check - ensure we have an active Service Worker
+                    if (!registration.active) {
+                        throw new Error('Service Worker registration succeeded but no active worker available');
+                    }
                     
                     // Enhanced service worker debugging
                     console.log('🔍 Service Worker details:', {
