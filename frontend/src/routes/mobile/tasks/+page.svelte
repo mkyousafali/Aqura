@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, db } from '$lib/utils/supabase';
+	import TaskCompletionModal from '$lib/components/mobile/TaskCompletionModal.svelte';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -11,6 +12,11 @@
 	let searchTerm = '';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
+	
+	// Completion modal state
+	let showCompletionModal = false;
+	let selectedTaskForCompletion = null;
+	let selectedAssignmentForCompletion = null;
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -36,7 +42,10 @@
 						status,
 						created_at,
 						created_by,
-						created_by_name
+						created_by_name,
+						require_task_finished,
+						require_photo_upload,
+						require_erp_reference
 					)
 				`)
 				.eq('assigned_to_user_id', currentUserData.id)
@@ -44,17 +53,35 @@
 
 			if (error) throw error;
 
-			tasks = taskAssignments.map(assignment => ({
-				...assignment.task,
-				assignment_id: assignment.id,
-				assignment_status: assignment.status,
-				assigned_at: assignment.assigned_at,
-				deadline_date: assignment.deadline_date,
-				deadline_time: assignment.deadline_time,
-				assigned_by: assignment.assigned_by,
-				assigned_by_name: assignment.assigned_by_name
-			}));
+			// Process tasks and load attachments
+			const processedTasks = [];
+			for (const assignment of taskAssignments) {
+				// Load task attachments
+				const attachmentResult = await db.taskAttachments.getByTaskId(assignment.task.id);
+				const hasAttachments = attachmentResult.data && attachmentResult.data.length > 0;
+				
+				const processedTask = {
+					...assignment.task,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.assigned_at,
+					deadline_date: assignment.deadline_date,
+					deadline_time: assignment.deadline_time,
+					assigned_by: assignment.assigned_by,
+					assigned_by_name: assignment.assigned_by_name,
+					// Include requirement flags from assignment
+					require_task_finished: assignment.require_task_finished ?? true,
+					require_photo_upload: assignment.require_photo_upload ?? false,
+					require_erp_reference: assignment.require_erp_reference ?? false,
+					// Add attachment information
+					hasAttachments: hasAttachments,
+					attachments: attachmentResult.data || []
+				};
+				
+				processedTasks.push(processedTask);
+			}
 
+			tasks = processedTasks;
 			filterTasks();
 		} catch (error) {
 			console.error('Error loading tasks:', error);
@@ -91,6 +118,65 @@
 		}
 	}
 
+	function formatExactDeadline(deadlineDate, deadlineTime) {
+		if (!deadlineDate) return 'No deadline';
+		
+		try {
+			// Combine date and time if both are available
+			let dateTimeString = deadlineDate;
+			if (deadlineTime) {
+				dateTimeString = `${deadlineDate}T${deadlineTime}`;
+			}
+			
+			const deadline = new Date(dateTimeString);
+			const now = new Date();
+			
+			// Format as dd-mm-yyyy
+			const day = deadline.getDate().toString().padStart(2, '0');
+			const month = (deadline.getMonth() + 1).toString().padStart(2, '0');
+			const year = deadline.getFullYear();
+			const formattedDate = `${day}-${month}-${year}`;
+			
+			// Format time as HH:MM AM/PM
+			const hours = deadline.getHours();
+			const minutes = deadline.getMinutes().toString().padStart(2, '0');
+			const ampm = hours >= 12 ? 'PM' : 'AM';
+			const displayHours = hours % 12 || 12;
+			const formattedTime = `${displayHours}:${minutes} ${ampm}`;
+			
+			// Check if it's overdue
+			const isOverdue = deadline < now;
+			const overduePrefix = isOverdue ? '⚠️ ' : '';
+			
+			return `${overduePrefix}Deadline: ${formattedDate} ${formattedTime}`;
+		} catch (error) {
+			console.error('Error formatting deadline:', error);
+			return deadlineDate;
+		}
+	}
+
+	function downloadTaskAttachments(task) {
+		if (!task.attachments || task.attachments.length === 0) {
+			console.log('No attachments to download');
+			return;
+		}
+
+		// Download all attachments
+		task.attachments.forEach(attachment => {
+			const downloadUrl = attachment.file_path && attachment.file_path.startsWith('http') 
+				? attachment.file_path 
+				: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`;
+			
+			const link = document.createElement('a');
+			link.href = downloadUrl;
+			link.download = attachment.file_name || 'attachment';
+			link.target = '_blank';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		});
+	}
+
 	function getPriorityColor(priority) {
 		switch (priority) {
 			case 'high': return '#EF4444';
@@ -102,7 +188,7 @@
 
 	function getStatusColor(status) {
 		switch (status) {
-			case 'pending': return '#3B82F6';
+			case 'assigned': return '#3B82F6';
 			case 'in_progress': return '#F59E0B';
 			case 'completed': return '#10B981';
 			case 'cancelled': return '#EF4444';
@@ -124,25 +210,48 @@
 		return now > deadline;
 	}
 
-	async function markAsComplete(task) {
-		try {
-			// Update assignment status to completed
-			const { error } = await supabase
-				.from('task_assignments')
-				.update({ 
-					status: 'completed',
-					completed_at: new Date().toISOString()
-				})
-				.eq('id', task.assignment_id);
-
-			if (error) throw error;
-
-			// Refresh tasks
-			await loadTasks();
-		} catch (error) {
-			console.error('Error marking task as complete:', error);
-			alert('Failed to mark task as complete. Please try again.');
+	function getStatusDisplayText(status) {
+		switch (status) {
+			case 'assigned': return 'PENDING';
+			case 'in_progress': return 'IN PROGRESS';
+			case 'completed': return 'COMPLETED';
+			case 'cancelled': return 'CANCELLED';
+			case 'escalated': return 'ESCALATED';
+			case 'reassigned': return 'REASSIGNED';
+			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
 		}
+	}
+
+	async function markAsComplete(task) {
+		// Find the assignment data for this task
+		const assignment = {
+			id: task.assignment_id,
+			status: task.assignment_status,
+			deadline_date: task.deadline_date,
+			deadline_time: task.deadline_time,
+			assigned_by: task.assigned_by,
+			assigned_by_name: task.assigned_by_name,
+			// Use actual task requirement flags from the task data
+			require_task_finished: task.require_task_finished ?? true,
+			require_photo_upload: task.require_photo_upload ?? false,
+			require_erp_reference: task.require_erp_reference ?? false
+		};
+		
+		// Set selected task and assignment for completion modal
+		selectedTaskForCompletion = task;
+		selectedAssignmentForCompletion = assignment;
+		showCompletionModal = true;
+	}
+	
+	function closeCompletionModal() {
+		showCompletionModal = false;
+		selectedTaskForCompletion = null;
+		selectedAssignmentForCompletion = null;
+	}
+	
+	async function onTaskCompleted() {
+		// Refresh tasks after completion
+		await loadTasks();
 	}
 
 	// Reactive filtering
@@ -159,13 +268,13 @@
 	<!-- Header -->
 	<header class="page-header">
 		<div class="header-content">
-			<button class="back-btn" on:click={() => goto('/mobile')}>
+			<button class="back-btn" on:click={() => goto('/mobile')} aria-label="Go back to dashboard">
 				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M19 12H5M12 19l-7-7 7-7"/>
 				</svg>
 			</button>
 			<h1>My Tasks</h1>
-			<button class="add-btn" on:click={() => goto('/mobile/tasks/create')}>
+			<button class="add-btn" on:click={() => goto('/mobile/tasks/create')} aria-label="Create new task">
 				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<line x1="12" y1="5" x2="12" y2="19"/>
 					<line x1="5" y1="12" x2="19" y2="12"/>
@@ -240,7 +349,12 @@
 			<div class="task-list">
 				{#each filteredTasks as task (task.assignment_id)}
 					<div class="task-card" class:overdue={isOverdue(task.deadline_date, task.deadline_time)}>
-						<div class="task-header" on:click={() => goto(`/mobile/tasks/${task.id}`)}>
+						<div class="task-header" 
+							on:click={() => goto(`/mobile/tasks/${task.id}`)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && goto(`/mobile/tasks/${task.id}`)}
+							role="button" 
+							tabindex="0"
+						>
 							<div class="task-title-section">
 								<h3>{task.title}</h3>
 								<div class="task-meta">
@@ -248,7 +362,7 @@
 										{task.priority?.toUpperCase()}
 									</span>
 									<span class="task-status" style="background-color: {getStatusColor(task.assignment_status)}15; color: {getStatusColor(task.assignment_status)}">
-										{task.assignment_status?.replace('_', ' ').toUpperCase()}
+										{getStatusDisplayText(task.assignment_status)}
 									</span>
 								</div>
 							</div>
@@ -263,7 +377,12 @@
 							{/if}
 						</div>
 
-						<div class="task-content" on:click={() => goto(`/mobile/tasks/${task.id}`)}>
+						<div class="task-content" 
+							on:click={() => goto(`/mobile/tasks/${task.id}`)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && goto(`/mobile/tasks/${task.id}`)}
+							role="button" 
+							tabindex="0"
+						>
 							<p class="task-description">{task.description}</p>
 							
 							<div class="task-details">
@@ -273,7 +392,7 @@
 											<circle cx="12" cy="12" r="10"/>
 											<polyline points="12,6 12,12 16,14"/>
 										</svg>
-										<span>Due {formatDate(task.deadline_date)}</span>
+										<span class="deadline-text">{formatExactDeadline(task.deadline_date, task.deadline_time)}</span>
 									</div>
 								{/if}
 								
@@ -292,6 +411,26 @@
 									</svg>
 									<span>Assigned {formatDate(task.assigned_at)}</span>
 								</div>
+
+								{#if task.hasAttachments}
+									<div class="task-detail attachments-indicator">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+										</svg>
+										<span>{task.attachments.length} attachment{task.attachments.length !== 1 ? 's' : ''}</span>
+										<button 
+											class="download-attachments-btn"
+											on:click|stopPropagation={() => downloadTaskAttachments(task)}
+											title="Download all attachments"
+										>
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+												<polyline points="7,10 12,15 17,10"/>
+												<line x1="12" y1="15" x2="12" y2="3"/>
+											</svg>
+										</button>
+									</div>
+								{/if}
 							</div>
 						</div>
 
@@ -328,6 +467,16 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Task Completion Modal -->
+{#if showCompletionModal && selectedTaskForCompletion && selectedAssignmentForCompletion}
+	<TaskCompletionModal
+		task={selectedTaskForCompletion}
+		assignment={selectedAssignmentForCompletion}
+		onClose={closeCompletionModal}
+		onTaskCompleted={onTaskCompleted}
+	/>
+{/if}
 
 <style>
 	.mobile-tasks {
@@ -632,6 +781,7 @@
 		line-height: 1.5;
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
+		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}
@@ -652,6 +802,39 @@
 
 	.task-detail svg {
 		flex-shrink: 0;
+	}
+
+	.deadline-text {
+		color: #EF4444 !important;
+		font-weight: 600;
+	}
+
+	.attachments-indicator {
+		position: relative;
+	}
+
+	.download-attachments-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 0.25rem;
+		margin-left: 0.5rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		font-size: 0.75rem;
+	}
+
+	.download-attachments-btn:hover {
+		background: #2563EB;
+		transform: scale(1.05);
+	}
+
+	.download-attachments-btn:active {
+		transform: scale(0.95);
 	}
 
 	/* Task Actions */

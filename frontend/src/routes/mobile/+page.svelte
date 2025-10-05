@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
+	import { notificationManagement } from '$lib/utils/notificationManagement';
+	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
 
 	let currentUserData = null;
 	let stats = {
@@ -14,6 +16,13 @@
 	let recentTasks = [];
 	let recentNotifications = [];
 	let isLoading = true;
+	
+	// Create notification modal
+	let showCreateNotificationModal = false;
+	
+	// Computed role check
+	$: userRole = currentUserData?.role || 'Position-based';
+	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -46,7 +55,7 @@
 			if (!taskError && taskAssignments) {
 				stats.totalTasks = taskAssignments.length;
 				stats.pendingTasks = taskAssignments.filter(t => 
-					t.status === 'pending' || t.status === 'in_progress'
+					t.status === 'assigned' || t.status === 'in_progress'
 				).length;
 				stats.completedTasks = taskAssignments.filter(t => 
 					t.status === 'completed'
@@ -62,31 +71,33 @@
 			}
 
 			// Load notification statistics
-			const { data: notifications, error: notificationError } = await supabase
-				.from('notification_recipients')
-				.select(`
-					*,
-					notification:notifications!inner(
-						id,
-						title,
-						message,
-						type,
-						priority,
-						created_at
-					)
-				`)
-				.eq('recipient_id', currentUserData.id)
-				.order('created_at', { ascending: false });
-
-			if (!notificationError && notifications) {
-				stats.unreadNotifications = notifications.filter(n => !n.read_at).length;
+			try {
+				const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
+				console.log('📱 [Mobile Dashboard] Loaded notifications:', userNotifications);
 				
-				// Get recent notifications (last 5)
-				recentNotifications = notifications.slice(0, 5).map(recipient => ({
-					...recipient.notification,
-					read_at: recipient.read_at,
-					recipient_id: recipient.id
-				}));
+				if (userNotifications && userNotifications.length > 0) {
+					// Count unread notifications
+					stats.unreadNotifications = userNotifications.filter(n => !n.is_read).length;
+					
+					// Get recent notifications (last 5)
+					recentNotifications = userNotifications.slice(0, 5).map(notification => ({
+						id: notification.notification_id,
+						title: notification.title,
+						message: notification.message,
+						type: notification.type,
+						read_at: notification.is_read ? notification.created_at : null,
+						created_at: notification.created_at
+					}));
+					
+					console.log('📊 [Mobile Dashboard] Unread count:', stats.unreadNotifications);
+				} else {
+					stats.unreadNotifications = 0;
+					recentNotifications = [];
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Dashboard] Error loading notifications:', error);
+				stats.unreadNotifications = 0;
+				recentNotifications = [];
 			}
 
 		} catch (error) {
@@ -123,7 +134,7 @@
 
 	function getStatusColor(status) {
 		switch (status) {
-			case 'pending': return '#3B82F6';
+			case 'assigned': return '#3B82F6';
 			case 'in_progress': return '#F59E0B';
 			case 'completed': return '#10B981';
 			case 'cancelled': return '#EF4444';
@@ -131,9 +142,31 @@
 		}
 	}
 
+	function getStatusDisplayText(status) {
+		switch (status) {
+			case 'assigned': return 'PENDING';
+			case 'in_progress': return 'IN PROGRESS';
+			case 'completed': return 'COMPLETED';
+			case 'cancelled': return 'CANCELLED';
+			case 'escalated': return 'ESCALATED';
+			case 'reassigned': return 'REASSIGNED';
+			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
+		}
+	}
+
 	function logout() {
 		localStorage.removeItem('aqura-interface-preference');
 		goto('/login');
+	}
+
+	function openCreateNotification() {
+		showCreateNotificationModal = true;
+	}
+
+	function closeCreateNotification() {
+		showCreateNotificationModal = false;
+		// Refresh notifications after creating a new one
+		loadDashboardData();
 	}
 </script>
 
@@ -204,7 +237,7 @@
 					</div>
 				</div>
 
-				<div class="stat-card notifications">
+				<div class="stat-card notifications" on:click={() => goto('/mobile/notifications')} role="button" tabindex="0">
 					<div class="stat-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -257,26 +290,30 @@
 					<span>Create Task</span>
 				</button>
 
-				<button class="action-btn accent" on:click={() => goto('/mobile/notifications')}>
+				<button class="action-btn success" on:click={() => goto('/mobile/tasks/assign')}>
 					<div class="action-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-							<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+							<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
 						</svg>
 					</div>
-					<span>Notifications</span>
+					<span>Assign Tasks</span>
 				</button>
 
-				<button class="action-btn success" on:click={() => goto('/mobile/notifications/create')}>
-					<div class="action-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M12 2L2 7v10c0 5.55 3.84 9.74 9 11 5.16-1.26 9-5.45 9-11V7l-10-5z"/>
-							<line x1="9" y1="12" x2="15" y2="12"/>
-							<line x1="12" y1="9" x2="12" y2="15"/>
-						</svg>
-					</div>
-					<span>Send Alert</span>
-				</button>
+				{#if isAdminOrMaster}
+					<button class="action-btn warning" on:click={openCreateNotification}>
+						<div class="action-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M3 3h6l3 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+								<path d="M8 12h8"/>
+								<path d="M12 8v8"/>
+							</svg>
+						</div>
+						<span>Create Notification</span>
+					</button>
+				{/if}
 			</div>
 		</section>
 
@@ -301,7 +338,7 @@
 							<p class="task-description">{task.description}</p>
 							<div class="task-footer">
 								<span class="task-status" style="background-color: {getStatusColor(task.assignment_status)}15; color: {getStatusColor(task.assignment_status)}">
-									{task.assignment_status?.replace('_', ' ').toUpperCase()}
+									{getStatusDisplayText(task.assignment_status)}
 								</span>
 								<span class="task-date">{formatDate(task.assigned_at)}</span>
 							</div>
@@ -322,7 +359,7 @@
 				</div>
 				<div class="notification-list">
 					{#each recentNotifications as notification}
-						<div class="notification-card" class:unread={!notification.read_at} on:click={() => goto(`/mobile/notifications/${notification.id}`)}>
+						<div class="notification-card" class:unread={!notification.read_at} on:click={() => goto('/mobile/notifications')}>
 							<div class="notification-header">
 								<h3>{notification.title}</h3>
 								{#if !notification.read_at}
@@ -341,6 +378,26 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Create Notification Modal -->
+{#if showCreateNotificationModal}
+	<div class="modal-overlay">
+		<div class="modal-container">
+			<div class="modal-header">
+				<h2>Create Notification</h2>
+				<button class="close-btn" on:click={closeCreateNotification}>
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			</div>
+			<div class="modal-content">
+				<CreateNotification />
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.mobile-dashboard {
@@ -496,6 +553,19 @@
 		color: #F59E0B;
 	}
 
+	.stat-card.notifications {
+		cursor: pointer;
+	}
+
+	.stat-card.notifications:hover {
+		transform: translateY(-3px);
+		box-shadow: 0 6px 16px rgba(245, 158, 11, 0.2);
+	}
+
+	.stat-card.notifications:active {
+		transform: translateY(-1px);
+	}
+
 	.stat-card.total .stat-icon {
 		background: rgba(107, 114, 128, 0.1);
 		color: #6B7280;
@@ -563,6 +633,25 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+	}
+
+	.notification-badge {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		background: #EF4444;
+		color: white;
+		border-radius: 50%;
+		min-width: 20px;
+		height: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.75rem;
+		font-weight: 600;
+		border: 2px solid white;
+		z-index: 10;
 	}
 
 	.action-btn.primary .action-icon {
@@ -583,6 +672,11 @@
 	.action-btn.success .action-icon {
 		background: rgba(16, 185, 129, 0.1);
 		color: #10B981;
+	}
+
+	.action-btn.warning .action-icon {
+		background: rgba(245, 158, 11, 0.1);
+		color: #F59E0B;
 	}
 
 	/* Recent Sections */
@@ -818,5 +912,67 @@
 		.mobile-header {
 			padding-top: max(1rem, env(safe-area-inset-top));
 		}
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.modal-container {
+		background: white;
+		border-radius: 12px;
+		max-width: 500px;
+		width: 100%;
+		max-height: 90vh;
+		overflow: hidden;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.5rem;
+		border-bottom: 1px solid #E5E7EB;
+		background: #F9FAFB;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: #1F2937;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		padding: 0.5rem;
+		cursor: pointer;
+		border-radius: 6px;
+		color: #6B7280;
+		transition: all 0.2s ease;
+	}
+
+	.close-btn:hover {
+		background: #E5E7EB;
+		color: #374151;
+	}
+
+	.modal-content {
+		padding: 0;
+		overflow-y: auto;
+		max-height: calc(90vh - 80px);
 	}
 </style>

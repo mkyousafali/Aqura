@@ -23,6 +23,7 @@
 	let attachedFiles: File[] = [];
 	let fileUploadComponent: FileUpload;
 	let fileErrors: string[] = [];
+	let cameraInput: HTMLInputElement;
 
 	// Available branches and users from API
 	let branches: Array<{ id: string; name: string }> = [];
@@ -226,6 +227,24 @@
 		console.log('� [Notification] Files uploaded:', event.detail);
 	}
 
+	// Camera functions
+	function openCamera() {
+		if (cameraInput) {
+			cameraInput.click();
+		}
+	}
+
+	function handleCameraCapture(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const files = target.files;
+		if (files && files.length > 0 && fileUploadComponent) {
+			// Add captured photos to the file upload component
+			const fileArray = Array.from(files);
+			fileUploadComponent.addFiles(fileArray);
+			target.value = ''; // Clear the input for next use
+		}
+	}
+
 	// Select/deselect all visible users
 	function toggleSelectAll() {
 		const allSelected = filteredUsers.every(user => user.selected);
@@ -379,6 +398,16 @@
 	}
 </script>
 
+<!-- Hidden camera input -->
+<input
+	bind:this={cameraInput}
+	type="file"
+	accept="image/*"
+	capture="environment"
+	style="display: none;"
+	on:change={handleCameraCapture}
+/>
+
 <div class="create-notification">
 	<!-- Success/Error Messages -->
 	{#if successMessage}
@@ -436,6 +465,13 @@
 
 				<!-- File Upload Section -->
 				<div class="form-group">
+					<div class="upload-header">
+						<label>Upload Files (optional)</label>
+						<button type="button" class="camera-btn" on:click={openCamera}>
+							📷 Camera
+						</button>
+					</div>
+					
 					<FileUpload 
 						bind:this={fileUploadComponent}
 						acceptedTypes="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.sql,.zip,.rar"
@@ -443,7 +479,7 @@
 						bucket="notification-images"
 						multiple={true}
 						showPreview={true}
-						label="Upload Files (optional)"
+						label=""
 						placeholder="Upload images, documents, spreadsheets, or other files"
 						bind:currentFiles={attachedFiles}
 						on:filesChanged={handleFilesChanged}
@@ -683,6 +719,43 @@
 
 	.form-group {
 		margin-bottom: 16px;
+	}
+
+	.upload-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.upload-header label {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 500;
+		color: #374151;
+	}
+
+	.camera-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		transition: background-color 0.2s ease;
+	}
+
+	.camera-btn:hover {
+		background: #2563EB;
+	}
+
+	.camera-btn:active {
+		transform: scale(0.98);
 	}
 
 	.form-row {

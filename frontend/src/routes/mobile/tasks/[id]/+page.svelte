@@ -3,14 +3,19 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, db } from '$lib/utils/supabase';
+	import TaskCompletionModal from '$lib/components/mobile/TaskCompletionModal.svelte';
 
 	let currentUserData = null;
 	let task = null;
 	let assignment = null;
+	let taskAttachments = [];
 	let isLoading = true;
 	let isUpdating = false;
 	let taskId = null;
+	
+	// Completion modal state
+	let showCompletionModal = false;
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -21,6 +26,38 @@
 		}
 		isLoading = false;
 	});
+
+	function downloadAttachment(attachment) {
+		try {
+			const link = document.createElement('a');
+			link.href = attachment.fileUrl;
+			link.download = attachment.fileName;
+			link.target = '_blank';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		} catch (error) {
+			console.error('Download error:', error);
+			alert('Failed to download attachment. Please try again.');
+		}
+	}
+
+	function formatFileSize(bytes) {
+		if (bytes === 0) return '0 Bytes';
+		const k = 1024;
+		const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	}
+
+	function getFileIcon(fileType) {
+		if (fileType.startsWith('image/')) return '🖼️';
+		if (fileType.includes('pdf')) return '📄';
+		if (fileType.includes('sheet') || fileType.includes('excel')) return '📊';
+		if (fileType.includes('word') || fileType.includes('doc')) return '📝';
+		if (fileType.includes('zip') || fileType.includes('rar')) return '📦';
+		return '📎';
+	}
 
 	async function loadTaskDetails() {
 		try {
@@ -45,6 +82,24 @@
 
 			task = taskData;
 			assignment = assignmentData;
+
+			// Load task attachments
+			const attachmentResult = await db.taskAttachments.getByTaskId(taskId);
+			if (attachmentResult.data && attachmentResult.data.length > 0) {
+				taskAttachments = attachmentResult.data.map(attachment => ({
+					id: attachment.id,
+					fileName: attachment.file_name || 'Unknown File',
+					fileSize: attachment.file_size || 0,
+					fileType: attachment.file_type || 'application/octet-stream',
+					fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+						? attachment.file_path 
+						: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+					uploadedAt: attachment.created_at
+				}));
+			} else {
+				taskAttachments = [];
+			}
 		} catch (error) {
 			console.error('Error loading task details:', error);
 			// If task not found or not assigned to user, redirect back
@@ -55,14 +110,15 @@
 	async function updateAssignmentStatus(newStatus) {
 		if (isUpdating) return;
 		
+		// If completing the task, show completion modal instead
+		if (newStatus === 'completed') {
+			showCompletionModal = true;
+			return;
+		}
+		
 		isUpdating = true;
 		try {
 			const updateData: any = { status: newStatus };
-			
-			// Add completion timestamp if marking as completed
-			if (newStatus === 'completed') {
-				updateData.completed_at = new Date().toISOString();
-			}
 
 			const { error } = await supabase
 				.from('task_assignments')
@@ -74,19 +130,24 @@
 			// Update local state
 			assignment = { ...assignment, ...updateData };
 			
-			// Show success feedback
-			if (newStatus === 'completed') {
-				// Brief success animation/feedback
-				setTimeout(() => {
-					goto('/mobile/tasks');
-				}, 1000);
-			}
 		} catch (error) {
 			console.error('Error updating task status:', error);
 			alert('Failed to update task status. Please try again.');
 		} finally {
 			isUpdating = false;
 		}
+	}
+	
+	function closeCompletionModal() {
+		showCompletionModal = false;
+	}
+	
+	async function onTaskCompleted() {
+		// Refresh task details and then navigate back
+		await loadTaskDetails();
+		setTimeout(() => {
+			goto('/mobile/tasks');
+		}, 1500);
 	}
 
 	function formatDate(dateString) {
@@ -143,11 +204,23 @@
 
 	function getStatusColor(status) {
 		switch (status) {
-			case 'pending': return '#3B82F6';
+			case 'assigned': return '#3B82F6';
 			case 'in_progress': return '#F59E0B';
 			case 'completed': return '#10B981';
 			case 'cancelled': return '#EF4444';
 			default: return '#6B7280';
+		}
+	}
+
+	function getStatusDisplayText(status) {
+		switch (status) {
+			case 'assigned': return 'PENDING';
+			case 'in_progress': return 'IN PROGRESS';
+			case 'completed': return 'COMPLETED';
+			case 'cancelled': return 'CANCELLED';
+			case 'escalated': return 'ESCALATED';
+			case 'reassigned': return 'REASSIGNED';
+			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
 		}
 	}
 
@@ -195,7 +268,7 @@
 		<!-- Header -->
 		<header class="page-header">
 			<div class="header-content">
-				<button class="back-btn" on:click={() => goto('/mobile/tasks')}>
+				<button class="back-btn" on:click={() => goto('/mobile/tasks')} aria-label="Go back to tasks list">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M19 12H5M12 19l-7-7 7-7"/>
 					</svg>
@@ -231,7 +304,7 @@
 									<circle cx="12" cy="12" r="10"/>
 								{/if}
 							</svg>
-							{assignment.status?.replace('_', ' ').toUpperCase()}
+							{getStatusDisplayText(assignment.status)}
 						</span>
 					</div>
 				</div>
@@ -322,39 +395,50 @@
 				</div>
 			</div>
 
-			<!-- Additional Details -->
-			<div class="info-card">
-				<h3>Additional Information</h3>
-				<div class="details-grid">
-					<div class="detail-item">
-						<span class="detail-label">Task ID</span>
-						<span class="detail-value">#{task.id}</span>
+			<!-- Task Attachments -->
+			{#if taskAttachments.length > 0}
+				<div class="info-card">
+					<h3>Attachments ({taskAttachments.length})</h3>
+					<div class="attachments-list">
+						{#each taskAttachments as attachment}
+							<div class="attachment-item">
+								<div class="attachment-info">
+									<div class="attachment-icon">
+										{getFileIcon(attachment.fileType)}
+									</div>
+									<div class="attachment-details">
+										<div class="attachment-name">{attachment.fileName}</div>
+										<div class="attachment-meta">
+											<span class="attachment-size">{formatFileSize(attachment.fileSize)}</span>
+											{#if attachment.uploadedBy}
+												<span class="attachment-by">• by {attachment.uploadedBy}</span>
+											{/if}
+										</div>
+									</div>
+								</div>
+								<button 
+									class="download-btn"
+									on:click={() => downloadAttachment(attachment)}
+									title="Download {attachment.fileName}"
+								>
+									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+										<polyline points="7,10 12,15 17,10"/>
+										<line x1="12" y1="15" x2="12" y2="3"/>
+									</svg>
+								</button>
+							</div>
+						{/each}
 					</div>
-					<div class="detail-item">
-						<span class="detail-label">Assignment ID</span>
-						<span class="detail-value">#{assignment.id}</span>
-					</div>
-					{#if task.due_date}
-						<div class="detail-item">
-							<span class="detail-label">Original Due Date</span>
-							<span class="detail-value">{formatDate(task.due_date)}</span>
-						</div>
-					{/if}
-					{#if task.due_time}
-						<div class="detail-item">
-							<span class="detail-label">Original Due Time</span>
-							<span class="detail-value">{formatTime(task.due_time)}</span>
-						</div>
-					{/if}
 				</div>
-			</div>
+			{/if}
 		</div>
 
 		<!-- Action Buttons -->
 		{#if assignment.status !== 'completed' && assignment.status !== 'cancelled'}
 			<div class="action-section">
 				<div class="action-buttons">
-					{#if assignment.status === 'pending'}
+					{#if assignment.status === 'assigned'}
 						<button 
 							class="action-btn start-btn" 
 							on:click={() => updateAssignmentStatus('in_progress')}
@@ -371,7 +455,7 @@
 						</button>
 					{/if}
 
-					{#if assignment.status === 'in_progress' || assignment.status === 'pending'}
+					{#if assignment.status === 'in_progress' || assignment.status === 'assigned'}
 						<button 
 							class="action-btn complete-btn" 
 							on:click={() => updateAssignmentStatus('completed')}
@@ -410,6 +494,16 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Task Completion Modal -->
+{#if showCompletionModal && task && assignment}
+	<TaskCompletionModal
+		{task}
+		{assignment}
+		onClose={closeCompletionModal}
+		onTaskCompleted={onTaskCompleted}
+	/>
+{/if}
 
 <style>
 	.mobile-task-detail {
@@ -889,5 +983,94 @@
 		.completion-section {
 			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 		}
+	}
+
+	/* Attachments Styles */
+	.attachments-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.attachment-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem;
+		background: #F8FAFC;
+		border: 1px solid #E2E8F0;
+		border-radius: 8px;
+		transition: all 0.2s ease;
+	}
+
+	.attachment-item:hover {
+		background: #F1F5F9;
+		border-color: #CBD5E1;
+	}
+
+	.attachment-info {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.attachment-icon {
+		font-size: 1.5rem;
+		flex-shrink: 0;
+	}
+
+	.attachment-details {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.attachment-name {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #1F2937;
+		margin-bottom: 0.25rem;
+		word-break: break-word;
+		line-height: 1.3;
+	}
+
+	.attachment-meta {
+		font-size: 0.75rem;
+		color: #6B7280;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.attachment-size {
+		font-weight: 500;
+	}
+
+	.attachment-by {
+		opacity: 0.8;
+	}
+
+	.download-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 0.5rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.download-btn:hover {
+		background: #2563EB;
+		transform: scale(1.05);
+	}
+
+	.download-btn:active {
+		transform: scale(0.95);
 	}
 </style>
