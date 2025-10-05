@@ -2,20 +2,16 @@
 // Provides offline functionality, background sync, data caching, and cache clearing
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
-// Import Workbox for precaching
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
-import { clientsClaim, skipWaiting } from 'workbox-core';
+// The __WB_MANIFEST will be injected by vite-plugin-pwa
+// This handles precaching of static assets
+const manifest = self.__WB_MANIFEST || [];
 
-// Configure Workbox
-skipWaiting();
-clientsClaim();
-cleanupOutdatedCaches();
-
-// Precache and route assets (this will be replaced by Vite PWA)
-precacheAndRoute(self.__WB_MANIFEST);
+// Skip waiting and claim clients immediately
+self.skipWaiting();
 
 const CACHE_NAME = 'aqura-v1';
 const DATA_CACHE_NAME = 'aqura-data-v1';
+const PRECACHE_NAME = 'precache-v1';
 const FORCE_CLEAR_CACHE = true; // Set to true to clear caches on every activation
 
 // Authentication-related storage keys that should NEVER be cleared
@@ -116,7 +112,7 @@ async function handlePageRefresh() {
 	await clearAllCaches();
 }
 
-// Install event - cache critical resources and clear old caches
+// Install event - cache critical resources and handle precaching
 self.addEventListener('install', (event) => {
 	console.log('[ServiceWorker] Install');
 	event.waitUntil(
@@ -127,10 +123,33 @@ self.addEventListener('install', (event) => {
 				await clearAllCaches();
 			}
 			
-			// Then setup fresh cache
+			// Handle precache manifest from vite-plugin-pwa
+			if (manifest && manifest.length > 0) {
+				try {
+					const precacheUrls = manifest.map(entry => entry.url || entry);
+					const precacheCache = await caches.open(PRECACHE_NAME);
+					console.log('[ServiceWorker] Precaching static assets:', precacheUrls.length, 'files');
+					
+					// Cache each file individually to handle failures gracefully
+					const precacheResults = await Promise.allSettled(
+						precacheUrls.map(url => precacheCache.add(url))
+					);
+					
+					// Log any failures but don't block installation
+					precacheResults.forEach((result, index) => {
+						if (result.status === 'rejected') {
+							console.warn(`[ServiceWorker] Failed to precache ${precacheUrls[index]}:`, result.reason);
+						}
+					});
+				} catch (error) {
+					console.error('[ServiceWorker] Precaching failed:', error);
+				}
+			}
+			
+			// Then setup main cache with critical resources
 			try {
 				const cache = await caches.open(CACHE_NAME);
-				console.log('[ServiceWorker] Pre-caching offline resources');
+				console.log('[ServiceWorker] Caching critical offline resources');
 				
 				// Cache each file individually to handle failures gracefully
 				const results = await Promise.allSettled(
@@ -154,7 +173,7 @@ self.addEventListener('install', (event) => {
 	);
 });
 
-// Activate event - enhanced cache cleanup and force clear
+// Activate event - enhanced cache cleanup and client claiming
 self.addEventListener('activate', (event) => {
 	console.log('[ServiceWorker] Activate');
 	event.waitUntil(
