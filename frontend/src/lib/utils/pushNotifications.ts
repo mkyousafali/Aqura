@@ -250,13 +250,20 @@ export class PushNotificationService {
 		});
 
 		try {
-			// Use shared supabase admin client to avoid multiple instances
-			// Upsert device registration using service role
-			const { error } = await supabaseAdmin
+			console.log('🔄 [PushNotifications] Attempting device registration...');
+			
+			// Add timeout protection for database operation
+			const registrationPromise = supabaseAdmin
 				.from('push_subscriptions')
 				.upsert(deviceRegistration, {
 					onConflict: 'user_id,device_id'
 				});
+				
+			const timeoutPromise = new Promise((_, reject) => {
+				setTimeout(() => reject(new Error('Device registration timeout')), 5000);
+			});
+			
+			const { error } = await Promise.race([registrationPromise, timeoutPromise]) as any;
 
 			if (error) {
 				throw error;
@@ -265,9 +272,10 @@ export class PushNotificationService {
 			// Store device ID locally
 			localStorage.setItem('aqura-device-id', deviceId);
 
-			console.log('Device registered for push notifications');
+			console.log('✅ [PushNotifications] Device registered for push notifications');
 		} catch (error) {
-			console.error('Failed to register device:', error);
+			console.error('❌ [PushNotifications] Failed to register device:', error);
+			// Don't throw error - allow login to continue without push notifications
 		}
 	}
 

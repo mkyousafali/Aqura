@@ -93,8 +93,11 @@ export class PersistentAuthService {
 	 */
 	async loginWithQuickAccess(quickAccessCode: string): Promise<{ success: boolean; error?: string; user?: UserSession }> {
 		try {
+			console.log('🔐 [PersistentAuth] Starting quick access login process');
+			
 			// Use the userAuth service to authenticate
 			const { user, token } = await userAuth.loginWithQuickAccess(quickAccessCode);
+			console.log('✅ [PersistentAuth] UserAuth completed successfully');
 
 			// Convert User to UserSession
 			const userSession: UserSession = {
@@ -111,22 +114,50 @@ export class PersistentAuthService {
 				loginMethod: 'quickAccess',
 				isActive: true
 			};
+			console.log('✅ [PersistentAuth] User session object created');
 
 			// Save session to device
+			console.log('🔐 [PersistentAuth] Saving user session to device...');
 			await this.saveUserSession(userSession);
+			console.log('✅ [PersistentAuth] User session saved to device');
 
 			// Set as current user
+			console.log('🔐 [PersistentAuth] Setting current user...');
 			await this.setCurrentUser(userSession);
+			console.log('✅ [PersistentAuth] Current user set successfully');
 
-			// Initialize push notifications
-			await pushNotificationService.initialize();
+			// Initialize push notifications (with timeout protection)
+			console.log('🔐 [PersistentAuth] Initializing push notifications...');
+			try {
+				const pushInitPromise = pushNotificationService.initialize();
+				const pushTimeout = new Promise((_, reject) => {
+					setTimeout(() => reject(new Error('Push notification timeout')), 5000);
+				});
+				
+				await Promise.race([pushInitPromise, pushTimeout]);
+				console.log('✅ [PersistentAuth] Push notifications initialized');
+			} catch (pushError) {
+				console.warn('⚠️ [PersistentAuth] Push notification initialization failed, continuing:', pushError);
+			}
 
-			// Log login activity
-			await this.logUserActivity('quick_access_login', userSession.id);
+			// Log login activity (with timeout protection)
+			console.log('🔐 [PersistentAuth] Logging user activity...');
+			try {
+				const activityPromise = this.logUserActivity('quick_access_login', userSession.id);
+				const activityTimeout = new Promise((_, reject) => {
+					setTimeout(() => reject(new Error('Activity logging timeout')), 3000);
+				});
+				
+				await Promise.race([activityPromise, activityTimeout]);
+				console.log('✅ [PersistentAuth] User activity logged');
+			} catch (activityError) {
+				console.warn('⚠️ [PersistentAuth] Activity logging failed, continuing:', activityError);
+			}
 
+			console.log('🎉 [PersistentAuth] Quick access login completed successfully');
 			return { success: true, user: userSession };
 		} catch (error) {
-			console.error('Quick access login error:', error);
+			console.error('❌ [PersistentAuth] Quick access login error:', error);
 			return { success: false, error: error instanceof Error ? error.message : 'Quick access login failed. Please try again.' };
 		}
 	}

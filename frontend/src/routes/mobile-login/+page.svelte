@@ -50,7 +50,7 @@
 		successMessage = '';
 
 		// Add timeout to prevent hanging
-		const timeoutMs = 30000; // 30 seconds timeout
+		const timeoutMs = 15000; // Reduced to 15 seconds since auth completes quickly
 		let timeoutId: NodeJS.Timeout;
 
 		try {
