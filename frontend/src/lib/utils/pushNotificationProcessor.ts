@@ -198,7 +198,7 @@ class PushNotificationProcessor {
                     
                     // Production-friendly timeout: longer wait for production deployments
                     const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
-                    const timeoutMs = isProduction ? 10000 : 8000; // Reduced to 10s for production, 8s for development
+                    const timeoutMs = isProduction ? 3000 : 8000; // Reduced to 3s for production, 8s for development
                     
                     console.log(`🔍 Using ${timeoutMs/1000}s timeout for ${isProduction ? 'production' : 'development'} environment`);
                     
@@ -210,14 +210,19 @@ class PushNotificationProcessor {
                         const existingRegistrations = await navigator.serviceWorker.getRegistrations();
                         console.log(`🔍 Found ${existingRegistrations.length} existing registrations`);
                         
-                        // Look for an active registration first (faster than waiting for ready)
-                        const activeRegistration = existingRegistrations.find(reg => 
-                            reg.active && reg.scope.includes(window.location.origin)
+                        // Look for any registration first (active, waiting, or installing) - more lenient in production
+                        const availableRegistration = existingRegistrations.find(reg => 
+                            reg.scope.includes(window.location.origin) && (reg.active || reg.waiting || reg.installing)
                         );
                         
-                        if (activeRegistration) {
-                            console.log('✅ Found immediate active Service Worker registration');
-                            registration = activeRegistration;
+                        if (availableRegistration) {
+                            console.log('✅ Found immediate Service Worker registration (any state)');
+                            console.log('🔍 Registration state:', {
+                                active: !!availableRegistration.active,
+                                waiting: !!availableRegistration.waiting,
+                                installing: !!availableRegistration.installing
+                            });
+                            registration = availableRegistration;
                         } else {
                             // Fallback to ready promise with timeout
                             const registrationPromise = navigator.serviceWorker.ready;
@@ -247,14 +252,23 @@ class PushNotificationProcessor {
                             }
                             
                             if (!registration) {
-                                // Use the VitePWA generated service worker path consistently
-                                const swPath = isProduction ? '/sw.js' : '/sw-advanced.js';
-                                console.log(`🔍 Attempting to register SW at: ${swPath}`);
+                                // Try our custom service worker first since it's more reliable in production
+                                console.log('🔍 Attempting to register custom SW at: /sw-advanced.js');
                                 
-                                registration = await navigator.serviceWorker.register(swPath, {
-                                    scope: '/',
-                                    updateViaCache: 'none'
-                                });
+                                try {
+                                    registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+                                        scope: '/',
+                                        updateViaCache: 'none'
+                                    });
+                                    console.log('✅ Custom Service Worker registered successfully');
+                                } catch (customSwError) {
+                                    console.log('🔍 Custom SW failed, trying VitePWA SW at: /sw.js', customSwError);
+                                    registration = await navigator.serviceWorker.register('/sw.js', {
+                                        scope: '/',
+                                        updateViaCache: 'none'
+                                    });
+                                    console.log('✅ VitePWA Service Worker registered successfully');
+                                }
                                 
                                 console.log('🔍 Service Worker registered manually:', registration);
                                 
