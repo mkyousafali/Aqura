@@ -23,9 +23,6 @@
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { cacheManager } from '$lib/utils/cacheManager';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
-	
-	// PWA Update imports - only in production
-	let useRegisterSW: any = null;
 
 	// Initialize i18n system
 	initI18n();
@@ -278,44 +275,41 @@
 			// Initialize PWA only in production and when enabled
 			if (import.meta.env.PROD && import.meta.env.VITE_PWA_ENABLED !== 'false') {
 				try {
-					// Use a string concatenation to avoid Vite analyzing this import in dev
-					const pwaPath = 'virtual:' + 'pwa-register/svelte';
-					const module = await import(/* @vite-ignore */ pwaPath);
-					useRegisterSW = module.useRegisterSW;
+					// Use string concatenation to prevent Vite from resolving in dev
+					const virtualPWAPath = 'virtual:' + 'pwa-register' + '/svelte';
+					const pwaModule = await import(/* @vite-ignore */ virtualPWAPath);
+					const { useRegisterSW: pwaUseRegisterSW } = pwaModule;
+					
+					const pwaStore = pwaUseRegisterSW({
+						immediate: true,
+						onRegistered(r) {
+							console.log('🆕 New SW Registered:', r);
+						},
+						onRegisterError(error) {
+							console.error('❌ SW registration error', error);
+						},
+						onNeedRefresh() {
+							console.log('🔄 PWA needs refresh');
+						},
+						onOfflineReady() {
+							console.log('✅ PWA offline ready');
+						}
+					});
+					
+					// Assign PWA functions
+					needRefresh = pwaStore.needRefresh;
+					updateServiceWorker = pwaStore.updateServiceWorker;
+					
+					// Handle PWA updates
+					needRefresh.subscribe((value) => {
+						console.log('needRefresh changed:', value);
+						if (value) {
+							showUpdatePrompt = true;
+						}
+					});
 				} catch (error) {
 					console.log('PWA module not available:', error);
 				}
-			}
-			
-			// Initialize PWA update handling - only in production
-			if (useRegisterSW && import.meta.env.PROD) {
-				const pwaStore = useRegisterSW({
-					immediate: true,
-					onRegistered(r) {
-						console.log('🆕 New SW Registered:', r);
-					},
-					onRegisterError(error) {
-						console.error('❌ SW registration error', error);
-					},
-					onNeedRefresh() {
-						console.log('🔄 PWA needs refresh');
-					},
-					onOfflineReady() {
-						console.log('✅ PWA offline ready');
-					}
-				});
-				
-				// Assign PWA functions
-				needRefresh = pwaStore.needRefresh;
-				updateServiceWorker = pwaStore.updateServiceWorker;
-				
-				// Handle PWA updates
-				needRefresh.subscribe((value) => {
-					console.log('needRefresh changed:', value);
-					if (value) {
-						showUpdatePrompt = true;
-					}
-				});
 			} else {
 				console.log('PWA disabled in development mode');
 			}
