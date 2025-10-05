@@ -133,15 +133,15 @@
 						
 						// Check if this is a push notification service worker that should be preserved
 						const isPushNotificationSW = scriptURL.includes('/sw-push.js') || 
+							scriptURL.includes('/sw-advanced.js') || // Preserve our enhanced SW
 							(scope.includes('/') && scriptURL.includes('sw-push'));
 						
 						// Check if this is a problematic service worker that should be removed
-						const isProblematicSW = scriptURL.includes('/sw-advanced.js') || 
-							scriptURL.includes('/sw.js') || 
+						const isProblematicSW = scriptURL.includes('/sw.js') || 
 							scriptURL.includes('workbox') ||
 							scriptURL.includes('vite') ||
-							scope.includes('sw-advanced') ||
-							scope.includes('workbox');
+							scope.includes('workbox') ||
+							(scriptURL.includes('/sw-advanced.js') === false && scope.includes('sw-advanced')); // Only remove if not our enhanced SW
 						
 						if (isPushNotificationSW && !isProblematicSW) {
 							console.log(`✅ Preserving push notification SW: ${scope}`);

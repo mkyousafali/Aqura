@@ -8,6 +8,10 @@ export default defineConfig(({ mode }) => ({
 		// Only enable PWA in production
 		...(mode === 'production' ? [VitePWA({
 			registerType: 'prompt',
+			// Use our custom service worker instead of generated one
+			strategies: 'injectManifest',
+			srcDir: 'static',
+			filename: 'sw-advanced.js',
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 				navigateFallback: '/',

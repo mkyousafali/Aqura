@@ -2,6 +2,18 @@
 // Provides offline functionality, background sync, data caching, and cache clearing
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
+// Import Workbox for precaching
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { clientsClaim, skipWaiting } from 'workbox-core';
+
+// Configure Workbox
+skipWaiting();
+clientsClaim();
+cleanupOutdatedCaches();
+
+// Precache and route assets (this will be replaced by Vite PWA)
+precacheAndRoute(self.__WB_MANIFEST);
+
 const CACHE_NAME = 'aqura-v1';
 const DATA_CACHE_NAME = 'aqura-data-v1';
 const FORCE_CLEAR_CACHE = true; // Set to true to clear caches on every activation
