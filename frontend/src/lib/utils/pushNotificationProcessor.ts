@@ -196,6 +196,28 @@ class PushNotificationProcessor {
                     console.log('🔍 Service Worker state:', registration.active?.state);
                     console.log('🔍 Service Worker scope:', registration.scope);
                     
+                    // Enhanced service worker debugging
+                    console.log('🔍 Service Worker details:', {
+                        active: !!registration.active,
+                        installing: !!registration.installing,
+                        waiting: !!registration.waiting,
+                        scope: registration.scope,
+                        updateViaCache: registration.updateViaCache
+                    });
+                    
+                    if (registration.active) {
+                        console.log('🔍 Active SW details:', {
+                            scriptURL: registration.active.scriptURL,
+                            state: registration.active.state
+                        });
+                    }
+                    
+                    // Check if notification API is working
+                    console.log('🔍 Notification API test:', {
+                        permission: Notification.permission,
+                        prototype: Object.getOwnPropertyNames(Notification.prototype)
+                    });
+                    
                     // Check if service worker is actually active
                     if (!registration.active) {
                         console.warn('⚠️ Service worker registration exists but no active worker found');
@@ -216,17 +238,74 @@ class PushNotificationProcessor {
                         silent: false
                     });
                     
-                    await registration.showNotification(queueItem.payload.title, {
+                    // Try multiple notification approaches for better compatibility
+                    const notificationOptions = {
                         body: queueItem.payload.body,
-                        icon: queueItem.payload.icon,
-                        badge: queueItem.payload.badge,
+                        icon: queueItem.payload.icon || '/icons/icon-192x192.png',
+                        badge: queueItem.payload.badge || '/icons/icon-96x96.png',
                         data: queueItem.payload.data,
                         tag: `notification-${queueItem.notification_id}`,
                         requireInteraction: true,
-                        silent: false // Make sure it's not silent
-                    });
+                        silent: false,
+                        timestamp: Date.now(),
+                        vibrate: [200, 100, 200],
+                        actions: [
+                            {
+                                action: 'view',
+                                title: 'View'
+                            },
+                            {
+                                action: 'dismiss',
+                                title: 'Dismiss'
+                            }
+                        ]
+                    };
 
-                    console.log('🎉 Notification shown successfully via Service Worker!');
+                    console.log('🔔 Attempting notification with enhanced options:', notificationOptions);
+                    
+                    try {
+                        await registration.showNotification(queueItem.payload.title, notificationOptions);
+                        console.log('🎉 Service Worker notification shown successfully!');
+                        
+                        // Also try direct browser notification as fallback
+                        console.log('🔔 Also trying direct browser notification as backup...');
+                        const directNotification = new Notification(queueItem.payload.title, {
+                            body: queueItem.payload.body,
+                            icon: queueItem.payload.icon || '/icons/icon-192x192.png',
+                            tag: `direct-notification-${queueItem.notification_id}`,
+                            requireInteraction: true,
+                            silent: false
+                        });
+                        
+                        directNotification.onclick = () => {
+                            console.log('🖱️ Direct notification clicked');
+                            window.focus();
+                            directNotification.close();
+                        };
+                        
+                        console.log('🎉 Direct browser notification also created!');
+                        
+                    } catch (swError) {
+                        console.error('❌ Service Worker notification failed:', swError);
+                        
+                        // Fallback to direct browser notification
+                        console.log('🔄 Falling back to direct browser notification...');
+                        const fallbackNotification = new Notification(queueItem.payload.title, {
+                            body: queueItem.payload.body,
+                            icon: queueItem.payload.icon || '/icons/icon-192x192.png',
+                            tag: `fallback-notification-${queueItem.notification_id}`,
+                            requireInteraction: true,
+                            silent: false
+                        });
+                        
+                        fallbackNotification.onclick = () => {
+                            console.log('🖱️ Fallback notification clicked');
+                            window.focus();
+                            fallbackNotification.close();
+                        };
+                        
+                        console.log('🎉 Fallback notification created successfully!');
+                    }
                     
                     // Also send a test message to Service Worker to verify communication
                     if (registration.active) {
