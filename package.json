@@ -1,0 +1,48 @@
+{
+  "name": "aqura",
+  "version": "1.0.0",
+  "description": "Aqura Management System - PWA-first windowed management platform",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter aqura-frontend dev\" \"pnpm --filter backend dev\"",
+    "build": "pnpm --filter aqura-frontend build",
+    "build:pwa": "pnpm --filter aqura-frontend build:pwa",
+    "build:windows": "pnpm --filter aqura-frontend build:windows",
+    "preview": "pnpm --filter aqura-frontend preview",
+    "check": "pnpm --filter aqura-frontend check",
+    "check:watch": "pnpm --filter aqura-frontend check:watch",
+    "lint": "pnpm --filter aqura-frontend lint && pnpm --filter backend lint",
+    "format": "pnpm --filter aqura-frontend format && pnpm --filter backend format",
+    "test": "pnpm --filter aqura-frontend test && pnpm --filter backend test",
+    "setup": "pnpm install && pnpm --filter frontend install && cd backend && go mod download",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up",
+    "i18n:extract": "pnpm --filter frontend i18n:extract",
+    "i18n:build": "pnpm --filter frontend i18n:build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "keywords": [
+    "management-system",
+    "pwa",
+    "windowed-ui",
+    "bilingual",
+    "enterprise"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "pg": "^8.16.3",
+    "web-push": "^3.6.7"
+  }
+}

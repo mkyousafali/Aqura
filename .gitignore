@@ -1,0 +1,96 @@
+# Dependencies
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# API Keys and Secrets
+*.key
+**/OPENAI_API_KEY*
+**/openai-api-key*
+sk-proj-*
+sk-*
+**/sk-proj-*
+VITE_OPENAI_API_KEY=sk-*
+OPENAI_API_KEY=sk-*
+
+# Security keys (VAPID keys, etc.)
+VAPID_PRIVATE_KEY.txt
+*.private.key
+*.secret
+
+# Build outputs
+.next/
+out/
+dist/
+.output/
+.nuxt/
+.cache/
+.parcel-cache/
+
+# SvelteKit
+.svelte-kit/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# IDE files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Database
+*.db
+*.sqlite
+
+# Go binaries
+backend/main
+backend/*.exe
+backend/tmp/
+
+# Test coverage
+coverage/
+*.cover
+*.coverprofile
+
+# Static assets (if auto-generated)
+frontend/static/icons/create-favicon.ps1
+frontend/generate-icons.ps1
+
+# Backup files
+*.bak
+*.backup
+
+# Lock files (keep pnpm-lock.yaml for consistency)
+package-lock.json
+yarn.lock
+.vercel
