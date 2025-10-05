@@ -76,7 +76,7 @@ export default defineConfig(({ mode }) => ({
 			},
 			includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'safari-pinned-tab.svg'],
 			manifestFilename: 'manifest.webmanifest',
-			injectRegister: false, // Manual registration for better control
+			injectRegister: 'auto', // Enable automatic registration
 			selfDestroying: false,
 			manifest: {
 				name: 'Aqura Management System',

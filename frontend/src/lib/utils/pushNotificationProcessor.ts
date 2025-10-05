@@ -232,7 +232,8 @@ class PushNotificationProcessor {
                             }
                             
                             if (!registration) {
-                                const swPath = isProduction ? '/sw-advanced.js' : '/sw-advanced.js';
+                                // Use the VitePWA generated service worker path consistently
+                                const swPath = isProduction ? '/sw.js' : '/sw-advanced.js';
                                 console.log(`🔍 Attempting to register SW at: ${swPath}`);
                                 
                                 registration = await navigator.serviceWorker.register(swPath, {

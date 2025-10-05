@@ -133,6 +133,7 @@
 						
 						// Check if this is a push notification service worker that should be preserved
 						const isPushNotificationSW = scriptURL.includes('/sw-push.js') || 
+							scriptURL.includes('/sw.js') || // Include VitePWA generated SW
 							scriptURL.includes('/sw-advanced.js') || // Preserve our enhanced SW
 							(scope.includes('/') && scriptURL.includes('sw-push'));
 						
@@ -141,7 +142,9 @@
 							scriptURL.includes('workbox') ||
 							scriptURL.includes('vite') ||
 							scope.includes('workbox') ||
-							(scriptURL.includes('/sw-advanced.js') === false && scope.includes('sw-advanced')); // Only remove if not our enhanced SW
+							(scriptURL.includes('/sw.js') === false && 
+							 scriptURL.includes('/sw-advanced.js') === false && 
+							 scope.includes('sw-advanced')); // Only remove if not our enhanced SW
 						
 						if (isPushNotificationSW && !isProblematicSW) {
 							console.log(`✅ Preserving push notification SW: ${scope}`);
@@ -279,7 +282,7 @@
 					
 					// Manual service worker registration since we disabled automatic injection
 					if ('serviceWorker' in navigator) {
-						const registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+						const registration = await navigator.serviceWorker.register('/sw.js', {
 							scope: '/',
 							updateViaCache: 'none'
 						});
@@ -309,7 +312,7 @@
 						// Set up update function
 						updateServiceWorker = async () => {
 							console.log('🔄 Updating PWA Service Worker...');
-							const newRegistration = await navigator.serviceWorker.register('/sw-advanced.js', {
+							const newRegistration = await navigator.serviceWorker.register('/sw.js', {
 								scope: '/',
 								updateViaCache: 'none'
 							});
