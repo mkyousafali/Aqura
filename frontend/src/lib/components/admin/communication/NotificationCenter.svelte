@@ -153,24 +153,12 @@
 			isLoading = true;
 			errorMessage = '';
 			
-			console.log('🔍 [NotificationCenter] Loading notifications...');
-			console.log('🔍 [NotificationCenter] Current user:', currentUser);
-			console.log('🔍 [NotificationCenter] User role:', userRole);
-			console.log('🔍 [NotificationCenter] Is admin or master:', isAdminOrMaster);
-			
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
-				console.log('🔍 [NotificationCenter] Loading all notifications for admin user');
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
-				console.log('🔍 [NotificationCenter] Raw API notifications:', apiNotifications);
-				console.log('🔍 [NotificationCenter] First notification read states:', apiNotifications[0]?.notification_read_states);
-				console.log('🔍 [NotificationCenter] First notification is_read:', apiNotifications[0]?.is_read);
 				allNotifications = await transformNotificationData(apiNotifications);
-				console.log('🔍 [NotificationCenter] Transformed notifications:', allNotifications);
-				console.log('🔍 [NotificationCenter] First transformed notification read status:', allNotifications[0]?.read);
 			} else if ($currentUser?.id) {
 				// Regular users see only their targeted notifications
-				console.log('🔍 [NotificationCenter] Loading user-specific notifications');
 				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
@@ -543,10 +531,41 @@
 		};
 	}
 
+	// Silent refresh function for background updates
+	async function silentRefreshNotifications() {
+		try {
+			// Only refresh if user is not actively interacting with the page
+			if (document.hidden) return;
+			
+			const previousNotifications = [...allNotifications];
+			
+			if (isAdminOrMaster) {
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				const newNotifications = await transformNotificationData(apiNotifications);
+				
+				// Only update if there are actual changes
+				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
+					allNotifications = newNotifications;
+				}
+			} else if ($currentUser?.id) {
+				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
+				const newNotifications = await transformNotificationData(userNotifications);
+				
+				// Only update if there are actual changes
+				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
+					allNotifications = newNotifications;
+				}
+			}
+		} catch (error) {
+			// Silent fail - don't show errors during background refresh
+			console.warn('Silent notification refresh failed:', error);
+		}
+	}
+
 	// Refresh notifications periodically
 	onMount(() => {
 		const interval = setInterval(() => {
-			loadNotifications();
+			silentRefreshNotifications();
 		}, 30000); // Refresh every 30 seconds
 
 		return () => clearInterval(interval);

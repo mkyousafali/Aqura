@@ -323,7 +323,7 @@ self.addEventListener('message', (event) => {
 						event.ports[0]?.postMessage({
 							type: 'NOTIFICATION_SHOWN',
 							success: false,
-							error: error.message,
+							error: error ? (error.message || String(error)) : 'Unknown notification error',
 							timestamp: Date.now()
 						});
 					})
