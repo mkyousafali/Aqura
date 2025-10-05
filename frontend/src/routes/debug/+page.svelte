@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { authService } from '$lib/services/authService';
+	import { authService } from '$lib/utils/persistentAuth';
 	
 	let debugInfo = {
 		environment: '',
