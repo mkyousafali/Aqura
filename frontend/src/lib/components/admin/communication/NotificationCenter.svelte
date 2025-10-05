@@ -25,36 +25,45 @@
 
 	// Convert API response to component format and load task images
 	async function transformNotificationData(apiNotifications: any[]) {
-		const transformedNotifications = [];
-		
-		for (const notification of apiNotifications) {
-			const transformed = {
-				id: notification.id,
-				title: notification.title,
-				message: notification.message,
-				type: notification.type,
-				timestamp: formatTimestamp(notification.created_at),
-				read: notification.is_read || false, // Use is_read from notification_read_states
-				priority: notification.priority,
-				createdBy: notification.created_by_name,
-				targetUsers: notification.target_type,
-				targetBranch: 'all', // Simplified for now
-				status: notification.status,
-				readCount: notification.read_count,
-				totalRecipients: notification.total_recipients,
-				metadata: notification.metadata,
-				image_url: null,
-				attachments: []
-			};
+		if (apiNotifications.length === 0) {
+			return [];
+		}
 
-			// Load notification attachments for all notifications
-			try {
-				console.log(`🖼️ [Notification] Loading attachments for notification ${notification.id}`);
-				const attachmentResult = await db.notificationAttachments.getByNotificationId(notification.id);
-				
-				if (attachmentResult.data && attachmentResult.data.length > 0) {
-					// Transform attachments to include proper URLs
-					transformed.attachments = attachmentResult.data.map(att => ({
+		// First, prepare all notifications with basic data
+		const transformedNotifications = apiNotifications.map(notification => ({
+			id: notification.id,
+			title: notification.title,
+			message: notification.message,
+			type: notification.type,
+			timestamp: formatTimestamp(notification.created_at),
+			read: notification.is_read || false,
+			priority: notification.priority,
+			createdBy: notification.created_by_name,
+			targetUsers: notification.target_type,
+			targetBranch: 'all',
+			status: notification.status,
+			readCount: notification.read_count,
+			totalRecipients: notification.total_recipients,
+			metadata: notification.metadata,
+			image_url: null,
+			attachments: []
+		}));
+
+		// Batch load all attachments at once (much more efficient)
+		try {
+			const notificationIds = apiNotifications.map(n => n.id);
+			console.log(`🖼️ [Notification] Batch loading attachments for ${notificationIds.length} notifications`);
+			
+			// Get all attachments for all notifications in one query
+			const allAttachmentsResult = await db.notificationAttachments.getBatchByNotificationIds(notificationIds);
+			
+			if (allAttachmentsResult.data && allAttachmentsResult.data.length > 0) {
+				// Group attachments by notification_id
+				const attachmentsByNotification = allAttachmentsResult.data.reduce((acc, att) => {
+					if (!acc[att.notification_id]) {
+						acc[att.notification_id] = [];
+					}
+					acc[att.notification_id].push({
 						...att,
 						fileUrl: att.file_path.startsWith('http') 
 							? att.file_path 
@@ -64,56 +73,59 @@
 						fileType: att.file_type,
 						uploadedAt: att.created_at,
 						uploadedBy: att.uploaded_by
-					}));
+					});
+					return acc;
+				}, {});
+				
+				// Assign attachments to their respective notifications
+				transformedNotifications.forEach(transformed => {
+					const notificationAttachments = attachmentsByNotification[transformed.id] || [];
+					transformed.attachments = notificationAttachments;
 					
 					// Set the first image as the primary image_url for backward compatibility
-					const firstImage = transformed.attachments.find(att => att.file_type.startsWith('image/'));
+					const firstImage = notificationAttachments.find(att => att.file_type.startsWith('image/'));
 					if (firstImage) {
 						transformed.image_url = firstImage.fileUrl;
 					}
-					console.log(`✅ [Notification] Found ${attachmentResult.data.length} attachments for notification ${notification.id}`);
-				} else {
-					console.log(`📭 [Notification] No attachments found for notification ${notification.id}`);
-				}
-			} catch (error) {
-				console.warn(`❌ [Notification] Failed to load attachments for notification ${notification.id}:`, error);
+				});
+				
+				console.log(`✅ [Notification] Batch loaded ${allAttachmentsResult.data.length} attachments for ${notificationIds.length} notifications`);
+			} else {
+				console.log(`📭 [Notification] No attachments found for any notifications`);
 			}
+		} catch (error) {
+			console.warn(`❌ [Notification] Failed to batch load attachments:`, error);
+		}
 
-			// Load task attachments if this is a task-related notification
+		// Handle task attachments (keeping individual loading for now since these are conditional)
+		for (const transformed of transformedNotifications) {
+			const notification = apiNotifications.find(n => n.id === transformed.id);
+			
 			if (notification.metadata && notification.metadata.task_id) {
 				try {
-					console.log(`� [Notification] Loading attachments for task ${notification.metadata.task_id}`);
 					const attachmentResult = await db.taskAttachments.getByTaskId(notification.metadata.task_id);
 					
 					if (attachmentResult.data && attachmentResult.data.length > 0) {
 						// Convert task attachments to FileDownload format
 						const taskAttachments = attachmentResult.data
-							.filter(attachment => attachment && attachment.file_name && attachment.file_path) // Filter out invalid attachments
+							.filter(attachment => attachment && attachment.file_name && attachment.file_path)
 							.map(attachment => ({
 								id: attachment.id,
-								fileName: attachment.file_name || 'Unknown File', // Use fileName instead of name
+								fileName: attachment.file_name || 'Unknown File',
 								fileSize: attachment.file_size || 0,
 								fileType: attachment.file_type || 'application/octet-stream',
 								fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
 									? attachment.file_path 
-									: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`, // Use fileUrl instead of url
+									: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
 								downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
 									? attachment.file_path 
 									: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
 								uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 								uploadedAt: attachment.created_at
 							}));
-
-						// Add to existing attachments or create new array
-						transformed.attachments = [...(transformed.attachments || []), ...taskAttachments];
 						
-						// If first attachment is an image, also set as image_url for backward compatibility
-						const firstAttachment = taskAttachments[0];
-						if (firstAttachment && firstAttachment.fileType.startsWith('image/') && !transformed.image_url) {
-							transformed.image_url = firstAttachment.fileUrl;
-						}
-						
-						console.log(`✅ [Notification] Found ${taskAttachments.length} attachments for task ${notification.metadata.task_id}`);
+						// Merge with existing attachments
+						transformed.attachments = [...transformed.attachments, ...taskAttachments];
 					} else {
 						console.log(`📭 [Notification] No attachments found for task ${notification.metadata.task_id}`);
 					}
@@ -121,10 +133,8 @@
 					console.warn(`❌ [Notification] Failed to load attachments for task ${notification.metadata.task_id}:`, error);
 				}
 			}
-			
-			transformedNotifications.push(transformed);
 		}
-		
+
 		return transformedNotifications;
 	}
 

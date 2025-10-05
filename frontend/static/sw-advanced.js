@@ -151,22 +151,34 @@ self.addEventListener('install', (event) => {
 				const cache = await caches.open(CACHE_NAME);
 				console.log('[ServiceWorker] Caching critical offline resources');
 				
-				// Cache each file individually to handle failures gracefully
-				const results = await Promise.allSettled(
-					STATIC_CACHE_URLS.map(url => cache.add(url))
-				);
-				
-				// Log any failures but don't block installation
-				results.forEach((result, index) => {
-					if (result.status === 'rejected') {
-						console.warn(`[ServiceWorker] Failed to cache ${STATIC_CACHE_URLS[index]}:`, result.reason);
+				// Cache each file individually with enhanced error handling
+				const cachePromises = STATIC_CACHE_URLS.map(async (url, index) => {
+					try {
+						await cache.add(url);
+						return { success: true, url };
+					} catch (error) {
+						// Only log in development, silently handle in production
+						if (self.location.hostname === 'localhost') {
+							console.warn(`[ServiceWorker] Failed to cache ${url}:`, error);
+						}
+						return { success: false, url, error };
 					}
 				});
 				
+				const results = await Promise.allSettled(cachePromises);
+				const cached = results.filter(result => 
+					result.status === 'fulfilled' && result.value.success
+				).length;
+				
+				console.log(`[ServiceWorker] Successfully cached ${cached}/${STATIC_CACHE_URLS.length} static resources`);
+				
 				return self.skipWaiting();
 			} catch (error) {
-				console.error('[ServiceWorker] Cache setup failed:', error);
-				// Continue anyway to prevent blocking
+				// Only log critical errors in development
+				if (self.location.hostname === 'localhost') {
+					console.error('[ServiceWorker] Cache setup failed:', error);
+				}
+				// Continue anyway to prevent blocking PWA installation
 				return self.skipWaiting();
 			}
 		})()

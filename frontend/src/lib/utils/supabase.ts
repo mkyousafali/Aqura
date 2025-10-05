@@ -1012,6 +1012,19 @@ export const db = {
 			return { data, error };
 		},
 
+		async getBatchByNotificationIds(notification_ids: string[]) {
+			if (notification_ids.length === 0) {
+				return { data: [], error: null };
+			}
+			
+			const { data, error } = await supabase
+				.from('notification_attachments')
+				.select('*')
+				.in('notification_id', notification_ids)
+				.order('created_at', { ascending: false });
+			return { data, error };
+		},
+
 		async create(attachment: Omit<NotificationAttachment, 'id' | 'created_at'>) {
 			const { data, error } = await supabase
 				.from('notification_attachments')

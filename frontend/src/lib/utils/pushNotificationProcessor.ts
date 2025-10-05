@@ -198,7 +198,7 @@ class PushNotificationProcessor {
                     
                     // Production-friendly timeout: longer wait for production deployments
                     const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
-                    const timeoutMs = isProduction ? 15000 : 8000; // 15s for production, 8s for development
+                    const timeoutMs = isProduction ? 10000 : 8000; // Reduced to 10s for production, 8s for development
                     
                     console.log(`🔍 Using ${timeoutMs/1000}s timeout for ${isProduction ? 'production' : 'development'} environment`);
                     
@@ -206,13 +206,28 @@ class PushNotificationProcessor {
                     
                     // First try to get existing registration
                     try {
-                        const registrationPromise = navigator.serviceWorker.ready;
-                        const timeoutPromise = new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error(`Service Worker registration timeout after ${timeoutMs/1000}s`)), timeoutMs)
+                        // Check for immediate availability first (optimization for production)
+                        const existingRegistrations = await navigator.serviceWorker.getRegistrations();
+                        console.log(`🔍 Found ${existingRegistrations.length} existing registrations`);
+                        
+                        // Look for an active registration first (faster than waiting for ready)
+                        const activeRegistration = existingRegistrations.find(reg => 
+                            reg.active && reg.scope.includes(window.location.origin)
                         );
                         
-                        registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
-                        console.log('🔍 Service Worker ready via navigator.serviceWorker.ready');
+                        if (activeRegistration) {
+                            console.log('✅ Found immediate active Service Worker registration');
+                            registration = activeRegistration;
+                        } else {
+                            // Fallback to ready promise with timeout
+                            const registrationPromise = navigator.serviceWorker.ready;
+                            const timeoutPromise = new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error(`Service Worker registration timeout after ${timeoutMs/1000}s`)), timeoutMs)
+                            );
+                            
+                            registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
+                            console.log('🔍 Service Worker ready via navigator.serviceWorker.ready');
+                        }
                     } catch (readyError) {
                         console.warn('⚠️ Service Worker not ready, attempting manual registration...', readyError);
                         
