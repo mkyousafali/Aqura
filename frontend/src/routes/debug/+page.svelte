@@ -1,9 +1,9 @@
 <script>
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { authService } from '$lib/utils/persistentAuth';
-	
-	let debugInfo = {
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+  
+  let debugInfo = {
 		environment: '',
 		vapidKey: '',
 		supabaseUrl: '',
@@ -16,15 +16,14 @@
 		errors: []
 	};
 	
-	onMount(async () => {
-		// Check if user is authenticated
-		const user = authService.getCurrentUser();
-		if (!user) {
-			goto('/login');
-			return;
-		}
-		
-		try {
+  onMount(async () => {
+    // Check if user is authenticated
+    let user = null;
+    currentUser.subscribe(value => user = value)();
+    if (!user) {
+      goto('/login');
+      return;
+    }		try {
 			// Environment info
 			debugInfo.environment = import.meta.env.MODE;
 			debugInfo.vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY ? 
