@@ -12,8 +12,8 @@ export default defineConfig(({ mode }) => ({
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 				navigateFallback: '/',
 				navigateFallbackDenylist: [/^\/api\//, /^\/__pwa__.*/, /^\/offline\.html$/, /^\/[^/]*$/],
-				skipWaiting: false,
-				clientsClaim: false,
+				skipWaiting: true,
+				clientsClaim: true,
 				cleanupOutdatedCaches: true,
 				disableDevLogs: false,
 				// Force service worker update on any change

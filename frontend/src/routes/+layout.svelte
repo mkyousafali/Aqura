@@ -284,6 +284,13 @@
 						immediate: true,
 						onRegistered(r) {
 							console.log('🆕 New SW Registered:', r);
+							console.log('🔍 SW Registration state:', r?.installing, r?.waiting, r?.active);
+							console.log('🔍 SW Scope:', r?.scope);
+							
+							// Ensure Service Worker is ready for notifications
+							if (r?.active) {
+								console.log('✅ Service Worker is active and ready for notifications');
+							}
 						},
 						onRegisterError(error) {
 							console.error('❌ SW registration error', error);
