@@ -188,10 +188,21 @@ class PushNotificationProcessor {
             // Use the browser's notification API instead of web-push library
             if ('serviceWorker' in navigator && 'Notification' in window) {
                 console.log('🔍 Service Worker and Notification API available');
+                console.log('🔍 About to get service worker registration...');
+                console.log('🔍 navigator.serviceWorker:', navigator.serviceWorker);
+                console.log('🔍 navigator.serviceWorker.ready:', navigator.serviceWorker.ready);
                 
                 try {
-                    // Get the service worker registration
-                    const registration = await navigator.serviceWorker.ready;
+                    // Get the service worker registration with timeout
+                    console.log('🔍 Getting service worker registration...');
+                    
+                    // Add timeout to prevent hanging
+                    const registrationPromise = navigator.serviceWorker.ready;
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Service Worker registration timeout')), 5000)
+                    );
+                    
+                    const registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
                     console.log('🔍 Service Worker ready:', registration);
                     console.log('🔍 Service Worker state:', registration.active?.state);
                     console.log('🔍 Service Worker scope:', registration.scope);
@@ -323,6 +334,11 @@ class PushNotificationProcessor {
                     }
                 } catch (swError) {
                     console.error('❌ Service Worker notification failed:', swError);
+                    console.error('❌ SW Error details:', {
+                        name: swError.name,
+                        message: swError.message,
+                        stack: swError.stack
+                    });
                     console.warn('⚠️ Service Worker notification failed, trying direct notification:', swError);
                     
                     // Fallback to direct browser notification
