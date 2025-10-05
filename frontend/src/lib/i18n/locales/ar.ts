@@ -93,6 +93,19 @@ export const arabicLocale: LocaleData = {
 			auditLog: 'سجل المراجعة'
 		},
 
+		// Welcome
+		welcome: {
+			title: 'مرحباً بك في أكوارا',
+			subtitle: 'منصة إدارة متطورة مع واجهة نوافذ متعددة',
+			features: {
+				multiWindow: 'واجهة نوافذ متعددة لزيادة الإنتاجية',
+				offline: 'إمكانيات العمل دون اتصال للعمل السلس',
+				responsive: 'تصميم متجاوب يتكيف مع أي جهاز',
+				bilingual: 'دعم كامل ثنائي اللغة للإنجليزية والعربية'
+			},
+			instructions: 'ابدأ باستكشاف الميزات أعلاه أو انغمس في وحدات الإدارة'
+		},
+
 		// HR Master
 		hr: {
 			employee: 'موظف',

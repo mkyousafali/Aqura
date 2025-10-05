@@ -280,14 +280,24 @@
 				try {
 					console.log('🔧 Initializing PWA in production mode...');
 					
-					// Manual service worker registration since we disabled automatic injection
+					// Manual service worker registration for our custom SW
 					if ('serviceWorker' in navigator) {
-						const registration = await navigator.serviceWorker.register('/sw.js', {
-							scope: '/',
-							updateViaCache: 'none'
-						});
-						
-						console.log('✅ PWA Service Worker registered:', registration);
+						// Try VitePWA generated sw.js first, fallback to our custom sw-advanced.js
+						let registration;
+						try {
+							registration = await navigator.serviceWorker.register('/sw.js', {
+								scope: '/',
+								updateViaCache: 'none'
+							});
+							console.log('✅ PWA Service Worker registered (VitePWA):', registration);
+						} catch (swError) {
+							console.warn('⚠️ VitePWA sw.js failed, trying custom service worker...', swError);
+							registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+								scope: '/',
+								updateViaCache: 'none'
+							});
+							console.log('✅ Custom Service Worker registered:', registration);
+						}
 						
 						// Handle service worker updates
 						registration.addEventListener('updatefound', () => {
@@ -312,10 +322,20 @@
 						// Set up update function
 						updateServiceWorker = async () => {
 							console.log('🔄 Updating PWA Service Worker...');
-							const newRegistration = await navigator.serviceWorker.register('/sw.js', {
-								scope: '/',
-								updateViaCache: 'none'
-							});
+							// Use same fallback strategy for updates
+							let newRegistration;
+							try {
+								newRegistration = await navigator.serviceWorker.register('/sw.js', {
+									scope: '/',
+									updateViaCache: 'none'
+								});
+							} catch (swError) {
+								console.warn('⚠️ Update: VitePWA sw.js failed, using custom service worker...');
+								newRegistration = await navigator.serviceWorker.register('/sw-advanced.js', {
+									scope: '/',
+									updateViaCache: 'none'
+								});
+							}
 							
 							if (newRegistration.waiting) {
 								newRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });

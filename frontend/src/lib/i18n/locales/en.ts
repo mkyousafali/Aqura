@@ -133,7 +133,14 @@ export const englishLocale: LocaleData = {
 		// Welcome
 		welcome: {
 			title: 'Welcome to Aqura',
-			subtitle: 'PWA-first windowed management platform'
+			subtitle: 'PWA-first windowed management platform',
+			features: {
+				multiWindow: 'Multi-window interface for enhanced productivity',
+				offline: 'Offline capabilities for seamless work',
+				responsive: 'Responsive design that adapts to any device',
+				bilingual: 'Full bilingual support for English and Arabic'
+			},
+			instructions: 'Get started by exploring the features above or dive into the management modules'
 		},
 
 		// HR Master
