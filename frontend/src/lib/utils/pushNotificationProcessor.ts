@@ -227,6 +227,21 @@ class PushNotificationProcessor {
                     });
 
                     console.log('🎉 Notification shown successfully via Service Worker!');
+                    
+                    // Also send a test message to Service Worker to verify communication
+                    if (registration.active) {
+                        const messageChannel = new MessageChannel();
+                        messageChannel.port1.onmessage = (event) => {
+                            console.log('📨 Message from SW about notification:', event.data);
+                        };
+                        
+                        registration.active.postMessage({
+                            type: 'SHOW_NOTIFICATION',
+                            title: 'Test from Client',
+                            body: 'Testing SW notification capability',
+                            tag: 'test-notification'
+                        }, [messageChannel.port2]);
+                    }
                 } catch (swError) {
                     console.error('❌ Service Worker notification failed:', swError);
                     console.warn('⚠️ Service Worker notification failed, trying direct notification:', swError);

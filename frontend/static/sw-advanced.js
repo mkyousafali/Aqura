@@ -231,9 +231,9 @@ self.addEventListener('fetch', (event) => {
 	);
 });
 
-// Message handling for cache clearing requests
+// Message handling for cache clearing requests and notification debugging
 self.addEventListener('message', (event) => {
-	console.log('[ServiceWorker] Message received:', event.data);
+	console.log('[ServiceWorker] 📨 Message received:', event.data);
 	
 	if (event.data && event.data.type) {
 		switch (event.data.type) {
@@ -269,8 +269,49 @@ self.addEventListener('message', (event) => {
 				self.skipWaiting();
 				break;
 				
+			case 'SHOW_NOTIFICATION':
+				console.log('[ServiceWorker] 🔔 Direct notification request received:', event.data);
+				event.waitUntil(
+					self.registration.showNotification(event.data.title || 'Aqura Management', {
+						body: event.data.body || 'Notification',
+						icon: event.data.icon || '/icons/icon-192x192.png',
+						badge: event.data.badge || '/icons/icon-96x96.png',
+						tag: event.data.tag || `aqura-notification-${Date.now()}`,
+						requireInteraction: true,
+						silent: false,
+						data: event.data.data || {}
+					}).then(() => {
+						console.log('[ServiceWorker] ✅ Direct notification shown successfully');
+						event.ports[0]?.postMessage({
+							type: 'NOTIFICATION_SHOWN',
+							success: true,
+							timestamp: Date.now()
+						});
+					}).catch((error) => {
+						console.error('[ServiceWorker] ❌ Direct notification failed:', error);
+						event.ports[0]?.postMessage({
+							type: 'NOTIFICATION_SHOWN',
+							success: false,
+							error: error.message,
+							timestamp: Date.now()
+						});
+					})
+				);
+				break;
+				
+			case 'CHECK_NOTIFICATION_PERMISSION':
+				console.log('[ServiceWorker] 🔍 Checking notification permission');
+				event.ports[0]?.postMessage({
+					type: 'NOTIFICATION_PERMISSION_STATUS',
+					permission: 'default', // Service Worker can't check permission directly
+					swActive: !!self.registration.active,
+					swScope: self.registration.scope,
+					timestamp: Date.now()
+				});
+				break;
+				
 			default:
-				console.log('[ServiceWorker] Unknown message type:', event.data.type);
+				console.log('[ServiceWorker] ❓ Unknown message type:', event.data.type);
 		}
 	}
 });
@@ -288,18 +329,31 @@ self.addEventListener('sync', (event) => {
 	}
 });
 
-// Push notification handling
+// Push notification handling - handles both push events and direct showNotification calls
 self.addEventListener('push', (event) => {
-	console.log('[ServiceWorker] Push received', event);
+	console.log('[ServiceWorker] 🔔 Push received', event);
+	
+	let notificationData;
+	try {
+		// Try to parse JSON data from push event
+		notificationData = event.data ? event.data.json() : null;
+	} catch (error) {
+		// Fallback to text if JSON parsing fails
+		notificationData = event.data ? { body: event.data.text() } : null;
+	}
 	
 	const options = {
-		body: event.data ? event.data.text() : 'New update available',
-		icon: '/icons/icon-192x192.png',
-		badge: '/icons/badge.png',
+		body: notificationData?.body || notificationData?.message || 'New update available',
+		icon: notificationData?.icon || '/icons/icon-192x192.png',
+		badge: notificationData?.badge || '/icons/icon-96x96.png',
+		tag: notificationData?.tag || `aqura-notification-${Date.now()}`,
 		vibrate: [100, 50, 100],
+		requireInteraction: true,
+		silent: false,
 		data: {
+			...notificationData?.data,
 			dateOfArrival: Date.now(),
-			primaryKey: '1'
+			notificationId: notificationData?.notificationId || Date.now()
 		},
 		actions: [
 			{
@@ -315,22 +369,92 @@ self.addEventListener('push', (event) => {
 		]
 	};
 
+	console.log('[ServiceWorker] 🔔 Showing notification:', {
+		title: notificationData?.title || 'Aqura Management',
+		options: options
+	});
+
 	event.waitUntil(
-		self.registration.showNotification('Aqura Management', options)
+		self.registration.showNotification(notificationData?.title || 'Aqura Management', options)
+			.then(() => {
+				console.log('[ServiceWorker] ✅ Notification displayed successfully');
+			})
+			.catch((error) => {
+				console.error('[ServiceWorker] ❌ Failed to show notification:', error);
+			})
 	);
 });
 
-// Notification click handling
+// Notification click handling - properly handle notification interactions
 self.addEventListener('notificationclick', (event) => {
-	console.log('[ServiceWorker] Notification click received');
+	console.log('[ServiceWorker] 🔔 Notification click received:', event);
+	console.log('[ServiceWorker] 🔔 Notification data:', event.notification.data);
+	console.log('[ServiceWorker] 🔔 Action clicked:', event.action);
 	
+	// Close the notification
 	event.notification.close();
 	
+	// Handle different actions
 	if (event.action === 'explore') {
+		console.log('[ServiceWorker] 🔍 Opening app for notification exploration');
 		event.waitUntil(
-			clients.openWindow('/')
+			clients.openWindow('/').then((windowClient) => {
+				if (windowClient) {
+					console.log('[ServiceWorker] ✅ App window opened successfully');
+					// Focus the window
+					windowClient.focus();
+				} else {
+					console.warn('[ServiceWorker] ⚠️ Failed to open app window');
+				}
+			}).catch((error) => {
+				console.error('[ServiceWorker] ❌ Error opening app window:', error);
+			})
+		);
+	} else if (event.action === 'close') {
+		console.log('[ServiceWorker] ❌ Notification closed by user');
+		// Just close - notification is already closed above
+	} else {
+		// Default action (clicking on notification body)
+		console.log('[ServiceWorker] 🔍 Default notification click - opening app');
+		event.waitUntil(
+			clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+				// Check if app is already open
+				for (const client of clientList) {
+					if (client.url === self.registration.scope && 'focus' in client) {
+						console.log('[ServiceWorker] 📱 Focusing existing app window');
+						return client.focus();
+					}
+				}
+				
+				// If no existing window, open new one
+				console.log('[ServiceWorker] 🆕 Opening new app window');
+				return clients.openWindow('/').then((windowClient) => {
+					if (windowClient) {
+						console.log('[ServiceWorker] ✅ New app window opened successfully');
+						windowClient.focus();
+					} else {
+						console.warn('[ServiceWorker] ⚠️ Failed to open new app window');
+					}
+				});
+			}).catch((error) => {
+				console.error('[ServiceWorker] ❌ Error handling notification click:', error);
+			})
 		);
 	}
+	
+	// Send notification click data to all open clients
+	event.waitUntil(
+		self.clients.matchAll().then((clients) => {
+			clients.forEach((client) => {
+				client.postMessage({
+					type: 'NOTIFICATION_CLICKED',
+					notificationData: event.notification.data,
+					action: event.action,
+					timestamp: Date.now()
+				});
+			});
+		})
+	);
 });
 
 // Helper functions
