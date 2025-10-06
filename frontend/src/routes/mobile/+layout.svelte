@@ -157,6 +157,7 @@
 		if (path === '/mobile/tasks' || path === '/mobile/tasks/') return 'Tasks';
 		if (path === '/mobile/notifications' || path === '/mobile/notifications/') return 'Notifications';
 		if (path === '/mobile/assignments' || path === '/mobile/assignments/') return 'Assignments';
+		if (path === '/mobile/quick-task' || path === '/mobile/quick-task/') return 'Quick Task';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile/tasks/assign')) return 'Assign Tasks';
@@ -303,6 +304,16 @@
 					</svg>
 				</div>
 				<span class="nav-label">Assign</span>
+			</a>
+			
+			<a href="/mobile/quick-task" class="nav-item quick-task-btn" class:active={$page.url.pathname.startsWith('/mobile/quick-task')}>
+				<div class="nav-icon quick-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+						<circle cx="12" cy="12" r="3"/>
+					</svg>
+				</div>
+				<span class="nav-label">Quick Task</span>
 			</a>
 			
 			<a href="/mobile/assignments" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile/assignments')}>
@@ -731,6 +742,38 @@
 
 	.nav-item.create-btn .nav-label {
 		color: #3B82F6;
+		font-weight: 600;
+	}
+
+	/* Special styling for quick task button */
+	.nav-item.quick-task-btn {
+		color: #6B7280;
+		text-decoration: none;
+	}
+
+	.nav-item.quick-task-btn:hover {
+		color: #F59E0B;
+		background: rgba(245, 158, 11, 0.05);
+	}
+
+	.nav-item.quick-task-btn.active {
+		color: #F59E0B;
+	}
+
+	.nav-item.quick-task-btn .quick-icon {
+		background: linear-gradient(135deg, #F59E0B, #D97706);
+		color: white;
+		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+	}
+
+	.nav-item.quick-task-btn:hover .quick-icon,
+	.nav-item.quick-task-btn.active .quick-icon {
+		transform: scale(1.05);
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.nav-item.quick-task-btn .nav-label {
+		color: #F59E0B;
 		font-weight: 600;
 	}
 
