@@ -70,18 +70,26 @@
 
 			if (taskError) throw taskError;
 
-			// Then get the assignment details for this user
+			// Then get the assignment details for this user - handle multiple assignments by getting the most recent one
 			const { data: assignmentData, error: assignmentError } = await supabase
 				.from('task_assignments')
 				.select('*')
 				.eq('task_id', taskId)
 				.eq('assigned_to_user_id', currentUserData.id)
-				.single();
+				.order('assigned_at', { ascending: false })
+				.limit(1);
 
 			if (assignmentError) throw assignmentError;
+			
+			// Check if we got any assignments
+			if (!assignmentData || assignmentData.length === 0) {
+				console.error('No assignment found for this task and user');
+				goto('/mobile/tasks');
+				return;
+			}
 
 			task = taskData;
-			assignment = assignmentData;
+			assignment = assignmentData[0]; // Get the first (most recent) assignment
 
 			// Load task attachments
 			const attachmentResult = await db.taskAttachments.getByTaskId(taskId);
@@ -265,21 +273,6 @@
 			</button>
 		</div>
 	{:else}
-		<!-- Header -->
-		<header class="page-header">
-			<div class="header-content">
-				<button class="back-btn" on:click={() => goto('/mobile/tasks')} aria-label="Go back to tasks list">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M19 12H5M12 19l-7-7 7-7"/>
-					</svg>
-				</button>
-				<h1>Task Details</h1>
-				<div class="header-actions">
-					<!-- Placeholder for future actions -->
-				</div>
-			</div>
-		</header>
-
 		<!-- Content -->
 		<div class="content-section">
 			<!-- Task Header Card -->
@@ -586,55 +579,6 @@
 		to {
 			transform: rotate(360deg);
 		}
-	}
-
-	/* Header */
-	.page-header {
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-		color: white;
-		padding: 1rem 1.5rem;
-		padding-top: calc(1rem + env(safe-area-inset-top));
-		box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
-		position: sticky;
-		top: 0;
-		z-index: 10;
-	}
-
-	.header-content {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.back-btn {
-		width: 40px;
-		height: 40px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 10px;
-		color: white;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-		backdrop-filter: blur(10px);
-	}
-
-	.back-btn:hover {
-		background: rgba(255, 255, 255, 0.2);
-		transform: scale(1.05);
-	}
-
-	.page-header h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		margin: 0;
-	}
-
-	.header-actions {
-		width: 40px; /* Balance layout */
 	}
 
 	/* Content */

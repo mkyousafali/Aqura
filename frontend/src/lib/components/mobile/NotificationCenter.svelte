@@ -120,6 +120,18 @@
 	// Load notifications on mount
 	onMount(async () => {
 		await loadNotifications();
+		
+		// Listen for refresh events from the global header
+		const handleRefresh = () => {
+			forceRefreshNotifications();
+		};
+		
+		window.addEventListener('refreshNotifications', handleRefresh);
+		
+		// Cleanup on component destroy
+		return () => {
+			window.removeEventListener('refreshNotifications', handleRefresh);
+		};
 	});
 
 	async function loadNotifications() {
@@ -157,7 +169,7 @@
 		}
 	}
 
-	async function forceRefreshNotifications() {
+	export async function forceRefreshNotifications() {
 		try {
 			isLoading = true;
 			errorMessage = '';
@@ -460,35 +472,6 @@
 </script>
 
 <div class="mobile-notification-center">
-	<!-- Header -->
-	<header class="notification-header">
-		<div class="header-content">
-			<button class="back-btn" on:click={() => goto('/mobile')} aria-label="Go back to dashboard">
-				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M19 12H5M12 19l-7-7 7-7"/>
-				</svg>
-			</button>
-			<h1>Notifications</h1>
-			<button class="refresh-btn" on:click={forceRefreshNotifications} disabled={isLoading} aria-label="Refresh notifications">
-				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={isLoading}>
-					<polyline points="23 4 23 10 17 10"/>
-					<polyline points="1 20 1 14 7 14"/>
-					<path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
-				</svg>
-			</button>
-		</div>
-		
-		<!-- Stats and Actions Bar -->
-		<div class="stats-bar">
-			<span class="unread-badge">{unreadCount} Unread</span>
-			{#if unreadCount > 0}
-				<button class="mark-all-btn" on:click={markAllAsRead}>
-					Mark All Read
-				</button>
-			{/if}
-		</div>
-	</header>
-
 	<!-- Error Message -->
 	{#if errorMessage}
 		<div class="error-banner">
@@ -683,93 +666,6 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
-	}
-
-	.notification-header {
-		background: white;
-		border-bottom: 1px solid #E5E7EB;
-		position: sticky;
-		top: 0;
-		z-index: 100;
-		padding-top: env(safe-area-inset-top);
-	}
-
-	.header-content {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-	}
-
-	.back-btn, .refresh-btn {
-		background: none;
-		border: none;
-		padding: 0.5rem;
-		cursor: pointer;
-		color: #374151;
-		border-radius: 8px;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.back-btn:hover, .refresh-btn:hover {
-		background: #F3F4F6;
-	}
-
-	.refresh-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.spinning {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.notification-header h1 {
-		margin: 0;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1F2937;
-	}
-
-	.stats-bar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.75rem 1rem;
-		background: #F8FAFC;
-		border-top: 1px solid #E5E7EB;
-	}
-
-	.unread-badge {
-		background: #EF4444;
-		color: white;
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.875rem;
-		font-weight: 500;
-	}
-
-	.mark-all-btn {
-		background: #10B981;
-		color: white;
-		border: none;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background 0.2s;
-	}
-
-	.mark-all-btn:hover {
-		background: #059669;
 	}
 
 	.error-banner {

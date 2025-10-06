@@ -7,6 +7,7 @@
 	import TaskAssignmentView from './tasks/TaskAssignmentView.svelte';
 	import MyTasksView from './tasks/MyTasksView.svelte';
 	import TaskStatusView from './tasks/TaskStatusView.svelte';
+	import MyAssignmentsView from './tasks/MyAssignmentsView.svelte';
 
 	// Task statistics
 	let taskStats = {
@@ -145,6 +146,27 @@
 			position: { 
 				x: 50 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openMyAssignments() {
+		const windowId = generateWindowId('my-assignments');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `My Assignments #${instanceNumber}`,
+			component: MyAssignmentsView,
+			icon: '👨‍💼',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 75 + (Math.random() * 100), 
+				y: 75 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -301,6 +323,19 @@
 			<div class="card-content">
 				<h3 class="card-title">View My Tasks</h3>
 				<p class="card-description">View and complete tasks assigned to you</p>
+			</div>
+			<div class="card-arrow">
+				<span>→</span>
+			</div>
+		</div>
+
+		<div class="dashboard-card" on:click={openMyAssignments}>
+			<div class="card-icon bg-teal-100">
+				<span class="icon text-teal-600">👨‍💼</span>
+			</div>
+			<div class="card-content">
+				<h3 class="card-title">View My Assignments</h3>
+				<p class="card-description">Track tasks you assigned to others with progress and completion stats</p>
 			</div>
 			<div class="card-arrow">
 				<span>→</span>
@@ -606,8 +641,9 @@
 	.dashboard-card:nth-child(1) { --card-color: #10b981; }
 	.dashboard-card:nth-child(2) { --card-color: #3b82f6; }
 	.dashboard-card:nth-child(3) { --card-color: #f59e0b; }
-	.dashboard-card:nth-child(4) { --card-color: #8b5cf6; }
-	.dashboard-card:nth-child(5) { --card-color: #6366f1; }
+	.dashboard-card:nth-child(4) { --card-color: #14b8a6; }
+	.dashboard-card:nth-child(5) { --card-color: #8b5cf6; }
+	.dashboard-card:nth-child(6) { --card-color: #6366f1; }
 
 	/* Features Section */
 	.features-section {

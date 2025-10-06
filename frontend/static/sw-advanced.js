@@ -452,16 +452,22 @@ self.addEventListener('notificationclick', (event) => {
 	if (event.action === 'explore') {
 		console.log('[ServiceWorker] 🔍 Opening app for notification exploration');
 		event.waitUntil(
-			clients.openWindow('/').then((windowClient) => {
-				if (windowClient) {
-					console.log('[ServiceWorker] ✅ App window opened successfully');
-					// Focus the window
-					windowClient.focus();
-				} else {
-					console.warn('[ServiceWorker] ⚠️ Failed to open app window');
+			clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+				// Check if app is already open
+				for (const client of clientList) {
+					if (client.url.includes(self.registration.scope) && 'focus' in client) {
+						console.log('[ServiceWorker] 📱 Focusing existing app window');
+						return client.focus();
+					}
 				}
+				
+				// If no existing window, determine the appropriate route based on interface preference
+				return getAppropriateRoute().then((route) => {
+					console.log('[ServiceWorker] 🆕 Opening new app window at route:', route);
+					return clients.openWindow(route);
+				});
 			}).catch((error) => {
-				console.error('[ServiceWorker] ❌ Error opening app window:', error);
+				console.error('[ServiceWorker] ❌ Error handling notification click:', error);
 			})
 		);
 	} else if (event.action === 'close') {
@@ -480,15 +486,17 @@ self.addEventListener('notificationclick', (event) => {
 					}
 				}
 				
-				// If no existing window, open new one
-				console.log('[ServiceWorker] 🆕 Opening new app window');
-				return clients.openWindow('/').then((windowClient) => {
-					if (windowClient) {
-						console.log('[ServiceWorker] ✅ New app window opened successfully');
-						windowClient.focus();
-					} else {
-						console.warn('[ServiceWorker] ⚠️ Failed to open new app window');
-					}
+				// If no existing window, determine the appropriate route based on interface preference
+				return getAppropriateRoute().then((route) => {
+					console.log('[ServiceWorker] 🆕 Opening new app window at route:', route);
+					return clients.openWindow(route).then((windowClient) => {
+						if (windowClient) {
+							console.log('[ServiceWorker] ✅ New app window opened successfully');
+							windowClient.focus();
+						} else {
+							console.warn('[ServiceWorker] ⚠️ Failed to open new app window');
+						}
+					});
 				});
 			}).catch((error) => {
 				console.error('[ServiceWorker] ❌ Error handling notification click:', error);
@@ -510,6 +518,69 @@ self.addEventListener('notificationclick', (event) => {
 		})
 	);
 });
+
+// Helper function to get appropriate route based on interface preference
+async function getAppropriateRoute() {
+	try {
+		// Check interface preference from localStorage
+		const interfacePreference = await getStorageValue('aqura-interface-preference');
+		const userInterfacePreference = await getStorageValue('aqura-user-interface-preference');
+		const forceMobile = await getStorageValue('aqura-force-mobile');
+		const lastInterface = await getStorageValue('aqura-last-interface');
+		
+		console.log('[ServiceWorker] 🔍 Interface preferences:', {
+			interfacePreference,
+			userInterfacePreference,
+			forceMobile,
+			lastInterface
+		});
+		
+		// Check if mobile interface is preferred
+		const isMobilePreferred = interfacePreference === 'mobile' || 
+								forceMobile === 'true' || 
+								lastInterface === 'mobile';
+		
+		if (isMobilePreferred) {
+			console.log('[ServiceWorker] 📱 Mobile interface preferred, redirecting to /mobile');
+			return '/mobile';
+		}
+		
+		console.log('[ServiceWorker] 🖥️ Desktop interface preferred, redirecting to /');
+		return '/';
+	} catch (error) {
+		console.error('[ServiceWorker] ❌ Error determining appropriate route:', error);
+		// Default to root path
+		return '/';
+	}
+}
+
+// Helper function to get storage values from IndexedDB or localStorage
+async function getStorageValue(key) {
+	try {
+		// Try to access localStorage (this works in service worker context)
+		return new Promise((resolve) => {
+			// Send message to clients to get localStorage value
+			self.clients.matchAll().then((clients) => {
+				if (clients.length > 0) {
+					const messageChannel = new MessageChannel();
+					messageChannel.port1.onmessage = (event) => {
+						resolve(event.data.value);
+					};
+					
+					clients[0].postMessage({
+						type: 'GET_STORAGE_VALUE',
+						key: key
+					}, [messageChannel.port2]);
+				} else {
+					resolve(null);
+				}
+			});
+		});
+	} catch (error) {
+		console.error('[ServiceWorker] ❌ Error getting storage value:', error);
+		return null;
+	}
+}
 
 // Helper functions
 function isApiRequest(url) {

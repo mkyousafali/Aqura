@@ -80,8 +80,6 @@ export default defineConfig(({ mode }) => ({
 			},
 			includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'safari-pinned-tab.svg'],
 			manifestFilename: 'manifest.webmanifest',
-			// Enable automatic registration for proper SW lifecycle
-			injectRegister: 'auto',
 			manifest: {
 				name: 'Aqura Management System',
 				short_name: 'Aqura',

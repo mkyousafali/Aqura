@@ -379,33 +379,6 @@
 </script>
 
 <div class="mobile-page">
-	<!-- Mobile Header -->
-	<div class="mobile-header">
-		<button class="header-btn" on:click={handleCancel}>
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M19 12H5"/>
-				<path d="M12 19l-7-7 7-7"/>
-			</svg>
-			<span>Back</span>
-		</button>
-		
-		<h1 class="header-title">Assign Tasks</h1>
-		
-		{#if currentStep === 4}
-			<button 
-				class="header-btn"
-				on:click={handleAssignment}
-				disabled={isAssigning || selectedTasks.size === 0 || selectedUsers.size === 0}
-			>
-				{isAssigning ? 'Assigning...' : 'Assign'}
-			</button>
-		{:else}
-			<button class="header-btn" on:click={nextStep}>
-				Next
-			</button>
-		{/if}
-	</div>
-
 	{#if isLoading}
 		<div class="loading-container">
 			<div class="loading-spinner"></div>
@@ -503,6 +476,24 @@
 							</div>
 						{/each}
 					</div>
+					
+					<!-- Inline Action Buttons -->
+					<div class="inline-actions">
+						<button 
+							class="action-btn secondary"
+							on:click={handleCancel}
+							disabled={isAssigning}
+						>
+							Cancel
+						</button>
+						
+						<button 
+							class="action-btn primary"
+							on:click={nextStep}
+						>
+							Next Step
+						</button>
+					</div>
 				</div>
 
 			<!-- Step 2: Select Tasks -->
@@ -546,6 +537,24 @@
 								</label>
 							</div>
 						{/each}
+					</div>
+					
+					<!-- Inline Action Buttons -->
+					<div class="inline-actions">
+						<button 
+							class="action-btn secondary"
+							on:click={prevStep}
+							disabled={isAssigning}
+						>
+							Previous
+						</button>
+						
+						<button 
+							class="action-btn primary"
+							on:click={nextStep}
+						>
+							Next Step
+						</button>
 					</div>
 				</div>
 
@@ -706,6 +715,24 @@
 							></textarea>
 						</div>
 					</div>
+					
+					<!-- Inline Action Buttons -->
+					<div class="inline-actions">
+						<button 
+							class="action-btn secondary"
+							on:click={prevStep}
+							disabled={isAssigning}
+						>
+							Previous
+						</button>
+						
+						<button 
+							class="action-btn primary"
+							on:click={nextStep}
+						>
+							Next Step
+						</button>
+					</div>
 				</div>
 
 			<!-- Step 4: Completion Criteria -->
@@ -762,45 +789,45 @@
 							{/if}
 						</div>
 					</div>
+					
+					<!-- Inline Action Buttons -->
+					<div class="inline-actions">
+						{#if currentStep > 1}
+							<button 
+								class="action-btn secondary"
+								on:click={prevStep}
+								disabled={isAssigning}
+							>
+								Previous
+							</button>
+						{:else}
+							<button 
+								class="action-btn secondary"
+								on:click={handleCancel}
+								disabled={isAssigning}
+							>
+								Cancel
+							</button>
+						{/if}
+						
+						{#if currentStep === 4}
+							<button 
+								class="action-btn primary"
+								on:click={handleAssignment}
+								disabled={isAssigning || selectedTasks.size === 0 || selectedUsers.size === 0}
+							>
+								{isAssigning ? 'Assigning...' : 'Assign Tasks'}
+							</button>
+						{:else}
+							<button 
+								class="action-btn primary"
+								on:click={nextStep}
+							>
+								Next Step
+							</button>
+						{/if}
+					</div>
 				</div>
-			{/if}
-		</div>
-
-		<!-- Mobile Actions -->
-		<div class="mobile-actions">
-			{#if currentStep > 1}
-				<button 
-					class="action-btn secondary"
-					on:click={prevStep}
-					disabled={isAssigning}
-				>
-					Previous
-				</button>
-			{:else}
-				<button 
-					class="action-btn secondary"
-					on:click={handleCancel}
-					disabled={isAssigning}
-				>
-					Cancel
-				</button>
-			{/if}
-			
-			{#if currentStep === 4}
-				<button 
-					class="action-btn primary"
-					on:click={handleAssignment}
-					disabled={isAssigning || selectedTasks.size === 0 || selectedUsers.size === 0}
-				>
-					{isAssigning ? 'Assigning...' : 'Assign Tasks'}
-				</button>
-			{:else}
-				<button 
-					class="action-btn primary"
-					on:click={nextStep}
-				>
-					Next Step
-				</button>
 			{/if}
 		</div>
 	{/if}
@@ -809,52 +836,11 @@
 <style>
 	.mobile-page {
 		min-height: 100vh;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		display: flex;
-		flex-direction: column;
-	}
-
-	.mobile-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		background: rgba(255, 255, 255, 0.1);
-		backdrop-filter: blur(10px);
-		border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-		position: sticky;
-		top: 0;
-		z-index: 100;
-	}
-
-	.header-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: none;
-		border: none;
-		color: white;
-		font-size: 1rem;
-		cursor: pointer;
-		padding: 0.5rem;
-		border-radius: 8px;
-		transition: background-color 0.2s;
-	}
-
-	.header-btn:hover {
-		background: rgba(255, 255, 255, 0.1);
-	}
-
-	.header-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.header-title {
-		color: white;
-		font-size: 1.25rem;
-		font-weight: 600;
-		margin: 0;
+		min-height: 100dvh;
+		background: #F8FAFC;
+		overflow-x: hidden;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.loading-container {
@@ -863,7 +849,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		color: white;
+		color: #6B7280;
 		padding: 2rem;
 	}
 
@@ -963,25 +949,25 @@
 
 	.mobile-content {
 		flex: 1;
-		padding: 1rem;
-		padding-bottom: 6rem;
+		padding: 0.5rem 1rem;
 		overflow-y: auto;
 	}
 
 	.step-content {
 		max-width: 100%;
+		margin-top: 0.5rem;
 	}
 
 	.step-content h2 {
-		color: white;
+		color: #1F2937;
 		font-size: 1.5rem;
 		font-weight: 600;
 		margin: 0 0 0.5rem 0;
 	}
 
 	.step-description {
-		color: rgba(255, 255, 255, 0.8);
-		margin-bottom: 1.5rem;
+		color: #6B7280;
+		margin-bottom: 1rem;
 		font-size: 0.875rem;
 	}
 
@@ -1273,17 +1259,15 @@
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
-	.mobile-actions {
-		position: fixed;
-		bottom: 0;
-		left: 0;
-		right: 0;
+	.inline-actions {
 		background: white;
 		padding: 1.5rem;
 		border-top: 1px solid #e5e7eb;
+		border-radius: 16px;
+		margin-top: 1rem;
 		display: flex;
 		gap: 1rem;
-		box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
 	.action-btn {
@@ -1321,11 +1305,7 @@
 	}
 
 	@supports (padding: max(0px)) {
-		.mobile-header {
-			padding-top: max(1rem, env(safe-area-inset-top));
-		}
-
-		.mobile-actions {
+		.inline-actions {
 			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 		}
 	}

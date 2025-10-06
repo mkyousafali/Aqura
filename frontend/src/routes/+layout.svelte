@@ -16,6 +16,7 @@
 	
 	// Enhanced imports for persistent auth and push notifications
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
 	import { pushNotificationService } from '$lib/utils/pushNotifications';
@@ -208,11 +209,20 @@
 			// Detect app refresh/reopen and clear caches immediately
 			detectAppRefreshAndClearCaches();
 			
-			// Add service worker message listener for cache clearing
+			// Add service worker message listener for cache clearing and storage requests
 			if ('serviceWorker' in navigator) {
 				navigator.serviceWorker.addEventListener('message', (event) => {
 					if (event.data && event.data.type === 'CLEAR_STORAGE_EXCEPT_AUTH') {
 						clearStorageExceptAuth();
+					} else if (event.data && event.data.type === 'GET_STORAGE_VALUE') {
+						// Handle storage value requests from service worker
+						const key = event.data.key;
+						const value = localStorage.getItem(key);
+						
+						// Respond back through the message port
+						if (event.ports && event.ports[0]) {
+							event.ports[0].postMessage({ value });
+						}
 					}
 				});
 			}
@@ -233,15 +243,45 @@
 			const currentUserState = $currentUser;
 			console.log('🔐 Initial auth state check:', { authenticated: currentAuthState, user: currentUserState });
 			
+			// Check interface preference and redirect if needed
+			if (currentAuthState && currentUserState) {
+				const userId = currentUserState.id;
+				const currentPath = $page.url.pathname;
+				
+				// Check if user has mobile preference and isn't already on mobile routes
+				if (interfacePreferenceService.isMobilePreferred(userId) && 
+					!currentPath.startsWith('/mobile') && 
+					!currentPath.startsWith('/mobile-login')) {
+					
+					console.log('🔐 User has mobile preference, redirecting to mobile interface');
+					goto('/mobile');
+					return;
+				}
+				
+				// Check if user doesn't have mobile preference but is on mobile routes
+				if (!interfacePreferenceService.isMobilePreferred(userId) && 
+					currentPath.startsWith('/mobile')) {
+					
+					console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
+					goto('/');
+					return;
+				}
+			}
+			
 			// Set initial state based on current auth status
 			isAuthenticated = currentAuthState;
 			currentUserData = currentUserState;
 			
 			// Only redirect if necessary and avoid loops
-			if (currentAuthState === false && $page.url.pathname !== '/login') {
+			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-login') {
 				console.log('🔐 Initial check: Not authenticated, will redirect to login');
-			} else if (currentAuthState === true && $page.url.pathname === '/login') {
-				console.log('🔐 Initial check: Already authenticated, will redirect to dashboard');
+			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-login')) {
+				console.log('🔐 Initial check: Already authenticated, will redirect to appropriate dashboard');
+				
+				// Redirect to appropriate interface based on preference
+				const redirectRoute = interfacePreferenceService.getAppropriateRoute(currentUserState?.id);
+				goto(redirectRoute);
+				return;
 			}
 			
 			// Add a small delay to allow auth state to stabilize

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 
 	// Quick Access form
 	let quickAccessCode = '';
@@ -27,6 +28,8 @@
 
 	function checkExistingAuth() {
 		if ($isAuthenticated && $currentUser) {
+			// Ensure mobile preference is set for existing auth
+			interfacePreferenceService.forceMobileInterface($currentUser.id);
 			// User is already logged in, redirect to mobile dashboard
 			goto('/mobile');
 		}
@@ -74,8 +77,9 @@
 				successMessage = 'Access granted! Redirecting...';
 				console.log('✅ [Mobile Login] Login successful, redirecting to mobile dashboard');
 				
-				// Store mobile interface preference
-				localStorage.setItem('aqura-interface-preference', 'mobile');
+				// Store strong mobile interface preference for this user
+				interfacePreferenceService.forceMobileInterface(result.user?.id);
+				console.log('🔒 [Mobile Login] Mobile interface preference locked for user:', result.user?.id);
 				
 				// Force immediate redirect with multiple fallback methods
 				console.log('🔄 [Mobile Login] Attempting navigation to /mobile...');

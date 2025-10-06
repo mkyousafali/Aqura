@@ -89,15 +89,28 @@
 	}
 
 	function filterTasks() {
+		console.log('Filtering tasks:', { 
+			totalTasks: tasks.length, 
+			searchTerm, 
+			filterStatus, 
+			filterPriority 
+		});
+		
 		filteredTasks = tasks.filter(task => {
-			const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				task.description.toLowerCase().includes(searchTerm.toLowerCase());
+			// Safe search - handle null/undefined values
+			const title = task.title || '';
+			const description = task.description || '';
+			const matchesSearch = searchTerm === '' || 
+				title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				description.toLowerCase().includes(searchTerm.toLowerCase());
 			
 			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
 			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
 			
 			return matchesSearch && matchesStatus && matchesPriority;
 		});
+		
+		console.log('Filtered tasks result:', filteredTasks.length);
 	}
 
 	function formatDate(dateString) {
@@ -254,10 +267,8 @@
 		await loadTasks();
 	}
 
-	// Reactive filtering
-	$: {
-		filterTasks();
-	}
+	// Reactive filtering - trigger when search term or filters change
+	$: searchTerm, filterStatus, filterPriority, filterTasks();
 </script>
 
 <svelte:head>
@@ -265,23 +276,17 @@
 </svelte:head>
 
 <div class="mobile-tasks">
-	<!-- Header -->
-	<header class="page-header">
-		<div class="header-content">
-			<button class="back-btn" on:click={() => goto('/mobile')} aria-label="Go back to dashboard">
-				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M19 12H5M12 19l-7-7 7-7"/>
-				</svg>
-			</button>
-			<h1>My Tasks</h1>
-			<button class="add-btn" on:click={() => goto('/mobile/tasks/create')} aria-label="Create new task">
-				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<line x1="12" y1="5" x2="12" y2="19"/>
-					<line x1="5" y1="12" x2="19" y2="12"/>
-				</svg>
-			</button>
-		</div>
-	</header>
+	<!-- Action Header -->
+	<div class="action-header">
+		<button class="create-task-btn" on:click={() => goto('/mobile/tasks/create')}>
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="12" cy="12" r="10"/>
+				<line x1="12" y1="8" x2="12" y2="16"/>
+				<line x1="8" y1="12" x2="16" y2="12"/>
+			</svg>
+			Create Task
+		</button>
+	</div>
 
 	<!-- Filters -->
 	<div class="filters-section">
@@ -488,63 +493,53 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	/* Header */
-	.page-header {
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-		color: white;
-		padding: 1rem 1.5rem;
-		padding-top: calc(1rem + env(safe-area-inset-top));
-		box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
-		position: sticky;
-		top: 0;
-		z-index: 10;
+	/* Action Header */
+	.action-header {
+		padding: 1.2rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
 	}
 
-	.header-content {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.back-btn,
-	.add-btn {
-		width: 40px;
-		height: 40px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 10px;
-		color: white;
+	.create-task-btn {
+		width: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: 0.5rem;
+		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 0.9rem 1.2rem; /* Reduced from 1.125rem 1.5rem (20% smaller) */
+		font-size: 0.9rem; /* Reduced from 1.125rem (20% smaller) */
+		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		touch-action: manipulation;
-		backdrop-filter: blur(10px);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 	}
 
-	.back-btn:hover,
-	.add-btn:hover {
-		background: rgba(255, 255, 255, 0.2);
-		transform: scale(1.05);
+	.create-task-btn:hover {
+		background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 	}
 
-	.page-header h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		margin: 0;
+	.create-task-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 	}
 
 	/* Filters */
 	.filters-section {
-		padding: 1.5rem;
+		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
 	}
 
 	.search-box {
 		position: relative;
-		margin-bottom: 1rem;
+		margin-bottom: 0.8rem; /* Reduced from 1rem (20% smaller) */
 	}
 
 	.search-box svg {
@@ -557,10 +552,10 @@
 
 	.search-input {
 		width: 100%;
-		padding: 0.75rem 1rem 0.75rem 3rem;
+		padding: 0.6rem 0.8rem 0.6rem 2.4rem; /* Reduced padding (20% smaller) */
 		border: 2px solid #E5E7EB;
-		border-radius: 12px;
-		font-size: 1rem;
+		border-radius: 10px; /* Reduced from 12px */
+		font-size: 0.8rem; /* Reduced from 1rem (20% smaller) */
 		background: #F9FAFB;
 		color: #374151;
 		transition: all 0.3s ease;
@@ -576,16 +571,16 @@
 
 	.filter-chips {
 		display: flex;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
+		gap: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
+		margin-bottom: 0.8rem; /* Reduced from 1rem (20% smaller) */
 	}
 
 	.filter-select {
 		flex: 1;
-		padding: 0.5rem 0.75rem;
+		padding: 0.4rem 0.6rem; /* Reduced from 0.5rem 0.75rem */
 		border: 2px solid #E5E7EB;
-		border-radius: 8px;
-		font-size: 0.875rem;
+		border-radius: 6px; /* Reduced from 8px */
+		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		background: white;
 		color: #374151;
 		cursor: pointer;
@@ -599,15 +594,15 @@
 	}
 
 	.results-count {
-		font-size: 0.875rem;
+		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
 		text-align: center;
 	}
 
 	/* Content */
 	.content-section {
-		padding: 1.5rem;
-		padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
+		padding-bottom: calc(1.2rem + env(safe-area-inset-bottom));
 	}
 
 	/* Loading State */
@@ -721,7 +716,7 @@
 	}
 
 	.task-header {
-		padding: 1rem 1rem 0.5rem;
+		padding: 0.8rem 0.8rem 0.4rem; /* Reduced from 1rem 1rem 0.5rem */
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
@@ -734,16 +729,16 @@
 	}
 
 	.task-header h3 {
-		font-size: 1.1rem;
+		font-size: 0.88rem; /* Reduced from 1.1rem (20% smaller) */
 		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 0.75rem 0;
+		margin: 0 0 0.6rem 0; /* Reduced from 0.75rem */
 		line-height: 1.4;
 	}
 
 	.task-meta {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.4rem; /* Reduced from 0.5rem (20% smaller) */
 		flex-wrap: wrap;
 	}
 

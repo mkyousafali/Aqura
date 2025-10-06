@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { page } from '$app/stores';
+	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
@@ -24,13 +26,53 @@
 	$: userRole = currentUserData?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
+	// Reactive refresh when returning to dashboard
+	$: if ($page.url.pathname === '/mobile' && currentUserData) {
+		refreshNotificationCount();
+	}
+
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
 			await loadDashboardData();
 		}
 		isLoading = false;
+		
+		// Set up automatic refresh for notification count every 30 seconds
+		const refreshInterval = setInterval(async () => {
+			if (currentUserData) {
+				await refreshNotificationCount();
+			}
+		}, 30000);
+		
+		// Refresh when page becomes visible (user returns to dashboard)
+		const handleVisibilityChange = async () => {
+			if (!document.hidden && currentUserData) {
+				await refreshNotificationCount();
+			}
+		};
+		
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		
+		// Cleanup on component destroy
+		return () => {
+			clearInterval(refreshInterval);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
 	});
+
+	async function refreshNotificationCount() {
+		try {
+			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
+			if (userNotifications && userNotifications.length > 0) {
+				stats.unreadNotifications = userNotifications.filter(n => !n.is_read).length;
+			} else {
+				stats.unreadNotifications = 0;
+			}
+		} catch (error) {
+			console.error('Error refreshing notification count:', error);
+		}
+	}
 
 	async function loadDashboardData() {
 		try {
@@ -155,8 +197,18 @@
 	}
 
 	function logout() {
-		localStorage.removeItem('aqura-interface-preference');
-		goto('/login');
+		// Clear interface preference to allow user to choose again
+		interfacePreferenceService.clearPreference(currentUserData?.id);
+		
+		// Logout from persistent auth service
+		persistentAuthService.logout().then(() => {
+			// Redirect to login page to choose interface again
+			goto('/login');
+		}).catch((error) => {
+			console.error('Logout error:', error);
+			// Still redirect even if logout fails
+			goto('/login');
+		});
 	}
 
 	function openCreateNotification() {
@@ -175,33 +227,6 @@
 </svelte:head>
 
 <div class="mobile-dashboard">
-	<!-- Header -->
-	<header class="mobile-header">
-		<div class="header-content">
-			<div class="user-info">
-				<div class="user-avatar">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-						<circle cx="12" cy="7" r="4"/>
-					</svg>
-				</div>
-				<div class="user-details">
-					<h1>Welcome back!</h1>
-					<p>{currentUserData?.name || currentUserData?.username || 'User'}</p>
-				</div>
-			</div>
-			<div class="header-actions">
-				<button class="logout-btn" on:click={logout}>
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-						<polyline points="16,17 21,12 16,7"/>
-						<line x1="21" y1="12" x2="9" y2="12"/>
-					</svg>
-				</button>
-			</div>
-		</div>
-	</header>
-
 	{#if isLoading}
 		<div class="loading-content">
 			<div class="loading-spinner"></div>
@@ -262,58 +287,6 @@
 						<p>Total Tasks</p>
 					</div>
 				</div>
-			</div>
-		</section>
-
-		<!-- Quick Actions -->
-		<section class="actions-section">
-			<h2>Quick Actions</h2>
-			<div class="actions-grid">
-				<button class="action-btn primary" on:click={() => goto('/mobile/tasks')}>
-					<div class="action-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
-							<rect x="9" y="7" width="6" height="5"/>
-						</svg>
-					</div>
-					<span>My Tasks</span>
-				</button>
-
-				<button class="action-btn secondary" on:click={() => goto('/mobile/tasks/create')}>
-					<div class="action-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<line x1="12" y1="8" x2="12" y2="16"/>
-							<line x1="8" y1="12" x2="16" y2="12"/>
-						</svg>
-					</div>
-					<span>Create Task</span>
-				</button>
-
-				<button class="action-btn success" on:click={() => goto('/mobile/tasks/assign')}>
-					<div class="action-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-							<circle cx="9" cy="7" r="4"/>
-							<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-						</svg>
-					</div>
-					<span>Assign Tasks</span>
-				</button>
-
-				{#if isAdminOrMaster}
-					<button class="action-btn warning" on:click={openCreateNotification}>
-						<div class="action-icon">
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M3 3h6l3 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
-								<path d="M8 12h8"/>
-								<path d="M12 8v8"/>
-							</svg>
-						</div>
-						<span>Create Notification</span>
-					</button>
-				{/if}
 			</div>
 		</section>
 
@@ -409,71 +382,6 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	/* Header */
-	.mobile-header {
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-		color: white;
-		padding: 1rem 1.5rem;
-		padding-top: calc(1rem + env(safe-area-inset-top));
-		box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
-	}
-
-	.header-content {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.user-info {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.user-avatar {
-		width: 48px;
-		height: 48px;
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 12px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		backdrop-filter: blur(10px);
-	}
-
-	.user-details h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		margin: 0 0 0.25rem 0;
-	}
-
-	.user-details p {
-		font-size: 0.875rem;
-		opacity: 0.8;
-		margin: 0;
-	}
-
-	.logout-btn {
-		width: 40px;
-		height: 40px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 10px;
-		color: white;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-		backdrop-filter: blur(10px);
-	}
-
-	.logout-btn:hover {
-		background: rgba(255, 255, 255, 0.2);
-		transform: scale(1.05);
-	}
-
 	/* Loading */
 	.loading-content {
 		display: flex;
@@ -503,23 +411,23 @@
 
 	/* Stats Section */
 	.stats-section {
-		padding: 1.5rem;
+		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 	}
 
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 1rem;
+		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
 	}
 
 	.stat-card {
 		background: white;
-		border-radius: 16px;
-		padding: 1.5rem;
+		border-radius: 13px; /* Reduced from 16px (20% smaller) */
+		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
 		transition: all 0.3s ease;
 	}
 
@@ -529,9 +437,9 @@
 	}
 
 	.stat-icon {
-		width: 48px;
-		height: 48px;
-		border-radius: 12px;
+		width: 38px; /* Reduced from 48px (20% smaller) */
+		height: 38px; /* Reduced from 48px (20% smaller) */
+		border-radius: 10px; /* Reduced from 12px (20% smaller) */
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -572,127 +480,32 @@
 	}
 
 	.stat-info h3 {
-		font-size: 2rem;
+		font-size: 1.6rem; /* Reduced from 2rem (20% smaller) */
 		font-weight: 700;
-		margin: 0 0 0.25rem 0;
+		margin: 0 0 0.2rem 0; /* Reduced from 0.25rem */
 		color: #1F2937;
 	}
 
 	.stat-info p {
-		font-size: 0.875rem;
+		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
 		margin: 0;
 	}
 
-	/* Actions Section */
-	.actions-section {
-		padding: 0 1.5rem 1.5rem;
-	}
-
-	.actions-section h2 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1F2937;
-		margin: 0 0 1rem 0;
-	}
-
-	.actions-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 1rem;
-	}
-
-	.action-btn {
-		background: white;
-		border: none;
-		border-radius: 16px;
-		padding: 1.5rem;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.75rem;
-		text-align: center;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		touch-action: manipulation;
-		color: #374151;
-		font-size: 0.875rem;
-		font-weight: 500;
-	}
-
-	.action-btn:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-	}
-
-	.action-icon {
-		width: 48px;
-		height: 48px;
-		border-radius: 12px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-	}
-
-	.notification-badge {
-		position: absolute;
-		top: -4px;
-		right: -4px;
-		background: #EF4444;
-		color: white;
-		border-radius: 50%;
-		min-width: 20px;
-		height: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.75rem;
-		font-weight: 600;
-		border: 2px solid white;
-		z-index: 10;
-	}
-
-	.action-btn.primary .action-icon {
-		background: rgba(59, 130, 246, 0.1);
-		color: #3B82F6;
-	}
-
-	.action-btn.secondary .action-icon {
-		background: rgba(99, 102, 241, 0.1);
-		color: #6366F1;
-	}
-
-	.action-btn.accent .action-icon {
-		background: rgba(245, 158, 11, 0.1);
-		color: #F59E0B;
-	}
-
-	.action-btn.success .action-icon {
-		background: rgba(16, 185, 129, 0.1);
-		color: #10B981;
-	}
-
-	.action-btn.warning .action-icon {
-		background: rgba(245, 158, 11, 0.1);
-		color: #F59E0B;
-	}
-
 	/* Recent Sections */
 	.recent-section {
-		padding: 0 1.5rem 1.5rem;
+		padding: 0 1.2rem 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 	}
 
 	.section-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 1rem;
+		margin-bottom: 0.8rem; /* Reduced from 1rem (20% smaller) */
 	}
 
 	.section-header h2 {
-		font-size: 1.25rem;
+		font-size: 1rem; /* Reduced from 1.25rem (20% smaller) */
 		font-weight: 600;
 		color: #1F2937;
 		margin: 0;
@@ -702,11 +515,11 @@
 		background: none;
 		border: none;
 		color: #3B82F6;
-		font-size: 0.875rem;
+		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		font-weight: 500;
 		cursor: pointer;
-		padding: 0.5rem;
-		border-radius: 6px;
+		padding: 0.4rem; /* Reduced from 0.5rem (20% smaller) */
+		border-radius: 5px; /* Reduced from 6px */
 		transition: all 0.3s ease;
 		touch-action: manipulation;
 	}
@@ -719,13 +532,13 @@
 	.task-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
 	}
 
 	.task-card {
 		background: white;
-		border-radius: 12px;
-		padding: 1rem;
+		border-radius: 10px; /* Reduced from 12px (20% smaller) */
+		padding: 0.8rem; /* Reduced from 1rem (20% smaller) */
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		cursor: pointer;
 		transition: all 0.3s ease;
@@ -741,12 +554,12 @@
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
-		margin-bottom: 0.5rem;
-		gap: 0.75rem;
+		margin-bottom: 0.4rem; /* Reduced from 0.5rem (20% smaller) */
+		gap: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
 	}
 
 	.task-header h3 {
-		font-size: 1rem;
+		font-size: 0.8rem; /* Reduced from 1rem (20% smaller) */
 		font-weight: 600;
 		color: #1F2937;
 		margin: 0;
@@ -755,18 +568,18 @@
 	}
 
 	.task-priority {
-		font-size: 0.75rem;
+		font-size: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
 		font-weight: 600;
-		padding: 0.25rem 0.5rem;
-		border-radius: 6px;
+		padding: 0.2rem 0.4rem; /* Reduced from 0.25rem 0.5rem */
+		border-radius: 5px; /* Reduced from 6px */
 		text-transform: uppercase;
 		flex-shrink: 0;
 	}
 
 	.task-description {
-		font-size: 0.875rem;
+		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
-		margin: 0 0 0.75rem 0;
+		margin: 0 0 0.6rem 0; /* Reduced from 0.75rem */
 		line-height: 1.4;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
@@ -885,19 +698,16 @@
 		}
 
 		.stats-section,
-		.actions-section,
 		.recent-section {
 			padding-left: 1rem;
 			padding-right: 1rem;
 		}
 
-		.stat-card,
-		.action-btn {
+		.stat-card {
 			padding: 1rem;
 		}
 
-		.stat-icon,
-		.action-icon {
+		.stat-icon {
 			width: 40px;
 			height: 40px;
 		}

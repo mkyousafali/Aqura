@@ -4,6 +4,9 @@
 	import { t, currentLocale } from '$lib/i18n';
 	import { showInstallPrompt, isInstalled, installPWA, initPWAInstall } from '$lib/stores/pwaInstall';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
@@ -25,6 +28,17 @@
 	onMount(() => {
 		initPWAInstall();
 	});
+
+	// Switch to mobile interface
+	function switchToMobileInterface() {
+		if ($currentUser) {
+			// Set mobile preference for this user
+			interfacePreferenceService.forceMobileInterface($currentUser.id);
+			console.log('🔄 Switching to mobile interface for user:', $currentUser.id);
+			// Navigate to mobile interface
+			goto('/mobile');
+		}
+	}
 
 	// Handle PWA installation
 	async function handlePWAInstall() {
@@ -250,6 +264,17 @@
 
 <div class="sidebar">
 	<div class="sidebar-content">
+		<!-- Interface Switch Header -->
+		<div class="sidebar-header">
+			<button 
+				class="interface-switch-btn"
+				on:click={switchToMobileInterface}
+				title="Switch to Mobile Interface"
+			>
+				Mobile
+			</button>
+		</div>
+
 		<!-- Master Section -->
 		<div class="menu-section">
 			<button 
@@ -381,6 +406,52 @@
 {/if}
 
 <style>
+	.sidebar-header {
+		padding: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.interface-switch-btn {
+		width: 100%;
+		padding: 0.5rem 1rem;
+		background: linear-gradient(145deg, #3b82f6, #2563eb);
+		border: none;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		box-shadow: 
+			0 2px 4px rgba(59, 130, 246, 0.3),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+		text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+	}
+
+	.interface-switch-btn:hover {
+		background: linear-gradient(145deg, #2563eb, #1d4ed8);
+		transform: translateY(-1px);
+		box-shadow: 
+			0 3px 6px rgba(59, 130, 246, 0.4),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+	}
+
+	.interface-switch-btn:active {
+		transform: translateY(1px);
+		box-shadow: 
+			0 1px 2px rgba(59, 130, 246, 0.3),
+			inset 0 1px 3px rgba(0, 0, 0, 0.2);
+	}
+
+	.interface-switch-btn:active {
+		transform: translateY(1px);
+		box-shadow: 
+			0 1px 2px rgba(59, 130, 246, 0.3),
+			inset 0 1px 3px rgba(0, 0, 0, 0.2);
+	}
+
 	.sidebar {
 		position: fixed;
 		left: 0;

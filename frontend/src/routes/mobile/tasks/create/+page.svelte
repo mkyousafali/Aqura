@@ -114,16 +114,6 @@
 />
 
 <div class="mobile-page">
-	<div class="mobile-header">
-		<button class="header-btn" on:click={handleCancel}>
-			Back
-		</button>
-		<h1>Create Task</h1>
-		<button class="header-btn" on:click={handleSubmit} disabled={isSubmitting}>
-			{isSubmitting ? 'Saving...' : 'Save'}
-		</button>
-	</div>
-
 	<div class="mobile-content">
 		<div class="form-group">
 			<label for="title">Task Title *</label>
@@ -167,53 +157,32 @@
 				on:uploadComplete={handleUploadComplete}
 			/>
 		</div>
-	</div>
 
-	<div class="mobile-actions">
-		<button class="action-btn secondary" on:click={handleCancel} disabled={isSubmitting}>
-			Cancel
-		</button>
-		<button class="action-btn primary" on:click={handleSubmit} disabled={isSubmitting}>
-			{isSubmitting ? 'Creating...' : 'Create Task'}
-		</button>
+		<!-- Inline Action Buttons -->
+		<div class="inline-actions">
+			<button class="action-btn secondary" on:click={handleCancel} disabled={isSubmitting}>
+				Cancel
+			</button>
+			<button class="action-btn primary" on:click={handleSubmit} disabled={isSubmitting}>
+				{isSubmitting ? 'Creating...' : 'Create Task'}
+			</button>
+		</div>
 	</div>
 </div>
 
 <style>
 	.mobile-page {
 		min-height: 100vh;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		display: flex;
-		flex-direction: column;
-	}
-
-	.mobile-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		background: rgba(255, 255, 255, 0.1);
-		backdrop-filter: blur(10px);
-		color: white;
-	}
-
-	.header-btn {
-		background: none;
-		border: none;
-		color: white;
-		padding: 0.5rem;
-		border-radius: 8px;
-		cursor: pointer;
-	}
-
-	.header-btn:hover {
-		background: rgba(255, 255, 255, 0.1);
+		min-height: 100dvh;
+		background: #F8FAFC;
+		overflow-x: hidden;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.mobile-content {
 		flex: 1;
 		padding: 1rem;
-		padding-bottom: 6rem;
 	}
 
 	.form-group {
@@ -221,7 +190,7 @@
 		border-radius: 12px;
 		padding: 1.5rem;
 		margin-bottom: 1rem;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
 	.upload-header {
@@ -264,15 +233,15 @@
 		margin-top: 0.25rem;
 	}
 
-	.mobile-actions {
-		position: fixed;
-		bottom: 0;
-		left: 0;
-		right: 0;
+	.inline-actions {
 		background: white;
 		padding: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+		border-radius: 16px;
+		margin-top: 1rem;
 		display: flex;
 		gap: 1rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
 	.action-btn {
