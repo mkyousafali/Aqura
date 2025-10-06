@@ -8,6 +8,7 @@
 	import MyTasksView from './tasks/MyTasksView.svelte';
 	import TaskStatusView from './tasks/TaskStatusView.svelte';
 	import MyAssignmentsView from './tasks/MyAssignmentsView.svelte';
+	import QuickTaskWindow from './tasks/QuickTaskWindow.svelte';
 
 	// Task statistics
 	let taskStats = {
@@ -178,6 +179,15 @@
 	function refreshData() {
 		fetchTaskStatistics();
 	}
+
+	function openQuickTaskWindow() {
+		const windowId = generateWindowId('quick-task');
+		windowManager.openWindow({
+			id: windowId,
+			title: 'Quick Task',
+			component: QuickTaskWindow
+		});
+	}
 </script>
 
 <div class="task-master-dashboard">
@@ -193,16 +203,28 @@
 			</div>
 			<h1 class="title">Task Master Dashboard</h1>
 			<p class="subtitle">Comprehensive Task Management System</p>
-			<button
-				on:click={refreshData}
-				class="refresh-btn"
-				title="Refresh Data"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-				</svg>
-				<span>Refresh</span>
-			</button>
+			<div class="header-buttons">
+				<button
+					on:click={openQuickTaskWindow}
+					class="quick-task-btn"
+					title="Create Quick Task"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+					</svg>
+					<span>Quick Task</span>
+				</button>
+				<button
+					on:click={refreshData}
+					class="refresh-btn"
+					title="Refresh Data"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+					</svg>
+					<span>Refresh</span>
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -467,6 +489,39 @@
 	}
 
 	.refresh-btn span {
+		margin-left: 8px;
+	}
+
+	/* Header Buttons Container */
+	.header-buttons {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
+	/* Quick Task Button */
+	.quick-task-btn {
+		display: flex;
+		align-items: center;
+		padding: 8px 16px;
+		background: #3b82f6;
+		color: white;
+		border: 1px solid #3b82f6;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.quick-task-btn:hover {
+		background: #2563eb;
+		border-color: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	.quick-task-btn span {
 		margin-left: 8px;
 	}
 

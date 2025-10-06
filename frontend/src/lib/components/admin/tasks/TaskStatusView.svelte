@@ -126,9 +126,9 @@
 
 			// Get all unique user IDs to fetch user details
 			const userIds = [...new Set([
-				...assignments.map(a => a.assigned_by).filter(Boolean),
-				...assignments.map(a => a.assigned_to_user_id).filter(Boolean)
-			])];
+				...assignments.map(a => a.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36 && !id.startsWith('{')),
+				...assignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36 && !id.startsWith('{'))
+			])].filter(Boolean);
 
 			// Get user details for assigned_by and assigned_to users
 			let usersData = [];
@@ -147,6 +147,10 @@
 
 				if (!usersError) {
 					usersData = users || [];
+					console.log('Fetched users data:', usersData);
+					console.log('User IDs needed:', userIds);
+				} else {
+					console.error('Error fetching users:', usersError);
 				}
 			}
 
@@ -186,12 +190,25 @@
 
 				let key, assignedByName, assignedToName;
 
-				// Get assigned by name: prioritize employee name from HR table, then username, then UUID
-				assignedByName = assignedByUser?.hr_employees?.name || assignedByUser?.username || assignment.assigned_by;
+				// Get assigned by name: prioritize employee name from HR table, then username, then fallback
+				if (assignedByUser) {
+					assignedByName = assignedByUser.hr_employees?.name || assignedByUser.username || `User ${assignment.assigned_by.substring(0, 8)}...`;
+				} else {
+					// Check if assigned_by is a valid UUID format
+					if (assignment.assigned_by && typeof assignment.assigned_by === 'string' && assignment.assigned_by.length === 36 && !assignment.assigned_by.startsWith('{')) {
+						assignedByName = `User ${assignment.assigned_by.substring(0, 8)}...`;
+					} else {
+						assignedByName = 'System';
+					}
+				}
 
 				if (assignment.assignment_type === 'user' && assignment.assigned_to_user_id) {
 					key = `${assignment.assigned_by}-${assignment.assigned_to_user_id}`;
-					assignedToName = assignedToUser?.hr_employees?.name || assignedToUser?.username || `User ${assignment.assigned_to_user_id}`;
+					if (assignedToUser) {
+						assignedToName = assignedToUser.hr_employees?.name || assignedToUser.username || `User ${assignment.assigned_to_user_id.substring(0, 8)}...`;
+					} else {
+						assignedToName = `User ${assignment.assigned_to_user_id.substring(0, 8)}...`;
+					}
 				} else if (assignment.assignment_type === 'branch' && assignment.assigned_to_branch_id) {
 					key = `${assignment.assigned_by}-branch-${assignment.assigned_to_branch_id}`;
 					assignedToName = `Branch: ${assignedToBranch?.name || assignment.assigned_to_branch_id}`;

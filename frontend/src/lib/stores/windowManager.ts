@@ -54,7 +54,7 @@ class WindowManager {
 				isActive: w.isActive,
 				isMinimized: w.state === 'minimized'
 			}))
-			.sort((a, b) => a.title.localeCompare(b.title))
+			.sort((a, b) => (a.title || '').localeCompare(b.title || ''))
 	);
 
 	public readonly activeWindow: Readable<WindowConfig | null> = derived(

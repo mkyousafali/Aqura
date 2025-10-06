@@ -5,6 +5,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
+	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
 	
 	let tasks = [];
 	let filteredTasks = [];
@@ -12,6 +13,7 @@
 	let searchTerm = '';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
+	let filterTaskType = 'all';
 	
 	// Live countdown state
 	let countdownInterval = null;
@@ -60,8 +62,8 @@
 		console.log('🔄 [MyTasks] Loading tasks for user:', userId);
 		loading = true;
 		try {
-			// First, fetch task assignments with task details
-			const { data, error } = await supabase
+			// First, fetch regular task assignments with task details
+			const { data: regularTasks, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
 					*,
@@ -82,13 +84,42 @@
 				.eq('assigned_to_user_id', userId)
 				.order('assigned_at', { ascending: false });
 
-			console.log('📊 [MyTasks] Query result:', { data, error, userID: userId });
+			console.log('📊 [MyTasks] Regular tasks query result:', { data: regularTasks, error: regularError, userID: userId });
 			
-			if (error) throw error;
+			if (regularError) throw regularError;
 
-			// Load task images and assigned_by user details for each task
-			const tasksWithImages = await Promise.all(
-				data.map(async (assignment) => {
+			// Fetch Quick Task assignments
+			const { data: quickTasks, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					*,
+					quick_task:quick_tasks!inner(
+						id,
+						title,
+						description,
+						price_tag,
+						issue_type,
+						priority,
+						assigned_by,
+						assigned_to_branch_id,
+						created_at,
+						deadline_datetime,
+						completed_at,
+						status
+					)
+				`)
+				.eq('assigned_to_user_id', userId)
+				.order('created_at', { ascending: false });
+
+			console.log('📊 [MyTasks] Quick tasks query result:', { data: quickTasks, error: quickError, userID: userId });
+			
+			if (quickError) {
+				console.warn('⚠️ [MyTasks] Error loading quick tasks (table may not exist):', quickError);
+			}
+
+			// Load task images and assigned_by user details for regular tasks
+			const regularTasksWithImages = await Promise.all(
+				(regularTasks || []).map(async (assignment) => {
 					// Fetch task images
 					const { data: images, error: imageError } = await supabase
 						.from('task_images')
@@ -156,14 +187,102 @@
 						require_photo_upload: assignment.require_photo_upload ?? false,
 						require_erp_reference: assignment.require_erp_reference ?? false,
 						// Task images
-						images: images || []
+						images: images || [],
+						// Task type
+						task_type: 'regular'
 					};
 				})
 			);
 
-			tasks = tasksWithImages;
+			// Process Quick Tasks
+			const quickTasksWithDetails = await Promise.all(
+				(quickTasks || []).map(async (assignment) => {
+					// Fetch quick task files (attachments)
+					const { data: files, error: filesError } = await supabase
+						.from('quick_task_files')
+						.select('*')
+						.eq('quick_task_id', assignment.quick_task.id);
+					
+					if (filesError) {
+						console.error('Error loading quick task files:', filesError);
+					}
+
+					// Fetch assigned_by user details
+					let assignedByName = 'Unknown User';
+					if (assignment.quick_task.assigned_by) {
+						try {
+							const { data: assignedByUser, error: userError } = await supabase
+								.from('users')
+								.select(`
+									id,
+									username,
+									hr_employees!employee_id(
+										name
+									)
+								`)
+								.eq('id', assignment.quick_task.assigned_by)
+								.single();
+
+							if (!userError && assignedByUser) {
+								if (assignedByUser.hr_employees && assignedByUser.hr_employees.length > 0) {
+									assignedByName = assignedByUser.hr_employees[0].name;
+								} else {
+									assignedByName = assignedByUser.username;
+								}
+							}
+						} catch (err) {
+							console.error('Error fetching assigned_by user for quick task:', err);
+						}
+					}
+
+					// Convert Quick Task to match regular task structure
+					return {
+						id: assignment.quick_task.id,
+						title: assignment.quick_task.title,
+						description: assignment.quick_task.description,
+						priority: assignment.quick_task.priority,
+						status: assignment.quick_task.status,
+						created_at: assignment.quick_task.created_at,
+						due_date: null, // Quick tasks use deadline_datetime
+						due_time: null,
+						deadline_datetime: assignment.quick_task.deadline_datetime,
+						assignment_id: assignment.id,
+						assignment_status: assignment.status,
+						assigned_at: assignment.created_at,
+						assigned_by: assignment.quick_task.assigned_by,
+						assigned_by_name: assignedByName,
+						assigned_to_user_id: assignment.assigned_to_user_id,
+						schedule_date: null,
+						schedule_time: null,
+						// Quick task specific fields
+						price_tag: assignment.quick_task.price_tag,
+						issue_type: assignment.quick_task.issue_type,
+						// Assignment requirements (Quick tasks don't have these by default)
+						require_task_finished: false,
+						require_photo_upload: false,
+						require_erp_reference: false,
+						// Quick task files as images
+						images: files || [],
+						files: files || [],
+						// Task type
+						task_type: 'quick_task'
+					};
+				})
+			);
+
+			// Combine regular tasks and quick tasks
+			const allTasks = [...regularTasksWithImages, ...quickTasksWithDetails];
+			
+			// Sort by creation date (newest first)
+			allTasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+			tasks = allTasks;
 			filterTasks();
-			console.log('✅ [MyTasks] Successfully loaded tasks:', tasks.length);
+			console.log('✅ [MyTasks] Successfully loaded tasks:', { 
+				total: tasks.length, 
+				regular: regularTasksWithImages.length, 
+				quick: quickTasksWithDetails.length 
+			});
 		} catch (error) {
 			console.error('❌ [MyTasks] Error loading my tasks:', error);
 		} finally {
@@ -178,48 +297,135 @@
 			
 			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
 			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
+			const matchesTaskType = filterTaskType === 'all' || 
+				(filterTaskType === 'regular' && task.task_type !== 'quick_task') ||
+				(filterTaskType === 'quick_task' && task.task_type === 'quick_task');
 			
-			return matchesSearch && matchesStatus && matchesPriority;
+			return matchesSearch && matchesStatus && matchesPriority && matchesTaskType;
 		});
 	}
 
 	function openTaskCompletion(task) {
-		const windowId = `task-completion-${task.id}`;
-		windowManager.openWindow({
-			id: windowId,
-			title: `Complete Task: ${task.title}`,
-			component: TaskCompletionModal,
-			props: {
-				task: task,
-				assignmentId: task.assignment_id,
-				// Use actual requirements from the task/assignment data instead of forcing all to true
-				requireTaskFinished: task.require_task_finished ?? false,
-				requirePhotoUpload: task.require_photo_upload ?? false,
-				requireErpReference: task.require_erp_reference ?? false,
-				onTaskCompleted: () => {
-					loadMyTasks();
-					windowManager.closeWindow(windowId);
-				}
-			},
-			icon: '✅',
-			size: { width: 600, height: 700 },
-			position: { 
-				x: 100 + (Math.random() * 200), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
+		if (task.task_type === 'quick_task') {
+			openQuickTaskCompletion(task);
+		} else {
+			const windowId = `task-completion-${task.id}`;
+			windowManager.openWindow({
+				id: windowId,
+				title: `Complete Task: ${task.title}`,
+				component: TaskCompletionModal,
+				props: {
+					task: task,
+					assignmentId: task.assignment_id,
+					// Use actual requirements from the task/assignment data instead of forcing all to true
+					requireTaskFinished: task.require_task_finished ?? false,
+					requirePhotoUpload: task.require_photo_upload ?? false,
+					requireErpReference: task.require_erp_reference ?? false,
+					onTaskCompleted: () => {
+						loadMyTasks();
+						windowManager.closeWindow(windowId);
+					}
+				},
+				icon: '✅',
+				size: { width: 600, height: 700 },
+				position: { 
+					x: 100 + (Math.random() * 200), 
+					y: 50 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}
+	}
+
+	async function openQuickTaskCompletion(task) {
+		const confirmed = confirm(`Complete Quick Task: ${task.title}?\n\nThis will mark the task as completed.`);
+		if (!confirmed) return;
+
+		try {
+			const now = new Date().toISOString();
+			
+			// Update the Quick Task assignment status
+			const { error: assignmentError } = await supabase
+				.from('quick_task_assignments')
+				.update({
+					status: 'completed',
+					completed_at: now,
+					updated_at: now
+				})
+				.eq('id', task.assignment_id);
+
+			if (assignmentError) throw assignmentError;
+
+			// Check if all assignments for this quick task are completed
+			const { data: allAssignments, error: checkError } = await supabase
+				.from('quick_task_assignments')
+				.select('status')
+				.eq('quick_task_id', task.id);
+
+			if (checkError) throw checkError;
+
+			// If all assignments are completed, update the main quick task
+			const allCompleted = allAssignments.every(a => a.status === 'completed');
+			if (allCompleted) {
+				const { error: taskError } = await supabase
+					.from('quick_tasks')
+					.update({
+						status: 'completed',
+						completed_at: now,
+						updated_at: now
+					})
+					.eq('id', task.id);
+
+				if (taskError) throw taskError;
+			}
+
+			alert('Quick Task completed successfully!');
+			loadMyTasks(); // Reload the tasks list
+		} catch (error) {
+			console.error('Error completing quick task:', error);
+			alert('Error completing quick task. Please try again.');
+		}
 	}
 
 	function openTaskDetails(task) {
-		const windowId = `task-details-${task.id}`;
+		if (task.task_type === 'quick_task') {
+			openQuickTaskDetails(task);
+		} else {
+			const windowId = `task-details-${task.id}`;
+			windowManager.openWindow({
+				id: windowId,
+				title: `Task Details: ${task.title}`,
+				component: TaskDetailsModal,
+				props: {
+					task: task,
+					windowId: windowId,
+					onTaskCompleted: () => {
+						loadMyTasks();
+					}
+				},
+				icon: '📋',
+				size: { width: 800, height: 600 },
+				position: { 
+					x: 150 + (Math.random() * 100), 
+					y: 100 + (Math.random() * 50) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}
+	}
+
+	function openQuickTaskDetails(task) {
+		const windowId = `quick-task-details-${task.id}`;
 		windowManager.openWindow({
 			id: windowId,
-			title: `Task Details: ${task.title}`,
-			component: TaskDetailsModal,
+			title: `⚡ Quick Task Details: ${task.title}`,
+			component: QuickTaskDetailsModal,
 			props: {
 				task: task,
 				windowId: windowId,
@@ -227,7 +433,7 @@
 					loadMyTasks();
 				}
 			},
-			icon: '📋',
+			icon: '⚡',
 			size: { width: 800, height: 600 },
 			position: { 
 				x: 150 + (Math.random() * 100), 
@@ -345,6 +551,52 @@
 		};
 	}
 
+	function getDeadlineDisplayFromDatetime(deadlineDatetime) {
+		if (!deadlineDatetime) return { text: 'No deadline set', class: 'text-gray-500' };
+		
+		const now = new Date();
+		const deadline = new Date(deadlineDatetime);
+		
+		// Check if overdue
+		const isLate = now > deadline;
+		
+		if (isLate) {
+			return {
+				text: `Overdue since ${formatDate(deadline.toISOString().split('T')[0])} at ${formatTime(deadline.toTimeString().substring(0, 5))}`,
+				class: 'text-red-600 font-semibold',
+				isOverdue: true
+			};
+		}
+		
+		// Calculate time remaining
+		const diffMs = deadline.getTime() - now.getTime();
+		const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+		const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+		const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+		
+		// Format the countdown string
+		let timeString = '';
+		if (days > 0) {
+			timeString += `${days} day${days !== 1 ? 's' : ''}`;
+		}
+		if (hours > 0) {
+			if (timeString) timeString += ', ';
+			timeString += `${hours} hour${hours !== 1 ? 's' : ''}`;
+		}
+		if (minutes > 0 || timeString === '') {
+			if (timeString) timeString += ', ';
+			timeString += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+		}
+		
+		timeString += ' remaining';
+		
+		return {
+			text: timeString,
+			class: days > 1 ? 'text-gray-700' : days >= 1 ? 'text-yellow-600 font-medium' : 'text-red-600 font-semibold',
+			isOverdue: false
+		};
+	}
+
 	function startCountdownTimer() {
 		// Clear any existing interval
 		if (countdownInterval) {
@@ -428,6 +680,17 @@
 					<option value="low">Low</option>
 				</select>
 			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
+				<select
+					bind:value={filterTaskType}
+					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="all">All Types</option>
+					<option value="regular">Regular Tasks</option>
+					<option value="quick">Quick Tasks</option>
+				</select>
+			</div>
 		</div>
 	</div>
 
@@ -454,6 +717,11 @@
 								<div class="flex-1">
 									<div class="flex items-center space-x-3 mb-2">
 										<h3 class="text-lg font-semibold text-gray-900">{task.title}</h3>
+										{#if task.task_type === 'quick_task'}
+											<span class="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+												⚡ QUICK TASK
+											</span>
+										{/if}
 										<span class="px-2 py-1 rounded-full text-xs font-medium {getPriorityColor(task.priority)}">
 											{task.priority?.toUpperCase()}
 										</span>
@@ -464,6 +732,26 @@
 									
 									<p class="text-gray-600 mb-3">{task.description}</p>
 									
+									<!-- Quick Task specific fields -->
+									{#if task.task_type === 'quick_task'}
+										<div class="mb-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+											<div class="grid grid-cols-2 gap-2 text-sm">
+												{#if task.issue_type}
+													<div>
+														<span class="font-medium text-purple-700">Issue Type:</span>
+														<span class="text-purple-900">{task.issue_type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+													</div>
+												{/if}
+												{#if task.price_tag}
+													<div>
+														<span class="font-medium text-purple-700">Price Tag:</span>
+														<span class="text-purple-900">{task.price_tag.toUpperCase()}</span>
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/if}
+									
 									<!-- Task Attachments Indicator -->
 									{#if task.images && task.images.length > 0}
 										<div class="mb-4">
@@ -472,7 +760,7 @@
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
 												</svg>
 												<span class="text-sm font-medium">
-													Task has {task.images.length} attachment{task.images.length !== 1 ? 's' : ''}
+													{task.task_type === 'quick_task' ? 'Quick task has' : 'Task has'} {task.images.length} attachment{task.images.length !== 1 ? 's' : ''}
 												</span>
 											</div>
 										</div>
@@ -485,7 +773,20 @@
 										<div>
 											<span class="font-medium">Task Status:</span> {task.status || 'Unknown'}
 										</div>
-										{#if task.deadline_date}
+										{#if task.task_type === 'quick_task' && task.deadline_datetime}
+											{@const deadlineInfo = getDeadlineDisplayFromDatetime(task.deadline_datetime)}
+											<div class="col-span-2">
+												<span class="font-medium">Deadline:</span> 
+												<span class="{deadlineInfo.class}">
+													{deadlineInfo.text}
+													{#if deadlineInfo.isOverdue}
+														<span class="inline-flex items-center px-2 py-0.5 ml-2 text-xs font-medium bg-red-100 text-red-800 rounded-full">
+															⚠️ OVERDUE
+														</span>
+													{/if}
+												</span>
+											</div>
+										{:else if task.deadline_date}
 											{@const deadlineInfo = getDeadlineDisplay(task.deadline_date, task.deadline_time)}
 											<div class="col-span-2">
 												<span class="font-medium">Deadline:</span> 
