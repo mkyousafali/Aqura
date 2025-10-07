@@ -249,16 +249,29 @@ export class PushNotificationService {
 				return null;
 			}
 
+			// Double-check that Service Worker is still active before subscription
+			await navigator.serviceWorker.ready;
+			const currentRegistration = await navigator.serviceWorker.ready;
+			
+			if (!currentRegistration.active) {
+				throw new Error('Service Worker is not active at subscription time');
+			}
+			
+			console.log('🔔 Service Worker confirmed active, proceeding with subscription...');
+
 			// Check for existing subscription
-			this.subscription = await this.swRegistration.pushManager.getSubscription();
+			this.subscription = await currentRegistration.pushManager.getSubscription();
 
 			if (!this.subscription) {
 				// Create new subscription
-				this.subscription = await this.swRegistration.pushManager.subscribe({
+				this.subscription = await currentRegistration.pushManager.subscribe({
 					userVisibleOnly: true,
 					applicationServerKey: this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource
 				});
 			}
+
+			// Update registration reference
+			this.swRegistration = currentRegistration;
 
 			// Register device with backend
 			await this.registerDevice();
