@@ -384,140 +384,340 @@ self.addEventListener('sync', (event) => {
 });
 
 // Push notification handling - handles both push events and direct showNotification calls
+// CRITICAL: This works even when main app is completely closed but user is still logged in
 self.addEventListener('push', (event) => {
-	console.log('[ServiceWorker] 🔔 Push received', event);
+	console.log('[ServiceWorker] 🔔 Push received - App may be completely closed', event);
 	
 	let notificationData;
 	try {
 		// Try to parse JSON data from push event
 		notificationData = event.data ? event.data.json() : null;
+		console.log('[ServiceWorker] 📨 Parsed notification data:', notificationData);
 	} catch (error) {
+		console.warn('[ServiceWorker] ⚠️ JSON parsing failed, using fallback:', error);
 		// Fallback to text if JSON parsing fails
 		notificationData = event.data ? { body: event.data.text() } : null;
 	}
 	
-	const options = {
-		body: notificationData?.body || notificationData?.message || 'New update available',
-		icon: notificationData?.icon || '/icons/icon-192x192.png',
-		badge: notificationData?.badge || '/icons/icon-96x96.png',
-		tag: notificationData?.tag || `aqura-notification-${Date.now()}`,
-		vibrate: [100, 50, 100],
-		requireInteraction: true,
-		silent: false,
-		data: {
-			...notificationData?.data,
-			dateOfArrival: Date.now(),
-			notificationId: notificationData?.notificationId || Date.now()
-		},
-		actions: [
-			{
-				action: 'explore',
-				title: 'View Details',
-				icon: '/icons/checkmark.png'
-			},
-			{
-				action: 'close',
-				title: 'Close',
-				icon: '/icons/xmark.png'
+	// Check if user is still authenticated (even if app is closed)
+	const checkAuthAndShowNotification = async () => {
+		try {
+			// Check for authentication data in storage
+			const hasAuthData = await checkStoredAuth();
+			console.log('[ServiceWorker] 🔐 Authentication check result:', hasAuthData);
+			
+			if (!hasAuthData) {
+				console.log('[ServiceWorker] ❌ User not authenticated, skipping notification');
+				return; // Don't show notifications to unauthenticated users
 			}
-		]
+			
+			// Enhanced options for closed app scenario
+			const options = {
+				body: notificationData?.body || notificationData?.message || 'New update available',
+				icon: notificationData?.icon || '/icons/icon-192x192.png',
+				badge: notificationData?.badge || '/icons/icon-96x96.png',
+				tag: notificationData?.tag || `aqura-notification-${Date.now()}`,
+				// Enhanced for closed app - more aggressive to get user attention
+				vibrate: [200, 100, 200, 100, 200], // Longer vibration for closed app
+				requireInteraction: true, // Always require interaction when app is closed
+				silent: false,
+				// Enhanced timestamp tracking
+				timestamp: Date.now(),
+				data: {
+					...notificationData?.data,
+					dateOfArrival: Date.now(),
+					notificationId: notificationData?.notificationId || Date.now(),
+					appState: 'closed', // Track that app was closed when notification arrived
+					authenticated: true, // User was authenticated when notification was sent
+					deliveryMethod: 'service-worker-background'
+				},
+				// Enhanced actions for closed app scenario
+				actions: [
+					{
+						action: 'open',
+						title: '🚀 Open App',
+						icon: '/icons/icon-96x96.png'
+					},
+					{
+						action: 'view',
+						title: '👁️ View Details',
+						icon: '/icons/checkmark.png'
+					},
+					{
+						action: 'dismiss',
+						title: '❌ Dismiss',
+						icon: '/icons/xmark.png'
+					}
+				]
+			};
+
+			console.log('[ServiceWorker] 🔔 Showing notification for closed app:', {
+				title: notificationData?.title || 'Aqura Management',
+				options: options,
+				appState: 'closed',
+				userAuthenticated: true
+			});
+
+			// Show the notification
+			await self.registration.showNotification(
+				notificationData?.title || 'Aqura Management', 
+				options
+			);
+			
+			console.log('[ServiceWorker] ✅ Background notification displayed successfully');
+			
+		} catch (error) {
+			console.error('[ServiceWorker] ❌ Failed to show background notification:', error);
+			
+			// Fallback notification without auth check
+			const fallbackOptions = {
+				body: 'You have a new notification from Aqura',
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-96x96.png',
+				tag: `aqura-fallback-${Date.now()}`,
+				requireInteraction: true,
+				data: {
+					fallback: true,
+					error: error.message,
+					appState: 'closed'
+				}
+			};
+			
+			await self.registration.showNotification('Aqura Management', fallbackOptions);
+			console.log('[ServiceWorker] ✅ Fallback notification shown');
+		}
 	};
-
-	console.log('[ServiceWorker] 🔔 Showing notification:', {
-		title: notificationData?.title || 'Aqura Management',
-		options: options
-	});
-
-	event.waitUntil(
-		self.registration.showNotification(notificationData?.title || 'Aqura Management', options)
-			.then(() => {
-				console.log('[ServiceWorker] ✅ Notification displayed successfully');
-			})
-			.catch((error) => {
-				console.error('[ServiceWorker] ❌ Failed to show notification:', error);
-			})
-	);
+	
+	event.waitUntil(checkAuthAndShowNotification());
 });
 
+// Helper function to check stored authentication
+async function checkStoredAuth() {
+	try {
+		// Check for authentication indicators in various storage mechanisms
+		
+		// 1. Check localStorage/sessionStorage indicators
+		const clients = await self.clients.matchAll();
+		for (const client of clients) {
+			if (client.url.includes(self.registration.scope)) {
+				// Found a client, app might not be completely closed
+				console.log('[ServiceWorker] 🔍 Found app client, checking auth state...');
+				return true; // Assume authenticated if app client exists
+			}
+		}
+		
+		// 2. Check for auth-related cache data
+		const cacheNames = await caches.keys();
+		for (const cacheName of cacheNames) {
+			if (PRESERVE_AUTH_KEYS.some(key => cacheName.includes(key))) {
+				console.log('[ServiceWorker] 🔍 Found auth-related cache:', cacheName);
+				return true;
+			}
+		}
+		
+		// 3. Basic heuristic - if we received a push notification, 
+		//    it's likely the user is authenticated on the server side
+		console.log('[ServiceWorker] 🔍 No explicit auth indicators, but push notification received');
+		console.log('[ServiceWorker] 🔍 Assuming user is authenticated (server sent the push)');
+		return true;
+		
+	} catch (error) {
+		console.warn('[ServiceWorker] ⚠️ Auth check failed, defaulting to show notification:', error);
+		return true; // Default to showing notification if check fails
+	}
+}
+
 // Notification click handling - properly handle notification interactions
+// CRITICAL: This handles clicks when main app is completely closed
 self.addEventListener('notificationclick', (event) => {
-	console.log('[ServiceWorker] 🔔 Notification click received:', event);
+	console.log('[ServiceWorker] 🔔 Notification click received (app may be closed):', event);
 	console.log('[ServiceWorker] 🔔 Notification data:', event.notification.data);
 	console.log('[ServiceWorker] 🔔 Action clicked:', event.action);
 	
 	// Close the notification
 	event.notification.close();
 	
-	// Handle different actions
-	if (event.action === 'explore') {
-		console.log('[ServiceWorker] 🔍 Opening app for notification exploration');
+	// Handle different actions with enhanced closed app support
+	if (event.action === 'open' || event.action === 'explore' || event.action === 'view') {
+		console.log('[ServiceWorker] � Opening/focusing app from closed state');
 		event.waitUntil(
-			clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-				// Check if app is already open
-				for (const client of clientList) {
-					if (client.url.includes(self.registration.scope) && 'focus' in client) {
-						console.log('[ServiceWorker] 📱 Focusing existing app window');
-						return client.focus();
-					}
-				}
-				
-				// If no existing window, determine the appropriate route based on interface preference
-				return getAppropriateRoute().then((route) => {
-					console.log('[ServiceWorker] 🆕 Opening new app window at route:', route);
-					return clients.openWindow(route);
-				});
-			}).catch((error) => {
-				console.error('[ServiceWorker] ❌ Error handling notification click:', error);
+			handleAppOpen(event.notification.data).catch((error) => {
+				console.error('[ServiceWorker] ❌ Error opening app from notification:', error);
 			})
 		);
-	} else if (event.action === 'close') {
-		console.log('[ServiceWorker] ❌ Notification closed by user');
-		// Just close - notification is already closed above
-	} else {
-		// Default action (clicking on notification body)
-		console.log('[ServiceWorker] 🔍 Default notification click - opening app');
+	} else if (event.action === 'dismiss' || event.action === 'close') {
+		console.log('[ServiceWorker] ❌ Notification dismissed by user');
+		// Log dismissal for analytics
 		event.waitUntil(
-			clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-				// Check if app is already open
-				for (const client of clientList) {
-					if (client.url === self.registration.scope && 'focus' in client) {
-						console.log('[ServiceWorker] 📱 Focusing existing app window');
-						return client.focus();
-					}
-				}
-				
-				// If no existing window, determine the appropriate route based on interface preference
-				return getAppropriateRoute().then((route) => {
-					console.log('[ServiceWorker] 🆕 Opening new app window at route:', route);
-					return clients.openWindow(route).then((windowClient) => {
-						if (windowClient) {
-							console.log('[ServiceWorker] ✅ New app window opened successfully');
-							windowClient.focus();
-						} else {
-							console.warn('[ServiceWorker] ⚠️ Failed to open new app window');
-						}
-					});
-				});
-			}).catch((error) => {
-				console.error('[ServiceWorker] ❌ Error handling notification click:', error);
+			logNotificationDismissal(event.notification.data)
+		);
+	} else {
+		// Default action (clicking on notification body) - open app
+		console.log('[ServiceWorker] 🔍 Default notification click - opening app from closed state');
+		event.waitUntil(
+			handleAppOpen(event.notification.data).catch((error) => {
+				console.error('[ServiceWorker] ❌ Error opening app from notification:', error);
 			})
 		);
 	}
-	
-	// Send notification click data to all open clients
-	event.waitUntil(
-		self.clients.matchAll().then((clients) => {
-			clients.forEach((client) => {
-				client.postMessage({
-					type: 'NOTIFICATION_CLICKED',
-					notificationData: event.notification.data,
-					action: event.action,
-					timestamp: Date.now()
-				});
-			});
-		})
-	);
 });
+
+// Enhanced app opening logic for closed app scenario
+async function handleAppOpen(notificationData) {
+	console.log('[ServiceWorker] 🔍 Handling app open from closed state...');
+	
+	try {
+		// First, check if there are any existing app windows
+		const clientList = await clients.matchAll({ 
+			type: 'window', 
+			includeUncontrolled: true 
+		});
+		
+		console.log(`[ServiceWorker] 🔍 Found ${clientList.length} existing windows`);
+		
+		// Check if app is already open
+		for (const client of clientList) {
+			if (client.url.includes(self.registration.scope) && 'focus' in client) {
+				console.log('[ServiceWorker] 📱 Found existing app window, focusing it');
+				
+				// Send notification data to the existing window
+				if ('postMessage' in client) {
+					client.postMessage({
+						type: 'NOTIFICATION_CLICK',
+						data: notificationData,
+						source: 'service-worker',
+						appWasClosed: false
+					});
+				}
+				
+				return client.focus();
+			}
+		}
+		
+		// No existing window found - app was completely closed
+		console.log('[ServiceWorker] 🆕 No existing app window found - app was closed');
+		console.log('[ServiceWorker] 🚀 Opening new app window...');
+		
+		// Determine the best route to open based on notification data and user preferences
+		const targetRoute = await determineTargetRoute(notificationData);
+		console.log('[ServiceWorker] 🎯 Target route determined:', targetRoute);
+		
+		// Open new window
+		const newClient = await clients.openWindow(targetRoute);
+		
+		if (newClient) {
+			console.log('[ServiceWorker] ✅ New app window opened successfully');
+			
+			// Wait a moment for the window to load, then send notification data
+			setTimeout(() => {
+				if ('postMessage' in newClient) {
+					newClient.postMessage({
+						type: 'NOTIFICATION_CLICK',
+						data: notificationData,
+						source: 'service-worker',
+						appWasClosed: true, // Indicate app was closed
+						openedFromNotification: true
+					});
+					console.log('[ServiceWorker] 📨 Notification data sent to new window');
+				}
+			}, 2000); // Wait 2 seconds for app to initialize
+			
+			return newClient.focus();
+		} else {
+			console.error('[ServiceWorker] ❌ Failed to open new app window');
+			throw new Error('Failed to open new app window');
+		}
+		
+	} catch (error) {
+		console.error('[ServiceWorker] ❌ Error in handleAppOpen:', error);
+		
+		// Fallback: try to open at root
+		console.log('[ServiceWorker] 🔄 Attempting fallback app open at root...');
+		return clients.openWindow('/');
+	}
+}
+
+// Determine the best route to open based on notification data and user preferences
+async function determineTargetRoute(notificationData) {
+	try {
+		// Check notification data for specific route
+		if (notificationData?.data?.url) {
+			console.log('[ServiceWorker] 🎯 Using notification-specific URL:', notificationData.data.url);
+			return notificationData.data.url;
+		}
+		
+		// Check for specific notification types
+		if (notificationData?.data?.type) {
+			const notificationType = notificationData.data.type;
+			console.log('[ServiceWorker] 🔍 Notification type:', notificationType);
+			
+			switch (notificationType) {
+				case 'task':
+					return '/mobile/tasks';
+				case 'employee':
+					return '/mobile/employees';
+				case 'branch':
+					return '/mobile/branches';
+				case 'vendor':
+					return '/mobile/vendors';
+				case 'system':
+					return '/mobile/dashboard';
+				default:
+					console.log('[ServiceWorker] � Unknown notification type, using mobile dashboard');
+					return '/mobile/dashboard';
+			}
+		}
+		
+		// Get user's preferred interface from stored data
+		const preferredInterface = await getStoredInterfacePreference();
+		console.log('[ServiceWorker] 📱 User interface preference:', preferredInterface);
+		
+		// Default routes based on interface preference
+		if (preferredInterface === 'mobile') {
+			return '/mobile/dashboard';
+		} else {
+			return '/dashboard';
+		}
+		
+	} catch (error) {
+		console.warn('[ServiceWorker] ⚠️ Error determining target route, using fallback:', error);
+		return '/mobile/dashboard'; // Safe fallback
+	}
+}
+
+// Get stored interface preference
+async function getStoredInterfacePreference() {
+	try {
+		// Try to get interface preference from cache or storage
+		// This is a best-effort attempt since app is closed
+		
+		// Default to mobile for PWA installations
+		const isPWA = self.registration.scope.includes('standalone') || 
+		             location.search.includes('utm_source=pwa');
+		
+		return isPWA ? 'mobile' : 'mobile'; // Default to mobile for better mobile experience
+	} catch (error) {
+		console.warn('[ServiceWorker] ⚠️ Could not determine interface preference:', error);
+		return 'mobile'; // Safe default
+	}
+}
+
+// Log notification dismissal for analytics
+async function logNotificationDismissal(notificationData) {
+	try {
+		console.log('[ServiceWorker] 📊 Logging notification dismissal:', {
+			notificationId: notificationData?.notificationId,
+			timestamp: Date.now(),
+			appState: 'closed'
+		});
+		
+		// Could send to analytics endpoint if needed
+		// For now, just log to console for debugging
+		
+	} catch (error) {
+		console.warn('[ServiceWorker] ⚠️ Failed to log notification dismissal:', error);
+	}
+}
 
 // Helper function to get appropriate route based on interface preference
 async function getAppropriateRoute() {

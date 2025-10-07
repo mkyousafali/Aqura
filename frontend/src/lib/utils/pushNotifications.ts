@@ -363,17 +363,67 @@ export class PushNotificationService {
 			return;
 		}
 
+		// Mobile-optimized test notification
+		const isMobile = this.getDeviceType() === 'mobile';
+		console.log('📱 Sending test notification for mobile:', isMobile);
+
 		// Use Service Worker registration for mobile compatibility
 		if (this.swRegistration) {
-			await this.swRegistration.showNotification('Aqura Test Notification', {
-				body: 'Push notifications are working!',
-				icon: '/favicon.png',
-				badge: '/badge-icon.png',
+			const options = {
+				body: `Push notifications are working on ${isMobile ? 'mobile' : 'desktop'}!`,
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-96x96.png',
 				tag: 'test-notification',
-				requireInteraction: false
-			});
+				requireInteraction: isMobile, // Force interaction on mobile
+				silent: false,
+				vibrate: isMobile ? [200, 100, 200, 100, 200] : [200, 100, 200],
+				data: {
+					isMobile: isMobile,
+					testNotification: true,
+					timestamp: Date.now()
+				},
+				actions: isMobile ? [
+					{
+						action: 'ok',
+						title: 'OK'
+					}
+				] : [
+					{
+						action: 'ok',
+						title: 'OK'
+					},
+					{
+						action: 'close',
+						title: 'Close'
+					}
+				]
+			};
+
+			try {
+				await this.swRegistration.showNotification('🔔 Aqura Test Notification', options);
+				console.log('✅ Test notification sent successfully');
+				
+				// For mobile, also try sending a message to Service Worker
+				if (isMobile && this.swRegistration.active) {
+					console.log('📱 Sending backup test notification message to Service Worker');
+					this.swRegistration.active.postMessage({
+						type: 'FORCE_SHOW_NOTIFICATION',
+						title: '📱 Mobile Test Notification',
+						options: {
+							...options,
+							body: 'Mobile notification test - this should show!',
+							tag: 'mobile-test-notification'
+						},
+						isMobile: true
+					});
+				}
+			} catch (error) {
+				console.error('❌ Test notification failed:', error);
+				throw error;
+			}
 		} else {
 			console.warn('Service Worker not available for notifications');
+			throw new Error('Service Worker not available');
 		}
 	}
 
@@ -499,3 +549,127 @@ export class PushNotificationService {
 
 // Singleton instance
 export const pushNotificationService = new PushNotificationService();
+
+// Enhanced PWA and mobile debugging tools for the browser console
+if (browser) {
+    (window as any).aquraPushDebug = {
+        async testNotification() {
+            console.log('🧪 Testing notification with PWA detection...');
+            
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                         (navigator as any).standalone || 
+                         window.location.search.includes('utm_source=pwa') ||
+                         document.referrer.includes('android-app://');
+            
+            console.log('📱 Environment:', {
+                isMobile,
+                isPWA,
+                displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+                userAgent: navigator.userAgent,
+                standalone: (navigator as any).standalone,
+                urlParams: window.location.search,
+                referrer: document.referrer
+            });
+            
+            if ('serviceWorker' in navigator) {
+                const registration = await navigator.serviceWorker.ready;
+                
+                const testOptions = {
+                    body: `Test notification from ${isPWA ? 'PWA' : isMobile ? 'mobile browser' : 'desktop browser'}`,
+                    icon: '/icons/icon-192x192.png',
+                    badge: '/icons/icon-96x96.png',
+                    data: {
+                        test: true,
+                        isMobile,
+                        isPWA,
+                        displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+                        timestamp: Date.now()
+                    },
+                    tag: 'test-notification',
+                    requireInteraction: isPWA || isMobile,
+                    vibrate: (isPWA && isMobile) ? [300, 100, 300, 100, 300] : 
+                             isMobile ? [200, 100, 200, 100, 200] : [200, 100, 200],
+                    actions: (isPWA && !isMobile) ? [
+                        { action: 'test', title: 'Test PWA Action' }
+                    ] : (isPWA || isMobile) ? [
+                        { action: 'test', title: 'Test' }
+                    ] : [
+                        { action: 'test', title: 'Test' },
+                        { action: 'close', title: 'Close' }
+                    ]
+                };
+                
+                try {
+                    await registration.showNotification('🧪 Aqura PWA Test', testOptions);
+                    console.log(`✅ Test notification sent for ${isPWA ? 'PWA' : isMobile ? 'mobile' : 'desktop'}`);
+                } catch (error) {
+                    console.error('❌ Test notification failed:', error);
+                }
+            }
+        },
+        
+        checkPWAStatus() {
+            const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                         (navigator as any).standalone || 
+                         window.location.search.includes('utm_source=pwa') ||
+                         document.referrer.includes('android-app://');
+            
+            const info = {
+                isPWA,
+                displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+                standalone: (navigator as any).standalone,
+                hasStandaloneQuery: window.location.search.includes('utm_source=pwa'),
+                androidApp: document.referrer.includes('android-app://'),
+                userAgent: navigator.userAgent,
+                viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight
+                },
+                screen: {
+                    width: screen.width,
+                    height: screen.height,
+                    availWidth: screen.availWidth,
+                    availHeight: screen.availHeight
+                },
+                orientation: (screen as any).orientation?.type || 'unknown'
+            };
+            
+            console.log('📱 PWA Status Check:', info);
+            return info;
+        },
+        
+        async testPWAInstallability() {
+            console.log('🧪 Testing PWA installability...');
+            
+            // Check if app is already installed
+            const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
+            console.log('📱 Is app installed as PWA:', isInstalled);
+            
+            // Check for beforeinstallprompt event
+            let installPromptAvailable = false;
+            
+            const beforeInstallPromptHandler = (e: Event) => {
+                console.log('📱 PWA install prompt available');
+                installPromptAvailable = true;
+                e.preventDefault();
+            };
+            
+            window.addEventListener('beforeinstallprompt', beforeInstallPromptHandler);
+            
+            setTimeout(() => {
+                window.removeEventListener('beforeinstallprompt', beforeInstallPromptHandler);
+                console.log('📱 PWA Installability Check Results:', {
+                    isInstalled,
+                    installPromptAvailable,
+                    canInstall: !isInstalled && installPromptAvailable
+                });
+            }, 1000);
+        }
+    };
+    
+    console.log('🧪 PWA Debug tools available:');
+    console.log('  - aquraPushDebug.testNotification() - Test notifications with PWA detection');
+    console.log('  - aquraPushDebug.checkPWAStatus() - Check current PWA installation status');
+    console.log('  - aquraPushDebug.testPWAInstallability() - Test PWA installation readiness');
+}

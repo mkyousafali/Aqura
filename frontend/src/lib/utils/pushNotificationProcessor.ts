@@ -18,6 +18,7 @@ interface QueuedNotification {
 }
 
 class PushNotificationProcessor {
+    private static readonly VERSION = '3.0';
     private isProcessing = false;
     private intervalId: NodeJS.Timeout | null = null;
 
@@ -30,7 +31,7 @@ class PushNotificationProcessor {
             return;
         }
 
-        console.log('🚀 Starting push notification processor');
+        console.log(`🚀 Starting push notification processor v${PushNotificationProcessor.VERSION}`);
         this.isProcessing = true;
         
         // Process queue immediately
@@ -111,7 +112,7 @@ class PushNotificationProcessor {
         try {
             console.log('🔍 Processing notification queue');
 
-            // Perform preventive cleanup to prevent queue bloat
+            // [v3.0] Perform preventive cleanup to prevent queue bloat
             await this.cleanupExcessiveFailedNotifications();
 
             // Get pending notifications from queue
@@ -151,47 +152,131 @@ class PushNotificationProcessor {
             console.log(`📬 Processing ${queuedNotifications.length} pending notifications...`);
             console.log('🔍 Queue items:', queuedNotifications);
 
-            // Process each notification
+            // Group notifications by user_id + notification_id to send to ALL devices before cleanup
+            const notificationGroups = new Map<string, typeof queuedNotifications>();
+            
             for (const queueItem of queuedNotifications) {
-                console.log('🔍 Processing queue item:', queueItem);
-                
-                // Get the push subscription details for this queue item
-                if (queueItem.push_subscription_id) {
-                    const { data: subscription, error: subError } = await supabaseAdmin
-                        .from('push_subscriptions')
-                        .select('endpoint, p256dh, auth')
-                        .eq('id', queueItem.push_subscription_id)
-                        .eq('is_active', true)
-                        .single();
+                const groupKey = `${queueItem.user_id}:${queueItem.notification_id}`;
+                if (!notificationGroups.has(groupKey)) {
+                    notificationGroups.set(groupKey, []);
+                }
+                notificationGroups.get(groupKey)!.push(queueItem);
+            }
 
-                    if (subscription && !subError) {
-                        console.log('✅ Found push subscription for queue item:', queueItem.id);
-                        console.log('🔍 Subscription details:', subscription);
-                        await this.sendPushNotification(queueItem as any);
+            console.log(`👥 [v3.0] Grouped ${queuedNotifications.length} notifications into ${notificationGroups.size} user+notification groups`);
+
+            // Process each group (user + notification combination)
+            for (const [groupKey, groupItems] of notificationGroups) {
+                const [userId, notificationId] = groupKey.split(':');
+                console.log(`🎯 [v3.0] Processing group: ${groupKey} with ${groupItems.length} devices`);
+                
+                let successCount = 0;
+                let failedCount = 0;
+                const successfulQueueItems: typeof queuedNotifications = [];
+
+                // Try to send to ALL devices for this user+notification
+                for (const queueItem of groupItems) {
+                    console.log('🔍 Processing queue item:', queueItem);
+                    
+                    // Get the push subscription details for this queue item
+                    if (queueItem.push_subscription_id) {
+                        const { data: subscription, error: subError } = await supabaseAdmin
+                            .from('push_subscriptions')
+                            .select('endpoint, p256dh, auth')
+                            .eq('id', queueItem.push_subscription_id)
+                            .eq('is_active', true)
+                            .single();
+
+                        if (subscription && !subError) {
+                            console.log('✅ Found push subscription for queue item:', queueItem.id);
+                            console.log('🔍 Subscription details:', subscription);
+                            
+                            try {
+                                // Send to this specific device and mark as sent immediately
+                                await this.sendPushNotification(queueItem as any);
+                                successCount++;
+                                successfulQueueItems.push(queueItem);
+                            } catch (error) {
+                                console.error(`❌ Failed to send to device ${queueItem.device_id}:`, error);
+                                failedCount++;
+                                
+                                // Mark this specific queue item as failed
+                                await supabaseAdmin
+                                    .from('notification_queue')
+                                    .update({ 
+                                        status: 'failed',
+                                        error_message: error instanceof Error ? error.message : 'Unknown error'
+                                    })
+                                    .eq('id', queueItem.id);
+                            }
+                        } else {
+                            console.warn('⚠️ No active push subscription found for queue item:', queueItem.id, 'subscription_id:', queueItem.push_subscription_id);
+                            console.warn('🔍 Subscription error:', subError);
+                            failedCount++;
+                            
+                            // Mark as failed since we can't send it
+                            await supabaseAdmin
+                                .from('notification_queue')
+                                .update({ 
+                                    status: 'failed',
+                                    error_message: 'Push subscription not found or inactive'
+                                })
+                                .eq('id', queueItem.id);
+                        }
                     } else {
-                        console.warn('⚠️ No active push subscription found for queue item:', queueItem.id, 'subscription_id:', queueItem.push_subscription_id);
-                        console.warn('🔍 Subscription error:', subError);
+                        console.warn('⚠️ Queue item has no push_subscription_id:', queueItem.id);
+                        failedCount++;
                         
-                        // Mark as failed since we can't send it
+                        // Mark as failed
                         await supabaseAdmin
                             .from('notification_queue')
                             .update({ 
                                 status: 'failed',
-                                error_message: 'Push subscription not found or inactive'
+                                error_message: 'No push subscription ID'
                             })
                             .eq('id', queueItem.id);
                     }
-                } else {
-                    console.warn('⚠️ Queue item has no push_subscription_id:', queueItem.id);
+                }
+
+                console.log(`📊 [v3.0] Group ${groupKey} results: ${successCount} successful, ${failedCount} failed`);
+
+                // IMPORTANT: Clean up remaining pending/failed ONLY AFTER trying all devices for this group
+                if (successCount > 0) {
+                    console.log(`🧹 [v3.0] Cleaning up remaining notifications for successful group: ${groupKey}`);
                     
-                    // Mark as failed
-                    await supabaseAdmin
-                        .from('notification_queue')
-                        .update({ 
-                            status: 'failed',
-                            error_message: 'No push subscription ID'
-                        })
-                        .eq('id', queueItem.id);
+                    try {
+                        // Delete all other pending/failed notifications for this user+notification combination
+                        const { data: deletedSameNotification, error: deleteError1 } = await supabaseAdmin
+                            .from('notification_queue')
+                            .delete()
+                            .eq('notification_id', notificationId)
+                            .eq('user_id', userId)
+                            .or('status.eq.pending,status.eq.failed')
+                            .not('id', 'in', `(${successfulQueueItems.map(item => item.id).join(',')})`) // Don't delete successful ones - remove quotes from UUIDs
+                            .select();
+
+                        // Delete ALL other failed notifications for this user (any notification_id)
+                        console.log(`🗑️ [v3.0] Deleting ALL other failed notifications for user ${userId}...`);
+                        const { data: deletedAllFailed, error: deleteError2 } = await supabaseAdmin
+                            .from('notification_queue')
+                            .delete()
+                            .eq('user_id', userId)
+                            .eq('status', 'failed')
+                            .neq('notification_id', notificationId) // Don't delete failed from current notification (already handled above)
+                            .select();
+
+                        if (deleteError1 || deleteError2) {
+                            console.error('❌ [v3.0] Error in group cleanup:', deleteError1 || deleteError2);
+                        } else {
+                            const totalDeleted = (deletedSameNotification?.length || 0) + (deletedAllFailed?.length || 0);
+                            console.log(`✅ [v3.0] Sent to ${successCount} devices`);
+                            console.log(`✅ [v3.0] Deleted ${deletedSameNotification?.length || 0} remaining pending/failed for same notification`);
+                            console.log(`✅ [v3.0] Deleted ${deletedAllFailed?.length || 0} failed from other notifications`);
+                            console.log(`✅ [v3.0] Total cleaned up: ${totalDeleted} notifications`);
+                        }
+                    } catch (error) {
+                        console.error('❌ [v3.0] Error in group cleanup:', error);
+                    }
                 }
             }
 
@@ -412,18 +497,50 @@ class PushNotificationProcessor {
                         silent: false
                     });
                     
-                    // Try multiple notification approaches for better compatibility
+                    // Mobile-optimized notification options
+                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                                 (navigator as any).standalone || 
+                                 window.location.search.includes('utm_source=pwa') ||
+                                 document.referrer.includes('android-app://');
+                    
+                    console.log('📱 Is mobile device:', isMobile);
+                    console.log('📱 Is PWA installed:', isPWA);
+                    console.log('📱 Display mode:', window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser');
+                    
                     const notificationOptions = {
                         body: queueItem.payload.body,
                         icon: queueItem.payload.icon || '/icons/icon-192x192.png',
                         badge: queueItem.payload.badge || '/icons/icon-96x96.png',
-                        data: queueItem.payload.data,
+                        data: {
+                            ...queueItem.payload.data,
+                            isMobile: isMobile,
+                            isPWA: isPWA,
+                            timestamp: Date.now(),
+                            forceShow: true, // Flag to force showing on mobile
+                            displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser'
+                        },
                         tag: `notification-${queueItem.notification_id}`,
-                        requireInteraction: true,
+                        // PWA-specific notification behavior
+                        requireInteraction: isPWA || isMobile, // PWA apps should require interaction
                         silent: false,
                         timestamp: Date.now(),
-                        vibrate: [200, 100, 200],
-                        actions: [
+                        // Enhanced vibration for PWA on mobile
+                        vibrate: (isMobile && isPWA) ? [300, 100, 300, 100, 300] : 
+                                isMobile ? [200, 100, 200, 100, 200] : [200, 100, 200],
+                        // PWA-optimized actions
+                        actions: (isPWA && isMobile) ? [
+                            {
+                                action: 'view',
+                                title: 'Open',
+                                icon: '/icons/icon-96x96.png'
+                            }
+                        ] : isMobile ? [
+                            {
+                                action: 'view',
+                                title: 'View'
+                            }
+                        ] : [
                             {
                                 action: 'view',
                                 title: 'View'
@@ -438,8 +555,87 @@ class PushNotificationProcessor {
                     console.log('🔔 Attempting notification with enhanced options:', notificationOptions);
                     
                     try {
-                        await registration.showNotification(queueItem.payload.title, notificationOptions);
-                        console.log('🎉 Service Worker notification shown successfully!');
+                        // Enhanced approach for different environments
+                        if (isMobile || isPWA) {
+                            console.log(`📱 ${isPWA ? 'PWA' : 'Mobile'} device detected - using optimized notification approach`);
+                            
+                            // Method 1: Direct Service Worker showNotification (most reliable for PWA/mobile)
+                            await registration.showNotification(queueItem.payload.title, notificationOptions);
+                            console.log(`🎉 ${isPWA ? 'PWA' : 'Mobile'} Service Worker notification shown successfully!`);
+                            
+                            // Method 2: Enhanced Service Worker communication for PWA
+                            if (registration.active) {
+                                console.log('📨 Sending enhanced notification message to Service Worker');
+                                registration.active.postMessage({
+                                    type: 'FORCE_SHOW_NOTIFICATION',
+                                    title: queueItem.payload.title,
+                                    options: notificationOptions,
+                                    isMobile: isMobile,
+                                    isPWA: isPWA,
+                                    displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser'
+                                });
+                            }
+                            
+                            // Method 3: PWA-specific enhancements
+                            if (isPWA) {
+                                console.log('📱 PWA-specific notification enhancements');
+                                
+                                // PWA apps often need special handling for background notifications
+                                if (document.hidden || !document.hasFocus()) {
+                                    console.log('📱 PWA is backgrounded - notification should show automatically');
+                                } else {
+                                    console.log('📱 PWA is active - ensuring notification visibility');
+                                    
+                                    // For PWA, we can be more aggressive with notifications
+                                    setTimeout(async () => {
+                                        try {
+                                            await registration.showNotification(`${queueItem.payload.title} (PWA)`, {
+                                                ...notificationOptions,
+                                                tag: `pwa-${queueItem.notification_id}`,
+                                                data: {
+                                                    ...notificationOptions.data,
+                                                    isPWANotification: true
+                                                }
+                                            });
+                                            console.log('📱 PWA secondary notification sent');
+                                        } catch (e) {
+                                            console.log('📱 PWA secondary notification failed:', e);
+                                        }
+                                    }, 1000);
+                                }
+                            } else {
+                                // Mobile browser behavior
+                                if (document.hidden || !document.hasFocus()) {
+                                    console.log('📱 Mobile page is hidden/unfocused - notification should show');
+                                } else {
+                                    console.log('📱 Mobile page is active - setting up visibility change detection');
+                                    const handleVisibilityChange = async () => {
+                                        if (document.hidden) {
+                                            console.log('📱 Mobile page became hidden - showing backup notification');
+                                            try {
+                                                await registration.showNotification(`${queueItem.payload.title} (Mobile)`, {
+                                                    ...notificationOptions,
+                                                    tag: `mobile-backup-${queueItem.notification_id}`,
+                                                    badge: '/icons/icon-96x96.png'
+                                                });
+                                            } catch (e) {
+                                                console.log('📱 Mobile backup notification failed:', e);
+                                            }
+                                            document.removeEventListener('visibilitychange', handleVisibilityChange);
+                                        }
+                                    };
+                                    document.addEventListener('visibilitychange', handleVisibilityChange);
+                                    // Remove listener after 10 seconds
+                                    setTimeout(() => {
+                                        document.removeEventListener('visibilitychange', handleVisibilityChange);
+                                    }, 10000);
+                                }
+                            }
+                        } else {
+                            // Desktop approach
+                            await registration.showNotification(queueItem.payload.title, notificationOptions);
+                            console.log('🎉 Desktop Service Worker notification shown successfully!');
+                        }
                         
                     } catch (swError) {
                         console.error('❌ Service Worker notification failed:', swError);
@@ -465,27 +661,131 @@ class PushNotificationProcessor {
                     console.error('❌ SW Error details:', {
                         name: swError.name,
                         message: swError.message,
-                        stack: swError.stack
+                        stack: swError.stack,
+                        isPWA: isPWA,
+                        isMinimized: document.hidden,
+                        swState: registration?.active?.state || 'unknown'
                     });
-                    console.warn('⚠️ Service Worker notification failed, trying direct notification:', swError);
                     
-                    // Fallback to direct browser notification
-                    console.log('🔔 Creating direct browser notification as fallback...');
-                    const directNotification = new Notification(queueItem.payload.title, {
-                        body: queueItem.payload.body,
-                        icon: queueItem.payload.icon,
-                        tag: `notification-${queueItem.notification_id}`,
-                        requireInteraction: true
-                    });
-
-                    // Handle click event for direct notification
-                    directNotification.onclick = () => {
-                        console.log('🖱️ Direct notification clicked');
-                        if (queueItem.payload.data?.url) {
-                            window.open(queueItem.payload.data.url, '_blank');
+                    // Critical: Handle PWA minimized state with SW failure
+                    if (isPWA && document.hidden) {
+                        console.error('🚨 CRITICAL: PWA is minimized and Service Worker failed!');
+                        console.error('🚨 This means push notifications will NOT work until user reopens app');
+                        console.error('🚨 Attempting emergency recovery procedures...');
+                        
+                        // Emergency recovery for PWA
+                        try {
+                            // Try to re-register the Service Worker
+                            console.log('🔄 Attempting Service Worker recovery for PWA...');
+                            
+                            if ('serviceWorker' in navigator) {
+                                // Get all registrations
+                                const registrations = await navigator.serviceWorker.getRegistrations();
+                                console.log('🔍 Found existing SW registrations:', registrations.length);
+                                
+                                // Try to find an active registration
+                                let activeRegistration = null;
+                                for (const reg of registrations) {
+                                    if (reg.active) {
+                                        activeRegistration = reg;
+                                        console.log('✅ Found active Service Worker registration');
+                                        break;
+                                    }
+                                }
+                                
+                                if (activeRegistration) {
+                                    // Try to use the active registration
+                                    await activeRegistration.showNotification(queueItem.payload.title, {
+                                        ...notificationOptions,
+                                        body: `${queueItem.payload.body} (Recovery)`,
+                                        tag: `recovery-${queueItem.notification_id}`,
+                                        data: {
+                                            ...notificationOptions.data,
+                                            recoveryAttempt: true,
+                                            originalError: swError.message
+                                        }
+                                    });
+                                    console.log('✅ Emergency PWA notification sent via recovery SW');
+                                } else {
+                                    console.error('❌ No active Service Worker found for recovery');
+                                    
+                                    // Mark notification as failed - will be retried when app is reopened
+                                    await this.markNotificationFailed(queueItem.id, `PWA minimized with SW failure: ${swError.message}`);
+                                    console.log('📝 Notification marked as failed - will retry when PWA is reopened');
+                                }
+                            }
+                        } catch (recoveryError) {
+                            console.error('❌ Emergency recovery failed:', recoveryError);
+                            await this.markNotificationFailed(queueItem.id, `PWA recovery failed: ${recoveryError.message}`);
                         }
-                        directNotification.close();
-                    };
+                        
+                        // Set up visibility change listener for when PWA is reopened
+                        const handlePWAReopen = async () => {
+                            if (!document.hidden && isPWA) {
+                                console.log('🔄 PWA reopened after SW failure - attempting notification recovery');
+                                
+                                // Try to re-process this notification
+                                try {
+                                    const retryRegistration = await navigator.serviceWorker.ready;
+                                    await retryRegistration.showNotification(queueItem.payload.title, {
+                                        ...notificationOptions,
+                                        body: `${queueItem.payload.body} (Delayed)`,
+                                        tag: `delayed-${queueItem.notification_id}`,
+                                        data: {
+                                            ...notificationOptions.data,
+                                            delayedDelivery: true,
+                                            originalError: swError.message
+                                        }
+                                    });
+                                    console.log('✅ Delayed PWA notification delivered after reopen');
+                                } catch (retryError) {
+                                    console.error('❌ Delayed notification retry failed:', retryError);
+                                }
+                                
+                                document.removeEventListener('visibilitychange', handlePWAReopen);
+                            }
+                        };
+                        
+                        document.addEventListener('visibilitychange', handlePWAReopen);
+                        
+                        // Remove listener after 5 minutes to prevent memory leaks
+                        setTimeout(() => {
+                            document.removeEventListener('visibilitychange', handlePWAReopen);
+                        }, 5 * 60 * 1000);
+                        
+                    } else {
+                        console.warn('⚠️ Service Worker notification failed, trying direct notification fallback:', swError);
+                        
+                        // Standard fallback for non-PWA or visible apps
+                        try {
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                console.log('🔔 Creating direct browser notification as fallback...');
+                                const directNotification = new Notification(queueItem.payload.title, {
+                                    body: queueItem.payload.body,
+                                    icon: queueItem.payload.icon,
+                                    tag: `notification-${queueItem.notification_id}`,
+                                    requireInteraction: isMobile || isPWA
+                                });
+
+                                // Handle click event for direct notification
+                                directNotification.onclick = () => {
+                                    console.log('🖱️ Direct notification clicked');
+                                    if (queueItem.payload.data?.url) {
+                                        window.open(queueItem.payload.data.url, '_blank');
+                                    }
+                                    directNotification.close();
+                                };
+                                
+                                console.log('✅ Direct notification fallback created successfully');
+                            } else {
+                                console.error('❌ Direct notifications not available either');
+                                await this.markNotificationFailed(queueItem.id, `Both SW and direct notifications failed: ${swError.message}`);
+                            }
+                        } catch (directError) {
+                            console.error('❌ Direct notification fallback also failed:', directError);
+                            await this.markNotificationFailed(queueItem.id, `All notification methods failed: ${swError.message} -> ${directError.message}`);
+                        }
+                    }
                     
                     console.log('🎉 Direct notification created as fallback!');
                 }
@@ -564,6 +864,26 @@ class PushNotificationProcessor {
                     error_message: error instanceof Error ? error.message : 'Unknown error'
                 })
                 .eq('id', queueItem.id);
+        }
+    }
+
+    /**
+     * Mark a notification as failed with error details
+     */
+    private async markNotificationFailed(notificationId: string, errorMessage: string) {
+        try {
+            await supabaseAdmin
+                .from('notification_queue')
+                .update({ 
+                    status: 'failed',
+                    error_message: errorMessage,
+                    failed_at: new Date().toISOString()
+                })
+                .eq('id', notificationId);
+                
+            console.log(`📝 Notification ${notificationId} marked as failed: ${errorMessage}`);
+        } catch (error) {
+            console.error(`❌ Failed to mark notification ${notificationId} as failed:`, error);
         }
     }
 
@@ -665,11 +985,101 @@ if (typeof window !== 'undefined') {
         pushNotificationProcessor.processOnce();
     };
     
+    // Mobile notification debugging functions
+    (window as any).aquraPushDebug = {
+        // Test mobile notification immediately
+        testMobileNotification: async () => {
+            console.log('🧪 Testing mobile notification...');
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                
+                const options = {
+                    body: `Mobile test notification - Device: ${isMobile ? 'Mobile' : 'Desktop'}`,
+                    icon: '/icons/icon-192x192.png',
+                    badge: '/icons/icon-96x96.png',
+                    tag: 'mobile-debug-test',
+                    requireInteraction: true,
+                    silent: false,
+                    vibrate: [300, 100, 300],
+                    data: {
+                        debug: true,
+                        mobile: isMobile,
+                        timestamp: Date.now()
+                    }
+                };
+                
+                await registration.showNotification('🧪 Mobile Debug Test', options);
+                console.log('✅ Mobile test notification sent');
+                
+                // Also try direct SW message
+                if (registration.active) {
+                    registration.active.postMessage({
+                        type: 'FORCE_SHOW_NOTIFICATION',
+                        title: '📱 Force Mobile Test',
+                        options: {
+                            ...options,
+                            body: 'This is a forced mobile notification test',
+                            tag: 'force-mobile-test'
+                        }
+                    });
+                    console.log('📨 Sent force notification message to SW');
+                }
+                
+                return 'Test notification sent - check your device!';
+            } catch (error) {
+                console.error('❌ Mobile test failed:', error);
+                return `Test failed: ${error.message}`;
+            }
+        },
+        
+        // Check mobile notification status
+        checkMobileStatus: () => {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const hasServiceWorker = 'serviceWorker' in navigator;
+            const hasNotifications = 'Notification' in window;
+            const permission = hasNotifications ? Notification.permission : 'not-supported';
+            
+            const status = {
+                isMobile,
+                hasServiceWorker,
+                hasNotifications,
+                permission,
+                userAgent: navigator.userAgent,
+                isPageHidden: document.hidden,
+                isPageFocused: document.hasFocus(),
+                visibilityState: document.visibilityState
+            };
+            
+            console.table(status);
+            return status;
+        },
+        
+        // Process queue manually
+        processQueue: () => pushNotificationProcessor.processOnce(),
+        
+        // Get processor info
+        getProcessorInfo: () => {
+            return {
+                version: '3.0',
+                isProcessing: (pushNotificationProcessor as any).isProcessing,
+                intervalId: (pushNotificationProcessor as any).intervalId
+            };
+        }
+    };
+    
     // Add emergency stop function
     (window as any).stopPushNotificationProcessor = () => {
         pushNotificationProcessor.stop();
         console.log('🛑 Emergency stop: Push notification processor stopped');
     };
+    
+    // Log available debugging functions
+    console.log('🔧 Push notification debugging available:');
+    console.log('- aquraPushDebug.testMobileNotification() - Test mobile notifications');
+    console.log('- aquraPushDebug.checkMobileStatus() - Check mobile notification status');
+    console.log('- aquraPushDebug.processQueue() - Process notification queue manually');
+    console.log('- aquraPushDebug.getProcessorInfo() - Get processor information');
 
     // Add cleanup function for old queue entries
     (window as any).cleanupOldNotifications = (days = 7) => {
