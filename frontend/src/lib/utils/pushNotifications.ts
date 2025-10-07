@@ -111,6 +111,27 @@ export class PushNotificationService {
 				this.swRegistration = await navigator.serviceWorker.ready;
 			}
 			
+			// Ensure Service Worker is actually active before proceeding
+			if (this.swRegistration) {
+				console.log('🔄 Waiting for Service Worker to become active...');
+				let attempts = 0;
+				const maxAttempts = 50; // 5 seconds max wait
+				
+				while (!this.swRegistration.active && attempts < maxAttempts) {
+					await new Promise(resolve => setTimeout(resolve, 100));
+					attempts++;
+					
+					// Refresh registration state
+					this.swRegistration = await navigator.serviceWorker.ready;
+				}
+				
+				if (this.swRegistration.active) {
+					console.log('✅ Service Worker is now active');
+				} else {
+					console.warn('⚠️ Service Worker did not become active within timeout');
+				}
+			}
+			
 			console.log('Service Worker registered successfully');
 
 			// Request notification permission

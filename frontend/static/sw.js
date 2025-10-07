@@ -26,7 +26,14 @@ if (workbox) {
 // Skip waiting and claim clients immediately for faster activation
 self.skipWaiting();
 self.addEventListener('activate', event => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    // Wait a bit for the service worker to fully activate before claiming clients
+    new Promise(resolve => {
+      setTimeout(() => {
+        self.clients.claim().then(resolve).catch(resolve);
+      }, 100);
+    })
+  );
 });
 
 // Listen for immediate activation
