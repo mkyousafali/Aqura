@@ -1089,49 +1089,12 @@ class PushNotificationProcessor {
     }
 
     /**
-     * Create a test notification queue entry (for debugging)
+     * Create a test notification queue entry (DISABLED - removed to prevent unwanted test notifications)
      */
     async createTestQueueEntry() {
-        try {
-            console.log('🧪 Creating test notification queue entry...');
-            
-            // Create a test payload
-            const testPayload = {
-                title: 'Test Push Notification',
-                body: 'This is a test notification to verify the processor works',
-                icon: '/favicon.png',
-                badge: '/badge-icon.png',
-                data: {
-                    notification_id: 'test-notification-id',
-                    url: '/notifications?test=true',
-                    created_at: new Date().toISOString(),
-                    sender: 'System Test'
-                }
-            };
-
-            // Insert test entry directly into queue
-            const { data, error } = await supabaseAdmin
-                .from('notification_queue')
-                .insert({
-                    notification_id: 'test-notification-id',
-                    user_id: 'e1fdaee2-97f0-4fc1-872f-9d99c6bd684b', // Current user ID
-                    device_id: 'test-device',
-                    push_subscription_id: null,
-                    status: 'pending',
-                    payload: testPayload
-                })
-                .select();
-
-            if (error) {
-                console.error('❌ Failed to create test queue entry:', error);
-            } else {
-                console.log('✅ Test queue entry created:', data);
-                console.log('🔄 Processing queue immediately...');
-                await this.processQueue();
-            }
-        } catch (error) {
-            console.error('❌ Error creating test queue entry:', error);
-        }
+        console.log('🚫 Test notification creation is permanently disabled to prevent unwanted notifications');
+        console.log('💡 If you need to test notifications, create them through the normal notification system');
+        return;
     }
 }
 
