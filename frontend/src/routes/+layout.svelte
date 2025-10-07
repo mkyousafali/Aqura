@@ -20,6 +20,7 @@
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
 	import { pushNotificationService } from '$lib/utils/pushNotifications';
+	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { cacheManager } from '$lib/utils/cacheManager';
@@ -431,8 +432,18 @@
 
 			// Subscribe to current user changes
 			unsubscribeUser = currentUser.subscribe(user => {
+				const previousUser = currentUserData;
 				currentUserData = user;
 				console.log('Current user changed:', user);
+				
+				// Check if this is a new login (user was null/undefined and now has a value)
+				if (!previousUser && user && user.id) {
+					console.log('🔐 New user login detected, checking mobile push notification prompt...');
+					// Trigger mobile push notification prompt for new logins
+					handleUserLogin(user.id, true).catch(error => {
+						console.error('❌ Error handling user login for push notifications:', error);
+					});
+				}
 			});
 
 			// Fallback timeout to prevent infinite loading

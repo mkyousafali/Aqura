@@ -1098,6 +1098,257 @@ class PushNotificationProcessor {
     }
 }
 
+/**
+ * Mobile Push Notification Prompt for First-Time Login
+ * This function detects if a user is logging in for the first time on a mobile device
+ * and prompts them to enable push notifications
+ */
+export async function promptMobilePushNotifications(userId: string): Promise<boolean> {
+    try {
+        console.log('📱 Checking if mobile push notification prompt is needed...');
+        
+        // Check if we're on a mobile device
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isTablet = /iPad|Android(?=.*\bMobile\b)/i.test(navigator.userAgent);
+        const isMobileDevice = isMobile || isTablet;
+        
+        if (!isMobileDevice) {
+            console.log('📱 Not a mobile device, skipping notification prompt');
+            return false;
+        }
+        
+        // Check if notifications are supported
+        if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+            console.log('📱 Push notifications not supported on this device');
+            return false;
+        }
+        
+        // Check if user has already been prompted for this device
+        const deviceId = localStorage.getItem('aqura-device-id') || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const promptKey = `aqura-push-prompted-${deviceId}`;
+        const hasBeenPrompted = localStorage.getItem(promptKey);
+        
+        if (hasBeenPrompted) {
+            console.log('📱 User has already been prompted for push notifications on this device');
+            return false;
+        }
+        
+        // Check current notification permission
+        const currentPermission = Notification.permission;
+        if (currentPermission === 'granted') {
+            console.log('📱 Push notifications already granted');
+            // Mark as prompted to avoid future prompts
+            localStorage.setItem(promptKey, 'granted');
+            return true;
+        }
+        
+        if (currentPermission === 'denied') {
+            console.log('📱 Push notifications previously denied');
+            localStorage.setItem(promptKey, 'denied');
+            return false;
+        }
+        
+        // Show mobile-friendly prompt
+        const userWantsNotifications = await showMobilePushPrompt();
+        
+        if (userWantsNotifications) {
+            console.log('📱 User wants to enable push notifications');
+            
+            // Request permission
+            const permission = await Notification.requestPermission();
+            
+            if (permission === 'granted') {
+                console.log('✅ Push notification permission granted!');
+                localStorage.setItem(promptKey, 'granted');
+                
+                // Initialize push notifications for this user
+                try {
+                    const { pushNotificationService } = await import('./pushNotifications');
+                    await pushNotificationService.initialize();
+                    console.log('✅ Push notifications initialized successfully');
+                    return true;
+                } catch (error) {
+                    console.error('❌ Failed to initialize push notifications:', error);
+                }
+            } else {
+                console.log('❌ Push notification permission denied');
+                localStorage.setItem(promptKey, 'denied');
+            }
+        } else {
+            console.log('📱 User declined push notifications');
+            localStorage.setItem(promptKey, 'declined');
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('❌ Error in mobile push notification prompt:', error);
+        return false;
+    }
+}
+
+/**
+ * Show a mobile-optimized dialog to ask user about enabling push notifications
+ */
+async function showMobilePushPrompt(): Promise<boolean> {
+    return new Promise((resolve) => {
+        // Create mobile-friendly modal
+        const modal = document.createElement('div');
+        modal.className = 'mobile-push-prompt-overlay';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `;
+        
+        const dialog = document.createElement('div');
+        dialog.className = 'mobile-push-prompt-dialog';
+        dialog.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 20px;
+            max-width: 320px;
+            width: 100%;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            animation: slideUp 0.3s ease-out;
+        `;
+        
+        dialog.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <div style="
+                    width: 60px;
+                    height: 60px;
+                    background: #007AFF;
+                    border-radius: 50%;
+                    margin: 0 auto 16px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 24px;
+                ">🔔</div>
+                <h3 style="margin: 0 0 8px; font-size: 18px; font-weight: 600; color: #333;">
+                    Enable Notifications?
+                </h3>
+                <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.4;">
+                    Stay updated with important notifications from Aqura. You can change this anytime in your browser settings.
+                </p>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button id="push-prompt-decline" style="
+                    background: #f1f1f1;
+                    border: none;
+                    padding: 12px 20px;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-weight: 500;
+                    color: #666;
+                    cursor: pointer;
+                    flex: 1;
+                ">Not Now</button>
+                <button id="push-prompt-accept" style="
+                    background: #007AFF;
+                    border: none;
+                    padding: 12px 20px;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-weight: 500;
+                    color: white;
+                    cursor: pointer;
+                    flex: 1;
+                ">Enable</button>
+            </div>
+        `;
+        
+        // Add slide-up animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideUp {
+                from {
+                    transform: translateY(100px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+            
+            .mobile-push-prompt-dialog button:active {
+                transform: scale(0.95);
+            }
+        `;
+        document.head.appendChild(style);
+        
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        
+        // Handle button clicks
+        const acceptBtn = dialog.querySelector('#push-prompt-accept');
+        const declineBtn = dialog.querySelector('#push-prompt-decline');
+        
+        const cleanup = () => {
+            document.body.removeChild(modal);
+            document.head.removeChild(style);
+        };
+        
+        acceptBtn?.addEventListener('click', () => {
+            cleanup();
+            resolve(true);
+        });
+        
+        declineBtn?.addEventListener('click', () => {
+            cleanup();
+            resolve(false);
+        });
+        
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        });
+        
+        // Auto-close after 30 seconds (decline by default)
+        setTimeout(() => {
+            if (document.body.contains(modal)) {
+                cleanup();
+                resolve(false);
+            }
+        }, 30000);
+    });
+}
+
+/**
+ * Check if user should be prompted for push notifications on login
+ * Call this function after successful user authentication
+ */
+export async function checkAndPromptPushNotifications(userId: string): Promise<void> {
+    try {
+        console.log('🔐 Checking push notification prompt for user:', userId);
+        
+        // Small delay to ensure UI is ready
+        setTimeout(async () => {
+            const enabled = await promptMobilePushNotifications(userId);
+            if (enabled) {
+                console.log('✅ Mobile push notifications enabled for user');
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('❌ Error checking push notification prompt:', error);
+    }
+}
+
 // Create singleton instance
 export const pushNotificationProcessor = new PushNotificationProcessor();
 
