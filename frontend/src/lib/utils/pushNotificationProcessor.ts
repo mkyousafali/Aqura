@@ -640,7 +640,7 @@ class PushNotificationProcessor {
                             console.log(`📱 ${isPWA ? 'PWA' : 'Mobile'} device detected - using optimized notification approach`);
                             
                             // Check if Service Worker is actually active before using it
-                            if (registration.active) {
+                            if (registration && registration.active) {
                                 // Method 1: Direct Service Worker showNotification (most reliable for PWA/mobile)
                                 await registration.showNotification(queueItem.payload.title, notificationOptions);
                                 console.log(`🎉 ${isPWA ? 'PWA' : 'Mobile'} Service Worker notification shown successfully!`);
@@ -683,7 +683,7 @@ class PushNotificationProcessor {
                             }
                             
                             // Method 2: Enhanced Service Worker communication for PWA (if active)
-                            if (registration.active) {
+                            if (registration && registration.active) {
                                 console.log('📨 Sending enhanced notification message to Service Worker');
                                 registration.active.postMessage({
                                     type: 'FORCE_SHOW_NOTIFICATION',
@@ -696,7 +696,7 @@ class PushNotificationProcessor {
                             }
                             
                             // Method 3: PWA-specific enhancements (only if SW is active)
-                            if (isPWA && registration.active) {
+                            if (isPWA && registration && registration.active) {
                                 console.log('📱 PWA-specific notification enhancements');
                                 
                                 // PWA apps often need special handling for background notifications
@@ -708,7 +708,7 @@ class PushNotificationProcessor {
                                     // For PWA, we can be more aggressive with notifications
                                     setTimeout(async () => {
                                         try {
-                                            if (registration.active) {
+                                            if (registration && registration.active) {
                                                 await registration.showNotification(`${queueItem.payload.title} (PWA)`, {
                                                     ...notificationOptions,
                                                     tag: `pwa-${queueItem.notification_id}`,
@@ -756,7 +756,7 @@ class PushNotificationProcessor {
                             }
                         } else {
                             // Desktop approach - require active Service Worker
-                            if (registration.active) {
+                            if (registration && registration.active) {
                                 await registration.showNotification(queueItem.payload.title, notificationOptions);
                                 console.log('🎉 Desktop Service Worker notification shown successfully!');
                             } else {
