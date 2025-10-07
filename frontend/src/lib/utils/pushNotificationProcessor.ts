@@ -1138,20 +1138,26 @@ class PushNotificationProcessor {
 // Create singleton instance
 export const pushNotificationProcessor = new PushNotificationProcessor();
 
-// Expose test function globally for debugging
-if (typeof window !== 'undefined') {
+// Debug functions disabled in production to prevent unwanted test notifications
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    // Only expose test functions in development mode
     (window as any).testPushNotificationQueue = () => {
-        pushNotificationProcessor.createTestQueueEntry();
+        console.log('🧪 Test function only available in development mode');
+        // pushNotificationProcessor.createTestQueueEntry();
     };
     
     (window as any).processPushNotificationQueue = () => {
         pushNotificationProcessor.processOnce();
     };
     
-    // Mobile notification debugging functions
+    // Mobile notification debugging functions (disabled in production)
     (window as any).aquraPushDebug = {
-        // Test mobile notification immediately
+        // Test mobile notification immediately (disabled in production)
         testMobileNotification: async () => {
+            if (!import.meta.env.DEV) {
+                console.log('🚫 Test functions disabled in production to prevent unwanted notifications');
+                return 'Test functions disabled in production';
+            }
             console.log('🧪 Testing mobile notification...');
             try {
                 const registration = await navigator.serviceWorker.ready;
