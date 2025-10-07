@@ -12,6 +12,12 @@ export default defineConfig(({ mode }) => ({
 			strategies: 'injectManifest',
 			srcDir: 'static',
 			filename: 'sw-advanced.js',
+			// Set the output filename to match what VitePWA expects
+			injectManifest: {
+				swSrc: 'static/sw-advanced.js',
+				swDest: 'sw.js', // This will create sw.js in the build output
+				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
+			},
 			// Enable automatic registration for proper SW lifecycle
 			injectRegister: 'auto',
 			selfDestroying: false,
