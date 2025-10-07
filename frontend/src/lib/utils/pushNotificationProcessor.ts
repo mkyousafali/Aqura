@@ -477,13 +477,93 @@ class PushNotificationProcessor {
                         prototype: Object.getOwnPropertyNames(Notification.prototype)
                     });
                     
-                    // Check if service worker registration is available (don't require active state)
+                    // Check if service worker registration is available and handle activation
                     if (!registration) {
                         console.warn('⚠️ No service worker registration found');
                         throw new Error('No service worker registration available');
                     }
                     
-                    console.log('✅ Service worker registration is available and ready');
+                    console.log('✅ Service worker registration is available');
+                    console.log('🔍 Registration details:', {
+                        active: !!registration.active,
+                        waiting: !!registration.waiting,
+                        installing: !!registration.installing,
+                        scope: registration.scope,
+                        state: registration.active?.state || registration.waiting?.state || registration.installing?.state || 'unknown'
+                    });
+                    
+                    // CRITICAL: Handle Service Worker activation issues
+                    if (!registration.active) {
+                        console.warn('⚠️ Service Worker is not active, attempting to activate...');
+                        
+                        if (registration.waiting) {
+                            console.log('🔄 Service Worker is waiting, sending skip waiting message...');
+                            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                            
+                            // Wait for activation
+                            await new Promise((resolve) => {
+                                const handleControllerChange = () => {
+                                    console.log('🎯 Service Worker controller changed - activation successful');
+                                    navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+                                    resolve(true);
+                                };
+                                navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+                                
+                                // Timeout after 5 seconds
+                                setTimeout(() => {
+                                    navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+                                    console.log('⏰ Service Worker activation timeout, proceeding anyway');
+                                    resolve(true);
+                                }, 5000);
+                            });
+                        } else if (registration.installing) {
+                            console.log('🔄 Service Worker is installing, waiting for activation...');
+                            
+                            // Wait for installation to complete and activate
+                            await new Promise((resolve) => {
+                                const worker = registration.installing!;
+                                const handleStateChange = () => {
+                                    console.log('🔄 Service Worker state changed to:', worker.state);
+                                    if (worker.state === 'activated') {
+                                        console.log('🎯 Service Worker activated successfully!');
+                                        worker.removeEventListener('statechange', handleStateChange);
+                                        resolve(true);
+                                    } else if (worker.state === 'redundant') {
+                                        console.error('❌ Service Worker became redundant');
+                                        worker.removeEventListener('statechange', handleStateChange);
+                                        resolve(false);
+                                    }
+                                };
+                                worker.addEventListener('statechange', handleStateChange);
+                                
+                                // Force skip waiting if it's taking too long
+                                setTimeout(() => {
+                                    if (worker.state === 'installed') {
+                                        console.log('⏰ Forcing Service Worker activation...');
+                                        worker.postMessage({ type: 'SKIP_WAITING' });
+                                    }
+                                }, 2000);
+                                
+                                // Timeout after 10 seconds
+                                setTimeout(() => {
+                                    worker.removeEventListener('statechange', handleStateChange);
+                                    console.log('⏰ Service Worker activation timeout, proceeding with direct notification');
+                                    resolve(false);
+                                }, 10000);
+                            });
+                        }
+                        
+                        // Check again after activation attempts
+                        const updatedRegistration = await navigator.serviceWorker.ready.catch(() => registration);
+                        if (updatedRegistration.active) {
+                            console.log('✅ Service Worker is now active!');
+                            registration = updatedRegistration;
+                        } else {
+                            console.warn('⚠️ Service Worker still not active, will try direct notification fallback');
+                        }
+                    } else {
+                        console.log('✅ Service Worker is already active');
+                    }
                     
                     // Show notification through service worker (works even if not fully active)
                     console.log('🔔 Showing notification with title:', queueItem.payload.title);
@@ -559,11 +639,22 @@ class PushNotificationProcessor {
                         if (isMobile || isPWA) {
                             console.log(`📱 ${isPWA ? 'PWA' : 'Mobile'} device detected - using optimized notification approach`);
                             
-                            // Method 1: Direct Service Worker showNotification (most reliable for PWA/mobile)
-                            await registration.showNotification(queueItem.payload.title, notificationOptions);
-                            console.log(`🎉 ${isPWA ? 'PWA' : 'Mobile'} Service Worker notification shown successfully!`);
+                            // Check if Service Worker is actually active before using it
+                            if (registration.active) {
+                                // Method 1: Direct Service Worker showNotification (most reliable for PWA/mobile)
+                                await registration.showNotification(queueItem.payload.title, notificationOptions);
+                                console.log(`🎉 ${isPWA ? 'PWA' : 'Mobile'} Service Worker notification shown successfully!`);
+                            } else {
+                                console.warn('⚠️ Service Worker not active, using direct notification for mobile');
+                                if ('Notification' in window && Notification.permission === 'granted') {
+                                    new Notification(queueItem.payload.title, notificationOptions);
+                                    console.log('🎉 Direct mobile notification shown successfully!');
+                                } else {
+                                    throw new Error('No notification method available');
+                                }
+                            }
                             
-                            // Method 2: Enhanced Service Worker communication for PWA
+                            // Method 2: Enhanced Service Worker communication for PWA (if active)
                             if (registration.active) {
                                 console.log('📨 Sending enhanced notification message to Service Worker');
                                 registration.active.postMessage({
@@ -576,8 +667,8 @@ class PushNotificationProcessor {
                                 });
                             }
                             
-                            // Method 3: PWA-specific enhancements
-                            if (isPWA) {
+                            // Method 3: PWA-specific enhancements (only if SW is active)
+                            if (isPWA && registration.active) {
                                 console.log('📱 PWA-specific notification enhancements');
                                 
                                 // PWA apps often need special handling for background notifications
@@ -589,22 +680,24 @@ class PushNotificationProcessor {
                                     // For PWA, we can be more aggressive with notifications
                                     setTimeout(async () => {
                                         try {
-                                            await registration.showNotification(`${queueItem.payload.title} (PWA)`, {
-                                                ...notificationOptions,
-                                                tag: `pwa-${queueItem.notification_id}`,
-                                                data: {
-                                                    ...notificationOptions.data,
-                                                    isPWANotification: true
-                                                }
-                                            });
-                                            console.log('📱 PWA secondary notification sent');
+                                            if (registration.active) {
+                                                await registration.showNotification(`${queueItem.payload.title} (PWA)`, {
+                                                    ...notificationOptions,
+                                                    tag: `pwa-${queueItem.notification_id}`,
+                                                    data: {
+                                                        ...notificationOptions.data,
+                                                        isPWANotification: true
+                                                    }
+                                                });
+                                                console.log('📱 PWA secondary notification sent');
+                                            }
                                         } catch (e) {
                                             console.log('📱 PWA secondary notification failed:', e);
                                         }
                                     }, 1000);
                                 }
-                            } else {
-                                // Mobile browser behavior
+                            } else if (isMobile) {
+                                // Mobile browser behavior (no active SW or not PWA)
                                 if (document.hidden || !document.hasFocus()) {
                                     console.log('📱 Mobile page is hidden/unfocused - notification should show');
                                 } else {
@@ -613,11 +706,13 @@ class PushNotificationProcessor {
                                         if (document.hidden) {
                                             console.log('📱 Mobile page became hidden - showing backup notification');
                                             try {
-                                                await registration.showNotification(`${queueItem.payload.title} (Mobile)`, {
-                                                    ...notificationOptions,
-                                                    tag: `mobile-backup-${queueItem.notification_id}`,
-                                                    badge: '/icons/icon-96x96.png'
-                                                });
+                                                if ('Notification' in window && Notification.permission === 'granted') {
+                                                    new Notification(`${queueItem.payload.title} (Mobile)`, {
+                                                        body: queueItem.payload.body,
+                                                        icon: queueItem.payload.icon || '/icons/icon-192x192.png',
+                                                        tag: `mobile-backup-${queueItem.notification_id}`
+                                                    });
+                                                }
                                             } catch (e) {
                                                 console.log('📱 Mobile backup notification failed:', e);
                                             }
@@ -632,9 +727,19 @@ class PushNotificationProcessor {
                                 }
                             }
                         } else {
-                            // Desktop approach
-                            await registration.showNotification(queueItem.payload.title, notificationOptions);
-                            console.log('🎉 Desktop Service Worker notification shown successfully!');
+                            // Desktop approach - require active Service Worker
+                            if (registration.active) {
+                                await registration.showNotification(queueItem.payload.title, notificationOptions);
+                                console.log('🎉 Desktop Service Worker notification shown successfully!');
+                            } else {
+                                console.warn('⚠️ Service Worker not active, using direct notification for desktop');
+                                if ('Notification' in window && Notification.permission === 'granted') {
+                                    new Notification(queueItem.payload.title, notificationOptions);
+                                    console.log('🎉 Direct desktop notification shown successfully!');
+                                } else {
+                                    throw new Error('No notification method available for desktop');
+                                }
+                            }
                         }
                         
                     } catch (swError) {
