@@ -647,8 +647,36 @@ class PushNotificationProcessor {
                             } else {
                                 console.warn('⚠️ Service Worker not active, using direct notification for mobile');
                                 if ('Notification' in window && Notification.permission === 'granted') {
-                                    new Notification(queueItem.payload.title, notificationOptions);
-                                    console.log('🎉 Direct mobile notification shown successfully!');
+                                    // Create simplified options for direct notification (no actions allowed)
+                                    const directOptions = {
+                                        body: notificationOptions.body,
+                                        icon: notificationOptions.icon,
+                                        badge: notificationOptions.badge,
+                                        tag: notificationOptions.tag,
+                                        requireInteraction: notificationOptions.requireInteraction,
+                                        silent: notificationOptions.silent,
+                                        vibrate: notificationOptions.vibrate,
+                                        data: {
+                                            ...notificationOptions.data,
+                                            deliveryMethod: 'direct'
+                                        }
+                                        // Note: actions not supported in direct notifications
+                                    };
+                                    
+                                    const directNotification = new Notification(queueItem.payload.title, directOptions);
+                                    
+                                    // Handle click event
+                                    directNotification.onclick = () => {
+                                        console.log('🖱️ Direct notification clicked');
+                                        if (queueItem.payload.data?.url) {
+                                            window.open(queueItem.payload.data.url, '_blank');
+                                        } else {
+                                            window.focus();
+                                        }
+                                        directNotification.close();
+                                    };
+                                    
+                                    console.log('🎉 Direct mobile notification created successfully!');
                                 } else {
                                     throw new Error('No notification method available');
                                 }
@@ -734,8 +762,35 @@ class PushNotificationProcessor {
                             } else {
                                 console.warn('⚠️ Service Worker not active, using direct notification for desktop');
                                 if ('Notification' in window && Notification.permission === 'granted') {
-                                    new Notification(queueItem.payload.title, notificationOptions);
-                                    console.log('🎉 Direct desktop notification shown successfully!');
+                                    // Create simplified options for direct notification (no actions allowed)
+                                    const directOptions = {
+                                        body: notificationOptions.body,
+                                        icon: notificationOptions.icon,
+                                        badge: notificationOptions.badge,
+                                        tag: notificationOptions.tag,
+                                        requireInteraction: notificationOptions.requireInteraction,
+                                        silent: notificationOptions.silent,
+                                        vibrate: notificationOptions.vibrate,
+                                        data: {
+                                            ...notificationOptions.data,
+                                            deliveryMethod: 'direct'
+                                        }
+                                    };
+                                    
+                                    const directNotification = new Notification(queueItem.payload.title, directOptions);
+                                    
+                                    // Handle click event
+                                    directNotification.onclick = () => {
+                                        console.log('🖱️ Direct desktop notification clicked');
+                                        if (queueItem.payload.data?.url) {
+                                            window.open(queueItem.payload.data.url, '_blank');
+                                        } else {
+                                            window.focus();
+                                        }
+                                        directNotification.close();
+                                    };
+                                    
+                                    console.log('🎉 Direct desktop notification created successfully!');
                                 } else {
                                     throw new Error('No notification method available for desktop');
                                 }
