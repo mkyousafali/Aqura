@@ -7,7 +7,7 @@ const DATA_CACHE_NAME = 'aqura-data-v1';
 // Critical resources to cache for offline functionality
 const STATIC_CACHE_URLS = [
 	'/',
-	'/manifest.json',
+	'/manifest.webmanifest',
 	'/offline.html', // Fallback page
 	// Add other critical static assets
 ];

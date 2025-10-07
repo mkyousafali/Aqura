@@ -52,7 +52,7 @@ export class CacheManager {
 	/**
 	 * Clear all browser caches using Cache API
 	 */
-	private async clearBrowserCaches(): Promise<void> {
+	async clearBrowserCaches(): Promise<void> {
 		if (!('caches' in window)) {
 			console.log('⚠️ Cache API not supported');
 			return;
@@ -76,7 +76,33 @@ export class CacheManager {
 	}
 
 	/**
-	 * Unregister all service workers and clear their caches
+	 * Clear only browser caches and localStorage, preserve service workers and auth data
+	 */
+	async clearBrowserCachesOnly(): Promise<void> {
+		console.log('🧹 Starting browser cache clearing (preserving service workers)...');
+		
+		try {
+			// Clear browser caches
+			await this.clearBrowserCaches();
+			
+			// Clear localStorage except auth data
+			await this.clearLocalStorageData();
+			
+			// Clear sessionStorage
+			await this.clearSessionStorage();
+			
+			// Clear IndexedDB except auth databases
+			await this.clearIndexedDBCaches();
+			
+			console.log('✅ Browser caches cleared, service workers preserved');
+		} catch (error) {
+			console.error('❌ Browser cache clearing failed:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Unregister problematic service workers while preserving PWA service worker
 	 */
 	private async clearServiceWorkerCaches(): Promise<void> {
 		if (!('serviceWorker' in navigator)) {
@@ -89,16 +115,24 @@ export class CacheManager {
 			const registrations = await navigator.serviceWorker.getRegistrations();
 			console.log(`🔧 Found ${registrations.length} service worker(s)`);
 
-			// Unregister all service workers
+			// Only unregister non-PWA service workers
 			for (const registration of registrations) {
-				console.log(`🗑️ Unregistering SW: ${registration.scope}`);
-				await registration.unregister();
+				const scriptURL = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
+				
+				// Preserve PWA service workers needed for push notifications
+				const isPWAServiceWorker = scriptURL.includes('/sw.js') || 
+					scriptURL.includes('vite-pwa') ||
+					registration.scope === location.origin + '/';
+				
+				if (isPWAServiceWorker) {
+					console.log(`✅ Preserving PWA SW: ${registration.scope}`);
+				} else {
+					console.log(`🗑️ Unregistering SW: ${registration.scope}`);
+					await registration.unregister();
+				}
 			}
 
-			// Force reload the page to ensure clean state
-			if (registrations.length > 0) {
-				console.log('🔄 Service workers unregistered, state cleaned');
-			}
+			console.log('🔄 Service worker cleanup completed, PWA SW preserved');
 		} catch (error) {
 			console.error('❌ Failed to clear service worker caches:', error);
 		}

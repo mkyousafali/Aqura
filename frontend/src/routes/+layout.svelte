@@ -292,23 +292,31 @@
 			}
 			
 			// Auto-cleanup existing service workers and clear caches on startup (non-blocking)
-			autoCleanupServiceWorkers().then(() => {
-				console.log('🎉 Service worker cleanup completed, checking auth for notifications...');
-				// Initialize notification services AFTER cleanup is complete and if user is authenticated
-				if (isAuthenticated) {
-					console.log('🔔 User is authenticated, initializing notification services...');
-					return initializeNotificationServices();
-				} else {
-					console.log('🔐 User not authenticated, skipping notification initialization');
-				}
-			}).catch(error => {
-				console.warn('⚠️ Service worker cleanup failed (non-blocking):', error);
-				// Still try to initialize notifications even if cleanup failed (if authenticated)
-				if (isAuthenticated) {
-					console.log('🔔 Initializing notification services despite cleanup failure...');
-					return initializeNotificationServices();
-				}
-			});
+			// But skip aggressive cleanup if we're about to initialize push notifications
+			if (!isAuthenticated) {
+				console.log('🧹 User not authenticated, performing full cleanup...');
+				autoCleanupServiceWorkers().then(() => {
+					console.log('🎉 Service worker cleanup completed');
+				}).catch(error => {
+					console.warn('⚠️ Service worker cleanup failed (non-blocking):', error);
+				});
+			} else {
+				console.log('🔔 User authenticated, skipping aggressive cleanup to preserve PWA service worker...');
+				// Just clear browser caches but preserve service workers for push notifications
+				cacheManager.clearBrowserCachesOnly().then(() => {
+					console.log('🧹 Browser caches cleared, PWA service worker preserved');
+				}).catch(error => {
+					console.warn('⚠️ Browser cache clearing failed:', error);
+				});
+			}
+			
+			// Initialize notification services if user is authenticated
+			if (isAuthenticated) {
+				console.log('🔔 User is authenticated, initializing notification services...');
+				initializeNotificationServices().catch(error => {
+					console.warn('⚠️ Notification initialization failed:', error);
+				});
+			}
 			
 			// Initialize PWA install detection
 			initPWAInstall();

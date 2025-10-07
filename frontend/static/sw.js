@@ -74,7 +74,7 @@ const PRESERVE_AUTH_DBS = [
 // Critical resources to cache for offline functionality
 const STATIC_CACHE_URLS = [
 	'/',
-	'/manifest.json',
+	'/manifest.webmanifest',
 	'/offline.html'
 ];
 
