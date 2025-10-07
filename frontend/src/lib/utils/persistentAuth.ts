@@ -73,17 +73,7 @@ export class PersistentAuthService {
 
 			// Initialize push notifications for authenticated user (non-blocking)
 			if (activeUser) {
-				// Wait for Service Worker cleanup to complete before initializing push notifications
-				console.log('🔔 Scheduling push notification initialization after cleanup...');
-				setTimeout(async () => {
-					try {
-						console.log('🔔 Starting delayed push notification initialization...');
-						await pushNotificationService.initialize();
-						console.log('✅ Push notification initialization completed successfully');
-					} catch (error) {
-						console.warn('🔔 Push notification initialization failed:', error);
-					}
-				}, 3000); // Wait 3 seconds for all cleanup to complete
+				console.log('� [PersistentAuth] Active user found, will initialize push notifications after login');
 			}
 			
 			console.log('🔐 Persistent auth initialization complete');
@@ -133,19 +123,17 @@ export class PersistentAuthService {
 			await this.setCurrentUser(userSession);
 			console.log('✅ [PersistentAuth] Current user set successfully');
 
-			// Initialize push notifications (with timeout protection)
-			console.log('🔐 [PersistentAuth] Initializing push notifications...');
-			try {
-				const pushInitPromise = pushNotificationService.initialize();
-				const pushTimeout = new Promise((_, reject) => {
-					setTimeout(() => reject(new Error('Push notification timeout')), 15000); // Increased to 15 seconds
-				});
-				
-				await Promise.race([pushInitPromise, pushTimeout]);
-				console.log('✅ [PersistentAuth] Push notifications initialized');
-			} catch (pushError) {
-				console.warn('⚠️ [PersistentAuth] Push notification initialization failed, continuing:', pushError);
-			}
+			// Schedule delayed push notification initialization to avoid SW race conditions
+			console.log('� [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...');
+			setTimeout(async () => {
+				try {
+					console.log('🔔 [PersistentAuth] Starting delayed push notification initialization...');
+					await pushNotificationService.initialize();
+					console.log('✅ [PersistentAuth] Delayed push notification initialization completed successfully');
+				} catch (error) {
+					console.warn('⚠️ [PersistentAuth] Delayed push notification initialization failed:', error);
+				}
+			}, 5000); // Wait 5 seconds for all Service Worker operations to complete
 
 			// Log login activity (with timeout protection)
 			console.log('🔐 [PersistentAuth] Logging user activity...');
