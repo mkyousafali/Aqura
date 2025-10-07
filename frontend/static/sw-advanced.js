@@ -2,12 +2,32 @@
 // Provides offline functionality, background sync, data caching, and cache clearing
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
-// The __WB_MANIFEST will be injected by vite-plugin-pwa
-// This handles precaching of static assets
-const manifest = self.__WB_MANIFEST || [];
+// Import workbox from CDN for service worker
+importScripts('https://storage.googleapis.com/workbox-cdn/releases/7.0.0/workbox-sw.js');
+
+// Initialize workbox
+if (workbox) {
+	console.log('[ServiceWorker] Workbox loaded successfully');
+	
+	// Enable debug mode in development
+	workbox.setConfig({ debug: false });
+	
+	// The __WB_MANIFEST will be injected by vite-plugin-pwa
+	// This handles precaching of static assets
+	const manifest = self.__WB_MANIFEST || [];
+	
+	// Set up precaching with workbox
+	workbox.precaching.precacheAndRoute(manifest);
+	workbox.precaching.cleanupOutdatedCaches();
+} else {
+	console.error('[ServiceWorker] Workbox failed to load');
+}
 
 // Skip waiting and claim clients immediately for faster activation
 self.skipWaiting();
+self.addEventListener('activate', event => {
+  event.waitUntil(self.clients.claim());
+});
 
 // Listen for immediate activation
 self.addEventListener('message', (event) => {

@@ -131,7 +131,7 @@ export class PersistentAuthService {
 			try {
 				const pushInitPromise = pushNotificationService.initialize();
 				const pushTimeout = new Promise((_, reject) => {
-					setTimeout(() => reject(new Error('Push notification timeout')), 5000);
+					setTimeout(() => reject(new Error('Push notification timeout')), 15000); // Increased to 15 seconds
 				});
 				
 				await Promise.race([pushInitPromise, pushTimeout]);
