@@ -156,117 +156,135 @@ async function handlePageRefresh() {
 	await clearAllCaches();
 }
 
-// Install event - cache critical resources and handle precaching
+// Install event - fast activation with background caching
 self.addEventListener('install', (event) => {
-	console.log('[ServiceWorker] Install');
+	console.log('[ServiceWorker] Install - Fast activation mode');
+	
+	// Skip waiting immediately for fast activation
+	self.skipWaiting();
+	
+	// Do background caching without blocking activation
 	event.waitUntil(
 		(async () => {
-			// Clear all existing caches first if force clear is enabled
-			if (FORCE_CLEAR_CACHE) {
-				console.log('[ServiceWorker] 🧹 Force clearing all caches on install...');
-				await clearAllCaches();
-			}
-			
-			// Handle precache manifest from vite-plugin-pwa
-			if (manifest && manifest.length > 0) {
-				try {
-					const precacheUrls = manifest.map(entry => entry.url || entry);
-					const precacheCache = await caches.open(PRECACHE_NAME);
-					console.log('[ServiceWorker] Precaching static assets:', precacheUrls.length, 'files');
-					
-					// Cache each file individually to handle failures gracefully
-					const precacheResults = await Promise.allSettled(
-						precacheUrls.map(url => precacheCache.add(url))
-					);
-					
-					// Log any failures but don't block installation
-					precacheResults.forEach((result, index) => {
-						if (result.status === 'rejected') {
-							console.warn(`[ServiceWorker] Failed to precache ${precacheUrls[index]}:`, result.reason);
-						}
-					});
-				} catch (error) {
-					console.error('[ServiceWorker] Precaching failed:', error);
-				}
-			}
-			
-			// Then setup main cache with critical resources
 			try {
-				const cache = await caches.open(CACHE_NAME);
-				console.log('[ServiceWorker] Caching critical offline resources');
+				console.log('[ServiceWorker] ⚡ Fast activation initiated, starting background setup...');
 				
-				// Cache each file individually with enhanced error handling
-				const cachePromises = STATIC_CACHE_URLS.map(async (url, index) => {
-					try {
-						await cache.add(url);
-						return { success: true, url };
-					} catch (error) {
-						// Only log in development, silently handle in production
-						if (self.location.hostname === 'localhost') {
-							console.warn(`[ServiceWorker] Failed to cache ${url}:`, error);
-						}
-						return { success: false, url, error };
-					}
-				});
-				
-				const results = await Promise.allSettled(cachePromises);
-				const cached = results.filter(result => 
-					result.status === 'fulfilled' && result.value.success
-				).length;
-				
-				console.log(`[ServiceWorker] Successfully cached ${cached}/${STATIC_CACHE_URLS.length} static resources`);
-				
-				return self.skipWaiting();
+				// Do background caching
+				backgroundCaching();
 			} catch (error) {
-				// Only log critical errors in development
-				if (self.location.hostname === 'localhost') {
-					console.error('[ServiceWorker] Cache setup failed:', error);
-				}
-				// Continue anyway to prevent blocking PWA installation
-				return self.skipWaiting();
+				console.error('[ServiceWorker] Background setup failed:', error);
 			}
 		})()
 	);
 });
 
-// Activate event - enhanced cache cleanup and client claiming
+// Background caching function - runs after activation
+async function backgroundCaching() {
+	try {
+		// Clear caches if needed
+		if (FORCE_CLEAR_CACHE) {
+			console.log('[ServiceWorker] 🧹 Background: Force clearing all caches...');
+			await clearAllCaches();
+		}
+		
+		// Handle precache manifest from vite-plugin-pwa
+		if (manifest && manifest.length > 0) {
+			try {
+				const precacheUrls = manifest.map(entry => entry.url || entry);
+				const precacheCache = await caches.open(PRECACHE_NAME);
+				console.log('[ServiceWorker] Background: Precaching', precacheUrls.length, 'files');
+				
+				// Cache in small batches to avoid overwhelming
+				const batchSize = 10;
+				for (let i = 0; i < precacheUrls.length; i += batchSize) {
+					const batch = precacheUrls.slice(i, i + batchSize);
+					await Promise.allSettled(
+						batch.map(url => precacheCache.add(url).catch(err => 
+							console.warn(`Failed to precache ${url}:`, err)
+						))
+					);
+					// Small delay between batches
+					await new Promise(resolve => setTimeout(resolve, 50));
+				}
+			} catch (error) {
+				console.error('[ServiceWorker] Background precaching failed:', error);
+			}
+		}
+		
+		// Setup main cache with critical resources
+		try {
+			const cache = await caches.open(CACHE_NAME);
+			console.log('[ServiceWorker] Background: Caching critical resources');
+			
+			// Cache critical resources in batches
+			const batchSize = 5;
+			for (let i = 0; i < STATIC_CACHE_URLS.length; i += batchSize) {
+				const batch = STATIC_CACHE_URLS.slice(i, i + batchSize);
+				await Promise.allSettled(
+					batch.map(url => cache.add(url).catch(err => 
+						console.warn(`Failed to cache ${url}:`, err)
+					))
+				);
+				// Small delay between batches
+				await new Promise(resolve => setTimeout(resolve, 50));
+			}
+			
+			console.log('[ServiceWorker] ✅ Background caching completed');
+		} catch (error) {
+			console.error('[ServiceWorker] Background cache setup failed:', error);
+		}
+	} catch (error) {
+		console.error('[ServiceWorker] Background caching failed:', error);
+	}
+}
+
+// Activate event - fast activation with background cleanup
 self.addEventListener('activate', (event) => {
-	console.log('[ServiceWorker] Activate');
+	console.log('[ServiceWorker] Activate - Fast mode');
 	event.waitUntil(
 		(async () => {
-			// Always clear all caches on activation for fresh state
-			console.log('[ServiceWorker] 🧹 Clearing all caches on activation...');
-			await clearAllCaches();
-			
-			// Immediately claim all clients for faster activation
-			await self.clients.claim();
-			console.log('[ServiceWorker] ✅ Clients claimed immediately');
-			
-			// Then setup fresh caches
 			try {
-				const cacheNames = await caches.keys();
-				console.log('[ServiceWorker] Setting up fresh cache state');
-				
-				// Claim all clients immediately
+				// Immediate client claiming for fast activation
 				await self.clients.claim();
+				console.log('[ServiceWorker] ⚡ Fast activation: Clients claimed immediately');
 				
-				// Notify all clients that service worker is ready with fresh state
+				// Notify clients that service worker is ready
 				const clients = await self.clients.matchAll();
 				clients.forEach(client => {
 					client.postMessage({
-						type: 'SW_ACTIVATED_FRESH',
-						timestamp: Date.now(),
-						cachesCleared: true
+						type: 'SW_ACTIVATED_FAST',
+						timestamp: Date.now()
 					});
 				});
 				
-				console.log('[ServiceWorker] ✅ Activation complete with fresh state');
+				// Background cleanup after activation
+				setTimeout(() => {
+					backgroundCleanup();
+				}, 100);
+				
+				console.log('[ServiceWorker] ✅ Fast activation complete');
 			} catch (error) {
 				console.error('[ServiceWorker] Activation error:', error);
 			}
 		})()
 	);
 });
+
+// Background cleanup function
+async function backgroundCleanup() {
+	try {
+		console.log('[ServiceWorker] Background: Starting cache cleanup...');
+		
+		// Clear old caches in background if needed
+		if (FORCE_CLEAR_CACHE) {
+			await clearAllCaches();
+		}
+		
+		console.log('[ServiceWorker] Background: Cache cleanup completed');
+	} catch (error) {
+		console.error('[ServiceWorker] Background cleanup failed:', error);
+	}
+}
 
 // Fetch event - implement caching strategies
 self.addEventListener('fetch', (event) => {
