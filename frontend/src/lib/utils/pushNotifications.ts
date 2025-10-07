@@ -141,6 +141,10 @@ export class PushNotificationService {
 				return false;
 			}
 
+			// Add stabilization delay to ensure Service Worker is fully settled
+			console.log('⏳ Waiting for Service Worker to stabilize...');
+			await new Promise(resolve => setTimeout(resolve, 1000));
+
 			// Subscribe to push notifications
 			await this.subscribeToPush();
 

@@ -27,12 +27,22 @@ if (workbox) {
 self.skipWaiting();
 self.addEventListener('activate', event => {
   event.waitUntil(
-    // Wait a bit for the service worker to fully activate before claiming clients
-    new Promise(resolve => {
-      setTimeout(() => {
-        self.clients.claim().then(resolve).catch(resolve);
-      }, 100);
-    })
+    (async () => {
+      // Wait for the service worker to fully activate
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Only claim clients if this SW is actually active
+      try {
+        if (self.registration && self.registration.active === self) {
+          await self.clients.claim();
+          console.log('[ServiceWorker] Successfully claimed clients');
+        } else {
+          console.log('[ServiceWorker] Skipping client claim - not the active worker');
+        }
+      } catch (error) {
+        console.warn('[ServiceWorker] Client claim failed:', error);
+      }
+    })()
   );
 });
 
