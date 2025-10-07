@@ -77,11 +77,42 @@ class PushNotificationProcessor {
     }
 
     /**
+     * Clean up excessive failed notifications to prevent queue bloat
+     */
+    private async cleanupExcessiveFailedNotifications() {
+        try {
+            console.log('🧹 [v2.0] Performing preventive cleanup of old failed notifications...');
+            
+            // Delete failed notifications older than 30 minutes to prevent queue bloat
+            const thirtyMinutesAgo = new Date();
+            thirtyMinutesAgo.setMinutes(thirtyMinutesAgo.getMinutes() - 30);
+            
+            const { data: deletedOld, error: deleteError } = await supabaseAdmin
+                .from('notification_queue')
+                .delete()
+                .eq('status', 'failed')
+                .lt('created_at', thirtyMinutesAgo.toISOString())
+                .select();
+
+            if (deleteError) {
+                console.log(`⚠️ [v2.0] Note: Could not delete old failed notifications: ${deleteError.message}`);
+            } else {
+                console.log(`🗑️ [v2.0] Deleted ${deletedOld?.length || 0} old failed notifications (>30 min old)`);
+            }
+        } catch (error) {
+            console.log('⚠️ [v2.0] Preventive cleanup failed, but continuing with normal processing:', error);
+        }
+    }
+
+    /**
      * Process pending notifications in the queue
      */
     private async processQueue() {
         try {
             console.log('🔍 Processing notification queue');
+
+            // Perform preventive cleanup to prevent queue bloat
+            await this.cleanupExcessiveFailedNotifications();
 
             // Get pending notifications from queue
             const { data: queuedNotifications, error } = await supabaseAdmin
@@ -410,44 +441,9 @@ class PushNotificationProcessor {
                         await registration.showNotification(queueItem.payload.title, notificationOptions);
                         console.log('🎉 Service Worker notification shown successfully!');
                         
-                        // Also try direct browser notification as fallback
-                        console.log('🔔 Also trying direct browser notification as backup...');
-                        const directNotification = new Notification(queueItem.payload.title, {
-                            body: queueItem.payload.body,
-                            icon: queueItem.payload.icon || '/icons/icon-192x192.png',
-                            tag: `direct-notification-${queueItem.notification_id}`,
-                            requireInteraction: true,
-                            silent: false
-                        });
-                        
-                        directNotification.onclick = () => {
-                            console.log('🖱️ Direct notification clicked');
-                            window.focus();
-                            directNotification.close();
-                        };
-                        
-                        console.log('🎉 Direct browser notification also created!');
-                        
                     } catch (swError) {
                         console.error('❌ Service Worker notification failed:', swError);
-                        
-                        // Fallback to direct browser notification
-                        console.log('🔄 Falling back to direct browser notification...');
-                        const fallbackNotification = new Notification(queueItem.payload.title, {
-                            body: queueItem.payload.body,
-                            icon: queueItem.payload.icon || '/icons/icon-192x192.png',
-                            tag: `fallback-notification-${queueItem.notification_id}`,
-                            requireInteraction: true,
-                            silent: false
-                        });
-                        
-                        fallbackNotification.onclick = () => {
-                            console.log('🖱️ Fallback notification clicked');
-                            window.focus();
-                            fallbackNotification.close();
-                        };
-                        
-                        console.log('🎉 Fallback notification created successfully!');
+                        console.log('⚠️ Direct browser notifications not supported on mobile - notification skipped');
                     }
                     
                     // Also send a test message to Service Worker to verify communication
@@ -494,24 +490,11 @@ class PushNotificationProcessor {
                     console.log('🎉 Direct notification created as fallback!');
                 }
             } else if ('Notification' in window) {
-                console.log('🔍 Using direct browser notification (no service worker)');
+                console.log('🔍 Service Worker not available - skipping notification (mobile compatibility)');
                 
-                // Direct browser notification without service worker
-                const directNotification = new Notification(queueItem.payload.title, {
-                    body: queueItem.payload.body,
-                    icon: queueItem.payload.icon,
-                    tag: `notification-${queueItem.notification_id}`,
-                    requireInteraction: true
-                });
-
-                // Handle click event
-                directNotification.onclick = () => {
-                    console.log('🖱️ Direct notification clicked');
-                    if (queueItem.payload.data?.url) {
-                        window.open(queueItem.payload.data.url, '_blank');
-                    }
-                    directNotification.close();
-                };
+                // Direct browser notifications don't work on mobile browsers
+                // Only Service Worker notifications are supported on mobile
+                console.warn('⚠️ Direct browser notifications not supported on mobile - notification skipped');
                 
                 console.log('🎉 Direct notification shown successfully!');
             } else {
@@ -530,26 +513,41 @@ class PushNotificationProcessor {
 
             console.log(`✅ Push notification ${queueItem.id} sent successfully`);
 
-            // Delete all other pending notifications for this user+notification combination
+            // Delete all other pending and failed notifications for this user+notification combination
             // Once a user receives a notification on ANY device, they don't need it on other devices
+            // Also delete ALL failed notifications for this user (regardless of notification_id)
             // Deleting instead of marking as delivered keeps the queue table clean
             try {
-                console.log(`🗑️ Deleting other pending notifications for user ${queueItem.user_id} and notification ${queueItem.notification_id}...`);
+                console.log(`🗑️ [v2.0] Deleting other pending and failed notifications for user ${queueItem.user_id} and notification ${queueItem.notification_id}...`);
                 
-                const { data: deletedNotifications, error: deleteError } = await supabaseAdmin
+                // First: Delete pending/failed for same notification_id
+                const { data: deletedSameNotification, error: deleteError1 } = await supabaseAdmin
                     .from('notification_queue')
                     .delete()
                     .eq('notification_id', queueItem.notification_id)
                     .eq('user_id', queueItem.user_id)
-                    .eq('status', 'pending')
+                    .or('status.eq.pending,status.eq.failed') // Use .or() instead of .in()
                     .neq('id', queueItem.id) // Don't delete the current notification
                     .select(); // Select to get count of deleted items
 
-                if (deleteError) {
-                    console.error('❌ Error deleting duplicate pending notifications:', deleteError);
+                // Second: Delete ALL failed notifications for this user (any notification_id)
+                console.log(`🗑️ [v2.0] Deleting ALL failed notifications for user ${queueItem.user_id}...`);
+                const { data: deletedAllFailed, error: deleteError2 } = await supabaseAdmin
+                    .from('notification_queue')
+                    .delete()
+                    .eq('user_id', queueItem.user_id)
+                    .eq('status', 'failed')
+                    .neq('id', queueItem.id) // Don't delete the current notification
+                    .select(); // Select to get count of deleted items
+
+                if (deleteError1 || deleteError2) {
+                    console.error('❌ Error deleting duplicate pending/failed notifications:', deleteError1 || deleteError2);
                 } else {
-                    console.log(`✅ Deleted ${deletedNotifications?.length || 0} duplicate pending notifications for user`);
-                    console.log('🧹 Queue table cleaned up - duplicate entries removed permanently');
+                    const totalDeleted = (deletedSameNotification?.length || 0) + (deletedAllFailed?.length || 0);
+                    console.log(`✅ [v2.0] Deleted ${deletedSameNotification?.length || 0} duplicate pending/failed notifications for same notification`);
+                    console.log(`✅ [v2.0] Deleted ${deletedAllFailed?.length || 0} failed notifications for user (all notification IDs)`);
+                    console.log(`✅ [v2.0] Total deleted: ${totalDeleted} notifications`);
+                    console.log('🧹 [v2.0] Queue table cleaned up - duplicate entries removed permanently');
                 }
             } catch (deleteError) {
                 console.error('❌ Error in auto-delete process:', deleteError);
@@ -679,25 +677,55 @@ if (typeof window !== 'undefined') {
         console.log(`🧹 Cleaning up notifications older than ${days} days...`);
     };
 
-    // Add function to manually delete duplicate pending notifications for testing
+    // Add function to manually delete duplicate pending and failed notifications for testing
     (window as any).deleteDuplicateNotifications = async (notificationId: string, userId: string) => {
-        console.log(`🗑️ Manually deleting duplicate notifications for notification ${notificationId} and user ${userId}...`);
+        console.log(`🗑️ Manually deleting duplicate pending and failed notifications for notification ${notificationId} and user ${userId}...`);
         try {
             const { data: deletedEntries, error } = await supabaseAdmin
                 .from('notification_queue')
                 .delete()
                 .eq('notification_id', notificationId)
                 .eq('user_id', userId)
-                .eq('status', 'pending')
+                .or('status.eq.pending,status.eq.failed') // Use .or() instead of .in()
                 .select();
 
             if (error) {
                 console.error('❌ Error deleting duplicates:', error);
             } else {
-                console.log(`✅ Deleted ${deletedEntries?.length || 0} duplicate pending notifications`);
+                console.log(`✅ Deleted ${deletedEntries?.length || 0} duplicate pending/failed notifications`);
             }
         } catch (error) {
             console.error('❌ Manual delete failed:', error);
+        }
+    };
+
+    // Add helper function to find real notification IDs for testing
+    (window as any).findNotificationIds = async () => {
+        console.log('🔍 Finding real notification IDs for testing...');
+        try {
+            const { data: queueItems, error } = await supabaseAdmin
+                .from('notification_queue')
+                .select('id, notification_id, user_id, status')
+                .limit(10);
+
+            if (error) {
+                console.error('❌ Error fetching notification IDs:', error);
+                return;
+            }
+
+            console.log('📋 Available notification queue items:');
+            queueItems?.forEach((item, index) => {
+                console.log(`${index + 1}. ID: ${item.id}, Notification: ${item.notification_id}, User: ${item.user_id}, Status: ${item.status}`);
+            });
+            
+            if (queueItems && queueItems.length > 0) {
+                const first = queueItems[0];
+                console.log(`💡 To test deletion, use: deleteDuplicateNotifications('${first.notification_id}', '${first.user_id}')`);
+            } else {
+                console.log('📭 No notification queue items found');
+            }
+        } catch (error) {
+            console.error('❌ Error finding notification IDs:', error);
         }
     };
 
@@ -823,21 +851,7 @@ if (typeof window !== 'undefined') {
                 }
             }
 
-            // Test direct browser notification first
-            console.log('🔔 Creating direct browser notification...');
-            const directNotification = new Notification('Direct Test', {
-                body: 'This is a direct browser notification test',
-                icon: '/favicon.png'
-            });
-
-            directNotification.onclick = () => {
-                console.log('🖱️ Direct notification clicked');
-                directNotification.close();
-            };
-
-            setTimeout(() => directNotification.close(), 5000);
-
-            // Test service worker notification
+            // Test service worker notification only (mobile compatible)
             if ('serviceWorker' in navigator) {
                 console.log('🔔 Creating service worker notification...');
                 const registration = await navigator.serviceWorker.ready;
@@ -847,6 +861,24 @@ if (typeof window !== 'undefined') {
                     requireInteraction: true
                 });
                 console.log('✅ Service worker notification created');
+                
+                // Also create a direct test for desktop (but skip on mobile)
+                if (!navigator.userAgent.includes('Mobile')) {
+                    console.log('🔔 Creating direct browser notification for desktop...');
+                    const directNotification = new Notification('Direct Test', {
+                        body: 'This is a direct browser notification test (desktop only)',
+                        icon: '/favicon.png'
+                    });
+
+                    directNotification.onclick = () => {
+                        console.log('🖱️ Direct notification clicked');
+                        directNotification.close();
+                    };
+
+                    setTimeout(() => directNotification.close(), 5000);
+                }
+            } else {
+                console.warn('⚠️ Service Worker not supported - notifications disabled');
             }
 
         } catch (err) {

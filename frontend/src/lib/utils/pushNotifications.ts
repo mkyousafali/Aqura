@@ -126,6 +126,16 @@ export class PushNotificationService {
 			return true;
 		} catch (error) {
 			console.error('Failed to initialize push notifications:', error);
+			
+			// Provide user feedback for initialization errors
+			if (typeof window !== 'undefined') {
+				const { notifications } = await import('$lib/stores/notifications');
+				notifications.add({
+					type: 'error',
+					message: '❌ Failed to initialize push notifications. Please try refreshing the page.',
+					duration: 6000
+				});
+			}
 			return false;
 		}
 	}
@@ -142,6 +152,37 @@ export class PushNotificationService {
 
 		if (permission === 'default') {
 			permission = await Notification.requestPermission();
+		}
+
+		// Provide user feedback based on permission result
+		if (typeof window !== 'undefined') {
+			// Dynamically import to avoid SSR issues
+			const { notifications } = await import('$lib/stores/notifications');
+			
+			switch (permission) {
+				case 'granted':
+					notifications.add({
+						type: 'success',
+						message: '🔔 Push notifications enabled! You\'ll receive notifications when the app is closed.',
+						duration: 4000
+					});
+					break;
+				case 'denied':
+					notifications.add({
+						type: 'warning',
+						message: '🔕 Push notifications blocked. You can enable them in your browser settings under Site Settings > Notifications.',
+						duration: 8000
+					});
+					break;
+				case 'default':
+					// User dismissed without choosing
+					notifications.add({
+						type: 'info',
+						message: '📱 You can enable push notifications later in your browser settings.',
+						duration: 5000
+					});
+					break;
+			}
 		}
 
 		return permission;
@@ -322,17 +363,18 @@ export class PushNotificationService {
 			return;
 		}
 
-		const notification = new Notification('Aqura Test Notification', {
-			body: 'Push notifications are working!',
-			icon: '/favicon.png',
-			badge: '/badge-icon.png',
-			tag: 'test-notification'
-		});
-
-		// Auto-close after 5 seconds
-		setTimeout(() => {
-			notification.close();
-		}, 5000);
+		// Use Service Worker registration for mobile compatibility
+		if (this.swRegistration) {
+			await this.swRegistration.showNotification('Aqura Test Notification', {
+				body: 'Push notifications are working!',
+				icon: '/favicon.png',
+				badge: '/badge-icon.png',
+				tag: 'test-notification',
+				requireInteraction: false
+			});
+		} else {
+			console.warn('Service Worker not available for notifications');
+		}
 	}
 
 	/**
@@ -343,27 +385,19 @@ export class PushNotificationService {
 			return;
 		}
 
-		const notification = new Notification(payload.title, {
-			body: payload.body,
-			icon: payload.icon || '/favicon.png',
-			badge: payload.badge || '/badge-icon.png',
-			data: payload.data,
-			tag: payload.data?.notification_id || 'aqura-notification',
-			requireInteraction: true
-		});
-
-		// Handle notification click
-		notification.onclick = (event) => {
-			event.preventDefault();
-			window.focus();
-			
-			// Navigate to notification if needed
-			if (payload.data?.url) {
-				window.location.href = payload.data.url;
-			}
-			
-			notification.close();
-		};
+		// Use Service Worker registration for mobile compatibility
+		if (this.swRegistration) {
+			await this.swRegistration.showNotification(payload.title, {
+				body: payload.body,
+				icon: payload.icon || '/favicon.png',
+				badge: payload.badge || '/badge-icon.png',
+				data: payload.data,
+				tag: payload.data?.notification_id || 'aqura-notification',
+				requireInteraction: true
+			});
+		} else {
+			console.warn('Service Worker not available for notifications');
+		}
 	}
 
 	/**
