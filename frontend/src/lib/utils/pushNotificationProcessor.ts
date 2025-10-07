@@ -802,6 +802,8 @@ class PushNotificationProcessor {
                         console.log('⚠️ Direct browser notifications not supported on mobile - notification skipped');
                     }
                     
+                    // Commented out test notification to prevent unwanted popup
+                    /*
                     // Also send a test message to Service Worker to verify communication
                     if (registration.active) {
                         const messageChannel = new MessageChannel();
@@ -816,6 +818,7 @@ class PushNotificationProcessor {
                             tag: 'test-notification'
                         }, [messageChannel.port2]);
                     }
+                    */
                 } catch (swError) {
                     console.error('❌ Service Worker notification failed:', swError);
                     console.error('❌ SW Error details:', {
