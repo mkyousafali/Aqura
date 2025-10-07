@@ -5,16 +5,16 @@
 // Import workbox from CDN for service worker
 importScripts('https://storage.googleapis.com/workbox-cdn/releases/7.0.0/workbox-sw.js');
 
+// The __WB_MANIFEST will be injected by vite-plugin-pwa
+// This handles precaching of static assets
+const manifest = self.__WB_MANIFEST || [];
+
 // Initialize workbox
 if (workbox) {
 	console.log('[ServiceWorker] Workbox loaded successfully');
 	
 	// Enable debug mode in development
 	workbox.setConfig({ debug: false });
-	
-	// The __WB_MANIFEST will be injected by vite-plugin-pwa
-	// This handles precaching of static assets
-	const manifest = self.__WB_MANIFEST || [];
 	
 	// Set up precaching with workbox
 	workbox.precaching.precacheAndRoute(manifest);
