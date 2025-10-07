@@ -108,7 +108,14 @@ export class PushNotificationService {
 				}
 			} else {
 				console.log('🏭 Production mode: Using PWA service worker');
+				
+				// Wait for any ongoing Service Worker cleanup/updates to complete
+				console.log('🔄 Waiting for Service Worker environment to stabilize...');
+				await new Promise(resolve => setTimeout(resolve, 2000));
+				
+				// Get the stable Service Worker registration
 				this.swRegistration = await navigator.serviceWorker.ready;
+				console.log('📋 Got Service Worker registration after stabilization');
 			}
 			
 			// Ensure Service Worker is actually active before proceeding
@@ -143,7 +150,7 @@ export class PushNotificationService {
 
 			// Add stabilization delay to ensure Service Worker is fully settled
 			console.log('⏳ Waiting for Service Worker to stabilize...');
-			await new Promise(resolve => setTimeout(resolve, 1000));
+			await new Promise(resolve => setTimeout(resolve, 2000)); // Increased to 2 seconds
 
 			// Subscribe to push notifications
 			await this.subscribeToPush();

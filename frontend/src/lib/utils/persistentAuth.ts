@@ -73,10 +73,17 @@ export class PersistentAuthService {
 
 			// Initialize push notifications for authenticated user (non-blocking)
 			if (activeUser) {
-				// Don't await this to prevent hanging on push notification setup
-				pushNotificationService.initialize().catch(error => {
-					console.warn('🔔 Push notification initialization failed:', error);
-				});
+				// Wait for Service Worker cleanup to complete before initializing push notifications
+				console.log('🔔 Scheduling push notification initialization after cleanup...');
+				setTimeout(async () => {
+					try {
+						console.log('🔔 Starting delayed push notification initialization...');
+						await pushNotificationService.initialize();
+						console.log('✅ Push notification initialization completed successfully');
+					} catch (error) {
+						console.warn('🔔 Push notification initialization failed:', error);
+					}
+				}, 3000); // Wait 3 seconds for all cleanup to complete
 			}
 			
 			console.log('🔐 Persistent auth initialization complete');
