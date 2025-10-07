@@ -674,7 +674,7 @@ export class NotificationManagementService {
 				// It's a UUID, we need to get the username
 				const { data: userData, error: userError } = await supabase
 					.from('users')
-					.select('username')
+					.select('username, display_name')
 					.eq('id', assignedBy)
 					.single();
 
@@ -684,13 +684,32 @@ export class NotificationManagementService {
 					assignedByUsername = assignedByName || 'Admin';
 				} else {
 					assignedByUsername = userData.username;
+					assignedByUserName = userData.display_name || userData.username;
 				}
 			}
+
+			// Get assigned user names for better notification message
+			let assignedToNames: string[] = [];
+			if (assignedToUserIds.length > 0) {
+				const { data: assignedUsers, error: assignedUsersError } = await supabase
+					.from('users')
+					.select('id, username, display_name')
+					.in('id', assignedToUserIds);
+
+				if (!assignedUsersError && assignedUsers) {
+					assignedToNames = assignedUsers.map(user => user.display_name || user.username);
+				}
+			}
+
+			// Create assignment details string
+			const assignmentDetails = assignedToNames.length > 0 
+				? `Assigned by ${assignedByUserName} to ${assignedToNames.join(', ')}`
+				: `Assigned by ${assignedByUserName}`;
 
 			// Create notification data with task details in message
 			const notificationData: CreateNotificationRequest = {
 				title: `New Task Assigned: ${taskTitle}`,
-				message: `You have been assigned a new task: "${taskTitle}"${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ''}${notes ? `\n\nNotes: ${notes}` : ''}${taskData?.require_photo_upload ? '\n📷 Photo upload required' : ''}${taskData?.require_erp_reference ? '\n📋 ERP reference required' : ''}`,
+				message: `You have been assigned a new task: "${taskTitle}" by ${assignedByUserName}${deadline ? ` with deadline: ${new Date(deadline).toLocaleDateString()}` : ''}${notes ? `\n\nNotes: ${notes}` : ''}${taskData?.require_photo_upload ? '\n📷 Photo upload required' : ''}${taskData?.require_erp_reference ? '\n📋 ERP reference required' : ''}`,
 				type: 'task_assigned',
 				priority: 'medium',
 				target_type: 'specific_users',
@@ -728,6 +747,10 @@ export class NotificationManagementService {
 						task_id: taskId, // Add task_id to metadata for easy access in UI
 						task_assignment_id: taskData?.assignmentId || null, // Add assignment_id to metadata
 						task_title: taskTitle,
+						assigned_by: assignedBy,
+						assigned_by_name: assignedByUserName,
+						assigned_to_names: assignedToNames,
+						assignment_details: assignmentDetails,
 						require_task_finished: taskData?.require_task_finished || false,
 						require_photo_upload: taskData?.require_photo_upload || false,
 						require_erp_reference: taskData?.require_erp_reference || false,

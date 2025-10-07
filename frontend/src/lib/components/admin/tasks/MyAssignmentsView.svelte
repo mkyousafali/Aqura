@@ -42,80 +42,168 @@
 		try {
 			isLoading = true;
 
-			// Get all task assignments where current user is the assigner
-			const { data: assignmentData, error: assignmentError } = await supabase
+			// Get regular task assignments where current user is the assigner
+			const { data: regularAssignmentData, error: regularAssignmentError } = await supabase
 				.from('task_assignments')
 				.select('*')
 				.eq('assigned_by', $currentUser.id)
 				.order('assigned_at', { ascending: false });
 
-			if (assignmentError) {
-				throw new Error(assignmentError.message);
+			if (regularAssignmentError) {
+				throw new Error(regularAssignmentError.message);
 			}
 
-			if (!assignmentData || assignmentData.length === 0) {
-				assignments = [];
-				calculateStats();
-				extractUniqueFilters();
-				applyFilters();
-				return;
+			// Get quick task assignments where current user is the assigner
+			const { data: quickAssignmentData, error: quickAssignmentError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					*,
+					quick_task:quick_tasks!inner(
+						id,
+						title,
+						description,
+						priority,
+						price_tag,
+						issue_type,
+						status,
+						created_at,
+						deadline_datetime,
+						assigned_by
+					)
+				`)
+				.eq('quick_task.assigned_by', $currentUser.id)
+				.order('created_at', { ascending: false });
+
+			if (quickAssignmentError) {
+				console.warn('Quick tasks might not be available:', quickAssignmentError);
 			}
 
-			// Get unique task IDs and user IDs
-			const taskIds = [...new Set(assignmentData.map(a => a.task_id))];
-			const userIds = [...new Set(assignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
+			// Process regular assignments
+			let regularAssignments = [];
+			if (regularAssignmentData && regularAssignmentData.length > 0) {
+				// Get unique task IDs and user IDs
+				const taskIds = [...new Set(regularAssignmentData.map(a => a.task_id))];
+				const userIds = [...new Set(regularAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
 
-			// Fetch tasks
-			const { data: tasksData, error: tasksError } = await supabase
-				.from('tasks')
-				.select('id, title, description, priority, due_date, status, created_at')
-				.in('id', taskIds);
+				// Fetch tasks
+				const { data: tasksData, error: tasksError } = await supabase
+					.from('tasks')
+					.select('id, title, description, priority, due_date, status, created_at')
+					.in('id', taskIds);
 
-			if (tasksError) {
-				throw new Error(tasksError.message);
-			}
+				if (tasksError) {
+					throw new Error(tasksError.message);
+				}
 
-			// Fetch users - since assigned_to_user_id might be username (text), try both approaches
-			let usersData = [];
-			if (userIds.length > 0) {
-				// First try as IDs
-				const { data: userData1, error: userError1 } = await supabase
-					.from('users')
-					.select('id, username')
-					.in('id', userIds);
-
-				if (userError1) {
-					// If that fails, try as usernames
-					const { data: userData2, error: userError2 } = await supabase
+				// Fetch users - since assigned_to_user_id might be username (text), try both approaches
+				let usersData = [];
+				if (userIds.length > 0) {
+					// First try as IDs
+					const { data: userData1, error: userError1 } = await supabase
 						.from('users')
 						.select('id, username')
-						.in('username', userIds);
+						.in('id', userIds);
 
-					if (userError2) {
-						throw new Error(userError2.message);
+					if (userError1) {
+						// If that fails, try as usernames
+						const { data: userData2, error: userError2 } = await supabase
+							.from('users')
+							.select('id, username')
+							.in('username', userIds);
+
+						if (userError2) {
+							throw new Error(userError2.message);
+						}
+						usersData = userData2 || [];
+					} else {
+						usersData = userData1 || [];
 					}
-					usersData = userData2 || [];
-				} else {
-					usersData = userData1 || [];
 				}
+
+				// Create lookup maps
+				const tasksMap = new Map(tasksData?.map(task => [task.id, task]) || []);
+				
+				// Create user lookup map that handles both ID and username lookups
+				const usersMap = new Map();
+				usersData?.forEach(user => {
+					usersMap.set(user.id, user);
+					usersMap.set(user.username, user);
+				});
+
+				// Combine the regular assignment data
+				regularAssignments = regularAssignmentData.map(assignment => ({
+					...assignment,
+					task: tasksMap.get(assignment.task_id),
+					assigned_user: usersMap.get(assignment.assigned_to_user_id),
+					task_type: 'regular'
+				}));
 			}
 
-			// Create lookup maps
-			const tasksMap = new Map(tasksData?.map(task => [task.id, task]) || []);
-			
-			// Create user lookup map that handles both ID and username lookups
-			const usersMap = new Map();
-			usersData?.forEach(user => {
-				usersMap.set(user.id, user);
-				usersMap.set(user.username, user);
-			});
+			// Process quick task assignments
+			let quickAssignments = [];
+			if (quickAssignmentData && quickAssignmentData.length > 0) {
+				// Get unique user IDs for quick task assignments
+				const quickUserIds = [...new Set(quickAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
 
-			// Combine the data
-			assignments = assignmentData.map(assignment => ({
-				...assignment,
-				task: tasksMap.get(assignment.task_id),
-				assigned_user: usersMap.get(assignment.assigned_to_user_id)
-			}));
+				// Fetch users for quick task assignments
+				let quickUsersData = [];
+				if (quickUserIds.length > 0) {
+					const { data: userData, error: userError } = await supabase
+						.from('users')
+						.select('id, username')
+						.in('id', quickUserIds);
+
+					if (userError) {
+						console.error('Error fetching quick task users:', userError);
+					} else {
+						quickUsersData = userData || [];
+					}
+				}
+
+				// Create user lookup map for quick tasks
+				const quickUsersMap = new Map();
+				quickUsersData?.forEach(user => {
+					quickUsersMap.set(user.id, user);
+				});
+
+				// Transform quick assignments to match regular assignment structure
+				quickAssignments = quickAssignmentData.map(assignment => ({
+					...assignment,
+					task_id: assignment.quick_task.id,
+					task: {
+						id: assignment.quick_task.id,
+						title: assignment.quick_task.title,
+						description: assignment.quick_task.description,
+						priority: assignment.quick_task.priority,
+						due_date: null, // Quick tasks use deadline_datetime
+						status: assignment.quick_task.status,
+						created_at: assignment.quick_task.created_at,
+						price_tag: assignment.quick_task.price_tag,
+						issue_type: assignment.quick_task.issue_type,
+						deadline_datetime: assignment.quick_task.deadline_datetime
+					},
+					assigned_user: quickUsersMap.get(assignment.assigned_to_user_id),
+					assigned_at: assignment.created_at,
+					deadline_date: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toISOString().split('T')[0] : null,
+					deadline_time: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toTimeString().split(' ')[0].slice(0, 5) : null,
+					task_type: 'quick_task'
+				}));
+			}
+
+			// Combine both types of assignments
+			assignments = [...regularAssignments, ...quickAssignments];
+			
+			// Sort by creation date (newest first)
+			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			
+			// Calculate statistics
+			calculateStats();
+			
+			// Extract unique users and tasks for filters
+			extractUniqueFilters();
+			
+			// Apply initial filters
+			applyFilters();
 			
 			// Calculate statistics
 			calculateStats();
@@ -142,21 +230,29 @@
 		totalStats.total = assignments.length;
 		totalStats.completed = assignments.filter(a => a.status === 'completed').length;
 		totalStats.in_progress = assignments.filter(a => a.status === 'in_progress').length;
-		totalStats.assigned = assignments.filter(a => a.status === 'assigned').length;
+		totalStats.assigned = assignments.filter(a => a.status === 'assigned' || a.status === 'pending').length;
 		
 		// Calculate overdue (assignments with deadline passed and not completed)
 		const now = new Date();
 		totalStats.overdue = assignments.filter(a => {
 			if (a.status === 'completed') return false;
-			if (!a.deadline_date) return false;
 			
-			const deadline = new Date(a.deadline_date);
-			if (a.deadline_time) {
-				const [hours, minutes] = a.deadline_time.split(':');
-				deadline.setHours(parseInt(hours), parseInt(minutes));
+			let deadline = null;
+			
+			// Handle quick tasks with deadline_datetime
+			if (a.task_type === 'quick_task' && a.task?.deadline_datetime) {
+				deadline = new Date(a.task.deadline_datetime);
+			}
+			// Handle regular tasks with deadline_date
+			else if (a.deadline_date) {
+				deadline = new Date(a.deadline_date);
+				if (a.deadline_time) {
+					const [hours, minutes] = a.deadline_time.split(':');
+					deadline.setHours(parseInt(hours), parseInt(minutes));
+				}
 			}
 			
-			return deadline < now;
+			return deadline ? deadline < now : false;
 		}).length;
 	}
 
@@ -297,16 +393,24 @@
 
 	function isOverdue(assignment) {
 		if (assignment.status === 'completed') return false;
-		if (!assignment.deadline_date) return false;
 		
 		const now = new Date();
-		const deadline = new Date(assignment.deadline_date);
-		if (assignment.deadline_time) {
-			const [hours, minutes] = assignment.deadline_time.split(':');
-			deadline.setHours(parseInt(hours), parseInt(minutes));
+		let deadline = null;
+		
+		// Handle quick tasks with deadline_datetime
+		if (assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime) {
+			deadline = new Date(assignment.task.deadline_datetime);
+		}
+		// Handle regular tasks with deadline_date
+		else if (assignment.deadline_date) {
+			deadline = new Date(assignment.deadline_date);
+			if (assignment.deadline_time) {
+				const [hours, minutes] = assignment.deadline_time.split(':');
+				deadline.setHours(parseInt(hours), parseInt(minutes));
+			}
 		}
 		
-		return deadline < now;
+		return deadline ? deadline < now : false;
 	}
 
 	// Reactive statements
@@ -457,6 +561,11 @@
 								<!-- Task Title -->
 								<div class="flex items-center space-x-3 mb-2">
 									<h3 class="text-lg font-semibold text-gray-900">{assignment.task?.title || 'Unknown Task'}</h3>
+									{#if assignment.task_type === 'quick_task'}
+										<span class="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+											⚡ QUICK TASK
+										</span>
+									{/if}
 									{#if assignment.task?.priority}
 										<span class="px-2 py-1 text-xs font-medium rounded-full {getPriorityColor(assignment.task.priority)}">
 											{assignment.task.priority.toUpperCase()}
@@ -488,7 +597,13 @@
 									</div>
 									<div>
 										<span class="font-medium text-gray-700">Deadline:</span>
-										<p class="text-gray-900">{formatDateTime(assignment.deadline_date, assignment.deadline_time)}</p>
+										<p class="text-gray-900">
+											{#if assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime}
+												{new Date(assignment.task.deadline_datetime).toLocaleString()}
+											{:else}
+												{formatDateTime(assignment.deadline_date, assignment.deadline_time)}
+											{/if}
+										</p>
 									</div>
 									<div>
 										<span class="font-medium text-gray-700">Status:</span>
@@ -497,6 +612,30 @@
 										</span>
 									</div>
 								</div>
+
+								{#if assignment.task_type === 'quick_task'}
+									<!-- Quick Task specific details -->
+									<div class="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+										<div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+											{#if assignment.task?.price_tag}
+												<div>
+													<span class="font-medium text-purple-700">Price Tag:</span>
+													<p class="text-purple-900 capitalize">{assignment.task.price_tag}</p>
+												</div>
+											{/if}
+											{#if assignment.task?.issue_type}
+												<div>
+													<span class="font-medium text-purple-700">Issue Type:</span>
+													<p class="text-purple-900 capitalize">{assignment.task.issue_type}</p>
+												</div>
+											{/if}
+											<div>
+												<span class="font-medium text-purple-700">Type:</span>
+												<p class="text-purple-900">Quick Task Assignment</p>
+											</div>
+										</div>
+									</div>
+								{/if}
 
 								<!-- Notes -->
 								{#if assignment.notes}

@@ -4,7 +4,6 @@
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db } from '$lib/utils/supabase';
-	import TaskCompletionModal from '$lib/components/mobile/TaskCompletionModal.svelte';
 
 	let currentUserData = null;
 	let task = null;
@@ -13,9 +12,6 @@
 	let isLoading = true;
 	let isUpdating = false;
 	let taskId = null;
-	
-	// Completion modal state
-	let showCompletionModal = false;
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -118,9 +114,9 @@
 	async function updateAssignmentStatus(newStatus) {
 		if (isUpdating) return;
 		
-		// If completing the task, show completion modal instead
+		// If completing the task, navigate to completion page instead
 		if (newStatus === 'completed') {
-			showCompletionModal = true;
+			goto(`/mobile/tasks/${taskId}/complete`);
 			return;
 		}
 		
@@ -144,18 +140,6 @@
 		} finally {
 			isUpdating = false;
 		}
-	}
-	
-	function closeCompletionModal() {
-		showCompletionModal = false;
-	}
-	
-	async function onTaskCompleted() {
-		// Refresh task details and then navigate back
-		await loadTaskDetails();
-		setTimeout(() => {
-			goto('/mobile/tasks');
-		}, 1500);
 	}
 
 	function formatDate(dateString) {
@@ -487,16 +471,6 @@
 		{/if}
 	{/if}
 </div>
-
-<!-- Task Completion Modal -->
-{#if showCompletionModal && task && assignment}
-	<TaskCompletionModal
-		{task}
-		{assignment}
-		onClose={closeCompletionModal}
-		onTaskCompleted={onTaskCompleted}
-	/>
-{/if}
 
 <style>
 	.mobile-task-detail {

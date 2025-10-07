@@ -3,13 +3,16 @@
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import { db } from '$lib/utils/supabase';
+	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 
 	// Current user for role-based access
 	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
+
+	// User cache for displaying usernames
+	let userCache: Record<string, string> = {};
 
 	// Notification data from API
 	let allNotifications: any[] = [];
@@ -41,7 +44,8 @@
 			read: notification.is_read || false,
 			priority: notification.priority,
 			createdBy: notification.created_by_name,
-			targetUsers: notification.target_type,
+			target_users: notification.target_users,
+			target_type: notification.target_type,
 			targetBranch: 'all',
 			status: notification.status,
 			readCount: notification.read_count,
@@ -167,6 +171,95 @@
 		} finally {
 			isLoading = false;
 		}
+		
+		// Load user cache for displaying usernames
+		await loadUserCache();
+	}
+
+	// Function to load and cache user information
+	async function loadUserCache() {
+		try {
+			// Extract all user IDs from notifications that we might need to display
+			const userIds = new Set<string>();
+			
+			for (const notification of allNotifications) {
+				const metadata = notification.metadata || {};
+				
+				// Add assigned_to user
+				if (metadata.assigned_to) {
+					userIds.add(metadata.assigned_to);
+				}
+				
+				// Add created_by user (this might be the UUID)
+				if (notification.created_by && notification.created_by !== 'system') {
+					userIds.add(notification.created_by);
+				}
+				
+				// Add target users if available
+				let targetUsers = notification.target_users || notification.targetUsers;
+				if (typeof targetUsers === 'string') {
+					try {
+						targetUsers = JSON.parse(targetUsers);
+					} catch (e) {
+						// Skip invalid JSON
+					}
+				}
+				
+				if (Array.isArray(targetUsers)) {
+					targetUsers.forEach(userId => {
+						if (userId && typeof userId === 'string') {
+							userIds.add(userId);
+						}
+					});
+				}
+			}
+			
+			// Fetch usernames for all these user IDs from both users and hr_employees tables
+			if (userIds.size > 0) {
+				const userIdArray = Array.from(userIds);
+				
+				// First try to get from users table
+				const { data: users } = await supabase
+					.from('users')
+					.select('id, username')
+					.in('id', userIdArray);
+				
+				if (users) {
+					// Populate the cache with usernames from users table
+					for (const user of users) {
+						if (user.username) {
+							userCache[user.id] = user.username;
+						}
+					}
+				}
+				
+				// Then try to get from hr_employees table for any missing users
+				const missingUserIds = userIdArray.filter(id => !userCache[id]);
+				if (missingUserIds.length > 0) {
+					const { data: employees } = await supabase
+						.from('hr_employees')
+						.select('id, name, employee_id')
+						.in('id', missingUserIds);
+					
+					if (employees) {
+						// Populate the cache with names from hr_employees table
+						for (const employee of employees) {
+							if (employee.name) {
+								userCache[employee.id] = employee.name;
+							} else if (employee.employee_id) {
+								userCache[employee.id] = `Employee ${employee.employee_id}`;
+							}
+						}
+					}
+					
+					console.log(`📝 [Mobile Notification] Cached ${Object.keys(userCache).length} user names from ${users?.length || 0} users and ${employees?.length || 0} employees`);
+				} else {
+					console.log(`📝 [Mobile Notification] Cached ${Object.keys(userCache).length} user names from ${users?.length || 0} users`);
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to load user cache:', error);
+		}
 	}
 
 	export async function forceRefreshNotifications() {
@@ -196,6 +289,9 @@
 			}
 			
 			console.log('✅ [Mobile Notification] Force refresh completed. Total notifications:', allNotifications.length);
+			
+			// Reload user cache after refresh
+			await loadUserCache();
 		} catch (error) {
 			console.error('❌ [Mobile Notification] Error force refreshing notifications:', error);
 			errorMessage = 'Failed to refresh notifications. Please try again.';
@@ -290,6 +386,130 @@
 		}
 	}
 
+	// Function to format target users for display
+	function getTargetUsersDisplay(notification: any) {
+		try {
+			
+			// Check different possible locations for target user information
+			let targetUsers = notification.target_users || notification.targetUsers;
+			
+			// Handle empty or undefined target_users, or if it contains target_type values
+			if (!targetUsers || 
+				targetUsers === '' || 
+				targetUsers === 'specific_users' ||
+				targetUsers === 'all_users' ||
+				targetUsers === 'role_based' ||
+				targetUsers === 'branch_based') {
+				
+				// If no target_users data, try to get from metadata first
+				const metadata = notification.metadata || {};
+				if (metadata.assigned_to_name) {
+					return metadata.assigned_to_name;
+				}
+				
+				// Try to get from cached user data
+				if (metadata.assigned_to && userCache[metadata.assigned_to]) {
+					return userCache[metadata.assigned_to];
+				}
+				
+				return 'Unknown User';
+			}
+			
+			// If target_users is a JSON string and NOT a target_type value, parse it
+			if (typeof targetUsers === 'string') {
+				try {
+					targetUsers = JSON.parse(targetUsers);
+				} catch (e) {
+					console.warn('Failed to parse target_users:', targetUsers);
+					// If parsing fails, try to get from metadata
+					const metadata = notification.metadata || {};
+					if (metadata.assigned_to_name) {
+						return metadata.assigned_to_name;
+					}
+					
+					// Try cached user data
+					if (metadata.assigned_to && userCache[metadata.assigned_to]) {
+						return userCache[metadata.assigned_to];
+					}
+					
+					return 'Unknown User';
+				}
+			}
+			
+			// Handle different target types
+			if (notification.target_type === 'all_users') {
+				return 'All Users';
+			} else if (notification.target_type === 'specific_users' && Array.isArray(targetUsers)) {
+				if (targetUsers.length === 1) {
+					// For single user, try to get username from metadata if available
+					const metadata = notification.metadata || {};
+					const assignedToName = metadata.assigned_to_name;
+					if (assignedToName) {
+						return assignedToName;
+					}
+					
+					// Try to get from cached user data
+					const userId = targetUsers[0];
+					if (userId && userCache[userId]) {
+						return userCache[userId];
+					}
+					
+					return `User (${targetUsers.length})`;
+				} else if (targetUsers.length <= 3) {
+					// For small groups, try to get cached usernames
+					const usernames: string[] = [];
+					for (const userId of targetUsers) {
+						if (userCache[userId]) {
+							usernames.push(userCache[userId]);
+						}
+					}
+					
+					if (usernames.length > 0) {
+						return usernames.join(', ');
+					}
+					
+					return `${targetUsers.length} Users`;
+				} else {
+					return `${targetUsers.length} Users`;
+				}
+			} else if (notification.target_type === 'role_based') {
+				return notification.target_roles ? `Role: ${notification.target_roles}` : 'Role-based';
+			} else if (notification.target_type === 'branch_based') {
+				return notification.target_branches ? `Branch: ${notification.target_branches}` : 'Branch-based';
+			}
+			
+			// Final fallback - check metadata for any user information
+			const metadata = notification.metadata || {};
+			if (metadata.assigned_to_name) {
+				return metadata.assigned_to_name;
+			}
+			
+			// Try cached user data for assigned_to user
+			if (metadata.assigned_to && userCache[metadata.assigned_to]) {
+				return userCache[metadata.assigned_to];
+			}
+			
+			return 'Unknown User';
+		} catch (error) {
+			console.warn('Error formatting target users:', error);
+			// Try metadata fallback even in error case
+			try {
+				const metadata = notification.metadata || {};
+				if (metadata.assigned_to_name) {
+					return metadata.assigned_to_name;
+				}
+				
+				// Try cached user data in error case too
+				if (metadata.assigned_to && userCache[metadata.assigned_to]) {
+					return userCache[metadata.assigned_to];
+				}
+			} catch (e) {
+				// If even metadata parsing fails, return default
+			}
+			return 'Unknown User';
+		}
+	}
+
 	// Image modal functions
 	function openImageModal(imageUrl: string) {
 		selectedImageUrl = imageUrl;
@@ -306,13 +526,176 @@
 		
 		// Simple task data extraction from notification
 		const metadata = notification.metadata || {};
+		console.log('🔍 [Mobile Notification] Full metadata object:', metadata);
+		
+		// Extract IDs - quick tasks use quick_task_id, normal tasks use task_id
+		const quickTaskId = metadata.quick_task_id;
 		const taskId = metadata.task_id || notification.task_id;
-		const assignmentId = metadata.task_assignment_id || notification.task_assignment_id;
+		const assignmentId = metadata.task_assignment_id || metadata.quick_task_assignment_id || notification.task_assignment_id;
 		
-		console.log('📋 [Mobile Notification] Extracted IDs:', { taskId, assignmentId, metadata });
+		console.log('📋 [Mobile Notification] Extracted IDs:', { taskId, quickTaskId, assignmentId, metadata });
 		
-		if (!taskId) {
-			console.error('❌ No task_id found in notification');
+		// If metadata is empty, try to detect quick task from title/message
+		const isQuickTaskByContent = notification.title && notification.title.includes('Quick Task') ||
+		                            notification.message && notification.message.includes('quick task');
+		
+		const isNormalTaskByContent = notification.title && notification.title.includes('Task Assigned') ||
+		                             notification.message && notification.message.includes('You have been assigned a new task') ||
+		                             notification.type === 'task_assigned';
+		
+		if (isQuickTaskByContent && !quickTaskId) {
+			console.log('🔍 [Mobile Notification] Detected quick task by content, searching database...');
+			
+			try {
+				// Extract task title from notification message
+				const titleMatch = notification.message.match(/"([^"]+)"/);
+				const taskTitle = titleMatch ? titleMatch[1] : '';
+				
+				console.log('🔍 [Mobile Notification] Searching for quick task with title:', taskTitle);
+				
+				if (taskTitle && $currentUser?.id) {
+					// Find the quick task assignment for this user and task title
+					console.log('🔍 [Mobile Notification] Querying database with user ID:', $currentUser.id);
+					
+					const { data: assignments, error } = await supabase
+						.from('quick_task_assignments')
+						.select(`
+							id,
+							quick_task_id,
+							status,
+							quick_task:quick_tasks!inner(
+								id,
+								title,
+								description,
+								priority,
+								deadline_datetime
+							)
+						`)
+						.eq('assigned_to_user_id', $currentUser.id)
+						.eq('quick_tasks.title', taskTitle)
+						.limit(1);
+					
+					console.log('🔍 [Mobile Notification] Database query result:', { data: assignments, error });
+					
+					if (error) {
+						console.error('❌ [Mobile Notification] Database error:', error);
+						// Try a simpler query as fallback
+						console.log('🔄 [Mobile Notification] Trying simpler query...');
+						
+						const { data: quickTasks, error: simpleError } = await supabase
+							.from('quick_tasks')
+							.select('id, title')
+							.eq('title', taskTitle)
+							.limit(1);
+							
+						console.log('🔍 [Mobile Notification] Simple query result:', { data: quickTasks, error: simpleError });
+						
+						if (!simpleError && quickTasks && quickTasks.length > 0) {
+							const quickTaskId = quickTasks[0].id;
+							console.log('✅ [Mobile Notification] Found quick task via simple query:', quickTaskId);
+							await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
+							return;
+						}
+					} else if (assignments && assignments.length > 0) {
+						const assignment = assignments[0];
+						console.log('✅ [Mobile Notification] Found quick task assignment:', assignment);
+						
+						// Navigate to quick task completion page
+						await goto(`/mobile/quick-tasks/${assignment.quick_task_id}/complete`);
+						return;
+					} else {
+						console.warn('⚠️ [Mobile Notification] No quick task assignment found for title:', taskTitle);
+					}
+				} else {
+					console.warn('⚠️ [Mobile Notification] Missing task title or user ID:', { taskTitle, userId: $currentUser?.id });
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Notification] Error searching for quick task:', error);
+			}
+		}
+		
+		// Handle normal tasks when metadata is empty
+		if (isNormalTaskByContent && !taskId && !quickTaskId) {
+			console.log('🔍 [Mobile Notification] Detected normal task by content, searching database...');
+			
+			try {
+				// Extract task title from notification message
+				const titleMatch = notification.message.match(/"([^"]+)"/);
+				const taskTitle = titleMatch ? titleMatch[1] : '';
+				
+				console.log('🔍 [Mobile Notification] Searching for normal task with title:', taskTitle);
+				
+				if (taskTitle && $currentUser?.id) {
+					// Find the task assignment for this user and task title
+					console.log('🔍 [Mobile Notification] Querying normal tasks with user ID:', $currentUser.id);
+					
+					const { data: assignments, error } = await supabase
+						.from('task_assignments')
+						.select(`
+							id,
+							task_id,
+							status,
+							task:tasks!inner(
+								id,
+								title,
+								description,
+								priority
+							)
+						`)
+						.eq('assigned_to_user_id', $currentUser.id)
+						.eq('tasks.title', taskTitle)
+						.limit(1);
+					
+					console.log('🔍 [Mobile Notification] Normal task query result:', { data: assignments, error });
+					
+					if (error) {
+						console.error('❌ [Mobile Notification] Normal task database error:', error);
+						// Try a simpler query as fallback
+						console.log('🔄 [Mobile Notification] Trying simpler normal task query...');
+						
+						const { data: tasks, error: simpleError } = await supabase
+							.from('tasks')
+							.select('id, title')
+							.eq('title', taskTitle)
+							.limit(1);
+							
+						console.log('🔍 [Mobile Notification] Simple normal task query result:', { data: tasks, error: simpleError });
+						
+						if (!simpleError && tasks && tasks.length > 0) {
+							const normalTaskId = tasks[0].id;
+							console.log('✅ [Mobile Notification] Found normal task via simple query:', normalTaskId);
+							await goto(`/mobile/tasks/${normalTaskId}/complete`);
+							return;
+						}
+					} else if (assignments && assignments.length > 0) {
+						const assignment = assignments[0];
+						console.log('✅ [Mobile Notification] Found normal task assignment:', assignment);
+						
+						// Navigate to normal task completion page
+						await goto(`/mobile/tasks/${assignment.task_id}/complete`);
+						return;
+					} else {
+						console.warn('⚠️ [Mobile Notification] No normal task assignment found for title:', taskTitle);
+					}
+				} else {
+					console.warn('⚠️ [Mobile Notification] Missing task title or user ID for normal task:', { taskTitle, userId: $currentUser?.id });
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Notification] Error searching for normal task:', error);
+			}
+		}
+		
+		// Check if this is a quick task notification with metadata
+		if (quickTaskId) {
+			// Navigate to quick task completion page
+			console.log('🚀 [Mobile Notification] Navigating to quick task completion:', quickTaskId);
+			await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
+			return;
+		}
+		
+		// If no quick task ID, check if there's a normal task ID
+		if (!taskId && !quickTaskId && !isQuickTaskByContent && !isNormalTaskByContent) {
+			console.error('❌ No task_id or quick_task_id found in notification and could not determine task type');
 			alert('Error: No task information found in this notification.');
 			return;
 		}
@@ -436,6 +819,8 @@
 				
 				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
 					allNotifications = newNotifications;
+					// Update cache if notifications changed
+					await loadUserCache();
 				}
 			} else if ($currentUser?.id) {
 				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
@@ -454,6 +839,8 @@
 				
 				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
 					allNotifications = newNotifications;
+					// Update cache if notifications changed
+					await loadUserCache();
 				}
 			}
 		} catch (error) {
@@ -530,8 +917,13 @@
 									<h3 class="notification-title">{notification.title}</h3>
 									<div class="notification-details">
 										<span class="notification-timestamp">{notification.timestamp}</span>
-										{#if isAdminOrMaster && notification.createdBy}
-											<span class="notification-creator">• by {notification.createdBy}</span>
+										{#if isAdminOrMaster}
+											{#if notification.createdBy}
+												<span class="notification-creator">• from: {notification.createdBy}</span>
+											{/if}
+											{#if notification.targetUsers || notification.target_users}
+												<span class="notification-receiver">• to: {getTargetUsersDisplay(notification)}</span>
+											{/if}
 										{/if}
 									</div>
 								</div>
@@ -592,7 +984,7 @@
 							
 							<!-- Action Buttons -->
 							<div class="notification-actions">
-								{#if notification.type === 'task_assigned' && !notification.read}
+								{#if (notification.type === 'task_assigned' || notification.type === 'task_assignment') && !notification.read}
 									<button 
 										class="action-btn complete-task-btn" 
 										on:click={() => openTaskCompletion(notification)}
@@ -889,6 +1281,11 @@
 
 	.notification-creator {
 		color: #9CA3AF;
+	}
+
+	.notification-receiver {
+		color: #6366F1;
+		font-weight: 500;
 	}
 
 	.unread-dot {

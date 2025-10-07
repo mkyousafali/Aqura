@@ -3,7 +3,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import { db } from '$lib/utils/supabase';
+	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
@@ -13,6 +13,9 @@
 	// Current user for role-based access
 	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
+
+	// User cache for displaying usernames
+	let userCache: Record<string, string> = {};
 
 	// Notification data from API
 	let allNotifications: any[] = [];
@@ -39,7 +42,8 @@
 			read: notification.is_read || false,
 			priority: notification.priority,
 			createdBy: notification.created_by_name,
-			targetUsers: notification.target_type,
+			target_users: notification.target_users,
+			target_type: notification.target_type,
 			targetBranch: 'all',
 			status: notification.status,
 			readCount: notification.read_count,
@@ -138,6 +142,93 @@
 		return transformedNotifications;
 	}
 
+	// Function to load and cache user information
+	async function loadUserCache() {
+		try {
+			// Extract all user IDs from notifications that we might need to display
+			const userIds = new Set<string>();
+			
+			for (const notification of allNotifications) {
+				const metadata = notification.metadata || {};
+				
+				// Add assigned_to user
+				if (metadata.assigned_to) {
+					userIds.add(metadata.assigned_to);
+				}
+				
+				// Add created_by user (this might be the UUID)
+				if (notification.created_by && notification.created_by !== 'system') {
+					userIds.add(notification.created_by);
+				}
+				
+				// Add target users if available
+				let targetUsers = notification.target_users;
+				if (typeof targetUsers === 'string') {
+					try {
+						targetUsers = JSON.parse(targetUsers);
+					} catch (e) {
+						// Skip invalid JSON
+					}
+				}
+				
+				if (Array.isArray(targetUsers)) {
+					targetUsers.forEach(userId => {
+						if (userId && typeof userId === 'string') {
+							userIds.add(userId);
+						}
+					});
+				}
+			}
+			
+			// Fetch user information for all these user IDs
+			if (userIds.size > 0) {
+				const userIdArray = Array.from(userIds);
+				
+				// First try to get from hr_employees table (prioritize employee names)
+				const { data: employees } = await supabase
+					.from('hr_employees')
+					.select('id, name, employee_id')
+					.in('id', userIdArray);
+				
+				if (employees) {
+					// Populate the cache with names from hr_employees table (highest priority)
+					for (const employee of employees) {
+						if (employee.name) {
+							userCache[employee.id] = employee.name;
+						} else if (employee.employee_id) {
+							userCache[employee.id] = `Employee ${employee.employee_id}`;
+						}
+					}
+				}
+				
+				// Then try to get from users table for any missing users
+				const missingUserIds = userIdArray.filter(id => !userCache[id]);
+				
+				if (missingUserIds.length > 0) {
+					const { data: users } = await supabase
+						.from('users')
+						.select('id, username')
+						.in('id', missingUserIds);
+					
+					if (users) {
+						// Populate the cache with usernames from users table (fallback)
+						for (const user of users) {
+							if (user.username) {
+								userCache[user.id] = user.username;
+							}
+						}
+					}
+					
+					console.log(`📝 [Admin Notification] Cached ${Object.keys(userCache).length} user names from ${employees?.length || 0} employees and ${users?.length || 0} users`);
+				} else {
+					console.log(`📝 [Admin Notification] Cached ${Object.keys(userCache).length} user names from ${employees?.length || 0} employees`);
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to load user cache:', error);
+		}
+	}
+
 	function formatTimestamp(isoString: string): string {
 		const date = new Date(isoString);
 		const now = new Date();
@@ -184,6 +275,9 @@
 					recipientId: notification.recipient_id
 				}));
 			}
+			
+			// Load user cache after notifications are loaded
+			await loadUserCache();
 		} catch (error) {
 			console.error('Error loading notifications:', error);
 			errorMessage = 'Failed to load notifications. Please try again.';
@@ -195,8 +289,9 @@
 	// Force refresh function that clears cache and reloads notifications
 	async function forceRefreshNotifications() {
 		try {
-			// Clear the current notifications array
+			// Clear the current notifications array and user cache
 			allNotifications = [];
+			userCache = {};
 			isLoading = true;
 			errorMessage = '';
 			
@@ -209,6 +304,9 @@
 				// Force fresh data by bypassing any cache
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
 				allNotifications = await transformNotificationData(apiNotifications);
+				
+				// Load user cache after getting notifications
+				await loadUserCache();
 			} else if ($currentUser?.id) {
 				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
 				allNotifications = userNotifications.map(notification => ({
@@ -223,6 +321,9 @@
 					createdBy: notification.created_by_name,
 					attachments: notification.attachments || []
 				}));
+				
+				// Load user cache after getting notifications
+				await loadUserCache();
 			}
 			
 			// Filter out any notifications that might reference non-existent tasks
@@ -349,6 +450,70 @@
 	function closeImageModal() {
 		showImageModal = false;
 		selectedImageUrl = '';
+	}
+
+	// Function to display target users with names from cache
+	function getTargetUsersDisplay(notification: any): string {
+		try {
+			if (!notification.target_users) {
+				return 'No specific targets';
+			}
+
+			// Handle different data formats
+			let targetUserIds: string[] = [];
+			
+			if (typeof notification.target_users === 'string') {
+				try {
+					const parsed = JSON.parse(notification.target_users);
+					if (Array.isArray(parsed)) {
+						targetUserIds = parsed;
+					} else if (typeof parsed === 'object' && parsed !== null) {
+						// Handle object format with user_ids array
+						targetUserIds = parsed.user_ids || [];
+					}
+				} catch {
+					// If JSON parsing fails, treat as a single ID
+					targetUserIds = [notification.target_users];
+				}
+			} else if (Array.isArray(notification.target_users)) {
+				targetUserIds = notification.target_users;
+			} else if (typeof notification.target_users === 'object' && notification.target_users !== null) {
+				targetUserIds = notification.target_users.user_ids || [];
+			}
+
+			if (targetUserIds.length === 0) {
+				return 'No specific targets';
+			}
+
+			// Map user IDs to names using the cache (prioritize employee names, then usernames)
+			const userNames = targetUserIds
+				.map(id => {
+					// First try to get from user cache (includes both usernames and employee names)
+					if (userCache[id]) {
+						return userCache[id];
+					}
+					// If not found in cache, show a truncated ID for better readability
+					const shortId = id.length > 8 ? id.substring(0, 8) + '...' : id;
+					return `ID: ${shortId}`;
+				})
+				.filter(name => name !== undefined);
+
+			if (userNames.length === 0) {
+				return 'Unknown users';
+			}
+
+			// Format the display string
+			if (userNames.length === 1) {
+				return userNames[0];
+			} else if (userNames.length <= 3) {
+				return userNames.join(', ');
+			} else {
+				return `${userNames.slice(0, 2).join(', ')} and ${userNames.length - 2} others`;
+			}
+		} catch (error) {
+			console.error('Error displaying target users:', error);
+			return 'Error loading targets';
+		}
 	}
 
 	function openCreateNotification() {
@@ -706,6 +871,14 @@
 							<div class="notification-message">
 								{notification.message}
 							</div>
+							
+							<!-- Target Users Display -->
+							{#if isAdminOrMaster && notification.target_users}
+								<div class="notification-targets">
+									<span class="targets-label">👥 Sent to:</span>
+									<span class="targets-list">{getTargetUsersDisplay(notification)}</span>
+								</div>
+							{/if}
 							
 							<!-- Notification Image/Attachments Display -->
 							{#if notification.image_url || (notification.attachments && notification.attachments.length > 0)}
@@ -1198,6 +1371,32 @@
 		font-size: 14px;
 		line-height: 1.5;
 		padding-left: 32px;
+	}
+
+	.notification-targets {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding-left: 32px;
+		margin-top: 8px;
+		font-size: 13px;
+	}
+
+	.targets-label {
+		color: #6b7280;
+		font-weight: 500;
+	}
+
+	.targets-list {
+		color: #374151;
+		background-color: #f3f4f6;
+		padding: 2px 8px;
+		border-radius: 12px;
+		font-size: 12px;
+		max-width: 300px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.unread-indicator {

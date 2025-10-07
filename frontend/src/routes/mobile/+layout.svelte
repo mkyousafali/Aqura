@@ -82,14 +82,25 @@
 
 		try {
 			// Load incomplete task count (tasks assigned TO the user)
+			// Include both regular tasks and quick tasks
 			const { data: myTasks, error: taskError } = await supabase
 				.from('task_assignments')
 				.select('id')
 				.eq('assigned_to_user_id', currentUserData.id)
 				.in('status', ['assigned', 'in_progress']);
 
-			if (!taskError && myTasks) {
+			const { data: myQuickTasks, error: quickTaskError } = await supabase
+				.from('quick_task_assignments')
+				.select('id')
+				.eq('assigned_to_user_id', currentUserData.id)
+				.in('status', ['assigned', 'in_progress', 'pending']);
+
+			if (!taskError && myTasks && !quickTaskError && myQuickTasks) {
+				taskCount = myTasks.length + myQuickTasks.length;
+			} else if (!taskError && myTasks) {
 				taskCount = myTasks.length;
+			} else if (!quickTaskError && myQuickTasks) {
+				taskCount = myQuickTasks.length;
 			}
 
 		// Load unread notification count
@@ -106,15 +117,32 @@
 			console.error('Error loading notification count:', error);
 			notificationCount = 0;
 			headerNotificationCount = 0;
-		}			// Load incomplete assignment count (tasks assigned BY the user)
+		}			
+			// Load incomplete assignment count (tasks assigned BY the user)
+			// Include both regular task assignments and quick task assignments
 			const { data: myAssignments, error: assignmentError } = await supabase
 				.from('task_assignments')
 				.select('id')
 				.eq('assigned_by', currentUserData.id)
 				.in('status', ['assigned', 'in_progress']);
 
-			if (!assignmentError && myAssignments) {
+			// For quick tasks, we need to check via the quick_tasks table since 
+			// quick_task_assignments doesn't have assigned_by field
+			const { data: myQuickTaskAssignments, error: quickAssignmentError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					id,
+					quick_task:quick_tasks!inner(assigned_by)
+				`)
+				.eq('quick_task.assigned_by', currentUserData.id)
+				.in('status', ['assigned', 'in_progress', 'pending']);
+
+			if (!assignmentError && myAssignments && !quickAssignmentError && myQuickTaskAssignments) {
+				assignmentCount = myAssignments.length + myQuickTaskAssignments.length;
+			} else if (!assignmentError && myAssignments) {
 				assignmentCount = myAssignments.length;
+			} else if (!quickAssignmentError && myQuickTaskAssignments) {
+				assignmentCount = myQuickTaskAssignments.length;
 			}
 
 		} catch (error) {
@@ -162,6 +190,7 @@
 		// Sub-pages
 		if (path.startsWith('/mobile/tasks/assign')) return 'Assign Tasks';
 		if (path.startsWith('/mobile/tasks/create')) return 'Create Task';
+		if (path.includes('/complete')) return 'Complete Task';
 		if (path.startsWith('/mobile/tasks/')) return 'Task Details';
 		if (path.startsWith('/mobile/notifications/')) return 'Notification';
 		if (path.startsWith('/mobile/assignments/')) return 'Assignment Details';

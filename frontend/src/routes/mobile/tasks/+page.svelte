@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db } from '$lib/utils/supabase';
-	import TaskCompletionModal from '$lib/components/mobile/TaskCompletionModal.svelte';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -12,11 +11,6 @@
 	let searchTerm = '';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
-	
-	// Completion modal state
-	let showCompletionModal = false;
-	let selectedTaskForCompletion = null;
-	let selectedAssignmentForCompletion = null;
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -28,6 +22,7 @@
 
 	async function loadTasks() {
 		try {
+			// Load regular task assignments
 			const { data: taskAssignments, error } = await supabase
 				.from('task_assignments')
 				.select(`
@@ -53,7 +48,28 @@
 
 			if (error) throw error;
 
-			// Process tasks and load attachments
+			// Load quick task assignments
+			const { data: quickTaskAssignments, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					*,
+					quick_task:quick_tasks!inner(
+						id,
+						title,
+						description,
+						priority,
+						deadline_datetime,
+						status,
+						created_at,
+						assigned_by
+					)
+				`)
+				.eq('assigned_to_user_id', currentUserData.id)
+				.order('created_at', { ascending: false });
+
+			if (quickError) throw quickError;
+
+			// Process regular tasks and load attachments
 			const processedTasks = [];
 			for (const assignment of taskAssignments) {
 				// Load task attachments
@@ -75,13 +91,43 @@
 					require_erp_reference: assignment.require_erp_reference ?? false,
 					// Add attachment information
 					hasAttachments: hasAttachments,
-					attachments: attachmentResult.data || []
+					attachments: attachmentResult.data || [],
+					// Mark as regular task
+					task_type: 'regular'
 				};
 				
 				processedTasks.push(processedTask);
 			}
 
-			tasks = processedTasks;
+			// Process quick tasks (no attachments for quick tasks)
+			for (const assignment of quickTaskAssignments) {
+				const processedQuickTask = {
+					...assignment.quick_task,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.created_at, // Use created_at from quick_task_assignments
+					deadline_date: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[0] : null, // Extract date from datetime
+					deadline_time: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[1]?.substring(0, 5) : null, // Extract time from datetime
+					assigned_by: assignment.quick_task.assigned_by, // Get from quick_task
+					assigned_by_name: 'Quick Task Creator', // Default since we don't have this info
+					created_by: assignment.quick_task.assigned_by, // Use assigned_by as created_by for quick tasks
+					created_by_name: 'Quick Task Creator', // Default since we don't have this info
+					// Quick tasks have simplified requirements
+					require_task_finished: true,
+					require_photo_upload: false,
+					require_erp_reference: false,
+					// No attachments for quick tasks
+					hasAttachments: false,
+					attachments: [],
+					// Mark as quick task
+					task_type: 'quick'
+				};
+				
+				processedTasks.push(processedQuickTask);
+			}
+
+			// Sort all tasks by assigned_at date (most recent first)
+			tasks = processedTasks.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
 			filterTasks();
 		} catch (error) {
 			console.error('Error loading tasks:', error);
@@ -236,35 +282,22 @@
 	}
 
 	async function markAsComplete(task) {
-		// Find the assignment data for this task
-		const assignment = {
-			id: task.assignment_id,
-			status: task.assignment_status,
-			deadline_date: task.deadline_date,
-			deadline_time: task.deadline_time,
-			assigned_by: task.assigned_by,
-			assigned_by_name: task.assigned_by_name,
-			// Use actual task requirement flags from the task data
-			require_task_finished: task.require_task_finished ?? true,
-			require_photo_upload: task.require_photo_upload ?? false,
-			require_erp_reference: task.require_erp_reference ?? false
-		};
-		
-		// Set selected task and assignment for completion modal
-		selectedTaskForCompletion = task;
-		selectedAssignmentForCompletion = assignment;
-		showCompletionModal = true;
+		// Navigate to the appropriate completion page based on task type
+		if (task.task_type === 'quick') {
+			goto(`/mobile/quick-tasks/${task.id}/complete`);
+		} else {
+			goto(`/mobile/tasks/${task.id}/complete`);
+		}
 	}
-	
-	function closeCompletionModal() {
-		showCompletionModal = false;
-		selectedTaskForCompletion = null;
-		selectedAssignmentForCompletion = null;
-	}
-	
-	async function onTaskCompleted() {
-		// Refresh tasks after completion
-		await loadTasks();
+
+	function navigateToTask(task) {
+		// Navigate to the appropriate task view based on task type
+		if (task.task_type === 'quick') {
+			// For quick tasks, go directly to completion since they don't have detailed view pages
+			goto(`/mobile/quick-tasks/${task.id}/complete`);
+		} else {
+			goto(`/mobile/tasks/${task.id}`);
+		}
 	}
 
 	// Reactive filtering - trigger when search term or filters change
@@ -355,14 +388,17 @@
 				{#each filteredTasks as task (task.assignment_id)}
 					<div class="task-card" class:overdue={isOverdue(task.deadline_date, task.deadline_time)}>
 						<div class="task-header" 
-							on:click={() => goto(`/mobile/tasks/${task.id}`)}
-							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && goto(`/mobile/tasks/${task.id}`)}
+							on:click={() => navigateToTask(task)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && navigateToTask(task)}
 							role="button" 
 							tabindex="0"
 						>
 							<div class="task-title-section">
 								<h3>{task.title}</h3>
 								<div class="task-meta">
+									{#if task.task_type === 'quick'}
+										<span class="task-type-badge quick-task">⚡ Quick Task</span>
+									{/if}
 									<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
 										{task.priority?.toUpperCase()}
 									</span>
@@ -447,7 +483,7 @@
 									</svg>
 									Mark Complete
 								</button>
-								<button class="view-btn" on:click={() => goto(`/mobile/tasks/${task.id}`)}>
+								<button class="view-btn" on:click={() => navigateToTask(task)}>
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
 										<circle cx="12" cy="12" r="3"/>
@@ -457,7 +493,7 @@
 							</div>
 						{:else}
 							<div class="task-actions">
-								<button class="view-btn full-width" on:click={() => goto(`/mobile/tasks/${task.id}`)}>
+								<button class="view-btn full-width" on:click={() => navigateToTask(task)}>
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
 										<circle cx="12" cy="12" r="3"/>
@@ -472,16 +508,6 @@
 		{/if}
 	</div>
 </div>
-
-<!-- Task Completion Modal -->
-{#if showCompletionModal && selectedTaskForCompletion && selectedAssignmentForCompletion}
-	<TaskCompletionModal
-		task={selectedTaskForCompletion}
-		assignment={selectedAssignmentForCompletion}
-		onClose={closeCompletionModal}
-		onTaskCompleted={onTaskCompleted}
-	/>
-{/if}
 
 <style>
 	.mobile-tasks {
@@ -743,12 +769,20 @@
 	}
 
 	.task-priority,
-	.task-status {
+	.task-status,
+	.task-type-badge {
 		font-size: 0.75rem;
 		font-weight: 600;
 		padding: 0.25rem 0.5rem;
 		border-radius: 6px;
 		text-transform: uppercase;
+	}
+
+	.task-type-badge.quick-task {
+		background-color: #f59e0b15;
+		color: #f59e0b;
+		text-transform: none;
+		font-weight: 500;
 	}
 
 	.overdue-badge {
