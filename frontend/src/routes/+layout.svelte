@@ -134,8 +134,7 @@
 						
 						// Check if this is a push notification service worker that should be preserved
 						const isPushNotificationSW = scriptURL.includes('/sw-push.js') || 
-							scriptURL.includes('/sw.js') || // Include VitePWA generated SW
-							scriptURL.includes('/sw-advanced.js') || // Preserve our enhanced SW
+							scriptURL.includes('/sw.js') || // Include VitePWA generated SW (our renamed service worker)
 							(scope.includes('/') && scriptURL.includes('sw-push'));
 						
 						// Check if this is a problematic service worker that should be removed
@@ -144,8 +143,7 @@
 							scriptURL.includes('vite') ||
 							scope.includes('workbox') ||
 							(scriptURL.includes('/sw.js') === false && 
-							 scriptURL.includes('/sw-advanced.js') === false && 
-							 scope.includes('sw-advanced')); // Only remove if not our enhanced SW
+							 scope.includes('sw')); // Only remove if not our main SW
 						
 						if (isPushNotificationSW && !isProblematicSW) {
 							console.log(`✅ Preserving push notification SW: ${scope}`);
@@ -322,17 +320,14 @@
 					
 					// Manual service worker registration for our custom SW
 					if ('serviceWorker' in navigator) {
-						// Try VitePWA generated sw.js first, fallback to our custom sw-advanced.js
+						// Register our unified service worker (sw.js now contains our enhanced features)
 						let registration;
 						try {
 							registration = await navigator.serviceWorker.register('/sw.js', {
 								scope: '/',
 								updateViaCache: 'none'
 							});
-							console.log('✅ PWA Service Worker registered (VitePWA):', registration);
-						} catch (swError) {
-							console.warn('⚠️ VitePWA sw.js failed, trying custom service worker...', swError);
-							registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+							console.log('✅ Service Worker registered successfully:', registration);
 								scope: '/',
 								updateViaCache: 'none'
 							});
@@ -370,8 +365,8 @@
 									updateViaCache: 'none'
 								});
 							} catch (swError) {
-								console.warn('⚠️ Update: VitePWA sw.js failed, using custom service worker...');
-								newRegistration = await navigator.serviceWorker.register('/sw-advanced.js', {
+								console.warn('⚠️ Update: Service worker registration failed, retrying...');
+								newRegistration = await navigator.serviceWorker.register('/sw.js', {
 									scope: '/',
 									updateViaCache: 'none'
 								});

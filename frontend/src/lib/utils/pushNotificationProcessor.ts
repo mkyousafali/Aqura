@@ -369,10 +369,10 @@ class PushNotificationProcessor {
                             
                             if (!registration) {
                                 // Try our custom service worker first since it's more reliable in production
-                                console.log('🔍 Attempting to register custom SW at: /sw-advanced.js');
+                                console.log('🔍 Attempting to register custom SW at: /sw.js');
                                 
                                 try {
-                                    registration = await navigator.serviceWorker.register('/sw-advanced.js', {
+                                    registration = await navigator.serviceWorker.register('/sw.js', {
                                         scope: '/',
                                         updateViaCache: 'none'
                                     });
