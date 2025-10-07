@@ -328,10 +328,9 @@
 								updateViaCache: 'none'
 							});
 							console.log('✅ Service Worker registered successfully:', registration);
-								scope: '/',
-								updateViaCache: 'none'
-							});
-							console.log('✅ Custom Service Worker registered:', registration);
+						} catch (swError) {
+							console.error('❌ Service Worker registration failed:', swError);
+							return; // Exit if registration fails
 						}
 						
 						// Handle service worker updates
