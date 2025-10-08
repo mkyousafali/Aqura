@@ -164,16 +164,57 @@ export class NotificationManagementService {
 	 */
 	async createNotification(notification: CreateNotificationRequest, createdBy: string): Promise<NotificationItem> {
 		try {
-			// Get user UUID instead of username for created_by field
-			const { data: userData, error: userError } = await supabase
+			// Get user UUID - createdBy could be username or employee name
+			let { data: userData, error: userError } = await supabase
 				.from('users')
 				.select('id, username, role_type')
 				.eq('username', createdBy)
-				.single();
+				.maybeSingle();
 
-			if (userError || !userData) {
-				console.error('❌ [NotificationManagement] Could not find user:', createdBy, userError);
-				throw new Error('User not found');
+			if (userError) {
+				console.error('❌ [NotificationManagement] Database error finding user by username:', createdBy, userError);
+				throw new Error('Database error while finding user');
+			}
+
+			if (!userData) {
+				console.log('🔍 [NotificationManagement] User not found by username, trying by employee name:', createdBy);
+				
+				// Try to find user by employee name through hr_employees table
+				const { data: employeeUser, error: employeeError } = await supabase
+					.from('users')
+					.select(`
+						id, 
+						username, 
+						role_type,
+						hr_employees!inner(name)
+					`)
+					.ilike('hr_employees.name', createdBy)
+					.maybeSingle();
+
+				if (employeeError) {
+					console.error('❌ [NotificationManagement] Database error finding user by employee name:', createdBy, employeeError);
+					
+					// Try case-insensitive username search as final fallback
+					const { data: caseInsensitiveUser, error: caseError } = await supabase
+						.from('users')
+						.select('id, username, role_type')
+						.ilike('username', createdBy)
+						.maybeSingle();
+
+					if (caseError || !caseInsensitiveUser) {
+						console.error('❌ [NotificationManagement] User not found by any method:', createdBy);
+						throw new Error(`User '${createdBy}' not found in the system (tried username and employee name)`);
+					}
+					
+					userData = caseInsensitiveUser;
+					console.log('✅ [NotificationManagement] Found user with case-insensitive username search:', userData.username);
+				} else if (!employeeUser) {
+					console.error('❌ [NotificationManagement] User not found by employee name:', createdBy);
+					throw new Error(`User with employee name '${createdBy}' not found in the system`);
+				} else {
+					userData = employeeUser;
+					console.log('✅ [NotificationManagement] Found user by employee name:', createdBy, '-> username:', userData.username);
+				}
 			}
 
 			const currentUserId = userData.id; // Use UUID from database
@@ -666,7 +707,7 @@ export class NotificationManagementService {
 		taskData?: any
 	): Promise<NotificationItem> {
 		try {
-			// Check if assignedBy is a UUID (if it contains dashes, assume it's a UUID)
+			// Handle different formats of assignedBy - could be UUID, username, or employee name
 			let assignedByUsername = assignedBy;
 			let assignedByUserName = assignedByName;
 			
@@ -676,15 +717,62 @@ export class NotificationManagementService {
 					.from('users')
 					.select('username, display_name')
 					.eq('id', assignedBy)
-					.single();
+					.maybeSingle();
 
-				if (userError || !userData) {
-					console.error('❌ [NotificationManagement] Could not find user for UUID:', assignedBy, userError);
+				if (userError) {
+					console.error('❌ [NotificationManagement] Database error finding user for UUID:', assignedBy, userError);
+					// Fallback to using the provided name
+					assignedByUsername = assignedByName || 'Admin';
+				} else if (!userData) {
+					console.error('❌ [NotificationManagement] Could not find user for UUID:', assignedBy);
 					// Fallback to using the provided name
 					assignedByUsername = assignedByName || 'Admin';
 				} else {
 					assignedByUsername = userData.username;
 					assignedByUserName = userData.display_name || userData.username;
+				}
+			} else {
+				// assignedBy might be username or employee name
+				// First try to find by username
+				const { data: usernameData, error: usernameError } = await supabase
+					.from('users')
+					.select('username, display_name')
+					.eq('username', assignedBy)
+					.maybeSingle();
+
+				if (usernameError) {
+					console.error('❌ [NotificationManagement] Database error finding user by username:', assignedBy, usernameError);
+				}
+
+				if (!usernameData) {
+					// Try to find by employee name
+					console.log('🔍 [NotificationManagement] User not found by username, trying by employee name:', assignedBy);
+					const { data: employeeData, error: employeeError } = await supabase
+						.from('users')
+						.select(`
+							username, 
+							display_name,
+							hr_employees!inner(name)
+						`)
+						.ilike('hr_employees.name', assignedBy)
+						.maybeSingle();
+
+					if (employeeError) {
+						console.error('❌ [NotificationManagement] Database error finding user by employee name:', assignedBy, employeeError);
+						// Use fallback
+						assignedByUsername = assignedByName || assignedBy;
+					} else if (!employeeData) {
+						console.log('⚠️ [NotificationManagement] User not found by employee name, using fallback:', assignedBy);
+						// Use fallback
+						assignedByUsername = assignedByName || assignedBy;
+					} else {
+						assignedByUsername = employeeData.username;
+						assignedByUserName = employeeData.display_name || employeeData.username;
+						console.log('✅ [NotificationManagement] Found user by employee name:', assignedBy, '-> username:', assignedByUsername);
+					}
+				} else {
+					assignedByUsername = usernameData.username;
+					assignedByUserName = usernameData.display_name || usernameData.username;
 				}
 			}
 
