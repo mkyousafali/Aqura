@@ -7,6 +7,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
+	import { startNotificationListener } from '$lib/stores/notifications';
 
 	// Mobile-specific layout state
 	let currentUserData = null;
@@ -59,6 +60,10 @@
 		// Load badge counts
 		await loadBadgeCounts();
 		
+		// Initialize notification sound system for mobile
+		console.log('🔔 [Mobile Layout] Starting notification sound system...');
+		startNotificationListener();
+		
 		// Set up periodic refresh of badge counts
 		const interval = setInterval(loadBadgeCounts, 30000); // Refresh every 30 seconds
 		return () => clearInterval(interval);
@@ -75,6 +80,10 @@
 		interfacePreferenceService.forceMobileInterface($currentUser.id);
 		currentUserData = $currentUser;
 		loadBadgeCounts(); // Refresh counts when user changes
+		
+		// Restart notification sound system for new user
+		console.log('🔔 [Mobile Layout] User changed, restarting notification sound system...');
+		startNotificationListener();
 	}
 
 	async function loadBadgeCounts() {

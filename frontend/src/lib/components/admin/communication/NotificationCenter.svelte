@@ -5,6 +5,7 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
+	import { notificationSoundManager } from '$lib/utils/inAppNotificationSounds';
 	import CreateNotification from './CreateNotification.svelte';
 	import AdminReadStatusModal from './AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
@@ -19,6 +20,7 @@
 
 	// Notification data from API
 	let allNotifications: any[] = [];
+	let previousNotificationIds: Set<string> = new Set();
 	let isLoading = true;
 	let errorMessage = '';
 
@@ -229,6 +231,34 @@
 		}
 	}
 
+	// Helper function to determine if notification is new (within last 30 seconds)
+	function isNewNotification(notification: any): boolean {
+		// Parse the timestamp correctly - it could be in different formats
+		let notificationTime: number;
+		if (notification.timestamp instanceof Date) {
+			notificationTime = notification.timestamp.getTime();
+		} else if (typeof notification.timestamp === 'string') {
+			// Try parsing as ISO string first
+			const parsed = new Date(notification.timestamp);
+			if (!isNaN(parsed.getTime())) {
+				notificationTime = parsed.getTime();
+			} else {
+				// Fallback: treat as already formatted timestamp
+				console.warn('Could not parse notification timestamp:', notification.timestamp);
+				return false;
+			}
+		} else {
+			console.warn('Invalid notification timestamp format:', notification.timestamp);
+			return false;
+		}
+		
+		const currentTime = Date.now();
+		const timeDiffSeconds = (currentTime - notificationTime) / 1000;
+		
+		// Consider notification "new" if it's less than 60 seconds old (increased from 30)
+		return timeDiffSeconds <= 60;
+	}
+
 	function formatTimestamp(isoString: string): string {
 		const date = new Date(isoString);
 		const now = new Date();
@@ -254,6 +284,9 @@
 			isLoading = true;
 			errorMessage = '';
 			
+			// Store previous notification IDs to detect new ones
+			const previousIds = new Set(allNotifications.map(n => n.id));
+			
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
@@ -274,6 +307,60 @@
 					targetBranch: 'user-specific',
 					recipientId: notification.recipient_id
 				}));
+			}
+			
+			// Check for new notifications and play sound
+			if (previousIds.size > 0) { // Only after initial load
+				const newNotifications = allNotifications.filter(n => 
+					!previousIds.has(n.id) && 
+					!n.read && 
+					isNewNotification(n)
+				);
+				
+				console.log(`🔍 [NotificationCenter] Checking for new notifications:`, {
+					totalNotifications: allNotifications.length,
+					previousCount: previousIds.size,
+					newNotificationsFound: newNotifications.length,
+					newNotificationIds: newNotifications.map(n => n.id),
+					soundManagerAvailable: !!notificationSoundManager
+				});
+				
+				// Play sound for new notifications
+				for (const notification of newNotifications) {
+					console.log(`🔊 [NotificationCenter] Attempting to play sound for notification:`, {
+						id: notification.id,
+						title: notification.title,
+						type: notification.type,
+						priority: notification.priority,
+						timestamp: notification.timestamp
+					});
+					
+					if (notificationSoundManager) {
+						try {
+							await notificationSoundManager.playNotificationSound({
+								id: notification.id,
+								title: notification.title,
+								message: notification.message,
+								type: notification.type,
+								priority: notification.priority || 'medium',
+								timestamp: new Date(notification.timestamp),
+								read: notification.read,
+								soundEnabled: true
+							});
+							console.log(`✅ [NotificationCenter] Sound played successfully for: ${notification.title}`);
+						} catch (error) {
+							console.error(`❌ [NotificationCenter] Failed to play sound for ${notification.title}:`, error);
+						}
+					} else {
+						console.warn(`⚠️ [NotificationCenter] Sound manager not available`);
+					}
+				}
+				
+				if (newNotifications.length > 0) {
+					console.log(`🔊 [NotificationCenter] Processed ${newNotifications.length} new notifications for sound`);
+				}
+			} else {
+				console.log(`🔍 [NotificationCenter] Initial load - no sound playing (${allNotifications.length} notifications loaded)`);
 			}
 			
 			// Load user cache after notifications are loaded
@@ -766,6 +853,7 @@
 				<span class="icon">🔄</span>
 				{isLoading ? 'Refreshing...' : 'Refresh'}
 			</button>
+			
 			<span class="unread-badge">{unreadCount} Unread</span>
 			{#if unreadCount > 0}
 				<button class="mark-all-btn" on:click={markAllAsRead}>

@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { pushNotificationService } from './pushNotifications';
 import { persistentAuthService, currentUser } from './persistentAuth';
 import { pushNotificationProcessor } from './pushNotificationProcessor';
+import { notificationSoundManager } from './inAppNotificationSounds';
 
 // Types for notification management
 interface CreateNotificationRequest {
@@ -1018,7 +1019,7 @@ export class NotificationManagementService {
 						filter: `user_id=eq.${currentUser.id}`
 					},
 					async (payload) => {
-						console.log('New notification received:', payload);
+						console.log('Real-time notification received:', payload);
 						
 						// Get notification details
 						const { data: notification } = await supabase
@@ -1028,6 +1029,34 @@ export class NotificationManagementService {
 							.single();
 
 						if (notification) {
+							console.log('🔔 Processing real-time notification for sound:', {
+								id: notification.id,
+								title: notification.title,
+								type: notification.type,
+								priority: notification.priority
+							});
+
+							// Play in-app notification sound
+							if (notificationSoundManager) {
+								try {
+									await notificationSoundManager.playNotificationSound({
+										id: notification.id,
+										title: notification.title,
+										message: notification.message,
+										type: notification.type || 'info',
+										priority: notification.priority || 'medium',
+										timestamp: new Date(notification.created_at || new Date()),
+										read: false,
+										soundEnabled: true
+									});
+									console.log('✅ Real-time notification sound played for:', notification.title);
+								} catch (error) {
+									console.error('❌ Failed to play real-time notification sound:', error);
+								}
+							} else {
+								console.warn('⚠️ Notification sound manager not available for real-time notification');
+							}
+
 							// Show push notification
 							await this.sendPushNotification(
 								notification.title,

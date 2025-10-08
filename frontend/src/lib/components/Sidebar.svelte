@@ -13,6 +13,7 @@
 	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
+	import Settings from '$lib/components/admin/Settings.svelte';
 
 	let showMasterSubmenu = false;
 	let showSettingsSubmenu = false;
@@ -165,6 +166,28 @@
 			size: { width: 1200, height: 800 },
 			position: { 
 				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openSettings() {
+		const windowId = generateWindowId('settings');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Sound Settings #${instanceNumber}`,
+			component: Settings,
+			icon: '🔊',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
 			},
 			resizable: true,
@@ -398,6 +421,10 @@
 		on:mouseenter={handleSettingsSubmenuMouseEnter}
 		on:mouseleave={handleSettingsSubmenuMouseLeave}
 	>
+		<button class="submenu-item" on:click={openSettings}>
+			<span class="menu-icon">🔊</span>
+			<span class="menu-text">Sound Settings</span>
+		</button>
 		<button class="submenu-item" on:click={openUserManagement}>
 			<span class="menu-icon">👤</span>
 			<span class="menu-text">User Management</span>

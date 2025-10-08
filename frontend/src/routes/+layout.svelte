@@ -24,6 +24,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { cacheManager } from '$lib/utils/cacheManager';
+	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
 
 	// Initialize i18n system
@@ -542,6 +543,10 @@
 				
 				// Start real-time notification listener
 				await notificationService.startRealtimeNotificationListener();
+				
+				// Start notification store listener for in-app sounds
+				console.log('🔔 Starting notification store listener for in-app sounds...');
+				startNotificationListener();
 			}
 			
 			// Start the push notification processor
