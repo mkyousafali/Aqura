@@ -716,7 +716,7 @@ export class NotificationManagementService {
 				// It's a UUID, we need to get the username
 				const { data: userData, error: userError } = await supabase
 					.from('users')
-					.select('username, display_name')
+					.select('username')
 					.eq('id', assignedBy)
 					.maybeSingle();
 
@@ -730,14 +730,14 @@ export class NotificationManagementService {
 					assignedByUsername = assignedByName || 'Admin';
 				} else {
 					assignedByUsername = userData.username;
-					assignedByUserName = userData.display_name || userData.username;
+					assignedByUserName = userData.username;
 				}
 			} else {
 				// assignedBy might be username or employee name
 				// First try to find by username
 				const { data: usernameData, error: usernameError } = await supabase
 					.from('users')
-					.select('username, display_name')
+					.select('username')
 					.eq('username', assignedBy)
 					.maybeSingle();
 
@@ -751,8 +751,7 @@ export class NotificationManagementService {
 					const { data: employeeData, error: employeeError } = await supabase
 						.from('users')
 						.select(`
-							username, 
-							display_name,
+							username,
 							hr_employees!inner(name)
 						`)
 						.ilike('hr_employees.name', assignedBy)
@@ -768,12 +767,12 @@ export class NotificationManagementService {
 						assignedByUsername = assignedByName || assignedBy;
 					} else {
 						assignedByUsername = employeeData.username;
-						assignedByUserName = employeeData.display_name || employeeData.username;
+						assignedByUserName = employeeData.hr_employees?.name || employeeData.username;
 						console.log('✅ [NotificationManagement] Found user by employee name:', assignedBy, '-> username:', assignedByUsername);
 					}
 				} else {
 					assignedByUsername = usernameData.username;
-					assignedByUserName = usernameData.display_name || usernameData.username;
+					assignedByUserName = usernameData.username;
 				}
 			}
 
@@ -782,11 +781,11 @@ export class NotificationManagementService {
 			if (assignedToUserIds.length > 0) {
 				const { data: assignedUsers, error: assignedUsersError } = await supabase
 					.from('users')
-					.select('id, username, display_name')
+					.select('id, username')
 					.in('id', assignedToUserIds);
 
 				if (!assignedUsersError && assignedUsers) {
-					assignedToNames = assignedUsers.map(user => user.display_name || user.username);
+					assignedToNames = assignedUsers.map(user => user.username);
 				}
 			}
 

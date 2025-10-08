@@ -95,7 +95,8 @@
 			// Load users
 			const userResult = await db.users.getAllWithEmployeeDetailsFlat();
 			if (!userResult.error && userResult.data) {
-				console.log('Raw user data:', userResult.data.slice(0, 2)); // Debug first 2 users
+				console.log('� Total users loaded:', userResult.data.length);
+				
 				users = userResult.data.map(user => ({
 					id: user.id,
 					username: user.username || '',
@@ -108,7 +109,15 @@
 					position_title: user.position_title || '',
 					contact_number: user.contact_number || ''
 				}));
-				console.log('Mapped users:', users.slice(0, 2)); // Debug first 2 mapped users
+				
+				console.log('� Mapped users:', users.length);
+				console.log('� All usernames:', users.map(u => u.username).sort());
+				
+				// Check for admin-like users
+				const adminUsers = users.filter(u => 
+					u.username && u.username.toLowerCase().includes('admin')
+				);
+				console.log('� Admin users found:', adminUsers);
 			}
 
 			filterTasks();
@@ -133,31 +142,30 @@
 	}
 
 	function filterUsers() {
-		console.log('Filtering users with search term:', userSearchTerm);
-		console.log('Selected branch:', selectedBranch);
-		console.log('Total users:', users.length);
+		console.log('🔍 Filtering users. Search term:', userSearchTerm, 'Branch:', selectedBranch);
 		
 		filteredUsers = users.filter(user => {
 			// Handle empty search term
 			if (!userSearchTerm || userSearchTerm.trim() === '') {
-				const matchesBranch = !selectedBranch || user.branch_id == selectedBranch;
+				const matchesBranch = !selectedBranch || String(user.branch_id) === String(selectedBranch);
 				return matchesBranch;
 			}
 			
-			// Search in multiple fields
+			// Search in multiple fields - handle null/undefined values properly
 			const searchTerm = userSearchTerm.toLowerCase().trim();
-			const matchesSearch = 
-				(user.display_name && user.display_name.toLowerCase().includes(searchTerm)) ||
-				(user.email && user.email.toLowerCase().includes(searchTerm)) ||
-				(user.username && user.username.toLowerCase().includes(searchTerm)) ||
-				(user.employee_name && user.employee_name.toLowerCase().includes(searchTerm));
-				
-			const matchesBranch = !selectedBranch || user.branch_id == selectedBranch;
+			
+			const matchesDisplayName = user.display_name && user.display_name.toLowerCase().includes(searchTerm);
+			const matchesEmail = user.email && user.email.toLowerCase().includes(searchTerm);
+			const matchesUsername = user.username && user.username.toLowerCase().includes(searchTerm);
+			const matchesEmployeeName = user.employee_name && user.employee_name.toLowerCase().includes(searchTerm);
+			
+			const matchesSearch = matchesDisplayName || matchesEmail || matchesUsername || matchesEmployeeName;
+			const matchesBranch = !selectedBranch || String(user.branch_id) === String(selectedBranch);
 			
 			return matchesSearch && matchesBranch;
 		});
 		
-		console.log('Filtered users:', filteredUsers.length);
+		console.log('🔍 Filtered to', filteredUsers.length, 'users from', users.length, 'total');
 	}
 
 	function toggleTaskSelection(taskId) {

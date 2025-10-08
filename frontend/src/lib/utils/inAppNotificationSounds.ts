@@ -231,11 +231,14 @@ class InAppNotificationSoundManager {
         // Check if sound should be played based on various conditions
         const user = get(currentUser);
         
+        // soundEnabled defaults to true if undefined (only false if explicitly set to false)
+        const soundEnabledForNotification = notification.soundEnabled !== false;
+        
         const result = (
             this.config.enabled &&
             this.isEnabled &&
             user && // User is logged in
-            notification.soundEnabled !== false &&
+            soundEnabledForNotification &&
             (notification.priority === 'high' || notification.priority === 'medium')
         );
 
@@ -245,6 +248,7 @@ class InAppNotificationSoundManager {
             isEnabled: this.isEnabled,
             userLoggedIn: !!user,
             soundEnabled: notification.soundEnabled,
+            soundEnabledForNotification,
             priority: notification.priority,
             priorityAllowed: notification.priority === 'high' || notification.priority === 'medium',
             result

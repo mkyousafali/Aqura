@@ -175,12 +175,14 @@
 			// Use the new flat data structure method
 			const { data: userData, error: userError } = await db.users.getAllWithEmployeeDetailsFlat();
 			
-			console.log('Users query result:', userData, 'Error:', userError);
+			console.log('🔍 [Admin] Users query result count:', userData?.length, 'Error:', userError);
 			
 			let allUsers = [];
 			
 			// Process the flat data structure from our database view
 			if (!userError && userData && userData.length > 0) {
+				console.log('🔍 [Admin] Raw user data sample:', userData.slice(0, 2));
+				
 				allUsers = userData.map(user => {
 					console.log('Processing user:', user.username, 'Data:', user);
 					
@@ -228,7 +230,14 @@
 			}
 			
 			users = allUsers;
-			console.log('Final users array:', users.length, 'users loaded');
+			console.log('🔍 [Admin] Final users array:', users.length, 'users loaded');
+			console.log('🔍 [Admin] All usernames:', users.map(u => u.username).sort());
+			
+			// Check for admin users
+			const adminUsers = users.filter(u => 
+				u.username && u.username.toLowerCase().includes('admin')
+			);
+			console.log('👑 [Admin] Admin users in final array:', adminUsers.map(u => ({ username: u.username, name: u.name })));
 
 			// Apply initial filters
 			applyFilters();
@@ -245,6 +254,12 @@
 	}
 
 	function applyFilters() {
+		// Guard against running before data is loaded
+		if (!users || users.length === 0 || !tasks) {
+			console.log('⏳ [Admin] Skipping filters - data not loaded yet');
+			return;
+		}
+		
 		// Filter tasks
 		console.log('🔍 [TaskAssignment] Applying filters to', tasks.length, 'tasks');
 		console.log('🔍 [TaskAssignment] Filters:', { taskSearchTerm, taskStatusFilter, taskPriorityFilter });
@@ -267,15 +282,26 @@
 		console.log('✅ [TaskAssignment] Filtered tasks count:', filteredTasks.length);
 		console.log('✅ [TaskAssignment] Filtered tasks:', filteredTasks.map(t => ({ id: t.id, title: t.title, status: t.status })));
 
-		// Filter users
+		// Filter users with improved debugging
+		console.log('🔍 [Admin] Filtering users. Search term:', userSearchTerm, 'Total users:', users.length);
+		
 		filteredUsers = users.filter(user => {
-			const matchesSearch = !userSearchTerm ||
-				(user.name && user.name.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
-				(user.username && user.username.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
-				(user.email && user.email.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
-				(user.phone && user.phone.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
-				(user.whatsapp && user.whatsapp.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
-				(user.position && user.position.toLowerCase().includes(userSearchTerm.toLowerCase()));
+			if (!userSearchTerm || userSearchTerm.trim() === '') {
+				const matchesBranch = !selectedBranch || user.branch_id === selectedBranch;
+				const matchesRole = !selectedRole || user.role === selectedRole;
+				const isActive = user.is_active !== false;
+				return matchesBranch && matchesRole && isActive;
+			}
+			
+			const searchTerm = userSearchTerm.toLowerCase().trim();
+			const matchesSearch = 
+				(user.name && user.name.toLowerCase().includes(searchTerm)) ||
+				(user.username && user.username.toLowerCase().includes(searchTerm)) ||
+				(user.email && user.email.toLowerCase().includes(searchTerm)) ||
+				(user.phone && user.phone.toLowerCase().includes(searchTerm)) ||
+				(user.whatsapp && user.whatsapp.toLowerCase().includes(searchTerm)) ||
+				(user.position && user.position.toLowerCase().includes(searchTerm)) ||
+				(user.employee_name && user.employee_name.toLowerCase().includes(searchTerm));
 
 			const matchesBranch = !selectedBranch || user.branch_id === selectedBranch;
 			const matchesRole = !selectedRole || user.role === selectedRole;
@@ -283,6 +309,15 @@
 
 			return matchesSearch && matchesBranch && matchesRole && isActive;
 		});
+		
+		console.log('🔍 [Admin] Filtered to', filteredUsers.length, 'users');
+		console.log('🔍 [Admin] Sample usernames:', users.slice(0, 5).map(u => u.username));
+		
+		// Check for admin users
+		const adminUsers = users.filter(u => 
+			u.username && u.username.toLowerCase().includes('admin')
+		);
+		console.log('👑 [Admin] Admin users found:', adminUsers.map(u => ({ username: u.username, name: u.name })));
 
 		// Update select all states
 		updateSelectAllStates();
@@ -749,8 +784,11 @@
 		});
 	}
 
-	// Reactive statements
-	$: applyFilters();
+	// Reactive statements - trigger filtering when search terms change
+	$: if (userSearchTerm !== undefined || taskSearchTerm !== undefined || selectedBranch !== undefined || selectedRole !== undefined || taskStatusFilter !== undefined || taskPriorityFilter !== undefined) {
+		console.log('🔄 [Admin] Reactive filter triggered. UserSearch:', userSearchTerm);
+		applyFilters();
+	}
 </script>
 
 <div class="task-assignment-view bg-white rounded-lg shadow-lg h-full flex flex-col">
@@ -886,6 +924,7 @@
 						<input
 							type="text"
 							bind:value={userSearchTerm}
+							on:input={() => { console.log('🔍 [Admin] Input event triggered:', userSearchTerm); applyFilters(); }}
 							placeholder="Search by name, username, email, phone, position..."
 							class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
 						/>

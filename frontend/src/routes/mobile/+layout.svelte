@@ -21,6 +21,10 @@
 	// Global header notification count (separate from bottom nav)
 	let headerNotificationCount = 0;
 	
+	// Previous notification count for sound detection
+	let previousNotificationCount = 0;
+	let isInitialLoad = true; // Flag to prevent sounds on initial page load
+	
 	// Refresh state for notifications
 	let isRefreshing = false;
 	
@@ -89,6 +93,33 @@
 		startNotificationListener();
 	}
 
+	// Reactive statement to play sound when notification count increases
+	$: if (notificationCount > previousNotificationCount && previousNotificationCount >= 0 && !isInitialLoad) {
+		console.log('🔔 [Mobile Layout] Reactive notification count change detected:', previousNotificationCount, '->', notificationCount);
+		(async () => {
+			try {
+				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+				if (notificationSoundManager) {
+					// Create a proper notification object for the sound
+					const countChangeNotification = {
+						id: 'count-change-' + Date.now(),
+						title: 'New Notification',
+						message: `You have ${notificationCount} new notification${notificationCount !== 1 ? 's' : ''}`,
+						type: 'info' as const,
+						priority: 'medium' as const,
+						timestamp: new Date(),
+						read: false,
+						soundEnabled: true
+					};
+					await notificationSoundManager.playNotificationSound(countChangeNotification);
+					console.log('🔊 [Mobile Layout] Notification sound played via reactive statement');
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Layout] Failed to play reactive notification sound:', error);
+			}
+		})();
+	}
+
 	async function loadBadgeCounts() {
 		if (!currentUserData) return;
 
@@ -119,14 +150,44 @@
 		try {
 			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
 			if (userNotifications && userNotifications.length > 0) {
-				notificationCount = userNotifications.filter(n => !n.is_read).length;
-				headerNotificationCount = notificationCount; // Sync header count
+				const newNotificationCount = userNotifications.filter(n => !n.is_read).length;
+				
+				// Check if notification count increased (new notifications)
+				if (newNotificationCount > previousNotificationCount && previousNotificationCount > 0) {
+					console.log('🔔 [Mobile Layout] Notification count increased from', previousNotificationCount, 'to', newNotificationCount, '- playing sound');
+					// Play notification sound
+					try {
+						const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+						if (notificationSoundManager) {
+							const newNotification = {
+								id: 'badge-update-' + Date.now(),
+								title: 'New Notification',
+								message: `Notification count updated to ${newNotificationCount}`,
+								type: 'info' as const,
+								priority: 'medium' as const,
+								timestamp: new Date(),
+								read: false,
+								soundEnabled: true
+							};
+							await notificationSoundManager.playNotificationSound(newNotification);
+						}
+					} catch (error) {
+						console.error('❌ [Mobile Layout] Failed to play notification sound:', error);
+					}
+				}
+				
+				// Update counts
+				previousNotificationCount = notificationCount; // Store current as previous before updating
+				notificationCount = newNotificationCount;
+				headerNotificationCount = newNotificationCount; // Sync header count
 			} else {
+				previousNotificationCount = notificationCount; // Store current as previous
 				notificationCount = 0;
 				headerNotificationCount = 0;
 			}
 		} catch (error) {
 			console.error('Error loading notification count:', error);
+			previousNotificationCount = notificationCount; // Store current as previous
 			notificationCount = 0;
 			headerNotificationCount = 0;
 		}			
@@ -160,6 +221,12 @@
 		} catch (error) {
 			console.error('Error loading badge counts:', error);
 		}
+		
+		// After the first load, allow sound notifications for future changes
+		if (isInitialLoad) {
+			isInitialLoad = false;
+			console.log('🔄 [Mobile Layout] Initial load completed - sounds now enabled for new notifications');
+		}
 	}
 	
 	async function refreshHeaderNotificationCount() {
@@ -167,7 +234,33 @@
 			if (!currentUserData) return;
 			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
 			if (userNotifications && userNotifications.length > 0) {
-				headerNotificationCount = userNotifications.filter(n => !n.is_read).length;
+				const newHeaderCount = userNotifications.filter(n => !n.is_read).length;
+				
+				// Check if notification count increased during header refresh
+				if (newHeaderCount > headerNotificationCount && headerNotificationCount >= 0) {
+					console.log('🔔 [Mobile Layout] Header notification count increased from', headerNotificationCount, 'to', newHeaderCount, '- playing sound');
+					// Play notification sound
+					try {
+						const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+						if (notificationSoundManager) {
+							const headerRefreshNotification = {
+								id: 'header-refresh-' + Date.now(),
+								title: 'New Notification',
+								message: `Header refresh detected new notifications`,
+								type: 'info' as const,
+								priority: 'medium' as const,
+								timestamp: new Date(),
+								read: false,
+								soundEnabled: true
+							};
+							await notificationSoundManager.playNotificationSound(headerRefreshNotification);
+						}
+					} catch (error) {
+						console.error('❌ [Mobile Layout] Failed to play notification sound during header refresh:', error);
+					}
+				}
+				
+				headerNotificationCount = newHeaderCount;
 			} else {
 				headerNotificationCount = 0;
 			}
@@ -264,6 +357,46 @@
 		document.addEventListener('click', unlockAudio, { capture: true, once: true });
 		
 		console.log('📱 [Mobile Layout] Mobile audio unlock listeners added (supports desktop + mobile)');
+	}
+
+	// Debug function for testing notification sounds
+	if (typeof window !== 'undefined') {
+		(window as any).testMobileNotificationSound = async () => {
+			try {
+				console.log('🔊 [Mobile Layout] Testing notification sound...');
+				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+				if (notificationSoundManager) {
+					// Create a proper test notification object
+					const testNotification = {
+						id: 'test-' + Date.now(),
+						title: 'Test Notification',
+						message: 'This is a test notification sound from mobile layout',
+						type: 'info' as const,
+						priority: 'medium' as const,
+						timestamp: new Date(),
+						read: false,
+						soundEnabled: true
+					};
+					await notificationSoundManager.playNotificationSound(testNotification);
+					console.log('✅ [Mobile Layout] Test notification sound played successfully');
+				} else {
+					console.error('❌ [Mobile Layout] Sound manager not available');
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Layout] Failed to play test notification sound:', error);
+			}
+		};
+		
+		(window as any).simulateNotificationIncrease = () => {
+			console.log('🧪 [Mobile Layout] Simulating notification count increase...');
+			previousNotificationCount = notificationCount;
+			notificationCount = notificationCount + 1;
+			console.log('📈 [Mobile Layout] Notification count changed from', previousNotificationCount, 'to', notificationCount);
+		};
+		
+		console.log('🔧 [Mobile Layout] Debug functions available:');
+		console.log('  - window.testMobileNotificationSound() - Test sound playback');
+		console.log('  - window.simulateNotificationIncrease() - Simulate count increase');
 	}
 </script>
 
