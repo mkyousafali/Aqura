@@ -145,11 +145,16 @@ export class CacheManager {
 		try {
 			const preserveKeys = [
 				'aqura-device-session',      // Persistent auth sessions
-				'aqura-device-id',           // Device identification
+				'aqura-device-id',           // Device identification - CRITICAL for push notifications
 				'aqura-persistent-auth-token',
 				'aqura-persistent-user-data',
 				'aqura-auth-remember-me',
-				'i18n-locale'               // User language preference
+				'i18n-locale',               // User language preference
+				// Push notification related keys - CRITICAL
+				'push-subscription-endpoint',
+				'push-subscription-p256dh',
+				'push-subscription-auth',
+				'notification-permission-granted'
 			];
 
 			// Get all keys before clearing

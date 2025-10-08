@@ -600,12 +600,27 @@
 		// Set a flag to indicate this is a fresh app load
 		sessionStorage.setItem('aqura-fresh-load', 'true');
 		
-		// Always clear caches on app startup (non-blocking)
-		cacheManager.clearAllCaches().then(() => {
-			console.log('✅ Caches cleared on app startup');
-		}).catch((error) => {
-			console.warn('⚠️ Failed to clear caches on startup:', error);
-		});
+		// Check if push notification registration might be in progress
+		const hasDeviceId = localStorage.getItem('aqura-device-id');
+		const hasPushData = localStorage.getItem('push-subscription-endpoint');
+		
+		if (hasDeviceId || hasPushData) {
+			console.log('🔔 Push notification data detected, using gentle cache clearing...');
+			// Use browser cache clearing only, preserve localStorage
+			cacheManager.clearBrowserCachesOnly().then(() => {
+				console.log('✅ Browser caches cleared gently, push data preserved');
+			}).catch((error) => {
+				console.warn('⚠️ Failed to clear browser caches:', error);
+			});
+		} else {
+			console.log('🧹 No push data detected, using full cache clearing...');
+			// Always clear caches on app startup (non-blocking)
+			cacheManager.clearAllCaches().then(() => {
+				console.log('✅ Caches cleared on app startup');
+			}).catch((error) => {
+				console.warn('⚠️ Failed to clear caches on startup:', error);
+			});
+		}
 	}
 	
 	// Clear storage except authentication data
@@ -616,7 +631,12 @@
 			// Get authentication-related keys to preserve
 			const authKeys = [
 				'aqura-device-session',
-				'aqura-device-id'
+				'aqura-device-id',
+				// Push notification related keys - CRITICAL
+				'push-subscription-endpoint',
+				'push-subscription-p256dh', 
+				'push-subscription-auth',
+				'notification-permission-granted'
 			];
 			
 			// Preserve authentication data
