@@ -101,22 +101,9 @@
 		showUpdatePrompt = false;
 	}
 	
-	// Auto-cleanup existing service workers and clear all caches on app startup
-	async function autoCleanupServiceWorkers() {
-		console.log('🧹 Starting automatic service worker cleanup and cache clearing...');
-		
-		// Always clear all caches on app startup/refresh
-		try {
-			console.log('🗑️ Clearing all application caches...');
-			await cacheManager.clearAllCaches();
-			
-			// Get cache stats for logging
-			const stats = await cacheManager.getCacheStats();
-			console.log('📊 Cache stats after clearing:', stats);
-			
-		} catch (error) {
-			console.warn('⚠️ Cache clearing failed:', error);
-		}
+	// No automatic cache clearing - manual only
+	async function setupServiceWorkers() {
+		console.log('🔧 Setting up service workers without automatic cache clearing...');
 		
 		if ('serviceWorker' in navigator) {
 			try {
@@ -126,54 +113,18 @@
 				if (registrations.length > 0) {
 					console.log(`🔍 Found ${registrations.length} existing service worker(s)`);
 					
-					let unregisteredCount = 0;
 					let preservedCount = 0;
 					
-					// Only unregister problematic service workers, preserve push notification SW
+					// Preserve all service workers unless they're clearly problematic
 					for (let registration of registrations) {
 						const scriptURL = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
 						const scope = registration.scope;
 						
-						// Check if this is a push notification service worker that should be preserved
-						const isPushNotificationSW = scriptURL.includes('/sw-push.js') || 
-							scriptURL.includes('/sw.js') || // Include VitePWA generated SW (our renamed service worker)
-							(scope.includes('/') && scriptURL.includes('sw-push'));
-						
-						// Check if this is a problematic service worker that should be removed
-						const isProblematicSW = scriptURL.includes('/sw.js') || 
-							scriptURL.includes('workbox') ||
-							scriptURL.includes('vite') ||
-							scope.includes('workbox') ||
-							(scriptURL.includes('/sw.js') === false && 
-							 scope.includes('sw')); // Only remove if not our main SW
-						
-						if (isPushNotificationSW && !isProblematicSW) {
-							console.log(`✅ Preserving push notification SW: ${scope}`);
-							preservedCount++;
-						} else if (isProblematicSW) {
-							console.log(`🗑️ Removing problematic SW: ${scope}`);
-							
-							// Send cache clear message before unregistering
-							if (registration.active) {
-								try {
-									registration.active.postMessage({
-										type: 'PAGE_REFRESH_DETECTED',
-										timestamp: Date.now()
-									});
-								} catch (error) {
-									console.warn('⚠️ Failed to notify service worker:', error);
-								}
-							}
-							
-							await registration.unregister();
-							unregisteredCount++;
-						} else {
-							console.log(`⚠️ Unknown SW, preserving for safety: ${scope}`);
-							preservedCount++;
-						}
+						console.log(`✅ Preserving SW: ${scope}`);
+						preservedCount++;
 					}
 					
-					console.log(`✅ Cleanup completed: ${unregisteredCount} removed, ${preservedCount} preserved`);
+					console.log(`✅ Setup completed: ${preservedCount} service workers preserved`);
 				} else {
 					console.log('✨ No existing service workers found');
 				}
@@ -206,8 +157,8 @@
 				}
 			};
 
-			// Detect app refresh/reopen and clear caches immediately
-			detectAppRefreshAndClearCaches();
+			// Detect app refresh/reopen - no automatic cache clearing
+			// Just setup body classes
 			
 			// Add service worker message listener for cache clearing and storage requests
 			if ('serviceWorker' in navigator) {
@@ -293,23 +244,16 @@
 				isLoading = false;
 			}
 			
-			// Auto-cleanup existing service workers and clear caches on startup (non-blocking)
-			// But skip aggressive cleanup if we're about to initialize push notifications
+			// No automatic cleanup or cache clearing - only setup service workers when needed
 			if (!isAuthenticated) {
-				console.log('🧹 User not authenticated, performing full cleanup...');
-				autoCleanupServiceWorkers().then(() => {
-					console.log('🎉 Service worker cleanup completed');
+				console.log('🔧 User not authenticated, standard service worker setup...');
+				setupServiceWorkers().then(() => {
+					console.log('🎉 Service worker setup completed');
 				}).catch(error => {
-					console.warn('⚠️ Service worker cleanup failed (non-blocking):', error);
+					console.warn('⚠️ Service worker setup failed (non-blocking):', error);
 				});
 			} else {
-				console.log('🔔 User authenticated, skipping aggressive cleanup to preserve PWA service worker...');
-				// Just clear browser caches but preserve service workers for push notifications
-				cacheManager.clearBrowserCachesOnly().then(() => {
-					console.log('🧹 Browser caches cleared, PWA service worker preserved');
-				}).catch(error => {
-					console.warn('⚠️ Browser cache clearing failed:', error);
-				});
+				console.log('🔔 User authenticated, service workers preserved for push notifications...');
 			}
 			
 			// Initialize notification services if user is authenticated
@@ -486,33 +430,12 @@
 			}
 		}
 		
-		// Listen for page visibility changes to clear caches when user returns
-		const handleVisibilityChange = () => {
-			if (!document.hidden) {
-				console.log('🔄 App became visible, clearing caches...');
-				cacheManager.clearAllCaches().catch(error => {
-					console.warn('⚠️ Failed to clear caches on visibility change:', error);
-				});
-			}
-		};
-		
-		// Listen for beforeunload to clear caches when leaving
-		const handleBeforeUnload = () => {
-			console.log('🚪 App closing/refreshing, clearing caches...');
-			// Use synchronous method for beforeunload
-			navigator.sendBeacon && navigator.sendBeacon('/api/clear-cache', JSON.stringify({
-				type: 'page_unload',
-				timestamp: Date.now()
-			}));
-		};
-		
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-		window.addEventListener('beforeunload', handleBeforeUnload);
+		// No automatic cache clearing on visibility changes or page unload
+		// Manual cache clearing only through user settings
 		
 		// Cleanup function
 		return () => {
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-			window.removeEventListener('beforeunload', handleBeforeUnload);
+			// No event listeners to remove since we don't auto-clear caches
 		};
 	});
 	
@@ -599,36 +522,10 @@
 	}
 
 	// Detect app refresh/reopen and clear caches
-	function detectAppRefreshAndClearCaches() {
-		console.log('🔄 App startup detected, clearing caches...');
-		
-		// Set a flag to indicate this is a fresh app load
-		sessionStorage.setItem('aqura-fresh-load', 'true');
-		
-		// Check if push notification registration might be in progress
-		const hasDeviceId = localStorage.getItem('aqura-device-id');
-		const hasPushData = localStorage.getItem('push-subscription-endpoint');
-		
-		if (hasDeviceId || hasPushData) {
-			console.log('🔔 Push notification data detected, using gentle cache clearing...');
-			// Use browser cache clearing only, preserve localStorage
-			cacheManager.clearBrowserCachesOnly().then(() => {
-				console.log('✅ Browser caches cleared gently, push data preserved');
-			}).catch((error) => {
-				console.warn('⚠️ Failed to clear browser caches:', error);
-			});
-		} else {
-			console.log('🧹 No push data detected, using full cache clearing...');
-			// Always clear caches on app startup (non-blocking)
-			cacheManager.clearAllCaches().then(() => {
-				console.log('✅ Caches cleared on app startup');
-			}).catch((error) => {
-				console.warn('⚠️ Failed to clear caches on startup:', error);
-			});
-		}
-	}
+	// No automatic cache clearing on app startup
+	// Manual cache clearing only through user settings
 	
-	// Clear storage except authentication data
+	// Clear storage except authentication data (for manual clearing only)
 	function clearStorageExceptAuth() {
 		console.log('🧹 Clearing storage except authentication data...');
 		

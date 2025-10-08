@@ -3,6 +3,7 @@
     import NotificationSoundControls from '$lib/components/common/NotificationSoundControls.svelte';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { currentLocale, t } from '$lib/i18n';
+    import { cacheManager } from '$lib/utils/cacheManager';
     
     // Get current user for context
     $: user = $currentUser;
@@ -19,6 +20,37 @@
     
     function selectCategory(categoryId: string) {
         activeCategory = categoryId;
+    }
+    
+    // Cache management
+    let isClearing = false;
+    let clearMessage = '';
+    
+    async function clearAllCaches() {
+        if (isClearing) return;
+        
+        isClearing = true;
+        clearMessage = 'Clearing caches...';
+        
+        try {
+            await cacheManager.clearAllCaches();
+            clearMessage = '✅ Caches cleared successfully! App performance may improve.';
+            
+            // Clear the message after 3 seconds
+            setTimeout(() => {
+                clearMessage = '';
+            }, 3000);
+        } catch (error) {
+            console.error('Cache clearing failed:', error);
+            clearMessage = '❌ Cache clearing failed. Please try again.';
+            
+            // Clear error message after 3 seconds
+            setTimeout(() => {
+                clearMessage = '';
+            }, 3000);
+        } finally {
+            isClearing = false;
+        }
     }
 </script>
 
@@ -138,6 +170,38 @@
                             <p><strong>User Agent:</strong> {navigator.userAgent.split(' ').slice(0, 3).join(' ')}...</p>
                             <p><strong>Language:</strong> {navigator.language}</p>
                             <p><strong>Online:</strong> {navigator.onLine ? 'Yes' : 'No'}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <h4>Cache Management</h4>
+                        <p class="setting-description">
+                            Clear application caches to free up storage and resolve potential issues.
+                            This will not affect your login session or settings.
+                        </p>
+                        
+                        <div class="cache-controls">
+                            <button 
+                                class="clear-cache-btn"
+                                class:clearing={isClearing}
+                                disabled={isClearing}
+                                on:click={clearAllCaches}
+                            >
+                                {#if isClearing}
+                                    <span class="loading-spinner">⟳</span>
+                                    Clearing...
+                                {:else}
+                                    🧹 Clear All Caches
+                                {/if}
+                            </button>
+                            
+                            {#if clearMessage}
+                                <p class="clear-message" class:success={clearMessage.includes('✅')} class:error={clearMessage.includes('❌')}>
+                                    {clearMessage}
+                                </p>
+                            {/if}
                         </div>
                     </div>
                 </div>
@@ -315,5 +379,74 @@
     
     .settings-content::-webkit-scrollbar-thumb:hover {
         background: #9ca3af;
+    }
+    
+    /* Cache management styles */
+    .cache-controls {
+        margin-top: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .clear-cache-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        background: #e53e3e;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 14px;
+        max-width: 200px;
+    }
+    
+    .clear-cache-btn:hover:not(:disabled) {
+        background: #c53030;
+        transform: translateY(-1px);
+    }
+    
+    .clear-cache-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .clear-cache-btn.clearing {
+        background: #4299e1;
+    }
+    
+    .loading-spinner {
+        animation: spin 1s linear infinite;
+        font-size: 16px;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .clear-message {
+        margin: 0;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .clear-message.success {
+        background: #c6f6d5;
+        color: #22543d;
+        border: 1px solid #9ae6b4;
+    }
+    
+    .clear-message.error {
+        background: #fed7d7;
+        color: #742a2a;
+        border: 1px solid #fc8181;
     }
 </style>

@@ -64,6 +64,9 @@
 		console.log('🔔 [Mobile Layout] Starting notification sound system...');
 		startNotificationListener();
 		
+		// Set up mobile audio unlock on first user interaction
+		setupMobileAudioUnlock();
+		
 		// Set up periodic refresh of badge counts
 		const interval = setInterval(loadBadgeCounts, 30000); // Refresh every 30 seconds
 		return () => clearInterval(interval);
@@ -233,6 +236,34 @@
 		} else {
 			goto('/mobile');
 		}
+	}
+	
+	function setupMobileAudioUnlock() {
+		// Import and unlock mobile audio on first touch interaction
+		// Force audio unlock for mobile interface even on desktop
+		const unlockAudio = async () => {
+			try {
+				// Dynamically import the sound manager
+				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+				if (notificationSoundManager) {
+					await notificationSoundManager.unlockMobileAudio();
+					console.log('📱 [Mobile Layout] Audio unlocked via user interaction (mobile interface on any device)');
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Layout] Failed to unlock mobile audio:', error);
+			}
+			
+			// Remove listeners after first interaction
+			document.removeEventListener('touchstart', unlockAudio, { capture: true });
+			document.removeEventListener('click', unlockAudio, { capture: true });
+		};
+
+		// Add event listeners for first user interaction
+		// Use both touch and click to support desktop users on mobile interface
+		document.addEventListener('touchstart', unlockAudio, { capture: true, once: true });
+		document.addEventListener('click', unlockAudio, { capture: true, once: true });
+		
+		console.log('📱 [Mobile Layout] Mobile audio unlock listeners added (supports desktop + mobile)');
 	}
 </script>
 

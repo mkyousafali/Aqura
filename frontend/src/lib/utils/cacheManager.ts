@@ -1,5 +1,5 @@
-// Enhanced cache management utility for Aqura PWA
-// Provides aggressive cache clearing on app refresh/reopen
+// Simple cache management utility for Aqura PWA
+// Provides manual cache clearing only when user explicitly requests it
 
 export class CacheManager {
 	private static instance: CacheManager;
@@ -13,8 +13,7 @@ export class CacheManager {
 	}
 
 	/**
-	 * Clear all application caches aggressively
-	 * Called on every app startup, refresh, or reopen
+	 * Manual cache clearing - only called when user explicitly requests it
 	 */
 	async clearAllCaches(): Promise<void> {
 		if (this.isClearing) {
@@ -23,14 +22,11 @@ export class CacheManager {
 		}
 
 		this.isClearing = true;
-		console.log('🧹 Starting aggressive cache clearing...');
+		console.log('🧹 Starting manual cache clearing...');
 
 		try {
 			// Clear all browser caches
 			await this.clearBrowserCaches();
-			
-			// Clear service worker caches
-			await this.clearServiceWorkerCaches();
 			
 			// Clear local storage data (except essential auth)
 			await this.clearLocalStorageData();
@@ -41,9 +37,9 @@ export class CacheManager {
 			// Clear IndexedDB caches
 			await this.clearIndexedDBCaches();
 			
-			console.log('✅ All caches cleared successfully');
+			console.log('✅ Manual cache clearing completed successfully');
 		} catch (error) {
-			console.error('❌ Error during cache clearing:', error);
+			console.error('❌ Error during manual cache clearing:', error);
 		} finally {
 			this.isClearing = false;
 		}
@@ -76,10 +72,10 @@ export class CacheManager {
 	}
 
 	/**
-	 * Clear only browser caches and localStorage, preserve service workers and auth data
+	 * Clear only browser caches manually - preserves service workers and auth data
 	 */
 	async clearBrowserCachesOnly(): Promise<void> {
-		console.log('🧹 Starting browser cache clearing (preserving service workers)...');
+		console.log('🧹 Starting manual browser cache clearing...');
 		
 		try {
 			// Clear browser caches
@@ -94,47 +90,10 @@ export class CacheManager {
 			// Clear IndexedDB except auth databases
 			await this.clearIndexedDBCaches();
 			
-			console.log('✅ Browser caches cleared, service workers preserved');
+			console.log('✅ Manual browser cache clearing completed');
 		} catch (error) {
-			console.error('❌ Browser cache clearing failed:', error);
+			console.error('❌ Manual browser cache clearing failed:', error);
 			throw error;
-		}
-	}
-
-	/**
-	 * Unregister problematic service workers while preserving PWA service worker
-	 */
-	private async clearServiceWorkerCaches(): Promise<void> {
-		if (!('serviceWorker' in navigator)) {
-			console.log('⚠️ Service workers not supported');
-			return;
-		}
-
-		try {
-			// Get all service worker registrations
-			const registrations = await navigator.serviceWorker.getRegistrations();
-			console.log(`🔧 Found ${registrations.length} service worker(s)`);
-
-			// Only unregister non-PWA service workers
-			for (const registration of registrations) {
-				const scriptURL = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
-				
-				// Preserve PWA service workers needed for push notifications
-				const isPWAServiceWorker = scriptURL.includes('/sw.js') || 
-					scriptURL.includes('vite-pwa') ||
-					registration.scope === location.origin + '/';
-				
-				if (isPWAServiceWorker) {
-					console.log(`✅ Preserving PWA SW: ${registration.scope}`);
-				} else {
-					console.log(`🗑️ Unregistering SW: ${registration.scope}`);
-					await registration.unregister();
-				}
-			}
-
-			console.log('🔄 Service worker cleanup completed, PWA SW preserved');
-		} catch (error) {
-			console.error('❌ Failed to clear service worker caches:', error);
 		}
 	}
 
@@ -247,11 +206,10 @@ export class CacheManager {
 	}
 
 	/**
-	 * Clear all application data and force fresh state
-	 * This is the most aggressive option
+	 * Clear all application data manually - most aggressive option
 	 */
 	async clearAllApplicationData(): Promise<void> {
-		console.log('💥 Starting complete application data clear...');
+		console.log('💥 Starting complete manual application data clear...');
 		
 		await this.clearAllCaches();
 		
@@ -269,7 +227,7 @@ export class CacheManager {
 				console.log('🗑️ Forced garbage collection');
 			}
 			
-			console.log('💥 Complete application data clear finished');
+			console.log('💥 Complete manual application data clear finished');
 		} catch (error) {
 			console.error('❌ Error in complete data clear:', error);
 		}
@@ -320,7 +278,7 @@ export class CacheManager {
 // Export singleton instance
 export const cacheManager = CacheManager.getInstance();
 
-// Export convenience functions
+// Export convenience functions for manual cache clearing only
 export const clearAllCaches = () => cacheManager.clearAllCaches();
 export const clearAllApplicationData = () => cacheManager.clearAllApplicationData();
 export const getCacheStats = () => cacheManager.getCacheStats();

@@ -56,7 +56,6 @@ self.addEventListener('message', (event) => {
 const CACHE_NAME = 'aqura-v1';
 const DATA_CACHE_NAME = 'aqura-data-v1';
 const PRECACHE_NAME = 'precache-v1';
-const FORCE_CLEAR_CACHE = true; // Set to true to clear caches on every activation
 
 // Authentication-related storage keys that should NEVER be cleared
 const PRESERVE_AUTH_KEYS = [
@@ -86,9 +85,9 @@ const API_CACHE_PATTERNS = [
 	'/api/users'
 ];
 
-// Cache clearing utility functions (preserves authentication data)
+// Manual cache clearing utility (only called when user requests it)
 async function clearAllCaches() {
-	console.log('[ServiceWorker] 🧹 Starting cache clearing (preserving auth data)...');
+	console.log('[ServiceWorker] 🧹 Starting manual cache clearing (preserving auth data)...');
 	
 	try {
 		const cacheNames = await caches.keys();
@@ -101,7 +100,7 @@ async function clearAllCaches() {
 		});
 		
 		await Promise.all(deletionPromises);
-		console.log('[ServiceWorker] ✅ All caches cleared successfully');
+		console.log('[ServiceWorker] ✅ Manual cache clearing completed successfully');
 		
 		// Clear IndexedDB (except authentication data)
 		if ('indexedDB' in self) {
@@ -150,49 +149,35 @@ async function clearAllCaches() {
 	}
 }
 
-// Enhanced cache clearing on page refresh detection
-async function handlePageRefresh() {
-	console.log('[ServiceWorker] 🔄 Page refresh detected, clearing caches...');
-	await clearAllCaches();
-}
-
-// Install event - fast activation with background caching
+// Install event - setup caching without automatic clearing
 self.addEventListener('install', (event) => {
-	console.log('[ServiceWorker] Install - Fast activation mode');
+	console.log('[ServiceWorker] Install - Standard activation mode');
 	
-	// Skip waiting immediately for fast activation
+	// Skip waiting for faster activation
 	self.skipWaiting();
 	
-	// Do background caching without blocking activation
+	// Setup caching without automatic clearing
 	event.waitUntil(
 		(async () => {
 			try {
-				console.log('[ServiceWorker] ⚡ Fast activation initiated, starting background setup...');
-				
-				// Do background caching
-				backgroundCaching();
+				console.log('[ServiceWorker] Setting up caching...');
+				await setupInitialCaching();
 			} catch (error) {
-				console.error('[ServiceWorker] Background setup failed:', error);
+				console.error('[ServiceWorker] Setup failed:', error);
 			}
 		})()
 	);
 });
 
-// Background caching function - runs after activation
-async function backgroundCaching() {
+// Setup initial caching without automatic clearing
+async function setupInitialCaching() {
 	try {
-		// Clear caches if needed
-		if (FORCE_CLEAR_CACHE) {
-			console.log('[ServiceWorker] 🧹 Background: Force clearing all caches...');
-			await clearAllCaches();
-		}
-		
 		// Handle precache manifest from vite-plugin-pwa
 		if (manifest && manifest.length > 0) {
 			try {
 				const precacheUrls = manifest.map(entry => entry.url || entry);
 				const precacheCache = await caches.open(PRECACHE_NAME);
-				console.log('[ServiceWorker] Background: Precaching', precacheUrls.length, 'files');
+				console.log('[ServiceWorker] Precaching', precacheUrls.length, 'files');
 				
 				// Cache in small batches to avoid overwhelming
 				const batchSize = 10;
@@ -207,14 +192,14 @@ async function backgroundCaching() {
 					await new Promise(resolve => setTimeout(resolve, 50));
 				}
 			} catch (error) {
-				console.error('[ServiceWorker] Background precaching failed:', error);
+				console.error('[ServiceWorker] Precaching failed:', error);
 			}
 		}
 		
 		// Setup main cache with critical resources
 		try {
 			const cache = await caches.open(CACHE_NAME);
-			console.log('[ServiceWorker] Background: Caching critical resources');
+			console.log('[ServiceWorker] Caching critical resources');
 			
 			// Cache critical resources in batches
 			const batchSize = 5;
@@ -229,62 +214,41 @@ async function backgroundCaching() {
 				await new Promise(resolve => setTimeout(resolve, 50));
 			}
 			
-			console.log('[ServiceWorker] ✅ Background caching completed');
+			console.log('[ServiceWorker] ✅ Initial caching completed');
 		} catch (error) {
-			console.error('[ServiceWorker] Background cache setup failed:', error);
+			console.error('[ServiceWorker] Cache setup failed:', error);
 		}
 	} catch (error) {
-		console.error('[ServiceWorker] Background caching failed:', error);
+		console.error('[ServiceWorker] Initial caching failed:', error);
 	}
 }
 
-// Activate event - fast activation with background cleanup
+// Activate event - standard activation without automatic cache clearing
 self.addEventListener('activate', (event) => {
-	console.log('[ServiceWorker] Activate - Fast mode');
+	console.log('[ServiceWorker] Activate - Standard mode');
 	event.waitUntil(
 		(async () => {
 			try {
-				// Immediate client claiming for fast activation
+				// Standard client claiming
 				await self.clients.claim();
-				console.log('[ServiceWorker] ⚡ Fast activation: Clients claimed immediately');
+				console.log('[ServiceWorker] Clients claimed successfully');
 				
 				// Notify clients that service worker is ready
 				const clients = await self.clients.matchAll();
 				clients.forEach(client => {
 					client.postMessage({
-						type: 'SW_ACTIVATED_FAST',
+						type: 'SW_ACTIVATED',
 						timestamp: Date.now()
 					});
 				});
 				
-				// Background cleanup after activation
-				setTimeout(() => {
-					backgroundCleanup();
-				}, 100);
-				
-				console.log('[ServiceWorker] ✅ Fast activation complete');
+				console.log('[ServiceWorker] ✅ Activation complete');
 			} catch (error) {
 				console.error('[ServiceWorker] Activation error:', error);
 			}
 		})()
 	);
 });
-
-// Background cleanup function
-async function backgroundCleanup() {
-	try {
-		console.log('[ServiceWorker] Background: Starting cache cleanup...');
-		
-		// Clear old caches in background if needed
-		if (FORCE_CLEAR_CACHE) {
-			await clearAllCaches();
-		}
-		
-		console.log('[ServiceWorker] Background: Cache cleanup completed');
-	} catch (error) {
-		console.error('[ServiceWorker] Background cleanup failed:', error);
-	}
-}
 
 // Fetch event - implement caching strategies
 self.addEventListener('fetch', (event) => {
@@ -340,14 +304,14 @@ self.addEventListener('fetch', (event) => {
 	);
 });
 
-// Message handling for cache clearing requests and notification debugging
+// Message handling for manual cache clearing requests and notification debugging
 self.addEventListener('message', (event) => {
 	console.log('[ServiceWorker] 📨 Message received:', event.data);
 	
 	if (event.data && event.data.type) {
 		switch (event.data.type) {
 			case 'CLEAR_ALL_CACHES':
-				console.log('[ServiceWorker] 🧹 Cache clear requested from client');
+				console.log('[ServiceWorker] 🧹 Manual cache clear requested from client');
 				event.waitUntil(
 					clearAllCaches().then(() => {
 						// Respond back to client
@@ -357,7 +321,7 @@ self.addEventListener('message', (event) => {
 							timestamp: Date.now()
 						});
 					}).catch((error) => {
-						console.error('[ServiceWorker] Cache clear failed:', error);
+						console.error('[ServiceWorker] Manual cache clear failed:', error);
 						event.ports[0]?.postMessage({
 							type: 'CACHES_CLEARED',
 							success: false,
@@ -366,11 +330,6 @@ self.addEventListener('message', (event) => {
 						});
 					})
 				);
-				break;
-				
-			case 'PAGE_REFRESH_DETECTED':
-				console.log('[ServiceWorker] 🔄 Page refresh detected from client');
-				event.waitUntil(handlePageRefresh());
 				break;
 				
 			case 'SKIP_WAITING':

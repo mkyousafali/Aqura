@@ -29,8 +29,13 @@ class InAppNotificationSoundManager {
     private config: NotificationSoundConfig;
     private isEnabled: boolean = true;
     private wakeLock: any = null; // For keeping app active in background
+    private audioUnlocked: boolean = false; // Track if audio is unlocked for mobile
+    private isMobileDevice: boolean = false;
 
     constructor() {
+        // Detect mobile device
+        this.isMobileDevice = this.detectMobileDevice();
+        
         this.config = {
             enabled: true,
             volume: 0.7,
@@ -45,6 +50,7 @@ class InAppNotificationSoundManager {
             this.loadUserPreferences();
             this.setupVisibilityHandling();
             this.requestWakeLock();
+            this.setupMobileAudioUnlock();
         }
     }
 
@@ -130,6 +136,86 @@ class InAppNotificationSoundManager {
         }
     }
 
+    private detectMobileDevice(): boolean {
+        if (typeof window === 'undefined') return false;
+        
+        // Check for mobile/tablet devices
+        const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+        const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+        const isMobile = mobileRegex.test(userAgent);
+        
+        // Also check for touch device
+        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        // Check for mobile interface route - THIS IS KEY FOR DESKTOP MOBILE INTERFACE
+        const isMobileRoute = window.location.pathname.startsWith('/mobile');
+        
+        // IMPORTANT: Treat mobile interface as mobile even on desktop
+        // This ensures sound system works properly for mobile interface users on desktop
+        const result = isMobile || hasTouch || isMobileRoute;
+        
+        console.log('📱 [SoundManager] Mobile device detection:', {
+            userAgent: userAgent.substring(0, 50) + '...',
+            mobileRegex: isMobile,
+            hasTouch,
+            isMobileRoute,
+            result,
+            note: isMobileRoute ? 'Mobile interface detected - treating as mobile for sound system' : 'Not mobile interface'
+        });
+        
+        return result;
+    }
+
+    private setupMobileAudioUnlock(): void {
+        const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
+        
+        if (!this.isMobileDevice && !isMobileInterface) {
+            console.log('🔊 [SoundManager] Desktop interface detected - no audio unlock needed');
+            this.audioUnlocked = true;
+            return;
+        }
+
+        console.log('📱 [SoundManager] Mobile interface detected - setting up audio unlock', {
+            actualDevice: this.isMobileDevice ? 'mobile' : 'desktop',
+            interface: isMobileInterface ? 'mobile interface' : 'desktop interface',
+            reason: isMobileInterface ? 'Mobile interface requires audio unlock even on desktop' : 'Mobile device detected'
+        });
+        
+        // On mobile interface (regardless of device), audio needs user interaction to unlock
+        const unlockAudio = async () => {
+            if (this.audioUnlocked || !this.audio) return;
+            
+            try {
+                // Try to play and immediately pause to unlock audio
+                this.audio.muted = true;
+                const playPromise = this.audio.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    this.audio.pause();
+                    this.audio.currentTime = 0;
+                    this.audio.muted = false;
+                }
+                
+                this.audioUnlocked = true;
+                console.log('🔓 [SoundManager] Mobile interface audio unlocked successfully');
+                
+                // Remove listeners once unlocked
+                document.removeEventListener('touchstart', unlockAudio, { capture: true });
+                document.removeEventListener('touchend', unlockAudio, { capture: true });
+                document.removeEventListener('click', unlockAudio, { capture: true });
+            } catch (error) {
+                console.warn('⚠️ [SoundManager] Failed to unlock mobile interface audio:', error);
+            }
+        };
+
+        // Add event listeners for user interaction (both touch and click for desktop support)
+        document.addEventListener('touchstart', unlockAudio, { capture: true, once: false });
+        document.addEventListener('touchend', unlockAudio, { capture: true, once: false });
+        document.addEventListener('click', unlockAudio, { capture: true, once: false });
+        
+        console.log('📱 [SoundManager] Mobile interface audio unlock listeners added (touch + click)');
+    }
+
     private async checkSystemPermissions(): Promise<boolean> {
         // Check if system allows notification sounds
         if (typeof window !== 'undefined' && this.config.respectSystemSettings) {
@@ -172,12 +258,20 @@ class InAppNotificationSoundManager {
             notification: { id: notification.id, title: notification.title, type: notification.type, priority: notification.priority },
             audioElement: !!this.audio,
             audioSrc: this.audio?.src,
-            config: this.config
+            config: this.config,
+            isMobileDevice: this.isMobileDevice,
+            audioUnlocked: this.audioUnlocked
         });
 
         if (!this.shouldPlaySound(notification)) {
             console.log('🔇 [SoundManager] Sound playback skipped - conditions not met');
             return;
+        }
+
+        // On mobile, check if audio is unlocked
+        if (this.isMobileDevice && !this.audioUnlocked) {
+            console.warn('📱 [SoundManager] Mobile audio not yet unlocked - user interaction needed');
+            // Still try to play, might work on some browsers
         }
 
         try {
@@ -195,21 +289,27 @@ class InAppNotificationSoundManager {
                     volume: this.audio.volume,
                     readyState: this.audio.readyState,
                     networkState: this.audio.networkState,
-                    src: this.audio.src
+                    src: this.audio.src,
+                    muted: this.audio.muted,
+                    paused: this.audio.paused
                 });
 
                 // Reset audio to beginning
                 this.audio.currentTime = 0;
                 
-                // Set volume based on config
-                this.audio.volume = this.config.volume;
+                // Set volume based on config and priority
+                const priorityVolume = this.getVolumeForPriority(notification.priority);
+                this.audio.volume = priorityVolume;
+                
+                // Ensure not muted
+                this.audio.muted = false;
                 
                 // Play sound
                 const playPromise = this.audio.play();
                 
                 if (playPromise !== undefined) {
                     await playPromise;
-                    console.log(`🔊 [SoundManager] Successfully played notification sound for: ${notification.title}`);
+                    console.log(`✅ [SoundManager] Successfully played notification sound for: ${notification.title}`);
                     
                     // Handle repeat if configured
                     if (this.config.repeatCount > 1) {
@@ -329,7 +429,51 @@ class InAppNotificationSoundManager {
             soundEnabled: true
         };
         
+        // On mobile, try to unlock audio first
+        if (this.isMobileDevice && !this.audioUnlocked) {
+            console.log('📱 [SoundManager] Test triggered - attempting to unlock mobile audio');
+            this.unlockMobileAudio();
+        }
+        
         return this.playNotificationSound(testNotification);
+    }
+
+    public async unlockMobileAudio(): Promise<boolean> {
+        // For mobile interface, always try to unlock regardless of device type
+        const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
+        
+        if ((!this.isMobileDevice && !isMobileInterface) || this.audioUnlocked || !this.audio) {
+            console.log('🔊 [SoundManager] Audio unlock not needed:', {
+                isMobileDevice: this.isMobileDevice,
+                isMobileInterface,
+                audioUnlocked: this.audioUnlocked,
+                hasAudio: !!this.audio
+            });
+            return this.audioUnlocked;
+        }
+
+        try {
+            console.log('🔓 [SoundManager] Manually unlocking mobile audio...', {
+                deviceType: this.isMobileDevice ? 'mobile' : 'desktop',
+                interface: isMobileInterface ? 'mobile interface' : 'desktop interface'
+            });
+            
+            this.audio.muted = true;
+            const playPromise = this.audio.play();
+            if (playPromise !== undefined) {
+                await playPromise;
+                this.audio.pause();
+                this.audio.currentTime = 0;
+                this.audio.muted = false;
+            }
+            
+            this.audioUnlocked = true;
+            console.log('✅ [SoundManager] Mobile audio manually unlocked for mobile interface');
+            return true;
+        } catch (error) {
+            console.error('❌ [SoundManager] Failed to manually unlock mobile audio:', error);
+            return false;
+        }
     }
 
     public getConfig(): NotificationSoundConfig {
@@ -379,6 +523,10 @@ if (typeof window !== 'undefined' && notificationSoundManager) {
         testSound: () => notificationSoundManager.testSound(),
         playSystemBeep: () => notificationSoundManager['playSystemBeep'](),
         getConfig: () => notificationSoundManager.getConfig(),
+        unlockMobileAudio: () => notificationSoundManager.unlockMobileAudio(),
+        isMobile: () => (notificationSoundManager as any).isMobileDevice,
+        isMobileInterface: () => window.location.pathname.startsWith('/mobile'),
+        isAudioUnlocked: () => (notificationSoundManager as any).audioUnlocked,
         checkAudio: () => {
             const audio = (notificationSoundManager as any).audio;
             return {
@@ -388,11 +536,18 @@ if (typeof window !== 'undefined' && notificationSoundManager) {
                 readyState: audio?.readyState,
                 networkState: audio?.networkState,
                 currentTime: audio?.currentTime,
-                duration: audio?.duration
+                duration: audio?.duration,
+                muted: audio?.muted,
+                paused: audio?.paused
             };
         }
     };
     console.log('🔧 [SoundManager] Debug tools available: window.aquraSoundDebug');
+    console.log('📱 [SoundManager] Device detection:', {
+        isMobileDevice: (notificationSoundManager as any).isMobileDevice,
+        isMobileInterface: window.location.pathname.startsWith('/mobile'),
+        shouldUseMobileAudio: (notificationSoundManager as any).isMobileDevice || window.location.pathname.startsWith('/mobile')
+    });
 }
 
 // Export types for use in other components
