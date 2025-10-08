@@ -339,15 +339,16 @@ export class PushNotificationService {
 			console.log('🔄 [PushNotifications] Attempting device registration...');
 			
 			// First, try to find existing subscription for this user and device
+			// Use maybeSingle() instead of single() to avoid 406 error when no results found
 			const { data: existingSubscription, error: findError } = await supabaseAdmin
 				.from('push_subscriptions')
 				.select('id')
 				.eq('user_id', userUUID)
 				.eq('device_id', deviceId)
-				.single();
+				.maybeSingle();
 
 			let result;
-			if (existingSubscription) {
+			if (existingSubscription && !findError) {
 				// Update existing subscription
 				console.log('🔄 [PushNotifications] Updating existing subscription');
 				result = await supabaseAdmin
