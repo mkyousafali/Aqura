@@ -106,16 +106,17 @@ class PushNotificationProcessor {
     }
 
     /**
-     * Process pending notifications in the queue
+     * Process pending notifications in the queue with retry logic
      */
     private async processQueue() {
         try {
-            console.log('🔍 Processing notification queue');
+            console.log('🔍 Processing notification queue with retry support');
 
             // [v3.0] Perform preventive cleanup to prevent queue bloat
             await this.cleanupExcessiveFailedNotifications();
 
-            // Get pending notifications from queue
+            // Get pending notifications and those ready for retry
+            const now = new Date().toISOString();
             const { data: queuedNotifications, error } = await supabaseAdmin
                 .from('notification_queue')
                 .select(`
@@ -126,9 +127,12 @@ class PushNotificationProcessor {
                     push_subscription_id,
                     payload,
                     status,
-                    created_at
+                    created_at,
+                    retry_count,
+                    next_retry_at,
+                    last_attempt_at
                 `)
-                .eq('status', 'pending')
+                .or(`status.eq.pending,and(status.eq.retry,next_retry_at.lte.${now})`)
                 .order('created_at', { ascending: true }) // Process oldest first (FIFO)
                 .limit(10); // Reduced batch size for more frequent processing
 
@@ -142,142 +146,23 @@ class PushNotificationProcessor {
                 return;
             }
 
-            console.log(`📊 Found ${queuedNotifications?.length || 0} pending notifications in queue`);
+            const totalNotifications = queuedNotifications?.length || 0;
+            const pendingCount = queuedNotifications?.filter(n => n.status === 'pending').length || 0;
+            const retryCount = queuedNotifications?.filter(n => n.status === 'retry').length || 0;
+            
+            console.log(`📊 Found ${totalNotifications} notifications in queue (${pendingCount} pending, ${retryCount} ready for retry)`);
             console.log('🔍 Database response:', { queuedNotifications, error });
 
             if (!queuedNotifications || queuedNotifications.length === 0) {
                 return; // Don't log if no notifications (too verbose)
             }
 
-            console.log(`📬 Processing ${queuedNotifications.length} pending notifications...`);
+            console.log(`📬 Processing ${queuedNotifications.length} notifications...`);
             console.log('🔍 Queue items:', queuedNotifications);
 
-            // Group notifications by user_id + notification_id to send to ALL devices before cleanup
-            const notificationGroups = new Map<string, typeof queuedNotifications>();
-            
+            // Process each notification individually with retry logic
             for (const queueItem of queuedNotifications) {
-                const groupKey = `${queueItem.user_id}:${queueItem.notification_id}`;
-                if (!notificationGroups.has(groupKey)) {
-                    notificationGroups.set(groupKey, []);
-                }
-                notificationGroups.get(groupKey)!.push(queueItem);
-            }
-
-            console.log(`👥 [v3.0] Grouped ${queuedNotifications.length} notifications into ${notificationGroups.size} user+notification groups`);
-
-            // Process each group (user + notification combination)
-            for (const [groupKey, groupItems] of notificationGroups) {
-                const [userId, notificationId] = groupKey.split(':');
-                console.log(`🎯 [v3.0] Processing group: ${groupKey} with ${groupItems.length} devices`);
-                
-                let successCount = 0;
-                let failedCount = 0;
-                const successfulQueueItems: typeof queuedNotifications = [];
-
-                // Try to send to ALL devices for this user+notification
-                for (const queueItem of groupItems) {
-                    console.log('🔍 Processing queue item:', queueItem);
-                    
-                    // Get the push subscription details for this queue item
-                    if (queueItem.push_subscription_id) {
-                        const { data: subscription, error: subError } = await supabaseAdmin
-                            .from('push_subscriptions')
-                            .select('endpoint, p256dh, auth')
-                            .eq('id', queueItem.push_subscription_id)
-                            .eq('is_active', true)
-                            .single();
-
-                        if (subscription && !subError) {
-                            console.log('✅ Found push subscription for queue item:', queueItem.id);
-                            console.log('🔍 Subscription details:', subscription);
-                            
-                            try {
-                                // Send to this specific device and mark as sent immediately
-                                await this.sendPushNotification(queueItem as any);
-                                successCount++;
-                                successfulQueueItems.push(queueItem);
-                            } catch (error) {
-                                console.error(`❌ Failed to send to device ${queueItem.device_id}:`, error);
-                                failedCount++;
-                                
-                                // Mark this specific queue item as failed
-                                await supabaseAdmin
-                                    .from('notification_queue')
-                                    .update({ 
-                                        status: 'failed',
-                                        error_message: error instanceof Error ? error.message : 'Unknown error'
-                                    })
-                                    .eq('id', queueItem.id);
-                            }
-                        } else {
-                            console.warn('⚠️ No active push subscription found for queue item:', queueItem.id, 'subscription_id:', queueItem.push_subscription_id);
-                            console.warn('🔍 Subscription error:', subError);
-                            failedCount++;
-                            
-                            // Mark as failed since we can't send it
-                            await supabaseAdmin
-                                .from('notification_queue')
-                                .update({ 
-                                    status: 'failed',
-                                    error_message: 'Push subscription not found or inactive'
-                                })
-                                .eq('id', queueItem.id);
-                        }
-                    } else {
-                        console.warn('⚠️ Queue item has no push_subscription_id:', queueItem.id);
-                        failedCount++;
-                        
-                        // Mark as failed
-                        await supabaseAdmin
-                            .from('notification_queue')
-                            .update({ 
-                                status: 'failed',
-                                error_message: 'No push subscription ID'
-                            })
-                            .eq('id', queueItem.id);
-                    }
-                }
-
-                console.log(`📊 [v3.0] Group ${groupKey} results: ${successCount} successful, ${failedCount} failed`);
-
-                // IMPORTANT: Clean up remaining pending/failed ONLY AFTER trying all devices for this group
-                if (successCount > 0) {
-                    console.log(`🧹 [v3.0] Cleaning up remaining notifications for successful group: ${groupKey}`);
-                    
-                    try {
-                        // Delete all other pending/failed notifications for this user+notification combination
-                        const { data: deletedSameNotification, error: deleteError1 } = await supabaseAdmin
-                            .from('notification_queue')
-                            .delete()
-                            .eq('notification_id', notificationId)
-                            .eq('user_id', userId)
-                            .or('status.eq.pending,status.eq.failed')
-                            .not('id', 'in', `(${successfulQueueItems.map(item => item.id).join(',')})`) // Don't delete successful ones - remove quotes from UUIDs
-                            .select();
-
-                        // Delete ALL other failed notifications for this user (any notification_id)
-                        console.log(`🗑️ [v3.0] Deleting ALL other failed notifications for user ${userId}...`);
-                        const { data: deletedAllFailed, error: deleteError2 } = await supabaseAdmin
-                            .from('notification_queue')
-                            .delete()
-                            .eq('user_id', userId)
-                            .eq('status', 'failed')
-                            .neq('notification_id', notificationId) // Don't delete failed from current notification (already handled above)
-                            .select();
-
-                        if (deleteError1 || deleteError2) {
-                            console.error('❌ [v3.0] Error in group cleanup:', deleteError1 || deleteError2);
-                        } else {
-                            const totalDeleted = (deletedSameNotification?.length || 0) + (deletedAllFailed?.length || 0);
-                            console.log(`✅ [v3.0] Sent to ${successCount} devices`);
-                            console.log(`✅ [v3.0] Deleted ${deletedSameNotification?.length || 0} remaining pending/failed for same notification`);
-                            console.log(`✅ [v3.0] Deleted ${deletedAllFailed?.length || 0} failed from other notifications`);
-                            console.log(`✅ [v3.0] Total cleaned up: ${totalDeleted} notifications`);
-                        }
-                    } catch (error) {
-                        console.error('❌ [v3.0] Error in group cleanup:', error);
-                    }
-                }
+                await this.processNotificationWithRetry(queueItem);
             }
 
         } catch (error) {
@@ -286,9 +171,149 @@ class PushNotificationProcessor {
     }
 
     /**
+     * Process a single notification with retry logic (3 attempts, 10-second intervals)
+     */
+    private async processNotificationWithRetry(queueItem: any) {
+        try {
+            const maxRetries = 3;
+            const retryIntervalSeconds = 10;
+            const currentRetryCount = queueItem.retry_count || 0;
+            
+            console.log(`🎯 Processing notification ${queueItem.id} (attempt ${currentRetryCount + 1}/${maxRetries})`);
+            
+            // Update status to indicate we're processing
+            await supabaseAdmin
+                .from('notification_queue')
+                .update({ 
+                    status: 'processing',
+                    last_attempt_at: new Date().toISOString()
+                })
+                .eq('id', queueItem.id);
+
+            // Get push subscription details
+            if (!queueItem.push_subscription_id) {
+                console.warn('⚠️ Queue item has no push_subscription_id:', queueItem.id);
+                await this.markNotificationFailed(queueItem.id, 'No push subscription ID');
+                return;
+            }
+
+            const { data: subscription, error: subError } = await supabaseAdmin
+                .from('push_subscriptions')
+                .select('endpoint, p256dh, auth')
+                .eq('id', queueItem.push_subscription_id)
+                .eq('is_active', true)
+                .single();
+
+            if (!subscription || subError) {
+                console.warn('⚠️ No active push subscription found for queue item:', queueItem.id, 'subscription_id:', queueItem.push_subscription_id);
+                await this.markNotificationFailed(queueItem.id, 'Push subscription not found or inactive');
+                return;
+            }
+
+            console.log('✅ Found push subscription for queue item:', queueItem.id);
+            
+            try {
+                // Attempt to send the notification
+                await this.sendPushNotification(queueItem);
+                
+                // If successful, mark as sent and clean up other pending notifications for this user
+                await supabaseAdmin
+                    .from('notification_queue')
+                    .update({ 
+                        status: 'sent',
+                        sent_at: new Date().toISOString()
+                    })
+                    .eq('id', queueItem.id);
+
+                console.log(`✅ Notification ${queueItem.id} sent successfully on attempt ${currentRetryCount + 1}`);
+                
+                // Clean up other pending/failed notifications for this user+notification
+                await this.cleanupDuplicateNotifications(queueItem);
+                
+            } catch (error) {
+                console.error(`❌ Attempt ${currentRetryCount + 1} failed for notification ${queueItem.id}:`, error);
+                
+                // Handle retry logic
+                if (currentRetryCount < maxRetries - 1) {
+                    // Calculate next retry time (10 seconds from now)
+                    const nextRetryAt = new Date();
+                    nextRetryAt.setSeconds(nextRetryAt.getSeconds() + retryIntervalSeconds);
+                    
+                    // Update to retry status with incremented retry count
+                    await supabaseAdmin
+                        .from('notification_queue')
+                        .update({ 
+                            status: 'retry',
+                            retry_count: currentRetryCount + 1,
+                            next_retry_at: nextRetryAt.toISOString(),
+                            error_message: error instanceof Error ? error.message : 'Unknown error'
+                        })
+                        .eq('id', queueItem.id);
+                    
+                    console.log(`🔄 Notification ${queueItem.id} scheduled for retry ${currentRetryCount + 2}/${maxRetries} in ${retryIntervalSeconds} seconds`);
+                } else {
+                    // Max retries reached, mark as permanently failed
+                    await this.markNotificationFailed(queueItem.id, `Failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    console.log(`❌ Notification ${queueItem.id} permanently failed after ${maxRetries} attempts`);
+                }
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error processing notification ${queueItem.id}:`, error);
+            await this.markNotificationFailed(queueItem.id, `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Clean up duplicate pending/failed notifications for the same user+notification
+     */
+    private async cleanupDuplicateNotifications(queueItem: any) {
+        try {
+            console.log(`🧹 Cleaning up duplicate notifications for user ${queueItem.user_id} and notification ${queueItem.notification_id}...`);
+            
+            // Delete other pending/failed for same notification_id
+            const { data: deletedSameNotification, error: deleteError1 } = await supabaseAdmin
+                .from('notification_queue')
+                .delete()
+                .eq('notification_id', queueItem.notification_id)
+                .eq('user_id', queueItem.user_id)
+                .or('status.eq.pending,status.eq.retry,status.eq.failed')
+                .neq('id', queueItem.id) // Don't delete the successful one
+                .select();
+
+            // Delete ALL failed notifications for this user (any notification_id)
+            const { data: deletedAllFailed, error: deleteError2 } = await supabaseAdmin
+                .from('notification_queue')
+                .delete()
+                .eq('user_id', queueItem.user_id)
+                .eq('status', 'failed')
+                .neq('id', queueItem.id)
+                .select();
+
+            if (deleteError1 || deleteError2) {
+                console.error('❌ Error in cleanup:', deleteError1 || deleteError2);
+            } else {
+                const totalDeleted = (deletedSameNotification?.length || 0) + (deletedAllFailed?.length || 0);
+                console.log(`✅ Cleaned up ${totalDeleted} duplicate notifications`);
+            }
+        } catch (error) {
+            console.error('❌ Error in cleanup process:', error);
+        }
+    }
+
+    /**
      * Send a single push notification using Service Worker
      */
     private async sendPushNotification(queueItem: QueuedNotification) {
+        // Define variables at function scope to avoid scope issues in nested error handling
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                     (navigator as any).standalone || 
+                     window.location.search.includes('utm_source=pwa') ||
+                     document.referrer.includes('android-app://');
+        let registration: ServiceWorkerRegistration | undefined;
+        let notificationOptions: any;
+        
         try {
             console.log(`📤 Sending push notification ${queueItem.id} to device ${queueItem.device_id}...`);
             console.log('🔍 Notification payload:', queueItem.payload);
@@ -317,8 +342,6 @@ class PushNotificationProcessor {
                     const timeoutMs = isProduction ? 3000 : 8000; // Reduced to 3s for production, 8s for development
                     
                     console.log(`🔍 Using ${timeoutMs/1000}s timeout for ${isProduction ? 'production' : 'development'} environment`);
-                    
-                    let registration: ServiceWorkerRegistration;
                     
                     // First try to get existing registration
                     try {
@@ -577,18 +600,12 @@ class PushNotificationProcessor {
                         silent: false
                     });
                     
-                    // Mobile-optimized notification options
-                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                                 (navigator as any).standalone || 
-                                 window.location.search.includes('utm_source=pwa') ||
-                                 document.referrer.includes('android-app://');
-                    
+                    // Mobile-optimized notification options - variables already defined at function scope
                     console.log('📱 Is mobile device:', isMobile);
                     console.log('📱 Is PWA installed:', isPWA);
                     console.log('📱 Display mode:', window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser');
                     
-                    const notificationOptions = {
+                    notificationOptions = {
                         body: queueItem.payload.body,
                         icon: queueItem.payload.icon || '/icons/icon-192x192.png',
                         badge: queueItem.payload.badge || '/icons/icon-96x96.png',

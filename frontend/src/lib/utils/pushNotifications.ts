@@ -338,21 +338,33 @@ export class PushNotificationService {
 		try {
 			console.log('🔄 [PushNotifications] Attempting device registration...');
 			
-			// Add timeout protection for database operation
-			const registrationPromise = supabaseAdmin
+			// First, try to find existing subscription for this user and device
+			const { data: existingSubscription, error: findError } = await supabaseAdmin
 				.from('push_subscriptions')
-				.upsert(deviceRegistration, {
-					onConflict: 'user_id,device_id'
-				});
-				
-			const timeoutPromise = new Promise((_, reject) => {
-				setTimeout(() => reject(new Error('Device registration timeout')), 5000);
-			});
-			
-			const { error } = await Promise.race([registrationPromise, timeoutPromise]) as any;
+				.select('id')
+				.eq('user_id', userUUID)
+				.eq('device_id', deviceId)
+				.single();
 
-			if (error) {
-				throw error;
+			let result;
+			if (existingSubscription) {
+				// Update existing subscription
+				console.log('🔄 [PushNotifications] Updating existing subscription');
+				result = await supabaseAdmin
+					.from('push_subscriptions')
+					.update(deviceRegistration)
+					.eq('user_id', userUUID)
+					.eq('device_id', deviceId);
+			} else {
+				// Create new subscription
+				console.log('🆕 [PushNotifications] Creating new subscription');
+				result = await supabaseAdmin
+					.from('push_subscriptions')
+					.insert(deviceRegistration);
+			}
+
+			if (result.error) {
+				throw result.error;
 			}
 
 			// Store device ID locally
