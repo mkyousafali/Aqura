@@ -4,6 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	// Data
 	let assignments = [];
@@ -363,13 +364,13 @@
 	}
 
 	function formatDate(dateString) {
-		if (!dateString) return 'No deadline';
+		if (!dateString) return getTranslation('mobile.assignmentsContent.taskDetails.noDeadline');
 		const date = new Date(dateString);
 		return date.toLocaleDateString();
 	}
 
 	function formatDateTime(dateString, timeString) {
-		if (!dateString) return 'No deadline';
+		if (!dateString) return getTranslation('mobile.assignmentsContent.taskDetails.noDeadline');
 		const date = new Date(dateString);
 		if (timeString) {
 			const [hours, minutes] = timeString.split(':');
@@ -401,13 +402,13 @@
 
 	function getStatusDisplayText(status) {
 		switch (status) {
-			case 'assigned': return 'ASSIGNED';
-			case 'in_progress': return 'IN PROGRESS';
-			case 'completed': return 'COMPLETED';
-			case 'cancelled': return 'CANCELLED';
-			case 'escalated': return 'ESCALATED';
-			case 'reassigned': return 'REASSIGNED';
-			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
+			case 'assigned': return getTranslation('mobile.assignmentsContent.statuses.assigned');
+			case 'in_progress': return getTranslation('mobile.assignmentsContent.statuses.inProgress');
+			case 'completed': return getTranslation('mobile.assignmentsContent.statuses.completed');
+			case 'cancelled': return getTranslation('mobile.assignmentsContent.statuses.cancelled');
+			case 'escalated': return getTranslation('mobile.assignmentsContent.statuses.escalated');
+			case 'reassigned': return getTranslation('mobile.assignmentsContent.statuses.reassigned');
+			default: return getTranslation('mobile.assignmentsContent.statuses.unknown');
 		}
 	}
 
@@ -441,7 +442,7 @@
 </script>
 
 <svelte:head>
-	<title>My Assignments - Aqura Mobile</title>
+	<title>{getTranslation('mobile.assignmentsContent.title')}</title>
 </svelte:head>
 
 <div class="mobile-assignments">
@@ -451,23 +452,23 @@
 		<div class="stats-grid">
 			<div class="stat-card total">
 				<div class="stat-number">{totalStats.total}</div>
-				<div class="stat-label">Total</div>
+				<div class="stat-label">{getTranslation('mobile.assignmentsContent.stats.total')}</div>
 			</div>
 			<div class="stat-card completed">
 				<div class="stat-number">{totalStats.completed}</div>
-				<div class="stat-label">Completed</div>
+				<div class="stat-label">{getTranslation('mobile.assignmentsContent.stats.completed')}</div>
 			</div>
 			<div class="stat-card progress">
 				<div class="stat-number">{totalStats.in_progress}</div>
-				<div class="stat-label">In Progress</div>
+				<div class="stat-label">{getTranslation('mobile.assignmentsContent.stats.inProgress')}</div>
 			</div>
 			<div class="stat-card pending">
 				<div class="stat-number">{totalStats.assigned}</div>
-				<div class="stat-label">Pending</div>
+				<div class="stat-label">{getTranslation('mobile.assignmentsContent.stats.pending')}</div>
 			</div>
 			<div class="stat-card overdue">
 				<div class="stat-number">{totalStats.overdue}</div>
-				<div class="stat-label">Overdue</div>
+				<div class="stat-label">{getTranslation('mobile.assignmentsContent.stats.overdue')}</div>
 			</div>
 		</div>
 	</section>
@@ -480,31 +481,31 @@
 					<input
 						type="text"
 						bind:value={searchTerm}
-						placeholder="Search tasks or users..."
+						placeholder={getTranslation('mobile.assignmentsContent.search.placeholder')}
 						class="search-input"
 					/>
 				</div>
 				
 				<div class="filter-row">
 					<select bind:value={statusFilter} class="filter-select">
-						<option value="">All Statuses</option>
-						<option value="assigned">Assigned</option>
-						<option value="in_progress">In Progress</option>
-						<option value="completed">Completed</option>
-						<option value="cancelled">Cancelled</option>
-						<option value="escalated">Escalated</option>
+						<option value="">{getTranslation('mobile.assignmentsContent.search.allStatuses')}</option>
+						<option value="assigned">{getTranslation('mobile.assignmentsContent.statuses.assigned')}</option>
+						<option value="in_progress">{getTranslation('mobile.assignmentsContent.statuses.inProgress')}</option>
+						<option value="completed">{getTranslation('mobile.assignmentsContent.statuses.completed')}</option>
+						<option value="cancelled">{getTranslation('mobile.assignmentsContent.statuses.cancelled')}</option>
+						<option value="escalated">{getTranslation('mobile.assignmentsContent.statuses.escalated')}</option>
 					</select>
 
 					<select bind:value={priorityFilter} class="filter-select">
-						<option value="">All Priorities</option>
-						<option value="high">High</option>
-						<option value="medium">Medium</option>
-						<option value="low">Low</option>
+						<option value="">{getTranslation('mobile.assignmentsContent.search.allPriorities')}</option>
+						<option value="high">{getTranslation('mobile.assignmentsContent.priorities.high')}</option>
+						<option value="medium">{getTranslation('mobile.assignmentsContent.priorities.medium')}</option>
+						<option value="low">{getTranslation('mobile.assignmentsContent.priorities.low')}</option>
 					</select>
 				</div>
 
 				<button class="clear-filters-btn" on:click={clearFilters}>
-					Clear Filters
+					{getTranslation('mobile.assignmentsContent.search.clearFilters')}
 				</button>
 			</div>
 		</section>
@@ -515,16 +516,16 @@
 		{#if isLoading}
 			<div class="loading-state">
 				<div class="loading-spinner"></div>
-				<p>Loading assignments...</p>
+				<p>{getTranslation('mobile.assignmentsContent.loading')}</p>
 			</div>
 		{:else if filteredAssignments.length === 0}
 			<div class="empty-state">
 				<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
 					<path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
 				</svg>
-				<h3>No assignments found</h3>
+				<h3>{getTranslation('mobile.assignmentsContent.emptyStates.noAssignments')}</h3>
 				<p>
-					{assignments.length === 0 ? 'You haven\'t assigned any tasks yet.' : 'No assignments match your current filters.'}
+					{assignments.length === 0 ? getTranslation('mobile.assignmentsContent.emptyStates.noAssignmentsYet') : getTranslation('mobile.assignmentsContent.emptyStates.noMatchingFilters')}
 				</p>
 			</div>
 		{:else}
@@ -533,22 +534,22 @@
 					<div class="assignment-card" class:overdue={isOverdue(assignment)}>
 						<div class="card-header">
 							<div class="task-title-section">
-								<h3 class="task-title">{assignment.task?.title || 'Unknown Task'}</h3>
+								<h3 class="task-title">{assignment.task?.title || getTranslation('mobile.assignmentsContent.taskDetails.unknownTask')}</h3>
 								{#if assignment.task_type === 'quick_task'}
-									<span class="task-type-badge quick-task">⚡ Quick Task</span>
+									<span class="task-type-badge quick-task">{getTranslation('mobile.assignmentsContent.taskDetails.quickTask')}</span>
 								{/if}
 							</div>
 							<div class="card-badges">
 								{#if assignment.task_type === 'quick_task'}
-									<span class="quick-task-badge">⚡ QUICK</span>
+									<span class="quick-task-badge">{getTranslation('mobile.assignmentsContent.taskDetails.quickBadge')}</span>
 								{/if}
 								{#if assignment.task?.priority}
 									<span class="priority-badge {getPriorityColor(assignment.task.priority)}">
-										{assignment.task.priority.toUpperCase()}
+										{getTranslation(`mobile.assignmentsContent.priorities.${assignment.task.priority.toLowerCase()}`)}
 									</span>
 								{/if}
 								{#if isOverdue(assignment)}
-									<span class="overdue-badge">OVERDUE</span>
+									<span class="overdue-badge">{getTranslation('mobile.assignmentsContent.taskDetails.overdue')}</span>
 								{/if}
 							</div>
 						</div>
@@ -559,7 +560,7 @@
 
 						<div class="assignment-details">
 							<div class="detail-item">
-								<span class="detail-label">Assigned To:</span>
+								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.assignedTo')}</span>
 								<span class="detail-value">{assignment.assigned_user?.username || 'Unknown User'}</span>
 							</div>
 							<div class="detail-item">
@@ -573,7 +574,7 @@
 								<span class="detail-value">{formatDate(assignment.assigned_at)}</span>
 							</div>
 							<div class="detail-item">
-								<span class="detail-label">Deadline:</span>
+								<span class="detail-label">{getTranslation('mobile.assignmentsContent.taskDetails.deadline')}</span>
 								<span class="detail-value">
 									{#if assignment.task_type === 'quick_task' && assignment.task?.deadline_datetime}
 										{new Date(assignment.task.deadline_datetime).toLocaleString()}
@@ -589,13 +590,13 @@
 							<div class="quick-task-info">
 								{#if assignment.task?.price_tag}
 									<div class="quick-detail">
-										<span class="quick-label">Price Tag:</span>
+										<span class="quick-label">{getTranslation('mobile.assignmentsContent.taskDetails.priceTag')}</span>
 										<span class="quick-value">{assignment.task.price_tag}</span>
 									</div>
 								{/if}
 								{#if assignment.task?.issue_type}
 									<div class="quick-detail">
-										<span class="quick-label">Issue Type:</span>
+										<span class="quick-label">{getTranslation('mobile.assignmentsContent.taskDetails.issueType')}</span>
 										<span class="quick-value">{assignment.task.issue_type}</span>
 									</div>
 								{/if}
@@ -604,7 +605,7 @@
 
 						{#if assignment.notes}
 							<div class="assignment-notes">
-								<span class="notes-label">Notes:</span>
+								<span class="notes-label">{getTranslation('mobile.assignmentsContent.taskDetails.notes')}</span>
 								<p class="notes-text">{assignment.notes}</p>
 							</div>
 						{/if}
@@ -613,7 +614,7 @@
 						{#if assignment.attachments && assignment.attachments.length > 0}
 							<div class="attachments-section">
 								<div class="attachments-header">
-									<span class="attachments-label">📎 Attachments ({assignment.attachments.length})</span>
+									<span class="attachments-label">{getTranslation('mobile.assignmentsContent.taskDetails.attachments')} ({assignment.attachments.length})</span>
 								</div>
 								<div class="attachments-grid">
 									{#each assignment.attachments as attachment}
@@ -630,7 +631,7 @@
 													<button 
 														class="download-btn" 
 														on:click|stopPropagation={() => downloadFile(attachment)}
-														title="Download {attachment.file_name || 'file'}"
+														title="{getTranslation('mobile.assignmentsContent.actions.download')} {attachment.file_name || 'file'}"
 													>
 														⬇️
 													</button>
@@ -645,7 +646,7 @@
 															class="download-file-btn" 
 															on:click={() => downloadFile(attachment)}
 														>
-															⬇️ Download
+															⬇️ {getTranslation('mobile.assignmentsContent.actions.download')}
 														</button>
 													</div>
 												</div>
@@ -664,8 +665,8 @@
 	<!-- Footer Stats -->
 	<footer class="mobile-footer">
 		<div class="footer-stats">
-			<span>Showing {filteredAssignments.length} of {assignments.length}</span>
-			<span>Completion Rate: {assignments.length > 0 ? Math.round((totalStats.completed / assignments.length) * 100) : 0}%</span>
+			<span>{getTranslation('mobile.assignmentsContent.footer.showing')} {filteredAssignments.length} {getTranslation('mobile.assignmentsContent.footer.of')} {assignments.length}</span>
+			<span>{getTranslation('mobile.assignmentsContent.footer.completionRate')} {assignments.length > 0 ? Math.round((totalStats.completed / assignments.length) * 100) : 0}%</span>
 		</div>
 	</footer>
 </div>
@@ -760,6 +761,13 @@
 		border-radius: 8px;
 		background: white;
 		font-size: 0.875rem;
+	}
+
+	/* RTL Support for select dropdown arrow */
+	:global([dir="rtl"]) .filter-select {
+		padding-right: 0.75rem;
+		padding-left: 2.5rem;
+		background-position: left 0.75rem center;
 	}
 
 	.clear-filters-btn {

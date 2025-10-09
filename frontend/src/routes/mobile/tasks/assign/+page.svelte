@@ -5,6 +5,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { db } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	let tasks = [];
 	let users = [];
@@ -18,6 +19,7 @@
 	// Search and filters
 	let taskSearchTerm = '';
 	let userSearchTerm = '';
+	let userSearchType = 'name'; // 'name', 'branch_id', 'employee_id'
 	let selectedBranch = '';
 	
 	// Selections
@@ -64,12 +66,32 @@
 		{ value: 'sunday', label: 'Sunday' }
 	];
 
+	// Reactive weekDays with translations
+	$: translatedWeekDays = [
+		{ value: 'monday', label: getTranslation('mobile.assignContent.step3.monday'), short: getTranslation('mobile.assignContent.step3.mon') },
+		{ value: 'tuesday', label: getTranslation('mobile.assignContent.step3.tuesday'), short: getTranslation('mobile.assignContent.step3.tue') },
+		{ value: 'wednesday', label: getTranslation('mobile.assignContent.step3.wednesday'), short: getTranslation('mobile.assignContent.step3.wed') },
+		{ value: 'thursday', label: getTranslation('mobile.assignContent.step3.thursday'), short: getTranslation('mobile.assignContent.step3.thu') },
+		{ value: 'friday', label: getTranslation('mobile.assignContent.step3.friday'), short: getTranslation('mobile.assignContent.step3.fri') },
+		{ value: 'saturday', label: getTranslation('mobile.assignContent.step3.saturday'), short: getTranslation('mobile.assignContent.step3.sat') },
+		{ value: 'sunday', label: getTranslation('mobile.assignContent.step3.sunday'), short: getTranslation('mobile.assignContent.step3.sun') }
+	];
+
 	const repeatTypes = [
 		{ value: 'daily', label: 'Daily' },
 		{ value: 'weekly', label: 'Weekly (specific days)' },
 		{ value: 'every_n_days', label: 'Every N Days' },
 		{ value: 'every_n_weeks', label: 'Every N Weeks' },
 		{ value: 'monthly', label: 'Monthly (specific date)' }
+	];
+
+	// Reactive repeat types with translations
+	$: translatedRepeatTypes = [
+		{ value: 'daily', label: getTranslation('mobile.assignContent.step3.daily') },
+		{ value: 'weekly', label: getTranslation('mobile.assignContent.step3.weeklySpecific') },
+		{ value: 'every_n_days', label: getTranslation('mobile.assignContent.step3.everyNDays') },
+		{ value: 'every_n_weeks', label: getTranslation('mobile.assignContent.step3.everyNWeeks') },
+		{ value: 'monthly', label: getTranslation('mobile.assignContent.step3.monthlySpecific') }
 	];
 
 	onMount(async () => {
@@ -90,12 +112,29 @@
 			const branchResult = await db.branches.getAll();
 			if (!branchResult.error && branchResult.data) {
 				branches = branchResult.data;
+				console.log('🏢 Branches loaded:', branches.map(b => ({ id: b.id, name_en: b.name_en, name_ar: b.name_ar, name: b.name })));
 			}
 
 			// Load users
 			const userResult = await db.users.getAllWithEmployeeDetailsFlat();
 			if (!userResult.error && userResult.data) {
 				console.log('� Total users loaded:', userResult.data.length);
+				
+				// Debug: Check first few users to see what branch data we get
+				console.log('🔍 First 3 users raw data:');
+				userResult.data.slice(0, 3).forEach((u, i) => {
+					console.log(`User ${i + 1}:`, {
+						id: u.id,
+						username: u.username,
+						branch_id: u.branch_id,
+						branch_name: u.branch_name,
+						branch_name_en: u.branch_name_en,
+						branch_name_ar: u.branch_name_ar,
+						position_title: u.position_title,
+						position_title_en: u.position_title_en,
+						position_title_ar: u.position_title_ar
+					});
+				});
 				
 				users = userResult.data.map(user => ({
 					id: user.id,
@@ -106,11 +145,29 @@
 					role: user.role,
 					branch_id: user.branch_id,
 					branch_name: user.branch_name || user.branch_name_en || '',
-					position_title: user.position_title || '',
+					branch_name_en: user.branch_name_en || user.branch_name || '',
+					branch_name_ar: user.branch_name_ar || '',
+					position_title: user.position_title || user.position_title_en || '',
+					position_title_en: user.position_title_en || user.position_title || '',
+					position_title_ar: user.position_title_ar || '',
 					contact_number: user.contact_number || ''
 				}));
 				
 				console.log('� Mapped users:', users.length);
+				console.log('🔍 First 3 mapped users:');
+				users.slice(0, 3).forEach((u, i) => {
+					console.log(`Mapped User ${i + 1}:`, {
+						id: u.id,
+						username: u.username,
+						branch_id: u.branch_id,
+						branch_name: u.branch_name,
+						branch_name_en: u.branch_name_en,
+						branch_name_ar: u.branch_name_ar,
+						position_title: u.position_title,
+						position_title_en: u.position_title_en,
+						position_title_ar: u.position_title_ar
+					});
+				});
 				console.log('� All usernames:', users.map(u => u.username).sort());
 				
 				// Check for admin-like users
@@ -147,8 +204,33 @@
 		filteredUsers = users.filter(user => {
 			// Handle empty search term
 			if (!userSearchTerm || userSearchTerm.trim() === '') {
-				const matchesBranch = !selectedBranch || String(user.branch_id) === String(selectedBranch);
-				return matchesBranch;
+				// Fixed branch filtering: Since user.branch_id is undefined, match by branch name
+				if (!selectedBranch) {
+					return true; // No branch filter selected
+				}
+				
+				// Find the selected branch to get its names
+				const selectedBranchObj = branches.find(b => b.id === parseInt(selectedBranch));
+				if (!selectedBranchObj) {
+					return false; // Invalid branch selection
+				}
+				
+				// Match user's branch name to the selected branch's English or Arabic name
+				const matchesBranchByName = user.branch_name === selectedBranchObj.name_en || 
+											user.branch_name === selectedBranchObj.name_ar ||
+											user.branch_name_en === selectedBranchObj.name_en ||
+											user.branch_name_ar === selectedBranchObj.name_ar;
+				
+				console.log('🔍 Branch filter debug:', {
+					selectedBranch,
+					selectedBranchObj: { id: selectedBranchObj.id, name_en: selectedBranchObj.name_en, name_ar: selectedBranchObj.name_ar },
+					userBranchName: user.branch_name,
+					userBranchNameEn: user.branch_name_en,
+					userBranchNameAr: user.branch_name_ar,
+					matchesBranchByName
+				});
+				
+				return matchesBranchByName;
 			}
 			
 			// Search in multiple fields - handle null/undefined values properly
@@ -159,8 +241,27 @@
 			const matchesUsername = user.username && user.username.toLowerCase().includes(searchTerm);
 			const matchesEmployeeName = user.employee_name && user.employee_name.toLowerCase().includes(searchTerm);
 			
-			const matchesSearch = matchesDisplayName || matchesEmail || matchesUsername || matchesEmployeeName;
-			const matchesBranch = !selectedBranch || String(user.branch_id) === String(selectedBranch);
+			// Add branch name search support (both English and Arabic)
+			const userBranchName = getUserBranchName(user);
+			const matchesBranchName = userBranchName && userBranchName.toLowerCase().includes(searchTerm);
+			const matchesBranchNameEn = user.branch_name_en && user.branch_name_en.toLowerCase().includes(searchTerm);
+			const matchesBranchNameAr = user.branch_name_ar && user.branch_name_ar.toLowerCase().includes(searchTerm);
+			
+			const matchesSearch = matchesDisplayName || matchesEmail || matchesUsername || matchesEmployeeName || matchesBranchName || matchesBranchNameEn || matchesBranchNameAr;
+			
+			// Fixed branch filtering for search mode too
+			let matchesBranch = true;
+			if (selectedBranch) {
+				const selectedBranchObj = branches.find(b => b.id === parseInt(selectedBranch));
+				if (selectedBranchObj) {
+					matchesBranch = user.branch_name === selectedBranchObj.name_en || 
+									user.branch_name === selectedBranchObj.name_ar ||
+									user.branch_name_en === selectedBranchObj.name_en ||
+									user.branch_name_ar === selectedBranchObj.name_ar;
+				} else {
+					matchesBranch = false;
+				}
+			}
 			
 			return matchesSearch && matchesBranch;
 		});
@@ -382,15 +483,212 @@
 		goto('/mobile');
 	}
 
+	// Helper function to get localized branch name
+	function getBranchName(branch) {
+		if (!branch) return '';
+		const currentLocale = $locale;
+		
+		// Debug log for branch name selection
+		console.log('🏷️ getBranchName:', {
+			branchId: branch.id,
+			locale: currentLocale,
+			name_ar: branch.name_ar,
+			name_en: branch.name_en,
+			name: branch.name,
+			willUseArabic: currentLocale === 'ar' && branch.name_ar
+		});
+		
+		if (currentLocale === 'ar' && branch.name_ar) {
+			console.log('✅ Using Arabic name:', branch.name_ar);
+			return branch.name_ar;
+		}
+		
+		const fallbackName = branch.name_en || branch.name || '';
+		console.log('📝 Using fallback name:', fallbackName);
+		return fallbackName;
+	}
+
+	// Helper function to get localized user branch name
+	function getUserBranchName(user) {
+		if (!user) {
+			console.log('👤 getUserBranchName: No user provided');
+			return '';
+		}
+		
+		const currentLocale = $locale;
+		
+		// Debug logging for the first 3 users to see what's happening
+		const shouldDebug = users.length > 0 && users.slice(0, 3).some(u => u.id === user.id);
+		
+		if (shouldDebug) {
+			console.log('👤 getUserBranchName Debug for', user.username, ':', {
+				userId: user.id,
+				username: user.username,
+				currentLocale,
+				userBranchId: user.branch_id,
+				userBranchName: user.branch_name,
+				userBranchNameAr: user.branch_name_ar,
+				branchesLength: branches.length,
+				branches: branches.map(b => ({ id: b.id, name_en: b.name_en, name_ar: b.name_ar }))
+			});
+		}
+		
+		// Always try to find branch in branches array first for most up-to-date data
+		if (user.branch_id && branches.length > 0) {
+			const branch = branches.find(b => b.id === user.branch_id);
+			if (branch) {
+				const branchName = getBranchName(branch);
+				if (shouldDebug) {
+					console.log('✅ Found branch in array:', {
+						branchId: branch.id,
+						selectedName: branchName,
+						isArabic: currentLocale === 'ar',
+						hasArabicName: !!branch.name_ar
+					});
+				}
+				return branchName;
+			}
+		}
+		
+		// NEW: Since branch_id is undefined, try to match by English name
+		if (user.branch_name && branches.length > 0) {
+			const branch = branches.find(b => 
+				b.name_en === user.branch_name || 
+				b.name_en === user.branch_name_en ||
+				b.name_ar === user.branch_name
+			);
+			if (branch) {
+				const branchName = getBranchName(branch);
+				if (shouldDebug) {
+					console.log('✅ Found branch by name match:', {
+						userBranchName: user.branch_name,
+						foundBranch: { id: branch.id, name_en: branch.name_en, name_ar: branch.name_ar },
+						selectedName: branchName,
+						isArabic: currentLocale === 'ar'
+					});
+				}
+				return branchName;
+			}
+		}
+		
+		// Fallback: If we have branch_name_ar and we're in Arabic locale
+		if (currentLocale === 'ar' && user.branch_name_ar) {
+			if (shouldDebug) {
+				console.log('🔄 Using user.branch_name_ar:', user.branch_name_ar);
+			}
+			return user.branch_name_ar;
+		}
+		
+		// Final fallback: use English branch name or original branch_name
+		return user.branch_name_en || user.branch_name || '';
+	}
+
+	// Helper function to get localized position title
+	function getUserPositionTitle(user) {
+		if (!user) return '';
+		const currentLocale = $locale;
+		
+		// Temporary mapping for Arabic position titles until database query is fixed
+		const positionMapping = {
+			'Marketing Manager': 'مدير التسويق',
+			'Inventory Control Supervisor': 'مشرف مراقبة المخزون',
+			'Analytics & Business Intelligence': 'تحليلات وذكاء الأعمال',
+			'Shelf Stockers': 'مرص البضائع',
+			'Vegetable Department Head': 'رئيس قسم الخضروات',
+			'Quality Assurance Manager': 'مدير ضمان الجودة',
+			'Cleaners': 'منظف',
+			'Cheese Department Head': 'رئيس قسم الجبن',
+			'CEO': 'الرئيس التنفيذي',
+			'Accountant': 'محاسب',
+			'Customer Service Supervisor': 'مشرف خدمة العملاء',
+			'Finance Manager': 'مدير مالي',
+			'Driver': 'سائق',
+			'Branch Manager': 'مدير الفرع',
+			'Inventory Manager': 'مدير المخزون',
+			'Night Supervisors': 'مشرف ليلي',
+			'Bakers': 'خباز',
+			'Bakery Department Head': 'رئيس قسم المخبز',
+			'Checkout Helpers': 'مساعد الدفع',
+			'Vegetable Counter Staff': 'موظف عداد الخضروات',
+			'Cheese Counter Staff': 'موظف عداد الجبن',
+			'No Position': 'بدون منصب'
+		};
+		
+		// Always debug position titles for now to understand the issue
+		console.log('💼 getUserPositionTitle for', user.username, ':', {
+			userId: user.id,
+			username: user.username,
+			currentLocale,
+			positionTitle: user.position_title,
+			positionTitleEn: user.position_title_en,
+			positionTitleAr: user.position_title_ar,
+			hasArabicTitle: !!user.position_title_ar,
+			shouldUseArabic: currentLocale === 'ar' && user.position_title_ar,
+			mappedArabicTitle: positionMapping[user.position_title]
+		});
+		
+		// If we're in Arabic locale, try mapping first, then fallback to Arabic field
+		if (currentLocale === 'ar') {
+			// Try mapping from English to Arabic
+			if (user.position_title && positionMapping[user.position_title]) {
+				console.log('✅ Using mapped Arabic position title for', user.username, ':', positionMapping[user.position_title]);
+				return positionMapping[user.position_title];
+			}
+			
+			// Fallback to database Arabic field if available
+			if (user.position_title_ar) {
+				console.log('✅ Using database Arabic position title for', user.username, ':', user.position_title_ar);
+				return user.position_title_ar;
+			}
+		}
+		
+		// Fallback to English or original position title
+		const fallbackTitle = user.position_title_en || user.position_title || '';
+		console.log('📝 Using fallback position title for', user.username, ':', fallbackTitle);
+		return fallbackTitle;
+	}
+
+	// Helper function to get translated priority text
+	function getPriorityText(priority) {
+		if (!priority) return getTranslation('mobile.assignContent.priorities.medium');
+		
+		const priorityKey = priority.toLowerCase();
+		const translationKey = `mobile.assignContent.priorities.${priorityKey}`;
+		
+		// Check if translation exists, fallback to capitalized original if not
+		const translated = getTranslation(translationKey);
+		return translated || priority.toUpperCase();
+	}
+
+	// Helper function to get translated status text
+	function getStatusText(status) {
+		if (!status) return '';
+		
+		const statusKey = status.toLowerCase();
+		const translationKey = `mobile.assignContent.statuses.${statusKey}`;
+		
+		// Check if translation exists, fallback to capitalized original if not
+		const translated = getTranslation(translationKey);
+		return translated || status.toUpperCase();
+	}
+
 	$: if (taskSearchTerm !== undefined) filterTasks();
 	$: if (userSearchTerm !== undefined || selectedBranch !== undefined) filterUsers();
+	$: if ($locale) {
+		// Trigger re-filtering when locale changes to update branch names
+		filterUsers();
+	}
 </script>
+
+<svelte:head>
+	<title>{getTranslation('mobile.assignContent.title')}</title>
+</svelte:head>
 
 <div class="mobile-page">
 	{#if isLoading}
 		<div class="loading-container">
 			<div class="loading-spinner"></div>
-			<p>Loading data...</p>
+			<p>{getTranslation('mobile.assignContent.loading')}</p>
 		</div>
 	{:else}
 		<!-- Progress Steps -->
@@ -398,7 +696,7 @@
 			<div class="steps">
 				<div class="step" class:active={currentStep === 1} class:completed={currentStep > 1}>
 					<div class="step-number">1</div>
-					<span class="step-label">Users</span>
+					<span class="step-label">{getTranslation('mobile.assignContent.steps.users')}</span>
 					{#if selectedUsers.size > 0}
 						<span class="step-count">{selectedUsers.size}</span>
 					{/if}
@@ -408,7 +706,7 @@
 				
 				<div class="step" class:active={currentStep === 2} class:completed={currentStep > 2}>
 					<div class="step-number">2</div>
-					<span class="step-label">Tasks</span>
+					<span class="step-label">{getTranslation('mobile.assignContent.steps.tasks')}</span>
 					{#if selectedTasks.size > 0}
 						<span class="step-count">{selectedTasks.size}</span>
 					{/if}
@@ -418,14 +716,14 @@
 				
 				<div class="step" class:active={currentStep === 3} class:completed={currentStep > 3}>
 					<div class="step-number">3</div>
-					<span class="step-label">Settings</span>
+					<span class="step-label">{getTranslation('mobile.assignContent.steps.settings')}</span>
 				</div>
 				
 				<div class="step-arrow">→</div>
 				
 				<div class="step" class:active={currentStep === 4}>
 					<div class="step-number">4</div>
-					<span class="step-label">Criteria</span>
+					<span class="step-label">{getTranslation('mobile.assignContent.steps.criteria')}</span>
 				</div>
 			</div>
 		</div>
@@ -434,24 +732,24 @@
 			<!-- Step 1: Select Users -->
 			{#if currentStep === 1}
 				<div class="step-content">
-					<h2>Select Users</h2>
-					<p class="step-description">Choose users to assign tasks to</p>
+					<h2>{getTranslation('mobile.assignContent.step1.title')}</h2>
+					<p class="step-description">{getTranslation('mobile.assignContent.step1.description')}</p>
 					
 					<!-- User Filters -->
 					<div class="filter-section">
 						<div class="search-bar">
 							<input
 								type="text"
-								placeholder="Search by name, username, email..."
+								placeholder={getTranslation('mobile.assignContent.step1.searchPlaceholder')}
 								bind:value={userSearchTerm}
 							/>
 						</div>
 						
 						<div class="filter-row">
 							<select bind:value={selectedBranch}>
-								<option value="">All Branches</option>
+								<option value="">{getTranslation('mobile.assignContent.step1.allBranches')}</option>
 								{#each branches as branch}
-									<option value={branch.id}>{branch.name_en || branch.name}</option>
+									<option value={branch.id}>{getBranchName(branch)}</option>
 								{/each}
 							</select>
 						</div>
@@ -472,12 +770,16 @@
 										<h4>{user.display_name}</h4>
 										<p>{user.email}</p>
 										<div class="item-meta">
-											{#if user.position_title}
-												<span class="meta-tag">{user.position_title}</span>
-											{/if}
-											{#if user.branch_name}
-												<span class="meta-tag">{user.branch_name}</span>
-											{/if}
+											{#key $locale}
+												{#if getUserPositionTitle(user)}
+													<span class="meta-tag">{getUserPositionTitle(user)}</span>
+												{/if}
+											{/key}
+											{#key $locale}
+												{#if getUserBranchName(user)}
+													<span class="meta-tag">{getUserBranchName(user)}</span>
+												{/if}
+											{/key}
 										</div>
 									</div>
 								</label>
@@ -492,14 +794,14 @@
 							on:click={handleCancel}
 							disabled={isAssigning}
 						>
-							Cancel
+							{getTranslation('mobile.assignContent.actions.cancel')}
 						</button>
 						
 						<button 
 							class="action-btn primary"
 							on:click={nextStep}
 						>
-							Next Step
+							{getTranslation('mobile.assignContent.actions.nextStep')}
 						</button>
 					</div>
 				</div>
@@ -507,15 +809,15 @@
 			<!-- Step 2: Select Tasks -->
 			{:else if currentStep === 2}
 				<div class="step-content">
-					<h2>Select Tasks</h2>
-					<p class="step-description">Choose tasks to assign</p>
+					<h2>{getTranslation('mobile.assignContent.step2.title')}</h2>
+					<p class="step-description">{getTranslation('mobile.assignContent.step2.description')}</p>
 					
 					<!-- Task Filters -->
 					<div class="filter-section">
 						<div class="search-bar">
 							<input
 								type="text"
-								placeholder="Search tasks..."
+								placeholder={getTranslation('mobile.assignContent.step2.searchPlaceholder')}
 								bind:value={taskSearchTerm}
 							/>
 						</div>
@@ -534,12 +836,12 @@
 									<span class="checkmark"></span>
 									<div class="item-content">
 										<h4>{task.title}</h4>
-										<p>{task.description || 'No description'}</p>
+										<p>{task.description || getTranslation('mobile.assignContent.step2.noDescription')}</p>
 										<div class="item-meta">
 											<span class="meta-tag priority" style="color: {getPriorityColor(task.priority)}">
-												{task.priority?.toUpperCase() || 'MEDIUM'}
+												{getPriorityText(task.priority)}
 											</span>
-											<span class="meta-tag">{task.status?.toUpperCase()}</span>
+											<span class="meta-tag">{getStatusText(task.status)}</span>
 										</div>
 									</div>
 								</label>
@@ -554,14 +856,14 @@
 							on:click={prevStep}
 							disabled={isAssigning}
 						>
-							Previous
+							{getTranslation('mobile.assignContent.actions.previous')}
 						</button>
 						
 						<button 
 							class="action-btn primary"
 							on:click={nextStep}
 						>
-							Next Step
+							{getTranslation('mobile.assignContent.actions.nextStep')}
 						</button>
 					</div>
 				</div>
@@ -569,23 +871,23 @@
 			<!-- Step 3: Assignment Settings -->
 			{:else if currentStep === 3}
 				<div class="step-content">
-					<h2>Assignment Settings</h2>
-					<p class="step-description">Configure assignment options</p>
+					<h2>{getTranslation('mobile.assignContent.step3.title')}</h2>
+					<p class="step-description">{getTranslation('mobile.assignContent.step3.description')}</p>
 					
 					<div class="settings-form">
 						<!-- Basic Settings -->
 						<div class="setting-group">
-							<h3>Notification Settings</h3>
+							<h3>{getTranslation('mobile.assignContent.step3.notificationSettings')}</h3>
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.notify_assignees} />
 								<span class="checkmark"></span>
-								Send notifications to assignees
+								{getTranslation('mobile.assignContent.step3.sendNotifications')}
 							</label>
 						</div>
 
 						<!-- Assignment Type -->
 						<div class="setting-group">
-							<h3>Assignment Type</h3>
+							<h3>{getTranslation('mobile.assignContent.step3.assignmentType')}</h3>
 							<div class="radio-group">
 								<label class="radio-label">
 									<input 
@@ -595,7 +897,7 @@
 										name="assignment_type"
 									/>
 									<span class="radio-mark"></span>
-									One-time Assignment
+									{getTranslation('mobile.assignContent.step3.oneTimeAssignment')}
 								</label>
 								<label class="radio-label">
 									<input 
@@ -605,7 +907,7 @@
 										name="assignment_type"
 									/>
 									<span class="radio-mark"></span>
-									Recurring Assignment
+									{getTranslation('mobile.assignContent.step3.recurringAssignment')}
 								</label>
 							</div>
 						</div>
@@ -619,14 +921,14 @@
 										bind:checked={assignmentSettings.set_deadline}
 									/>
 									<span class="checkmark"></span>
-									Set deadline
+									{getTranslation('mobile.assignContent.step3.setDeadline')}
 								</label>
 								
 								{#if assignmentSettings.set_deadline}
 									<div class="deadline-fields">
 										<div class="input-row">
 											<div class="input-group">
-												<label for="deadline">Deadline Date</label>
+												<label for="deadline">{getTranslation('mobile.assignContent.step3.deadlineDate')}</label>
 												<input
 													id="deadline"
 													type="date"
@@ -635,7 +937,7 @@
 												/>
 											</div>
 											<div class="input-group">
-												<label for="time">Deadline Time</label>
+												<label for="time">{getTranslation('mobile.assignContent.step3.deadlineTime')}</label>
 												<input
 													id="time"
 													type="time"
@@ -652,11 +954,11 @@
 						<!-- Recurring Settings -->
 						{#if assignmentSettings.assignment_type === 'repeat'}
 							<div class="setting-group">
-								<h3>Repeat Settings</h3>
+								<h3>{getTranslation('mobile.assignContent.step3.repeatSettings')}</h3>
 								<div class="input-group">
-									<label for="repeat_type">Repeat Type</label>
+									<label for="repeat_type">{getTranslation('mobile.assignContent.step3.repeatType')}</label>
 									<select id="repeat_type" bind:value={assignmentSettings.repeat_type}>
-										{#each repeatTypes as type}
+										{#each translatedRepeatTypes as type}
 											<option value={type.value}>{type.label}</option>
 										{/each}
 									</select>
@@ -664,16 +966,16 @@
 
 								{#if assignmentSettings.repeat_type === 'weekly'}
 									<div class="setting-group">
-										<label>Select Days</label>
+										<label>{getTranslation('mobile.assignContent.step3.selectDays')}</label>
 										<div class="day-selector">
-											{#each weekDays as day}
+											{#each translatedWeekDays as day}
 												<label class="day-label">
 													<input 
 														type="checkbox" 
 														checked={assignmentSettings.repeat_days.includes(day.value)}
 														on:change={() => toggleRepeatDay(day.value)}
 													/>
-													<span class="day-mark">{day.label.substring(0, 3)}</span>
+													<span class="day-mark">{day.short}</span>
 												</label>
 											{/each}
 										</div>
@@ -682,7 +984,7 @@
 
 								{#if assignmentSettings.repeat_type === 'every_n_days' || assignmentSettings.repeat_type === 'every_n_weeks'}
 									<div class="input-group">
-										<label for="interval">Repeat every</label>
+										<label for="interval">{getTranslation('mobile.assignContent.step3.repeatEvery')}</label>
 										<input
 											id="interval"
 											type="number"
@@ -700,7 +1002,7 @@
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.enable_reassigning} />
 								<span class="checkmark"></span>
-								Allow users to reassign tasks
+								{getTranslation('mobile.assignContent.step3.allowReassign')}
 							</label>
 						</div>
 
@@ -708,17 +1010,17 @@
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.notify_assignees} />
 								<span class="checkmark"></span>
-								Notify assignees
+								{getTranslation('mobile.assignContent.step3.notifyAssignees')}
 							</label>
 						</div>
 
 						<!-- Notes -->
 						<div class="input-group">
-							<label for="notes">Additional Notes</label>
+							<label for="notes">{getTranslation('mobile.assignContent.step3.additionalNotes')}</label>
 							<textarea
 								id="notes"
 								bind:value={assignmentSettings.add_note}
-								placeholder="Add any special instructions..."
+								placeholder={getTranslation('mobile.assignContent.step3.specialInstructions')}
 								rows="3"
 							></textarea>
 						</div>
@@ -731,14 +1033,14 @@
 							on:click={prevStep}
 							disabled={isAssigning}
 						>
-							Previous
+							{getTranslation('mobile.assignContent.actions.previous')}
 						</button>
 						
 						<button 
 							class="action-btn primary"
 							on:click={nextStep}
 						>
-							Next Step
+							{getTranslation('mobile.assignContent.actions.nextStep')}
 						</button>
 					</div>
 				</div>
@@ -746,15 +1048,15 @@
 			<!-- Step 4: Completion Criteria -->
 			{:else if currentStep === 4}
 				<div class="step-content">
-					<h2>Completion Criteria</h2>
-					<p class="step-description">Set requirements for task completion</p>
+					<h2>{getTranslation('mobile.assignContent.step4.title')}</h2>
+					<p class="step-description">{getTranslation('mobile.assignContent.step4.description')}</p>
 					
 					<div class="settings-form">
 						<div class="setting-group">
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.require_task_finished} />
 								<span class="checkmark"></span>
-								Require task to be marked as finished
+								{getTranslation('mobile.assignContent.step4.requireTaskFinished')}
 							</label>
 						</div>
 
@@ -762,7 +1064,7 @@
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.require_photo_upload} />
 								<span class="checkmark"></span>
-								Require photo upload
+								{getTranslation('mobile.assignContent.step4.requirePhotoUpload')}
 							</label>
 						</div>
 
@@ -770,28 +1072,28 @@
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={assignmentSettings.require_erp_reference} />
 								<span class="checkmark"></span>
-								Require ERP reference
+								{getTranslation('mobile.assignContent.step4.requireErpReference')}
 							</label>
 						</div>
 
 						<!-- Summary -->
 						<div class="assignment-summary">
-							<h3>Assignment Summary</h3>
+							<h3>{getTranslation('mobile.assignContent.step4.assignmentSummary')}</h3>
 							<div class="summary-item">
-								<span class="summary-label">Users:</span>
-								<span class="summary-value">{selectedUsers.size} selected</span>
+								<span class="summary-label">{getTranslation('mobile.assignContent.step4.usersLabel')}</span>
+								<span class="summary-value">{selectedUsers.size} {getTranslation('mobile.assignContent.step4.selectedUsers')}</span>
 							</div>
 							<div class="summary-item">
-								<span class="summary-label">Tasks:</span>
-								<span class="summary-value">{selectedTasks.size} selected</span>
+								<span class="summary-label">{getTranslation('mobile.assignContent.step4.tasksLabel')}</span>
+								<span class="summary-value">{selectedTasks.size} {getTranslation('mobile.assignContent.step4.selectedTasks')}</span>
 							</div>
 							<div class="summary-item">
-								<span class="summary-label">Type:</span>
-								<span class="summary-value">{assignmentSettings.assignment_type === 'one_time' ? 'One-time' : 'Recurring'}</span>
+								<span class="summary-label">{getTranslation('mobile.assignContent.step4.typeLabel')}</span>
+								<span class="summary-value">{assignmentSettings.assignment_type === 'one_time' ? getTranslation('mobile.assignContent.step4.oneTimeType') : getTranslation('mobile.assignContent.step4.recurringType')}</span>
 							</div>
 							{#if assignmentSettings.set_deadline && assignmentSettings.deadline}
 								<div class="summary-item">
-									<span class="summary-label">Deadline:</span>
+									<span class="summary-label">{getTranslation('mobile.assignContent.step4.deadlineLabel')}</span>
 									<span class="summary-value">{assignmentSettings.deadline} {assignmentSettings.time || ''}</span>
 								</div>
 							{/if}
@@ -806,7 +1108,7 @@
 								on:click={prevStep}
 								disabled={isAssigning}
 							>
-								Previous
+								{getTranslation('mobile.assignContent.actions.previous')}
 							</button>
 						{:else}
 							<button 
@@ -814,7 +1116,7 @@
 								on:click={handleCancel}
 								disabled={isAssigning}
 							>
-								Cancel
+								{getTranslation('mobile.assignContent.actions.cancel')}
 							</button>
 						{/if}
 						
@@ -824,7 +1126,7 @@
 								on:click={handleAssignment}
 								disabled={isAssigning || selectedTasks.size === 0 || selectedUsers.size === 0}
 							>
-								{isAssigning ? 'Assigning...' : 'Assign Tasks'}
+								{isAssigning ? getTranslation('mobile.assignContent.actions.assigning') : getTranslation('mobile.assignContent.actions.assignTasks')}
 							</button>
 						{:else}
 							<button 
@@ -994,6 +1296,34 @@
 	.filter-row {
 		display: block;
 		margin-bottom: 1rem;
+	}
+
+	.search-bar input,
+	.filter-row select {
+		width: 100%;
+		padding: 0.75rem 2.5rem 0.75rem 1rem;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 1rem;
+		background-color: white;
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+		background-position: right 0.75rem center;
+		background-repeat: no-repeat;
+		background-size: 1.5em 1.5em;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+	}
+
+	.search-bar input {
+		background-image: none;
+		padding: 0.75rem 1rem;
+	}
+
+	/* RTL Support for select dropdown arrow */
+	:global([dir="rtl"]) .filter-row select {
+		padding: 0.75rem 1rem 0.75rem 2.5rem;
+		background-position: left 0.75rem center;
 	}
 
 	.selection-list {
@@ -1259,6 +1589,26 @@
 		border-radius: 8px;
 		font-size: 1rem;
 		box-sizing: border-box;
+	}
+
+	/* Specific styling for select elements with dropdown arrow */
+	select {
+		padding-right: 2.5rem;
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+		background-position: right 0.75rem center;
+		background-repeat: no-repeat;
+		background-size: 1.5em 1.5em;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		cursor: pointer;
+	}
+
+	/* RTL Support for select dropdown arrow in settings form */
+	:global([dir="rtl"]) select {
+		padding-right: 0.75rem;
+		padding-left: 2.5rem;
+		background-position: left 0.75rem center;
 	}
 
 	input:focus, select:focus, textarea:focus {

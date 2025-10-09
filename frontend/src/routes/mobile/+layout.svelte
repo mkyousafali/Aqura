@@ -8,6 +8,8 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
+	import { initI18n, currentLocale, localeData } from '$lib/i18n';
+	import LanguageToggle from '$lib/components/mobile/LanguageToggle.svelte';
 
 	// Mobile-specific layout state
 	let currentUserData = null;
@@ -28,10 +30,14 @@
 	// Refresh state for notifications
 	let isRefreshing = false;
 	
-	// Reactive page title that updates when route changes
-	$: pageTitle = getPageTitle($page.url.pathname);
+	// Reactive page title that updates when route changes or locale changes
+	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
 
-	onMount(async () => {
+	onMount(() => {
+		// Initialize i18n system
+		initI18n();
+		console.log('🌐 [Mobile Layout] i18n system initialized');
+		
 		console.log('🔍 [Mobile Layout] Starting mobile layout initialization...');
 		console.log('🔍 [Mobile Layout] Auth state:', $isAuthenticated);
 		console.log('🔍 [Mobile Layout] Current user:', $currentUser);
@@ -62,7 +68,7 @@
 		console.log('✅ [Mobile Layout] Mobile layout initialization completed');
 
 		// Load badge counts
-		await loadBadgeCounts();
+		loadBadgeCounts();
 		
 		// Initialize notification sound system for mobile
 		console.log('🔔 [Mobile Layout] Starting notification sound system...');
@@ -296,24 +302,38 @@
 		});
 	}
 	
-	function getPageTitle(path) {
+	// Helper function to get translations
+	function getTranslation(keyPath: string): string {
+		const keys = keyPath.split('.');
+		let value: any = $localeData.translations;
+		for (const key of keys) {
+			if (value && typeof value === 'object' && key in value) {
+				value = value[key];
+			} else {
+				return keyPath; // Return key path if translation not found
+			}
+		}
+		return typeof value === 'string' ? value : keyPath;
+	}
+	
+	function getPageTitle(path, locale = null) {
 		// Main pages
-		if (path === '/mobile' || path === '/mobile/') return 'Dashboard';
-		if (path === '/mobile/tasks' || path === '/mobile/tasks/') return 'Tasks';
-		if (path === '/mobile/notifications' || path === '/mobile/notifications/') return 'Notifications';
-		if (path === '/mobile/assignments' || path === '/mobile/assignments/') return 'Assignments';
-		if (path === '/mobile/quick-task' || path === '/mobile/quick-task/') return 'Quick Task';
+		if (path === '/mobile' || path === '/mobile/') return getTranslation('mobile.dashboard');
+		if (path === '/mobile/tasks' || path === '/mobile/tasks/') return getTranslation('mobile.tasks');
+		if (path === '/mobile/notifications' || path === '/mobile/notifications/') return getTranslation('mobile.notifications');
+		if (path === '/mobile/assignments' || path === '/mobile/assignments/') return getTranslation('mobile.assignments');
+		if (path === '/mobile/quick-task' || path === '/mobile/quick-task/') return getTranslation('mobile.quickTask');
 		
 		// Sub-pages
-		if (path.startsWith('/mobile/tasks/assign')) return 'Assign Tasks';
-		if (path.startsWith('/mobile/tasks/create')) return 'Create Task';
-		if (path.includes('/complete')) return 'Complete Task';
-		if (path.startsWith('/mobile/tasks/')) return 'Task Details';
-		if (path.startsWith('/mobile/notifications/')) return 'Notification';
-		if (path.startsWith('/mobile/assignments/')) return 'Assignment Details';
+		if (path.startsWith('/mobile/tasks/assign')) return getTranslation('mobile.assignTasks');
+		if (path.startsWith('/mobile/tasks/create')) return getTranslation('mobile.createTask');
+		if (path.includes('/complete')) return getTranslation('mobile.completeTask');
+		if (path.startsWith('/mobile/tasks/')) return getTranslation('mobile.taskDetails');
+		if (path.startsWith('/mobile/notifications/')) return getTranslation('mobile.notification');
+		if (path.startsWith('/mobile/assignments/')) return getTranslation('mobile.assignmentDetails');
 		
 		// Default fallback
-		return 'Aqura';
+		return getTranslation('app.shortName');
 	}
 	
 	async function handleNotificationRefresh() {
@@ -451,7 +471,7 @@
 			<div class="header-content">
 				<div class="user-info">
 					{#if $page.url.pathname !== '/mobile'}
-						<button class="back-btn" on:click={goBack} aria-label="Go back">
+						<button class="back-btn" on:click={goBack} aria-label={getTranslation('nav.goBack')}>
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="m15 18-6-6 6-6"/>
 							</svg>
@@ -469,13 +489,13 @@
 					</div>
 				</div>
 				<div class="header-actions">
-					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label="Go to dashboard">
+					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label={getTranslation('nav.goToDashboard')}>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 							<polyline points="9,22 9,12 15,12 15,22"/>
 						</svg>
 					</a>
-					<a href="/mobile/notifications" class="header-nav-btn" class:active={$page.url.pathname.startsWith('/mobile/notifications')} aria-label="View notifications">
+					<a href="/mobile/notifications" class="header-nav-btn" class:active={$page.url.pathname.startsWith('/mobile/notifications')} aria-label={getTranslation('nav.viewNotifications')}>
 						<div class="nav-icon-container">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -487,7 +507,7 @@
 						</div>
 					</a>
 					{#if $page.url.pathname.startsWith('/mobile/notifications')}
-						<button class="header-nav-btn refresh-btn" on:click={handleNotificationRefresh} aria-label="Refresh notifications">
+						<button class="header-nav-btn refresh-btn" on:click={handleNotificationRefresh} aria-label={getTranslation('nav.refreshNotifications')}>
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={isRefreshing}>
 								<polyline points="23,4 23,10 17,10"/>
 								<polyline points="1,20 1,14 7,14"/>
@@ -495,7 +515,9 @@
 							</svg>
 						</button>
 					{/if}
-					<button class="logout-btn" on:click={logout} aria-label="Logout">
+					<!-- Language Toggle -->
+					<LanguageToggle />
+					<button class="logout-btn" on:click={logout} aria-label={getTranslation('nav.logout')}>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
 							<polyline points="16,17 21,12 16,7"/>
@@ -523,7 +545,7 @@
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
 				</div>
-				<span class="nav-label">Tasks</span>
+				<span class="nav-label">{getTranslation('mobile.bottomNav.tasks')}</span>
 			</a>
 			
 			<a href="/mobile/tasks/assign" class="nav-item create-btn" class:active={$page.url.pathname.startsWith('/mobile/tasks/assign')}>
@@ -535,7 +557,7 @@
 						<line x1="23" y1="11" x2="17" y2="11"/>
 					</svg>
 				</div>
-				<span class="nav-label">Assign</span>
+				<span class="nav-label">{getTranslation('mobile.bottomNav.create')}</span>
 			</a>
 			
 			<a href="/mobile/quick-task" class="nav-item quick-task-btn" class:active={$page.url.pathname.startsWith('/mobile/quick-task')}>
@@ -545,7 +567,7 @@
 						<circle cx="12" cy="12" r="3"/>
 					</svg>
 				</div>
-				<span class="nav-label">Quick Task</span>
+				<span class="nav-label">{getTranslation('mobile.quickTask')}</span>
 			</a>
 			
 			<a href="/mobile/assignments" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile/assignments')}>
@@ -557,16 +579,16 @@
 						<span class="nav-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
 					{/if}
 				</div>
-				<span class="nav-label">Assignments</span>
+				<span class="nav-label">{getTranslation('mobile.bottomNav.assignments')}</span>
 			</a>
 		</nav>
 	</div>
 {:else}
 	<div class="mobile-error">
-		<h2>Access Required</h2>
-		<p>Please log in to access the mobile interface.</p>
+		<h2>{getTranslation('mobile.error.accessRequired')}</h2>
+		<p>{getTranslation('mobile.error.loginRequired')}</p>
 		<button on:click={() => goto('/mobile-login')} class="error-btn">
-			Go to Mobile Login
+			{getTranslation('mobile.error.goToLogin')}
 		</button>
 	</div>
 {/if}
@@ -1090,5 +1112,66 @@
 	/* Ensure no desktop styles leak through */
 	:global(.svelte-*) {
 		font-family: 'Inter', 'Segoe UI', sans-serif !important;
+	}
+
+	/* RTL Support */
+	:global([dir="rtl"]) {
+		direction: rtl;
+	}
+
+	:global([dir="rtl"] .header-content) {
+		direction: rtl;
+	}
+
+	:global([dir="rtl"] .user-info) {
+		flex-direction: row-reverse;
+	}
+
+	:global([dir="rtl"] .header-actions) {
+		flex-direction: row-reverse;
+	}
+
+	:global([dir="rtl"] .bottom-nav) {
+		direction: rtl;
+	}
+
+	:global([dir="rtl"] .nav-item) {
+		direction: rtl;
+	}
+
+	:global([dir="rtl"] .mobile-content) {
+		direction: rtl;
+	}
+
+	/* Arabic font support */
+	:global(.font-arabic) {
+		font-family: 'Noto Sans Arabic', 'Tajawal', 'Amiri', 'Cairo', sans-serif !important;
+	}
+
+	:global(.font-arabic .global-mobile-header) {
+		font-family: 'Noto Sans Arabic', 'Tajawal', 'Amiri', 'Cairo', sans-serif !important;
+	}
+
+	:global(.font-arabic .bottom-nav) {
+		font-family: 'Noto Sans Arabic', 'Tajawal', 'Amiri', 'Cairo', sans-serif !important;
+	}
+
+	:global(.font-arabic .nav-label) {
+		font-family: 'Noto Sans Arabic', 'Tajawal', 'Amiri', 'Cairo', sans-serif !important;
+	}
+
+	/* Responsive adjustments for RTL */
+	@media (max-width: 768px) {
+		:global([dir="rtl"] .header-content) {
+			text-align: right;
+		}
+		
+		:global([dir="rtl"] .user-details h1) {
+			text-align: right;
+		}
+		
+		:global([dir="rtl"] .user-details p) {
+			text-align: right;
+		}
 	}
 </style>

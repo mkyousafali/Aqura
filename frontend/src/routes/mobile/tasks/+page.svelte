@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { supabase, db } from '$lib/utils/supabase';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -351,7 +352,7 @@
 </script>
 
 <svelte:head>
-	<title>My Tasks - Aqura Mobile</title>
+	<title>{getTranslation('mobile.tasksContent.title')}</title>
 </svelte:head>
 
 <div class="mobile-tasks">
@@ -363,7 +364,7 @@
 				<line x1="12" y1="8" x2="12" y2="16"/>
 				<line x1="8" y1="12" x2="16" y2="12"/>
 			</svg>
-			Create Task
+			{getTranslation('mobile.tasksContent.createTask')}
 		</button>
 	</div>
 
@@ -376,7 +377,7 @@
 			</svg>
 			<input
 				type="text"
-				placeholder="Search tasks..."
+				placeholder={getTranslation('mobile.tasksContent.searchPlaceholder')}
 				bind:value={searchTerm}
 				class="search-input"
 			/>
@@ -384,23 +385,23 @@
 
 		<div class="filter-chips">
 			<select bind:value={filterStatus} class="filter-select">
-				<option value="all">All Status</option>
-				<option value="pending">Pending</option>
-				<option value="in_progress">In Progress</option>
-				<option value="completed">Completed</option>
-				<option value="cancelled">Cancelled</option>
+				<option value="all">{getTranslation('mobile.tasksContent.filters.allStatus')}</option>
+				<option value="pending">{getTranslation('mobile.tasksContent.filters.pending')}</option>
+				<option value="in_progress">{getTranslation('mobile.tasksContent.filters.inProgress')}</option>
+				<option value="completed">{getTranslation('mobile.tasksContent.filters.completed')}</option>
+				<option value="cancelled">{getTranslation('mobile.tasksContent.filters.cancelled')}</option>
 			</select>
 
 			<select bind:value={filterPriority} class="filter-select">
-				<option value="all">All Priority</option>
-				<option value="high">High</option>
-				<option value="medium">Medium</option>
-				<option value="low">Low</option>
+				<option value="all">{getTranslation('mobile.tasksContent.filters.allPriority')}</option>
+				<option value="high">{getTranslation('mobile.tasksContent.filters.high')}</option>
+				<option value="medium">{getTranslation('mobile.tasksContent.filters.medium')}</option>
+				<option value="low">{getTranslation('mobile.tasksContent.filters.low')}</option>
 			</select>
 		</div>
 
 		<div class="results-count">
-			{filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''} found
+			{filteredTasks.length} {filteredTasks.length !== 1 ? getTranslation('mobile.tasksContent.results.tasksFound') : getTranslation('mobile.tasksContent.results.taskFound')}
 		</div>
 	</div>
 
@@ -409,7 +410,7 @@
 		{#if isLoading}
 			<div class="loading-state">
 				<div class="loading-spinner"></div>
-				<p>Loading tasks...</p>
+				<p>{getTranslation('mobile.tasksContent.loading')}</p>
 			</div>
 		{:else if filteredTasks.length === 0}
 			<div class="empty-state">
@@ -419,15 +420,8 @@
 						<rect x="9" y="7" width="6" height="5"/>
 					</svg>
 				</div>
-				<h2>No tasks found</h2>
-				<p>No tasks match your current filters, or you don't have any assigned tasks yet.</p>
-				<button class="create-task-btn" on:click={() => goto('/mobile/tasks/create')}>
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<line x1="12" y1="5" x2="12" y2="19"/>
-						<line x1="5" y1="12" x2="19" y2="12"/>
-					</svg>
-					Create New Task
-				</button>
+				<h2>{getTranslation('mobile.tasksContent.emptyState.title')}</h2>
+				<p>{getTranslation('mobile.tasksContent.emptyState.description')}</p>
 			</div>
 		{:else}
 			<div class="task-list">
@@ -443,7 +437,7 @@
 								<h3>{task.title}</h3>
 								<div class="task-meta">
 									{#if task.task_type === 'quick'}
-										<span class="task-type-badge quick-task">⚡ Quick Task</span>
+										<span class="task-type-badge quick-task">⚡ {getTranslation('mobile.tasksContent.taskCard.quickTask')}</span>
 									{/if}
 									<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
 										{task.priority?.toUpperCase()}
@@ -488,7 +482,7 @@
 										<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
 										<circle cx="12" cy="7" r="4"/>
 									</svg>
-									<span>By {task.assigned_by_name || task.created_by_name || 'Unknown'}</span>
+									<span>{getTranslation('mobile.tasksContent.taskCard.by')} {task.assigned_by_name || task.created_by_name || getTranslation('mobile.tasksContent.taskCard.unknown')}</span>
 								</div>
 								
 								<div class="task-detail">
@@ -496,7 +490,7 @@
 										<circle cx="12" cy="12" r="10"/>
 										<polyline points="12,6 12,12 16,14"/>
 									</svg>
-									<span>Assigned {formatDate(task.assigned_at)}</span>
+									<span>{getTranslation('mobile.tasksContent.taskCard.assigned')} {formatDate(task.assigned_at)}</span>
 								</div>
 
 								{#if task.hasAttachments}
@@ -504,7 +498,7 @@
 										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
 										</svg>
-										<span>{task.attachments.length} attachment{task.attachments.length !== 1 ? 's' : ''}</span>
+										<span>{task.attachments.length} {task.attachments.length !== 1 ? getTranslation('mobile.tasksContent.taskCard.attachments') : getTranslation('mobile.tasksContent.taskCard.attachment')}</span>
 									</div>
 									
 									<!-- Individual attachments with preview and download -->
@@ -577,14 +571,14 @@
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<polyline points="20,6 9,17 4,12"/>
 									</svg>
-									Mark Complete
+									{getTranslation('mobile.tasksContent.taskCard.markComplete')}
 								</button>
 								<button class="view-btn" on:click={() => navigateToTask(task)}>
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
 										<circle cx="12" cy="12" r="3"/>
 									</svg>
-									View Details
+									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
 								</button>
 							</div>
 						{:else}
@@ -594,7 +588,7 @@
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
 										<circle cx="12" cy="12" r="3"/>
 									</svg>
-									View Details
+									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
 								</button>
 							</div>
 						{/if}
