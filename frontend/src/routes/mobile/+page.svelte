@@ -31,7 +31,7 @@
 
 	// Reactive refresh when returning to dashboard
 	$: if ($page.url.pathname === '/mobile' && currentUserData) {
-		refreshNotificationCount();
+		refreshNotificationCount(true); // Silent refresh
 	}
 
 	onMount(async () => {
@@ -44,14 +44,14 @@
 		// Set up automatic refresh for notification count every 30 seconds
 		const refreshInterval = setInterval(async () => {
 			if (currentUserData) {
-				await refreshNotificationCount();
+				await refreshNotificationCount(true); // Silent refresh
 			}
 		}, 30000);
 		
 		// Refresh when page becomes visible (user returns to dashboard)
 		const handleVisibilityChange = async () => {
 			if (!document.hidden && currentUserData) {
-				await refreshNotificationCount();
+				await refreshNotificationCount(true); // Silent refresh
 			}
 		};
 		
@@ -64,7 +64,7 @@
 		};
 	});
 
-	async function refreshNotificationCount() {
+	async function refreshNotificationCount(silent = false) {
 		try {
 			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
 			if (userNotifications && userNotifications.length > 0) {
@@ -73,7 +73,9 @@
 				stats.unreadNotifications = 0;
 			}
 		} catch (error) {
-			console.error('Error refreshing notification count:', error);
+			if (!silent) {
+				console.error('Error refreshing notification count:', error);
+			}
 		}
 	}
 

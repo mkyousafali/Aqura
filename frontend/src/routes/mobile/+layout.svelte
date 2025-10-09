@@ -72,7 +72,7 @@
 		setupMobileAudioUnlock();
 		
 		// Set up periodic refresh of badge counts
-		const interval = setInterval(loadBadgeCounts, 30000); // Refresh every 30 seconds
+		const interval = setInterval(() => loadBadgeCounts(true), 30000); // Silent refresh every 30 seconds
 		return () => clearInterval(interval);
 	});
 
@@ -86,7 +86,7 @@
 	$: if ($currentUser && $isAuthenticated) {
 		interfacePreferenceService.forceMobileInterface($currentUser.id);
 		currentUserData = $currentUser;
-		loadBadgeCounts(); // Refresh counts when user changes
+		loadBadgeCounts(true); // Silent refresh counts when user changes
 		
 		// Restart notification sound system for new user
 		console.log('🔔 [Mobile Layout] User changed, restarting notification sound system...');
@@ -120,7 +120,7 @@
 		})();
 	}
 
-	async function loadBadgeCounts() {
+	async function loadBadgeCounts(silent = false) {
 		if (!currentUserData) return;
 
 		try {
@@ -145,6 +145,12 @@
 			} else if (!quickTaskError && myQuickTasks) {
 				taskCount = myQuickTasks.length;
 			}
+
+		} catch (error) {
+			if (!silent) {
+				console.error('Error loading task counts:', error);
+			}
+		}
 
 		// Load unread notification count
 		try {
@@ -186,12 +192,16 @@
 				headerNotificationCount = 0;
 			}
 		} catch (error) {
-			console.error('Error loading notification count:', error);
+			if (!silent) {
+				console.error('Error loading notification count:', error);
+			}
 			previousNotificationCount = notificationCount; // Store current as previous
 			notificationCount = 0;
 			headerNotificationCount = 0;
-		}			
-			// Load incomplete assignment count (tasks assigned BY the user)
+		}
+		
+		// Load incomplete assignment count (tasks assigned BY the user)
+		try {
 			// Include both regular task assignments and quick task assignments
 			const { data: myAssignments, error: assignmentError } = await supabase
 				.from('task_assignments')
@@ -219,7 +229,9 @@
 			}
 
 		} catch (error) {
-			console.error('Error loading badge counts:', error);
+			if (!silent) {
+				console.error('Error loading badge counts:', error);
+			}
 		}
 		
 		// After the first load, allow sound notifications for future changes

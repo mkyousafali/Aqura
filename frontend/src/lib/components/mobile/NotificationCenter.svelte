@@ -312,7 +312,7 @@
 		
 		// Listen for refresh events from the global header
 		const handleRefresh = () => {
-			forceRefreshNotifications();
+			forceRefreshNotifications(true); // Silent refresh by default
 		};
 		
 		window.addEventListener('refreshNotifications', handleRefresh);
@@ -450,12 +450,16 @@
 		}
 	}
 
-	export async function forceRefreshNotifications() {
+	export async function forceRefreshNotifications(silent = true) {
 		try {
-			isLoading = true;
+			if (!silent) {
+				isLoading = true;
+			}
 			errorMessage = '';
 			
-			console.log('🔄 [Mobile Notification] Force refreshing notifications...');
+			if (!silent) {
+				console.log('🔄 [Mobile Notification] Force refreshing notifications...');
+			}
 			
 			if (isAdminOrMaster) {
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
@@ -476,15 +480,21 @@
 				}));
 			}
 			
-			console.log('✅ [Mobile Notification] Force refresh completed. Total notifications:', allNotifications.length);
+			if (!silent) {
+				console.log('✅ [Mobile Notification] Force refresh completed. Total notifications:', allNotifications.length);
+			}
 			
-			// Reload user cache after refresh
+			// Reload user cache after refresh (always silent)
 			await loadUserCache();
 		} catch (error) {
-			console.error('❌ [Mobile Notification] Error force refreshing notifications:', error);
-			errorMessage = 'Failed to refresh notifications. Please try again.';
+			if (!silent) {
+				console.error('❌ [Mobile Notification] Error force refreshing notifications:', error);
+				errorMessage = 'Failed to refresh notifications. Please try again.';
+			}
 		} finally {
-			isLoading = false;
+			if (!silent) {
+				isLoading = false;
+			}
 		}
 	}
 
@@ -515,7 +525,7 @@
 					n.id === id ? { ...n, read: true } : n
 				);
 				// Refresh the notification counts store for taskbar
-				refreshNotificationCounts();
+				refreshNotificationCounts(undefined, true); // Silent refresh
 			}
 		} catch (error) {
 			console.error('Error marking notification as read:', error);
@@ -531,7 +541,7 @@
 				// Update local state
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));
 				// Refresh the notification counts store for taskbar
-				refreshNotificationCounts();
+				refreshNotificationCounts(undefined, true); // Silent refresh
 			}
 		} catch (error) {
 			console.error('Error marking all notifications as read:', error);
