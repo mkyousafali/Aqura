@@ -49,6 +49,7 @@
 		selected: boolean 
 	}> = [];
 	let selectedBranchFilter = 'all';
+	let userSearchTerm = '';
 	let isLoadingBranches = true;
 	let isLoadingUsers = false;
 
@@ -191,6 +192,18 @@
 			filtered = allUsers.filter(user => user.branch_id === selectedBranchFilter);
 		}
 		
+		// Filter by search term if provided
+		if (userSearchTerm.trim()) {
+			const searchLower = userSearchTerm.toLowerCase();
+			filtered = filtered.filter(user => 
+				user.username.toLowerCase().includes(searchLower) ||
+				user.employee_name?.toLowerCase().includes(searchLower) ||
+				user.employee_id?.toLowerCase().includes(searchLower) ||
+				user.position_name?.toLowerCase().includes(searchLower) ||
+				user.branch_name?.toLowerCase().includes(searchLower)
+			);
+		}
+		
 		// Add selected property and preserve existing selections
 		filteredUsers = filtered.map(user => ({
 			...user,
@@ -200,6 +213,11 @@
 
 	// Handle branch filter change
 	function onBranchFilterChange() {
+		updateFilteredUsers();
+	}
+
+	// Handle search term change
+	function onSearchChange() {
 		updateFilteredUsers();
 	}
 
@@ -394,6 +412,7 @@
 		// Reset user selections
 		filteredUsers = filteredUsers.map(user => ({ ...user, selected: false }));
 		selectedBranchFilter = 'all';
+		userSearchTerm = '';
 		updateFilteredUsers();
 	}
 </script>
@@ -525,7 +544,7 @@
 				
 				<div class="form-group">
 					<label for="target_type">Target Type</label>
-					<select id="target_type" bind:value={notificationData.target_type} on:change={() => { notificationData.target_users = []; updateFilteredUsers(); }}>
+					<select id="target_type" bind:value={notificationData.target_type} on:change={() => { notificationData.target_users = []; userSearchTerm = ''; updateFilteredUsers(); }}>
 						<option value="all_users">All Users</option>
 						<option value="specific_users">User Specific</option>
 					</select>
@@ -536,6 +555,17 @@
 						<div class="users-header">
 							<h4 class="users-title">Select Users</h4>
 							<div class="users-controls">
+								<div class="search-filter">
+									<label for="user_search">🔍 Search Users:</label>
+									<input 
+										id="user_search" 
+										type="text" 
+										bind:value={userSearchTerm}
+										on:input={onSearchChange}
+										placeholder="Search by username, name, ID, position, or branch..."
+										class="search-input"
+									/>
+								</div>
 								<div class="branch-filter">
 									<label for="branch_filter">Filter by Branch:</label>
 									<select id="branch_filter" bind:value={selectedBranchFilter} on:change={onBranchFilterChange}>
@@ -561,7 +591,15 @@
 							</div>
 						{:else if filteredUsers.length === 0}
 							<div class="no-users">
-								<p>No users found for the selected branch.</p>
+								{#if userSearchTerm.trim()}
+									<p>No users found matching "{userSearchTerm}".</p>
+									<p>Try adjusting your search terms or branch filter.</p>
+								{:else if selectedBranchFilter !== 'all'}
+									<p>No users found for the selected branch.</p>
+									<p>Try selecting "All Branches" to see all users.</p>
+								{:else}
+									<p>No users available.</p>
+								{/if}
 							</div>
 						{:else}
 							<div class="users-table">
@@ -597,6 +635,9 @@
 							{#if notificationData.target_users.length > 0}
 								<div class="selection-summary">
 									<strong>{notificationData.target_users.length} user(s) selected</strong>
+									{#if filteredUsers.length < allUsers.length}
+										<span class="filter-info">({filteredUsers.length} shown of {allUsers.length} total users)</span>
+									{/if}
 								</div>
 							{/if}
 						{/if}
@@ -909,6 +950,42 @@
 		justify-content: space-between;
 		align-items: center;
 		gap: 16px;
+		flex-wrap: wrap;
+	}
+
+	.search-filter {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: 1;
+		min-width: 300px;
+	}
+
+	.search-filter label {
+		font-size: 14px;
+		font-weight: 500;
+		margin: 0;
+		white-space: nowrap;
+	}
+
+	.search-input {
+		flex: 1;
+		padding: 6px 10px;
+		font-size: 14px;
+		border: 1px solid #d1d5db;
+		border-radius: 4px;
+		background: white;
+		transition: border-color 0.2s;
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.search-input::placeholder {
+		color: #9ca3af;
 	}
 
 	.branch-filter {
@@ -969,6 +1046,10 @@
 		padding: 40px;
 		text-align: center;
 		color: #6b7280;
+	}
+
+	.no-users p {
+		margin: 8px 0;
 	}
 
 	.users-table {
@@ -1089,6 +1170,12 @@
 		color: #065f46;
 		font-size: 14px;
 		text-align: center;
+	}
+
+	.filter-info {
+		color: #6b7280;
+		font-weight: normal;
+		margin-left: 8px;
 	}
 
 	/* Image Upload Styles */
