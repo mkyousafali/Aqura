@@ -186,25 +186,34 @@ export function startNotificationListener() {
 	
 	console.log('🔔 [NotificationStore] Starting real-time notification listener for user:', user.id);
 	
-	// Subscribe to new notifications
+	// Subscribe to notification_recipients table for user-specific notifications
 	const subscription = supabase
-		.channel('new-notifications-sound')
+		.channel('user-specific-notifications')
 		.on(
 			'postgres_changes',
 			{
 				event: 'INSERT',
 				schema: 'public',
-				table: 'notifications',
+				table: 'notification_recipients',
+				filter: `user_id=eq.${user.id}`
 			},
 			async (payload) => {
-				console.log('🔔 [NotificationStore] Real-time notification received:', payload.new);
+				console.log('🔔 [NotificationStore] User-specific notification received:', payload.new);
 				
-				// Check if this notification is relevant to current user
-				const notification = payload.new as any;
-				if (notification.target_type === 'all_users' || 
-					(notification.target_users && notification.target_users.includes(user.id))) {
-					
-					console.log('🔊 [NotificationStore] Playing sound for real-time notification:', notification.title);
+				// Get the full notification details
+				const { data: notification, error } = await supabase
+					.from('notifications')
+					.select('*')
+					.eq('id', payload.new.notification_id)
+					.single();
+				
+				if (error) {
+					console.error('🔔 [NotificationStore] Failed to fetch notification details:', error);
+					return;
+				}
+				
+				if (notification) {
+					console.log('🔊 [NotificationStore] Playing sound for user-specific notification:', notification.title);
 					
 					// Play sound immediately
 					if (notificationSoundManager) {
