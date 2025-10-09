@@ -34,6 +34,16 @@
 			return [];
 		}
 
+		console.log('🔧 [Mobile Notification] Transform input notifications:', apiNotifications.map(n => ({
+			id: n.id, 
+			title: n.title, 
+			message: n.message,
+			task_id: n.task_id,
+			task_assignment_id: n.task_assignment_id,
+			has_notification_attachments: n.has_notification_attachments,
+			allFields: Object.keys(n)
+		})));
+
 		// First, prepare all notifications with basic data
 		const transformedNotifications = apiNotifications.map(notification => ({
 			id: notification.id,
@@ -71,6 +81,7 @@
 					}
 					acc[att.notification_id].push({
 						...att,
+						type: 'notification_attachment',
 						fileUrl: att.file_path.startsWith('http') 
 							? att.file_path 
 							: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/notification-images/${att.file_path}`,
@@ -78,7 +89,8 @@
 						fileSize: att.file_size,
 						fileType: att.file_type,
 						uploadedAt: att.created_at,
-						uploadedBy: att.uploaded_by
+						uploadedBy: att.uploaded_by,
+						isImage: att.file_type && att.file_type.startsWith('image/')
 					});
 					return acc;
 				}, {});
@@ -95,13 +107,186 @@
 					}
 				});
 				
-				console.log(`✅ [Mobile Notification] Batch loaded ${allAttachmentsResult.data.length} attachments for ${notificationIds.length} notifications`);
+				console.log(`✅ [Mobile Notification] Batch loaded ${allAttachmentsResult.data.length} notification attachments`);
 			} else {
-				console.log(`📭 [Mobile Notification] No attachments found for any notifications`);
+				console.log(`📭 [Mobile Notification] No notification attachments found`);
+			}
+
+			// Process each notification for attachments (both task-related and quick task)
+			for (let transformed of transformedNotifications) {
+				const originalNotification = apiNotifications.find(n => n.id === transformed.id);
+				if (!originalNotification) continue;
+
+				// 1. Load task images for task-related notifications
+				if (originalNotification.task_id || originalNotification.task_assignment_id) {
+					console.log(`🖼️ [Mobile Notification] Loading task images for notification: ${transformed.id}`);
+					
+					const taskAttachments = [];
+					
+					// Get task images from task_id
+					if (originalNotification.task_id) {
+						const { data: taskImages } = await supabase
+							.from('task_images')
+							.select('*')
+							.eq('task_id', originalNotification.task_id);
+						
+						if (taskImages && taskImages.length > 0) {
+							taskAttachments.push(...taskImages.map(img => ({
+								...img,
+								type: 'task_image',
+								fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+								fileName: img.file_name,
+								fileSize: img.file_size,
+								fileType: img.file_type,
+								isImage: true,
+								source: 'Task'
+							})));
+						}
+					}
+					
+					// Get task images from task_assignment_id
+					if (originalNotification.task_assignment_id) {
+						const { data: assignment } = await supabase
+							.from('task_assignments')
+							.select('task_id')
+							.eq('id', originalNotification.task_assignment_id)
+							.single();
+						
+						if (assignment && assignment.task_id) {
+							const { data: taskImages } = await supabase
+								.from('task_images')
+								.select('*')
+								.eq('task_id', assignment.task_id);
+							
+							if (taskImages && taskImages.length > 0) {
+								taskAttachments.push(...taskImages.map(img => ({
+									...img,
+									type: 'task_image',
+									fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+									fileName: img.file_name,
+									fileSize: img.file_size,
+									fileType: img.file_type,
+									isImage: true,
+									source: 'Task Assignment'
+								})));
+							}
+						}
+					}
+					
+					// Add task attachments to notification
+					if (taskAttachments.length > 0) {
+						transformed.attachments = [...(transformed.attachments || []), ...taskAttachments];
+						console.log(`✅ [Mobile Notification] Added ${taskAttachments.length} task images to notification ${transformed.id}`);
+						
+						// Set first image as primary if not already set
+						if (!transformed.image_url) {
+							const firstImage = taskAttachments.find(att => att.isImage);
+							if (firstImage) {
+								transformed.image_url = firstImage.fileUrl;
+							}
+						}
+					}
+				}
+
+				// 2. Get quick task files if this is a quick task notification
+				let quickTaskAttachments = [];
+				console.log(`🔍 [Quick Task Debug] Checking notification ${transformed.id}:`, {
+					title: originalNotification.title,
+					message: originalNotification.message,
+					metadata: originalNotification.metadata,
+					titleLower: originalNotification.title?.toLowerCase(),
+					messageLower: originalNotification.message?.toLowerCase(),
+					titleMatch: originalNotification.title?.toLowerCase().includes('quick task'),
+					messageMatch: originalNotification.message?.toLowerCase().includes('quick task'),
+					hasNoTask: !originalNotification.task_id && !originalNotification.task_assignment_id,
+					hasNotificationAttachments: originalNotification.has_notification_attachments,
+					taskId: originalNotification.task_id,
+					taskAssignmentId: originalNotification.task_assignment_id
+				});
+				
+				// Check for quick task notifications - either by text content or by pattern (no task but has attachments)
+				const isQuickTaskByText = (originalNotification.message && originalNotification.message.toLowerCase().includes('quick task')) ||
+										 (originalNotification.title && originalNotification.title.toLowerCase().includes('quick task'));
+				
+				// For pattern-based detection, check if notification has no task IDs (typical for quick tasks)
+				const hasNoTaskConnection = !originalNotification.task_id && !originalNotification.task_assignment_id;
+				const isQuickTaskByPattern = hasNoTaskConnection; // Simplified pattern detection
+				
+				console.log(`🔍 [Quick Task Detection] For notification ${transformed.id}:`, {
+					isQuickTaskByText,
+					isQuickTaskByPattern,
+					willProcess: isQuickTaskByText || isQuickTaskByPattern,
+					hasAttachments: originalNotification.has_notification_attachments,
+					noTaskId: !originalNotification.task_id,
+					noAssignmentId: !originalNotification.task_assignment_id,
+					title: originalNotification.title,
+					message: originalNotification.message
+				});
+				
+				if (isQuickTaskByText || isQuickTaskByPattern) {
+					console.log(`🖼️ [Mobile Notification] Loading quick task files for notification: ${transformed.id}`, {
+						detectionMethod: isQuickTaskByText ? 'text-based' : 'pattern-based',
+						reason: isQuickTaskByText ? 'contains "quick task" in title/message' : 'has attachments but no task IDs'
+					});
+					
+					// Try to get quick task ID from metadata first
+					let quickTaskId = null;
+					if (originalNotification.metadata && originalNotification.metadata.quick_task_id) {
+						quickTaskId = originalNotification.metadata.quick_task_id;
+						console.log(`🔍 [Quick Task] Found quick task ID in metadata: ${quickTaskId}`);
+					}
+					
+					let quickTaskFiles = [];
+					if (quickTaskId) {
+						// Get files for specific quick task only
+						const { data: specificFiles } = await supabase
+							.from('quick_task_files')
+							.select('*')
+							.eq('quick_task_id', quickTaskId);
+						quickTaskFiles = specificFiles || [];
+						console.log(`📁 [Quick Task] Found ${quickTaskFiles.length} files for specific quick task ${quickTaskId}`);
+					} else {
+						// No specific quick task ID found, cannot load attachments
+						console.log(`🔍 [Quick Task] No specific quick task ID found, cannot load attachments`);
+					}
+					
+					if (quickTaskFiles && quickTaskFiles.length > 0) {
+						quickTaskAttachments = quickTaskFiles.map(file => ({
+							...file,
+							type: 'quick_task_file',
+							fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/quick-task-files/${file.storage_path}`,
+							fileName: file.file_name,
+							fileSize: file.file_size,
+							fileType: file.file_type,
+							isImage: file.file_type && file.file_type.startsWith('image/'),
+							source: 'Quick Task'
+						}));
+						
+						// Add quick task attachments to notification
+						transformed.attachments = [...(transformed.attachments || []), ...quickTaskAttachments];
+						console.log(`✅ [Mobile Notification] Added ${quickTaskAttachments.length} quick task files to notification ${transformed.id}`);
+						
+						// Set first image as primary if not already set
+						if (!transformed.image_url) {
+							const firstImage = quickTaskAttachments.find(att => att.isImage);
+							if (firstImage) {
+								transformed.image_url = firstImage.fileUrl;
+							}
+						}
+					}
+				}
 			}
 		} catch (error) {
 			console.warn(`❌ [Mobile Notification] Failed to batch load attachments:`, error);
 		}
+
+		// Debug: Log final notification structure
+		console.log(`📎 [Mobile Notification] Final notifications with attachments:`, transformedNotifications.map(n => ({
+			id: n.id,
+			title: n.title,
+			attachmentCount: n.attachments ? n.attachments.length : 0,
+			attachments: n.attachments ? n.attachments.map(a => ({ fileName: a.fileName, fileType: a.fileType, fileUrl: a.fileUrl })) : []
+		})));
 
 		return transformedNotifications;
 	}
@@ -146,22 +331,25 @@
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				console.log('🔍 [Mobile Notification] Admin loaded raw notifications:', apiNotifications.length, apiNotifications.map(n => ({id: n.id, title: n.title})));
 				allNotifications = await transformNotificationData(apiNotifications);
 			} else if ($currentUser?.id) {
 				// Regular users see only their targeted notifications
 				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
-				allNotifications = userNotifications.map(notification => ({
+				console.log('🔍 [Mobile Notification] User loaded raw notifications:', userNotifications.length, userNotifications.map(n => ({id: n.notification_id, title: n.title})));
+				// Use the same transformation logic for consistent attachment loading
+				allNotifications = await transformNotificationData(userNotifications.map(notification => ({
+					...notification,
+					// Map user notification fields to expected format
 					id: notification.notification_id,
-					title: notification.title,
-					message: notification.message,
-					type: notification.type,
-					content: notification.message,
-					metadata: notification.metadata || {},
-					read: notification.is_read,
-					timestamp: formatTimestamp(notification.created_at),
-					createdBy: notification.created_by_name,
-					attachments: notification.attachments || []
-				}));
+					created_at: notification.created_at,
+					is_read: notification.is_read,
+					created_by_name: notification.created_by_name,
+					// Check if notification has attachments (for quick task detection)
+					has_notification_attachments: !!(notification.task_id === null && notification.task_assignment_id === null),
+					task_id: notification.task_id,
+					task_assignment_id: notification.task_assignment_id
+				})));
 			}
 
 			console.log('✅ [Mobile Notification] Loaded notifications:', allNotifications.length);
@@ -519,6 +707,20 @@
 	function closeImageModal() {
 		showImageModal = false;
 		selectedImageUrl = '';
+	}
+
+	// Download function for attachments
+	function downloadFile(attachment: any) {
+		if (attachment.fileUrl) {
+			const link = document.createElement('a');
+			link.href = attachment.fileUrl;
+			link.download = attachment.fileName || 'download';
+			link.target = '_blank';
+			link.rel = 'noopener noreferrer';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		}
 	}
 
 	async function openTaskCompletion(notification: any) {
@@ -937,48 +1139,61 @@
 							</div>
 							
 							<!-- Notification Image/Attachments Display -->
-							{#if notification.image_url || (notification.attachments && notification.attachments.length > 0)}
+							{#if notification.attachments && notification.attachments.length > 0}
 								<div class="notification-attachments">
-									{#if notification.image_url}
-										<div class="notification-image">
-											<button
-												on:click={() => openImageModal(notification.image_url)}
-												class="image-thumbnail"
-												aria-label="View notification image"
-											>
-												<img
-													src={notification.image_url}
-													alt="Notification"
-													class="notification-img"
-													loading="lazy"
-													on:error={(e) => {
-														console.warn(`Failed to load notification image: ${notification.image_url}`);
-														e.target.parentElement.parentElement.style.display = 'none';
-													}}
-												/>
-												<div class="image-overlay">
-													<svg class="expand-icon" fill="white" viewBox="0 0 24 24" width="20" height="20">
-														<path d="M15 3h6v6l-2-2-4 4-2-2 4-4-2-2zM3 9h6v6l-2-2-4 4-2-2 4-4-2-2z"/>
-													</svg>
-												</div>
-											</button>
-										</div>
-									{/if}
-									
-									{#if notification.attachments && notification.attachments.length > 0}
-										<div class="file-attachments">
-											{#each notification.attachments as attachment}
-												<a 
-													href={attachment.fileUrl} 
-													download={attachment.fileName}
-													class="attachment-link"
-												>
-													<span class="attachment-icon">📎</span>
-													<span class="attachment-name">{attachment.fileName}</span>
-												</a>
-											{/each}
-										</div>
-									{/if}
+									<div class="attachments-grid">
+										{#each notification.attachments as attachment}
+											<div class="attachment-item">
+												{#if attachment.file_type && attachment.file_type.startsWith('image/')}
+													<div class="attachment-image-container">
+														<img 
+															src={attachment.fileUrl} 
+															alt={attachment.fileName}
+															class="attachment-image-preview"
+															loading="lazy"
+															on:click={() => openImageModal(attachment.fileUrl)}
+														/>
+														<div class="attachment-info">
+															<span class="attachment-filename">{attachment.fileName}</span>
+															<button 
+																class="download-btn"
+																on:click={() => downloadFile(attachment)}
+																title="Download {attachment.fileName}"
+															>
+																<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																	<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																	<polyline points="7,10 12,15 17,10"/>
+																	<line x1="12" y1="15" x2="12" y2="3"/>
+																</svg>
+															</button>
+														</div>
+													</div>
+												{:else}
+													<div class="attachment-file-container">
+														<div class="file-icon">
+															<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+															</svg>
+														</div>
+														<div class="attachment-info">
+															<span class="attachment-filename">{attachment.fileName}</span>
+															<button 
+																class="download-btn"
+																on:click={() => downloadFile(attachment)}
+																title="Download {attachment.fileName}"
+															>
+																<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																	<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																	<polyline points="7,10 12,15 17,10"/>
+																	<line x1="12" y1="15" x2="12" y2="3"/>
+																</svg>
+															</button>
+														</div>
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
 								</div>
 							{/if}
 							
@@ -1308,86 +1523,95 @@
 		margin-bottom: 0.75rem;
 	}
 
-	.notification-image {
-		margin-bottom: 0.5rem;
-	}
-
-	.image-thumbnail {
-		position: relative;
-		display: block;
-		background: none;
-		border: none;
-		cursor: pointer;
-		border-radius: 8px;
-		overflow: hidden;
-		width: 100%;
-		max-width: 200px;
-	}
-
-	.notification-img {
-		width: 100%;
-		height: auto;
-		max-height: 150px;
-		object-fit: cover;
-		display: block;
-	}
-
-	.image-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.4);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 8px;
-		opacity: 0;
-		transition: opacity 0.2s ease;
-	}
-
-	.image-thumbnail:hover .image-overlay {
-		opacity: 1;
-	}
-
-	.expand-icon {
-		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
-	}
-
-	.file-attachments {
+	.attachments-grid {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.75rem;
 	}
 
-	.attachment-link {
+	.attachment-item {
+		background: #F9FAFB;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.attachment-image-container {
+		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		background: #F3F4F6;
+		gap: 0.80rem;
+		padding: 0.75rem;
+	}
+
+	.attachment-image-preview {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
 		border-radius: 6px;
-		text-decoration: none;
-		color: #374151;
-		font-size: 0.875rem;
-		transition: background 0.2s;
-	}
-
-	.attachment-link:hover {
-		background: #E5E7EB;
-	}
-
-	.attachment-icon {
+		cursor: pointer;
+		transition: transform 0.2s ease;
 		flex-shrink: 0;
 	}
 
-	.attachment-name {
+	.attachment-image-preview:hover {
+		transform: scale(1.05);
+	}
+
+	.attachment-file-container {
+		display: flex;
+		align-items: center;
+		gap: 0.80rem;
+		padding: 0.75rem;
+	}
+
+	.file-icon {
+		width: 80px;
+		height: 80px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #E5E7EB;
+		border-radius: 6px;
+		color: #6B7280;
+		flex-shrink: 0;
+	}
+
+	.attachment-info {
 		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
 		min-width: 0;
+	}
+
+	.attachment-filename {
+		flex: 1;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #374151;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.download-btn {
+		background: #10B981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 0.5rem;
+		cursor: pointer;
+		transition: background 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.download-btn:hover {
+		background: #059669;
 	}
 
 	.notification-actions {

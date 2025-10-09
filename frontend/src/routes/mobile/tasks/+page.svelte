@@ -12,6 +12,11 @@
 	let filterStatus = 'all';
 	let filterPriority = 'all';
 
+	// Image preview modal variables
+	let showImagePreview = false;
+	let previewImageSrc = '';
+	let previewImageAlt = '';
+
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
@@ -236,6 +241,47 @@
 		});
 	}
 
+	// Helper function to get proper file URL for attachments
+	function getFileUrl(attachment) {
+		if (attachment.file_path) {
+			if (attachment.file_path.startsWith('http')) {
+				return attachment.file_path;
+			}
+			return `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path}`;
+		}
+		return null;
+	}
+
+	// Image preview functions
+	function openImagePreview(attachment) {
+		const imageUrl = getFileUrl(attachment);
+		if (imageUrl) {
+			previewImageSrc = imageUrl;
+			previewImageAlt = attachment.file_name || 'Task attachment';
+			showImagePreview = true;
+		}
+	}
+
+	function closeImagePreview() {
+		showImagePreview = false;
+		previewImageSrc = '';
+		previewImageAlt = '';
+	}
+
+	// Download single attachment
+	function downloadSingleAttachment(attachment) {
+		const downloadUrl = getFileUrl(attachment);
+		if (downloadUrl) {
+			const link = document.createElement('a');
+			link.href = downloadUrl;
+			link.download = attachment.file_name || 'attachment';
+			link.target = '_blank';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		}
+	}
+
 	function getPriorityColor(priority) {
 		switch (priority) {
 			case 'high': return '#EF4444';
@@ -454,22 +500,72 @@
 								</div>
 
 								{#if task.hasAttachments}
-									<div class="task-detail attachments-indicator">
+									<div class="task-detail">
 										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
 										</svg>
 										<span>{task.attachments.length} attachment{task.attachments.length !== 1 ? 's' : ''}</span>
-										<button 
-											class="download-attachments-btn"
-											on:click|stopPropagation={() => downloadTaskAttachments(task)}
-											title="Download all attachments"
-										>
-											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-												<polyline points="7,10 12,15 17,10"/>
-												<line x1="12" y1="15" x2="12" y2="3"/>
-											</svg>
-										</button>
+									</div>
+									
+									<!-- Individual attachments with preview and download -->
+									<div class="attachments-grid" on:click|stopPropagation>
+										{#each task.attachments as attachment}
+											<div class="attachment-item">
+												{#if attachment.file_type && attachment.file_type.startsWith('image/')}
+													<!-- Image attachment with preview -->
+													<div class="attachment-image-container">
+														<img 
+															src={getFileUrl(attachment)} 
+															alt={attachment.file_name} 
+															loading="lazy"
+															class="attachment-image-preview"
+															on:click={() => openImagePreview(attachment)}
+														/>
+														<div class="attachment-actions">
+															<button 
+																class="attachment-download-btn"
+																on:click={() => downloadSingleAttachment(attachment)}
+																title="Download {attachment.file_name}"
+															>
+																<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																	<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																	<polyline points="7,10 12,15 17,10"/>
+																	<line x1="12" y1="15" x2="12" y2="3"/>
+																</svg>
+															</button>
+														</div>
+													</div>
+													<div class="attachment-info">
+														<span class="attachment-name">{attachment.file_name}</span>
+														<span class="attachment-source">Task Image</span>
+													</div>
+												{:else}
+													<!-- File attachment -->
+													<div class="attachment-file">
+														<div class="file-icon">
+															<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+															</svg>
+														</div>
+														<div class="attachment-info">
+															<span class="attachment-name">{attachment.file_name}</span>
+															<span class="attachment-source">Task File</span>
+														</div>
+														<button 
+															class="attachment-download-btn"
+															on:click={() => downloadSingleAttachment(attachment)}
+															title="Download {attachment.file_name}"
+														>
+															<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																<polyline points="7,10 12,15 17,10"/>
+																<line x1="12" y1="15" x2="12" y2="3"/>
+															</svg>
+														</button>
+													</div>
+												{/if}
+											</div>
+										{/each}
 									</div>
 								{/if}
 							</div>
@@ -508,6 +604,21 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Image Preview Modal -->
+{#if showImagePreview}
+	<div class="image-preview-modal" on:click={closeImagePreview}>
+		<div class="image-preview-container" on:click|stopPropagation>
+			<button class="image-preview-close" on:click={closeImagePreview}>
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="18" y1="6" x2="6" y2="18"></line>
+					<line x1="6" y1="6" x2="18" y2="18"></line>
+				</svg>
+			</button>
+			<img src={previewImageSrc} alt={previewImageAlt} class="image-preview-img" />
+		</div>
+	</div>
+{/if}
 
 <style>
 	.mobile-tasks {
@@ -920,6 +1031,167 @@
 	.view-btn.full-width {
 		flex: unset;
 		width: 100%;
+	}
+
+	/* Attachment Styles */
+	.attachments-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+
+	.attachment-item {
+		background: #F8F9FA;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		padding: 0.5rem;
+	}
+
+	.attachment-image-container {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 0.80rem;
+	}
+
+	.attachment-image-preview {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.2s ease;
+	}
+
+	.attachment-image-preview:hover {
+		transform: scale(1.05);
+	}
+
+	.attachment-file {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.file-icon {
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #E5E7EB;
+		border-radius: 6px;
+		color: #6B7280;
+	}
+
+	.attachment-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.attachment-name {
+		display: block;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: #374151;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.attachment-source {
+		display: block;
+		font-size: 0.65rem;
+		color: #6B7280;
+		margin-top: 0.125rem;
+	}
+
+	.attachment-actions {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+	}
+
+	.attachment-download-btn {
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 0.25rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background-color 0.2s ease;
+	}
+
+	.attachment-download-btn:hover {
+		background: rgba(0, 0, 0, 0.8);
+	}
+
+	.attachment-file .attachment-download-btn {
+		background: #F3F4F6;
+		color: #374151;
+		position: relative;
+		top: unset;
+		right: unset;
+	}
+
+	.attachment-file .attachment-download-btn:hover {
+		background: #E5E7EB;
+	}
+
+	/* Image Preview Modal */
+	.image-preview-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.9);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.image-preview-container {
+		position: relative;
+		max-width: 90vw;
+		max-height: 90vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.image-preview-close {
+		position: absolute;
+		top: -40px;
+		right: 0;
+		background: rgba(255, 255, 255, 0.1);
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+	}
+
+	.image-preview-close:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.image-preview-img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: 8px;
 	}
 
 	/* Responsive adjustments */

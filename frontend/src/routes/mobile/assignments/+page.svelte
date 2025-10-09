@@ -19,6 +19,10 @@
 	// Loading states
 	let isLoading = true;
 
+	// Image modal state
+	let showImageModal = false;
+	let selectedImageUrl = '';
+
 	// Search and filters
 	let searchTerm = '';
 	let statusFilter = '';
@@ -30,6 +34,102 @@
 	onMount(async () => {
 		await loadMyAssignments();
 	});
+
+	// Load attachments for assignments
+	async function loadAssignmentAttachments() {
+		console.log('🔍 Loading attachments for assignments:', assignments.length);
+		
+		for (let assignment of assignments) {
+			console.log('🔍 Processing assignment:', {
+				id: assignment.id,
+				task_type: assignment.task_type,
+				task_id: assignment.task_id,
+				quick_task_id: assignment.quick_task_id,
+				title: assignment.task?.title
+			});
+			
+			if (assignment.task_type === 'quick_task') {
+				// Load quick task files - use the quick_task_id from the assignment
+				try {
+					console.log('🔍 Loading quick task files for quick_task_id:', assignment.quick_task_id);
+					const { data: files } = await supabase
+						.from('quick_task_files')
+						.select('*')
+						.eq('quick_task_id', assignment.quick_task_id);
+					
+					console.log('🔍 Quick task files found:', files);
+					
+					if (files && files.length > 0) {
+						assignment.attachments = files.map(file => ({
+							...file,
+							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/quick-task-files/${file.storage_path}`,
+							source: 'quick_task'
+						}));
+						console.log('🔍 Quick task attachments set:', assignment.attachments);
+					}
+				} catch (error) {
+					console.error('Error loading quick task files:', error);
+				}
+			} else {
+				// Load task images for regular tasks
+				try {
+					console.log('🔍 Loading task images for task_id:', assignment.task_id);
+					const { data: images } = await supabase
+						.from('task_images')
+						.select('*')
+						.eq('task_id', assignment.task_id);
+					
+					console.log('🔍 Task images found:', images);
+					
+					if (images && images.length > 0) {
+						assignment.attachments = images.map(image => ({
+							...image,
+							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/task-images/${image.file_path}`,
+							source: 'task'
+						}));
+						console.log('🔍 Task attachments set:', assignment.attachments);
+					}
+				} catch (error) {
+					console.error('Error loading task images:', error);
+				}
+			}
+		}
+	}
+
+	// Download file function
+	async function downloadFile(file) {
+		try {
+			const response = await fetch(file.file_url);
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = file.file_name || file.filename || 'download';
+			document.body.appendChild(a);
+			a.click();
+			window.URL.revokeObjectURL(url);
+			document.body.removeChild(a);
+		} catch (error) {
+			console.error('Error downloading file:', error);
+			notifications.add({
+				type: 'error',
+				message: 'Failed to download file',
+				duration: 3000
+			});
+		}
+	}
+
+	// Open image preview
+	function openImagePreview(imageUrl) {
+		selectedImageUrl = imageUrl;
+		showImageModal = true;
+	}
+
+	// Close image preview
+	function closeImagePreview() {
+		showImageModal = false;
+		selectedImageUrl = '';
+	}
 
 	async function loadMyAssignments() {
 		if (!$currentUser) return;
@@ -189,6 +289,9 @@
 			
 			// Sort by creation date (newest first)
 			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			
+			// Load attachments for all assignments
+			await loadAssignmentAttachments();
 			
 			// Calculate statistics
 			calculateStats();
@@ -523,6 +626,53 @@
 								<p class="notes-text">{assignment.notes}</p>
 							</div>
 						{/if}
+
+						<!-- Attachments Section -->
+						{#if assignment.attachments && assignment.attachments.length > 0}
+							<div class="attachments-section">
+								<div class="attachments-header">
+									<span class="attachments-label">📎 Attachments ({assignment.attachments.length})</span>
+								</div>
+								<div class="attachments-grid">
+									{#each assignment.attachments as attachment}
+										<div class="attachment-item">
+											{#if attachment.file_type && (attachment.file_type.startsWith('image/') || (attachment.file_name && /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment.file_name)))}
+												<!-- Image Attachment -->
+												<div class="image-attachment">
+													<img 
+														src={attachment.file_url} 
+														alt={attachment.file_name || 'Attachment'}
+														class="attachment-thumbnail"
+														on:click={() => openImagePreview(attachment.file_url)}
+													/>
+													<button 
+														class="download-btn" 
+														on:click|stopPropagation={() => downloadFile(attachment)}
+														title="Download {attachment.file_name || 'file'}"
+													>
+														⬇️
+													</button>
+												</div>
+											{:else}
+												<!-- File Attachment -->
+												<div class="file-attachment">
+													<div class="file-icon">📄</div>
+													<div class="file-info">
+														<span class="file-name">{attachment.file_name || attachment.filename || 'Unknown file'}</span>
+														<button 
+															class="download-file-btn" 
+															on:click={() => downloadFile(attachment)}
+														>
+															⬇️ Download
+														</button>
+													</div>
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -537,6 +687,16 @@
 		</div>
 	</footer>
 </div>
+
+<!-- Image Preview Modal -->
+{#if showImageModal}
+	<div class="image-modal-overlay" on:click={closeImagePreview}>
+		<div class="image-modal-content" on:click|stopPropagation>
+			<img src={selectedImageUrl} alt="Preview" class="modal-image" />
+			<button class="modal-close-btn" on:click={closeImagePreview}>×</button>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.mobile-assignments {
@@ -880,6 +1040,174 @@
 			grid-template-columns: 1fr;
 			gap: 0.5rem;
 		}
+	}
+
+	/* Attachments Styles */
+	.attachments-section {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid #E5E7EB;
+	}
+
+	.attachments-header {
+		margin-bottom: 0.75rem;
+	}
+
+	.attachments-label {
+		font-size: 0.875rem;
+		color: #374151;
+		font-weight: 500;
+	}
+
+	.attachments-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.attachment-item {
+		flex: 0 0 auto;
+	}
+
+	.image-attachment {
+		position: relative;
+		display: inline-block;
+	}
+
+	.attachment-thumbnail {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
+		border-radius: 8px;
+		border: 2px solid #E5E7EB;
+		cursor: pointer;
+		transition: transform 0.2s;
+	}
+
+	.attachment-thumbnail:hover {
+		transform: scale(1.05);
+		border-color: #3B82F6;
+	}
+
+	.download-btn {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		background: rgba(0, 0, 0, 0.7);
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 24px;
+		height: 24px;
+		font-size: 12px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background-color 0.2s;
+	}
+
+	.download-btn:hover {
+		background: rgba(0, 0, 0, 0.9);
+	}
+
+	.file-attachment {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #F3F4F6;
+		border-radius: 8px;
+		border: 1px solid #E5E7EB;
+		min-width: 200px;
+	}
+
+	.file-icon {
+		font-size: 1.5rem;
+		flex-shrink: 0;
+	}
+
+	.file-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.file-name {
+		display: block;
+		font-size: 0.875rem;
+		color: #374151;
+		font-weight: 500;
+		margin-bottom: 0.25rem;
+		word-break: break-word;
+	}
+
+	.download-file-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		padding: 0.25rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.download-file-btn:hover {
+		background: #2563EB;
+	}
+
+	/* Image Modal Styles */
+	.image-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.8);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+	}
+
+	.image-modal-content {
+		position: relative;
+		max-width: 90vw;
+		max-height: 90vh;
+		background: white;
+		border-radius: 12px;
+		overflow: hidden;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.modal-image {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		display: block;
+	}
+
+	.modal-close-btn {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		background: rgba(0, 0, 0, 0.7);
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		font-size: 1.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background-color 0.2s;
+	}
+
+	.modal-close-btn:hover {
+		background: rgba(0, 0, 0, 0.9);
 	}
 
 	/* Safe area handling */
