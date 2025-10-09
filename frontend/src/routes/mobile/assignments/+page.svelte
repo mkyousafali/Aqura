@@ -37,27 +37,14 @@
 
 	// Load attachments for assignments
 	async function loadAssignmentAttachments() {
-		console.log('🔍 Loading attachments for assignments:', assignments.length);
-		
 		for (let assignment of assignments) {
-			console.log('🔍 Processing assignment:', {
-				id: assignment.id,
-				task_type: assignment.task_type,
-				task_id: assignment.task_id,
-				quick_task_id: assignment.quick_task_id,
-				title: assignment.task?.title
-			});
-			
 			if (assignment.task_type === 'quick_task') {
 				// Load quick task files - use the quick_task_id from the assignment
 				try {
-					console.log('🔍 Loading quick task files for quick_task_id:', assignment.quick_task_id);
 					const { data: files } = await supabase
 						.from('quick_task_files')
 						.select('*')
 						.eq('quick_task_id', assignment.quick_task_id);
-					
-					console.log('🔍 Quick task files found:', files);
 					
 					if (files && files.length > 0) {
 						assignment.attachments = files.map(file => ({
@@ -65,7 +52,6 @@
 							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/quick-task-files/${file.storage_path}`,
 							source: 'quick_task'
 						}));
-						console.log('🔍 Quick task attachments set:', assignment.attachments);
 					}
 				} catch (error) {
 					console.error('Error loading quick task files:', error);
@@ -73,13 +59,10 @@
 			} else {
 				// Load task images for regular tasks
 				try {
-					console.log('🔍 Loading task images for task_id:', assignment.task_id);
 					const { data: images } = await supabase
 						.from('task_images')
 						.select('*')
 						.eq('task_id', assignment.task_id);
-					
-					console.log('🔍 Task images found:', images);
 					
 					if (images && images.length > 0) {
 						assignment.attachments = images.map(image => ({
@@ -87,7 +70,6 @@
 							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/task-images/${image.file_path}`,
 							source: 'task'
 						}));
-						console.log('🔍 Task attachments set:', assignment.attachments);
 					}
 				} catch (error) {
 					console.error('Error loading task images:', error);

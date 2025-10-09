@@ -15,22 +15,6 @@
         soundConfig = notificationSoundManager.getConfig();
     }
     
-    // Test notification sound
-    function testSound() {
-        if (notificationSoundManager) {
-            notificationSoundManager.playNotificationSound({
-                id: 'test-' + Date.now(),
-                title: 'Test Sound',
-                message: 'Testing notification sound',
-                type: 'info',
-                priority: 'medium',
-                timestamp: new Date(),
-                read: false,
-                soundEnabled: true
-            });
-        }
-    }
-    
     // Sound file options
     const soundOptions = [
         { value: '/sounds/notification.mp3', label: 'Default Bell' }
@@ -46,13 +30,6 @@
 <div class="sound-controls">
     <div class="sound-controls-header">
         <h4>🔊 Notification Sounds</h4>
-        <button 
-            class="test-sound-btn" 
-            on:click={testSound}
-            title="Test notification sound"
-        >
-            Test Sound
-        </button>
     </div>
     
     <div class="sound-settings">
@@ -132,21 +109,6 @@
         color: #2d3748;
         font-size: 14px;
         font-weight: 600;
-    }
-    
-    .test-sound-btn {
-        background: #3182ce;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 6px 12px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: background-color 0.2s;
-    }
-    
-    .test-sound-btn:hover {
-        background: #2c5282;
     }
     
     .sound-settings {

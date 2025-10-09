@@ -355,8 +355,6 @@
 		// Use both touch and click to support desktop users on mobile interface
 		document.addEventListener('touchstart', unlockAudio, { capture: true, once: true });
 		document.addEventListener('click', unlockAudio, { capture: true, once: true });
-		
-		console.log('📱 [Mobile Layout] Mobile audio unlock listeners added (supports desktop + mobile)');
 	}
 
 	// Debug function for testing notification sounds

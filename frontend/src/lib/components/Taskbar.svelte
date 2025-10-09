@@ -271,50 +271,7 @@
 		});
 	}
 
-	async function sendTestPushNotification() {
-		try {
-			const { data: subscriptions, error } = await supabase
-				.from('push_subscriptions')
-				.select('user_id')
-				.not('user_id', 'is', null);
 
-			if (error) {
-				console.error('Error fetching subscriptions:', error);
-				alert('Error checking subscriptions');
-				return;
-			}
-
-			if (!subscriptions || subscriptions.length === 0) {
-				alert('No push subscriptions found. Users need to enable notifications first.');
-				return;
-			}
-
-			// Create test notification - this will automatically trigger queue creation
-			const { error: notificationError } = await supabase
-				.from('notifications')
-				.insert({
-					title: '🧪 Test Notification',
-					message: `Test push notification sent at ${new Date().toLocaleTimeString()}`,
-					type: 'info',
-					priority: 'medium',
-					target_type: 'all_users',
-					created_by: $currentUser?.id || 'system',
-					created_by_name: $currentUser?.display_name || 'Test System',
-					created_by_role: 'Admin'
-				});
-
-			if (notificationError) {
-				console.error('Error creating test notification:', notificationError);
-				alert('Error sending test notification');
-				return;
-			}
-
-			alert(`Test notification sent! Found ${subscriptions.length} registered devices.`);
-		} catch (err) {
-			console.error('Unexpected error:', err);
-			alert('Unexpected error sending test notification');
-		}
-	}
 
 	function toggleUserMenu() {
 		showUserMenu = !showUserMenu;
@@ -375,15 +332,6 @@
 			{#if counts.unread > 0}
 				<div class="quick-badge">{counts.unread > 99 ? '99+' : counts.unread}</div>
 			{/if}
-		</button>
-
-		<!-- Test Push Notification -->
-		<button 
-			class="quick-btn test-push-btn"
-			on:click={sendTestPushNotification}
-			title="Send Test Push Notification"
-		>
-			<div class="quick-icon">🧪</div>
 		</button>
 	</div>
 

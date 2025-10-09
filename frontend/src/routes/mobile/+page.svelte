@@ -110,12 +110,10 @@
 			// Load notification statistics
 			try {
 				const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
-				console.log('📱 [Mobile Dashboard] Loaded notifications:', userNotifications);
 				
 				if (userNotifications && userNotifications.length > 0) {
 					// Count unread notifications
 					stats.unreadNotifications = userNotifications.filter(n => !n.is_read).length;
-					console.log('📊 [Mobile Dashboard] Unread count:', stats.unreadNotifications);
 				} else {
 					stats.unreadNotifications = 0;
 				}
@@ -238,18 +236,8 @@
 						// Process attachments from multiple sources
 						const allAttachments = [];
 						
-						console.log('📎 [Debug] Processing attachments for notification:', notification.id);
-						console.log('📎 [Debug] Notification data:', {
-							has_notification_attachments: !!notification.notification_attachments,
-							has_tasks: !!notification.tasks,
-							has_task_assignments: !!notification.task_assignments,
-							task_id: notification.task_id,
-							task_assignment_id: notification.task_assignment_id
-						});
-						
 						// 1. Add notification attachments
 						if (notification.notification_attachments) {
-							console.log('📎 [Debug] Found notification_attachments:', notification.notification_attachments.length);
 							allAttachments.push(...notification.notification_attachments.map(att => ({
 								...att,
 								type: 'notification_attachment',
@@ -286,23 +274,18 @@
 						   (notification.message.toLowerCase().includes('quick task') || 
 						    notification.title.toLowerCase().includes('quick task'))) {
 							try {
-								console.log('📎 [Debug] This appears to be a quick task notification, fetching quick task files');
-								
 								// Try to get quick task ID from metadata first
 								let quickTaskId = null;
 								if (notification.metadata && notification.metadata.quick_task_id) {
 									quickTaskId = notification.metadata.quick_task_id;
-									console.log('📎 [Debug] Found quick task ID in metadata:', quickTaskId);
 								} else {
 									// Try to extract from notification title or message
 									const titleMatch = notification.title?.match(/quick task.*?([a-f0-9-]{36})/i);
 									const messageMatch = notification.message?.match(/quick task.*?([a-f0-9-]{36})/i);
 									if (titleMatch) {
 										quickTaskId = titleMatch[1];
-										console.log('📎 [Debug] Extracted quick task ID from title:', quickTaskId);
 									} else if (messageMatch) {
 										quickTaskId = messageMatch[1];
-										console.log('📎 [Debug] Extracted quick task ID from message:', quickTaskId);
 									}
 								}
 								
@@ -314,7 +297,6 @@
 										.eq('quick_task_id', quickTaskId);
 									
 									if (quickTaskFiles && quickTaskFiles.length > 0) {
-										console.log('📎 [Debug] Found quick task files for specific task:', quickTaskFiles.length);
 										allAttachments.push(...quickTaskFiles.map(file => ({
 											...file,
 											type: 'quick_task_file',
@@ -322,11 +304,7 @@
 											file_url: file.storage_path,
 											source: `Quick Task: ${file.quick_tasks?.title || 'Unknown'}`
 										})));
-									} else {
-										console.log('📎 [Debug] No files found for quick task ID:', quickTaskId);
 									}
-								} else {
-									console.log('📎 [Debug] Could not determine quick task ID from notification');
 								}
 							} catch (quickTaskError) {
 								console.warn('📎 [Debug] Could not fetch quick task files:', quickTaskError);
