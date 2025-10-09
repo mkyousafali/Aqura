@@ -855,29 +855,6 @@ export class NotificationManagementService {
 
 			console.log('Task assignment notification created:', data);
 			
-			// Create notification_recipients entries for each assigned user
-			try {
-				console.log('� [NotificationManagement] Creating notification_recipients entries for task assignment...');
-				const recipientEntries = assignedToUserIds.map(userId => ({
-					notification_id: data.id,
-					user_id: userId,
-					is_read: false,
-					is_dismissed: false
-				}));
-
-				const { error: recipientsError } = await supabase
-					.from('notification_recipients')
-					.insert(recipientEntries);
-
-				if (recipientsError) {
-					console.error('❌ [NotificationManagement] Failed to create notification recipients:', recipientsError);
-				} else {
-					console.log('✅ [NotificationManagement] Created notification recipients for', assignedToUserIds.length, 'users');
-				}
-			} catch (recipientsError) {
-				console.error('❌ [NotificationManagement] Error creating notification recipients:', recipientsError);
-			}
-			
 			// Manually queue push notifications immediately (don't rely on database trigger)
 			try {
 				console.log('🔄 [NotificationManagement] Manually queuing push notifications for immediate delivery...');
