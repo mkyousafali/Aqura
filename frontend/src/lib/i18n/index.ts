@@ -195,3 +195,9 @@ export function formatCurrency(amount: number, currency = 'USD', locale?: string
 
 // Export the main translation function as default
 export default t;
+
+// Export getTranslation as an alias to t for compatibility
+export const getTranslation = t;
+
+// Re-export the locale store as well
+export const locale = currentLocale;

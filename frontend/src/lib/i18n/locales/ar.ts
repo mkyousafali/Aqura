@@ -40,7 +40,408 @@ export const arabicLocale: LocaleData = {
 			user: 'واجهة المستخدم',
 			settings: 'الإعدادات',
 			help: 'المساعدة',
-			logout: 'تسجيل الخروج'
+			logout: 'تسجيل الخروج',
+			language: 'اللغة',
+			languageToggle: 'تبديل اللغة',
+			english: 'English',
+			arabic: 'العربية',
+			goBack: 'العودة',
+			goToDashboard: 'الذهاب إلى لوحة التحكم',
+			viewNotifications: 'عرض الإشعارات',
+			refreshNotifications: 'تحديث الإشعارات'
+		},
+
+		// Mobile page titles
+		mobile: {
+			dashboard: 'لوحة التحكم',
+			tasks: 'المهام',
+			notifications: 'الإشعارات',
+			assignments: 'التكليفات',
+			quickTask: 'مهمة سريعة',
+			assignTasks: 'تعيين المهام',
+			createTask: 'إنشاء مهمة',
+			completeTask: 'إكمال المهمة',
+			taskDetails: 'تفاصيل المهمة',
+			notification: 'إشعار',
+			assignmentDetails: 'تفاصيل التكليف',
+			// Bottom navigation
+			bottomNav: {
+				tasks: 'المهام',
+				create: 'تعيين',
+				assignments: 'التكليفات'
+			},
+			// Error messages
+			error: {
+				accessRequired: 'مطلوب تسجيل الدخول',
+				loginRequired: 'يرجى تسجيل الدخول للوصول إلى واجهة الجوال.',
+				goToLogin: 'الذهاب إلى تسجيل دخول الجوال'
+			},
+			// Dashboard content
+			dashboardContent: {
+				stats: {
+					pendingTasks: 'المهام المعلقة',
+					completed: 'مكتمل',
+					notifications: 'الإشعارات',
+					totalTasks: 'إجمالي المهام'
+				},
+				recentNotifications: {
+					title: 'الإشعارات الأخيرة',
+					allInSystem: 'جميع الإشعارات في النظام',
+					yourRecent: 'إشعاراتك الأخيرة',
+					noNotifications: 'لا توجد إشعارات حديثة'
+				},
+				actions: {
+					createNotification: 'إنشاء إشعار',
+					download: 'تحميل',
+					source: 'المصدر'
+				},
+				labels: {
+					sentBy: 'أرسل بواسطة:',
+					sentTo: 'أرسل إلى:',
+					attachments: 'المرفقات',
+					system: 'النظام',
+					from: 'من:'
+				}
+			},
+			// Tasks page content
+			tasksContent: {
+				title: 'مهامي - أكورا موبايل',
+				createTask: 'إنشاء مهمة',
+				searchPlaceholder: 'البحث في المهام...',
+				filters: {
+					allStatus: 'جميع الحالات',
+					pending: 'في الانتظار',
+					inProgress: 'قيد التنفيذ',
+					completed: 'مكتملة',
+					cancelled: 'ملغية',
+					allPriority: 'جميع الأولويات',
+					high: 'عالية',
+					medium: 'متوسطة',
+					low: 'منخفضة'
+				},
+				results: {
+					tasksFound: 'مهمة موجودة',
+					taskFound: 'مهمة موجودة'
+				},
+				loading: 'تحميل المهام...',
+				emptyState: {
+					title: 'لم يتم العثور على مهام',
+					description: 'لا توجد مهام تطابق المرشحات الحالية، أو ليس لديك أي مهام مخصصة بعد.'
+				},
+				taskCard: {
+					quickTask: 'مهمة سريعة',
+					by: 'بواسطة',
+					assigned: 'مخصصة',
+					unknown: 'غير معروف',
+					attachment: 'مرفق',
+					attachments: 'مرفقات',
+					download: 'تحميل',
+					downloadAll: 'تحميل الكل',
+					markComplete: 'تمييز كمكتملة',
+					viewDetails: 'عرض التفاصيل'
+				}
+			},
+			// Task assignment page content
+			assignContent: {
+				title: 'تخصيص المهام - أكورا موبايل',
+				loading: 'تحميل البيانات...',
+				steps: {
+					users: 'المستخدمين',
+					tasks: 'المهام',
+					settings: 'الإعدادات',
+					criteria: 'المعايير'
+				},
+				step1: {
+					title: 'اختيار المستخدمين',
+					description: 'اختر المستخدمين لتخصيص المهام لهم',
+					searchPlaceholder: 'البحث بالاسم أو اسم المستخدم أو البريد الإلكتروني...',
+					allBranches: 'جميع الفروع'
+				},
+				step2: {
+					title: 'اختيار المهام',
+					description: 'اختر المهام المراد تخصيصها',
+					searchPlaceholder: 'البحث في المهام...',
+					noDescription: 'لا يوجد وصف'
+				},
+				step3: {
+					title: 'إعدادات التخصيص',
+					description: 'تكوين خيارات التخصيص',
+					notificationSettings: 'إعدادات التنبيهات',
+					sendNotifications: 'إرسال تنبيهات للمخصص لهم',
+					assignmentType: 'نوع التخصيص',
+					oneTimeAssignment: 'تخصيص لمرة واحدة',
+					recurringAssignment: 'تخصيص متكرر',
+					deadlineSettings: 'إعدادات الموعد النهائي',
+					setDeadline: 'تحديد موعد نهائي للتخصيص',
+					deadlineDate: 'تاريخ الموعد النهائي',
+					deadlineTime: 'وقت الموعد النهائي',
+					allowReassign: 'السماح للمستخدمين بإعادة تخصيص المهام',
+					notifyAssignees: 'إشعار المخصص لهم',
+					additionalNotes: 'ملاحظات إضافية',
+					specialInstructions: 'أضف أي تعليمات خاصة...',
+					// Repeat Settings
+					repeatSettings: 'إعدادات التكرار',
+					repeatType: 'نوع التكرار',
+					selectDays: 'اختر الأيام',
+					repeatEvery: 'كرر كل',
+					daily: 'يومي',
+					weekly: 'أسبوعي',
+					weeklySpecific: 'أسبوعي (أيام محددة)',
+					monthly: 'شهري',
+					monthlySpecific: 'شهري (تاريخ محدد)',
+					everyNDays: 'كل عدة أيام',
+					everyNWeeks: 'كل عدة أسابيع',
+					// Days of the week
+					monday: 'الإثنين',
+					tuesday: 'الثلاثاء',
+					wednesday: 'الأربعاء',
+					thursday: 'الخميس',
+					friday: 'الجمعة',
+					saturday: 'السبت',
+					sunday: 'الأحد',
+					// Day abbreviations
+					mon: 'إثن',
+					tue: 'ثلا',
+					wed: 'أرب',
+					thu: 'خمي',
+					fri: 'جمع',
+					sat: 'سبت',
+					sun: 'أحد',
+					priorityOverride: 'تجاوز الأولوية',
+					defaultPriority: 'استخدام أولوية المهمة الافتراضية',
+					high: 'عالية',
+					medium: 'متوسطة',
+					low: 'منخفضة',
+					additionalOptions: 'خيارات إضافية',
+					enableReassigning: 'تمكين إعادة التخصيص في حالة عدم توفر المستخدم',
+					addNote: 'إضافة ملاحظة للمخصص لهم'
+				},
+				step4: {
+					title: 'معايير التخصيص',
+					description: 'تحديد متطلبات الإكمال',
+					completionRequirements: 'متطلبات الإكمال',
+					requireTaskFinished: 'يجب تمييز المهمة كمنتهية',
+					requirePhotoUpload: 'مطلوب تحميل صورة للإكمال',
+					requireErpReference: 'مطلوب مرجع ERP',
+					assignmentSummary: 'ملخص التخصيص',
+					usersLabel: 'المستخدمون:',
+					tasksLabel: 'المهام:',
+					typeLabel: 'النوع:',
+					deadlineLabel: 'الموعد النهائي:',
+					oneTimeType: 'مرة واحدة',
+					recurringType: 'متكرر',
+					selectedUsers: 'مستخدم محدد',
+					selectedTasks: 'مهمة محددة'
+				},
+				actions: {
+					cancel: 'إلغاء',
+					previous: 'السابق',
+					nextStep: 'الخطوة التالية',
+					assignTasks: 'تخصيص المهام',
+					assigning: 'جاري التخصيص...'
+				},
+				// Priority and Status translations
+				priorities: {
+					high: 'عالية',
+					medium: 'متوسطة',
+					low: 'منخفضة'
+				},
+				statuses: {
+					draft: 'مسودة',
+					active: 'نشط',
+					paused: 'متوقف',
+					completed: 'مكتمل',
+					cancelled: 'ملغي'
+				}
+			},
+
+			// Create Task Content
+			createContent: {
+				title: 'إنشاء مهمة - أكورا موبايل',
+				taskTitle: 'عنوان المهمة',
+				taskTitleRequired: 'عنوان المهمة مطلوب',
+				taskTitlePlaceholder: 'أدخل عنوان المهمة',
+				description: 'الوصف',
+				descriptionRequired: 'الوصف مطلوب',
+				descriptionPlaceholder: 'وصف المهمة',
+				attachments: 'المرفقات',
+				camera: 'الكاميرا',
+				uploadFile: 'تحميل ملف (اختياري)',
+				chooseFiles: 'اختر الملفات أو اسحبها هنا',
+				supportedFormats: 'المدعوم: images/pdf, doc, docx, xls, xlsx, txt, ppt • حد أقصى: 10MB',
+				actions: {
+					cancel: 'إلغاء',
+					createTask: 'إنشاء مهمة',
+					creating: 'جاري الإنشاء...'
+				},
+				errors: {
+					titleRequired: 'عنوان المهمة مطلوب',
+					descriptionRequired: 'الوصف مطلوب',
+					createFailed: 'فشل في إنشاء المهمة',
+					fillRequired: 'يرجى ملء جميع الحقول المطلوبة',
+					fixFormErrors: 'يرجى إصلاح أخطاء النموذج قبل الإرسال.',
+					createFailedTryAgain: 'فشل في إنشاء المهمة. يرجى المحاولة مرة أخرى.'
+				},
+				success: {
+					taskCreated: 'تم إنشاء المهمة بنجاح!'
+				}
+			},
+
+			// Quick Task Content
+			quickTaskContent: {
+				title: 'مهمة سريعة - أكورا موبايل',
+				loading: 'جارِ التحميل...',
+				// Steps
+				step1: {
+					title: '1. اختيار الفرع',
+					branchLabel: 'الفرع:',
+					selectBranch: '-- اختر الفرع --',
+					defaultBadge: 'افتراضي',
+					change: 'تغيير',
+					confirm: '✓ تأكيد',
+					setAsDefault: 'تعيين كفرع افتراضي'
+				},
+				step2: {
+					title: '2. اختيار المستخدمين',
+					usersLabel: 'المستخدمون:',
+					selected: 'محدد',
+					change: 'تغيير',
+					searchPlaceholder: 'البحث عن المستخدمين...',
+					more: 'المزيد',
+					setAsDefault: 'حفظ هؤلاء المستخدمين كافتراضي',
+					confirmUsers: '✓ تأكيد المستخدمين'
+				},
+				step3: {
+					title: '3. تفاصيل المهمة',
+					issueType: 'نوع المشكلة:',
+					selectIssueType: '-- اختر نوع المشكلة --',
+					customIssueType: 'نوع مشكلة مخصص:',
+					customIssuePlaceholder: 'أدخل نوع المشكلة المخصص',
+					priority: 'الأولوية:',
+					description: 'الوصف (اختياري):',
+					descriptionPlaceholder: 'أدخل وصف المهمة...',
+					saveAsDefault: 'حفظ هذه الإعدادات كافتراضية'
+				},
+				step4: {
+					title: '4. المرفقات (اختياري)',
+					chooseFiles: 'اختيار الملفات',
+					camera: 'الكاميرا',
+					removeFile: 'إزالة الملف'
+				},
+				step5: {
+					title: '5. متطلبات الإكمال',
+					requirePhoto: 'مطلوب تحميل صورة عند الإكمال',
+					requireErp: 'مطلوب مرجع ERP عند الإكمال',
+					requireFile: 'مطلوب تحميل ملف عند الإكمال'
+				},
+				// Issue Types
+				issueTypes: {
+					priceTag: 'مشكلة البطاقة السعرية',
+					cleaning: 'مشكلة تنظيف',
+					display: 'مشكلة عرض',
+					filling: 'مشكلة تعبئة',
+					maintenance: 'مشكلة صيانة',
+					other: 'مشكلة أخرى'
+				},
+				// Priority Options
+				priorities: {
+					low: 'منخفضة',
+					medium: 'متوسطة',
+					high: 'عالية',
+					urgent: 'عاجلة'
+				},
+				// Price Tag Options
+				priceTags: {
+					low: 'منخفض',
+					medium: 'متوسط',
+					high: 'عالي',
+					critical: 'حرج'
+				},
+				// Actions
+				actions: {
+					assignTask: 'تخصيص المهمة',
+					creatingTask: 'جاري إنشاء المهمة...'
+				},
+				// Success Messages
+				success: {
+					taskCreated: 'تم إنشاء المهمة بنجاح!'
+				}
+			},
+
+			// Assignments Content
+			assignmentsContent: {
+				title: 'مهامي - موبايل أكوا',
+				loading: 'جاري تحميل المهام...',
+				// Statistics
+				stats: {
+					total: 'الإجمالي',
+					completed: 'مكتملة',
+					inProgress: 'قيد التنفيذ',
+					pending: 'معلقة',
+					overdue: 'متأخرة'
+				},
+				// Search and Filters
+				search: {
+					placeholder: 'البحث في المهام أو المستخدمين...',
+					allStatuses: 'جميع الحالات',
+					allPriorities: 'جميع الأولويات',
+					clearFilters: 'مسح المرشحات'
+				},
+				// Statuses
+				statuses: {
+					assigned: 'مُعيَّنة',
+					inProgress: 'قيد التنفيذ',
+					completed: 'مكتملة',
+					cancelled: 'ملغية',
+					escalated: 'مُصعَّدة',
+					reassigned: 'مُعادة التعيين',
+					unknown: 'غير معروف'
+				},
+				// Priorities
+				priorities: {
+					high: 'عالية',
+					medium: 'متوسطة',
+					low: 'منخفضة',
+					urgent: 'عاجلة'
+				},
+				// Task Details
+				taskDetails: {
+					unknownTask: 'مهمة غير معروفة',
+					quickTask: '⚡ مهمة سريعة',
+					quickBadge: '⚡ سريع',
+					overdue: '⚠️ متأخر',
+					description: 'الوصف:',
+					notes: 'الملاحظات:',
+					attachments: '📎 المرفقات',
+					deadline: 'الموعد النهائي:',
+					noDeadline: 'لا يوجد موعد نهائي',
+					assignedTo: 'مُعيَّن إلى:',
+					createdBy: 'أنشأها:',
+					branch: 'الفرع:',
+					priceTag: 'علامة السعر:',
+					issueType: 'نوع المشكلة:',
+					status: 'الحالة:'
+				},
+				// Actions
+				actions: {
+					download: 'تحميل',
+					viewDetails: 'عرض التفاصيل',
+					markComplete: 'تمييز كمكتمل',
+					updateStatus: 'تحديث الحالة'
+				},
+				// Empty States
+				emptyStates: {
+					noAssignments: 'لم يتم العثور على مهام',
+					noAssignmentsYet: 'لم تقم بتعيين أي مهام بعد.',
+					noMatchingFilters: 'لا توجد مهام تطابق المرشحات الحالية.'
+				},
+				// Footer
+				footer: {
+					showing: 'عرض',
+					of: 'من',
+					completionRate: 'معدل الإنجاز:'
+				}
+			}
 		},
 
 		// Window Management

@@ -4,6 +4,7 @@
 	import FileUpload from '$lib/components/common/FileUpload.svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	let fileUploadComponent;
 	let cameraInput;
@@ -48,10 +49,10 @@
 	const validateForm = () => {
 		errors = {};
 		if (!formData.title.trim()) {
-			errors.title = 'Task title is required';
+			errors.title = getTranslation('mobile.createContent.errors.titleRequired');
 		}
 		if (!formData.description.trim()) {
-			errors.description = 'Task description is required';
+			errors.description = getTranslation('mobile.createContent.errors.descriptionRequired');
 		}
 		return Object.keys(errors).length === 0;
 	};
@@ -60,7 +61,7 @@
 		if (!validateForm()) {
 			notifications.add({
 				type: 'error',
-				message: 'Please fix the form errors before submitting.'
+				message: getTranslation('mobile.createContent.errors.fixFormErrors')
 			});
 			return;
 		}
@@ -85,14 +86,14 @@
 
 			notifications.add({
 				type: 'success',
-				message: 'Task created successfully!'
+				message: getTranslation('mobile.createContent.success.taskCreated')
 			});
 
 			goto('/mobile/tasks');
 		} catch (error) {
 			notifications.add({
 				type: 'error',
-				message: 'Failed to create task. Please try again.'
+				message: getTranslation('mobile.createContent.errors.createFailedTryAgain')
 			});
 		} finally {
 			isSubmitting = false;
@@ -103,6 +104,10 @@
 		goto('/mobile/tasks');
 	};
 </script>
+
+<svelte:head>
+	<title>{getTranslation('mobile.createContent.title')}</title>
+</svelte:head>
 
 <input
 	bind:this={cameraInput}
@@ -116,12 +121,12 @@
 <div class="mobile-page">
 	<div class="mobile-content">
 		<div class="form-group">
-			<label for="title">Task Title *</label>
+			<label for="title">{getTranslation('mobile.createContent.taskTitle')} *</label>
 			<input
 				id="title"
 				type="text"
 				bind:value={formData.title}
-				placeholder="Enter task title"
+				placeholder={getTranslation('mobile.createContent.taskTitlePlaceholder')}
 				class:error={errors.title}
 			/>
 			{#if errors.title}
@@ -130,11 +135,11 @@
 		</div>
 
 		<div class="form-group">
-			<label for="description">Description *</label>
+			<label for="description">{getTranslation('mobile.createContent.description')} *</label>
 			<textarea
 				id="description"
 				bind:value={formData.description}
-				placeholder="Describe the task"
+				placeholder={getTranslation('mobile.createContent.descriptionPlaceholder')}
 				rows="4"
 				class:error={errors.description}
 			></textarea>
@@ -145,14 +150,17 @@
 
 		<div class="form-group">
 			<div class="upload-header">
-				<h3>Attachments</h3>
+				<h3>{getTranslation('mobile.createContent.attachments')}</h3>
 				<button type="button" class="camera-btn" on:click={openCamera}>
-					📷 Camera
+					📷 {getTranslation('mobile.createContent.camera')}
 				</button>
 			</div>
 			
 			<FileUpload
 				bind:this={fileUploadComponent}
+				label={getTranslation('mobile.createContent.uploadFile')}
+				placeholder={getTranslation('mobile.createContent.chooseFiles')}
+				hint={getTranslation('mobile.createContent.supportedFormats')}
 				on:uploadError={handleUploadError}
 				on:uploadComplete={handleUploadComplete}
 			/>
@@ -161,10 +169,10 @@
 		<!-- Inline Action Buttons -->
 		<div class="inline-actions">
 			<button class="action-btn secondary" on:click={handleCancel} disabled={isSubmitting}>
-				Cancel
+				{getTranslation('mobile.createContent.actions.cancel')}
 			</button>
 			<button class="action-btn primary" on:click={handleSubmit} disabled={isSubmitting}>
-				{isSubmitting ? 'Creating...' : 'Create Task'}
+				{isSubmitting ? getTranslation('mobile.createContent.actions.creating') : getTranslation('mobile.createContent.actions.createTask')}
 			</button>
 		</div>
 	</div>

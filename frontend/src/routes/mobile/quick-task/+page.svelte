@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	// State management
 	let loading = true;
@@ -39,28 +40,28 @@
 	let requireErpReference = false;
 	let requireFileUpload = false;
 
-	// Options - Issue Types with Price Tag Issue as first option
-	const issueTypeOptions = [
-		{ value: 'price-tag', label: 'Price Tag Issue', issueType: 'price-tag', priceTag: 'medium' },
-		{ value: 'cleaning', label: 'Cleaning Issue', issueType: 'cleaning', priceTag: 'medium' },
-		{ value: 'display', label: 'Display Issue', issueType: 'display', priceTag: 'medium' },
-		{ value: 'filling', label: 'Filling Issue', issueType: 'filling', priceTag: 'medium' },
-		{ value: 'maintenance', label: 'Maintenance Issue', issueType: 'maintenance', priceTag: 'medium' },
-		{ value: 'other', label: 'Other Issue', issueType: 'other', priceTag: 'medium' }
+	// Reactive Options with Translation Support
+	$: issueTypeOptions = [
+		{ value: 'price-tag', label: getTranslation('mobile.quickTaskContent.issueTypes.priceTag'), issueType: 'price-tag', priceTag: 'medium' },
+		{ value: 'cleaning', label: getTranslation('mobile.quickTaskContent.issueTypes.cleaning'), issueType: 'cleaning', priceTag: 'medium' },
+		{ value: 'display', label: getTranslation('mobile.quickTaskContent.issueTypes.display'), issueType: 'display', priceTag: 'medium' },
+		{ value: 'filling', label: getTranslation('mobile.quickTaskContent.issueTypes.filling'), issueType: 'filling', priceTag: 'medium' },
+		{ value: 'maintenance', label: getTranslation('mobile.quickTaskContent.issueTypes.maintenance'), issueType: 'maintenance', priceTag: 'medium' },
+		{ value: 'other', label: getTranslation('mobile.quickTaskContent.issueTypes.other'), issueType: 'other', priceTag: 'medium' }
 	];
 
-	const priorityOptions = [
-		{ value: 'low', label: 'Low' },
-		{ value: 'medium', label: 'Medium' },
-		{ value: 'high', label: 'High' },
-		{ value: 'urgent', label: 'Urgent' }
+	$: priorityOptions = [
+		{ value: 'low', label: getTranslation('mobile.quickTaskContent.priorities.low') },
+		{ value: 'medium', label: getTranslation('mobile.quickTaskContent.priorities.medium') },
+		{ value: 'high', label: getTranslation('mobile.quickTaskContent.priorities.high') },
+		{ value: 'urgent', label: getTranslation('mobile.quickTaskContent.priorities.urgent') }
 	];
 
-	const priceTagOptions = [
-		{ value: 'low', label: 'Low' },
-		{ value: 'medium', label: 'Medium' },
-		{ value: 'high', label: 'High' },
-		{ value: 'critical', label: 'Critical' }
+	$: priceTagOptions = [
+		{ value: 'low', label: getTranslation('mobile.quickTaskContent.priceTags.low') },
+		{ value: 'medium', label: getTranslation('mobile.quickTaskContent.priceTags.medium') },
+		{ value: 'high', label: getTranslation('mobile.quickTaskContent.priceTags.high') },
+		{ value: 'critical', label: getTranslation('mobile.quickTaskContent.priceTags.critical') }
 	];
 
 	// Extract issueType and priceTag from combined selection
@@ -90,22 +91,89 @@
 	$: filteredUsers = users.filter(user => {
 		if (!searchTerm) return true;
 		const term = searchTerm.toLowerCase();
-		const positionName = user.position_info?.position_title_en || '';
+		const positionNameEn = user.position_info?.position_title_en || '';
+		const positionNameAr = user.position_info?.position_title_ar || '';
 		return (
 			user.username?.toLowerCase().includes(term) ||
 			user.hr_employees?.name?.toLowerCase().includes(term) ||
 			user.employee_id?.toLowerCase().includes(term) ||
-			positionName.toLowerCase().includes(term)
+			positionNameEn.toLowerCase().includes(term) ||
+			positionNameAr.toLowerCase().includes(term)
 		);
 	});
 
 	// Get branch name by ID - handle both string and number IDs
-	$: selectedBranchName = branches.find(b => b.id == selectedBranch)?.name_en || 
+	$: selectedBranchName = branches.find(b => b.id == selectedBranch)?.[getBranchNameField()] || 
 	                       branches.find(b => b.id == selectedBranch)?.name || 
 	                       'Unknown Branch';
-	$: defaultBranchName = branches.find(b => b.id == defaultBranchId)?.name_en || 
+	$: defaultBranchName = branches.find(b => b.id == defaultBranchId)?.[getBranchNameField()] || 
 	                      branches.find(b => b.id == defaultBranchId)?.name || 
 	                      '';
+
+	// Helper function to get the correct name field based on locale
+	function getBranchNameField() {
+		return $locale === 'ar' ? 'name_ar' : 'name_en';
+	}
+
+	// Helper function to get user display name
+	function getUserDisplayName(user) {
+		if (!user) return '';
+		
+		// Priority: hr_employees name > username
+		const displayName = user.hr_employees?.name || user.username || `User ${user.id}`;
+		
+		return displayName;
+	}
+
+	// Helper function to get the correct position title based on locale
+	function getPositionTitle(positionInfo) {
+		if (!positionInfo) return '';
+		
+		const currentLocale = $locale;
+		
+		// Temporary mapping for Arabic position titles until database query is fixed
+		const positionMapping = {
+			'Marketing Manager': 'مدير التسويق',
+			'Inventory Control Supervisor': 'مشرف مراقبة المخزون',
+			'Analytics & Business Intelligence': 'تحليلات وذكاء الأعمال',
+			'Shelf Stockers': 'مرص البضائع',
+			'Vegetable Department Head': 'رئيس قسم الخضروات',
+			'Quality Assurance Manager': 'مدير ضمان الجودة',
+			'Cleaners': 'منظف',
+			'Cheese Department Head': 'رئيس قسم الجبن',
+			'CEO': 'الرئيس التنفيذي',
+			'Accountant': 'محاسب',
+			'Customer Service Supervisor': 'مشرف خدمة العملاء',
+			'Finance Manager': 'مدير مالي',
+			'Driver': 'سائق',
+			'Branch Manager': 'مدير الفرع',
+			'Inventory Manager': 'مدير المخزون',
+			'Night Supervisors': 'مشرف ليلي',
+			'Bakers': 'خباز',
+			'Bakery Department Head': 'رئيس قسم المخبز',
+			'Checkout Helpers': 'مساعد الدفع',
+			'Vegetable Counter Staff': 'موظف عداد الخضروات',
+			'Cheese Counter Staff': 'موظف عداد الجبن',
+			'No Position': 'بدون منصب'
+		};
+		
+		// If we're in Arabic locale, try mapping first, then fallback to Arabic field
+		if (currentLocale === 'ar') {
+			// Try mapping from English to Arabic
+			const englishTitle = positionInfo.position_title_en || positionInfo.position_title;
+			if (englishTitle && positionMapping[englishTitle]) {
+				return positionMapping[englishTitle];
+			}
+			
+			// Fallback to database Arabic field if available
+			if (positionInfo.position_title_ar) {
+				return positionInfo.position_title_ar;
+			}
+		}
+		
+		// Fallback to English or original position title
+		return positionInfo.position_title_en || positionInfo.position_title || '';
+	}
 
 	// Check if current selection matches defaults - use loose equality for type flexibility
 	$: isUsingDefaultBranch = selectedBranch == defaultBranchId;
@@ -187,7 +255,7 @@
 					id,
 					username,
 					employee_id,
-					hr_employees!inner(
+					hr_employees(
 						id, 
 						name,
 						employee_id
@@ -455,7 +523,7 @@
 
 			// Success - show message and reset form
 			const fileText = uploadedFiles.length > 0 ? ` ${uploadedFiles.length} file(s) uploaded.` : '';
-			successMessage = `Task assigned successfully!${fileText}`;
+			successMessage = getTranslation('mobile.quickTaskContent.success.taskCreated') + fileText;
 			showSuccessMessage = true;
 			
 			// Reset form but keep defaults
@@ -583,14 +651,14 @@
 </script>
 
 <svelte:head>
-	<title>Quick Task - Aqura Mobile</title>
+	<title>{getTranslation('mobile.quickTaskContent.title')}</title>
 </svelte:head>
 
 <div class="quick-task-page">
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>
-			<p>Loading...</p>
+			<p>{getTranslation('mobile.quickTaskContent.loading')}</p>
 		</div>
 	{:else}
 		<!-- Success Message -->
@@ -614,35 +682,35 @@
 
 		<!-- Step 1: Branch Selection -->
 		<div class="form-section">
-			<h3>1. Select Branch</h3>
+			<h3>{getTranslation('mobile.quickTaskContent.step1.title')}</h3>
 			
 			{#if selectedBranch && !showBranchSelector}
 				<div class="current-selection">
 					<div class="selection-info">
-						<span class="label">Branch:</span>
+						<span class="label">{getTranslation('mobile.quickTaskContent.step1.branchLabel')}</span>
 						<span class="value">{selectedBranchName}</span>
 						{#if isUsingDefaultBranch}
-							<span class="default-badge">Default</span>
+							<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
 						{/if}
 					</div>
 					<button type="button" on:click={showBranchSelection} class="change-btn">
-						Change
+						{getTranslation('mobile.quickTaskContent.step1.change')}
 					</button>
 				</div>
 			{:else}
 				<select bind:value={selectedBranch} on:change={handleBranchChange} class="form-select">
-					<option value="">-- Select Branch --</option>
+					<option value="">{getTranslation('mobile.quickTaskContent.step1.selectBranch')}</option>
 					{#each branches as branch}
-						<option value={branch.id}>{branch.name_en}</option>
+						<option value={branch.id}>{branch[getBranchNameField()]}</option>
 					{/each}
 				</select>
 				{#if selectedBranch}
 					<label class="checkbox-label">
 						<input type="checkbox" bind:checked={setAsDefaultBranch} />
-						Set as default branch
+						{getTranslation('mobile.quickTaskContent.step1.setAsDefault')}
 					</label>
 					<button type="button" on:click={hideBranchSelection} class="confirm-btn">
-						✓ Confirm
+						{getTranslation('mobile.quickTaskContent.step1.confirm')}
 					</button>
 				{/if}
 			{/if}
@@ -651,19 +719,19 @@
 		{#if selectedBranch && !showBranchSelector}
 			<!-- Step 2: User Selection -->
 			<div class="form-section">
-				<h3>2. Select Users</h3>
+				<h3>{getTranslation('mobile.quickTaskContent.step2.title')}</h3>
 				
 				{#if selectedUsers.length > 0 && !showUserSelector}
 					<div class="current-selection">
 						<div class="selection-info">
-							<span class="label">Users:</span>
-							<span class="value">{selectedUsers.length} selected</span>
+							<span class="label">{getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
+							<span class="value">{selectedUsers.length} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
 							{#if isUsingDefaultUsers}
-								<span class="default-badge">Default</span>
+								<span class="default-badge">{getTranslation('mobile.quickTaskContent.step1.defaultBadge')}</span>
 							{/if}
 						</div>
 						<button type="button" on:click={showUserSelection} class="change-btn">
-							Change
+							{getTranslation('mobile.quickTaskContent.step2.change')}
 						</button>
 					</div>
 					<div class="selected-users-preview">
@@ -671,19 +739,19 @@
 							{@const user = users.find(u => u.id === userId)}
 							{#if user}
 								<span class="user-chip">
-									{user.hr_employees?.name || user.username}
+									{getUserDisplayName(user)}
 								</span>
 							{/if}
 						{/each}
 						{#if selectedUsers.length > 3}
-							<span class="user-chip more">+{selectedUsers.length - 3} more</span>
+							<span class="user-chip more">+{selectedUsers.length - 3} {getTranslation('mobile.quickTaskContent.step2.more')}</span>
 						{/if}
 					</div>
 				{:else}
 					{#if users.length > 0}
 						<input 
 							type="text" 
-							placeholder="Search users..." 
+							placeholder={getTranslation('mobile.quickTaskContent.step2.searchPlaceholder')}
 							bind:value={searchTerm}
 							class="search-input"
 						/>
@@ -696,10 +764,10 @@
 										on:change={() => toggleUserSelection(user.id)}
 									/>
 									<div class="user-info">
-										<span class="user-name">{user.hr_employees?.name || user.username}</span>
-										<span class="user-details">{user.employee_id}</span>
-										{#if user.position_info?.position_title_en}
-											<span class="user-position">{user.position_info.position_title_en}</span>
+										<span class="user-name">{getUserDisplayName(user)}</span>
+										<span class="user-details">{user.username}</span>
+										{#if user.position_info && getPositionTitle(user.position_info)}
+											<span class="user-position">{getPositionTitle(user.position_info)}</span>
 										{/if}
 									</div>
 								</label>
@@ -708,10 +776,10 @@
 						{#if selectedUsers.length > 0}
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={setAsDefaultUsers} />
-								Save as default users
+								{getTranslation('mobile.quickTaskContent.step2.setAsDefault')}
 							</label>
 							<button type="button" on:click={hideUserSelection} class="confirm-btn">
-								✓ Confirm ({selectedUsers.length} users)
+								{getTranslation('mobile.quickTaskContent.step2.confirmUsers')}
 							</button>
 						{/if}
 					{:else}
@@ -722,12 +790,12 @@
 
 			<!-- Step 3: Task Details -->
 			<div class="form-section">
-				<h3>3. Task Details</h3>
+				<h3>{getTranslation('mobile.quickTaskContent.step3.title')}</h3>
 				
 				<div class="form-group">
-					<label>Issue Type:</label>
+					<label>{getTranslation('mobile.quickTaskContent.step3.issueType')}</label>
 					<select bind:value={issueTypeWithPrice} class="form-select">
-						<option value="">-- Select Issue Type --</option>
+						<option value="">{getTranslation('mobile.quickTaskContent.step3.selectIssueType')}</option>
 						{#each issueTypeOptions as option}
 							<option value={option.value}>{option.label}</option>
 						{/each}
@@ -736,18 +804,18 @@
 
 				{#if issueType === 'other'}
 					<div class="form-group">
-						<label>Custom Issue Type:</label>
+						<label>{getTranslation('mobile.quickTaskContent.step3.customIssueType')}</label>
 						<input 
 							type="text" 
 							bind:value={customIssueType}
-							placeholder="Enter custom issue type"
+							placeholder={getTranslation('mobile.quickTaskContent.step3.customIssuePlaceholder')}
 							class="form-input"
 						/>
 					</div>
 				{/if}
 
 				<div class="form-group">
-					<label>Priority:</label>
+					<label>{getTranslation('mobile.quickTaskContent.step3.priority')}</label>
 					<select bind:value={priority} class="form-select">
 						{#each priorityOptions as option}
 							<option value={option.value}>{option.label}</option>
@@ -756,10 +824,10 @@
 				</div>
 
 				<div class="form-group">
-					<label>Description (Optional):</label>
+					<label>{getTranslation('mobile.quickTaskContent.step3.description')}</label>
 					<textarea 
 						bind:value={taskDescription}
-						placeholder="Enter task description..."
+						placeholder={getTranslation('mobile.quickTaskContent.step3.descriptionPlaceholder')}
 						class="form-textarea"
 						rows="3"
 					></textarea>
@@ -767,13 +835,13 @@
 
 				<label class="checkbox-label">
 					<input type="checkbox" bind:checked={setAsDefaultSettings} />
-					Save these settings as default
+					{getTranslation('mobile.quickTaskContent.step3.saveAsDefault')}
 				</label>
 			</div>
 
 			<!-- Step 4: File Attachments -->
 			<div class="form-section">
-				<h3>4. Attachments (Optional)</h3>
+				<h3>{getTranslation('mobile.quickTaskContent.step4.title')}</h3>
 				
 				<div class="file-actions">
 					<button type="button" on:click={openFileBrowser} class="file-btn">
@@ -784,14 +852,14 @@
 							<line x1="16" y1="17" x2="8" y2="17"></line>
 							<polyline points="10,9 9,9 8,9"></polyline>
 						</svg>
-						Choose Files
+						{getTranslation('mobile.quickTaskContent.step4.chooseFiles')}
 					</button>
 					<button type="button" on:click={openCamera} class="file-btn camera-btn">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
 							<circle cx="12" cy="13" r="4"></circle>
 						</svg>
-						Camera
+						{getTranslation('mobile.quickTaskContent.step4.camera')}
 					</button>
 				</div>
 
@@ -808,6 +876,7 @@
 										<line x1="18" y1="6" x2="6" y2="18"></line>
 										<line x1="6" y1="6" x2="18" y2="18"></line>
 									</svg>
+									<span class="sr-only">{getTranslation('mobile.quickTaskContent.step4.removeFile')}</span>
 								</button>
 							</div>
 						{/each}
@@ -817,19 +886,19 @@
 
 			<!-- Step 5: Completion Requirements -->
 			<div class="form-section">
-				<h3>5. Completion Requirements</h3>
+				<h3>{getTranslation('mobile.quickTaskContent.step5.title')}</h3>
 				<div class="requirements-list">
 					<label class="checkbox-label">
 						<input type="checkbox" bind:checked={requirePhotoUpload} />
-						Require photo upload on completion
+						{getTranslation('mobile.quickTaskContent.step5.requirePhoto')}
 					</label>
 					<label class="checkbox-label">
 						<input type="checkbox" bind:checked={requireErpReference} />
-						Require ERP reference on completion
+						{getTranslation('mobile.quickTaskContent.step5.requireErp')}
 					</label>
 					<label class="checkbox-label">
 						<input type="checkbox" bind:checked={requireFileUpload} />
-						Require file upload on completion
+						{getTranslation('mobile.quickTaskContent.step5.requireFile')}
 					</label>
 				</div>
 			</div>
@@ -844,9 +913,9 @@
 				>
 					{#if isSubmitting}
 						<div class="btn-spinner"></div>
-						Creating Task...
+						{getTranslation('mobile.quickTaskContent.actions.creatingTask')}
 					{:else}
-						Assign Task
+						{getTranslation('mobile.quickTaskContent.actions.assignTask')}
 					{/if}
 				</button>
 			</div>
@@ -1041,6 +1110,13 @@
 		font-size: 1rem;
 		margin-bottom: 12px;
 		box-sizing: border-box;
+	}
+
+	/* RTL Support for select dropdown arrow */
+	:global([dir="rtl"]) .form-select {
+		padding-right: 12px;
+		padding-left: 40px;
+		background-position: left 12px center;
 	}
 
 	.form-select:focus, .form-input:focus, .form-textarea:focus {

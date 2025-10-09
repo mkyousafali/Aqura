@@ -12,6 +12,7 @@
 	export let showPreview: boolean = true; // Show file preview
 	export let label: string = 'Upload File (optional)';
 	export let placeholder: string = 'Choose files or drag and drop here';
+	export let hint: string = ''; // Custom hint text, if empty will use default
 	export let required: boolean = false;
 	export let disabled: boolean = false;
 	export let currentFiles: File[] = []; // For external file management
@@ -289,8 +290,12 @@
 				<div class="upload-icon">📁</div>
 				<p class="upload-text">{placeholder}</p>
 				<p class="upload-hint">
-					Supported: {acceptedTypes} • Max: {maxSizeInMB}MB
-					{#if multiple}• Multiple files allowed{/if}
+					{#if hint}
+						{hint}
+					{:else}
+						Supported: {acceptedTypes} • Max: {maxSizeInMB}MB
+						{#if multiple}• Multiple files allowed{/if}
+					{/if}
 				</p>
 			</div>
 		{:else}

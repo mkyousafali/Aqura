@@ -7,6 +7,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
+	import { localeData } from '$lib/i18n';
 
 	let currentUserData = null;
 	let stats = {
@@ -32,6 +33,20 @@
 	// Reactive refresh when returning to dashboard
 	$: if ($page.url.pathname === '/mobile' && currentUserData) {
 		refreshNotificationCount(true); // Silent refresh
+	}
+
+	// Helper function to get translations
+	function getTranslation(keyPath: string): string {
+		const keys = keyPath.split('.');
+		let value: any = $localeData.translations;
+		for (const key of keys) {
+			if (value && typeof value === 'object' && key in value) {
+				value = value[key];
+			} else {
+				return keyPath; // Return key path if translation not found
+			}
+		}
+		return typeof value === 'string' ? value : keyPath;
 	}
 
 	onMount(async () => {
@@ -486,7 +501,7 @@
 					</div>
 					<div class="stat-info">
 						<h3>{stats.pendingTasks}</h3>
-						<p>Pending Tasks</p>
+						<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
 					</div>
 				</div>
 
@@ -499,7 +514,7 @@
 					</div>
 					<div class="stat-info">
 						<h3>{stats.completedTasks}</h3>
-						<p>Completed</p>
+						<p>{getTranslation('mobile.dashboardContent.stats.completed')}</p>
 					</div>
 				</div>
 
@@ -512,7 +527,7 @@
 					</div>
 					<div class="stat-info">
 						<h3>{stats.unreadNotifications}</h3>
-						<p>Notifications</p>
+						<p>{getTranslation('mobile.dashboardContent.stats.notifications')}</p>
 					</div>
 				</div>
 
@@ -525,7 +540,7 @@
 					</div>
 					<div class="stat-info">
 						<h3>{stats.totalTasks}</h3>
-						<p>Total Tasks</p>
+						<p>{getTranslation('mobile.dashboardContent.stats.totalTasks')}</p>
 					</div>
 				</div>
 			</div>
@@ -534,9 +549,9 @@
 		<!-- Recent Notifications Section -->
 		<section class="recent-section">
 			<div class="section-header">
-				<h2>Recent Notifications</h2>
+				<h2>{getTranslation('mobile.dashboardContent.recentNotifications.title')}</h2>
 				<span class="section-subtitle">
-					{isAdminOrMaster ? 'All notifications in system' : 'Your recent notifications'}
+					{isAdminOrMaster ? getTranslation('mobile.dashboardContent.recentNotifications.allInSystem') : getTranslation('mobile.dashboardContent.recentNotifications.yourRecent')}
 				</span>
 			</div>
 			
@@ -551,13 +566,13 @@
 							<p class="notification-message">{notification.message}</p>
 							<div class="notification-meta">
 								<div class="notification-sender">
-									<span class="meta-label">Sent by:</span>
+									<span class="meta-label">{getTranslation('mobile.dashboardContent.labels.sentBy')}</span>
 									<span class="meta-value">
-										{notification.created_by_name || 'System'}
+										{notification.created_by_name || getTranslation('mobile.dashboardContent.labels.system')}
 									</span>
 								</div>
 								<div class="notification-recipients">
-									<span class="meta-label">Sent to:</span>
+									<span class="meta-label">{getTranslation('mobile.dashboardContent.labels.sentTo')}</span>
 									<span class="meta-value">{notification.recipients_text}</span>
 								</div>
 							</div>
@@ -565,7 +580,7 @@
 							<!-- Attachments Section -->
 							{#if notification.all_attachments && notification.all_attachments.length > 0}
 								<div class="notification-attachments">
-									<h5>Attachments ({notification.all_attachments.length})</h5>
+									<h5>{getTranslation('mobile.dashboardContent.labels.attachments')} ({notification.all_attachments.length})</h5>
 									<div class="attachments-grid">
 										{#each notification.all_attachments as attachment}
 											<div class="attachment-item">
@@ -583,7 +598,7 @@
 													<div class="attachment-info">
 														<span class="attachment-name">{attachment.file_name}</span>
 														{#if attachment.source}
-															<span class="attachment-source">From: {attachment.source}</span>
+															<span class="attachment-source">{getTranslation('mobile.dashboardContent.labels.from')} {attachment.source}</span>
 														{/if}
 														<button class="download-btn-small" on:click|stopPropagation={() => downloadFile(attachment)} title="Download">
 															<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -606,7 +621,7 @@
 															<span class="file-name">{attachment.file_name}</span>
 															<span class="file-type">{attachment.file_type || 'Unknown'}</span>
 															{#if attachment.source}
-																<span class="file-source">From: {attachment.source}</span>
+																<span class="file-source">{getTranslation('mobile.dashboardContent.labels.from')} {attachment.source}</span>
 															{/if}
 														</div>
 														<button class="download-btn" on:click={() => downloadFile(attachment)} title="Download">
@@ -632,7 +647,7 @@
 						<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
 						<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
 					</svg>
-					<p>No recent notifications</p>
+					<p>{getTranslation('mobile.dashboardContent.recentNotifications.noNotifications')}</p>
 				</div>
 			{/if}
 		</section>
@@ -644,8 +659,8 @@
 	<div class="modal-overlay">
 		<div class="modal-container">
 			<div class="modal-header">
-				<h2>Create Notification</h2>
-				<button class="close-btn" on:click={closeCreateNotification}>
+				<h2>{getTranslation('mobile.dashboardContent.actions.createNotification')}</h2>
+				<button class="close-btn" on:click={closeCreateNotification} aria-label="Close">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<line x1="18" y1="6" x2="6" y2="18"/>
 						<line x1="6" y1="6" x2="18" y2="18"/>
@@ -673,9 +688,9 @@
 								<polyline points="7,10 12,15 17,10"/>
 								<line x1="12" y1="15" x2="12" y2="3"/>
 							</svg>
-							Download
+							{getTranslation('mobile.dashboardContent.actions.download')}
 						</button>
-						<button class="close-btn" on:click={closeImagePreview}>
+						<button class="close-btn" on:click={closeImagePreview} aria-label="Close">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<line x1="18" y1="6" x2="6" y2="18"/>
 								<line x1="6" y1="6" x2="18" y2="18"/>
@@ -687,7 +702,7 @@
 					<img src={previewImage.url} alt={previewImage.name} />
 				</div>
 				<div class="preview-footer">
-					<span class="image-source">Source: {previewImage.source}</span>
+					<span class="image-source">{getTranslation('mobile.dashboardContent.actions.source')}: {previewImage.source}</span>
 				</div>
 			</div>
 		</div>
