@@ -394,9 +394,26 @@
 			console.log('📈 [Mobile Layout] Notification count changed from', previousNotificationCount, 'to', notificationCount);
 		};
 		
-		console.log('🔧 [Mobile Layout] Debug functions available:');
+		// Add a function to re-unlock audio if it gets suspended
+		(window as any).unlockNotificationAudio = async () => {
+			try {
+				console.log('� [Mobile Layout] Manual audio unlock requested...');
+				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
+				if (notificationSoundManager) {
+					await notificationSoundManager.unlockMobileAudio(true); // Force unlock
+					console.log('✅ [Mobile Layout] Audio unlocked successfully');
+					return true;
+				}
+			} catch (error) {
+				console.error('❌ [Mobile Layout] Failed to unlock audio:', error);
+				return false;
+			}
+		};
+		
+		console.log('�🔧 [Mobile Layout] Debug functions available:');
 		console.log('  - window.testMobileNotificationSound() - Test sound playback');
 		console.log('  - window.simulateNotificationIncrease() - Simulate count increase');
+		console.log('  - window.unlockNotificationAudio() - Unlock audio if suspended');
 	}
 </script>
 

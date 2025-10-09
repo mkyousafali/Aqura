@@ -298,6 +298,17 @@ class InAppNotificationSoundManager {
                     paused: this.audio.paused
                 });
 
+                // For mobile interface, try to unlock audio if not already unlocked
+                const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
+                if ((this.isMobileDevice || isMobileInterface) && !this.audioUnlocked) {
+                    console.log('🔓 [SoundManager] Audio not unlocked, attempting unlock before playback...');
+                    try {
+                        await this.unlockMobileAudio();
+                    } catch (unlockError) {
+                        console.warn('⚠️ [SoundManager] Could not unlock audio, continuing with playback attempt...');
+                    }
+                }
+
                 // Reset audio to beginning
                 this.audio.currentTime = 0;
                 
@@ -327,6 +338,32 @@ class InAppNotificationSoundManager {
             }
         } catch (error) {
             console.error('❌ [SoundManager] Failed to play notification sound:', error);
+            
+            // If it's a user interaction error, try to re-unlock audio automatically
+            if (error.name === 'NotAllowedError' && error.message.includes("user didn't interact")) {
+                console.log('🔓 [SoundManager] Auto-retry: Re-unlocking audio due to interaction requirement...');
+                this.audioUnlocked = false; // Reset the unlock flag
+                
+                // For mobile interface, we need to wait for next user interaction
+                const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
+                if (isMobileInterface) {
+                    console.log('📱 [SoundManager] Setting up re-unlock listeners for mobile interface...');
+                    this.setupMobileAudioUnlock(); // Re-setup the unlock listeners
+                    console.log('ℹ️ [SoundManager] Sound will work after next user interaction (click/touch)');
+                } else {
+                    // For desktop, try immediate unlock
+                    try {
+                        await this.unlockMobileAudio();
+                        // Retry playing the sound if unlock was successful
+                        if (this.audioUnlocked) {
+                            console.log('🔄 [SoundManager] Retrying sound after auto-unlock...');
+                            return this.playNotificationSound(notification);
+                        }
+                    } catch (unlockError) {
+                        console.error('❌ [SoundManager] Auto-unlock failed:', unlockError);
+                    }
+                }
+            }
             
             // Fallback: try to play a system beep
             console.log('🔊 [SoundManager] Attempting fallback system beep...');
@@ -442,16 +479,22 @@ class InAppNotificationSoundManager {
         return this.playNotificationSound(testNotification);
     }
 
-    public async unlockMobileAudio(): Promise<boolean> {
+    public async unlockMobileAudio(force: boolean = false): Promise<boolean> {
         // For mobile interface, always try to unlock regardless of device type
         const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
         
-        if ((!this.isMobileDevice && !isMobileInterface) || this.audioUnlocked || !this.audio) {
+        if ((!this.isMobileDevice && !isMobileInterface) || !this.audio) {
+            console.log('🔊 [SoundManager] Audio unlock not needed - not mobile interface or no audio element');
+            return this.audioUnlocked;
+        }
+        
+        if (this.audioUnlocked && !force) {
             console.log('🔊 [SoundManager] Audio unlock not needed:', {
                 isMobileDevice: this.isMobileDevice,
                 isMobileInterface,
                 audioUnlocked: this.audioUnlocked,
-                hasAudio: !!this.audio
+                hasAudio: !!this.audio,
+                note: 'Use force=true to override'
             });
             return this.audioUnlocked;
         }
@@ -459,7 +502,8 @@ class InAppNotificationSoundManager {
         try {
             console.log('🔓 [SoundManager] Manually unlocking mobile audio...', {
                 deviceType: this.isMobileDevice ? 'mobile' : 'desktop',
-                interface: isMobileInterface ? 'mobile interface' : 'desktop interface'
+                interface: isMobileInterface ? 'mobile interface' : 'desktop interface',
+                forced: force
             });
             
             this.audio.muted = true;
