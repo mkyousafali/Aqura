@@ -172,8 +172,14 @@ export async function fetchNotificationCounts(userId?: string) {
 }
 
 // Function to refresh counts (can be called from components)
-export function refreshNotificationCounts(userId?: string) {
-	fetchNotificationCounts(userId);
+export function refreshNotificationCounts(userId?: string, silent = true) {
+	if (silent) {
+		// Silent refresh - just call fetchNotificationCounts without any special handling
+		fetchNotificationCounts(userId);
+	} else {
+		// Non-silent refresh (explicit user action)
+		fetchNotificationCounts(userId);
+	}
 }
 
 // Real-time notification listener for immediate sound playing

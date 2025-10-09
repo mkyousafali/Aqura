@@ -472,7 +472,7 @@
 				);
 				console.log('🔴 [NotificationCenter] Updated local state for notification:', id);
 				// Refresh the notification counts store for taskbar
-				refreshNotificationCounts();
+				refreshNotificationCounts(undefined, true); // Silent refresh
 			}
 		} catch (error) {
 			console.error('Error marking notification as read:', error);
@@ -488,7 +488,7 @@
 				// Update local state
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));
 				// Refresh the notification counts store for taskbar
-				refreshNotificationCounts();
+				refreshNotificationCounts(undefined, true); // Silent refresh
 			}
 		} catch (error) {
 			console.error('Error marking all notifications as read:', error);
