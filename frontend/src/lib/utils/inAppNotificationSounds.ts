@@ -199,6 +199,14 @@ class InAppNotificationSoundManager {
                 this.audioUnlocked = true;
                 console.log('🔓 [SoundManager] Mobile interface audio unlocked successfully');
                 
+                // Remove the unlock prompt if it exists
+                const prompt = document.getElementById('audio-unlock-prompt');
+                if (prompt) {
+                    prompt.style.opacity = '0';
+                    setTimeout(() => prompt.remove(), 300);
+                    console.log('📢 [SoundManager] Audio unlock prompt removed');
+                }
+                
                 // Remove listeners once unlocked
                 document.removeEventListener('touchstart', unlockAudio, { capture: true });
                 document.removeEventListener('touchend', unlockAudio, { capture: true });
@@ -225,6 +233,62 @@ class InAppNotificationSoundManager {
             }
         }
         return true;
+    }
+
+    private showAudioUnlockPrompt(): void {
+        // Show a brief, non-intrusive prompt for user interaction
+        if (typeof window !== 'undefined' && !window.document.getElementById('audio-unlock-prompt')) {
+            const prompt = window.document.createElement('div');
+            prompt.id = 'audio-unlock-prompt';
+            prompt.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #2563eb;
+                color: white;
+                padding: 12px 16px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                z-index: 9999;
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+                cursor: pointer;
+                transition: all 0.3s ease;
+                max-width: 300px;
+                text-align: center;
+            `;
+            prompt.innerHTML = `
+                🔊 Click anywhere to enable notification sounds
+                <div style="font-size: 12px; margin-top: 4px; opacity: 0.9;">
+                    Browser requires user interaction for audio
+                </div>
+            `;
+            
+            // Auto-remove after 8 seconds or on click
+            const removePrompt = () => {
+                if (prompt.parentNode) {
+                    prompt.style.opacity = '0';
+                    setTimeout(() => prompt.remove(), 300);
+                }
+            };
+            
+            prompt.addEventListener('click', removePrompt);
+            setTimeout(removePrompt, 8000);
+            
+            // Add hover effect
+            prompt.addEventListener('mouseenter', () => {
+                prompt.style.transform = 'scale(1.02)';
+                prompt.style.boxShadow = '0 6px 16px rgba(37, 99, 235, 0.4)';
+            });
+            prompt.addEventListener('mouseleave', () => {
+                prompt.style.transform = 'scale(1)';
+                prompt.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.3)';
+            });
+            
+            window.document.body.appendChild(prompt);
+            
+            console.log('📢 [SoundManager] Audio unlock prompt displayed');
+        }
     }
 
     private shouldPlaySound(notification: InAppNotification): boolean {
@@ -343,6 +407,9 @@ class InAppNotificationSoundManager {
             if (error.name === 'NotAllowedError' && error.message.includes("user didn't interact")) {
                 console.log('🔓 [SoundManager] Auto-retry: Re-unlocking audio due to interaction requirement...');
                 this.audioUnlocked = false; // Reset the unlock flag
+                
+                // Show user-friendly prompt for interaction
+                this.showAudioUnlockPrompt();
                 
                 // For mobile interface, we need to wait for next user interaction
                 const isMobileInterface = typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile');
@@ -572,6 +639,18 @@ if (typeof window !== 'undefined' && notificationSoundManager) {
         playSystemBeep: () => notificationSoundManager['playSystemBeep'](),
         getConfig: () => notificationSoundManager.getConfig(),
         unlockMobileAudio: () => notificationSoundManager.unlockMobileAudio(),
+        forceUnlock: () => notificationSoundManager.unlockMobileAudio(true),
+        showPrompt: () => (notificationSoundManager as any).showAudioUnlockPrompt(),
+        removePrompt: () => {
+            const prompt = document.getElementById('audio-unlock-prompt');
+            if (prompt) {
+                prompt.style.opacity = '0';
+                setTimeout(() => prompt.remove(), 300);
+                console.log('📢 [SoundManager] Prompt manually removed');
+            } else {
+                console.log('📢 [SoundManager] No prompt to remove');
+            }
+        },
         isMobile: () => (notificationSoundManager as any).isMobileDevice,
         isMobileInterface: () => window.location.pathname.startsWith('/mobile'),
         isAudioUnlocked: () => (notificationSoundManager as any).audioUnlocked,

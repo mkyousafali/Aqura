@@ -414,6 +414,9 @@
 		console.log('  - window.testMobileNotificationSound() - Test sound playback');
 		console.log('  - window.simulateNotificationIncrease() - Simulate count increase');
 		console.log('  - window.unlockNotificationAudio() - Unlock audio if suspended');
+		console.log('  - window.aquraSoundDebug.showPrompt() - Show audio unlock prompt');
+		console.log('  - window.aquraSoundDebug.forceUnlock() - Force audio unlock');
+		console.log('  - window.aquraSoundDebug.removePrompt() - Remove unlock prompt');
 	}
 </script>
 
