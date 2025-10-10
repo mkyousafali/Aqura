@@ -1,22 +1,34 @@
 import { json } from '@sveltejs/kit';
-import OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-	apiKey: env.OPENAI_API_KEY || env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
-});
+// Function to create OpenAI client with error handling
+function createOpenAIClient() {
+	try {
+		const apiKey = env.OPENAI_API_KEY || env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY;
+		
+		if (!apiKey) {
+			console.warn('No OpenAI API key found in environment variables');
+			return null;
+		}
+
+		// Dynamic import to avoid initialization errors during build
+		return import('openai').then(({ default: OpenAI }) => {
+			return new OpenAI({ apiKey });
+		});
+	} catch (error) {
+		console.error('Failed to create OpenAI client:', error);
+		return null;
+	}
+}
 
 export async function POST({ request }) {
 	try {
 		console.log('API route accessed, checking environment...');
 		
-		// Check if OpenAI API key is available
-		const apiKey = env.OPENAI_API_KEY || env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY;
-		console.log('API key available:', !!apiKey);
-		
-		if (!apiKey) {
-			console.error('No OpenAI API key found in environment variables');
+		// Create OpenAI client
+		const openaiClientPromise = createOpenAIClient();
+		if (!openaiClientPromise) {
+			console.error('Failed to create OpenAI client');
 			return json({ 
 				error: 'OpenAI API key not configured. Please check server environment variables.' 
 			}, { status: 500 });
@@ -268,6 +280,12 @@ ${fineType !== 'no_fine' ? '- لازمی طور پر اوپر فراہم کرد�
 		const systemPrompt = basePrompt + (commonRequirements[mappedLanguage] || commonRequirements.english);
 		console.log('Using prompt for language:', mappedLanguage);
 		console.log('Prompt preview:', systemPrompt.substring(0, 200) + '...');
+
+		// Get OpenAI client
+		const openai = await openaiClientPromise;
+		if (!openai) {
+			throw new Error('Failed to initialize OpenAI client');
+		}
 
 		// Call OpenAI API
 		const completion = await openai.chat.completions.create({
