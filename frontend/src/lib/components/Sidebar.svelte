@@ -10,6 +10,7 @@
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
+	import OperationsMaster from '$lib/components/admin/OperationsMaster.svelte';
 	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
@@ -114,6 +115,28 @@
 			title: `HR Master #${instanceNumber}`,
 			component: HRMaster,
 			icon: '👥',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMasterSubmenu = false;
+	}
+
+	function openOperationsMaster() {
+		const windowId = generateWindowId('operations-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Operations Master #${instanceNumber}`,
+			component: OperationsMaster,
+			icon: '⚙️',
 			size: { width: 1200, height: 800 },
 			position: { 
 				x: 50 + (Math.random() * 100), // Slightly offset each new window
@@ -399,6 +422,10 @@
 		<button class="submenu-item" on:click={openHRMaster}>
 			<span class="menu-icon">👥</span>
 			<span class="menu-text">HR Master</span>
+		</button>
+		<button class="submenu-item" on:click={openOperationsMaster}>
+			<span class="menu-icon">⚙️</span>
+			<span class="menu-text">Operations Master</span>
 		</button>
 		<button class="submenu-item" on:click={openTaskMaster}>
 			<span class="menu-icon">📋</span>
