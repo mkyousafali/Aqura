@@ -19,6 +19,17 @@
 	let recentNotifications = [];
 	let isLoading = true;
 	
+	// Swipe gesture state
+	let swipeStartX = 0;
+	let swipeCurrentX = 0;
+	let swipeThreshold = 100; // Minimum distance for swipe
+	let isSwipeActive = false;
+	let swipeTargetNotification = null;
+	
+	// Success message state
+	let showSuccessMessage = false;
+	let successMessage = '';
+	
 	// Image preview modal
 	let showImagePreview = false;
 	let previewImage = null;
@@ -151,53 +162,19 @@
 		if (!currentUserData) return;
 
 		try {
-			// Calculate date range: yesterday, today, and overdue notifications
-			const today = new Date();
-			const yesterday = new Date(today);
-			yesterday.setDate(yesterday.getDate() - 1);
-			yesterday.setHours(0, 0, 0, 0);
-
+			// Use the notification management service to get notifications with read states
 			let notifications;
 			let error;
 
 			if (isAdminOrMaster) {
 				// Admin/Master Admin: Show all notifications from yesterday, today, and overdue
-				const result = await supabase
-					.from('notifications')
-					.select(`
-						*,
-						notification_attachments(id, file_name, file_type, file_size, file_path),
-						tasks(id, title, task_images(id, file_name, file_type, file_url, image_type)),
-						task_assignments(id, task_id, tasks(id, title, task_images(id, file_name, file_type, file_url, image_type)))
-					`)
-					.gte('created_at', yesterday.toISOString())
-					.order('created_at', { ascending: false })
-					.limit(20);
-				
-				notifications = result.data;
-				error = result.error;
+				const result = await notificationManagement.getAllNotifications(currentUserData.id);
+				notifications = result || [];
+				error = null;
 			} else {
-				// Regular users: Show notifications sent to them from yesterday, today, and overdue
-				const result = await supabase
-					.from('notifications')
-					.select(`
-						*,
-						notification_attachments(id, file_name, file_type, file_size, file_path),
-						tasks(id, title, task_images(id, file_name, file_type, file_url, image_type)),
-						task_assignments(id, task_id, tasks(id, title, task_images(id, file_name, file_type, file_url, image_type)))
-					`)
-					.gte('created_at', yesterday.toISOString())
-					.order('created_at', { ascending: false })
-					.limit(20);
-
-				// Filter to show all_users notifications or specific notifications for this user
-				notifications = result.data?.filter(notification => {
-					return notification.target_type === 'all_users' || 
-						   (notification.target_type === 'specific_users' && 
-						    notification.target_users && 
-						    notification.target_users.includes(currentUserData.id));
-				}) || [];
-				error = result.error;
+				// Regular users: Show notifications sent to them with read states
+				notifications = await notificationManagement.getUserNotifications(currentUserData.id);
+				error = null;
 			}
 
 			if (error) {
@@ -206,17 +183,64 @@
 				return;
 			}
 
-			// For each notification, get recipients info and process attachments
-			if (notifications) {
+			// Filter to recent notifications (yesterday, today, and overdue)
+			const today = new Date();
+			const yesterday = new Date(today);
+			yesterday.setDate(yesterday.getDate() - 1);
+			yesterday.setHours(0, 0, 0, 0);
+
+			const filteredNotifications = notifications.filter(notification => {
+				const notificationDate = new Date(notification.created_at);
+				return notificationDate >= yesterday;
+			}).slice(0, 20); // Limit to 20 recent notifications
+
+			if (error) {
+				console.error('Error loading recent notifications:', error);
+				recentNotifications = [];
+				return;
+			}
+
+			// For each notification, get recipients info, process attachments, and check read state
+			if (filteredNotifications) {
 				const notificationsWithRecipients = await Promise.all(
-					notifications.map(async (notification) => {
+					filteredNotifications.map(async (notification) => {
+						const notificationId = notification.notification_id || notification.id;
 						console.log('🔍 [Recipients Debug] Processing notification:', {
-							id: notification.id,
+							id: notificationId,
 							title: notification.title,
 							target_type: notification.target_type,
 							target_users: notification.target_users,
 							created_by_name: notification.created_by_name
 						});
+
+						// Check read state for current user
+						let isRead = false;
+						
+						// First try to get read state from the notification object (for regular users)
+						if (notification.is_read !== undefined) {
+							isRead = notification.is_read;
+						} else {
+							// For admin users or when read state is not included, check directly
+							try {
+								const { data: readState, error: readError } = await supabase
+									.from('notification_read_states')
+									.select('is_read')
+									.eq('notification_id', notificationId)
+									.eq('user_id', currentUserData.id)
+									.single();
+								
+								if (readError) {
+									console.warn('Could not fetch read state for notification:', notificationId, readError);
+									isRead = false; // Default to unread if we can't check
+								} else {
+									isRead = readState ? readState.is_read : false;
+								}
+							} catch (readError) {
+								// If no read state exists or permission denied, notification is unread
+								console.warn('Read state check failed for notification:', notificationId, readError);
+								isRead = false;
+							}
+						}
 
 						// Try multiple approaches to get recipient information
 						let recipients = [];
@@ -236,7 +260,7 @@
 										)
 									)
 								`)
-								.eq('notification_id', notification.id);
+								.eq('notification_id', notificationId);
 
 							if (error) {
 								console.warn('📋 [Recipients] notification_recipients query failed:', error);
@@ -461,14 +485,16 @@
 
 						return {
 							...notification,
+							id: notificationId, // Ensure consistent ID
 							recipients: recipients || [],
 							recipients_text: recipientsText,
-							all_attachments: uniqueAttachments
+							all_attachments: uniqueAttachments,
+							read: isRead
 						};
 					})
 				);
 
-				recentNotifications = notificationsWithRecipients;
+				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
 				
 				console.log('📎 [Mobile Dashboard] Attachments check:', recentNotifications.map(n => ({
 					id: n.id,
@@ -605,6 +631,109 @@
 		// Refresh notifications after creating a new one
 		loadDashboardData();
 	}
+
+	// Swipe gesture functions
+	function handleTouchStart(event, notification) {
+		if (notification.read) return; // Only allow swipe on unread notifications
+		
+		swipeStartX = event.touches[0].clientX;
+		swipeCurrentX = swipeStartX;
+		isSwipeActive = true;
+		swipeTargetNotification = notification;
+	}
+
+	function handleTouchMove(event) {
+		if (!isSwipeActive || !swipeTargetNotification) return;
+		
+		swipeCurrentX = event.touches[0].clientX;
+		const deltaX = swipeCurrentX - swipeStartX;
+		
+		// Only allow left swipe (negative delta)
+		if (deltaX < 0) {
+			event.preventDefault();
+			// Apply transform to show visual feedback
+			const element = event.currentTarget;
+			element.style.transform = `translateX(${Math.max(deltaX, -120)}px)`;
+			element.style.opacity = Math.max(0.5, 1 + deltaX / 200);
+		}
+	}
+
+	function handleTouchEnd(event) {
+		if (!isSwipeActive || !swipeTargetNotification) return;
+		
+		const deltaX = swipeCurrentX - swipeStartX;
+		const element = event.currentTarget;
+		
+		// Reset transform
+		element.style.transform = '';
+		element.style.opacity = '';
+		
+		// Check if swipe distance meets threshold for mark as read
+		if (deltaX < -swipeThreshold) {
+			markNotificationAsRead(swipeTargetNotification.id);
+		}
+		
+		// Reset swipe state
+		isSwipeActive = false;
+		swipeTargetNotification = null;
+		swipeStartX = 0;
+		swipeCurrentX = 0;
+	}
+
+	// Mark individual notification as read
+	async function markNotificationAsRead(notificationId) {
+		if (!currentUserData?.id) return;
+		
+		try {
+			const result = await notificationManagement.markAsRead(notificationId, currentUserData.id);
+			if (result.success) {
+				// Remove notification from recent list since it's now read
+				recentNotifications = recentNotifications.filter(n => n.id !== notificationId);
+				// Update stats
+				if (stats.unreadNotifications > 0) {
+					stats.unreadNotifications--;
+				}
+				// Show success message
+				showSuccess('Notification marked as read');
+				// Refresh notification count to sync with other components
+				await refreshNotificationCount(true);
+			}
+		} catch (error) {
+			console.error('Error marking notification as read:', error);
+		}
+	}
+
+	// Mark all notifications as read
+	async function markAllNotificationsAsRead() {
+		if (!currentUserData?.id || recentNotifications.length === 0) return;
+		
+		try {
+			const result = await notificationManagement.markAllAsRead(currentUserData.id);
+			if (result.success) {
+				const count = recentNotifications.length;
+				// Clear all notifications from recent list
+				recentNotifications = [];
+				// Reset unread count
+				stats.unreadNotifications = 0;
+				// Show success message
+				showSuccess(`${count} notifications marked as read`);
+				// Refresh notification count to sync with other components
+				await refreshNotificationCount(true);
+			}
+		} catch (error) {
+			console.error('Error marking all notifications as read:', error);
+		}
+	}
+
+	// Show success message
+	function showSuccess(message) {
+		successMessage = message;
+		showSuccessMessage = true;
+		// Auto hide after 3 seconds
+		setTimeout(() => {
+			showSuccessMessage = false;
+		}, 3000);
+	}
 </script>
 
 <svelte:head>
@@ -612,6 +741,15 @@
 </svelte:head>
 
 <div class="mobile-dashboard">
+	{#if showSuccessMessage}
+		<div class="success-message">
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M20 6L9 17l-5-5"/>
+			</svg>
+			{successMessage}
+		</div>
+	{/if}
+	
 	{#if isLoading}
 		<div class="loading-content">
 			<div class="loading-spinner"></div>
@@ -678,19 +816,45 @@
 		<!-- Recent Notifications Section -->
 		<section class="recent-section">
 			<div class="section-header">
-				<h2>{getTranslation('mobile.dashboardContent.recentNotifications.title')}</h2>
+				<div class="section-title-row">
+					<h2>{getTranslation('mobile.dashboardContent.recentNotifications.title')}</h2>
+					{#if recentNotifications.length > 0}
+						<button class="mark-all-read-btn" on:click={markAllNotificationsAsRead}>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M20 6L9 17l-5-5"/>
+							</svg>
+							Mark all read
+						</button>
+					{/if}
+				</div>
 				<span class="section-subtitle">
 					{isAdminOrMaster ? getTranslation('mobile.dashboardContent.recentNotifications.allInSystem') : getTranslation('mobile.dashboardContent.recentNotifications.yourRecent')}
+					{#if recentNotifications.filter(n => !n.read).length > 0}
+						• Swipe left to mark as read
+					{/if}
 				</span>
 			</div>
 			
 			{#if recentNotifications.length > 0}
 				<div class="notifications-list">
 					{#each recentNotifications as notification}
-						<div class="notification-card">
+						<div class="notification-card {notification.read ? 'read' : 'unread'}" 
+							 data-notification-id={notification.id}
+							 on:touchstart={!notification.read ? (e) => handleTouchStart(e, notification) : null}
+							 on:touchmove={handleTouchMove}
+							 on:touchend={handleTouchEnd}>
 							<div class="notification-header">
 								<h4>{notification.title}</h4>
-								<span class="notification-time">{formatDate(notification.created_at)}</span>
+								<div class="notification-actions">
+									<span class="notification-time">{formatDate(notification.created_at)}</span>
+									{#if !notification.read}
+										<button class="mark-read-btn" on:click={() => markNotificationAsRead(notification.id)} title="Mark as read">
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M20 6L9 17l-5-5"/>
+											</svg>
+										</button>
+									{/if}
+								</div>
 							</div>
 							<p class="notification-message">{notification.message}</p>
 							<div class="notification-meta">
@@ -846,6 +1010,38 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
+		position: relative;
+	}
+
+	/* Success Message */
+	.success-message {
+		position: fixed;
+		top: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #10B981;
+		color: white;
+		padding: 0.75rem 1.5rem;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+		z-index: 1000;
+		animation: slideDown 0.3s ease-out;
+	}
+
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			transform: translateX(-50%) translateY(-100%);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(-50%) translateY(0);
+		}
 	}
 
 	/* Loading */
@@ -967,17 +1163,56 @@
 		margin-bottom: 1rem;
 	}
 
+	.section-title-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.25rem;
+	}
+
 	.section-header h2 {
 		font-size: 1.25rem;
 		font-weight: 600;
 		color: #1F2937;
-		margin: 0 0 0.25rem 0;
+		margin: 0;
+	}
+
+	.mark-all-read-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		white-space: nowrap;
+	}
+
+	.mark-all-read-btn:hover {
+		background: #2563EB;
+		transform: translateY(-1px);
+	}
+
+	.mark-all-read-btn:active {
+		transform: translateY(0);
 	}
 
 	.section-subtitle {
 		font-size: 0.75rem;
 		color: #6B7280;
 		font-weight: 400;
+	}
+
+	.swipe-hint {
+		font-size: 0.7rem;
+		color: #10B981;
+		margin-top: 0.25rem;
+		font-style: italic;
 	}
 
 	.notifications-list {
@@ -993,6 +1228,19 @@
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		border-left: 4px solid #3B82F6;
 		transition: all 0.3s ease;
+		touch-action: pan-y; /* Allow vertical scrolling but handle horizontal swipes */
+		position: relative;
+		overflow: hidden;
+	}
+
+	.notification-card.unread {
+		border-left-color: #10B981;
+		background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+	}
+
+	.notification-card.read {
+		border-left-color: #D1D5DB;
+		opacity: 0.8;
 	}
 
 	.notification-card:hover {
@@ -1017,11 +1265,41 @@
 		flex: 1;
 	}
 
+	.notification-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-shrink: 0;
+	}
+
 	.notification-time {
 		font-size: 0.7rem;
 		color: #9CA3AF;
 		font-weight: 400;
-		flex-shrink: 0;
+	}
+
+	.mark-read-btn {
+		background: #10B981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 0.375rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		opacity: 0.8;
+	}
+
+	.mark-read-btn:hover {
+		background: #059669;
+		opacity: 1;
+		transform: scale(1.05);
+	}
+
+	.mark-read-btn:active {
+		transform: scale(0.95);
 	}
 
 	.notification-message {
