@@ -119,6 +119,7 @@
 
 		try {
 			isLoading = true;
+			console.log('ASSIGNMENTS: Loading assignments for user:', $currentUser?.id);
 
 			// Get regular task assignments where current user is the assigner
 			const { data: regularAssignmentData, error: regularAssignmentError } = await supabase
@@ -151,6 +152,8 @@
 				`)
 				.eq('quick_task.assigned_by', $currentUser.id)
 				.order('created_at', { ascending: false });
+
+			console.log('ASSIGNMENTS: Quick assignments loaded:', quickAssignmentData);
 
 			if (quickAssignmentError) {
 				console.warn('Quick tasks might not be available:', quickAssignmentError);
@@ -269,6 +272,18 @@
 
 			// Combine both types of assignments
 			assignments = [...regularAssignments, ...quickAssignments];
+			
+			console.log('ASSIGNMENTS: Final assignments:', assignments);
+			console.log('ASSIGNMENTS: Quick assignments count:', quickAssignments.length);
+			assignments.forEach((assignment, index) => {
+				console.log(`ASSIGNMENTS Task ${index + 1}:`, {
+					title: assignment.title,
+					type: assignment.type,
+					assigned_to_name: assignment.assigned_to_name,
+					status: assignment.status,
+					id: assignment.id
+				});
+			});
 			
 			// Sort by creation date (newest first)
 			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));

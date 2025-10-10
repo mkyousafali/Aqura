@@ -27,16 +27,23 @@
 	// Current user
 	$: currentUserData = $currentUser;
 
-	// Quick task completion requirements - simplified for quick tasks
-	$: resolvedRequireTaskFinished = true; // Always required for quick tasks
-	$: resolvedRequirePhotoUpload = false; // Not typically required for quick tasks
-	$: resolvedRequireErpReference = false; // Not typically required for quick tasks
+	// Resolve requirement flags from assignment details first, then task object (same as regular tasks)
+	$: resolvedRequireTaskFinished = assignmentDetails?.require_task_finished ?? taskDetails?.require_task_finished ?? true;
+	$: resolvedRequirePhotoUpload = assignmentDetails?.require_photo_upload ?? taskDetails?.require_photo_upload ?? false;
+	$: resolvedRequireErpReference = assignmentDetails?.require_erp_reference ?? taskDetails?.require_erp_reference ?? false;
 
-	// Completion form data
+	// Completion form data (expanded to match regular tasks)
 	let completionData = {
 		task_finished_completed: false,
+		photo_uploaded_completed: false,
+		erp_reference_completed: false,
+		erp_reference_number: '',
 		completion_notes: ''
 	};
+
+	// Photo upload (add photo upload functionality)
+	let photoFile: File | null = null;
+	let photoPreview: string | null = null;
 
 	// UI state
 	let showTaskDetails = false;
@@ -49,6 +56,16 @@
 		if (resolvedRequireTaskFinished) {
 			total++;
 			if (completionData.task_finished_completed) completed++;
+		}
+
+		if (resolvedRequirePhotoUpload) {
+			total++;
+			if (photoFile && completionData.photo_uploaded_completed) completed++;
+		}
+
+		if (resolvedRequireErpReference) {
+			total++;
+			if (completionData.erp_reference_number?.trim() && completionData.erp_reference_completed) completed++;
 		}
 
 		return total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -64,7 +81,10 @@
 		
 		// Check completion requirements
 		const taskCheck = !resolvedRequireTaskFinished || completionData.task_finished_completed;
-		return taskCheck;
+		const photoCheck = !resolvedRequirePhotoUpload || !!photoFile;
+		const erpCheck = !resolvedRequireErpReference || (!!completionData.erp_reference_number?.trim() && completionData.erp_reference_completed);
+		
+		return taskCheck && photoCheck && erpCheck;
 	})();
 
 	onMount(async () => {
@@ -337,6 +357,75 @@
 		}
 	}
 	
+	async function handlePhotoUpload(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+		
+		if (file) {
+			if (!file.type.startsWith('image/')) {
+				errorMessage = 'Please select a valid image file';
+				return;
+			}
+			
+			if (file.size > 5 * 1024 * 1024) {
+				errorMessage = 'Image file must be less than 5MB';
+				return;
+			}
+			
+			photoFile = file;
+			
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				photoPreview = e.target?.result as string;
+			};
+			reader.readAsDataURL(file);
+			
+			completionData.photo_uploaded_completed = true;
+			errorMessage = '';
+		}
+	}
+	
+	function removePhoto() {
+		photoFile = null;
+		photoPreview = null;
+		completionData.photo_uploaded_completed = false;
+		
+		const fileInput = document.getElementById('photo-upload') as HTMLInputElement;
+		if (fileInput) {
+			fileInput.value = '';
+		}
+	}
+	
+	async function uploadPhoto(): Promise<string | null> {
+		if (!photoFile || !currentUserData) return null;
+		
+		try {
+			const fileExt = photoFile.name.split('.').pop();
+			const fileName = `quick-task-completion-${taskId}-${Date.now()}.${fileExt}`;
+			
+			const { data, error } = await supabase.storage
+				.from('completion-photos')
+				.upload(fileName, photoFile, {
+					cacheControl: '3600',
+					upsert: false
+				});
+			
+			if (error) {
+				console.error('Storage upload error:', error);
+				return null;
+			}
+			
+			const { data: urlData } = supabase.storage
+				.from('completion-photos')
+				.getPublicUrl(fileName);
+			
+			return urlData.publicUrl;
+		} catch (error) {
+			console.error('Error uploading photo:', error);
+			return null;
+		}
+	}
+	
 	async function submitCompletion() {
 		if (!currentUserData || !canSubmit) return;
 		
@@ -346,21 +435,40 @@
 		
 		try {
 			const now = new Date().toISOString();
+			let photoUrl = null;
 			
-			// Update the quick task assignment status to completed
-			const { error: assignmentError } = await supabase
-				.from('quick_task_assignments')
-				.update({ 
-					status: 'completed',
-					completed_at: now
-				})
-				.eq('id', assignmentDetails.id);
-			
-			if (assignmentError) {
-				console.error('Error updating assignment status:', assignmentError);
-				throw new Error('Failed to update assignment status');
+			// Upload photo if required and provided
+			if (resolvedRequirePhotoUpload && photoFile) {
+				try {
+					photoUrl = await uploadPhoto();
+					if (!photoUrl) {
+						console.warn('Photo upload failed, continuing without photo');
+					}
+				} catch (uploadError) {
+					console.error('Photo upload failed:', uploadError);
+				}
 			}
-
+			
+			// Create completion record using the submit_quick_task_completion function
+			try {
+				const { data: completionId, error } = await supabase.rpc('submit_quick_task_completion', {
+					assignment_id_param: assignmentDetails.id,
+					completion_notes_param: completionData.completion_notes || null,
+					photo_path_param: photoUrl,
+					erp_reference_param: completionData.erp_reference_number || null
+				});
+				
+				if (error) {
+					console.error('Error submitting completion:', error);
+					throw error;
+				}
+				
+				console.log('✅ Quick task completion submitted successfully:', completionId);
+			} catch (completionError) {
+				console.error('Error creating quick task completion:', completionError);
+				throw completionError;
+			}
+			
 			// Check if all assignments for this quick task are now completed
 			const { data: allAssignments, error: checkError } = await supabase
 				.from('quick_task_assignments')
@@ -608,6 +716,66 @@
 							bind:checked={completionData.task_finished_completed}
 							disabled={isSubmitting}
 							class="requirement-checkbox"
+						/>
+					</div>
+				</div>
+			{/if}
+			
+			{#if resolvedRequirePhotoUpload}
+				<div class="requirement-item">
+					<div class="requirement-header">
+						<span class="requirement-label required">📷 Upload Photo (Required)</span>
+					</div>
+					
+					{#if !photoPreview}
+						<div class="upload-section">
+							<input
+								id="photo-upload"
+								type="file"
+								accept="image/*"
+								on:change={handlePhotoUpload}
+								disabled={isSubmitting}
+								class="file-input"
+								required
+							/>
+							<label for="photo-upload" class="upload-btn">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+								</svg>
+								Choose Photo
+							</label>
+						</div>
+					{:else}
+						<div class="photo-preview">
+							<img src={photoPreview} alt="Task completion" class="preview-image" />
+							<button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18 6L6 18M6 6l12 12"/>
+								</svg>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+			
+			{#if resolvedRequireErpReference}
+				<div class="requirement-item">
+					<div class="requirement-header">
+						<span class="requirement-label required">🔢 ERP Reference (Required)</span>
+					</div>
+					
+					<div class="input-section">
+						<input
+							type="text"
+							bind:value={completionData.erp_reference_number}
+							on:input={() => {
+								// Auto-check completion when user enters ERP reference
+								completionData.erp_reference_completed = !!completionData.erp_reference_number?.trim();
+							}}
+							placeholder="Enter ERP reference number"
+							disabled={isSubmitting}
+							class="erp-input"
+							required
 						/>
 					</div>
 				</div>
@@ -978,6 +1146,83 @@
 
 	.input-section {
 		margin-top: 0.75rem;
+	}
+
+	.file-input {
+		display: none;
+	}
+
+	.upload-section {
+		margin-top: 0.75rem;
+	}
+
+	.upload-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: #3B82F6;
+		color: white;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: background 0.2s;
+		border: none;
+	}
+
+	.upload-btn:hover {
+		background: #2563EB;
+	}
+
+	.photo-preview {
+		position: relative;
+		margin-top: 0.75rem;
+	}
+
+	.preview-image {
+		width: 100%;
+		max-width: 300px;
+		height: auto;
+		border-radius: 8px;
+		border: 2px solid #E5E7EB;
+	}
+
+	.remove-photo {
+		position: absolute;
+		top: 8px;
+		right: 8px;
+		background: rgba(0, 0, 0, 0.7);
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.remove-photo:hover {
+		background: rgba(0, 0, 0, 0.9);
+	}
+
+	.erp-input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 2px solid #D1D5DB;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		background: white;
+		transition: border-color 0.2s;
+	}
+
+	.erp-input:focus {
+		outline: none;
+		border-color: #3B82F6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.notes-textarea {

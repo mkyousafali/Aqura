@@ -181,7 +181,7 @@
 
 	async function loadTasks() {
 		try {
-			// Load regular task assignments
+			// Load regular task assignments - include tasks assigned TO user OR assigned BY user to themselves
 			const { data: taskAssignments, error } = await supabase
 				.from('task_assignments')
 				.select(`
@@ -202,12 +202,12 @@
 						require_erp_reference
 					)
 				`)
-				.eq('assigned_to_user_id', currentUserData.id)
+				.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
 				.order('assigned_at', { ascending: false });
 
 			if (error) throw error;
 
-			// Load quick task assignments
+			// Load quick task assignments - ALL tasks assigned TO user (including self-assigned)
 			const { data: quickTaskAssignments, error: quickError } = await supabase
 				.from('quick_task_assignments')
 				.select(`
@@ -258,15 +258,29 @@
 				processedTasks.push(processedTask);
 			}
 
-			// Process quick tasks (no attachments for quick tasks)
+			// Process quick tasks (load attachments for quick tasks)
 			for (const assignment of quickTaskAssignments) {
+				// Load quick task attachments
+				const { data: quickTaskFiles, error: filesError } = await supabase
+					.from('quick_task_files')
+					.select('*')
+					.eq('quick_task_id', assignment.quick_task.id);
+
+				if (filesError) {
+					console.warn('Error loading quick task files:', filesError);
+				}
+
+				// Filter out deleted files in JavaScript if the column exists
+				const activeFiles = quickTaskFiles?.filter(file => file.is_deleted !== true) || [];
+				const hasAttachments = activeFiles && activeFiles.length > 0;
+				
 				const processedQuickTask = {
 					...assignment.quick_task,
 					assignment_id: assignment.id,
 					assignment_status: assignment.status,
 					assigned_at: assignment.created_at, // Use created_at from quick_task_assignments
-					deadline_date: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[0] : null, // Extract date from datetime
-					deadline_time: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[1]?.substring(0, 5) : null, // Extract time from datetime
+					deadline_date: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[0] : null,
+					deadline_time: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[1]?.substring(0, 5) : null,
 					assigned_by: assignment.quick_task.assigned_by, // Get from quick_task
 					assigned_by_name: 'Quick Task Creator', // Default since we don't have this info
 					created_by: assignment.quick_task.assigned_by, // Use assigned_by as created_by for quick tasks
@@ -275,9 +289,9 @@
 					require_task_finished: true,
 					require_photo_upload: false,
 					require_erp_reference: false,
-					// No attachments for quick tasks
-					hasAttachments: false,
-					attachments: [],
+					// Add attachment information
+					hasAttachments: hasAttachments,
+					attachments: activeFiles || [],
 					// Mark as quick task
 					task_type: 'quick'
 				};
@@ -298,13 +312,6 @@
 	}
 
 	function filterTasks() {
-		console.log('Filtering tasks:', { 
-			totalTasks: tasks.length, 
-			searchTerm, 
-			filterStatus, 
-			filterPriority 
-		});
-		
 		filteredTasks = tasks.filter(task => {
 			// Safe search - handle null/undefined values
 			const title = task.title || '';
@@ -318,8 +325,6 @@
 			
 			return matchesSearch && matchesStatus && matchesPriority;
 		});
-		
-		console.log('Filtered tasks result:', filteredTasks.length);
 	}
 
 	function formatDate(dateString) {
@@ -401,12 +406,20 @@
 
 	// Helper function to get proper file URL for attachments
 	function getFileUrl(attachment) {
+		// Handle regular task attachments (use file_path)
 		if (attachment.file_path) {
 			if (attachment.file_path.startsWith('http')) {
 				return attachment.file_path;
 			}
 			return `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path}`;
 		}
+		
+		// Handle quick task files (use storage_path and storage_bucket)
+		if (attachment.storage_path) {
+			const bucket = attachment.storage_bucket || 'quick-task-files';
+			return `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/${bucket}/${attachment.storage_path}`;
+		}
+		
 		return null;
 	}
 
@@ -673,7 +686,7 @@
 									<div class="attachments-grid" on:click|stopPropagation>
 										{#each task.attachments as attachment}
 											<div class="attachment-item">
-												{#if attachment.file_type && attachment.file_type.startsWith('image/')}
+												{#if (attachment.file_type && attachment.file_type.startsWith('image/')) || (attachment.mime_type && attachment.mime_type.startsWith('image/'))}
 													<!-- Image attachment with preview -->
 													<div class="attachment-image-container">
 														<img 

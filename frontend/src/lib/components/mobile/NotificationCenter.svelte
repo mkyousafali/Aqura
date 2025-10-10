@@ -804,7 +804,7 @@
 								deadline_datetime
 							)
 						`)
-						.eq('assigned_to_user_id', $currentUser.id)
+						.or(`assigned_to_user_id.eq.${$currentUser.id},quick_tasks.assigned_by_user_id.eq.${$currentUser.id}`)
 						.eq('quick_tasks.title', taskTitle)
 						.limit(1);
 					
@@ -875,7 +875,7 @@
 								priority
 							)
 						`)
-						.eq('assigned_to_user_id', $currentUser.id)
+						.or(`assigned_to_user_id.eq.${$currentUser.id},tasks.assigned_by_user_id.eq.${$currentUser.id}`)
 						.eq('tasks.title', taskTitle)
 						.limit(1);
 					

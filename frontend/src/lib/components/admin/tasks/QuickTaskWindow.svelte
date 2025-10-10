@@ -489,12 +489,12 @@
 			const assignments = selectedUsers.map(userId => ({
 				quick_task_id: taskData.id,
 				assigned_to_user_id: userId,
-				// Store completion requirements as JSON in notes field or create a metadata field
-				// For now, we'll handle requirements in the completion logic
+				require_task_finished: true, // Always required
+				require_photo_upload: requirePhotoUpload,
+				require_erp_reference: requireErpReference
 			}));
 
 			// Store completion requirements in a separate record or in task metadata
-			// Since schema doesn't have these fields yet, we'll handle them in the UI logic
 			console.log('📋 [QuickTask] Completion Requirements:', {
 				requirePhotoUpload,
 				requireErpReference, 
