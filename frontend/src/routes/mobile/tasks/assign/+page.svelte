@@ -691,6 +691,18 @@
 			<p>{getTranslation('mobile.assignContent.loading')}</p>
 		</div>
 	{:else}
+		<!-- Create Task Template Button -->
+		<div class="action-header">
+			<button class="create-task-template-btn" on:click={() => goto('/mobile/tasks/create')}>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="12" y1="8" x2="12" y2="16"/>
+					<line x1="8" y1="12" x2="16" y2="12"/>
+				</svg>
+				{getTranslation('mobile.assignContent.createTaskTemplate')}
+			</button>
+		</div>
+
 		<!-- Progress Steps -->
 		<div class="steps-container">
 			<div class="steps">
@@ -1176,6 +1188,43 @@
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
+	}
+
+	/* Action Header */
+	.action-header {
+		padding: 1rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+		display: flex;
+		justify-content: center;
+	}
+
+	.create-task-template-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.75rem;
+		background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 0.9rem 1.2rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		touch-action: manipulation;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.create-task-template-btn:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+	}
+
+	.create-task-template-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 	}
 
 	.steps-container {

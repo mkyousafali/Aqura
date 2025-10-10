@@ -65,6 +65,7 @@ export const englishLocale: LocaleData = {
 			completeTask: 'Complete Task',
 			taskDetails: 'Task Details',
 			notification: 'Notification',
+			createNotification: 'Create Notification',
 			assignmentDetails: 'Assignment Details',
 			// Bottom navigation
 			bottomNav: {
@@ -77,6 +78,23 @@ export const englishLocale: LocaleData = {
 				accessRequired: 'Access Required',
 				loginRequired: 'Please log in to access the mobile interface.',
 				goToLogin: 'Go to Mobile Login'
+			},
+			// Mobile login
+			login: {
+				title: 'Mobile Access',
+				subtitle: 'Quick access to your mobile dashboard',
+				accessCode: 'Access Code',
+				accessCodePlaceholder: 'Enter 6-digit access code',
+				accessButton: 'Access',
+				accessingSystem: 'Accessing system...',
+				invalidCode: 'Invalid access code',
+				codeRequired: 'Access code is required',
+				enterCode: 'Please enter your access code',
+				quickAccess: 'Quick Access Portal',
+				secureLogin: 'Secure Mobile Login',
+				footer: 'Secure access to Aqura mobile interface',
+				accessDenied: 'Access Denied',
+				accessGranted: 'Access Granted'
 			},
 			// Dashboard content
 			dashboardContent: {
@@ -147,6 +165,8 @@ export const englishLocale: LocaleData = {
 			assignContent: {
 				title: 'Assign Tasks - Aqura Mobile',
 				loading: 'Loading data...',
+				createTaskTemplate: 'Create Task Template',
+				createNotification: 'Create Notification',
 				steps: {
 					users: 'Users',
 					tasks: 'Tasks',
@@ -442,6 +462,56 @@ export const englishLocale: LocaleData = {
 					showing: 'Showing',
 					of: 'of',
 					completionRate: 'Completion Rate:'
+				}
+			},
+
+			// Create Notification Content
+			createNotificationContent: {
+				basicInformation: 'Basic Information',
+				title: 'Title',
+				titlePlaceholder: 'Enter notification title',
+				message: 'Message',
+				messagePlaceholder: 'Enter notification message',
+				type: 'Type',
+				priority: 'Priority',
+				targetAudience: 'Target Audience',
+				sendTo: 'Send to',
+				allUsers: 'All Users',
+				specificUsers: 'Specific Users',
+				searchPlaceholder: 'Search users...',
+				selectAll: 'Select All',
+				deselectAll: 'Deselect All',
+				userSelected: 'user(s) selected',
+				loadingUsers: 'Loading users...',
+				noUsers: 'No users found',
+				attachments: 'Attachments (Optional)',
+				reset: 'Reset',
+				publish: 'Publish Notification',
+				publishing: 'Publishing...',
+				success: 'Notification published successfully!',
+				errors: {
+					titleRequired: 'Please enter a notification title',
+					messageRequired: 'Please enter a notification message',
+					usersRequired: 'Please select at least one user for specific user targeting',
+					uploadFailed: 'File upload failed'
+				},
+				types: {
+					info: 'Info',
+					success: 'Success',
+					warning: 'Warning',
+					error: 'Error',
+					announcement: 'Announcement'
+				},
+				priorities: {
+					low: 'Low',
+					medium: 'Medium',
+					high: 'High',
+					urgent: 'Urgent'
+				},
+				fileUpload: {
+					label: 'Upload File (optional)',
+					placeholder: 'Choose files or drag and drop here',
+					hint: 'Supported: image/*,application/pdf,.doc,.docx,.txt • Max: 10MB • Multiple files allowed'
 				}
 			}
 		},

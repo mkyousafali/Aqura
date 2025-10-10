@@ -119,11 +119,11 @@ export async function fetchNotificationCounts(userId?: string) {
 		// Check for new notifications and play sound (only after initial load)
 		if (!isInitialLoad && unreadCount > previousUnreadCount) {
 			const newNotificationCount = unreadCount - previousUnreadCount;
-			console.log(`🔔 [NotificationStore] Detected ${newNotificationCount} new notifications (${previousUnreadCount} → ${unreadCount})`);
+			
 			
 			// Play sound for new notifications
 			if (notificationSoundManager && newNotificationCount > 0) {
-				console.log(`🔊 [NotificationStore] Playing sound for ${newNotificationCount} new notifications`);
+				
 				
 				// Play sound for each new notification (up to 3 to avoid spam)
 				const soundCount = Math.min(newNotificationCount, 3);
@@ -147,7 +147,7 @@ export async function fetchNotificationCounts(userId?: string) {
 						}
 						
 						await notificationSoundManager.playNotificationSound(soundNotification);
-						console.log(`✅ [NotificationStore] Sound ${i + 1}/${soundCount} played successfully`);
+						
 					} catch (error) {
 						console.error(`❌ [NotificationStore] Failed to play sound ${i + 1}:`, error);
 					}
@@ -156,10 +156,10 @@ export async function fetchNotificationCounts(userId?: string) {
 				console.warn(`⚠️ [NotificationStore] Sound manager not available for ${newNotificationCount} new notifications`);
 			}
 		} else if (isInitialLoad) {
-			console.log(`🔍 [NotificationStore] Initial load - ${unreadCount} unread notifications (no sound)`);
+			
 			isInitialLoad = false;
 		} else {
-			console.log(`🔍 [NotificationStore] No new notifications detected (${previousUnreadCount} → ${unreadCount})`);
+			
 		}
 		
 		// Update previous count for next comparison
@@ -190,7 +190,7 @@ export function startNotificationListener() {
 		return;
 	}
 	
-	console.log('🔔 [NotificationStore] Starting real-time notification listener for user:', user.id);
+	
 	
 	// Subscribe to notification_recipients table for user-specific notifications
 	const subscription = supabase
@@ -204,7 +204,7 @@ export function startNotificationListener() {
 				filter: `user_id=eq.${user.id}`
 			},
 			async (payload) => {
-				console.log('🔔 [NotificationStore] User-specific notification received:', payload.new);
+				
 				
 				// Get the full notification details
 				const { data: notification, error } = await supabase
@@ -219,7 +219,7 @@ export function startNotificationListener() {
 				}
 				
 				if (notification) {
-					console.log('🔊 [NotificationStore] Playing sound for user-specific notification:', notification.title);
+					
 					
 					// Play sound immediately
 					if (notificationSoundManager) {
@@ -234,7 +234,7 @@ export function startNotificationListener() {
 								read: false,
 								soundEnabled: true
 							});
-							console.log('✅ [NotificationStore] Real-time notification sound played');
+							
 						} catch (error) {
 							console.error('❌ [NotificationStore] Failed to play real-time notification sound:', error);
 						}

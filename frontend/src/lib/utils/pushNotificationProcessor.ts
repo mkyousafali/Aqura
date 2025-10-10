@@ -27,7 +27,7 @@ class PushNotificationProcessor {
      */
     start() {
         if (this.isProcessing) {
-            console.log('🔄 Push notification processor already running');
+            
             return;
         }
 
@@ -61,14 +61,14 @@ class PushNotificationProcessor {
         //     }
         // }, 24 * 60 * 60 * 1000); // Run once per day
         
-        console.log('✅ Push notification processor started successfully with periodic processing');
+        
     }
 
     /**
      * Stop the background processor
      */
     stop() {
-        console.log('🛑 Stopping push notification processor...');
+        
         this.isProcessing = false;
         
         if (this.intervalId) {
@@ -82,7 +82,7 @@ class PushNotificationProcessor {
      */
     private async cleanupExcessiveFailedNotifications() {
         // Cleanup disabled - was deleting notifications before they could be processed
-        console.log('🧹 [DISABLED] Preventive cleanup is disabled to prevent notification deletion');
+        
         return;
     }
 
@@ -91,8 +91,6 @@ class PushNotificationProcessor {
      */
     private async processQueue() {
         try {
-            console.log('🔍 Processing notification queue with retry support');
-
             // [v3.0] Preventive cleanup disabled to prevent notification deletion
             // await this.cleanupExcessiveFailedNotifications();
 
@@ -132,14 +130,14 @@ class PushNotificationProcessor {
             const retryCount = queuedNotifications?.filter(n => n.status === 'retry').length || 0;
             
             console.log(`📊 Found ${totalNotifications} notifications in queue (${pendingCount} pending, ${retryCount} ready for retry)`);
-            console.log('🔍 Database response:', { queuedNotifications, error });
+            
 
             if (!queuedNotifications || queuedNotifications.length === 0) {
                 return; // Don't log if no notifications (too verbose)
             }
 
             console.log(`📬 Processing ${queuedNotifications.length} notifications...`);
-            console.log('🔍 Queue items:', queuedNotifications);
+            
 
             // Process each notification individually with retry logic
             for (const queueItem of queuedNotifications) {
@@ -191,7 +189,7 @@ class PushNotificationProcessor {
                 return;
             }
 
-            console.log('✅ Found push subscription for queue item:', queueItem.id);
+            
             
             try {
                 // Attempt to send the notification
@@ -250,7 +248,7 @@ class PushNotificationProcessor {
      */
     private async cleanupDuplicateNotifications(queueItem: any) {
         // Cleanup disabled - was deleting valid pending notifications
-        console.log('🧹 [DISABLED] Duplicate cleanup is disabled to prevent notification deletion');
+        
         return;
     }
 
@@ -269,10 +267,10 @@ class PushNotificationProcessor {
         
         try {
             console.log(`📤 Sending push notification ${queueItem.id} to device ${queueItem.device_id}...`);
-            console.log('🔍 Notification payload:', queueItem.payload);
+            
 
             // Check notification permissions first
-            console.log('🔍 Notification permission:', Notification.permission);
+            
             
             if (Notification.permission !== 'granted') {
                 console.error('❌ Notification permission not granted:', Notification.permission);
@@ -281,14 +279,14 @@ class PushNotificationProcessor {
 
             // Use the browser's notification API instead of web-push library
             if ('serviceWorker' in navigator && 'Notification' in window) {
-                console.log('🔍 Service Worker and Notification API available');
-                console.log('🔍 About to get service worker registration...');
-                console.log('🔍 navigator.serviceWorker:', navigator.serviceWorker);
-                console.log('🔍 navigator.serviceWorker.ready:', navigator.serviceWorker.ready);
+                
+                
+                
+                
                 
                 try {
                     // Get the service worker registration with timeout
-                    console.log('🔍 Getting service worker registration...');
+                    
                     
                     // Production-friendly timeout: longer wait for production deployments
                     const isProduction = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
@@ -308,7 +306,7 @@ class PushNotificationProcessor {
                         );
                         
                         if (availableRegistration) {
-                            console.log('✅ Found immediate Service Worker registration (any state)');
+                            
                             console.log('🔍 Registration state:', {
                                 active: !!availableRegistration.active,
                                 waiting: !!availableRegistration.waiting,
@@ -323,7 +321,7 @@ class PushNotificationProcessor {
                             );
                             
                             registration = await Promise.race([registrationPromise, timeoutPromise]) as ServiceWorkerRegistration;
-                            console.log('🔍 Service Worker ready via navigator.serviceWorker.ready');
+                            
                         }
                     } catch (readyError) {
                         console.warn('⚠️ Service Worker not ready, attempting manual registration...', readyError);
@@ -337,7 +335,7 @@ class PushNotificationProcessor {
                             for (const existing of existingRegistrations) {
                                 console.log(`🔍 Existing registration scope: ${existing.scope}, active: ${!!existing.active}`);
                                 if (existing.active && existing.scope.includes(window.location.origin)) {
-                                    console.log('🔍 Found active Service Worker registration, using it');
+                                    
                                     registration = existing;
                                     break;
                                 }
@@ -345,36 +343,36 @@ class PushNotificationProcessor {
                             
                             if (!registration) {
                                 // Try our custom service worker first since it's more reliable in production
-                                console.log('🔍 Attempting to register custom SW at: /sw.js');
+                                
                                 
                                 try {
                                     registration = await navigator.serviceWorker.register('/sw.js', {
                                         scope: '/',
                                         updateViaCache: 'none'
                                     });
-                                    console.log('✅ Custom Service Worker registered successfully');
+                                    
                                 } catch (customSwError) {
-                                    console.log('🔍 Custom SW failed, trying VitePWA SW at: /sw.js', customSwError);
+                                    
                                     registration = await navigator.serviceWorker.register('/sw.js', {
                                         scope: '/',
                                         updateViaCache: 'none'
                                     });
-                                    console.log('✅ VitePWA Service Worker registered successfully');
+                                    
                                 }
                                 
-                                console.log('🔍 Service Worker registered manually:', registration);
+                                
                                 
                                 // Wait for it to become ready
                                 await registration.update(); // Force update check
                                 
                                 if (registration.active) {
-                                    console.log('🔍 Service Worker is now active');
+                                    
                                 } else if (registration.waiting) {
-                                    console.log('🔍 Service Worker is waiting, attempting to activate...');
+                                    
                                     registration.waiting.postMessage({ type: 'SKIP_WAITING' });
                                     await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for activation
                                 } else if (registration.installing) {
-                                    console.log('🔍 Service Worker is installing, waiting for activation...');
+                                    
                                     await new Promise((resolve) => {
                                         const checkState = () => {
                                             if (registration.installing?.state === 'activated' || registration.active) {
@@ -392,22 +390,22 @@ class PushNotificationProcessor {
                             throw readyError; // Throw original error
                         }
                     }
-                    console.log('🔍 Service Worker ready:', registration);
-                    console.log('🔍 Service Worker state:', registration.active?.state);
-                    console.log('🔍 Service Worker scope:', registration.scope);
+                    
+                    
+                    
                     
                     // Don't wait for activation in production - use Service Worker as-is for better performance
                     if (!import.meta.env.PROD) {
                         // Only wait for activation in development
                         if (!registration.active && registration.waiting) {
-                            console.log('🔄 Service Worker is waiting, activating...');
+                            
                             registration.waiting.postMessage({ type: 'SKIP_WAITING' });
                             
                             // Wait for activation with timeout
                             await new Promise((resolve) => {
                                 const checkActive = () => {
                                     if (registration.active) {
-                                        console.log('✅ Service Worker activated successfully');
+                                        
                                         resolve(true);
                                     } else {
                                         setTimeout(checkActive, 100);
@@ -418,18 +416,18 @@ class PushNotificationProcessor {
                                 setTimeout(() => resolve(true), 2000);
                             });
                         } else if (!registration.active && registration.installing) {
-                            console.log('🔄 Service Worker is installing, waiting briefly...');
+                            
                             // Wait briefly for installation but don't block
                             await new Promise((resolve) => {
                                 setTimeout(resolve, 1000); // Wait max 1 second
                             });
                         }
                     } else {
-                        console.log('🏭 Production mode: Using Service Worker in any state for optimal performance');
+                        
                     }
                     
                     // Use the Service Worker regardless of state in production
-                    console.log('✅ Using Service Worker registration for push notifications');
+                    
                     
                     // Enhanced service worker debugging
                     console.log('🔍 Service Worker details:', {
@@ -459,7 +457,7 @@ class PushNotificationProcessor {
                         throw new Error('No service worker registration available');
                     }
                     
-                    console.log('✅ Service worker registration is available');
+                    
                     console.log('🔍 Registration details:', {
                         active: !!registration.active,
                         waiting: !!registration.waiting,
@@ -473,13 +471,13 @@ class PushNotificationProcessor {
                         console.warn('⚠️ Service Worker is not active, attempting to activate...');
                         
                         if (registration.waiting) {
-                            console.log('🔄 Service Worker is waiting, sending skip waiting message...');
+                            
                             registration.waiting.postMessage({ type: 'SKIP_WAITING' });
                             
                             // Wait for activation
                             await new Promise((resolve) => {
                                 const handleControllerChange = () => {
-                                    console.log('🎯 Service Worker controller changed - activation successful');
+                                    
                                     navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
                                     resolve(true);
                                 };
@@ -488,20 +486,20 @@ class PushNotificationProcessor {
                                 // Timeout after 5 seconds
                                 setTimeout(() => {
                                     navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
-                                    console.log('⏰ Service Worker activation timeout, proceeding anyway');
+                                    
                                     resolve(true);
                                 }, 5000);
                             });
                         } else if (registration.installing) {
-                            console.log('🔄 Service Worker is installing, waiting for activation...');
+                            
                             
                             // Wait for installation to complete and activate
                             await new Promise((resolve) => {
                                 const worker = registration.installing!;
                                 const handleStateChange = () => {
-                                    console.log('🔄 Service Worker state changed to:', worker.state);
+                                    
                                     if (worker.state === 'activated') {
-                                        console.log('🎯 Service Worker activated successfully!');
+                                        
                                         worker.removeEventListener('statechange', handleStateChange);
                                         resolve(true);
                                     } else if (worker.state === 'redundant') {
@@ -515,7 +513,7 @@ class PushNotificationProcessor {
                                 // Force skip waiting if it's taking too long
                                 setTimeout(() => {
                                     if (worker.state === 'installed') {
-                                        console.log('⏰ Forcing Service Worker activation...');
+                                        
                                         worker.postMessage({ type: 'SKIP_WAITING' });
                                     }
                                 }, 2000);
@@ -523,7 +521,7 @@ class PushNotificationProcessor {
                                 // Timeout after 10 seconds
                                 setTimeout(() => {
                                     worker.removeEventListener('statechange', handleStateChange);
-                                    console.log('⏰ Service Worker activation timeout, proceeding with direct notification');
+                                    
                                     resolve(false);
                                 }, 10000);
                             });
@@ -532,17 +530,17 @@ class PushNotificationProcessor {
                         // Check again after activation attempts
                         const updatedRegistration = await navigator.serviceWorker.ready.catch(() => registration);
                         if (updatedRegistration.active) {
-                            console.log('✅ Service Worker is now active!');
+                            
                             registration = updatedRegistration;
                         } else {
                             console.warn('⚠️ Service Worker still not active, will try direct notification fallback');
                         }
                     } else {
-                        console.log('✅ Service Worker is already active');
+                        
                     }
                     
                     // Show notification through service worker (works even if not fully active)
-                    console.log('🔔 Showing notification with title:', queueItem.payload.title);
+                    
                     console.log('🔔 Notification options:', {
                         body: queueItem.payload.body,
                         icon: queueItem.payload.icon,
@@ -554,9 +552,9 @@ class PushNotificationProcessor {
                     });
                     
                     // Mobile-optimized notification options - variables already defined at function scope
-                    console.log('📱 Is mobile device:', isMobile);
-                    console.log('📱 Is PWA installed:', isPWA);
-                    console.log('📱 Display mode:', window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser');
+                    
+                    
+                    
                     
                     notificationOptions = {
                         body: queueItem.payload.body,
@@ -602,7 +600,7 @@ class PushNotificationProcessor {
                         ]
                     };
 
-                    console.log('🔔 Attempting notification with enhanced options:', notificationOptions);
+                    
                     
                     try {
                         // Enhanced approach for different environments
@@ -637,7 +635,7 @@ class PushNotificationProcessor {
                                     
                                     // Handle click event
                                     directNotification.onclick = () => {
-                                        console.log('🖱️ Direct notification clicked');
+                                        
                                         if (queueItem.payload.data?.url) {
                                             window.open(queueItem.payload.data.url, '_blank');
                                         } else {
@@ -646,7 +644,7 @@ class PushNotificationProcessor {
                                         directNotification.close();
                                     };
                                     
-                                    console.log('🎉 Direct mobile notification created successfully!');
+                                    
                                 } else {
                                     throw new Error('No notification method available');
                                 }
@@ -654,7 +652,7 @@ class PushNotificationProcessor {
                             
                             // Method 2: Enhanced Service Worker communication for PWA (if active)
                             if (registration && registration.active) {
-                                console.log('📨 Sending enhanced notification message to Service Worker');
+                                
                                 registration.active.postMessage({
                                     type: 'FORCE_SHOW_NOTIFICATION',
                                     title: queueItem.payload.title,
@@ -667,13 +665,13 @@ class PushNotificationProcessor {
                             
                             // Method 3: PWA-specific enhancements (only if SW is active)
                             if (isPWA && registration && registration.active) {
-                                console.log('📱 PWA-specific notification enhancements');
+                                
                                 
                                 // PWA apps often need special handling for background notifications
                                 if (document.hidden || !document.hasFocus()) {
-                                    console.log('📱 PWA is backgrounded - notification should show automatically');
+                                    
                                 } else {
-                                    console.log('📱 PWA is active - ensuring notification visibility');
+                                    
                                     
                                     // For PWA, we can be more aggressive with notifications
                                     setTimeout(async () => {
@@ -687,22 +685,22 @@ class PushNotificationProcessor {
                                                         isPWANotification: true
                                                     }
                                                 });
-                                                console.log('📱 PWA secondary notification sent');
+                                                
                                             }
                                         } catch (e) {
-                                            console.log('📱 PWA secondary notification failed:', e);
+                                            
                                         }
                                     }, 1000);
                                 }
                             } else if (isMobile) {
                                 // Mobile browser behavior (no active SW or not PWA)
                                 if (document.hidden || !document.hasFocus()) {
-                                    console.log('📱 Mobile page is hidden/unfocused - notification should show');
+                                    
                                 } else {
-                                    console.log('📱 Mobile page is active - setting up visibility change detection');
+                                    
                                     const handleVisibilityChange = async () => {
                                         if (document.hidden) {
-                                            console.log('📱 Mobile page became hidden - showing backup notification');
+                                            
                                             try {
                                                 if ('Notification' in window && Notification.permission === 'granted') {
                                                     new Notification(`${queueItem.payload.title} (Mobile)`, {
@@ -712,7 +710,7 @@ class PushNotificationProcessor {
                                                     });
                                                 }
                                             } catch (e) {
-                                                console.log('📱 Mobile backup notification failed:', e);
+                                                
                                             }
                                             document.removeEventListener('visibilitychange', handleVisibilityChange);
                                         }
@@ -728,7 +726,7 @@ class PushNotificationProcessor {
                             // Desktop approach - require active Service Worker
                             if (registration && registration.active) {
                                 await registration.showNotification(queueItem.payload.title, notificationOptions);
-                                console.log('🎉 Desktop Service Worker notification shown successfully!');
+                                
                             } else {
                                 console.warn('⚠️ Service Worker not active, using direct notification for desktop');
                                 if ('Notification' in window && Notification.permission === 'granted') {
@@ -751,7 +749,7 @@ class PushNotificationProcessor {
                                     
                                     // Handle click event
                                     directNotification.onclick = () => {
-                                        console.log('🖱️ Direct desktop notification clicked');
+                                        
                                         if (queueItem.payload.data?.url) {
                                             window.open(queueItem.payload.data.url, '_blank');
                                         } else {
@@ -760,7 +758,7 @@ class PushNotificationProcessor {
                                         directNotification.close();
                                     };
                                     
-                                    console.log('🎉 Direct desktop notification created successfully!');
+                                    
                                 } else {
                                     throw new Error('No notification method available for desktop');
                                 }
@@ -769,7 +767,7 @@ class PushNotificationProcessor {
                         
                     } catch (swError) {
                         console.error('❌ Service Worker notification failed:', swError);
-                        console.log('⚠️ Direct browser notifications not supported on mobile - notification skipped');
+                        
                     }
                     
                     // Commented out test notification to prevent unwanted popup
@@ -778,7 +776,7 @@ class PushNotificationProcessor {
                     if (registration.active) {
                         const messageChannel = new MessageChannel();
                         messageChannel.port1.onmessage = (event) => {
-                            console.log('📨 Message from SW about notification:', event.data);
+                            
                         };
                         
                         registration.active.postMessage({
@@ -809,19 +807,19 @@ class PushNotificationProcessor {
                         // Emergency recovery for PWA
                         try {
                             // Try to re-register the Service Worker
-                            console.log('🔄 Attempting Service Worker recovery for PWA...');
+                            
                             
                             if ('serviceWorker' in navigator) {
                                 // Get all registrations
                                 const registrations = await navigator.serviceWorker.getRegistrations();
-                                console.log('🔍 Found existing SW registrations:', registrations.length);
+                                
                                 
                                 // Try to find an active registration
                                 let activeRegistration = null;
                                 for (const reg of registrations) {
                                     if (reg.active) {
                                         activeRegistration = reg;
-                                        console.log('✅ Found active Service Worker registration');
+                                        
                                         break;
                                     }
                                 }
@@ -838,13 +836,13 @@ class PushNotificationProcessor {
                                             originalError: swError.message
                                         }
                                     });
-                                    console.log('✅ Emergency PWA notification sent via recovery SW');
+                                    
                                 } else {
                                     console.error('❌ No active Service Worker found for recovery');
                                     
                                     // Mark notification as failed - will be retried when app is reopened
                                     await this.markNotificationFailed(queueItem.id, `PWA minimized with SW failure: ${swError.message}`);
-                                    console.log('📝 Notification marked as failed - will retry when PWA is reopened');
+                                    
                                 }
                             }
                         } catch (recoveryError) {
@@ -855,7 +853,7 @@ class PushNotificationProcessor {
                         // Set up visibility change listener for when PWA is reopened
                         const handlePWAReopen = async () => {
                             if (!document.hidden && isPWA) {
-                                console.log('🔄 PWA reopened after SW failure - attempting notification recovery');
+                                
                                 
                                 // Try to re-process this notification
                                 try {
@@ -870,7 +868,7 @@ class PushNotificationProcessor {
                                             originalError: swError.message
                                         }
                                     });
-                                    console.log('✅ Delayed PWA notification delivered after reopen');
+                                    
                                 } catch (retryError) {
                                     console.error('❌ Delayed notification retry failed:', retryError);
                                 }
@@ -892,7 +890,7 @@ class PushNotificationProcessor {
                         // Standard fallback for non-PWA or visible apps
                         try {
                             if ('Notification' in window && Notification.permission === 'granted') {
-                                console.log('🔔 Creating direct browser notification as fallback...');
+                                
                                 const directNotification = new Notification(queueItem.payload.title, {
                                     body: queueItem.payload.body,
                                     icon: queueItem.payload.icon,
@@ -902,14 +900,14 @@ class PushNotificationProcessor {
 
                                 // Handle click event for direct notification
                                 directNotification.onclick = () => {
-                                    console.log('🖱️ Direct notification clicked');
+                                    
                                     if (queueItem.payload.data?.url) {
                                         window.open(queueItem.payload.data.url, '_blank');
                                     }
                                     directNotification.close();
                                 };
                                 
-                                console.log('✅ Direct notification fallback created successfully');
+                                
                             } else {
                                 console.error('❌ Direct notifications not available either');
                                 await this.markNotificationFailed(queueItem.id, `Both SW and direct notifications failed: ${swError.message}`);
@@ -920,16 +918,16 @@ class PushNotificationProcessor {
                         }
                     }
                     
-                    console.log('🎉 Direct notification created as fallback!');
+                    
                 }
             } else if ('Notification' in window) {
-                console.log('🔍 Service Worker not available - skipping notification (mobile compatibility)');
+                
                 
                 // Direct browser notifications don't work on mobile browsers
                 // Only Service Worker notifications are supported on mobile
                 console.warn('⚠️ Direct browser notifications not supported on mobile - notification skipped');
                 
-                console.log('🎉 Direct notification shown successfully!');
+                
             } else {
                 console.error('❌ Notifications not supported in this browser');
                 throw new Error('Notifications not supported');
@@ -1001,7 +999,7 @@ class PushNotificationProcessor {
      * Manually process queue once (for testing)
      */
     async processOnce() {
-        console.log('🧪 Manual queue processing...');
+        
         await this.processQueue();
     }
 
@@ -1009,8 +1007,8 @@ class PushNotificationProcessor {
      * Create a test notification queue entry (DISABLED - removed to prevent unwanted test notifications)
      */
     async createTestQueueEntry() {
-        console.log('🚫 Test notification creation is permanently disabled to prevent unwanted notifications');
-        console.log('💡 If you need to test notifications, create them through the normal notification system');
+        
+        
         return;
     }
 }
@@ -1022,7 +1020,7 @@ class PushNotificationProcessor {
  */
 export async function promptMobilePushNotifications(userId: string): Promise<boolean> {
     try {
-        console.log('📱 Checking if mobile push notification prompt is needed...');
+        
         
         // Check if we're on a mobile device
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -1030,13 +1028,13 @@ export async function promptMobilePushNotifications(userId: string): Promise<boo
         const isMobileDevice = isMobile || isTablet;
         
         if (!isMobileDevice) {
-            console.log('📱 Not a mobile device, skipping notification prompt');
+            
             return false;
         }
         
         // Check if notifications are supported
         if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-            console.log('📱 Push notifications not supported on this device');
+            
             return false;
         }
         
@@ -1046,21 +1044,21 @@ export async function promptMobilePushNotifications(userId: string): Promise<boo
         const hasBeenPrompted = localStorage.getItem(promptKey);
         
         if (hasBeenPrompted) {
-            console.log('📱 User has already been prompted for push notifications on this device');
+            
             return false;
         }
         
         // Check current notification permission
         const currentPermission = Notification.permission;
         if (currentPermission === 'granted') {
-            console.log('📱 Push notifications already granted');
+            
             // Mark as prompted to avoid future prompts
             localStorage.setItem(promptKey, 'granted');
             return true;
         }
         
         if (currentPermission === 'denied') {
-            console.log('📱 Push notifications previously denied');
+            
             localStorage.setItem(promptKey, 'denied');
             return false;
         }
@@ -1069,30 +1067,30 @@ export async function promptMobilePushNotifications(userId: string): Promise<boo
         const userWantsNotifications = await showMobilePushPrompt();
         
         if (userWantsNotifications) {
-            console.log('📱 User wants to enable push notifications');
+            
             
             // Request permission
             const permission = await Notification.requestPermission();
             
             if (permission === 'granted') {
-                console.log('✅ Push notification permission granted!');
+                
                 localStorage.setItem(promptKey, 'granted');
                 
                 // Initialize push notifications for this user
                 try {
                     const { pushNotificationService } = await import('./pushNotifications');
                     await pushNotificationService.initialize();
-                    console.log('✅ Push notifications initialized successfully');
+                    
                     return true;
                 } catch (error) {
                     console.error('❌ Failed to initialize push notifications:', error);
                 }
             } else {
-                console.log('❌ Push notification permission denied');
+                
                 localStorage.setItem(promptKey, 'denied');
             }
         } else {
-            console.log('📱 User declined push notifications');
+            
             localStorage.setItem(promptKey, 'declined');
         }
         
@@ -1251,13 +1249,13 @@ async function showMobilePushPrompt(): Promise<boolean> {
  */
 export async function checkAndPromptPushNotifications(userId: string): Promise<void> {
     try {
-        console.log('🔐 Checking push notification prompt for user:', userId);
+        
         
         // Small delay to ensure UI is ready
         setTimeout(async () => {
             const enabled = await promptMobilePushNotifications(userId);
             if (enabled) {
-                console.log('✅ Mobile push notifications enabled for user');
+                
             }
         }, 1000);
         
@@ -1273,7 +1271,7 @@ export const pushNotificationProcessor = new PushNotificationProcessor();
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
     // Only expose test functions in development mode
     (window as any).testPushNotificationQueue = () => {
-        console.log('🧪 Test function only available in development mode');
+        
         // pushNotificationProcessor.createTestQueueEntry();
     };
     
@@ -1286,10 +1284,10 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
         // Test mobile notification immediately (disabled in production)
         testMobileNotification: async () => {
             if (!import.meta.env.DEV) {
-                console.log('🚫 Test functions disabled in production to prevent unwanted notifications');
+                
                 return 'Test functions disabled in production';
             }
-            console.log('🧪 Testing mobile notification...');
+            
             try {
                 const registration = await navigator.serviceWorker.ready;
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -1310,7 +1308,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 };
                 
                 await registration.showNotification('🧪 Mobile Debug Test', options);
-                console.log('✅ Mobile test notification sent');
+                
                 
                 // Also try direct SW message
                 if (registration.active) {
@@ -1323,7 +1321,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                             tag: 'force-mobile-test'
                         }
                     });
-                    console.log('📨 Sent force notification message to SW');
+                    
                 }
                 
                 return 'Test notification sent - check your device!';
@@ -1371,15 +1369,15 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
     // Add emergency stop function
     (window as any).stopPushNotificationProcessor = () => {
         pushNotificationProcessor.stop();
-        console.log('🛑 Emergency stop: Push notification processor stopped');
+        
     };
     
     // Log available debugging functions
-    console.log('🔧 Push notification debugging available:');
-    console.log('- aquraPushDebug.testMobileNotification() - Test mobile notifications');
-    console.log('- aquraPushDebug.checkMobileStatus() - Check mobile notification status');
-    console.log('- aquraPushDebug.processQueue() - Process notification queue manually');
-    console.log('- aquraPushDebug.getProcessorInfo() - Get processor information');
+    
+    
+    
+    
+    
 
     // Cleanup functions disabled to prevent notification deletion
     (window as any).cleanupOldNotifications = (days = 7) => {
@@ -1394,7 +1392,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Add helper function to find real notification IDs for testing
     (window as any).findNotificationIds = async () => {
-        console.log('🔍 Finding real notification IDs for testing...');
+        
         try {
             const { data: queueItems, error } = await supabaseAdmin
                 .from('notification_queue')
@@ -1406,7 +1404,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 return;
             }
 
-            console.log('📋 Available notification queue items:');
+            
             queueItems?.forEach((item, index) => {
                 console.log(`${index + 1}. ID: ${item.id}, Notification: ${item.notification_id}, User: ${item.user_id}, Status: ${item.status}`);
             });
@@ -1415,7 +1413,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 const first = queueItems[0];
                 console.log(`💡 To test deletion, use: deleteDuplicateNotifications('${first.notification_id}', '${first.user_id}')`);
             } else {
-                console.log('📭 No notification queue items found');
+                
             }
         } catch (error) {
             console.error('❌ Error finding notification IDs:', error);
@@ -1424,7 +1422,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Test if database trigger is working by manually calling the queue function
     (window as any).testDatabaseTrigger = async () => {
-        console.log('🧪 Testing if database trigger function exists and works...');
+        
         try {
             // Call the queue_push_notification function directly with the notification ID from your console
             const { data, error } = await supabaseAdmin.rpc('queue_push_notification', {
@@ -1435,8 +1433,8 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 console.error('❌ Database trigger function failed:', error);
                 console.error('❌ This suggests the trigger function was not properly installed');
             } else {
-                console.log('✅ Database trigger function executed successfully');
-                console.log('🔄 Now checking if notification was queued...');
+                
+                
                 
                 // Check if the notification was actually queued
                 setTimeout(async () => {
@@ -1450,7 +1448,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Manual queue entry with real notification ID
     (window as any).manualQueueTest = async () => {
-        console.log('🧪 Manually adding notification to queue...');
+        
         try {
             const currentUser = await (window as any).persistentAuth?.getCurrentUser();
             if (!currentUser) {
@@ -1482,8 +1480,8 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             if (error) {
                 console.error('❌ Failed to manually queue notification:', error);
             } else {
-                console.log('✅ Manually queued notification:', data);
-                console.log('🔄 Now processing queue...');
+                
+                
                 setTimeout(async () => {
                     await pushNotificationProcessor.processOnce();
                 }, 1000);
@@ -1495,7 +1493,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Quickly test the trigger with your existing notification
     (window as any).testExistingNotification = async () => {
-        console.log('🧪 Testing trigger function with existing notification...');
+        
         try {
             // Use the notification ID from your console log
             const notificationId = '0d1dc630-c253-4269-b30b-f416a747e69e';
@@ -1510,12 +1508,12 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 console.error('❌ Trigger function failed:', error);
                 console.error('❌ Error details:', error.message);
                 if (error.message.includes('function') && error.message.includes('does not exist')) {
-                    console.log('💡 The queue_push_notification function was not properly applied to the database');
+                    
                 }
             } else {
-                console.log('✅ Trigger function executed successfully');
-                console.log('📋 Result:', data);
-                console.log('🔄 Now checking queue...');
+                
+                
+                
                 
                 // Wait and then check the queue
                 setTimeout(async () => {
@@ -1529,14 +1527,14 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Test basic browser notification functionality
     (window as any).testBasicNotification = async () => {
-        console.log('🧪 Testing basic browser notification...');
+        
         try {
-            console.log('🔍 Notification permission:', Notification.permission);
+            
             
             if (Notification.permission !== 'granted') {
-                console.log('📝 Requesting notification permission...');
+                
                 const permission = await Notification.requestPermission();
-                console.log('📋 Permission result:', permission);
+                
                 
                 if (permission !== 'granted') {
                     console.error('❌ Permission denied');
@@ -1546,25 +1544,25 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
             // Test service worker notification only (mobile compatible)
             if ('serviceWorker' in navigator) {
-                console.log('🔔 Creating service worker notification...');
+                
                 const registration = await navigator.serviceWorker.ready;
                 await registration.showNotification('Service Worker Test', {
                     body: 'This is a service worker notification test',
                     icon: '/favicon.png',
                     requireInteraction: true
                 });
-                console.log('✅ Service worker notification created');
+                
                 
                 // Also create a direct test for desktop (but skip on mobile)
                 if (!navigator.userAgent.includes('Mobile')) {
-                    console.log('🔔 Creating direct browser notification for desktop...');
+                    
                     const directNotification = new Notification('Direct Test', {
                         body: 'This is a direct browser notification test (desktop only)',
                         icon: '/favicon.png'
                     });
 
                     directNotification.onclick = () => {
-                        console.log('🖱️ Direct notification clicked');
+                        
                         directNotification.close();
                     };
 
@@ -1581,7 +1579,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Helper function to queue the latest notification manually
     (window as any).queueLatestNotification = async () => {
-        console.log('🔍 Looking for the latest notification to queue...');
+        
         try {
             // Get the most recent notification
             const { data: latestNotification, error } = await supabaseAdmin
@@ -1596,7 +1594,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 return;
             }
 
-            console.log('📋 Latest notification:', latestNotification);
+            
 
             // Queue it using the database function
             const { data: queueResult, error: queueError } = await supabaseAdmin.rpc('queue_push_notification', {
@@ -1606,8 +1604,8 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             if (queueError) {
                 console.error('❌ Failed to queue notification:', queueError);
             } else {
-                console.log('✅ Notification queued successfully:', queueResult);
-                console.log('🔄 Processing queue now...');
+                
+                
                 
                 // Process the queue immediately
                 setTimeout(async () => {
@@ -1621,7 +1619,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 
     // Auto-queue function that can be called after creating notifications
     (window as any).autoQueueNewNotification = async (notificationId: string) => {
-        console.log('🔄 Auto-queuing notification:', notificationId);
+        
         try {
             const { data: queueResult, error: queueError } = await supabaseAdmin.rpc('queue_push_notification', {
                 p_notification_id: notificationId
@@ -1630,7 +1628,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             if (queueError) {
                 console.error('❌ Auto-queue failed:', queueError);
             } else {
-                console.log('✅ Auto-queued successfully:', queueResult);
+                
                 // Process immediately
                 setTimeout(async () => {
                     await pushNotificationProcessor.processOnce();

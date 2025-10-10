@@ -22,10 +22,10 @@ export const arabicLocale: LocaleData = {
 	translations: {
 		// App General
 		app: {
-			name: 'نظام إدارة أكوا',
-			shortName: 'أكوا',
+			name: 'نظام إدارة أكورا',
+			shortName: 'أكورا',
 			description: 'نظام إدارة مدعوم بالذكاء الاصطناعي',
-			loading: 'جاري تحميل أكوا...',
+			loading: 'جاري تحميل أكورا...',
 			offline: 'أنت غير متصل حالياً',
 			updateAvailable: 'إصدار جديد متوفر',
 			updateReady: 'التحديث جاهز للتثبيت',
@@ -63,6 +63,7 @@ export const arabicLocale: LocaleData = {
 			completeTask: 'إكمال المهمة',
 			taskDetails: 'تفاصيل المهمة',
 			notification: 'إشعار',
+			createNotification: 'إنشاء إشعار',
 			assignmentDetails: 'تفاصيل التكليف',
 			// Bottom navigation
 			bottomNav: {
@@ -75,6 +76,23 @@ export const arabicLocale: LocaleData = {
 				accessRequired: 'مطلوب تسجيل الدخول',
 				loginRequired: 'يرجى تسجيل الدخول للوصول إلى واجهة الجوال.',
 				goToLogin: 'الذهاب إلى تسجيل دخول الجوال'
+			},
+			// Mobile login
+			login: {
+				title: 'الوصول للجوال',
+				subtitle: 'وصول سريع إلى لوحة تحكم الجوال',
+				accessCode: 'رمز الوصول',
+				accessCodePlaceholder: 'أدخل رمز الوصول المكون من 6 أرقام',
+				accessButton: 'دخول',
+				accessingSystem: 'جاري الوصول للنظام...',
+				invalidCode: 'رمز وصول غير صحيح',
+				codeRequired: 'رمز الوصول مطلوب',
+				enterCode: 'يرجى إدخال رمز الوصول',
+				quickAccess: 'بوابة الوصول السريع',
+				secureLogin: 'تسجيل دخول آمن للجوال',
+				footer: 'وصول آمن لواجهة أكوا للجوال',
+				accessDenied: 'تم رفض الوصول',
+				accessGranted: 'تم منح الوصول'
 			},
 			// Dashboard content
 			dashboardContent: {
@@ -145,6 +163,8 @@ export const arabicLocale: LocaleData = {
 			assignContent: {
 				title: 'تخصيص المهام - أكورا موبايل',
 				loading: 'تحميل البيانات...',
+				createTaskTemplate: 'إنشاء قالب مهمة',
+				createNotification: 'إنشاء إشعار',
 				steps: {
 					users: 'المستخدمين',
 					tasks: 'المهام',
@@ -440,6 +460,56 @@ export const arabicLocale: LocaleData = {
 					showing: 'عرض',
 					of: 'من',
 					completionRate: 'معدل الإنجاز:'
+				}
+			},
+
+			// Create Notification Content
+			createNotificationContent: {
+				basicInformation: 'المعلومات الأساسية',
+				title: 'العنوان',
+				titlePlaceholder: 'ادخل عنوان الإشعار',
+				message: 'الرسالة',
+				messagePlaceholder: 'ادخل رسالة الإشعار',
+				type: 'النوع',
+				priority: 'الأولوية',
+				targetAudience: 'الجمهور المستهدف',
+				sendTo: 'إرسال إلى',
+				allUsers: 'جميع المستخدمين',
+				specificUsers: 'مستخدمين محددين',
+				searchPlaceholder: 'البحث عن المستخدمين...',
+				selectAll: 'تحديد الكل',
+				deselectAll: 'إلغاء تحديد الكل',
+				userSelected: 'مستخدم محدد',
+				loadingUsers: 'تحميل المستخدمين...',
+				noUsers: 'لم يتم العثور على مستخدمين',
+				attachments: 'المرفقات (اختيارية)',
+				reset: 'إعادة تعيين',
+				publish: 'نشر الإشعار',
+				publishing: 'جاري النشر...',
+				success: 'تم نشر الإشعار بنجاح!',
+				errors: {
+					titleRequired: 'يرجى إدخال عنوان الإشعار',
+					messageRequired: 'يرجى إدخال رسالة الإشعار',
+					usersRequired: 'يرجى تحديد مستخدم واحد على الأقل للاستهداف المحدد',
+					uploadFailed: 'فشل في تحميل الملف'
+				},
+				types: {
+					info: 'معلومات',
+					success: 'نجاح',
+					warning: 'تحذير',
+					error: 'خطأ',
+					announcement: 'إعلان'
+				},
+				priorities: {
+					low: 'منخفضة',
+					medium: 'متوسطة',
+					high: 'عالية',
+					urgent: 'عاجلة'
+				},
+				fileUpload: {
+					label: 'تحميل ملف (اختياري)',
+					placeholder: 'اختر الملفات أو اسحبها وأفلتها هنا',
+					hint: 'المدعومة: صور/*,ملفات PDF,.doc,.docx,.txt • الحد الأقصى: 10 ميجابايت • ملفات متعددة مسموحة'
 				}
 			}
 		},
