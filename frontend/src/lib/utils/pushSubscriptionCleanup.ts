@@ -3,12 +3,12 @@ import { supabaseAdmin } from './supabase';
 /**
  * Push Subscription Cleanup Service
  * Manages cleanup of old push subscriptions to prevent table bloat
- * Keeps only the 2 most recent mobile and 2 most recent desktop subscriptions per user
+ * Keeps only the 1 most recent mobile and 1 most recent desktop subscription per user
  */
 export class PushSubscriptionCleanupService {
 	/**
 	 * Clean up old push subscriptions for a specific user
-	 * Keeps only the 2 most recent subscriptions per device type (mobile/desktop)
+	 * Keeps only the 1 most recent subscription per device type (mobile/desktop)
 	 */
 	static async cleanupUserSubscriptions(userId: string): Promise<{
 		success: boolean;
@@ -45,9 +45,9 @@ export class PushSubscriptionCleanupService {
 			console.log(`📱 Mobile subscriptions: ${mobileSubscriptions.length}`);
 			console.log(`💻 Desktop subscriptions: ${desktopSubscriptions.length}`);
 
-			// Identify subscriptions to keep (2 most recent of each type)
-			const mobileToKeep = mobileSubscriptions.slice(0, 2);
-			const desktopToKeep = desktopSubscriptions.slice(0, 2);
+			// Identify subscriptions to keep (1 most recent of each type)
+			const mobileToKeep = mobileSubscriptions.slice(0, 1);
+			const desktopToKeep = desktopSubscriptions.slice(0, 1);
 			const subscriptionsToKeep = [...mobileToKeep, ...desktopToKeep];
 
 			// Identify subscriptions to delete (everything else)

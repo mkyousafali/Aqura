@@ -412,7 +412,7 @@
 		</div>
 
 		<!-- Action Buttons -->
-		{#if assignment.status !== 'completed' && assignment.status !== 'cancelled'}
+		{#if assignment.status !== 'completed' && assignment.status !== 'cancelled' && assignment.assigned_to_user_id === currentUserData?.id}
 			<div class="action-section">
 				<div class="action-buttons">
 					{#if assignment.status === 'assigned'}

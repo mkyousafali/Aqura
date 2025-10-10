@@ -3,11 +3,15 @@
 	import { db } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let task;
 
 	let loading = true;
 	let taskAttachments = []; // For FileDownload component
+
+	// Get current user data
+	$: currentUserData = $currentUser;
 
 	onMount(async () => {
 		if (task) {
@@ -211,7 +215,7 @@
 		<!-- Task Completion Section -->
 		<div class="space-y-4">
 			<h3 class="text-lg font-semibold text-gray-900 border-b pb-2">Task Completion</h3>
-			{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+			{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled' && task.assigned_to_user_id === currentUserData?.id}
 				<div class="bg-blue-50 border border-blue-200 p-4 rounded-lg">
 					<div class="flex items-start space-x-3">
 						<div class="flex-shrink-0">
@@ -265,6 +269,20 @@
 								</svg>
 								<span>Complete Quick Task</span>
 							</button>
+						</div>
+					</div>
+				</div>
+			{:else if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+				<div class="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+					<div class="flex items-center space-x-3">
+						<div class="flex-shrink-0">
+							<svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.084 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+							</svg>
+						</div>
+						<div class="flex-1">
+							<h4 class="text-sm font-medium text-yellow-900">Access Restricted</h4>
+							<p class="text-sm text-yellow-700">This quick task is not assigned to you. Only assigned users can complete tasks.</p>
 						</div>
 					</div>
 				</div>
