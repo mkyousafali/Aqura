@@ -13,6 +13,9 @@
 	let filterStatus = 'all';
 	let filterPriority = 'all';
 
+	// User cache for displaying usernames and employee names
+	let userCache = {};
+
 	// Image preview modal variables
 	let showImagePreview = false;
 	let previewImageSrc = '';
@@ -25,6 +28,156 @@
 		}
 		isLoading = false;
 	});
+
+	// Function to load and cache user information
+	async function loadUserCache() {
+		try {
+			// First, populate cache with existing data from tasks
+			for (const task of tasks) {
+				if (task.assigned_by && task.assigned_by_name) {
+					userCache[task.assigned_by] = task.assigned_by_name;
+				}
+				if (task.created_by && task.created_by_name) {
+					userCache[task.created_by] = task.created_by_name;
+				}
+			}
+			
+		// Add current user to cache
+		if (currentUserData?.id) {
+			userCache[currentUserData.id] = currentUserData.username || 'You';
+		}			// Extract all user IDs from tasks that we might need to display
+			const userIds = new Set();
+			
+			// Add current user to cache
+			if (currentUserData?.id) {
+				userIds.add(currentUserData.id);
+			}
+			
+			for (const task of tasks) {
+				// Add assigned_by user
+				if (task.assigned_by) {
+					userIds.add(task.assigned_by);
+				}
+				
+				// Add created_by user
+				if (task.created_by) {
+					userIds.add(task.created_by);
+				}
+			}
+			
+			// Fetch usernames for all these user IDs from both users and hr_employees tables
+			if (userIds.size > 0) {
+				const userIdArray = Array.from(userIds);
+				
+				// Try to get user data with employee information
+				try {
+					const { data: users, error } = await supabase
+						.from('users')
+						.select(`
+							id, 
+							username
+						`)
+						.in('id', userIdArray);
+					
+					if (error) {
+						console.warn('Error fetching users:', error);
+						// Fallback to using existing names from task data
+						for (const task of tasks) {
+							if (task.assigned_by && task.assigned_by_name) {
+								userCache[task.assigned_by] = task.assigned_by_name;
+							}
+							if (task.created_by && task.created_by_name) {
+								userCache[task.created_by] = task.created_by_name;
+							}
+						}
+						
+						// Add current user fallback
+						if (currentUserData?.id) {
+							userCache[currentUserData.id] = currentUserData.username || 'You';
+						}
+						return;
+					}
+					
+					if (users) {
+						// First populate basic user info
+						for (const user of users) {
+							let displayName = 'Unknown User';
+							
+							// Priority: username > user ID
+							if (user.username) {
+								displayName = user.username;
+							} else {
+								displayName = `User ${user.id.substring(0, 8)}`;
+							}
+							
+							userCache[user.id] = displayName;
+						}
+						
+						// Now try to get employee information separately
+						try {
+							const { data: employees } = await supabase
+								.from('hr_employees')
+								.select('id, name, employee_id')
+								.in('id', userIdArray);
+							
+							if (employees) {
+								// Update cache with employee names where available
+								for (const employee of employees) {
+									if (employee.name) {
+										userCache[employee.id] = employee.name;
+									}
+								}
+							}
+						} catch (employeeError) {
+							console.warn('Could not fetch employee data:', employeeError);
+							// Continue with user data only
+						}
+					}
+				} catch (userError) {
+					console.warn('Error in user cache loading:', userError);
+					// Fallback to using existing names from task data
+					for (const task of tasks) {
+						if (task.assigned_by && task.assigned_by_name) {
+							userCache[task.assigned_by] = task.assigned_by_name;
+						}
+						if (task.created_by && task.created_by_name) {
+							userCache[task.created_by] = task.created_by_name;
+						}
+					}
+					
+					// Add current user fallback
+					if (currentUserData?.id) {
+						userCache[currentUserData.id] = currentUserData.username || 'You';
+					}
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to load user cache:', error);
+			// Add basic fallbacks
+			if (currentUserData?.id) {
+				userCache[currentUserData.id] = currentUserData.username || 'You';
+			}
+		}
+	}
+
+	// Helper function to get display name for a user
+	function getUserDisplayName(userId, fallbackName) {
+		// First check cache
+		if (userCache[userId]) {
+			return userCache[userId];
+		}
+		
+		// If no cache, use fallback name if available
+		if (fallbackName && fallbackName !== 'Unknown User') {
+			return fallbackName;
+		}
+		
+	// If userId matches current user, show current user info
+	if (userId === currentUserData?.id) {
+		return currentUserData?.username || 'You';
+	}		// Last resort fallback
+		return fallbackName || 'Unknown User';
+	}
 
 	async function loadTasks() {
 		try {
@@ -134,6 +287,10 @@
 
 			// Sort all tasks by assigned_at date (most recent first)
 			tasks = processedTasks.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			
+			// Load user cache after loading tasks
+			await loadUserCache();
+			
 			filterTasks();
 		} catch (error) {
 			console.error('Error loading tasks:', error);
@@ -483,7 +640,17 @@
 										<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
 										<circle cx="12" cy="7" r="4"/>
 									</svg>
-									<span>{getTranslation('mobile.tasksContent.taskCard.by')} {task.assigned_by_name || task.created_by_name || getTranslation('mobile.tasksContent.taskCard.unknown')}</span>
+									<span>{getTranslation('mobile.tasksContent.taskCard.by')} {getUserDisplayName(task.assigned_by || task.created_by, task.assigned_by_name || task.created_by_name)}</span>
+								</div>
+								
+								<div class="task-detail">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+										<circle cx="8.5" cy="7" r="4"/>
+										<line x1="20" y1="8" x2="20" y2="14"/>
+										<line x1="23" y1="11" x2="17" y2="11"/>
+									</svg>
+									<span>Assigned to: {getUserDisplayName(currentUserData?.id, currentUserData?.username || 'You')}</span>
 								</div>
 								
 								<div class="task-detail">

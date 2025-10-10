@@ -29,6 +29,13 @@
 	let selectedTaskForCompletion = null;
 	let selectedAssignmentForCompletion = null;
 
+	// Swipe gesture state
+	let swipeStartX = 0;
+	let swipeCurrentX = 0;
+	let swipeThreshold = 100; // Minimum distance for swipe
+	let isSwipeActive = false;
+	let swipeTargetNotification = null;
+
 	// Convert API response to component format and load task images
 	async function transformNotificationData(apiNotifications: any[]) {
 		if (apiNotifications.length === 0) {
@@ -568,7 +575,7 @@
 		try {
 			const result = await notificationManagement.markAllAsRead($currentUser.id);
 			if (result.success) {
-				// Update local state
+				// Update local state - mark all notifications as read
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));
 				// Refresh the notification counts store for taskbar
 				refreshNotificationCounts(undefined, true); // Silent refresh
@@ -1095,6 +1102,54 @@
 		}
 	}
 
+	// Swipe gesture functions
+	function handleTouchStart(event, notification) {
+		if (notification.read) return; // Only allow swipe on unread notifications
+		
+		swipeStartX = event.touches[0].clientX;
+		swipeCurrentX = swipeStartX;
+		isSwipeActive = true;
+		swipeTargetNotification = notification;
+	}
+
+	function handleTouchMove(event) {
+		if (!isSwipeActive || !swipeTargetNotification) return;
+		
+		swipeCurrentX = event.touches[0].clientX;
+		const deltaX = swipeCurrentX - swipeStartX;
+		
+		// Only allow left swipe (negative delta)
+		if (deltaX < 0) {
+			event.preventDefault();
+			// Apply transform to show visual feedback
+			const element = event.currentTarget;
+			element.style.transform = `translateX(${Math.max(deltaX, -120)}px)`;
+			element.style.opacity = Math.max(0.5, 1 + deltaX / 200);
+		}
+	}
+
+	function handleTouchEnd(event) {
+		if (!isSwipeActive || !swipeTargetNotification) return;
+		
+		const deltaX = swipeCurrentX - swipeStartX;
+		const element = event.currentTarget;
+		
+		// Reset transform
+		element.style.transform = '';
+		element.style.opacity = '';
+		
+		// Check if swipe distance meets threshold for mark as read
+		if (deltaX < -swipeThreshold) {
+			markAsRead(swipeTargetNotification.id);
+		}
+		
+		// Reset swipe state
+		isSwipeActive = false;
+		swipeTargetNotification = null;
+		swipeStartX = 0;
+		swipeCurrentX = 0;
+	}
+
 	// Refresh notifications periodically
 	onMount(() => {
 		const interval = setInterval(() => {
@@ -1152,6 +1207,20 @@
 					Hide Read
 				</label>
 			</div>
+			
+			{#if unreadCount > 0}
+				<div class="action-row">
+					<button class="mark-all-read-btn" on:click={markAllAsRead}>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M20 6L9 17l-5-5"/>
+						</svg>
+						Mark all {unreadCount} as read
+					</button>
+				</div>
+				<div class="swipe-hint">
+					💡 Tip: Swipe left on any unread notification to mark it as read
+				</div>
+			{/if}
 		</div>
 
 		<!-- Notifications List -->
@@ -1164,7 +1233,11 @@
 				</div>
 			{:else}
 				{#each filteredNotifications as notification (notification.id)}
-					<div class="notification-item {notification.read ? 'read' : 'unread'} {getPriorityColor(notification.priority)}" data-notification-id={notification.id}>
+					<div class="notification-item {notification.read ? 'read' : 'unread'} {getPriorityColor(notification.priority)}" 
+						 data-notification-id={notification.id}
+						 on:touchstart={!notification.read ? (e) => handleTouchStart(e, notification) : null}
+						 on:touchmove={handleTouchMove}
+						 on:touchend={handleTouchEnd}>
 						<div class="notification-content">
 							<div class="notification-header">
 								<div class="notification-icon">
@@ -1423,6 +1496,49 @@
 		gap: 1rem;
 	}
 
+	.action-row {
+		margin-top: 0.75rem;
+		display: flex;
+		justify-content: center;
+	}
+
+	.mark-all-read-btn {
+		background: #10B981;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		padding: 0.75rem 1.5rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+	}
+
+	.mark-all-read-btn:hover {
+		background: #059669;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+	}
+
+	.mark-all-read-btn:active {
+		transform: translateY(0);
+	}
+
+	.swipe-hint {
+		text-align: center;
+		font-size: 0.75rem;
+		color: #6B7280;
+		margin-top: 0.5rem;
+		padding: 0.5rem;
+		background: #F9FAFB;
+		border-radius: 6px;
+		border: 1px solid #E5E7EB;
+	}
+
 	.filter-select {
 		flex: 1;
 		padding: 0.75rem;
@@ -1522,10 +1638,17 @@
 		overflow: hidden;
 		transition: all 0.2s;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		touch-action: pan-y; /* Allow vertical scrolling but handle horizontal swipes */
+		position: relative;
 	}
 
 	.notification-item.unread {
 		border-left: 4px solid #10B981;
+		background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+	}
+
+	.notification-item.read {
+		opacity: 0.8;
 	}
 
 	.notification-item.priority-urgent {
