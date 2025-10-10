@@ -356,6 +356,19 @@
 </svelte:head>
 
 <div class="mobile-tasks">
+	<!-- Assignment Action Button -->
+	<div class="action-buttons-section">
+		<a href="/mobile/tasks/assign" class="assign-task-btn">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+				<circle cx="8.5" cy="7" r="4"/>
+				<line x1="20" y1="8" x2="20" y2="14"/>
+				<line x1="23" y1="11" x2="17" y2="11"/>
+			</svg>
+			<span>{getTranslation('mobile.bottomNav.create')}</span>
+		</a>
+	</div>
+
 	<!-- Filters -->
 	<div class="filters-section">
 		<div class="search-box">
@@ -610,6 +623,48 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Action Buttons */
+	.action-buttons-section {
+		padding: 1rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.assign-task-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		text-decoration: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+	}
+
+	.assign-task-btn:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	.assign-task-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2);
+	}
+
+	.assign-task-btn svg {
+		width: 20px;
+		height: 20px;
+		stroke-width: 2;
 	}
 
 	/* Filters */

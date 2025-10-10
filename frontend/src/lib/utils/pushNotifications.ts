@@ -3,11 +3,12 @@ import { supabase, supabaseAdmin } from './supabase';
 import { browser } from '$app/environment';
 import { currentUser as persistentCurrentUser } from './persistentAuth';
 import { get } from 'svelte/store';
+import { PushSubscriptionCleanupService } from './pushSubscriptionCleanup';
 
 // Push notification configuration
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || 'your-vapid-public-key'; // Will need to be set
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vmypotfsyrvuublyddyt.supabase.co';
-const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
+const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.tKKj7zXNvccfYO7m59}IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
 // Singleton service role client to avoid multiple instances
 let serviceRoleClient: any = null;
@@ -230,9 +231,57 @@ export class PushNotificationService {
 		}
 
 		try {
-			// In development mode, skip VAPID and create a mock subscription for local testing
+			// Check if push notifications are explicitly disabled
+			const pushEnabled = import.meta.env.VITE_PUSH_NOTIFICATIONS_ENABLED !== 'false';
+			
+			if (!pushEnabled) {
+				console.log('🔧 Push notifications disabled in configuration');
+				return null;
+			}
+
+			// Try to get real VAPID subscription first, even in development
+			if (VAPID_PUBLIC_KEY && VAPID_PUBLIC_KEY !== 'your-vapid-public-key') {
+				console.log('🔑 Using real VAPID subscription for locked phone notifications');
+				
+				// Ensure Service Worker is active
+				await navigator.serviceWorker.ready;
+				const currentRegistration = await navigator.serviceWorker.ready;
+				
+				if (!currentRegistration.active) {
+					throw new Error('Service Worker is not active for push subscription');
+				}
+				
+				// Check for existing subscription first
+				this.subscription = await currentRegistration.pushManager.getSubscription();
+				
+				if (!this.subscription) {
+					console.log('📱 Creating new real push subscription with enhanced options for locked phones...');
+					
+					// Enhanced subscription options for locked phone notifications
+					this.subscription = await currentRegistration.pushManager.subscribe({
+						userVisibleOnly: true, // REQUIRED: ensures notifications work when app is closed/phone locked
+						applicationServerKey: this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource
+					});
+					
+					console.log('✅ Real push subscription created successfully');
+				} else {
+					console.log('✅ Using existing real push subscription');
+				}
+				
+				console.log('🔒 Subscription will work when phone is locked and app is closed');
+				
+				// Update registration reference
+				this.swRegistration = currentRegistration;
+				
+				// Register device with backend
+				await this.registerDevice();
+				return this.subscription;
+			}
+
+			// Development fallback: In development mode, create mock subscription but log warning
 			if (import.meta.env.DEV) {
-				console.log('🔧 Development mode: Skipping VAPID subscription, using mock registration');
+				console.log('🔧 Development mode: Using mock subscription');
+				console.warn('⚠️ For real locked phone notifications, configure VAPID keys in .env');
 				
 				// Create a mock subscription for local testing
 				this.subscription = {
@@ -255,39 +304,8 @@ export class PushNotificationService {
 			}
 
 			// Production mode - require VAPID key
-			if (!VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY === 'your-vapid-public-key') {
-				console.warn('⚠️ VAPID public key not configured. Push notifications disabled in production.');
-				return null;
-			}
-
-			// Double-check that Service Worker is still active before subscription
-			await navigator.serviceWorker.ready;
-			const currentRegistration = await navigator.serviceWorker.ready;
-			
-			if (!currentRegistration.active) {
-				throw new Error('Service Worker is not active at subscription time');
-			}
-			
-			console.log('🔔 Service Worker confirmed active, proceeding with subscription...');
-
-			// Check for existing subscription
-			this.subscription = await currentRegistration.pushManager.getSubscription();
-
-			if (!this.subscription) {
-				// Create new subscription
-				this.subscription = await currentRegistration.pushManager.subscribe({
-					userVisibleOnly: true,
-					applicationServerKey: this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource
-				});
-			}
-
-			// Update registration reference
-			this.swRegistration = currentRegistration;
-
-			// Register device with backend
-			await this.registerDevice();
-
-			return this.subscription;
+			console.warn('⚠️ VAPID public key not configured. Push notifications disabled in production.');
+			return null;
 		} catch (error) {
 			console.error('Failed to subscribe to push notifications:', error);
 			return null;
@@ -371,6 +389,19 @@ export class PushNotificationService {
 			// Store device ID locally
 			localStorage.setItem('aqura-device-id', deviceId);
 
+			// Clean up old subscriptions after successful registration
+			try {
+				console.log('🧹 [PushNotifications] Running subscription cleanup...');
+				const cleanupResult = await PushSubscriptionCleanupService.cleanupUserSubscriptions(userUUID);
+				if (cleanupResult.success) {
+					console.log(`✅ [PushNotifications] Subscription cleanup completed - deleted ${cleanupResult.deleted} old subscriptions`);
+				} else {
+					console.warn('⚠️ [PushNotifications] Cleanup completed with warnings:', cleanupResult.error);
+				}
+			} catch (cleanupError) {
+				console.warn('⚠️ [PushNotifications] Cleanup failed but registration succeeded:', cleanupError);
+			}
+
 			console.log('✅ [PushNotifications] Device registered for push notifications');
 		} catch (error) {
 			console.error('❌ [PushNotifications] Failed to register device:', error);
@@ -409,6 +440,86 @@ export class PushNotificationService {
 			console.log('Device unregistered from push notifications');
 		} catch (error) {
 			console.error('Failed to unregister device:', error);
+		}
+	}
+
+	/**
+	 * Send a test notification specifically designed for locked phone testing
+	 */
+	async sendTestNotificationForLockedPhone(): Promise<void> {
+		if (!browser || Notification.permission !== 'granted') {
+			console.warn('Cannot send notification - permission not granted');
+			return;
+		}
+
+		// Enhanced test notification specifically for locked phone scenarios
+		const isMobile = this.getDeviceType() === 'mobile';
+		console.log('📱 Sending locked phone test notification for:', isMobile ? 'mobile' : 'desktop');
+
+		// Use Service Worker registration for locked phone compatibility
+		if (this.swRegistration) {
+			const enhancedOptions = {
+				body: `🔒 LOCKED PHONE TEST: This notification should appear even when your ${isMobile ? 'phone is locked' : 'computer is locked'}!`,
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-96x96.png',
+				tag: 'locked-phone-test-notification',
+				// Critical settings for locked phone notifications
+				requireInteraction: true, // REQUIRED: Forces notification to persist until user interacts
+				silent: false, // Ensure sound plays even when phone is locked
+				renotify: true, // Allow renotifying with same tag
+				persistent: true, // Keep notification visible until user dismisses
+				// Enhanced vibration for locked devices
+				vibrate: isMobile ? [300, 100, 300, 100, 300, 100, 300] : [200, 100, 200],
+				timestamp: Date.now(),
+				// Data to track locked phone delivery
+				data: {
+					testType: 'locked-phone-test',
+					isMobileDevice: isMobile,
+					deviceType: this.getDeviceType(),
+					testTimestamp: Date.now(),
+					instructions: 'Lock your device and check if this notification appears',
+					priority: 'high',
+					wakeScreen: true
+				},
+				// Enhanced actions for locked phone testing
+				actions: [
+					{
+						action: 'success',
+						title: '✅ It Worked!',
+						icon: '/icons/checkmark.png'
+					},
+					{
+						action: 'failed',
+						title: '❌ Didn\'t Work',
+						icon: '/icons/xmark.png'
+					},
+					{
+						action: 'open',
+						title: '🚀 Open App',
+						icon: '/icons/icon-96x96.png'
+					}
+				]
+			};
+
+			try {
+				await this.swRegistration.showNotification(
+					'🔒 Locked Phone Test - Aqura Management', 
+					enhancedOptions
+				);
+				
+				console.log('✅ Locked phone test notification sent successfully');
+				console.log('📱 Instructions: Lock your device and check if the notification appears');
+				
+				// Show success message to user
+				console.log('� Instructions: Lock your device and check if the notification appears');
+				
+			} catch (error) {
+				console.error('❌ Locked phone test notification failed:', error);
+				throw error;
+			}
+		} else {
+			console.warn('Service Worker not available for locked phone notifications');
+			throw new Error('Service Worker not available');
 		}
 	}
 
@@ -723,6 +834,24 @@ if (browser) {
                     canInstall: !isInstalled && installPromptAvailable
                 });
             }, 1000);
+        },
+        
+        async testLockedPhoneNotification() {
+            console.log('🔒 Testing locked phone notification...');
+            try {
+                await pushNotificationService.sendTestNotificationForLockedPhone();
+            } catch (error) {
+                console.error('❌ Locked phone test failed:', error);
+            }
+        },
+        
+        async testRegularNotification() {
+            console.log('📱 Testing regular notification...');
+            try {
+                await pushNotificationService.sendTestNotification();
+            } catch (error) {
+                console.error('❌ Regular test failed:', error);
+            }
         }
     };
     
@@ -730,4 +859,6 @@ if (browser) {
     console.log('  - aquraPushDebug.testNotification() - Test notifications with PWA detection');
     console.log('  - aquraPushDebug.checkPWAStatus() - Check current PWA installation status');
     console.log('  - aquraPushDebug.testPWAInstallability() - Test PWA installation readiness');
+    console.log('  - aquraPushDebug.testLockedPhoneNotification() - Test notifications for locked phones');
+    console.log('  - aquraPushDebug.testRegularNotification() - Test regular notifications');
 }

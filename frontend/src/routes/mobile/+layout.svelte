@@ -520,18 +520,6 @@
 				<span class="nav-label">{getTranslation('mobile.bottomNav.tasks')}</span>
 			</a>
 			
-			<a href="/mobile/tasks/assign" class="nav-item create-btn" class:active={$page.url.pathname.startsWith('/mobile/tasks/assign')}>
-				<div class="nav-icon create-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-						<circle cx="8.5" cy="7" r="4"/>
-						<line x1="20" y1="8" x2="20" y2="14"/>
-						<line x1="23" y1="11" x2="17" y2="11"/>
-					</svg>
-				</div>
-				<span class="nav-label">{getTranslation('mobile.bottomNav.create')}</span>
-			</a>
-			
 			<a href="/mobile/quick-task" class="nav-item quick-task-btn" class:active={$page.url.pathname.startsWith('/mobile/quick-task')}>
 				<div class="nav-icon quick-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -948,27 +936,6 @@
 		font-size: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
 		font-weight: 500;
 		text-align: center;
-	}
-
-	/* Special styling for create button */
-	.nav-item.create-btn {
-		color: white;
-	}
-
-	.nav-item.create-btn .create-icon {
-		background: linear-gradient(135deg, #3B82F6, #1D4ED8);
-		color: white;
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-	}
-
-	.nav-item.create-btn:hover .create-icon {
-		transform: scale(1.05);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.nav-item.create-btn .nav-label {
-		color: #3B82F6;
-		font-weight: 600;
 	}
 
 	/* Special styling for quick task button */

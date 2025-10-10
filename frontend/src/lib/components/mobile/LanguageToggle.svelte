@@ -54,52 +54,48 @@
 	}
 
 	.language-btn {
+		width: 28px;
+		height: 28px;
+		background: rgba(255, 255, 255, 0.1);
+		color: #FFFFFF;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		font-size: 10px;
+		font-weight: 600;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 6px 12px;
-		border: none;
-		background: rgba(255, 255, 255, 0.1);
-		color: #FFFFFF;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		font-size: 12px;
-		font-weight: 600;
-		min-width: 50px;
-		backdrop-filter: blur(8px);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		backdrop-filter: blur(10px);
+		touch-action: manipulation;
 	}
 
 	.language-btn:hover {
 		background: rgba(255, 255, 255, 0.2);
-		transform: translateY(-1px);
+		transform: scale(1.05);
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 	}
 
 	.language-btn:active {
-		transform: translateY(0);
+		transform: scale(0.95);
 		background: rgba(255, 255, 255, 0.15);
 	}
 
 	.switch-to-lang {
 		font-weight: 700;
-		font-size: 11px;
-		letter-spacing: 0.3px;
+		font-size: 9px;
+		letter-spacing: 0.2px;
 		line-height: 1;
 		color: #FFFFFF;
 		white-space: nowrap;
+		text-transform: uppercase;
 	}
 
 	/* Mobile-specific adjustments */
 	@media (max-width: 768px) {
-		.language-btn {
-			min-width: 45px;
-			padding: 4px 8px;
-		}
-
 		.switch-to-lang {
-			font-size: 10px;
+			font-size: 8px;
 		}
 	}
 
