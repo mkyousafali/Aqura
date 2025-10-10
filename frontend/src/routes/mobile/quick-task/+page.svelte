@@ -428,7 +428,10 @@
 					issue_type: issueType,
 					priority: priority,
 					assigned_by: $currentUser?.id,
-					assigned_to_branch_id: selectedBranch
+					assigned_to_branch_id: selectedBranch,
+					require_task_finished: true, // Always required
+					require_photo_upload: requirePhotoUpload,
+					require_erp_reference: requireErpReference
 				})
 				.select()
 				.single();
@@ -502,6 +505,9 @@
 			const assignments = selectedUsers.map(userId => ({
 				quick_task_id: taskData.id,
 				assigned_to_user_id: userId,
+				require_task_finished: true, // Always required
+				require_photo_upload: requirePhotoUpload,
+				require_erp_reference: requireErpReference
 			}));
 
 			// Store completion requirements in a separate record or in task metadata

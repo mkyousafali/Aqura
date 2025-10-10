@@ -345,42 +345,16 @@
 		if (!confirmed) return;
 
 		try {
-			const now = new Date().toISOString();
-			
-			// Update the Quick Task assignment status
-			const { error: assignmentError } = await supabase
-				.from('quick_task_assignments')
-				.update({
-					status: 'completed',
-					completed_at: now,
-					updated_at: now
-				})
-				.eq('id', task.assignment_id);
+			// Use the proper completion function
+			const { data, error } = await supabase.rpc('submit_quick_task_completion', {
+				p_assignment_id: task.assignment_id,
+				p_user_id: $currentUser?.id,
+				p_completion_notes: 'Completed from desktop interface',
+				p_photos: null,
+				p_erp_reference: null
+			});
 
-			if (assignmentError) throw assignmentError;
-
-			// Check if all assignments for this quick task are completed
-			const { data: allAssignments, error: checkError } = await supabase
-				.from('quick_task_assignments')
-				.select('status')
-				.eq('quick_task_id', task.id);
-
-			if (checkError) throw checkError;
-
-			// If all assignments are completed, update the main quick task
-			const allCompleted = allAssignments.every(a => a.status === 'completed');
-			if (allCompleted) {
-				const { error: taskError } = await supabase
-					.from('quick_tasks')
-					.update({
-						status: 'completed',
-						completed_at: now,
-						updated_at: now
-					})
-					.eq('id', task.id);
-
-				if (taskError) throw taskError;
-			}
+			if (error) throw error;
 
 			alert('Quick Task completed successfully!');
 			loadMyTasks(); // Reload the tasks list

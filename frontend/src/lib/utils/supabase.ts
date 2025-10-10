@@ -956,6 +956,114 @@ export const db = {
 		}
 	},
 
+	// Quick task assignments operations
+	quickTaskAssignments: {
+		async getById(id: string) {
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.select('*')
+				.eq('id', id)
+				.single();
+			return { data, error };
+		},
+
+		async getByTaskId(quick_task_id: string) {
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.select('*')
+				.eq('quick_task_id', quick_task_id);
+			return { data, error };
+		},
+
+		async getByUserId(user_id: string) {
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.select('*')
+				.eq('assigned_to_user_id', user_id)
+				.order('created_at', { ascending: false });
+			return { data, error };
+		},
+
+		async create(assignment: {
+			quick_task_id: string;
+			assigned_to_user_id: string;
+			require_task_finished?: boolean;
+			require_photo_upload?: boolean;
+			require_erp_reference?: boolean;
+		}) {
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.insert({
+					require_task_finished: true,
+					require_photo_upload: false,
+					require_erp_reference: false,
+					...assignment
+				})
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async createMultiple(assignments: Array<{
+			quick_task_id: string;
+			assigned_to_user_id: string;
+			require_task_finished?: boolean;
+			require_photo_upload?: boolean;
+			require_erp_reference?: boolean;
+		}>) {
+			const formattedAssignments = assignments.map(assignment => ({
+				require_task_finished: true,
+				require_photo_upload: false,
+				require_erp_reference: false,
+				...assignment
+			}));
+
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.insert(formattedAssignments)
+				.select();
+			return { data, error };
+		},
+
+		async updateStatus(id: string, status: string) {
+			const updates: any = {
+				status,
+				updated_at: new Date().toISOString()
+			};
+
+			if (status === 'accepted') {
+				updates.accepted_at = new Date().toISOString();
+			} else if (status === 'in_progress') {
+				updates.started_at = new Date().toISOString();
+			} else if (status === 'completed') {
+				updates.completed_at = new Date().toISOString();
+			}
+
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.update(updates)
+				.eq('id', id)
+				.select()
+				.single();
+			return { data, error };
+		},
+
+		async submitCompletion(
+			assignment_id: string,
+			completion_notes?: string,
+			photo_path?: string,
+			erp_reference?: string
+		) {
+			const { data, error } = await supabase.rpc('submit_quick_task_completion', {
+				assignment_id_param: assignment_id,
+				completion_notes_param: completion_notes,
+				photo_path_param: photo_path,
+				erp_reference_param: erp_reference
+			});
+			return { data, error };
+		}
+	},
+
 	// Task images operations
 	taskImages: {
 		async getByTaskId(task_id: string) {

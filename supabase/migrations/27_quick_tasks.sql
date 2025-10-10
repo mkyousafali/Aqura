@@ -17,12 +17,17 @@ CREATE TABLE IF NOT EXISTS public.quick_tasks (
     status CHARACTER VARYING(50) NULL DEFAULT 'pending'::character varying,
     created_from CHARACTER VARYING(50) NULL DEFAULT 'quick_task'::character varying,
     updated_at TIMESTAMP WITH TIME ZONE NULL DEFAULT now(),
+    require_task_finished BOOLEAN NULL DEFAULT true,
+    require_photo_upload BOOLEAN NULL DEFAULT false,
+    require_erp_reference BOOLEAN NULL DEFAULT false,
     
     CONSTRAINT quick_tasks_pkey PRIMARY KEY (id),
     CONSTRAINT quick_tasks_assigned_by_fkey 
         FOREIGN KEY (assigned_by) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT quick_tasks_assigned_to_branch_id_fkey 
-        FOREIGN KEY (assigned_to_branch_id) REFERENCES branches (id) ON DELETE SET NULL
+        FOREIGN KEY (assigned_to_branch_id) REFERENCES branches (id) ON DELETE SET NULL,
+    CONSTRAINT chk_require_task_finished_not_null 
+        CHECK (require_task_finished IS NOT NULL)
 ) TABLESPACE pg_default;
 
 -- Create indexes for efficient queries (original indexes)
@@ -66,6 +71,15 @@ ON public.quick_tasks (created_from);
 
 CREATE INDEX IF NOT EXISTS idx_quick_tasks_price_tag 
 ON public.quick_tasks (price_tag);
+
+-- Create indexes for completion requirements
+CREATE INDEX IF NOT EXISTS idx_quick_tasks_require_photo_upload
+ON public.quick_tasks (require_photo_upload) 
+WHERE require_photo_upload = true;
+
+CREATE INDEX IF NOT EXISTS idx_quick_tasks_require_erp_reference
+ON public.quick_tasks (require_erp_reference) 
+WHERE require_erp_reference = true;
 
 -- Create composite indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_quick_tasks_status_priority 
@@ -276,6 +290,9 @@ COMMENT ON COLUMN public.quick_tasks.started_at IS 'When work on the task starte
 COMMENT ON COLUMN public.quick_tasks.last_activity_at IS 'Last activity timestamp';
 COMMENT ON COLUMN public.quick_tasks.created_at IS 'When the task was created';
 COMMENT ON COLUMN public.quick_tasks.updated_at IS 'When the task was last updated';
+COMMENT ON COLUMN public.quick_tasks.require_task_finished IS 'Default requirement for task completion (always required)';
+COMMENT ON COLUMN public.quick_tasks.require_photo_upload IS 'Default requirement for photo upload on task completion';
+COMMENT ON COLUMN public.quick_tasks.require_erp_reference IS 'Default requirement for ERP reference on task completion';
 
 -- Create comprehensive view for tasks with related data
 CREATE OR REPLACE VIEW quick_tasks_detailed AS
@@ -315,6 +332,9 @@ SELECT
     qt.last_activity_at,
     qt.created_at,
     qt.updated_at,
+    qt.require_task_finished,
+    qt.require_photo_upload,
+    qt.require_erp_reference,
     CASE 
         WHEN qt.deadline_datetime < now() AND qt.status NOT IN ('completed', 'cancelled') THEN true
         ELSE false
@@ -347,7 +367,10 @@ CREATE OR REPLACE FUNCTION create_quick_task(
     department_id_param BIGINT DEFAULT NULL,
     tags_param TEXT[] DEFAULT NULL,
     metadata_param JSONB DEFAULT '{}',
-    parent_task_id_param UUID DEFAULT NULL
+    parent_task_id_param UUID DEFAULT NULL,
+    require_task_finished_param BOOLEAN DEFAULT true,
+    require_photo_upload_param BOOLEAN DEFAULT false,
+    require_erp_reference_param BOOLEAN DEFAULT false
 )
 RETURNS UUID AS $$
 DECLARE
@@ -370,7 +393,10 @@ BEGIN
         department_id,
         tags,
         metadata,
-        parent_task_id
+        parent_task_id,
+        require_task_finished,
+        require_photo_upload,
+        require_erp_reference
     ) VALUES (
         title_param,
         description_param,
@@ -384,7 +410,10 @@ BEGIN
         department_id_param,
         tags_param,
         metadata_param,
-        parent_task_id_param
+        parent_task_id_param,
+        require_task_finished_param,
+        require_photo_upload_param,
+        require_erp_reference_param
     ) RETURNING id INTO task_id;
     
     RETURN task_id;

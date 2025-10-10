@@ -107,7 +107,7 @@
 
 	async function loadDashboardData() {
 		try {
-			// Load task statistics
+			// Load task statistics - include tasks assigned TO user OR assigned BY user to themselves
 			const { data: taskAssignments, error: taskError } = await supabase
 				.from('task_assignments')
 				.select(`
@@ -122,7 +122,7 @@
 						created_at
 					)
 				`)
-				.eq('assigned_to_user_id', currentUserData.id)
+				.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
 				.order('assigned_at', { ascending: false });
 
 			if (!taskError && taskAssignments) {

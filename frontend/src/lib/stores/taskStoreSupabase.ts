@@ -364,6 +364,83 @@ function createTaskStore() {
 		// Set current task
 		setCurrentTask(task: Task | null) {
 			update(state => ({ ...state, currentTask: task }));
+		},
+
+		// Quick task assignment functions
+		async createQuickTaskAssignments(assignments: Array<{
+			quick_task_id: string;
+			assigned_to_user_id: string;
+			require_task_finished?: boolean;
+			require_photo_upload?: boolean;
+			require_erp_reference?: boolean;
+		}>) {
+			try {
+				const { data, error } = await db.quickTaskAssignments.createMultiple(assignments);
+				if (error) {
+					const errorMessage = error.message || 'Failed to create quick task assignments';
+					console.error('❌ [Store] createQuickTaskAssignments error:', error);
+					update(state => ({ ...state, error: errorMessage }));
+					return { success: false, error: errorMessage };
+				}
+				
+				console.log('✅ [Store] Quick task assignments created successfully:', data);
+				return { success: true, data };
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Unexpected error creating quick task assignments';
+				console.error('❌ [Store] createQuickTaskAssignments exception:', error);
+				update(state => ({ ...state, error: errorMessage }));
+				return { success: false, error: errorMessage };
+			}
+		},
+
+		async submitQuickTaskCompletion(
+			assignmentId: string,
+			completionNotes?: string,
+			photoPath?: string,
+			erpReference?: string
+		) {
+			try {
+				const { data, error } = await db.quickTaskAssignments.submitCompletion(
+					assignmentId,
+					completionNotes,
+					photoPath,
+					erpReference
+				);
+				
+				if (error) {
+					const errorMessage = error.message || 'Failed to submit quick task completion';
+					console.error('❌ [Store] submitQuickTaskCompletion error:', error);
+					update(state => ({ ...state, error: errorMessage }));
+					return { success: false, error: errorMessage };
+				}
+				
+				console.log('✅ [Store] Quick task completion submitted successfully:', data);
+				return { success: true, data };
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Unexpected error submitting quick task completion';
+				console.error('❌ [Store] submitQuickTaskCompletion exception:', error);
+				update(state => ({ ...state, error: errorMessage }));
+				return { success: false, error: errorMessage };
+			}
+		},
+
+		async getQuickTaskAssignments(quickTaskId: string) {
+			try {
+				const { data, error } = await db.quickTaskAssignments.getByTaskId(quickTaskId);
+				if (error) {
+					const errorMessage = error.message || 'Failed to load quick task assignments';
+					console.error('❌ [Store] getQuickTaskAssignments error:', error);
+					update(state => ({ ...state, error: errorMessage }));
+					return { success: false, error: errorMessage };
+				}
+				
+				return { success: true, data };
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Unexpected error loading quick task assignments';
+				console.error('❌ [Store] getQuickTaskAssignments exception:', error);
+				update(state => ({ ...state, error: errorMessage }));
+				return { success: false, error: errorMessage };
+			}
 		}
 	};
 }
@@ -388,3 +465,6 @@ export const addTaskImage = taskStore.addTaskImage.bind(taskStore);
 export const clearError = taskStore.clearError.bind(taskStore);
 export const clearTasks = taskStore.clearTasks.bind(taskStore);
 export const setCurrentTask = taskStore.setCurrentTask.bind(taskStore);
+export const createQuickTaskAssignments = taskStore.createQuickTaskAssignments.bind(taskStore);
+export const submitQuickTaskCompletion = taskStore.submitQuickTaskCompletion.bind(taskStore);
+export const getQuickTaskAssignments = taskStore.getQuickTaskAssignments.bind(taskStore);

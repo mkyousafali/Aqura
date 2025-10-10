@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS public.quick_task_assignments (
     completed_at TIMESTAMP WITH TIME ZONE NULL,
     created_at TIMESTAMP WITH TIME ZONE NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NULL DEFAULT now(),
+    require_task_finished BOOLEAN NULL DEFAULT true,
+    require_photo_upload BOOLEAN NULL DEFAULT false,
+    require_erp_reference BOOLEAN NULL DEFAULT false,
     
     CONSTRAINT quick_task_assignments_pkey PRIMARY KEY (id),
     CONSTRAINT quick_task_assignments_quick_task_id_assigned_to_user_id_key 
@@ -19,7 +22,9 @@ CREATE TABLE IF NOT EXISTS public.quick_task_assignments (
     CONSTRAINT quick_task_assignments_assigned_to_user_id_fkey 
         FOREIGN KEY (assigned_to_user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT quick_task_assignments_quick_task_id_fkey 
-        FOREIGN KEY (quick_task_id) REFERENCES quick_tasks (id) ON DELETE CASCADE
+        FOREIGN KEY (quick_task_id) REFERENCES quick_tasks (id) ON DELETE CASCADE,
+    CONSTRAINT chk_require_task_finished_not_null 
+        CHECK (require_task_finished IS NOT NULL)
 ) TABLESPACE pg_default;
 
 -- Create indexes for efficient queries
@@ -37,6 +42,21 @@ TABLESPACE pg_default;
 
 CREATE INDEX IF NOT EXISTS idx_quick_task_assignments_created_at 
 ON public.quick_task_assignments USING btree (created_at) 
+TABLESPACE pg_default;
+
+-- Create indexes for completion requirements
+CREATE INDEX IF NOT EXISTS idx_quick_task_assignments_require_task_finished
+ON public.quick_task_assignments USING btree (require_task_finished)
+TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_quick_task_assignments_require_photo_upload
+ON public.quick_task_assignments USING btree (require_photo_upload) 
+WHERE require_photo_upload = true
+TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_quick_task_assignments_require_erp_reference
+ON public.quick_task_assignments USING btree (require_erp_reference) 
+WHERE require_erp_reference = true
 TABLESPACE pg_default;
 
 -- Create additional useful indexes
@@ -145,6 +165,9 @@ COMMENT ON COLUMN public.quick_task_assignments.started_at IS 'When the user sta
 COMMENT ON COLUMN public.quick_task_assignments.completed_at IS 'When the task was completed';
 COMMENT ON COLUMN public.quick_task_assignments.created_at IS 'When the assignment was created';
 COMMENT ON COLUMN public.quick_task_assignments.updated_at IS 'When the assignment was last updated';
+COMMENT ON COLUMN public.quick_task_assignments.require_task_finished IS 'Whether the task must be marked as finished for completion (always required)';
+COMMENT ON COLUMN public.quick_task_assignments.require_photo_upload IS 'Whether a photo must be uploaded for task completion';
+COMMENT ON COLUMN public.quick_task_assignments.require_erp_reference IS 'Whether an ERP reference number is required for task completion';
 
 -- Create trigger functions
 CREATE OR REPLACE FUNCTION create_quick_task_notification()
@@ -246,6 +269,12 @@ AFTER UPDATE ON quick_task_assignments
 FOR EACH ROW 
 EXECUTE FUNCTION update_quick_task_status();
 
+-- Create trigger to automatically copy requirements when assignment is created
+CREATE TRIGGER trigger_copy_completion_requirements
+AFTER INSERT ON quick_task_assignments
+FOR EACH ROW
+EXECUTE FUNCTION copy_completion_requirements_to_assignment();
+
 -- Create view for assignment details with task and user info
 CREATE OR REPLACE VIEW quick_task_assignment_details AS
 SELECT 
@@ -254,11 +283,14 @@ SELECT
     qt.title as task_title,
     qt.description as task_description,
     qt.priority as task_priority,
-    qt.due_date as task_due_date,
+    qt.deadline_datetime as task_due_date,
     qta.assigned_to_user_id,
     u.username,
     u.full_name,
     qta.status,
+    qta.require_task_finished,
+    qta.require_photo_upload,
+    qta.require_erp_reference,
     qta.accepted_at,
     qta.started_at,
     qta.completed_at,
@@ -270,8 +302,8 @@ SELECT
         ELSE NULL
     END as completion_duration,
     CASE 
-        WHEN qt.due_date IS NOT NULL AND qta.completed_at IS NOT NULL 
-        THEN qta.completed_at <= qt.due_date
+        WHEN qt.deadline_datetime IS NOT NULL AND qta.completed_at IS NOT NULL 
+        THEN qta.completed_at <= qt.deadline_datetime
         ELSE NULL
     END as completed_on_time
 FROM quick_task_assignments qta
@@ -293,6 +325,9 @@ RETURNS TABLE(
     task_priority VARCHAR,
     task_due_date TIMESTAMPTZ,
     status VARCHAR,
+    require_task_finished BOOLEAN,
+    require_photo_upload BOOLEAN,
+    require_erp_reference BOOLEAN,
     accepted_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
@@ -306,8 +341,11 @@ BEGIN
         qt.title,
         qt.description,
         qt.priority,
-        qt.due_date,
+        qt.deadline_datetime,
         qta.status,
+        qta.require_task_finished,
+        qta.require_photo_upload,
+        qta.require_erp_reference,
         qta.accepted_at,
         qta.started_at,
         qta.completed_at,
@@ -347,6 +385,8 @@ RETURNS TABLE(
     completed_count BIGINT,
     cancelled_count BIGINT,
     rejected_count BIGINT,
+    require_photo_count BIGINT,
+    require_erp_count BIGINT,
     avg_acceptance_time INTERVAL,
     avg_completion_time INTERVAL
 ) AS $$
@@ -360,10 +400,70 @@ BEGIN
         COUNT(*) FILTER (WHERE status = 'completed') as completed_count,
         COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_count,
         COUNT(*) FILTER (WHERE status = 'rejected') as rejected_count,
+        COUNT(*) FILTER (WHERE require_photo_upload = true) as require_photo_count,
+        COUNT(*) FILTER (WHERE require_erp_reference = true) as require_erp_count,
         AVG(accepted_at - created_at) FILTER (WHERE accepted_at IS NOT NULL) as avg_acceptance_time,
         AVG(completed_at - started_at) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL) as avg_completion_time
     FROM quick_task_assignments;
 END;
 $$ LANGUAGE plpgsql;
 
-RAISE NOTICE 'quick_task_assignments table created with comprehensive assignment tracking features';
+-- Create function to create assignments with completion requirements
+CREATE OR REPLACE FUNCTION create_quick_task_assignment(
+    quick_task_id_param UUID,
+    assigned_to_user_id_param UUID,
+    require_task_finished_param BOOLEAN DEFAULT true,
+    require_photo_upload_param BOOLEAN DEFAULT false,
+    require_erp_reference_param BOOLEAN DEFAULT false
+)
+RETURNS UUID AS $$
+DECLARE
+    assignment_id UUID;
+BEGIN
+    INSERT INTO quick_task_assignments (
+        quick_task_id,
+        assigned_to_user_id,
+        require_task_finished,
+        require_photo_upload,
+        require_erp_reference,
+        status
+    ) VALUES (
+        quick_task_id_param,
+        assigned_to_user_id_param,
+        require_task_finished_param,
+        require_photo_upload_param,
+        require_erp_reference_param,
+        'pending'
+    ) RETURNING id INTO assignment_id;
+    
+    RETURN assignment_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger function to copy completion requirements from task to assignment
+CREATE OR REPLACE FUNCTION copy_completion_requirements_to_assignment()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update the assignment with completion requirements from the task
+    UPDATE quick_task_assignments 
+    SET 
+        require_task_finished = (
+            SELECT require_task_finished 
+            FROM quick_tasks 
+            WHERE id = NEW.quick_task_id
+        ),
+        require_photo_upload = (
+            SELECT require_photo_upload 
+            FROM quick_tasks 
+            WHERE id = NEW.quick_task_id
+        ),
+        require_erp_reference = (
+            SELECT require_erp_reference 
+            FROM quick_tasks 
+            WHERE id = NEW.quick_task_id
+        )
+    WHERE id = NEW.id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
