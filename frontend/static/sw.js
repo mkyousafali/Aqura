@@ -425,27 +425,36 @@ self.addEventListener('push', (event) => {
 				return; // Don't show notifications to unauthenticated users
 			}
 			
-			// Enhanced options for closed app scenario
+			// Enhanced options for locked phone and closed app scenario
 			const options = {
 				body: notificationData?.body || notificationData?.message || 'New update available',
 				icon: notificationData?.icon || '/icons/icon-192x192.png',
 				badge: notificationData?.badge || '/icons/icon-96x96.png',
 				tag: notificationData?.tag || `aqura-notification-${Date.now()}`,
-				// Enhanced for closed app - more aggressive to get user attention
-				vibrate: [200, 100, 200, 100, 200], // Longer vibration for closed app
-				requireInteraction: true, // Always require interaction when app is closed
-				silent: false,
-				// Enhanced timestamp tracking
+				// Critical settings for locked phone notifications
+				vibrate: [300, 100, 300, 100, 300, 100, 300], // Stronger vibration pattern for locked phones
+				requireInteraction: true, // REQUIRED: Forces notification to persist until user interacts
+				silent: false, // Ensure sound plays even when phone is locked
+				renotify: true, // Allow renotifying with same tag for important updates
+				persistent: true, // Keep notification visible until user dismisses
+				// Wake screen on locked devices
 				timestamp: Date.now(),
+				// Enhanced visibility settings for locked phones
+				dir: 'auto', // Support RTL languages on lock screen
+				lang: notificationData?.lang || 'en',
+				// Critical data for locked phone handling
 				data: {
 					...notificationData?.data,
 					dateOfArrival: Date.now(),
 					notificationId: notificationData?.notificationId || Date.now(),
 					appState: 'closed', // Track that app was closed when notification arrived
 					authenticated: true, // User was authenticated when notification was sent
-					deliveryMethod: 'service-worker-background'
+					deliveryMethod: 'service-worker-background',
+					deviceState: 'potentially-locked', // Assume device might be locked
+					priority: 'high', // High priority for locked device notifications
+					wakeScreen: true // Request screen wake on supported devices
 				},
-				// Enhanced actions for closed app scenario
+				// Enhanced actions for locked phone scenario
 				actions: [
 					{
 						action: 'open',
