@@ -1,5 +1,6 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
+	import VendorMaster from './VendorMaster.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -17,8 +18,8 @@
 		},
 		{
 			id: 'vendor',
-			title: 'Vendor Management',
-			description: 'Vendor relationships and contracts',
+			title: 'Vendor Master',
+			description: 'Manage vendors, suppliers and vendor relationships',
 			icon: '🏪',
 			color: 'green'
 		}
@@ -28,31 +29,51 @@
 		const windowId = generateWindowId(operation.id);
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
-			id: windowId,
-			title: `${operation.title} #${instanceNumber}`,
-			component: null, // Blank window for now
-			icon: operation.icon,
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true,
-			content: `
-				<div style="padding: 24px; height: 100%; background: white;">
-					<h1 style="color: #1f2937; margin-bottom: 16px;">${operation.title}</h1>
-					<p style="color: #6b7280; font-size: 16px;">${operation.description}</p>
-					<div style="margin-top: 40px; padding: 40px; background: #f9fafb; border-radius: 12px; text-align: center; border: 2px dashed #d1d5db;">
-						<h2 style="color: #374151; margin-bottom: 12px;">Coming Soon</h2>
-						<p style="color: #6b7280;">This module will be implemented with full functionality.</p>
+		if (operation.id === 'vendor') {
+			// Open Vendor Master component
+			windowManager.openWindow({
+				id: windowId,
+				title: `${operation.title} #${instanceNumber}`,
+				component: VendorMaster,
+				icon: operation.icon,
+				size: { width: 1200, height: 800 },
+				position: { 
+					x: 50 + (Math.random() * 100),
+					y: 50 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else {
+			// Open placeholder for other operations
+			windowManager.openWindow({
+				id: windowId,
+				title: `${operation.title} #${instanceNumber}`,
+				component: null, // Blank window for now
+				icon: operation.icon,
+				size: { width: 1000, height: 700 },
+				position: { 
+					x: 50 + (Math.random() * 100),
+					y: 50 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true,
+				content: `
+					<div style="padding: 24px; height: 100%; background: white;">
+						<h1 style="color: #1f2937; margin-bottom: 16px;">${operation.title}</h1>
+						<p style="color: #6b7280; font-size: 16px;">${operation.description}</p>
+						<div style="margin-top: 40px; padding: 40px; background: #f9fafb; border-radius: 12px; text-align: center; border: 2px dashed #d1d5db;">
+							<h2 style="color: #374151; margin-bottom: 12px;">Coming Soon</h2>
+							<p style="color: #6b7280;">This module will be implemented with full functionality.</p>
+						</div>
 					</div>
-				</div>
-			`
-		});
+				`
+			});
+		}
 	}
 </script>
 
