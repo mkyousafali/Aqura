@@ -356,18 +356,6 @@
 </svelte:head>
 
 <div class="mobile-tasks">
-	<!-- Action Header -->
-	<div class="action-header">
-		<button class="create-task-btn" on:click={() => goto('/mobile/tasks/create')}>
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<circle cx="12" cy="12" r="10"/>
-				<line x1="12" y1="8" x2="12" y2="16"/>
-				<line x1="8" y1="12" x2="16" y2="12"/>
-			</svg>
-			{getTranslation('mobile.tasksContent.createTask')}
-		</button>
-	</div>
-
 	<!-- Filters -->
 	<div class="filters-section">
 		<div class="search-box">
@@ -624,43 +612,6 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	/* Action Header */
-	.action-header {
-		padding: 1.2rem;
-		background: white;
-		border-bottom: 1px solid #E5E7EB;
-	}
-
-	.create-task-btn {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-		color: white;
-		border: none;
-		border-radius: 12px;
-		padding: 0.9rem 1.2rem; /* Reduced from 1.125rem 1.5rem (20% smaller) */
-		font-size: 0.9rem; /* Reduced from 1.125rem (20% smaller) */
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-	}
-
-	.create-task-btn:hover {
-		background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	.create-task-btn:active {
-		transform: translateY(0);
-		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-	}
-
 	/* Filters */
 	.filters-section {
 		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
@@ -797,27 +748,6 @@
 		color: #6B7280;
 		margin: 0 0 2rem 0;
 		line-height: 1.5;
-	}
-
-	.create-task-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1.5rem;
-		background: #3B82F6;
-		color: white;
-		border: none;
-		border-radius: 12px;
-		font-size: 1rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-	}
-
-	.create-task-btn:hover {
-		background: #2563EB;
-		transform: translateY(-1px);
 	}
 
 	/* Task List */

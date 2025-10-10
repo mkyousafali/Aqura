@@ -36,15 +36,9 @@
 	onMount(() => {
 		// Initialize i18n system
 		initI18n();
-		console.log('🌐 [Mobile Layout] i18n system initialized');
-		
-		console.log('🔍 [Mobile Layout] Starting mobile layout initialization...');
-		console.log('🔍 [Mobile Layout] Auth state:', $isAuthenticated);
-		console.log('🔍 [Mobile Layout] Current user:', $currentUser);
 		
 		// Check authentication
 		if (!$isAuthenticated) {
-			console.log('❌ [Mobile Layout] Not authenticated, redirecting to mobile login');
 			goto('/mobile-login');
 			return;
 		}
@@ -52,26 +46,22 @@
 		// Ensure mobile preference is maintained for this user
 		if ($currentUser) {
 			interfacePreferenceService.forceMobileInterface($currentUser.id);
-			console.log('� [Mobile Layout] Mobile interface preference enforced for user:', $currentUser.id);
 		}
 
 		// Check interface preference to ensure user should be in mobile interface
 		const userId = $currentUser?.id;
 		if (userId && !interfacePreferenceService.isMobilePreferred(userId)) {
-			console.log('⚠️ [Mobile Layout] User does not have mobile preference, redirecting to desktop');
 			goto('/');
 			return;
 		}
 
 		currentUserData = $currentUser;
 		isLoading = false;
-		console.log('✅ [Mobile Layout] Mobile layout initialization completed');
 
 		// Load badge counts
 		loadBadgeCounts();
 		
 		// Initialize notification sound system for mobile
-		console.log('🔔 [Mobile Layout] Starting notification sound system...');
 		startNotificationListener();
 		
 		// Set up mobile audio unlock on first user interaction
@@ -95,13 +85,11 @@
 		loadBadgeCounts(true); // Silent refresh counts when user changes
 		
 		// Restart notification sound system for new user
-		console.log('🔔 [Mobile Layout] User changed, restarting notification sound system...');
 		startNotificationListener();
 	}
 
 	// Reactive statement to play sound when notification count increases
 	$: if (notificationCount > previousNotificationCount && previousNotificationCount >= 0 && !isInitialLoad) {
-		console.log('🔔 [Mobile Layout] Reactive notification count change detected:', previousNotificationCount, '->', notificationCount);
 		(async () => {
 			try {
 				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
@@ -166,7 +154,6 @@
 				
 				// Check if notification count increased (new notifications)
 				if (newNotificationCount > previousNotificationCount && previousNotificationCount > 0) {
-					console.log('🔔 [Mobile Layout] Notification count increased from', previousNotificationCount, 'to', newNotificationCount, '- playing sound');
 					// Play notification sound
 					try {
 						const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
@@ -243,7 +230,6 @@
 		// After the first load, allow sound notifications for future changes
 		if (isInitialLoad) {
 			isInitialLoad = false;
-			console.log('🔄 [Mobile Layout] Initial load completed - sounds now enabled for new notifications');
 		}
 	}
 	
@@ -256,7 +242,6 @@
 				
 				// Check if notification count increased during header refresh
 				if (newHeaderCount > headerNotificationCount && headerNotificationCount >= 0) {
-					console.log('🔔 [Mobile Layout] Header notification count increased from', headerNotificationCount, 'to', newHeaderCount, '- playing sound');
 					// Play notification sound
 					try {
 						const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
@@ -329,6 +314,7 @@
 		if (path.startsWith('/mobile/tasks/create')) return getTranslation('mobile.createTask');
 		if (path.includes('/complete')) return getTranslation('mobile.completeTask');
 		if (path.startsWith('/mobile/tasks/')) return getTranslation('mobile.taskDetails');
+		if (path.startsWith('/mobile/notifications/create')) return getTranslation('mobile.createNotification');
 		if (path.startsWith('/mobile/notifications/')) return getTranslation('mobile.notification');
 		if (path.startsWith('/mobile/assignments/')) return getTranslation('mobile.assignmentDetails');
 		
@@ -393,7 +379,6 @@
 	if (typeof window !== 'undefined') {
 		(window as any).testMobileNotificationSound = async () => {
 			try {
-				console.log('🔊 [Mobile Layout] Testing notification sound...');
 				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
 				if (notificationSoundManager) {
 					// Create a proper test notification object
@@ -408,7 +393,6 @@
 						soundEnabled: true
 					};
 					await notificationSoundManager.playNotificationSound(testNotification);
-					console.log('✅ [Mobile Layout] Test notification sound played successfully');
 				} else {
 					console.error('❌ [Mobile Layout] Sound manager not available');
 				}
@@ -418,20 +402,16 @@
 		};
 		
 		(window as any).simulateNotificationIncrease = () => {
-			console.log('🧪 [Mobile Layout] Simulating notification count increase...');
 			previousNotificationCount = notificationCount;
 			notificationCount = notificationCount + 1;
-			console.log('📈 [Mobile Layout] Notification count changed from', previousNotificationCount, 'to', notificationCount);
 		};
 		
 		// Add a function to re-unlock audio if it gets suspended
 		(window as any).unlockNotificationAudio = async () => {
 			try {
-				console.log('� [Mobile Layout] Manual audio unlock requested...');
 				const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
 				if (notificationSoundManager) {
 					await notificationSoundManager.unlockMobileAudio(true); // Force unlock
-					console.log('✅ [Mobile Layout] Audio unlocked successfully');
 					return true;
 				}
 			} catch (error) {
@@ -439,14 +419,6 @@
 				return false;
 			}
 		};
-		
-		console.log('�🔧 [Mobile Layout] Debug functions available:');
-		console.log('  - window.testMobileNotificationSound() - Test sound playback');
-		console.log('  - window.simulateNotificationIncrease() - Simulate count increase');
-		console.log('  - window.unlockNotificationAudio() - Unlock audio if suspended');
-		console.log('  - window.aquraSoundDebug.showPrompt() - Show audio unlock prompt');
-		console.log('  - window.aquraSoundDebug.forceUnlock() - Force audio unlock');
-		console.log('  - window.aquraSoundDebug.removePrompt() - Remove unlock prompt');
 	}
 </script>
 

@@ -20,7 +20,7 @@ export class InterfacePreferenceService {
 		const savedPreference = this.getStoredPreference();
 		interfacePreference.set(savedPreference);
 		
-		console.log('🖥️ [InterfacePreference] Initialized with preference:', savedPreference);
+		
 	}
 
 	/**
@@ -29,7 +29,7 @@ export class InterfacePreferenceService {
 	setPreference(preference: InterfaceType, userId?: string): void {
 		if (!browser) return;
 
-		console.log('🖥️ [InterfacePreference] Setting preference:', preference, 'for user:', userId);
+		
 
 		// Store global preference
 		if (preference) {
@@ -64,14 +64,14 @@ export class InterfacePreferenceService {
 			const userPreferences = this.getUserPreferences();
 			const userPreference = userPreferences[userId];
 			if (userPreference) {
-				console.log('🖥️ [InterfacePreference] Found user-specific preference:', userPreference);
+				
 				return userPreference;
 			}
 		}
 
 		// Fall back to global preference
 		const globalPreference = this.getStoredPreference();
-		console.log('🖥️ [InterfacePreference] Using global preference:', globalPreference);
+		
 		return globalPreference;
 	}
 
@@ -95,7 +95,7 @@ export class InterfacePreferenceService {
 	clearPreference(userId?: string): void {
 		if (!browser) return;
 
-		console.log('🖥️ [InterfacePreference] Clearing preference for user:', userId);
+		
 
 		if (userId) {
 			// Clear user-specific preference
@@ -113,7 +113,7 @@ export class InterfacePreferenceService {
 	 * Force mobile interface for current session (stronger than preference)
 	 */
 	forceMobileInterface(userId?: string): void {
-		console.log('🖥️ [InterfacePreference] Forcing mobile interface for user:', userId);
+		
 		this.setPreference('mobile', userId);
 		
 		// Set additional flags for extra persistence

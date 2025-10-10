@@ -266,7 +266,7 @@
 
 						// 2. Add task images from direct task relationship
 						if (notification.tasks && notification.tasks.task_images) {
-							console.log('📎 [Debug] Found task images from direct task:', notification.tasks.task_images.length);
+							
 							allAttachments.push(...notification.tasks.task_images.map(img => ({
 								...img,
 								type: 'task_image',
@@ -277,7 +277,7 @@
 
 						// 3. Add task images from task assignment relationship  
 						if (notification.task_assignments && notification.task_assignments.tasks && notification.task_assignments.tasks.task_images) {
-							console.log('📎 [Debug] Found task images from assignment:', notification.task_assignments.tasks.task_images.length);
+							
 							allAttachments.push(...notification.task_assignments.tasks.task_images.map(img => ({
 								...img,
 								type: 'task_image_assignment',
@@ -328,7 +328,7 @@
 							}
 						}
 
-						console.log('📎 [Debug] Final attachments for notification:', notification.id, 'count:', allAttachments.length, allAttachments);
+						
 
 						return {
 							...notification,
@@ -340,7 +340,7 @@
 				);
 
 				recentNotifications = notificationsWithRecipients;
-				console.log('📱 [Mobile Dashboard] Loaded recent notifications:', recentNotifications);
+				
 				console.log('📎 [Mobile Dashboard] Attachments check:', recentNotifications.map(n => ({
 					id: n.id,
 					title: n.title,
@@ -360,7 +360,7 @@
 
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
-		console.log('🔗 [URL Debug] Processing attachment:', attachment);
+		
 		
 		const baseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public';
 		
@@ -369,14 +369,14 @@
 			const fileName = attachment.file_url || attachment.file_path;
 			if (fileName) {
 				const url = `${baseUrl}/task-images/${fileName}`;
-				console.log('🔗 [URL Debug] Constructed task image URL:', url);
+				
 				return url;
 			}
 		} else if (attachment.type === 'quick_task_file') {
 			// Quick task files use storage_path
 			if (attachment.storage_path) {
 				const url = `${baseUrl}/quick-task-files/${attachment.storage_path}`;
-				console.log('🔗 [URL Debug] Constructed quick task URL:', url);
+				
 				return url;
 			}
 		} else if (attachment.type === 'notification_attachment') {
@@ -384,18 +384,18 @@
 			const fileName = attachment.file_path || attachment.file_url;
 			if (fileName) {
 				const url = `${baseUrl}/notification-images/${fileName}`;
-				console.log('🔗 [URL Debug] Constructed notification URL:', url);
+				
 				return url;
 			}
 		}
 		
 		// Fallback: if it's already a full URL, use it
 		if (attachment.file_url && attachment.file_url.startsWith('http')) {
-			console.log('🔗 [URL Debug] Using full URL:', attachment.file_url);
+			
 			return attachment.file_url;
 		}
 		
-		console.log('🔗 [URL Debug] No valid URL found for attachment:', attachment);
+		
 		return null;
 	}
 

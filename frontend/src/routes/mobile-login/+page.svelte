@@ -3,6 +3,22 @@
 	import { goto } from '$app/navigation';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
+	import { localeData, currentLocale } from '$lib/i18n';
+	import LanguageToggle from '$lib/components/mobile/LanguageToggle.svelte';
+
+	// Helper function to get translations
+	function t(keyPath: string): string {
+		const keys = keyPath.split('.');
+		let value: any = $localeData.translations;
+		for (const key of keys) {
+			if (value && typeof value === 'object' && key in value) {
+				value = value[key];
+			} else {
+				return keyPath; // Return key path if translation not found
+			}
+		}
+		return typeof value === 'string' ? value : keyPath;
+	}
 
 	// Quick Access form
 	let quickAccessCode = '';
@@ -44,7 +60,7 @@
 
 	async function handleQuickAccessLogin() {
 		if (!validateQuickAccess()) {
-			errorMessage = 'Please enter a valid 6-digit access code.';
+			errorMessage = t('mobile.login.codeRequired');
 			return;
 		}
 
@@ -74,7 +90,7 @@
 			console.log('🔍 [Mobile Login] Login result:', result);
 			
 			if (result.success) {
-				successMessage = 'Access granted! Redirecting...';
+				successMessage = t('mobile.login.accessingSystem');
 				console.log('✅ [Mobile Login] Login successful, redirecting to mobile dashboard');
 				
 				// Store strong mobile interface preference for this user
@@ -96,7 +112,7 @@
 				}
 			} else {
 				console.error('❌ [Mobile Login] Login failed:', result.error);
-				errorMessage = result.error || 'Access code invalid. Please try again.';
+				errorMessage = result.error || t('mobile.login.invalidCode');
 			}
 
 		} catch (error) {
@@ -238,8 +254,8 @@
 </script>
 
 <svelte:head>
-	<title>Mobile Access - Aqura Management System</title>
-	<meta name="description" content="Mobile access to your Aqura Management System" />
+	<title>{t('mobile.login.title')} - {t('app.name')}</title>
+	<meta name="description" content="{t('mobile.login.footer')}" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
 	<meta name="theme-color" content="#3B82F6" />
 	<meta name="mobile-web-app-capable" content="yes" />
@@ -249,23 +265,29 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="mobile-login-page" class:mounted>
+<div class="mobile-login-page" class:mounted class:rtl={$currentLocale === 'ar'}>
 	{#if showContent}
 		<div class="mobile-login-content">
 			<!-- Header Section -->
 			<div class="mobile-header">
-				<button class="back-btn" on:click={goBackToMainLogin} disabled={isLoading}>
+				<button class="back-btn" on:click={goBackToMainLogin} disabled={isLoading} aria-label="{t('nav.goBack')}">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M19 12H5M12 19l-7-7 7-7"/>
 					</svg>
 				</button>
 				
+				<div class="language-toggle-container">
+					<LanguageToggle />
+				</div>
+				
 				<div class="mobile-logo">
 					<div class="logo-icon">
 						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
 					</div>
-					<h1 class="app-title">Aqura Mobile</h1>
-					<p class="app-subtitle">Quick Access Portal</p>
+					<h1 class="app-name">{t('app.shortName')}</h1>
+					<p class="app-description">{t('app.description')}</p>
+					<h2 class="page-title">{t('mobile.login.title')}</h2>
+					<p class="page-subtitle">{t('mobile.login.quickAccess')}</p>
 				</div>
 			</div>
 
@@ -273,13 +295,13 @@
 			<div class="mobile-auth-section">
 				<form class="mobile-auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
 					<div class="form-header">
-						<h2>Enter Access Code</h2>
-						<p>Use your 6-digit security code to access the mobile interface</p>
+						<h2>{t('mobile.login.enterCode')}</h2>
+						<p>{t('mobile.login.subtitle')}</p>
 					</div>
 
 					<div class="form-fields">
 						<div class="field-group">
-							<label for="quickAccess">Security Code</label>
+							<label for="quickAccess">{t('mobile.login.accessCode')}</label>
 							<div class="quick-access-digits">
 								{#each quickAccessDigits as digit, index}
 									<input 
@@ -313,13 +335,13 @@
 					>
 						{#if isLoading}
 							<span class="loading-spinner"></span>
-							Accessing...
+							{t('mobile.login.accessingSystem')}
 						{:else}
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M9 12l2 2 4-4"/>
 								<circle cx="12" cy="12" r="10"/>
 							</svg>
-							Access Mobile Interface
+							{t('mobile.login.accessButton')}
 						{/if}
 					</button>
 				</form>
@@ -335,7 +357,7 @@
 							</svg>
 						</div>
 						<div class="status-content">
-							<h4>Access Denied</h4>
+							<h4>{t('mobile.login.accessDenied')}</h4>
 							<p>{errorMessage}</p>
 						</div>
 					</div>
@@ -350,43 +372,11 @@
 							</svg>
 						</div>
 						<div class="status-content">
-							<h4>Access Granted</h4>
+							<h4>{t('mobile.login.accessGranted')}</h4>
 							<p>{successMessage}</p>
 						</div>
 					</div>
 				{/if}
-			</div>
-
-			<!-- Mobile Features Info -->
-			<div class="mobile-features">
-				<h3>Mobile Interface Features</h3>
-				<div class="feature-list">
-					<div class="feature-item">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M9 12l2 2 4-4"/>
-							<path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
-							<path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
-							<path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
-							<path d="M12 21c0-1 1-3 3-3s3 2 3 3-1 3-3 3-3-2-3-3"/>
-						</svg>
-						<span>View and manage your tasks</span>
-					</div>
-					<div class="feature-item">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M14 9V5a3 3 0 0 0-6 0v4"/>
-							<rect x="2" y="9" width="20" height="12" rx="2" ry="2"/>
-							<circle cx="12" cy="15" r="1"/>
-						</svg>
-						<span>Create and assign new tasks</span>
-					</div>
-					<div class="feature-item">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-							<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-						</svg>
-						<span>Send and receive notifications</span>
-					</div>
-				</div>
 			</div>
 		</div>
 	{/if}
@@ -465,6 +455,13 @@
 		cursor: not-allowed;
 	}
 
+	.language-toggle-container {
+		position: absolute;
+		top: 0;
+		right: 0;
+		z-index: 10;
+	}
+
 	.mobile-logo {
 		margin-top: 2rem;
 	}
@@ -505,17 +502,36 @@
 		object-fit: contain;
 	}
 
-	.app-title {
+	.app-name {
 		font-size: 2.5rem;
-		font-weight: 700;
-		margin-bottom: 0.5rem;
+		font-weight: 800;
+		margin: 1rem 0 0.25rem;
 		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		color: white;
+		letter-spacing: -0.02em;
 	}
 
-	.app-subtitle {
-		font-size: 1.1rem;
-		opacity: 0.9;
+	.app-description {
+		font-size: 1rem;
+		opacity: 0.85;
+		font-weight: 400;
+		margin-bottom: 1.5rem;
+		color: rgba(255, 255, 255, 0.9);
+	}
+
+	.page-title {
+		font-size: 1.75rem;
+		font-weight: 600;
+		margin-bottom: 0.25rem;
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+		color: white;
+	}
+
+	.page-subtitle {
+		font-size: 1rem;
+		opacity: 0.8;
 		font-weight: 300;
+		color: rgba(255, 255, 255, 0.8);
 	}
 
 	/* Auth Section */
@@ -737,43 +753,6 @@
 		opacity: 0.9;
 	}
 
-	/* Mobile Features */
-	.mobile-features {
-		background: rgba(255, 255, 255, 0.1);
-		backdrop-filter: blur(20px);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 20px;
-		padding: 1.5rem;
-		margin-top: auto;
-	}
-
-	.mobile-features h3 {
-		font-size: 1.1rem;
-		font-weight: 600;
-		margin-bottom: 1rem;
-		text-align: center;
-		opacity: 0.9;
-	}
-
-	.feature-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.feature-item {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		font-size: 0.875rem;
-		opacity: 0.8;
-	}
-
-	.feature-item svg {
-		flex-shrink: 0;
-		opacity: 0.7;
-	}
-
 	/* Responsive adjustments */
 	@media (max-width: 480px) {
 		.mobile-login-content {
@@ -794,8 +773,21 @@
 			gap: 0.5rem;
 		}
 
-		.app-title {
+		.app-name {
 			font-size: 2rem;
+		}
+
+		.app-description {
+			font-size: 0.9rem;
+			margin-bottom: 1rem;
+		}
+
+		.page-title {
+			font-size: 1.5rem;
+		}
+
+		.page-subtitle {
+			font-size: 0.9rem;
 		}
 
 		.logo-icon {
@@ -842,16 +834,39 @@
 			height: 50px;
 		}
 
-		.app-title {
-			font-size: 1.75rem;
-		}
-
 		.mobile-auth-form {
 			padding: 1.5rem;
 		}
+	}
 
-		.mobile-features {
-			padding: 1rem;
-		}
+	/* RTL Support */
+	.mobile-login-page.rtl {
+		direction: rtl;
+	}
+
+	.mobile-login-page.rtl .mobile-header {
+		text-align: center;
+	}
+
+	.mobile-login-page.rtl .back-btn {
+		left: auto;
+		right: 0;
+	}
+
+	.mobile-login-page.rtl .language-toggle-container {
+		right: auto;
+		left: 0;
+	}
+
+	.mobile-login-page.rtl .form-header h2,
+	.mobile-login-page.rtl .form-header p {
+		text-align: center;
+	}
+
+	.mobile-login-page.rtl .app-name,
+	.mobile-login-page.rtl .app-description,
+	.mobile-login-page.rtl .page-title,
+	.mobile-login-page.rtl .page-subtitle {
+		text-align: center;
 	}
 </style>

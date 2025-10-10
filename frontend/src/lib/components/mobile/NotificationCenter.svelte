@@ -6,6 +6,7 @@
 	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
+	import { locale, getTranslation } from '$lib/i18n';
 
 	// Current user for role-based access
 	$: userRole = $currentUser?.role || 'Position-based';
@@ -34,16 +35,6 @@
 			return [];
 		}
 
-		console.log('🔧 [Mobile Notification] Transform input notifications:', apiNotifications.map(n => ({
-			id: n.id, 
-			title: n.title, 
-			message: n.message,
-			task_id: n.task_id,
-			task_assignment_id: n.task_assignment_id,
-			has_notification_attachments: n.has_notification_attachments,
-			allFields: Object.keys(n)
-		})));
-
 		// First, prepare all notifications with basic data
 		const transformedNotifications = apiNotifications.map(notification => ({
 			id: notification.id,
@@ -68,7 +59,6 @@
 		// Batch load all attachments at once (much more efficient)
 		try {
 			const notificationIds = apiNotifications.map(n => n.id);
-			console.log(`🖼️ [Mobile Notification] Batch loading attachments for ${notificationIds.length} notifications`);
 			
 			// Get all attachments for all notifications in one query
 			const allAttachmentsResult = await db.notificationAttachments.getBatchByNotificationIds(notificationIds);
@@ -107,9 +97,9 @@
 					}
 				});
 				
-				console.log(`✅ [Mobile Notification] Batch loaded ${allAttachmentsResult.data.length} notification attachments`);
+				
 			} else {
-				console.log(`📭 [Mobile Notification] No notification attachments found`);
+				
 			}
 
 			// Process each notification for attachments (both task-related and quick task)
@@ -119,7 +109,7 @@
 
 				// 1. Load task images for task-related notifications
 				if (originalNotification.task_id || originalNotification.task_assignment_id) {
-					console.log(`🖼️ [Mobile Notification] Loading task images for notification: ${transformed.id}`);
+					
 					
 					const taskAttachments = [];
 					
@@ -176,7 +166,7 @@
 					// Add task attachments to notification
 					if (taskAttachments.length > 0) {
 						transformed.attachments = [...(transformed.attachments || []), ...taskAttachments];
-						console.log(`✅ [Mobile Notification] Added ${taskAttachments.length} task images to notification ${transformed.id}`);
+						
 						
 						// Set first image as primary if not already set
 						if (!transformed.image_url) {
@@ -233,7 +223,7 @@
 					let quickTaskId = null;
 					if (originalNotification.metadata && originalNotification.metadata.quick_task_id) {
 						quickTaskId = originalNotification.metadata.quick_task_id;
-						console.log(`🔍 [Quick Task] Found quick task ID in metadata: ${quickTaskId}`);
+						
 					}
 					
 					let quickTaskFiles = [];
@@ -244,10 +234,10 @@
 							.select('*')
 							.eq('quick_task_id', quickTaskId);
 						quickTaskFiles = specificFiles || [];
-						console.log(`📁 [Quick Task] Found ${quickTaskFiles.length} files for specific quick task ${quickTaskId}`);
+						
 					} else {
 						// No specific quick task ID found, cannot load attachments
-						console.log(`🔍 [Quick Task] No specific quick task ID found, cannot load attachments`);
+						
 					}
 					
 					if (quickTaskFiles && quickTaskFiles.length > 0) {
@@ -264,7 +254,7 @@
 						
 						// Add quick task attachments to notification
 						transformed.attachments = [...(transformed.attachments || []), ...quickTaskAttachments];
-						console.log(`✅ [Mobile Notification] Added ${quickTaskAttachments.length} quick task files to notification ${transformed.id}`);
+						
 						
 						// Set first image as primary if not already set
 						if (!transformed.image_url) {
@@ -331,12 +321,10 @@
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
-				console.log('🔍 [Mobile Notification] Admin loaded raw notifications:', apiNotifications.length, apiNotifications.map(n => ({id: n.id, title: n.title})));
 				allNotifications = await transformNotificationData(apiNotifications);
 			} else if ($currentUser?.id) {
 				// Regular users see only their targeted notifications
 				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
-				console.log('🔍 [Mobile Notification] User loaded raw notifications:', userNotifications.length, userNotifications.map(n => ({id: n.notification_id, title: n.title})));
 				// Use the same transformation logic for consistent attachment loading
 				allNotifications = await transformNotificationData(userNotifications.map(notification => ({
 					...notification,
@@ -352,7 +340,6 @@
 				})));
 			}
 
-			console.log('✅ [Mobile Notification] Loaded notifications:', allNotifications.length);
 		} catch (error) {
 			console.error('❌ [Mobile Notification] Error loading notifications:', error);
 			errorMessage = 'Failed to load notifications. Please try again.';
@@ -440,9 +427,9 @@
 						}
 					}
 					
-					console.log(`📝 [Mobile Notification] Cached ${Object.keys(userCache).length} user names from ${users?.length || 0} users and ${employees?.length || 0} employees`);
+					
 				} else {
-					console.log(`📝 [Mobile Notification] Cached ${Object.keys(userCache).length} user names from ${users?.length || 0} users`);
+					
 				}
 			}
 		} catch (error) {
@@ -458,7 +445,7 @@
 			errorMessage = '';
 			
 			if (!silent) {
-				console.log('🔄 [Mobile Notification] Force refreshing notifications...');
+				
 			}
 			
 			if (isAdminOrMaster) {
@@ -481,7 +468,7 @@
 			}
 			
 			if (!silent) {
-				console.log('✅ [Mobile Notification] Force refresh completed. Total notifications:', allNotifications.length);
+				
 			}
 			
 			// Reload user cache after refresh (always silent)
@@ -517,7 +504,7 @@
 		if (!$currentUser?.id) return;
 		
 		try {
-			console.log('🔴 [Mobile Notification] Marking notification as read:', id);
+			
 			const result = await notificationManagement.markAsRead(id, $currentUser.id);
 			if (result.success) {
 				// Update local state
@@ -734,18 +721,18 @@
 	}
 
 	async function openTaskCompletion(notification: any) {
-		console.log('🔍 [Mobile Notification] Opening task completion for notification:', notification);
+		
 		
 		// Simple task data extraction from notification
 		const metadata = notification.metadata || {};
-		console.log('🔍 [Mobile Notification] Full metadata object:', metadata);
+		
 		
 		// Extract IDs - quick tasks use quick_task_id, normal tasks use task_id
 		const quickTaskId = metadata.quick_task_id;
 		const taskId = metadata.task_id || notification.task_id;
 		const assignmentId = metadata.task_assignment_id || metadata.quick_task_assignment_id || notification.task_assignment_id;
 		
-		console.log('📋 [Mobile Notification] Extracted IDs:', { taskId, quickTaskId, assignmentId, metadata });
+		
 		
 		// If metadata is empty, try to detect quick task from title/message
 		const isQuickTaskByContent = notification.title && notification.title.includes('Quick Task') ||
@@ -756,18 +743,18 @@
 		                             notification.type === 'task_assigned';
 		
 		if (isQuickTaskByContent && !quickTaskId) {
-			console.log('🔍 [Mobile Notification] Detected quick task by content, searching database...');
+			
 			
 			try {
 				// Extract task title from notification message
 				const titleMatch = notification.message.match(/"([^"]+)"/);
 				const taskTitle = titleMatch ? titleMatch[1] : '';
 				
-				console.log('🔍 [Mobile Notification] Searching for quick task with title:', taskTitle);
+				
 				
 				if (taskTitle && $currentUser?.id) {
 					// Find the quick task assignment for this user and task title
-					console.log('🔍 [Mobile Notification] Querying database with user ID:', $currentUser.id);
+					
 					
 					const { data: assignments, error } = await supabase
 						.from('quick_task_assignments')
@@ -787,12 +774,12 @@
 						.eq('quick_tasks.title', taskTitle)
 						.limit(1);
 					
-					console.log('🔍 [Mobile Notification] Database query result:', { data: assignments, error });
+					
 					
 					if (error) {
 						console.error('❌ [Mobile Notification] Database error:', error);
 						// Try a simpler query as fallback
-						console.log('🔄 [Mobile Notification] Trying simpler query...');
+						
 						
 						const { data: quickTasks, error: simpleError } = await supabase
 							.from('quick_tasks')
@@ -800,17 +787,17 @@
 							.eq('title', taskTitle)
 							.limit(1);
 							
-						console.log('🔍 [Mobile Notification] Simple query result:', { data: quickTasks, error: simpleError });
+						
 						
 						if (!simpleError && quickTasks && quickTasks.length > 0) {
 							const quickTaskId = quickTasks[0].id;
-							console.log('✅ [Mobile Notification] Found quick task via simple query:', quickTaskId);
+							
 							await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
 							return;
 						}
 					} else if (assignments && assignments.length > 0) {
 						const assignment = assignments[0];
-						console.log('✅ [Mobile Notification] Found quick task assignment:', assignment);
+						
 						
 						// Navigate to quick task completion page
 						await goto(`/mobile/quick-tasks/${assignment.quick_task_id}/complete`);
@@ -828,18 +815,18 @@
 		
 		// Handle normal tasks when metadata is empty
 		if (isNormalTaskByContent && !taskId && !quickTaskId) {
-			console.log('🔍 [Mobile Notification] Detected normal task by content, searching database...');
+			
 			
 			try {
 				// Extract task title from notification message
 				const titleMatch = notification.message.match(/"([^"]+)"/);
 				const taskTitle = titleMatch ? titleMatch[1] : '';
 				
-				console.log('🔍 [Mobile Notification] Searching for normal task with title:', taskTitle);
+				
 				
 				if (taskTitle && $currentUser?.id) {
 					// Find the task assignment for this user and task title
-					console.log('🔍 [Mobile Notification] Querying normal tasks with user ID:', $currentUser.id);
+					
 					
 					const { data: assignments, error } = await supabase
 						.from('task_assignments')
@@ -858,12 +845,12 @@
 						.eq('tasks.title', taskTitle)
 						.limit(1);
 					
-					console.log('🔍 [Mobile Notification] Normal task query result:', { data: assignments, error });
+					
 					
 					if (error) {
 						console.error('❌ [Mobile Notification] Normal task database error:', error);
 						// Try a simpler query as fallback
-						console.log('🔄 [Mobile Notification] Trying simpler normal task query...');
+						
 						
 						const { data: tasks, error: simpleError } = await supabase
 							.from('tasks')
@@ -871,17 +858,17 @@
 							.eq('title', taskTitle)
 							.limit(1);
 							
-						console.log('🔍 [Mobile Notification] Simple normal task query result:', { data: tasks, error: simpleError });
+						
 						
 						if (!simpleError && tasks && tasks.length > 0) {
 							const normalTaskId = tasks[0].id;
-							console.log('✅ [Mobile Notification] Found normal task via simple query:', normalTaskId);
+							
 							await goto(`/mobile/tasks/${normalTaskId}/complete`);
 							return;
 						}
 					} else if (assignments && assignments.length > 0) {
 						const assignment = assignments[0];
-						console.log('✅ [Mobile Notification] Found normal task assignment:', assignment);
+						
 						
 						// Navigate to normal task completion page
 						await goto(`/mobile/tasks/${assignment.task_id}/complete`);
@@ -900,7 +887,7 @@
 		// Check if this is a quick task notification with metadata
 		if (quickTaskId) {
 			// Navigate to quick task completion page
-			console.log('🚀 [Mobile Notification] Navigating to quick task completion:', quickTaskId);
+			
 			await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
 			return;
 		}
@@ -914,7 +901,7 @@
 		
 		try {
 			// Get task details
-			console.log('🔍 Loading task:', taskId);
+			
 			const taskResult = await db.tasks.getById(taskId);
 			if (!taskResult.data) {
 				console.error('❌ Task not found:', taskId);
@@ -922,16 +909,16 @@
 				return;
 			}
 			
-			console.log('✅ Task loaded:', taskResult.data);
+			
 			
 			// Get assignment details
 			let assignmentData = null;
 			if (assignmentId) {
-				console.log('🔍 Loading assignment:', assignmentId);
+				
 				const assignmentResult = await db.taskAssignments.getById(assignmentId);
 				assignmentData = assignmentResult.data;
 			} else {
-				console.log('🔍 Looking up assignments for task:', taskId);
+				
 				// Find assignment for current user
 				const assignmentsResult = await db.taskAssignments.getByTaskId(taskId);
 				if (assignmentsResult.data && assignmentsResult.data.length > 0) {
@@ -945,7 +932,7 @@
 				return;
 			}
 			
-			console.log('✅ Assignment loaded:', assignmentData);
+			
 			console.log('📋 Assignment requirements:', {
 				require_task_finished: assignmentData.require_task_finished,
 				require_photo_upload: assignmentData.require_photo_upload,
@@ -1018,6 +1005,11 @@
 		closeTaskCompletionModal();
 	}
 
+	function openCreateNotification() {
+		// Navigate to mobile create notification page
+		goto('/mobile/notifications/create');
+	}
+
 	// Silent refresh function for background updates
 	async function silentRefreshNotifications() {
 		try {
@@ -1087,6 +1079,16 @@
 			<p>Loading notifications...</p>
 		</div>
 	{:else}
+		<!-- Create Notification Button (Admin Only) -->
+		{#if isAdminOrMaster}
+			<div class="action-header">
+				<button class="create-notification-btn" on:click={openCreateNotification}>
+					<span class="btn-icon">📝</span>
+					{getTranslation('mobile.assignContent.createNotification')}
+				</button>
+			</div>
+		{/if}
+
 		<!-- Filters -->
 		<div class="filters-section">
 			<div class="filter-row">
@@ -1283,6 +1285,44 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
+	}
+
+	.action-header {
+		padding: 1rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+		margin-bottom: 0.5rem;
+	}
+
+	.create-notification-btn {
+		width: 100%;
+		background: linear-gradient(135deg, #10B981, #059669);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 14px 20px;
+		font-size: 16px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+	}
+
+	.create-notification-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+	}
+
+	.create-notification-btn:active {
+		transform: translateY(0);
+	}
+
+	.create-notification-btn .btn-icon {
+		font-size: 18px;
 	}
 
 	.error-banner {
