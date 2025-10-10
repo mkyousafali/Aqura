@@ -56,6 +56,13 @@
 
 	// Check if form can be submitted
 	$: canSubmit = (() => {
+		// Check if task is assigned to current user
+		if (!assignmentDetails) return false;
+		
+		// Check if assignment belongs to current user
+		if (assignmentDetails.assigned_to_user_id !== currentUserData?.id) return false;
+		
+		// Check completion requirements
 		const taskCheck = !resolvedRequireTaskFinished || completionData.task_finished_completed;
 		return taskCheck;
 	})();
@@ -427,6 +434,21 @@
 			</div>
 			<h2>Quick Task Not Found</h2>
 			<p>This quick task doesn't exist or you don't have access to it.</p>
+		</div>
+	{:else if !assignmentDetails || assignmentDetails.assigned_to_user_id !== currentUserData?.id}
+		<div class="error-state">
+			<div class="error-icon">
+				<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<path d="M18.364 5.636L12 12m0 0l-6.364 6.364M12 12l6.364 6.364M12 12L5.636 5.636"/>
+				</svg>
+			</div>
+			<h2>Access Denied</h2>
+			<p>This quick task is not assigned to you. Only assigned users can complete tasks.</p>
+			<div class="error-actions">
+				<button class="back-btn" on:click={() => goto('/mobile/assignments')}>
+					← Back to Assignments
+				</button>
+			</div>
 		</div>
 	{:else}
 		<!-- Task Details Section -->

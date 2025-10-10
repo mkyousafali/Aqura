@@ -109,11 +109,18 @@ class PushNotificationProcessor {
                     created_at,
                     retry_count,
                     next_retry_at,
-                    last_attempt_at
+                    last_attempt_at,
+                    push_subscriptions!inner(
+                        endpoint,
+                        p256dh,
+                        auth,
+                        is_active
+                    )
                 `)
                 .or(`status.eq.pending,and(status.eq.retry,next_retry_at.lte.${now})`)
+                .eq('push_subscriptions.is_active', true)
                 .order('created_at', { ascending: true }) // Process oldest first (FIFO)
-                .limit(10); // Reduced batch size for more frequent processing
+                .limit(10);
 
             if (error) {
                 console.error('❌ Error fetching queued notifications:', error);
@@ -140,12 +147,189 @@ class PushNotificationProcessor {
             
 
             // Process each notification individually with retry logic
-            for (const queueItem of queuedNotifications) {
-                await this.processNotificationWithRetry(queueItem);
+                for (const queueItem of queuedNotifications) {
+                try {
+                    // Check if subscription exists and is still active
+                    let needsFallback = false;
+                    
+                    if (!queueItem.push_subscriptions || !queueItem.push_subscriptions.is_active) {
+                        console.warn(`⚠️ Subscription for queue item ${queueItem.id} is not active or not found - trying fallback`);
+                        needsFallback = true;
+                    }
+                    
+                    // Additional check: verify subscription ID exists in subscription table
+                    if (!needsFallback && queueItem.push_subscription_id) {
+                        const { data: subscriptionCheck, error: checkError } = await supabaseAdmin
+                            .from('push_subscriptions')
+                            .select('id, is_active')
+                            .eq('id', queueItem.push_subscription_id)
+                            .single();
+                            
+                        if (checkError || !subscriptionCheck || !subscriptionCheck.is_active) {
+                            console.warn(`⚠️ Subscription ID ${queueItem.push_subscription_id} not found or inactive - trying fallback`);
+                            needsFallback = true;
+                        }
+                    }
+                    
+                    if (needsFallback) {
+                        // Fallback: Find latest active subscription for this user
+                        const fallbackSuccess = await this.processFallbackSubscription(queueItem);
+                        if (!fallbackSuccess) {
+                            // Mark as failed if no fallback available
+                            await supabaseAdmin
+                                .from('notification_queue')
+                                .update({ 
+                                    status: 'failed',
+                                    error_message: 'No active subscription found for user'
+                                })
+                                .eq('id', queueItem.id);
+                            continue;
+                        }
+                    }
+                    
+                    await this.processNotificationWithRetry(queueItem);
+                } catch (error) {
+                    console.error(`❌ Error processing queue item ${queueItem.id}:`, error);
+                }
+            }        } catch (error) {
+            console.error('❌ Error processing notification queue:', error);
+        }
+    }
+
+    /**
+     * Process fallback subscription when device_id or push_subscription_id not found/inactive
+     */
+    private async processFallbackSubscription(queueItem: any): Promise<boolean> {
+        try {
+            console.log(`🔄 Looking for fallback subscription for user ${queueItem.user_id}`);
+            console.log(`   Current queue item - Device: ${queueItem.device_id}, Subscription: ${queueItem.push_subscription_id}`);
+            
+            // Find latest active subscription for this user
+            const { data: latestSubscription, error } = await supabaseAdmin
+                .from('push_subscriptions')
+                .select('id, device_id, endpoint, p256dh, auth, device_type, last_seen, created_at')
+                .eq('user_id', queueItem.user_id)
+                .eq('is_active', true)
+                .order('last_seen', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (error || !latestSubscription) {
+                console.warn(`⚠️ No active subscription found for user ${queueItem.user_id}`);
+                return false;
+            }
+
+            console.log(`✅ Found fallback subscription:`);
+            console.log(`   Device: ${latestSubscription.device_type} (${latestSubscription.device_id})`);
+            console.log(`   Subscription ID: ${latestSubscription.id}`);
+            console.log(`   Last seen: ${latestSubscription.last_seen}`);
+
+            // Check if this is actually different from current queue item
+            const isDeviceIdDifferent = queueItem.device_id !== latestSubscription.device_id;
+            const isSubscriptionIdDifferent = queueItem.push_subscription_id !== latestSubscription.id;
+            
+            if (isDeviceIdDifferent || isSubscriptionIdDifferent) {
+                console.log(`🔄 Updating queue item ${queueItem.id}:`);
+                if (isDeviceIdDifferent) {
+                    console.log(`   Device ID: ${queueItem.device_id} → ${latestSubscription.device_id}`);
+                }
+                if (isSubscriptionIdDifferent) {
+                    console.log(`   Subscription ID: ${queueItem.push_subscription_id} → ${latestSubscription.id}`);
+                }
+
+                // Update the queue item with new subscription details
+                const { error: updateError } = await supabaseAdmin
+                    .from('notification_queue')
+                    .update({
+                        push_subscription_id: latestSubscription.id,
+                        device_id: latestSubscription.device_id
+                    })
+                    .eq('id', queueItem.id);
+
+                if (updateError) {
+                    console.error(`❌ Failed to update queue item with fallback subscription:`, updateError);
+                    return false;
+                }
+
+                // Update the queue item object for immediate processing
+                queueItem.push_subscription_id = latestSubscription.id;
+                queueItem.device_id = latestSubscription.device_id;
+                queueItem.push_subscriptions = {
+                    endpoint: latestSubscription.endpoint,
+                    p256dh: latestSubscription.p256dh,
+                    auth: latestSubscription.auth,
+                    is_active: true
+                };
+
+                console.log(`✅ Queue item ${queueItem.id} updated with fallback subscription`);
+            } else {
+                console.log(`ℹ️ Queue item already has the latest subscription details`);
+                // Just update the push_subscriptions object for processing
+                queueItem.push_subscriptions = {
+                    endpoint: latestSubscription.endpoint,
+                    p256dh: latestSubscription.p256dh,
+                    auth: latestSubscription.auth,
+                    is_active: true
+                };
+            }
+            
+            return true;
+
+        } catch (error) {
+            console.error(`❌ Error in fallback subscription process:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Check for notifications that need fallback queue creation
+     */
+    private async checkAndCreateFallbackQueues(): Promise<void> {
+        try {
+            // Find recent notifications (last 24 hours) that might not have queue entries
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            const { data: recentNotifications, error } = await supabaseAdmin
+                .from('notifications')
+                .select('id, title, created_at, target_type, target_users')
+                .gte('created_at', yesterday.toISOString())
+                .order('created_at', { ascending: false })
+                .limit(10);
+
+            if (error || !recentNotifications || recentNotifications.length === 0) {
+                return;
+            }
+
+            for (const notification of recentNotifications) {
+                // Check if this notification has any queue entries
+                const { data: existingQueue, error: queueError } = await supabaseAdmin
+                    .from('notification_queue')
+                    .select('id')
+                    .eq('notification_id', notification.id)
+                    .limit(1);
+
+                if (queueError) continue;
+
+                if (!existingQueue || existingQueue.length === 0) {
+                    console.log(`🔄 Creating fallback queue for notification ${notification.id}: ${notification.title}`);
+                    
+                    // Create queue entries for this notification
+                    const { error: createError } = await supabaseAdmin
+                        .rpc('queue_push_notification', {
+                            p_notification_id: notification.id
+                        });
+
+                    if (createError) {
+                        console.error(`❌ Failed to create fallback queue for notification ${notification.id}:`, createError);
+                    } else {
+                        console.log(`✅ Fallback queue created for notification ${notification.id}`);
+                    }
+                }
             }
 
         } catch (error) {
-            console.error('❌ Error processing notification queue:', error);
+            console.error(`❌ Error in fallback queue creation:`, error);
         }
     }
 
@@ -1628,7 +1812,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             if (queueError) {
                 console.error('❌ Auto-queue failed:', queueError);
             } else {
-                
+                console.log('✅ Auto-queue successful');
                 // Process immediately
                 setTimeout(async () => {
                     await pushNotificationProcessor.processOnce();
@@ -1636,6 +1820,184 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             }
         } catch (err) {
             console.error('❌ Auto-queue error:', err);
+        }
+    };
+
+    // Manual fallback processing
+    (window as any).processFallbackQueues = async () => {
+        console.log('🔄 Processing fallback queues...');
+        try {
+            await (pushNotificationProcessor as any).checkAndCreateFallbackQueues();
+            console.log('✅ Fallback queue processing completed');
+        } catch (err) {
+            console.error('❌ Fallback queue processing failed:', err);
+        }
+    };
+
+    // Check subscription limits (1 mobile + 1 desktop)
+    (window as any).checkSubscriptionLimits = async (userId?: string) => {
+        const user = userId || await (window as any).persistentAuth?.getCurrentUser()?.id;
+        if (!user) {
+            console.error('❌ No user specified');
+            return;
+        }
+
+        try {
+            const { data: subscriptions, error } = await supabaseAdmin
+                .from('push_subscriptions')
+                .select('id, device_type, device_id, last_seen, is_active')
+                .eq('user_id', user)
+                .eq('is_active', true)
+                .order('last_seen', { ascending: false });
+
+            if (error) {
+                console.error('❌ Error fetching subscriptions:', error);
+                return;
+            }
+
+            const mobile = subscriptions?.filter(s => s.device_type === 'mobile') || [];
+            const desktop = subscriptions?.filter(s => s.device_type === 'desktop') || [];
+
+            console.log(`📊 User ${user} subscriptions:`);
+            console.log(`📱 Mobile: ${mobile.length} (limit: 1)`);
+            console.log(`💻 Desktop: ${desktop.length} (limit: 1)`);
+            
+            if (mobile.length > 1) {
+                console.warn(`⚠️ Mobile subscriptions exceed limit! Found ${mobile.length}, limit is 1`);
+            }
+            if (desktop.length > 1) {
+                console.warn(`⚠️ Desktop subscriptions exceed limit! Found ${desktop.length}, limit is 1`);
+            }
+
+            return { mobile, desktop, withinLimits: mobile.length <= 1 && desktop.length <= 1 };
+
+        } catch (err) {
+            console.error('❌ Error checking subscription limits:', err);
+        }
+    };
+
+    // Test fallback subscription logic
+    (window as any).testSubscriptionFallback = async (queueItemId?: string) => {
+        console.log('🧪 Testing subscription fallback logic...');
+        
+        try {
+            // If no queue item specified, get the first pending one
+            let queueItem;
+            if (queueItemId) {
+                const { data, error } = await supabaseAdmin
+                    .from('notification_queue')
+                    .select('*')
+                    .eq('id', queueItemId)
+                    .single();
+                
+                if (error || !data) {
+                    console.error(`❌ Queue item ${queueItemId} not found:`, error);
+                    return;
+                }
+                queueItem = data;
+            } else {
+                const { data, error } = await supabaseAdmin
+                    .from('notification_queue')
+                    .select('*')
+                    .eq('status', 'pending')
+                    .limit(1)
+                    .single();
+                
+                if (error || !data) {
+                    console.warn(`⚠️ No pending queue items found for testing`);
+                    return;
+                }
+                queueItem = data;
+            }
+
+            console.log(`🔍 Testing fallback for queue item ${queueItem.id}:`);
+            console.log(`   User: ${queueItem.user_id}`);
+            console.log(`   Device: ${queueItem.device_id}`);
+            console.log(`   Subscription: ${queueItem.push_subscription_id}`);
+            
+            // Test the fallback logic
+            const success = await (pushNotificationProcessor as any).processFallbackSubscription(queueItem);
+            
+            if (success) {
+                console.log(`✅ Fallback successful! Queue item updated.`);
+            } else {
+                console.log(`❌ Fallback failed - no active subscription found.`);
+            }
+            
+            return { success, queueItem };
+
+        } catch (err) {
+            console.error('❌ Error testing subscription fallback:', err);
+        }
+    };
+
+    // Check for orphaned queue items (subscription IDs that don't exist)
+    (window as any).findOrphanedQueueItems = async () => {
+        console.log('🔍 Looking for orphaned queue items...');
+        
+        try {
+            const { data: queueItems, error } = await supabaseAdmin
+                .from('notification_queue')
+                .select(`
+                    id,
+                    user_id,
+                    device_id,
+                    push_subscription_id,
+                    status,
+                    created_at
+                `)
+                .in('status', ['pending', 'retry'])
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (error) {
+                console.error('❌ Error fetching queue items:', error);
+                return;
+            }
+
+            if (!queueItems || queueItems.length === 0) {
+                console.log('✅ No pending/retry queue items found');
+                return;
+            }
+
+            console.log(`🔍 Checking ${queueItems.length} queue items for orphaned subscriptions...`);
+            
+            const orphaned = [];
+            
+            for (const item of queueItems) {
+                const { data: subscription, error: subError } = await supabaseAdmin
+                    .from('push_subscriptions')
+                    .select('id, is_active')
+                    .eq('id', item.push_subscription_id)
+                    .single();
+                
+                if (subError || !subscription || !subscription.is_active) {
+                    orphaned.push({
+                        queue_id: item.id,
+                        user_id: item.user_id,
+                        device_id: item.device_id,
+                        subscription_id: item.push_subscription_id,
+                        status: item.status,
+                        issue: subError ? 'subscription_not_found' : 'subscription_inactive'
+                    });
+                }
+            }
+
+            if (orphaned.length === 0) {
+                console.log('✅ No orphaned queue items found - all subscriptions are valid');
+            } else {
+                console.warn(`⚠️ Found ${orphaned.length} orphaned queue items:`);
+                orphaned.forEach((item, index) => {
+                    console.log(`${index + 1}. Queue ${item.queue_id} - User ${item.user_id} - ${item.issue}`);
+                });
+                
+                console.log('💡 Run processOnce() to trigger automatic fallback processing');
+            }
+            
+            return orphaned;
+
+        } catch (err) {
+            console.error('❌ Error finding orphaned queue items:', err);
         }
     };
 }

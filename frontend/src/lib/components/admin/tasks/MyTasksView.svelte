@@ -841,7 +841,7 @@
 								</div>
 								
 								<div class="ml-4 flex flex-col space-y-2">
-									{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+									{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled' && task.assigned_to_user_id === currentUserData?.id}
 										<button
 											on:click={() => openTaskCompletion(task)}
 											class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"

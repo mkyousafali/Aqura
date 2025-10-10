@@ -4,6 +4,7 @@
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import { db } from '$lib/utils/supabase';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	export let task;
 	export let windowId;
@@ -15,6 +16,9 @@
 	let createdByUsername = '';
 	let loading = true;
 	let error = '';
+
+	// Get current user data
+	$: currentUserData = $currentUser;
 
 	onMount(async () => {
 		await loadTaskDetails();
@@ -347,7 +351,7 @@
 		
 		<!-- Actions -->
 		<div class="pt-4 border-t flex space-x-3">
-			{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+			{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled' && task.assigned_to_user_id === currentUserData?.id}
 				<button 
 					on:click={openTaskCompletion}
 					class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
@@ -357,6 +361,10 @@
 					</svg>
 					<span>Complete Task</span>
 				</button>
+			{:else if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+				<div class="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-medium">
+					Task not assigned to you
+				</div>
 			{:else}
 				<div class="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">
 					Task {task.assignment_status === 'completed' ? 'Completed' : 'Cancelled'}
