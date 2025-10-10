@@ -1062,11 +1062,6 @@
 					await loadUserCache();
 				}
 			}
-					allNotifications = newNotifications;
-					// Update cache if notifications changed
-					await loadUserCache();
-				}
-			}
 		} catch (error) {
 			console.warn('Silent notification refresh failed:', error);
 		}
