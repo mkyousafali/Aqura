@@ -166,16 +166,10 @@
 			let notifications;
 			let error;
 
-			if (isAdminOrMaster) {
-				// Admin/Master Admin: Show all notifications from yesterday, today, and overdue
-				const result = await notificationManagement.getAllNotifications(currentUserData.id);
-				notifications = result || [];
-				error = null;
-			} else {
-				// Regular users: Show notifications sent to them with read states
-				notifications = await notificationManagement.getUserNotifications(currentUserData.id);
-				error = null;
-			}
+			// All users should get the same notification format with attachments
+			const result = await notificationManagement.getAllNotifications(currentUserData.id);
+			notifications = result || [];
+			error = null;
 
 			if (error) {
 				console.error('Error loading recent notifications:', error);
@@ -828,7 +822,7 @@
 					{/if}
 				</div>
 				<span class="section-subtitle">
-					{isAdminOrMaster ? getTranslation('mobile.dashboardContent.recentNotifications.allInSystem') : getTranslation('mobile.dashboardContent.recentNotifications.yourRecent')}
+					{getTranslation('mobile.dashboardContent.recentNotifications.allInSystem')}
 					{#if recentNotifications.filter(n => !n.read).length > 0}
 						• Swipe left to mark as read
 					{/if}

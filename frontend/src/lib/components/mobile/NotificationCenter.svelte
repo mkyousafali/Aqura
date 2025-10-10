@@ -332,26 +332,10 @@
 			isLoading = true;
 			errorMessage = '';
 			
-			if (isAdminOrMaster) {
-				// Admin users can see all notifications with their read states
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+			// All users should get the same notification format with full details
+			if ($currentUser?.id) {
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id);
 				allNotifications = await transformNotificationData(apiNotifications);
-			} else if ($currentUser?.id) {
-				// Regular users see only their targeted notifications
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
-				// Use the same transformation logic for consistent attachment loading
-				allNotifications = await transformNotificationData(userNotifications.map(notification => ({
-					...notification,
-					// Map user notification fields to expected format
-					id: notification.notification_id,
-					created_at: notification.created_at,
-					is_read: notification.is_read,
-					created_by_name: notification.created_by_name,
-					// Check if notification has attachments (for quick task detection)
-					has_notification_attachments: !!(notification.task_id === null && notification.task_assignment_id === null),
-					task_id: notification.task_id,
-					task_assignment_id: notification.task_assignment_id
-				})));
 			}
 
 		} catch (error) {
@@ -1067,8 +1051,9 @@
 			
 			const previousNotifications = [...allNotifications];
 			
-			if (isAdminOrMaster) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+			// All users get the same notification format
+			if ($currentUser?.id) {
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id);
 				const newNotifications = await transformNotificationData(apiNotifications);
 				
 				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
@@ -1076,22 +1061,7 @@
 					// Update cache if notifications changed
 					await loadUserCache();
 				}
-			} else if ($currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
-				const newNotifications = userNotifications.map(notification => ({
-					id: notification.notification_id,
-					title: notification.title,
-					message: notification.message,
-					type: notification.type,
-					content: notification.message,
-					metadata: notification.metadata || {},
-					read: notification.is_read,
-					timestamp: formatTimestamp(notification.created_at),
-					createdBy: notification.created_by_name,
-					attachments: notification.attachments || []
-				}));
-				
-				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
+			}
 					allNotifications = newNotifications;
 					// Update cache if notifications changed
 					await loadUserCache();
