@@ -210,44 +210,166 @@
 			if (notifications) {
 				const notificationsWithRecipients = await Promise.all(
 					notifications.map(async (notification) => {
-						// Get recipients for this notification
-						const { data: recipients, error: recipientsError } = await supabase
-							.from('notification_recipients')
-							.select(`
-								user:users (
-									id,
-									username,
-									employee:hr_employees (
-										name
+						console.log('🔍 [Recipients Debug] Processing notification:', {
+							id: notification.id,
+							title: notification.title,
+							target_type: notification.target_type,
+							target_users: notification.target_users,
+							created_by_name: notification.created_by_name
+						});
+
+						// Try multiple approaches to get recipient information
+						let recipients = [];
+						let recipientsError = null;
+
+						// Approach 1: Try notification_recipients table first
+						try {
+							const { data: recipientsData, error } = await supabase
+								.from('notification_recipients')
+								.select(`
+									user_id,
+									user:users (
+										id,
+										username,
+										employee:hr_employees (
+											name
+										)
 									)
-								)
-							`)
-							.eq('notification_id', notification.id);
+								`)
+								.eq('notification_id', notification.id);
+
+							if (error) {
+								console.warn('📋 [Recipients] notification_recipients query failed:', error);
+								recipientsError = error;
+							} else if (recipientsData && recipientsData.length > 0) {
+								recipients = recipientsData;
+								console.log('✅ [Recipients] Found recipients from notification_recipients:', recipients.length);
+							}
+						} catch (e) {
+							console.warn('📋 [Recipients] notification_recipients table error:', e);
+						}
+
+						// Approach 2: If no recipients from table, try to resolve from target_users
+						if (recipients.length === 0 && notification.target_users) {
+							try {
+								let targetUserIds = notification.target_users;
+								
+								// Parse target_users if it's a JSON string
+								if (typeof targetUserIds === 'string') {
+									try {
+										targetUserIds = JSON.parse(targetUserIds);
+									} catch (e) {
+										console.warn('📋 [Recipients] Failed to parse target_users JSON:', e);
+									}
+								}
+
+								if (Array.isArray(targetUserIds) && targetUserIds.length > 0) {
+									console.log('🔍 [Recipients] Resolving user names for IDs:', targetUserIds);
+									
+									// Get user information for the target user IDs
+									const { data: usersData, error: usersError } = await supabase
+										.from('users')
+										.select(`
+											id,
+											username,
+											employee:hr_employees (
+												name
+											)
+										`)
+										.in('id', targetUserIds);
+
+									if (usersError) {
+										console.warn('📋 [Recipients] Users query failed:', usersError);
+									} else if (usersData && usersData.length > 0) {
+										recipients = usersData.map(user => ({
+											user_id: user.id,
+											user: user
+										}));
+										console.log('✅ [Recipients] Resolved users from target_users:', recipients.length);
+									}
+								}
+							} catch (e) {
+								console.warn('📋 [Recipients] Error processing target_users:', e);
+							}
+						}
 
 						if (recipientsError) {
-							console.error('Error loading recipients:', recipientsError);
+							console.warn('Error loading recipients:', recipientsError);
+							// Try to get user info from notification metadata or target_users as fallback
+							let fallbackRecipients = 'Recipients';
+							try {
+								if (notification.target_type === 'all_users') {
+									fallbackRecipients = 'All Users';
+								} else if (notification.target_type === 'specific_users' && notification.target_users) {
+									// Try to parse target_users if it's a JSON string
+									let targetUsers = notification.target_users;
+									if (typeof targetUsers === 'string') {
+										try {
+											targetUsers = JSON.parse(targetUsers);
+										} catch (e) {
+											// Keep as string if parsing fails
+										}
+									}
+									if (Array.isArray(targetUsers) && targetUsers.length > 0) {
+										fallbackRecipients = `${targetUsers.length} user${targetUsers.length > 1 ? 's' : ''}`;
+									} else {
+										fallbackRecipients = 'Specific Users';
+									}
+								} else if (notification.created_by_name) {
+									fallbackRecipients = `Created by ${notification.created_by_name}`;
+								}
+							} catch (e) {
+								console.warn('Error processing fallback recipients:', e);
+							}
+							
 							return {
 								...notification,
 								recipients: [],
-								recipients_text: 'Unknown',
+								recipients_text: fallbackRecipients,
 								all_attachments: []
 							};
 						}
 
 						// Format recipients text
-						let recipientsText = 'Unknown';
+						let recipientsText = 'Recipients';
 						if (notification.target_type === 'all_users') {
 							recipientsText = 'All Users';
 						} else if (recipients && recipients.length > 0) {
 							const userNames = recipients.map(r => {
-								// Use employee name if available, fallback to username
-								return r.user?.employee?.name || r.user?.username || 'Unknown';
-							});
-							if (userNames.length <= 3) {
-								recipientsText = userNames.join(', ');
+								// Use employee name or username in that order
+								return r.user?.employee?.name || 
+									   r.user?.username || 
+									   `User ${r.user?.id?.substring(0, 8) || 'Unknown'}`;
+							}).filter(name => name && name !== 'Unknown' && !name.startsWith('User Unknown')); // Filter out empty/unknown names
+							
+							if (userNames.length > 0) {
+								if (userNames.length <= 3) {
+									recipientsText = userNames.join(', ');
+								} else {
+									recipientsText = `${userNames.slice(0, 2).join(', ')} and ${userNames.length - 2} others`;
+								}
 							} else {
-								recipientsText = `${userNames.slice(0, 2).join(', ')} and ${userNames.length - 2} others`;
+								// If no valid names found but we have recipients, show count
+								recipientsText = `${recipients.length} user${recipients.length > 1 ? 's' : ''}`;
 							}
+						} else if (notification.target_type === 'specific_users' && notification.target_users) {
+							// Try to get count from target_users metadata
+							try {
+								let targetUsers = notification.target_users;
+								if (typeof targetUsers === 'string') {
+									targetUsers = JSON.parse(targetUsers);
+								}
+								if (Array.isArray(targetUsers) && targetUsers.length > 0) {
+									recipientsText = `${targetUsers.length} specific user${targetUsers.length > 1 ? 's' : ''}`;
+								} else {
+									recipientsText = 'Specific Users';
+								}
+							} catch (e) {
+								recipientsText = 'Specific Users';
+							}
+						} else if (notification.created_by_name) {
+							// Fallback to creator if no recipients found
+							recipientsText = `By ${notification.created_by_name}`;
 						}
 
 						// Process attachments from multiple sources
@@ -328,13 +450,20 @@
 							}
 						}
 
-						
+						// Remove duplicates based on file path/URL and file name to prevent double display
+						const uniqueAttachments = allAttachments.filter((att, index, self) => {
+							const identifier = att.file_url || att.file_path || att.storage_path;
+							return index === self.findIndex(a => {
+								const aIdentifier = a.file_url || a.file_path || a.storage_path;
+								return aIdentifier === identifier && a.file_name === att.file_name;
+							});
+						});
 
 						return {
 							...notification,
 							recipients: recipients || [],
 							recipients_text: recipientsText,
-							all_attachments: allAttachments
+							all_attachments: uniqueAttachments
 						};
 					})
 				);

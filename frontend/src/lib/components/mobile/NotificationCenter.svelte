@@ -107,6 +107,9 @@
 				const originalNotification = apiNotifications.find(n => n.id === transformed.id);
 				if (!originalNotification) continue;
 
+				// Initialize a consolidated attachments array with existing notification attachments
+				const allAttachments = [...(transformed.attachments || [])];
+
 				// 1. Load task images for task-related notifications
 				if (originalNotification.task_id || originalNotification.task_assignment_id) {
 					
@@ -163,10 +166,9 @@
 						}
 					}
 					
-					// Add task attachments to notification
+					// Add task attachments to consolidated array
 					if (taskAttachments.length > 0) {
-						transformed.attachments = [...(transformed.attachments || []), ...taskAttachments];
-						
+						allAttachments.push(...taskAttachments);
 						
 						// Set first image as primary if not already set
 						if (!transformed.image_url) {
@@ -252,9 +254,8 @@
 							source: 'Quick Task'
 						}));
 						
-						// Add quick task attachments to notification
-						transformed.attachments = [...(transformed.attachments || []), ...quickTaskAttachments];
-						
+						// Add quick task attachments to consolidated array
+						allAttachments.push(...quickTaskAttachments);
 						
 						// Set first image as primary if not already set
 						if (!transformed.image_url) {
@@ -265,6 +266,12 @@
 						}
 					}
 				}
+
+				// Remove duplicates based on file URL and assign final attachments array
+				const uniqueAttachments = allAttachments.filter((att, index, self) => 
+					index === self.findIndex(a => a.fileUrl === att.fileUrl)
+				);
+				transformed.attachments = uniqueAttachments;
 			}
 		} catch (error) {
 			console.warn(`❌ [Mobile Notification] Failed to batch load attachments:`, error);
@@ -393,24 +400,48 @@
 			if (userIds.size > 0) {
 				const userIdArray = Array.from(userIds);
 				
-				// First try to get from users table
+				// Get comprehensive user data including employee information
 				const { data: users } = await supabase
 					.from('users')
-					.select('id, username')
+					.select(`
+						id, 
+						username, 
+						full_name,
+						employee:hr_employees (
+							name,
+							employee_id
+						)
+					`)
 					.in('id', userIdArray);
 				
 				if (users) {
-					// Populate the cache with usernames from users table
+					// Populate the cache with the best available name
 					for (const user of users) {
-						if (user.username) {
-							userCache[user.id] = user.username;
+						let displayName = 'Unknown User';
+						
+						// Priority: employee name > full name > username > employee ID > user ID
+						if (user.employee?.name) {
+							displayName = user.employee.name;
+						} else if (user.full_name) {
+							displayName = user.full_name;
+						} else if (user.username) {
+							displayName = user.username;
+						} else if (user.employee?.employee_id) {
+							displayName = `Employee ${user.employee.employee_id}`;
+						} else {
+							displayName = `User ${user.id.substring(0, 8)}`;
 						}
+						
+						userCache[user.id] = displayName;
+						console.log(`👤 [User Cache] Cached user ${user.id}: ${displayName}`);
 					}
 				}
 				
-				// Then try to get from hr_employees table for any missing users
+				// For any remaining missing users, try to get from hr_employees table directly
 				const missingUserIds = userIdArray.filter(id => !userCache[id]);
 				if (missingUserIds.length > 0) {
+					console.log(`🔍 [User Cache] Looking up ${missingUserIds.length} missing users in hr_employees`);
+					
 					const { data: employees } = await supabase
 						.from('hr_employees')
 						.select('id, name, employee_id')
@@ -419,18 +450,30 @@
 					if (employees) {
 						// Populate the cache with names from hr_employees table
 						for (const employee of employees) {
+							let displayName = 'Unknown Employee';
+							
 							if (employee.name) {
-								userCache[employee.id] = employee.name;
+								displayName = employee.name;
 							} else if (employee.employee_id) {
-								userCache[employee.id] = `Employee ${employee.employee_id}`;
+								displayName = `Employee ${employee.employee_id}`;
+							} else {
+								displayName = `Employee ${employee.id.substring(0, 8)}`;
 							}
+							
+							userCache[employee.id] = displayName;
+							console.log(`👤 [User Cache] Cached employee ${employee.id}: ${displayName}`);
 						}
 					}
 					
-					
-				} else {
-					
+					// For any still missing users, provide a readable fallback
+					const stillMissingIds = missingUserIds.filter(id => !userCache[id]);
+					stillMissingIds.forEach(id => {
+						userCache[id] = `User ${id.substring(0, 8)}`;
+						console.warn(`⚠️ [User Cache] Could not find user data for ${id}, using fallback`);
+					});
 				}
+				
+				console.log(`✅ [User Cache] Successfully cached ${Object.keys(userCache).length} users`);
 			}
 		} catch (error) {
 			console.warn('Failed to load user cache:', error);
