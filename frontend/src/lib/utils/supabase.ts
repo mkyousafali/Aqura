@@ -99,13 +99,13 @@ export interface Vendor {
 	company: string;
 	email: string;
 	phone: string;
-	category: string;
 	status: 'active' | 'inactive' | 'pending';
 	payment_terms: string;
 	tax_id: string;
 	registration_number: string;
 	address: string;
 	total_orders: number;
+	categories?: string[]; // Array of category names
 	created_at: string;
 	updated_at: string;
 }

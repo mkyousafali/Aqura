@@ -12,7 +12,8 @@
 		location_en: '',
 		location_ar: '',
 		is_active: true,
-		is_main_branch: false
+		is_main_branch: false,
+		vat_number: ''
 	};
 	let editingBranch: Branch | null = null;
 	let isLoading = false;
@@ -53,7 +54,8 @@
 			location_en: '',
 			location_ar: '',
 			is_active: true,
-			is_main_branch: false
+			is_main_branch: false,
+			vat_number: ''
 		};
 		showCreatePopup = true;
 	}
@@ -100,17 +102,16 @@
 
 		try {
 			if (showCreatePopup) {
-				// Create new branch
-				const branchData = {
-					name_en: currentBranch.name_en!,
-					name_ar: currentBranch.name_ar!,
-					location_en: currentBranch.location_en!,
-					location_ar: currentBranch.location_ar!,
-					is_active: currentBranch.is_active || true,
-					is_main_branch: currentBranch.is_main_branch || false
-				};
-
-				const { data, error } = await db.branches.create(branchData);
+			// Create new branch
+			const branchData = {
+				name_en: currentBranch.name_en!,
+				name_ar: currentBranch.name_ar!,
+				location_en: currentBranch.location_en!,
+				location_ar: currentBranch.location_ar!,
+				is_active: currentBranch.is_active || true,
+				is_main_branch: currentBranch.is_main_branch || false,
+				vat_number: currentBranch.vat_number || null
+			};				const { data, error } = await db.branches.create(branchData);
 				
 				if (error) {
 					errorMessage = error.message || 'Failed to create branch';
@@ -121,17 +122,16 @@
 					closeCreatePopup();
 				}
 			} else if (showEditPopup && editingBranch) {
-				// Update existing branch
-				const branchData = {
-					name_en: currentBranch.name_en!,
-					name_ar: currentBranch.name_ar!,
-					location_en: currentBranch.location_en!,
-					location_ar: currentBranch.location_ar!,
-					is_active: currentBranch.is_active || true,
-					is_main_branch: currentBranch.is_main_branch || false
-				};
-
-				const { data, error } = await db.branches.update(editingBranch.id, branchData);
+			// Update existing branch
+			const branchData = {
+				name_en: currentBranch.name_en!,
+				name_ar: currentBranch.name_ar!,
+				location_en: currentBranch.location_en!,
+				location_ar: currentBranch.location_ar!,
+				is_active: currentBranch.is_active || true,
+				is_main_branch: currentBranch.is_main_branch || false,
+				vat_number: currentBranch.vat_number || null
+			};				const { data, error } = await db.branches.update(editingBranch.id, branchData);
 				
 				if (error) {
 					errorMessage = error.message || 'Failed to update branch';
@@ -223,6 +223,7 @@
 					<th>Name (Arabic)</th>
 					<th>Location (English)</th>
 					<th>Location (Arabic)</th>
+					<th>VAT Number</th>
 					<th>Status</th>
 					<th>Main Branch</th>
 					<th>Created At</th>
@@ -237,6 +238,13 @@
 						<td class="arabic">{branch.name_ar}</td>
 						<td>{branch.location_en}</td>
 						<td class="arabic">{branch.location_ar}</td>
+						<td class="vat-number">
+							{#if branch.vat_number}
+								<span class="vat-badge">{branch.vat_number}</span>
+							{:else}
+								<span class="no-vat">-</span>
+							{/if}
+						</td>
 						<td>
 							<span class="status-badge {branch.is_active ? 'active' : 'inactive'}">
 								{branch.is_active ? 'Active' : 'Inactive'}
@@ -340,6 +348,18 @@
 
 					<div class="form-row">
 						<div class="form-group">
+							<label for="vat-number-create">VAT Number (Optional)</label>
+							<input
+								id="vat-number-create"
+								type="text"
+								bind:value={currentBranch.vat_number}
+								placeholder="Enter VAT registration number"
+							/>
+						</div>
+					</div>
+
+					<div class="form-row">
+						<div class="form-group">
 							<label class="checkbox-label">
 								<input type="checkbox" bind:checked={currentBranch.is_active} />
 								Active
@@ -424,6 +444,18 @@
 								class="arabic"
 								dir="rtl"
 								required
+							/>
+						</div>
+					</div>
+
+					<div class="form-row">
+						<div class="form-group">
+							<label for="vat-number-edit">VAT Number (Optional)</label>
+							<input
+								id="vat-number-edit"
+								type="text"
+								bind:value={currentBranch.vat_number}
+								placeholder="Enter VAT registration number"
 							/>
 						</div>
 					</div>
@@ -851,5 +883,26 @@
 		.branches-table td {
 			padding: 8px 12px;
 		}
+	}
+
+	/* VAT Number Styles */
+	.vat-number {
+		text-align: center;
+	}
+
+	.vat-badge {
+		background-color: #eff6ff;
+		color: #1d4ed8;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		border: 1px solid #bfdbfe;
+		font-family: monospace;
+		font-weight: 600;
+		font-size: 0.875rem;
+	}
+
+	.no-vat {
+		color: #9ca3af;
+		font-style: italic;
 	}
 </style>
