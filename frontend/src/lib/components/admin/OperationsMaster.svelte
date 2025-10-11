@@ -1,6 +1,7 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
 	import VendorMaster from './VendorMaster.svelte';
+	import Receiving from './Receiving.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -35,6 +36,23 @@
 				id: windowId,
 				title: `${operation.title} #${instanceNumber}`,
 				component: VendorMaster,
+				icon: operation.icon,
+				size: { width: 1200, height: 800 },
+				position: { 
+					x: 50 + (Math.random() * 100),
+					y: 50 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else if (operation.id === 'receiving') {
+			// Open Receiving component
+			windowManager.openWindow({
+				id: windowId,
+				title: `${operation.title} #${instanceNumber}`,
+				component: Receiving,
 				icon: operation.icon,
 				size: { width: 1200, height: 800 },
 				position: { 
