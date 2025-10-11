@@ -160,11 +160,7 @@
 					credit_period: null,
 					bank_name: 'N/A',
 					iban: 'N/A',
-					status: 'Active',
-					vendor_category: 'Daily Fresh Vendor',
-					warehouse_location: null,
-					location_link: null,
-					delivery_method: null
+					status: 'Active'
 				});
 			}
 

@@ -50,8 +50,8 @@
 
 	async function loadTaskStatistics() {
 		try {
-			// Query to get overall task statistics
-			const { data, error } = await supabase
+			// Query to get overall task statistics (regular tasks)
+			const { data: regularTasks, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
 					id,
@@ -60,16 +60,45 @@
 					assigned_at
 				`);
 
-			if (error) throw error;
+			if (regularError) throw regularError;
+
+			// Query to get quick task statistics
+			const { data: quickTaskAssignments, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					id,
+					status,
+					completed_at,
+					created_at,
+					quick_tasks(deadline_datetime)
+				`);
+
+			if (quickError) throw quickError;
 
 			const now = new Date();
-			const total = data.length;
-			const completed = data.filter(t => t.status === 'completed').length;
-			const overdue = data.filter(t => {
+			
+			// Process regular tasks
+			const regularTotal = regularTasks.length;
+			const regularCompleted = regularTasks.filter(t => t.status === 'completed').length;
+			const regularOverdue = regularTasks.filter(t => {
 				return t.deadline_datetime && 
 					   new Date(t.deadline_datetime) < now && 
 					   t.status !== 'completed';
 			}).length;
+
+			// Process quick tasks
+			const quickTotal = quickTaskAssignments.length;
+			const quickCompleted = quickTaskAssignments.filter(t => t.status === 'completed').length;
+			const quickOverdue = quickTaskAssignments.filter(t => {
+				return t.quick_tasks?.deadline_datetime && 
+					   new Date(t.quick_tasks.deadline_datetime) < now && 
+					   t.status !== 'completed';
+			}).length;
+
+			// Combine statistics
+			const total = regularTotal + quickTotal;
+			const completed = regularCompleted + quickCompleted;
+			const overdue = regularOverdue + quickOverdue;
 
 			taskStats = {
 				totalAssigned: total,
@@ -106,8 +135,8 @@
 
 	async function loadAssignmentData() {
 		try {
-			// First, get basic assignment data
-			const { data: assignments, error: assignmentError } = await supabase
+			// Load regular task assignments
+			const { data: regularAssignments, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
 					id,
@@ -119,18 +148,47 @@
 					status,
 					deadline_datetime,
 					reassigned_from,
-					assigned_at
+					assigned_at,
+					tasks(id, title, description, priority)
 				`);
 
-			if (assignmentError) throw assignmentError;
+			if (regularError) throw regularError;
 
-			// Get all unique user IDs to fetch user details
+			// Load quick task assignments
+			const { data: quickAssignments, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select(`
+					id,
+					assigned_to_user_id,
+					status,
+					accepted_at,
+					started_at,
+					completed_at,
+					created_at,
+					quick_tasks(
+						id,
+						title,
+						description,
+						priority,
+						issue_type,
+						deadline_datetime,
+						assigned_by,
+						assigned_to_branch_id,
+						created_at
+					)
+				`);
+
+			if (quickError) throw quickError;
+
+			// Get all unique user IDs from both regular and quick tasks
 			const userIds = [...new Set([
-				...assignments.map(a => a.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36 && !id.startsWith('{')),
-				...assignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36 && !id.startsWith('{'))
+				...regularAssignments.map(a => a.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36),
+				...regularAssignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
+				...quickAssignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
+				...quickAssignments.map(a => a.quick_tasks?.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36)
 			])].filter(Boolean);
 
-			// Get user details for assigned_by and assigned_to users
+			// Get user details
 			let usersData = [];
 			if (userIds.length > 0) {
 				const { data: users, error: usersError } = await supabase
@@ -145,118 +203,97 @@
 					`)
 					.in('id', userIds);
 
-				if (!usersError) {
-					usersData = users || [];
-					console.log('Fetched users data:', usersData);
-					console.log('User IDs needed:', userIds);
-				} else {
-					console.error('Error fetching users:', usersError);
-				}
+				if (usersError) throw usersError;
+				usersData = users || [];
 			}
 
-			// Get branch details for assignments
-			const branchIds = [...new Set(assignments.map(a => a.assigned_to_branch_id).filter(Boolean))];
-			let branchesData = [];
-			if (branchIds.length > 0) {
-				const { data: branches, error: branchesError } = await supabase
-					.from('branches')
-					.select('id, name_en as name')
-					.in('id', branchIds);
-
-				if (!branchesError) {
-					branchesData = branches || [];
-				}
-			}
-
-			// Process and group the data
-			const grouped = {};
-			const now = new Date();
-
-			// Create lookup maps for users and branches
-			const usersMap = {};
-			usersData.forEach(user => {
-				usersMap[user.id] = user;
-			});
-
-			const branchesMap = {};
-			branchesData.forEach(branch => {
-				branchesMap[branch.id] = branch;
-			});
-
-			assignments.forEach(assignment => {
-				const assignedByUser = usersMap[assignment.assigned_by];
-				const assignedToUser = usersMap[assignment.assigned_to_user_id];
-				const assignedToBranch = branchesMap[assignment.assigned_to_branch_id];
-
-				let key, assignedByName, assignedToName;
-
-				// Get assigned by name: prioritize employee name from HR table, then username, then fallback
-				if (assignedByUser) {
-					assignedByName = assignedByUser.hr_employees?.name || assignedByUser.username || `User ${assignment.assigned_by.substring(0, 8)}...`;
-				} else {
-					// Check if assigned_by is a valid UUID format
-					if (assignment.assigned_by && typeof assignment.assigned_by === 'string' && assignment.assigned_by.length === 36 && !assignment.assigned_by.startsWith('{')) {
-						assignedByName = `User ${assignment.assigned_by.substring(0, 8)}...`;
-					} else {
-						assignedByName = 'System';
-					}
-				}
-
-				if (assignment.assignment_type === 'user' && assignment.assigned_to_user_id) {
-					key = `${assignment.assigned_by}-${assignment.assigned_to_user_id}`;
-					if (assignedToUser) {
-						assignedToName = assignedToUser.hr_employees?.name || assignedToUser.username || `User ${assignment.assigned_to_user_id.substring(0, 8)}...`;
-					} else {
-						assignedToName = `User ${assignment.assigned_to_user_id.substring(0, 8)}...`;
-					}
-				} else if (assignment.assignment_type === 'branch' && assignment.assigned_to_branch_id) {
-					key = `${assignment.assigned_by}-branch-${assignment.assigned_to_branch_id}`;
-					assignedToName = `Branch: ${assignedToBranch?.name || assignment.assigned_to_branch_id}`;
-				} else if (assignment.assignment_type === 'all') {
-					key = `${assignment.assigned_by}-all`;
-					assignedToName = 'All Users';
-				} else {
-					// Skip invalid assignments
-					return;
-				}
+			// Transform regular assignments
+			const processedRegularAssignments = regularAssignments.map(assignment => {
+				const assignedByUser = usersData.find(u => u.id === assignment.assigned_by);
+				const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
 				
-				if (!grouped[key]) {
-					grouped[key] = {
-						assignedBy: assignedByName,
-						assignedTo: assignedToName,
-						assignedToEmployee: assignedToUser?.hr_employees?.name || '',
-						branch: assignedToBranch?.name || assignedToUser?.branches?.name_en || '',
-						totalAssigned: 0,
-						totalCompleted: 0,
-						totalOverdue: 0,
-						totalReassigned: 0,
-						assignedToUserId: assignment.assigned_to_user_id,
-						assignedByUserId: assignment.assigned_by,
-						assignmentType: assignment.assignment_type,
-						assignedToBranchId: assignment.assigned_to_branch_id
-					};
-				}
+				const now = new Date();
+				const deadline = assignment.deadline_datetime ? new Date(assignment.deadline_datetime) : null;
+				const isOverdue = deadline && deadline < now && assignment.status !== 'completed';
+				const isNearDeadline = deadline && !isOverdue && 
+					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
 
-				const group = grouped[key];
-				group.totalAssigned++;
-
-				if (assignment.status === 'completed') {
-					group.totalCompleted++;
-				}
-
-				if (assignment.deadline_datetime && 
-					new Date(assignment.deadline_datetime) < now && 
-					assignment.status !== 'completed') {
-					group.totalOverdue++;
-				}
-
-				if (assignment.reassigned_from) {
-					group.totalReassigned++;
-				}
+				return {
+					id: assignment.id,
+					type: 'regular',
+					task_title: assignment.tasks?.title || 'Unknown Task',
+					task_description: assignment.tasks?.description || '',
+					priority: assignment.tasks?.priority || 'Medium',
+					assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || assignment.assigned_by_name || 'Unknown',
+					assigned_by_id: assignment.assigned_by,
+					assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
+					assigned_to_id: assignment.assigned_to_user_id,
+					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
+					status: assignment.status,
+					deadline: assignment.deadline_datetime,
+					assigned_at: assignment.assigned_at,
+					is_overdue: isOverdue,
+					is_near_deadline: isNearDeadline,
+					warning_level: isOverdue ? 'critical' : isNearDeadline ? 'warning' : 'normal'
+				};
 			});
 
-			assignmentData = Object.values(grouped);
+			// Transform quick task assignments
+			const processedQuickAssignments = quickAssignments.map(assignment => {
+				const assignedByUser = usersData.find(u => u.id === assignment.quick_tasks?.assigned_by);
+				const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
+				
+				const now = new Date();
+				const deadline = assignment.quick_tasks?.deadline_datetime ? new Date(assignment.quick_tasks.deadline_datetime) : null;
+				const isOverdue = deadline && deadline < now && assignment.status !== 'completed';
+				const isNearDeadline = deadline && !isOverdue && 
+					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
+
+				return {
+					id: assignment.id,
+					type: 'quick',
+					task_title: assignment.quick_tasks?.title || 'Unknown Quick Task',
+					task_description: assignment.quick_tasks?.description || '',
+					priority: assignment.quick_tasks?.priority || 'Medium',
+					issue_type: assignment.quick_tasks?.issue_type || '',
+					assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || 'Unknown',
+					assigned_by_id: assignment.quick_tasks?.assigned_by,
+					assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
+					assigned_to_id: assignment.assigned_to_user_id,
+					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
+					status: assignment.status,
+					deadline: assignment.quick_tasks?.deadline_datetime,
+					assigned_at: assignment.created_at,
+					accepted_at: assignment.accepted_at,
+					started_at: assignment.started_at,
+					completed_at: assignment.completed_at,
+					is_overdue: isOverdue,
+					is_near_deadline: isNearDeadline,
+					warning_level: isOverdue ? 'critical' : isNearDeadline ? 'warning' : 'normal'
+				};
+			});
+
+			// Combine and sort assignments
+			assignmentData = [...processedRegularAssignments, ...processedQuickAssignments]
+				.sort((a, b) => {
+					// Sort by warning level first (critical, warning, normal)
+					const warningOrder = { critical: 0, warning: 1, normal: 2 };
+					if (warningOrder[a.warning_level] !== warningOrder[b.warning_level]) {
+						return warningOrder[a.warning_level] - warningOrder[b.warning_level];
+					}
+					// Then by deadline
+					if (a.deadline && b.deadline) {
+						return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+					}
+					if (a.deadline) return -1;
+					if (b.deadline) return 1;
+					// Finally by assigned date
+					return new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime();
+				});
+
+			// Apply branch filter
 			applyBranchFilter();
+
 		} catch (err) {
 			console.error('Error loading assignment data:', err);
 			throw err;
@@ -291,14 +328,15 @@
 			// Create reminder notification using notificationManagement for proper push notification support
 			const notificationData = {
 				title: 'Task Reminder',
-				message: `Reminder: You have pending tasks assigned by ${assignment.assignedBy}.\n\nPlease check your tasks and complete them as soon as possible.`,
+				message: `Reminder: You have pending tasks assigned by ${assignment.assigned_by}.\n\nTask: ${assignment.task_title}\n\nPlease check your tasks and complete them as soon as possible.`,
 				type: 'info',
 				priority: 'medium',
 				target_type: 'specific_users',
-				target_users: [assignment.assignedToUserId]
+				target_users: [assignment.assigned_to_id]
 			};
 
-			await notificationManagement.createNotification(notificationData, assignment.assignedBy);
+			// @ts-ignore - type inference issue with literal types in JavaScript context
+			await notificationManagement.createNotification(notificationData, assignment.assigned_by_id);
 
 			alert('Reminder notification sent successfully with push notification!');
 		} catch (err) {
@@ -316,11 +354,10 @@
 				assignment: assignment,
 				onClose: () => {
 					// Refresh the data when warning is completed
-					loadDataFromSupabase();
+					loadTaskStatistics();
+					loadAssignmentData();
 				}
 			},
-			width: 600,
-			height: 700,
 			resizable: true
 		});
 	}
@@ -442,63 +479,75 @@
 					<table class="assignments-table">
 						<thead>
 							<tr>
+								<th>Task Type</th>
+								<th>Task Details</th>
 								<th>Assigned By</th>
 								<th>Assigned To</th>
 								<th>Branch</th>
-								<th>Assigned</th>
-								<th>Completed</th>
-								<th>Overdue</th>
-								<th>Reassigned</th>
+								<th>Status</th>
+								<th>Deadline</th>
 								<th>Actions</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each filteredAssignmentData as assignment}
-								<tr>
-									<td class="font-medium">{assignment.assignedBy}</td>
+								<tr class="assignment-row {assignment.warning_level}">
 									<td>
-										<div class="user-info">
-											<span class="username">{assignment.assignedTo}</span>
-											{#if assignment.assignedToEmployee}
-												<span class="employee-name">{assignment.assignedToEmployee}</span>
+										<span class="task-type-badge {assignment.type}">
+											{assignment.type === 'regular' ? 'Regular' : 'Quick'}
+										</span>
+									</td>
+									<td>
+										<div class="task-details">
+											<div class="task-title">{assignment.task_title}</div>
+											{#if assignment.task_description}
+												<div class="task-description">{assignment.task_description}</div>
+											{/if}
+											<div class="task-priority">Priority: {assignment.priority}</div>
+											{#if assignment.warning_level === 'critical'}
+												<div class="warning-badge critical">⚠️ OVERDUE</div>
+											{:else if assignment.warning_level === 'warning'}
+												<div class="warning-badge warning">⏰ Due Soon</div>
 											{/if}
 										</div>
 									</td>
-									<td>{assignment.branch}</td>
+									<td class="font-medium">{assignment.assigned_by}</td>
 									<td>
-										<span class="count-badge count-total">{assignment.totalAssigned}</span>
+										<div class="user-info">
+											<span class="username">{assignment.assigned_to}</span>
+										</div>
+									</td>
+									<td>{assignment.assigned_to_branch}</td>
+									<td>
+										<span class="status-badge {assignment.status}">
+											{assignment.status.charAt(0).toUpperCase() + assignment.status.slice(1)}
+										</span>
 									</td>
 									<td>
-										<span class="count-badge count-completed">{assignment.totalCompleted}</span>
-									</td>
-									<td>
-										<span class="count-badge count-overdue">{assignment.totalOverdue}</span>
-									</td>
-									<td>
-										<span class="count-badge count-reassigned">{assignment.totalReassigned}</span>
+										{#if assignment.deadline}
+											<div class="deadline-info">
+												{new Date(assignment.deadline).toLocaleDateString()}
+												<div class="deadline-time">
+													{new Date(assignment.deadline).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+												</div>
+											</div>
+										{:else}
+											<span class="no-deadline">No deadline</span>
+										{/if}
 									</td>
 									<td>
 										<div class="action-buttons">
 											<button 
 												class="action-btn reminder-btn"
 												on:click={() => sendReminder(assignment)}
-												title="Send Reminder Notification"
 											>
-												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5z"/>
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6l2 2H9V7z"/>
-												</svg>
-												Reminder
+												📧 Reminder
 											</button>
 											<button 
 												class="action-btn warning-btn"
 												on:click={() => openWarningModal(assignment)}
-												title="Send Warning"
 											>
-												<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-												</svg>
-												Warning
+												⚠️ Warning
 											</button>
 										</div>
 									</td>
@@ -855,6 +904,130 @@
 		font-weight: 600;
 		color: #374151;
 		margin: 16px 0 8px 0;
+	}
+
+	/* Task Type and Warning Badges */
+	.task-type-badge {
+		display: inline-block;
+		padding: 4px 8px;
+		border-radius: 12px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.task-type-badge.regular {
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
+
+	.task-type-badge.quick {
+		background: #fef3c7;
+		color: #d97706;
+	}
+
+	.task-details {
+		max-width: 300px;
+	}
+
+	.task-title {
+		font-weight: 600;
+		color: #111827;
+		margin-bottom: 4px;
+	}
+
+	.task-description {
+		font-size: 12px;
+		color: #6b7280;
+		margin-bottom: 4px;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.task-priority {
+		font-size: 11px;
+		color: #9ca3af;
+		margin-bottom: 4px;
+	}
+
+	.warning-badge {
+		display: inline-block;
+		padding: 2px 6px;
+		border-radius: 8px;
+		font-size: 10px;
+		font-weight: 600;
+		margin-top: 4px;
+	}
+
+	.warning-badge.critical {
+		background: #fecaca;
+		color: #dc2626;
+	}
+
+	.warning-badge.warning {
+		background: #fed7aa;
+		color: #ea580c;
+	}
+
+	.status-badge {
+		display: inline-block;
+		padding: 4px 8px;
+		border-radius: 12px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: capitalize;
+	}
+
+	.status-badge.pending {
+		background: #fef3c7;
+		color: #d97706;
+	}
+
+	.status-badge.in_progress {
+		background: #dbeafe;
+		color: #2563eb;
+	}
+
+	.status-badge.completed {
+		background: #dcfce7;
+		color: #16a34a;
+	}
+
+	.status-badge.overdue {
+		background: #fecaca;
+		color: #dc2626;
+	}
+
+	.deadline-info {
+		font-size: 12px;
+	}
+
+	.deadline-time {
+		font-size: 10px;
+		color: #6b7280;
+	}
+
+	.no-deadline {
+		font-size: 12px;
+		color: #9ca3af;
+		font-style: italic;
+	}
+
+	.assignment-row.critical {
+		background: #fef2f2;
+		border-left: 4px solid #dc2626;
+	}
+
+	.assignment-row.warning {
+		background: #fffbeb;
+		border-left: 4px solid #f59e0b;
+	}
+
+	.assignment-row.normal {
+		background: white;
 	}
 
 	@media (max-width: 768px) {

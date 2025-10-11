@@ -12,6 +12,65 @@
 	let isLoading = true;
 	let error = null;
 
+	// Column visibility management
+	let showColumnSelector = false;
+	let visibleColumns = {
+		erp_vendor_id: true,
+		vendor_name: true,
+		salesman_name: true,
+		salesman_contact: false,
+		supervisor_name: false,
+		supervisor_contact: false,
+		vendor_contact: true,
+		payment_method: true,
+		credit_period: false,
+		bank_name: false,
+		iban: false,
+		last_visit: false,
+		place: true,
+		location: true,
+		categories: true,
+		delivery_modes: true,
+		return_expired: false,
+		return_near_expiry: false,
+		return_over_stock: false,
+		return_damage: false,
+		no_return: false,
+		vat_status: false,
+		vat_number: false,
+		status: true,
+		actions: true
+	};
+
+	// Column definitions
+	const columnDefinitions = [
+		{ key: 'erp_vendor_id', label: 'ERP Vendor ID' },
+		{ key: 'vendor_name', label: 'Vendor Name' },
+		{ key: 'salesman_name', label: 'Salesman Name' },
+		{ key: 'salesman_contact', label: 'Salesman Contact' },
+		{ key: 'supervisor_name', label: 'Supervisor Name' },
+		{ key: 'supervisor_contact', label: 'Supervisor Contact' },
+		{ key: 'vendor_contact', label: 'Vendor Contact' },
+		{ key: 'payment_method', label: 'Payment Method' },
+		{ key: 'credit_period', label: 'Credit Period' },
+		{ key: 'bank_name', label: 'Bank Name' },
+		{ key: 'iban', label: 'IBAN' },
+		{ key: 'last_visit', label: 'Last Visit' },
+		{ key: 'place', label: 'Place' },
+		{ key: 'location', label: 'Location' },
+		{ key: 'categories', label: 'Categories' },
+		{ key: 'delivery_modes', label: 'Delivery Modes' },
+		{ key: 'return_expired', label: 'Return Expired' },
+		{ key: 'return_near_expiry', label: 'Return Near Expiry' },
+		{ key: 'return_over_stock', label: 'Return Over Stock' },
+		{ key: 'return_damage', label: 'Return Damage' },
+		{ key: 'no_return', label: 'No Return' },
+		{ key: 'vat_status', label: 'VAT Status' },
+		{ key: 'vat_number', label: 'VAT Number' },
+		{ key: 'status', label: 'Status' },
+		{ key: 'actions', label: 'Actions' }
+	];
+
 	// Load vendor data on component mount
 	onMount(async () => {
 		await loadVendors();
@@ -61,8 +120,10 @@
 				(vendor.iban && vendor.iban.toLowerCase().includes(query)) ||
 				(vendor.status && vendor.status.toLowerCase().includes(query)) ||
 				(vendor.last_visit && vendor.last_visit.toLowerCase().includes(query)) ||
-				(vendor.vendor_category && vendor.vendor_category.toLowerCase().includes(query)) ||
-				(vendor.warehouse_location && vendor.warehouse_location.toLowerCase().includes(query))
+				(vendor.place && vendor.place.toLowerCase().includes(query)) ||
+				(vendor.location_link && vendor.location_link.toLowerCase().includes(query)) ||
+				(vendor.categories && vendor.categories.some(cat => cat.toLowerCase().includes(query))) ||
+				(vendor.delivery_modes && vendor.delivery_modes.some(mode => mode.toLowerCase().includes(query)))
 			);
 		}
 	}
@@ -102,18 +163,103 @@
 			closable: true,
 			props: {
 				vendor: vendor,
-				onSave: (updatedVendor) => {
-					// Update local vendor data
-					const index = vendors.findIndex(v => v.erp_vendor_id === updatedVendor.erp_vendor_id);
-					if (index !== -1) {
-						vendors[index] = updatedVendor;
-						handleSearch(); // Refresh filtered data
+				onSave: async (updatedVendor) => {
+					console.log('Vendor updated:', updatedVendor);
+					try {
+						// Update local vendor data with proper reactivity
+						const index = vendors.findIndex(v => v.erp_vendor_id === updatedVendor.erp_vendor_id);
+						if (index !== -1) {
+							vendors[index] = { ...updatedVendor };
+							vendors = [...vendors]; // Trigger reactivity
+							console.log('Vendor updated in local array:', vendors[index]);
+							handleSearch(); // Refresh filtered data
+						} else {
+							console.warn('Vendor not found in local array for update');
+							// Reload all vendors as fallback
+							await loadVendors();
+						}
+						// Close the edit window
+						windowManager.closeWindow(windowId);
+						alert('Vendor updated successfully!');
+					} catch (error) {
+						console.error('Error updating vendor in UI:', error);
+						alert('Vendor updated but there was an issue refreshing the display.');
 					}
-					// Close the edit window
-					windowManager.closeWindow(windowId);
 				},
 				onCancel: () => {
 					// Close the edit window
+					windowManager.closeWindow(windowId);
+				}
+			}
+		});
+	}
+
+	// Open create vendor window
+	function openCreateVendor() {
+		const windowId = generateWindowId();
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: 'Create New Vendor',
+			component: EditVendor,
+			icon: '➕',
+			size: { width: 800, height: 600 },
+			position: { 
+				x: 150 + (Math.random() * 50),
+				y: 150 + (Math.random() * 50) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				vendor: {
+					// Initialize with empty vendor object with mandatory fields
+					erp_vendor_id: '',
+					vendor_name: '',
+					// All other fields optional - set defaults
+					salesman_name: '',
+					salesman_contact: '',
+					supervisor_name: '',
+					supervisor_contact: '',
+					vendor_contact: '',
+					payment_method: '',
+					credit_period: '',
+					bank_name: '',
+					iban: '',
+					last_visit: '',
+					place: '',
+					location: '',
+					categories: [],
+					delivery_modes: [],
+					status: 'Active',
+					// Return policy defaults
+					return_expired_products: '',
+					return_expired_note: '',
+					return_near_expiry_products: '',
+					return_near_expiry_note: '',
+					return_over_stock: '',
+					return_over_stock_note: '',
+					return_damage_products: '',
+					return_damage_note: '',
+					no_return: false,
+					// VAT defaults
+					vat_applicable: 'VAT Applicable',
+					vat_number: '',
+					no_vat_note: ''
+				},
+				isCreating: true, // Flag to indicate creation mode
+				onSave: (newVendor) => {
+					// Add new vendor to local data
+					vendors = [...vendors, newVendor];
+					totalVendors++;
+					handleSearch(); // Refresh filtered data
+					// Close the create window
+					windowManager.closeWindow(windowId);
+					alert('Vendor created successfully!');
+				},
+				onCancel: () => {
+					// Close the create window
 					windowManager.closeWindow(windowId);
 				}
 			}
@@ -169,6 +315,49 @@
 		
 		await updateVendorStatus(vendorId, nextStatus);
 	}
+
+	// Share location function
+	async function shareLocation(locationLink, vendorName) {
+		try {
+			// Check if Web Share API is supported
+			if (navigator.share) {
+				await navigator.share({
+					title: `${vendorName} Location`,
+					text: `Location for vendor: ${vendorName}`,
+					url: locationLink
+				});
+			} else {
+				// Fallback: Copy to clipboard
+				await navigator.clipboard.writeText(locationLink);
+				alert(`Location link copied to clipboard!\n\nVendor: ${vendorName}\nLocation: ${locationLink}`);
+			}
+		} catch (error) {
+			// Manual fallback if clipboard fails
+			try {
+				await navigator.clipboard.writeText(locationLink);
+				alert(`Location link copied to clipboard!\n\nVendor: ${vendorName}\nLocation: ${locationLink}`);
+			} catch (clipboardError) {
+				// Ultimate fallback - show link in a prompt
+				prompt(`Copy this location link:\n\nVendor: ${vendorName}`, locationLink);
+			}
+		}
+	}
+
+	// Toggle column visibility
+	function toggleColumn(columnKey) {
+		visibleColumns[columnKey] = !visibleColumns[columnKey];
+		visibleColumns = { ...visibleColumns }; // Trigger reactivity
+	}
+
+	// Show/hide all columns
+	function toggleAllColumns(show) {
+		for (let key in visibleColumns) {
+			if (key !== 'vendor_name' && key !== 'actions') { // Always keep vendor name and actions
+				visibleColumns[key] = show;
+			}
+		}
+		visibleColumns = { ...visibleColumns }; // Trigger reactivity
+	}
 </script>
 
 <div class="manage-vendor">
@@ -191,9 +380,14 @@
 				{/if}
 				<p>Active vendor records</p>
 			</div>
-			<button class="refresh-btn" on:click={refreshData} disabled={isLoading}>
-				🔄 Refresh
-			</button>
+			<div class="header-buttons">
+				<button class="create-btn" on:click={openCreateVendor}>
+					➕ Create Vendor
+				</button>
+				<button class="refresh-btn" on:click={refreshData} disabled={isLoading}>
+					🔄 Refresh
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -204,7 +398,7 @@
 				<span class="search-icon">🔍</span>
 				<input 
 					type="text" 
-					placeholder="Search by ERP ID or vendor name..."
+					placeholder="Search by ERP ID, vendor name, place, location, categories, delivery modes..."
 					bind:value={searchQuery}
 					class="search-input"
 				/>
@@ -215,6 +409,37 @@
 		</div>
 		<div class="search-results">
 			Showing {filteredVendors.length} of {totalVendors} vendors
+		</div>
+	</div>
+
+	<!-- Column Selector -->
+	<div class="column-selector-section">
+		<div class="column-selector">
+			<button class="column-selector-btn" on:click={() => showColumnSelector = !showColumnSelector}>
+				🏷️ Show/Hide Columns
+				<span class="dropdown-arrow">{showColumnSelector ? '▲' : '▼'}</span>
+			</button>
+			
+			{#if showColumnSelector}
+				<div class="column-dropdown">
+					<div class="column-controls">
+						<button class="control-btn" on:click={() => toggleAllColumns(true)}>✅ Show All</button>
+						<button class="control-btn" on:click={() => toggleAllColumns(false)}>❌ Hide All</button>
+					</div>
+					<div class="column-list">
+						{#each columnDefinitions as column}
+							<label class="column-item">
+								<input 
+									type="checkbox" 
+									checked={visibleColumns[column.key]} 
+									on:change={() => toggleColumn(column.key)}
+								/>
+								<span class="column-label">{column.label}</span>
+							</label>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -249,98 +474,302 @@
 				<table>
 					<thead>
 						<tr>
-							<th>ERP Vendor ID</th>
-							<th>Vendor Name</th>
-							<th>Salesman Name</th>
-							<th>Salesman Contact</th>
-							<th>Supervisor Name</th>
-							<th>Supervisor Contact</th>
-							<th>Vendor Contact</th>
-							<th>Payment Method</th>
-							<th>Credit Period</th>
-							<th>Bank Name</th>
-							<th>IBAN</th>
-							<th>Last Visit</th>
-							<th>Category</th>
-							<th>Status</th>
-							<th>Actions</th>
+							{#if visibleColumns.erp_vendor_id}<th>ERP Vendor ID</th>{/if}
+							{#if visibleColumns.vendor_name}<th>Vendor Name</th>{/if}
+							{#if visibleColumns.salesman_name}<th>Salesman Name</th>{/if}
+							{#if visibleColumns.salesman_contact}<th>Salesman Contact</th>{/if}
+							{#if visibleColumns.supervisor_name}<th>Supervisor Name</th>{/if}
+							{#if visibleColumns.supervisor_contact}<th>Supervisor Contact</th>{/if}
+							{#if visibleColumns.vendor_contact}<th>Vendor Contact</th>{/if}
+							{#if visibleColumns.payment_method}<th>Payment Method</th>{/if}
+							{#if visibleColumns.credit_period}<th>Credit Period</th>{/if}
+							{#if visibleColumns.bank_name}<th>Bank Name</th>{/if}
+							{#if visibleColumns.iban}<th>IBAN</th>{/if}
+							{#if visibleColumns.last_visit}<th>Last Visit</th>{/if}
+							{#if visibleColumns.place}<th>Place</th>{/if}
+							{#if visibleColumns.location}<th>Location</th>{/if}
+							{#if visibleColumns.categories}<th>Categories</th>{/if}
+							{#if visibleColumns.delivery_modes}<th>Delivery Modes</th>{/if}
+							{#if visibleColumns.status}<th>Status</th>{/if}
+							{#if visibleColumns.actions}<th>Actions</th>{/if}
 						</tr>
 					</thead>
 					<tbody>
 						{#each filteredVendors as vendor}
 							<tr>
-								<td class="vendor-id">{vendor.erp_vendor_id}</td>
-								<td class="vendor-name">{vendor.vendor_name}</td>
-								<td class="vendor-data">{vendor.salesman_name || '-'}</td>
-								<td class="vendor-data">{vendor.salesman_contact || '-'}</td>
-								<td class="vendor-data">{vendor.supervisor_name || '-'}</td>
-								<td class="vendor-data">{vendor.supervisor_contact || '-'}</td>
-								<td class="vendor-data">{vendor.vendor_contact_number || '-'}</td>
-								<td class="payment-method">{vendor.payment_method || '-'}</td>
-								<td class="credit-period">
-									{#if (vendor.payment_method === 'Cash Credit' || vendor.payment_method === 'Bank Credit') && vendor.credit_period}
-										{vendor.credit_period} days
-									{:else}
-										-
-									{/if}
-								</td>
-								<td class="bank-info">
-									{#if (vendor.payment_method === 'Bank on Delivery' || vendor.payment_method === 'Bank Credit') && vendor.bank_name}
-										{vendor.bank_name}
-									{:else}
-										-
-									{/if}
-								</td>
-								<td class="bank-info">
-									{#if (vendor.payment_method === 'Bank on Delivery' || vendor.payment_method === 'Bank Credit') && vendor.iban}
-										{vendor.iban}
-									{:else}
-										-
-									{/if}
-								</td>
-								<td class="last-visit">
-									{#if vendor.last_visit}
-										{new Date(vendor.last_visit).toLocaleDateString('en-US', { 
-											year: 'numeric', 
-											month: 'short', 
-											day: 'numeric',
-											hour: '2-digit',
-											minute: '2-digit'
-										})}
-									{:else}
-										<span class="no-visit">Never</span>
-									{/if}
-								</td>
-								<td class="vendor-category">
-									<span class="category-badge">
-										{vendor.vendor_category || 'Daily Fresh Vendor'}
-									</span>
-									{#if vendor.warehouse_location}
-										<div class="location-info">📍 {vendor.warehouse_location}</div>
-									{/if}
-								</td>
-								<td class="status-cell">
-									{#if vendor.status === 'Active'}
-										<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-											✅ Active
-										</button>
-									{:else if vendor.status === 'Deactivated'}
-										<button class="status-cycle-btn status-deactivated" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-											🚫 Deactivated
-										</button>
-									{:else if vendor.status === 'Blacklisted'}
-										<button class="status-cycle-btn status-blacklisted" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-											⚫ Blacklist
-										</button>
-									{:else}
-										<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
-											✅ Active
-										</button>
-									{/if}
-								</td>
-								<td class="action-buttons">
-									<button class="edit-btn" on:click={() => openEditWindow(vendor)}>✏️ Edit</button>
-								</td>
+								{#if visibleColumns.erp_vendor_id}
+									<td class="vendor-id">{vendor.erp_vendor_id}</td>
+								{/if}
+								{#if visibleColumns.vendor_name}
+									<td class="vendor-name">{vendor.vendor_name}</td>
+								{/if}
+								{#if visibleColumns.salesman_name}
+									<td class="vendor-data">
+										{#if vendor.salesman_name}
+											{vendor.salesman_name}
+										{:else}
+											<span class="no-data">No salesman</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.salesman_contact}
+									<td class="vendor-data">
+										{#if vendor.salesman_contact}
+											{vendor.salesman_contact}
+										{:else}
+											<span class="no-data">No contact</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.supervisor_name}
+									<td class="vendor-data">
+										{#if vendor.supervisor_name}
+											{vendor.supervisor_name}
+										{:else}
+											<span class="no-data">No supervisor</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.supervisor_contact}
+									<td class="vendor-data">
+										{#if vendor.supervisor_contact}
+											{vendor.supervisor_contact}
+										{:else}
+											<span class="no-data">No contact</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.vendor_contact}
+									<td class="vendor-data">
+										{#if vendor.vendor_contact_number}
+											{vendor.vendor_contact_number}
+										{:else}
+											<span class="no-data">No contact</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.payment_method}
+									<td class="payment-method">
+										{#if vendor.payment_method}
+											{#if vendor.payment_method.includes(',')}
+												<!-- Multiple payment methods -->
+												<div class="payment-methods-list">
+													{#each vendor.payment_method.split(',').map(m => m.trim()) as method}
+														<span class="payment-method-tag">{method}</span>
+													{/each}
+												</div>
+											{:else}
+												<!-- Single payment method -->
+												{vendor.payment_method}
+											{/if}
+										{:else}
+											<span class="no-data">No method</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.credit_period}
+									<td class="credit-period">
+										{#if vendor.payment_method && (vendor.payment_method.includes('Cash Credit') || vendor.payment_method.includes('Bank Credit')) && vendor.credit_period}
+											{vendor.credit_period} days
+										{:else}
+											<span class="no-data">No credit period</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.bank_name}
+									<td class="bank-info">
+										{#if vendor.payment_method && (vendor.payment_method.includes('Bank on Delivery') || vendor.payment_method.includes('Bank Credit')) && vendor.bank_name}
+											{vendor.bank_name}
+										{:else}
+											<span class="no-data">No bank</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.iban}
+									<td class="bank-info">
+										{#if vendor.payment_method && (vendor.payment_method.includes('Bank on Delivery') || vendor.payment_method.includes('Bank Credit')) && vendor.iban}
+											{vendor.iban}
+										{:else}
+											<span class="no-data">No IBAN</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.last_visit}
+									<td class="last-visit">
+										{#if vendor.last_visit}
+											{new Date(vendor.last_visit).toLocaleDateString('en-US', { 
+												year: 'numeric', 
+												month: 'short', 
+												day: 'numeric',
+												hour: '2-digit',
+												minute: '2-digit'
+											})}
+										{:else}
+											<span class="no-visit">Never visited</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.place}
+									<td class="vendor-place">
+										{#if vendor.place}
+											<span class="place-text">📍 {vendor.place}</span>
+										{:else}
+											<span class="no-place">No place</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.location}
+									<td class="vendor-location">
+										{#if vendor.location_link}
+											<div class="location-actions">
+												<a 
+													href={vendor.location_link} 
+													target="_blank" 
+													rel="noopener noreferrer"
+													class="location-link"
+												>
+													🗺️ Open Map
+												</a>
+												<button 
+													class="share-location-btn"
+													on:click={() => shareLocation(vendor.location_link, vendor.vendor_name)}
+													title="Share Location"
+												>
+													📤 Share
+												</button>
+											</div>
+										{:else}
+											<span class="no-location">No location</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.categories}
+									<td class="vendor-categories">
+										{#if vendor.categories && vendor.categories.length > 0}
+											<div class="category-badges">
+												{#each vendor.categories as category}
+													<span class="category-badge">{category}</span>
+												{/each}
+											</div>
+										{:else}
+											<span class="no-categories">No categories</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.delivery_modes}
+									<td class="vendor-delivery-modes">
+										{#if vendor.delivery_modes && vendor.delivery_modes.length > 0}
+											<div class="delivery-mode-badges">
+												{#each vendor.delivery_modes as mode}
+													<span class="delivery-mode-badge">{mode}</span>
+												{/each}
+											</div>
+										{:else}
+											<span class="no-delivery-modes">No delivery modes</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.return_expired}
+									<td class="return-policy-cell">
+										{#if vendor.return_expired_products}
+											<span class="return-policy-badge {vendor.return_expired_products === 'Can Return' ? 'can-return' : 'cannot-return'}">
+												{vendor.return_expired_products}
+											</span>
+										{:else}
+											<span class="no-policy">Not set</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.return_near_expiry}
+									<td class="return-policy-cell">
+										{#if vendor.return_near_expiry_products}
+											<span class="return-policy-badge {vendor.return_near_expiry_products === 'Can Return' ? 'can-return' : 'cannot-return'}">
+												{vendor.return_near_expiry_products}
+											</span>
+										{:else}
+											<span class="no-policy">Not set</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.return_over_stock}
+									<td class="return-policy-cell">
+										{#if vendor.return_over_stock}
+											<span class="return-policy-badge {vendor.return_over_stock === 'Can Return' ? 'can-return' : 'cannot-return'}">
+												{vendor.return_over_stock}
+											</span>
+										{:else}
+											<span class="no-policy">Not set</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.return_damage}
+									<td class="return-policy-cell">
+										{#if vendor.return_damage_products}
+											<span class="return-policy-badge {vendor.return_damage_products === 'Can Return' ? 'can-return' : 'cannot-return'}">
+												{vendor.return_damage_products}
+											</span>
+										{:else}
+											<span class="no-policy">Not set</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.no_return}
+									<td class="return-policy-cell">
+										{#if vendor.no_return}
+											<span class="return-policy-badge no-return-badge">🚫 No Returns</span>
+										{:else}
+											<span class="return-policy-badge returns-accepted">✅ Returns OK</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.vat_status}
+									<td class="vat-cell">
+										{#if vendor.vat_applicable}
+											<span class="vat-badge {vendor.vat_applicable === 'VAT Applicable' ? 'vat-applicable' : 'no-vat'}">
+												{vendor.vat_applicable === 'VAT Applicable' ? '💰 VAT Applicable' : '🚫 No VAT'}
+											</span>
+										{:else}
+											<span class="no-vat-info">Not set</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.vat_number}
+									<td class="vat-number-cell">
+										{#if vendor.vat_applicable === 'VAT Applicable' && vendor.vat_number}
+											<span class="vat-number">{vendor.vat_number}</span>
+										{:else if vendor.vat_applicable === 'No VAT' && vendor.no_vat_note}
+											<span class="no-vat-note" title={vendor.no_vat_note}>📝 Note available</span>
+										{:else}
+											<span class="no-vat-info">-</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.status}
+									<td class="status-cell">
+										{#if vendor.status === 'Active'}
+											<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
+												✅ Active
+											</button>
+										{:else if vendor.status === 'Deactivated'}
+											<button class="status-cycle-btn status-deactivated" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
+												🚫 Deactivated
+											</button>
+										{:else if vendor.status === 'Blacklisted'}
+											<button class="status-cycle-btn status-blacklisted" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
+												⚫ Blacklist
+											</button>
+										{:else}
+											<button class="status-cycle-btn status-active" on:click={() => cycleVendorStatus(vendor.erp_vendor_id, vendor.status || 'Active')}>
+												✅ Active
+											</button>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.actions}
+									<td class="action-buttons">
+										<button class="edit-btn" on:click={() => openEditWindow(vendor)}>✏️ Edit</button>
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
@@ -425,6 +854,28 @@
 	.card-content p {
 		opacity: 0.8;
 		font-size: 0.95rem;
+	}
+
+	.header-buttons {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+	}
+
+	.create-btn {
+		background: #10b981;
+		color: white;
+		border: 1px solid #059669;
+		padding: 0.75rem 1.25rem;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 500;
+	}
+
+	.create-btn:hover {
+		background: #059669;
+		transform: translateY(-1px);
 	}
 
 	.refresh-btn {
@@ -515,6 +966,112 @@
 		font-size: 0.9rem;
 	}
 
+	/* Column Selector */
+	.column-selector-section {
+		margin-bottom: 1rem;
+		display: flex;
+		justify-content: center;
+	}
+
+	.column-selector {
+		position: relative;
+		display: inline-block;
+	}
+
+	.column-selector-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.25rem;
+		border-radius: 8px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 500;
+		transition: all 0.2s;
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+	}
+
+	.column-selector-btn:hover {
+		background: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.dropdown-arrow {
+		font-size: 0.8rem;
+		transition: transform 0.2s;
+	}
+
+	.column-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		background: white;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+		z-index: 1000;
+		min-width: 280px;
+		max-height: 400px;
+		overflow-y: auto;
+		margin-top: 0.5rem;
+	}
+
+	.column-controls {
+		padding: 1rem;
+		border-bottom: 1px solid #e2e8f0;
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.control-btn {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: all 0.2s;
+		flex: 1;
+	}
+
+	.control-btn:hover {
+		background: #f1f5f9;
+		border-color: #cbd5e1;
+	}
+
+	.column-list {
+		padding: 0.5rem;
+	}
+
+	.column-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.column-item:hover {
+		background: #f8fafc;
+	}
+
+	.column-item input[type="checkbox"] {
+		width: 16px;
+		height: 16px;
+		accent-color: #3b82f6;
+	}
+
+	.column-label {
+		font-size: 0.9rem;
+		color: #374151;
+		user-select: none;
+	}
+
 	/* Table Section */
 	.table-section {
 		background: white;
@@ -595,28 +1152,151 @@
 	.no-visit {
 		color: #9ca3af;
 		font-style: italic;
+		font-size: 0.75rem;
 	}
 
-	.vendor-category {
+	.vendor-categories {
 		font-size: 0.8rem;
-		min-width: 130px;
+		min-width: 150px;
+		max-width: 200px;
+	}
+
+	.category-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
 	}
 
 	.category-badge {
 		background: #e0f2fe;
 		color: #0369a1;
-		padding: 0.25rem 0.5rem;
-		border-radius: 0.375rem;
-		font-size: 0.75rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
 		font-weight: 500;
-		display: inline-block;
-		margin-bottom: 0.25rem;
+		white-space: nowrap;
 	}
 
-	.location-info {
-		color: #6b7280;
+	.no-categories {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	.no-data {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	/* Delivery Mode Badges */
+	.vendor-delivery-modes {
+		max-width: 200px;
+		padding: 0.5rem;
+	}
+
+	.delivery-mode-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.delivery-mode-badge {
+		background: #fef3c7;
+		color: #d97706;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
 		font-size: 0.7rem;
-		margin-top: 0.25rem;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.no-delivery-modes {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	/* Place & Location Styles */
+	.vendor-place {
+		max-width: 120px;
+		padding: 0.5rem;
+	}
+
+	.place-text {
+		font-size: 0.75rem;
+		color: #374151;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.no-place {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	.vendor-location {
+		text-align: center;
+		padding: 0.5rem;
+	}
+
+	.location-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		align-items: center;
+	}
+
+	.location-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.375rem 0.75rem;
+		background: #3b82f6;
+		color: white;
+		text-decoration: none;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		transition: all 0.2s;
+		min-width: 90px;
+	}
+
+	.location-link:hover {
+		background: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.share-location-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.25rem 0.5rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 90px;
+		justify-content: center;
+	}
+
+	.share-location-btn:hover {
+		background: #059669;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+	}
+
+	.no-location {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
 	}
 
 	/* Status Button Styling in Status Column */
@@ -792,5 +1472,120 @@
 			padding: 0.75rem 0.5rem;
 			font-size: 0.9rem;
 		}
+	}
+
+	/* Return Policy Styles */
+	.return-policy-cell {
+		text-align: center;
+		padding: 0.75rem 0.5rem;
+	}
+
+	.return-policy-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.can-return {
+		background-color: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+	}
+
+	.cannot-return {
+		background-color: #fef2f2;
+		color: #dc2626;
+		border: 1px solid #fecaca;
+	}
+
+	.no-return-badge {
+		background-color: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+	}
+
+	.returns-accepted {
+		background-color: #eff6ff;
+		color: #1d4ed8;
+		border: 1px solid #bfdbfe;
+	}
+
+	.no-policy {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	/* VAT Styles */
+	.vat-cell, .vat-number-cell {
+		text-align: center;
+		padding: 0.75rem 0.5rem;
+	}
+
+	.vat-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.vat-applicable {
+		background-color: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+	}
+
+	.no-vat {
+		background-color: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+	}
+
+	.vat-number {
+		font-family: monospace;
+		font-weight: 600;
+		color: #374151;
+		background-color: #f9fafb;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		border: 1px solid #e5e7eb;
+	}
+
+	.no-vat-note {
+		color: #6366f1;
+		cursor: help;
+		text-decoration: underline;
+		font-size: 0.75rem;
+	}
+
+	.no-vat-info {
+		color: #9ca3af;
+		font-style: italic;
+		font-size: 0.75rem;
+	}
+
+	/* Payment Method Styles */
+	.payment-methods-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.payment-method-tag {
+		display: inline-block;
+		background: #dbeafe;
+		color: #1e40af;
+		padding: 0.125rem 0.5rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		white-space: nowrap;
 	}
 </style>
