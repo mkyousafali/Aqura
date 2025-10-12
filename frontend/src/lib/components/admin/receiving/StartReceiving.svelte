@@ -26,9 +26,16 @@
 	let pageCount = 0;
 	let scannedPages = [];
 	let availablePrinters = [];
-	let selectedPrinter = null;
+	let selectedPrinter = null; // {id: string, name: string, type: string} | null
 	let isScanning = false;
 	let currentScanPage = 0;
+	let showPrinterConfig = false;
+	let userDefaultScanner = null;
+	let currentPage = 1;
+	let manualScannerName = '';
+	let manualScannerUrl = '';
+	let manualSystemScannerName = '';
+	let manualScannerType = 'hp';
 
 	// Step 3 - Quality Check
 	let qualityChecks = {
@@ -135,6 +142,7 @@
 
 		await loadVendors();
 		await loadBranches();
+		await loadUserDefaultScanner(); // Load user's saved scanner configuration
 	});
 
 	// Load vendors from database
@@ -337,56 +345,768 @@
 	}
 
 	function setPageCount() {
-		if (pageCount > 0 && pageCount <= 50) {
+		console.log('setPageCount called, current pageCount:', pageCount);
+		
+		const numPages = Number(pageCount) || 0; // Convert to number safely
+		console.log('Parsed pageCount:', numPages);
+		
+		if (numPages > 0 && numPages <= 50) {
+			pageCount = numPages; // Ensure it's a number
 			scannedPages = Array(pageCount).fill(null);
 			currentScanPage = 0;
 			loadAvailablePrinters();
-			console.log('Set page count:', pageCount);
+			console.log('Set page count successfully:', pageCount);
+			console.log('Scanned pages array:', scannedPages);
 		} else {
 			alert('Please enter a valid page count (1-50)');
+			pageCount = 0; // Reset to show input again
 		}
 	}
 
-	async function loadAvailablePrinters() {
-		// Simulate loading printers - in real implementation, this would query system printers
-		availablePrinters = [
-			{ id: 'hp_laserjet', name: 'HP LaserJet Pro MFP M428fdw' },
-			{ id: 'canon_pixma', name: 'Canon PIXMA TR8620' },
-			{ id: 'epson_workforce', name: 'Epson WorkForce Pro WF-4730' }
-		];
-		console.log('Available printers:', availablePrinters);
+	function addManualPrinter() {
+		const printerName = prompt('Enter your printer name (e.g., "HP LaserJet Pro MFP 3303"):');
+		if (printerName && printerName.trim()) {
+			const newPrinter = {
+				id: `manual_${Date.now()}`,
+				name: printerName.trim(),
+				type: 'manual',
+				status: 'Ready'
+			};
+			
+			availablePrinters = [...availablePrinters, newPrinter];
+			console.log('Added manual printer:', newPrinter);
+		}
 	}
 
+	// Load user's default scanner configuration
+	async function loadUserDefaultScanner() {
+		try {
+			// Check localStorage for user's saved scanner
+			const savedScanner = localStorage.getItem('userDefaultScanner');
+			if (savedScanner) {
+				userDefaultScanner = JSON.parse(savedScanner);
+				console.log('Loaded user default scanner:', userDefaultScanner);
+			}
+		} catch (error) {
+			console.error('Error loading user default scanner:', error);
+		}
+	}
+
+	// Save user's default scanner configuration
+	function saveUserDefaultScanner(scanner) {
+		try {
+			localStorage.setItem('userDefaultScanner', JSON.stringify(scanner));
+			userDefaultScanner = scanner;
+			selectedPrinter = scanner;
+			console.log('Saved user default scanner:', scanner);
+		} catch (error) {
+			console.error('Error saving user default scanner:', error);
+		}
+	}
+
+	// Open system printer settings
+	function openPrinterSettings() {
+		// Try multiple methods to open printer settings
+		try {
+			// Method 1: Windows Settings (modern)
+			const settingsWindow = window.open('ms-settings:printers', '_blank');
+			
+			// Check if it worked after a short delay
+			setTimeout(() => {
+				if (settingsWindow && settingsWindow.closed) {
+					// If it was closed immediately, try alternative methods
+					tryAlternativePrinterSettings();
+				}
+			}, 1000);
+			
+		} catch (error) {
+			console.log('ms-settings failed:', error);
+			tryAlternativePrinterSettings();
+		}
+	}
+
+	function tryAlternativePrinterSettings() {
+		try {
+			// Method 2: Control Panel
+			window.open('control printers', '_blank');
+		} catch (error2) {
+			try {
+				// Method 3: Run dialog command
+				window.open('control', '_blank');
+			} catch (error3) {
+				// Method 4: Show instructions instead
+				showPrinterSettingsInstructions();
+			}
+		}
+	}
+
+	function showPrinterSettingsInstructions() {
+		const instructions = `🖨️ To add your scanner/printer:
+
+Windows 10/11:
+1. Press Windows key + I
+2. Go to "Bluetooth & devices" > "Printers & scanners"
+3. Click "Add device" or "Add printer or scanner"
+4. Follow the setup wizard
+5. Return here and click "Refresh Scanner List"
+
+Alternative:
+1. Press Windows key + R
+2. Type: control printers
+3. Press Enter
+4. Add your printer/scanner
+5. Return here and refresh
+
+macOS:
+1. Apple menu > System Preferences
+2. Click "Printers & Scanners"
+3. Click the "+" button to add
+
+Linux:
+1. Settings > Printers
+2. Click "Add Printer"`;
+
+		alert(instructions);
+	}
+
+	// Show printer configuration dialog
+	function showPrinterConfiguration() {
+		showPrinterConfig = true;
+		loadAvailablePrinters();
+	}
+
+	// Configure scanner for this device
+	function configureDeviceScanner(printer) {
+		saveUserDefaultScanner(printer);
+		showPrinterConfig = false;
+		alert('Scanner configured successfully! This will be used for all scanning operations on this device.');
+	}
+
+	// Add manual network scanner
+	function addManualNetworkScanner() {
+		if (!manualScannerName.trim() || !manualScannerUrl.trim()) {
+			alert('Please enter both scanner name and URL');
+			return;
+		}
+
+		const networkScanner = {
+			id: `manual_network_${Date.now()}`,
+			name: manualScannerName.trim(),
+			url: manualScannerUrl.trim(),
+			type: 'network',
+			isManual: true
+		};
+
+		// Add to available printers list
+		availablePrinters = [networkScanner, ...availablePrinters];
+		
+		// Clear form
+		manualScannerName = '';
+		manualScannerUrl = '';
+		
+		alert('Network scanner added successfully! You can now set it as default.');
+	}
+
+	// Add manual system scanner
+	function addManualSystemScanner() {
+		if (!manualSystemScannerName.trim()) {
+			alert('Please enter scanner name');
+			return;
+		}
+
+		const systemScanner = {
+			id: `manual_system_${Date.now()}`,
+			name: manualSystemScannerName.trim(),
+			type: manualScannerType,
+			isManual: true
+		};
+
+		// Add to available printers list
+		availablePrinters = [systemScanner, ...availablePrinters];
+		
+		// Clear form
+		manualSystemScannerName = '';
+		
+		alert('System scanner added successfully! You can now set it as default.');
+	}
+
+	// Quick add common scanners
+	function addQuickScanner(name, type) {
+		const quickScanner = {
+			id: `quick_${type}_${Date.now()}`,
+			name: name,
+			type: type,
+			isQuick: true
+		};
+
+		// Add to available printers list
+		availablePrinters = [quickScanner, ...availablePrinters];
+		
+		alert(`${name} added successfully! You can now set it as default.`);
+	}
+
+	// Load available printers
+	async function loadAvailablePrinters() {
+		try {
+			console.log('Loading available printers...');
+			
+			// Try to get system printers using Web API
+			if ('navigator' in globalThis && 'mediaDevices' in navigator) {
+				// First try to get printer devices if available
+				try {
+					const devices = await navigator.mediaDevices.enumerateDevices();
+					const printerDevices = devices.filter(device => 
+						device.kind === 'videoinput' || // Some scanners appear as video input
+						device.label.toLowerCase().includes('printer') ||
+						device.label.toLowerCase().includes('scanner') ||
+						device.label.toLowerCase().includes('hp') ||
+						device.label.toLowerCase().includes('canon') ||
+						device.label.toLowerCase().includes('epson')
+					);
+					
+					if (printerDevices.length > 0) {
+						availablePrinters = printerDevices.map(device => ({
+							id: device.deviceId,
+							name: device.label || 'Unknown Printer',
+							type: 'system'
+						}));
+						console.log('Found system printers:', availablePrinters);
+						return;
+					}
+				} catch (deviceError) {
+					console.log('Device enumeration failed:', deviceError);
+				}
+			}
+
+			// Fallback: Try to detect printers using other methods
+			// Check if Web Print API is available (experimental)
+			if ('print' in window) {
+				// This is a basic fallback - in a real implementation you'd use
+				// a more sophisticated printer detection method
+				console.log('Using print API fallback');
+			}
+
+			// Load network scanner from user settings or use fallback
+			const networkScannerConfig = await loadNetworkScannerConfig();
+			
+			availablePrinters = [
+				...networkScannerConfig,
+				{ id: 'system_default', name: 'System Default Printer', type: 'default' },
+				{ id: 'hp_color_laserjet', name: 'HP Color LaserJet Pro', type: 'hp' },
+				{ id: 'canon_printer', name: 'Canon PIXMA Series', type: 'canon' },
+				{ id: 'epson_printer', name: 'Epson WorkForce Pro', type: 'epson' },
+				{ id: 'generic_scanner', name: 'Generic Scanner/MFP', type: 'scanner' },
+				{ id: 'add_network_scanner', name: '+ Add Network Scanner', type: 'config' }
+			];
+			
+			// Auto-select the network scanner
+			selectedPrinter = availablePrinters[0];
+			
+			console.log('Using network scanner and fallback printers:', availablePrinters);
+			console.log('Auto-selected network scanner:', selectedPrinter);
+		} catch (error) {
+			console.error('Error loading printers:', error);
+			// Minimal fallback
+			availablePrinters = [
+				{ id: 'system_default', name: 'System Default Printer', type: 'default' }
+			];
+		}
+	}
+
+	// Test scanner connectivity
+	async function testScannerConnection() {
+		const scannerUrl = 'http://192.168.0.9:3911';
+		scannerConnectionStatus = 'testing';
+		
+		console.log('🔍 Testing scanner connectivity...');
+		
+		try {
+			// Test basic connectivity
+			const response = await fetch(scannerUrl, { 
+				method: 'GET', 
+				mode: 'no-cors',
+				signal: AbortSignal.timeout(5000) 
+			});
+			
+			scannerConnectionStatus = 'connected';
+			console.log('✅ Scanner accessible');
+			
+			// Try to open scanner interface
+			window.open(scannerUrl, '_blank');
+			
+			alert(
+				`✅ Scanner Connection Successful!\n\n` +
+				`Scanner URL: ${scannerUrl}\n` +
+				`Status: Online and accessible\n\n` +
+				`The scanner web interface has been opened in a new tab.\n` +
+				`You can now use the "Scan" buttons in the receiving workflow.`
+			);
+			
+		} catch (error) {
+			scannerConnectionStatus = 'failed';
+			console.error('❌ Scanner connection failed:', error);
+			
+			const troubleshootAction = confirm(
+				`❌ Scanner Connection Failed\n\n` +
+				`Scanner URL: ${scannerUrl}\n` +
+				`Error: ${error.message}\n\n` +
+				`Troubleshooting Steps:\n` +
+				`1. Check if scanner is powered on\n` +
+				`2. Verify network connection\n` +
+				`3. Confirm IP address: 192.168.0.9\n` +
+				`4. Check if port 3911 is accessible\n\n` +
+				`Click OK to try opening scanner URL in browser\n` +
+				`Click Cancel to continue with manual uploads`
+			);
+			
+			if (troubleshootAction) {
+				window.open(scannerUrl, '_blank');
+			}
+		}
+	}
+
+	// Scanner connection status
+	let scannerConnectionStatus = 'unknown'; // 'unknown', 'testing', 'connected', 'failed'
+
 	async function scanPage(pageIndex) {
-		if (!selectedPrinter) {
-			alert('Please select a printer first');
+		console.log(`Starting scan for page ${pageIndex + 1}`);
+		
+		if (!userDefaultScanner && !selectedPrinter) {
+			alert('Please configure a scanner first by clicking "Configure Scanner"');
+			showPrinterConfiguration();
 			return;
 		}
 		
 		isScanning = true;
 		currentScanPage = pageIndex;
+		currentPage = pageIndex + 1;
 		
 		try {
-			// Simulate scanning process
-			await new Promise(resolve => setTimeout(resolve, 3000));
-			
-			// Simulate scanned image
-			const simulatedScan = {
-				pageNumber: pageIndex + 1,
-				imageUrl: `data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k=`,
-				timestamp: new Date().toISOString()
-			};
-			
-			scannedPages[pageIndex] = simulatedScan;
-			scannedPages = [...scannedPages]; // Trigger reactivity
-			
-			console.log(`Page ${pageIndex + 1} scanned successfully`);
+			await scanWithConfiguredScanner();
 		} catch (error) {
 			console.error('Scanning error:', error);
-			alert('Scanning failed. Please try again.');
+			alert(`Scanning failed: ${error.message}`);
 		} finally {
 			isScanning = false;
 		}
+	}
+
+	// Main scanning function that uses configured scanner
+	async function scanWithConfiguredScanner() {
+		if (!userDefaultScanner && !selectedPrinter) {
+			alert('Please configure a scanner first by clicking "Configure Scanner"');
+			showPrinterConfiguration();
+			return;
+		}
+
+		const scannerToUse = userDefaultScanner || selectedPrinter;
+		console.log('Scanning with configured scanner:', scannerToUse);
+
+		if (scannerToUse.type === 'network' && scannerToUse.url) {
+			// Use network scanner
+			await scanWithNetworkScanner(scannerToUse.url, currentPage - 1);
+		} else if (scannerToUse.type === 'config') {
+			// Show configuration dialog
+			showPrinterConfiguration();
+		} else {
+			// Use system scanner
+			await scanWithSystemScanner(scannerToUse);
+		}
+	}
+
+	async function scanWithSystemScanner(scanner) {
+		try {
+			isScanning = true;
+			console.log('Attempting to scan with system scanner:', scanner);
+
+			// Show scanning options to user
+			const scanMethod = await showScanningOptions(scanner);
+			
+			if (scanMethod === 'file') {
+				// Use file picker as fallback
+				await scanViaFilePicker();
+			} else if (scanMethod === 'camera') {
+				// Try camera/webcam scanning
+				await scanViaCamera();
+			} else if (scanMethod === 'cancel') {
+				return;
+			}
+		} catch (error) {
+			console.error('System scanning error:', error);
+			alert(`Scanning failed: ${error.message}`);
+		} finally {
+			isScanning = false;
+		}
+	}
+
+	function showScanningOptions(scanner) {
+		return new Promise((resolve) => {
+			const options = `📱 Scanning Options for ${scanner.name}:
+
+1. 📁 Upload scanned file (if you've already scanned)
+2. 📷 Use camera/webcam to capture document
+3. ❌ Cancel
+
+Choose an option:`;
+
+			const choice = prompt(options + '\n\nEnter 1, 2, or 3:');
+			
+			switch(choice) {
+				case '1':
+					resolve('file');
+					break;
+				case '2':
+					resolve('camera');
+					break;
+				default:
+					resolve('cancel');
+					break;
+			}
+		});
+	}
+
+	async function scanViaFilePicker() {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = 'image/*,application/pdf';
+		input.multiple = false;
+		
+		return new Promise((resolve) => {
+			input.onchange = (event) => {
+				const file = event.target.files[0];
+				if (file) {
+					const reader = new FileReader();
+					reader.onload = (e) => {
+						const pageNumber = scannedPages.length + 1;
+						scannedPages = [...scannedPages, {
+							id: Date.now(),
+							pageNumber,
+							imageData: e.target.result,
+							timestamp: new Date().toISOString(),
+							filename: file.name,
+							scanMethod: 'file_upload'
+						}];
+						console.log(`Page ${pageNumber} added from file upload`);
+						resolve();
+					};
+					reader.readAsDataURL(file);
+				} else {
+					resolve();
+				}
+			};
+			
+			input.click();
+		});
+	}
+
+	async function scanViaCamera() {
+		try {
+			// Request camera access
+			const stream = await navigator.mediaDevices.getUserMedia({ 
+				video: { 
+					width: { ideal: 1200 },
+					height: { ideal: 1600 },
+					facingMode: { ideal: 'environment' } // Prefer back camera on mobile
+				} 
+			});
+
+			// Create video element
+			const video = document.createElement('video');
+			video.srcObject = stream;
+			video.autoplay = true;
+			video.style.width = '100%';
+			video.style.maxWidth = '400px';
+
+			// Create capture interface
+			const captureDiv = document.createElement('div');
+			captureDiv.style.position = 'fixed';
+			captureDiv.style.top = '0';
+			captureDiv.style.left = '0';
+			captureDiv.style.width = '100%';
+			captureDiv.style.height = '100%';
+			captureDiv.style.background = 'rgba(0,0,0,0.9)';
+			captureDiv.style.zIndex = '10000';
+			captureDiv.style.display = 'flex';
+			captureDiv.style.flexDirection = 'column';
+			captureDiv.style.alignItems = 'center';
+			captureDiv.style.justifyContent = 'center';
+			captureDiv.style.gap = '1rem';
+
+			const captureBtn = document.createElement('button');
+			captureBtn.textContent = '📷 Capture';
+			captureBtn.style.padding = '1rem 2rem';
+			captureBtn.style.fontSize = '1.2rem';
+			captureBtn.style.background = '#10b981';
+			captureBtn.style.color = 'white';
+			captureBtn.style.border = 'none';
+			captureBtn.style.borderRadius = '8px';
+			captureBtn.style.cursor = 'pointer';
+
+			const cancelBtn = document.createElement('button');
+			cancelBtn.textContent = '❌ Cancel';
+			cancelBtn.style.padding = '1rem 2rem';
+			cancelBtn.style.fontSize = '1.2rem';
+			cancelBtn.style.background = '#ef4444';
+			cancelBtn.style.color = 'white';
+			cancelBtn.style.border = 'none';
+			cancelBtn.style.borderRadius = '8px';
+			cancelBtn.style.cursor = 'pointer';
+
+			captureDiv.appendChild(video);
+			captureDiv.appendChild(captureBtn);
+			captureDiv.appendChild(cancelBtn);
+			document.body.appendChild(captureDiv);
+
+			return new Promise((resolve) => {
+				captureBtn.onclick = () => {
+					// Capture image
+					const canvas = document.createElement('canvas');
+					canvas.width = video.videoWidth;
+					canvas.height = video.videoHeight;
+					const ctx = canvas.getContext('2d');
+					ctx.drawImage(video, 0, 0);
+
+					const imageData = canvas.toDataURL('image/jpeg', 0.8);
+					
+					// Stop stream and remove UI
+					stream.getTracks().forEach(track => track.stop());
+					document.body.removeChild(captureDiv);
+
+					// Add to scanned pages
+					const pageNumber = scannedPages.length + 1;
+					scannedPages = [...scannedPages, {
+						id: Date.now(),
+						pageNumber,
+						imageData,
+						timestamp: new Date().toISOString(),
+						scanMethod: 'camera_capture'
+					}];
+
+					console.log(`Page ${pageNumber} captured from camera`);
+					resolve();
+				};
+
+				cancelBtn.onclick = () => {
+					stream.getTracks().forEach(track => track.stop());
+					document.body.removeChild(captureDiv);
+					resolve();
+				};
+			});
+		} catch (mediaError) {
+			console.error('Camera access error:', mediaError);
+			alert('Camera access denied or not available. Please use file upload instead.');
+			await scanViaFilePicker();
+		}
+	}
+
+	async function scanWithNetworkScanner(scannerUrl, pageIndex) {
+		console.log(`Attempting to connect to scanner at ${scannerUrl}`);
+		
+		// Try common scanner API endpoints
+		const endpoints = [
+			'/scan',
+			'/api/scan',
+			'/scanner/scan',
+			'/ws/scan'
+		];
+		
+		for (const endpoint of endpoints) {
+			try {
+				const response = await fetch(`${scannerUrl}${endpoint}`, {
+					method: 'POST',
+					mode: 'cors',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						resolution: 300,
+						format: 'jpeg',
+						page: pageIndex + 1
+					})
+				});
+				
+				if (response.ok) {
+					const result = await response.json();
+					console.log('Scan initiated successfully:', result);
+					
+					// Poll for scan completion
+					await pollForScanCompletion(scannerUrl, result.scanId || 'latest', pageIndex);
+					return;
+				}
+			} catch (endpointError) {
+				console.log(`Endpoint ${endpoint} failed:`, endpointError);
+			}
+		}
+		
+		throw new Error('No accessible scanner API endpoints found');
+	}
+
+	async function pollForScanCompletion(scannerUrl, scanId, pageIndex) {
+		const maxAttempts = 30;
+		let attempts = 0;
+		
+		while (attempts < maxAttempts) {
+			try {
+				// Try to get scan status
+				const statusResponse = await fetch(`${scannerUrl}/status/${scanId}`);
+				if (statusResponse.ok) {
+					const status = await statusResponse.json();
+					if (status.completed) {
+						await retrieveScannedImage(scannerUrl, scanId, pageIndex);
+						return;
+					}
+				}
+			} catch (pollError) {
+				console.log('Polling error:', pollError);
+			}
+			
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			attempts++;
+		}
+		
+		throw new Error('Scan polling timeout');
+	}
+
+	async function retrieveScannedImage(scannerUrl, scanId, pageIndex) {
+		const imageEndpoints = [
+			`/image/${scanId}`,
+			`/api/image/${scanId}`,
+			`/scan/image/${scanId}`,
+			`/latest.jpg`,
+			`/scan.jpg`
+		];
+		
+		for (const endpoint of imageEndpoints) {
+			try {
+				const imageResponse = await fetch(`${scannerUrl}${endpoint}`);
+				if (imageResponse.ok) {
+					const imageBlob = await imageResponse.blob();
+					const imageUrl = await blobToBase64(imageBlob);
+					
+					const scanData = {
+						pageNumber: pageIndex + 1,
+						imageUrl: imageUrl,
+						timestamp: new Date().toISOString(),
+						scanId: scanId
+					};
+					
+					scannedPages[pageIndex] = scanData;
+					scannedPages = [...scannedPages];
+					
+					console.log(`Page ${pageIndex + 1} scanned successfully`);
+					return;
+				}
+			} catch (imageError) {
+				console.log(`Image endpoint ${endpoint} failed:`, imageError);
+			}
+		}
+		
+		throw new Error('Could not retrieve scanned image');
+	}
+
+	async function guidedManualScan(scannerUrl, pageIndex) {
+		// First, try to open scanner web interface
+		let scannerAccessible = false;
+		
+		try {
+			// Check if scanner web interface is accessible
+			const testResponse = await fetch(scannerUrl, { 
+				method: 'GET', 
+				mode: 'no-cors',
+				signal: AbortSignal.timeout(3000) 
+			});
+			scannerAccessible = true;
+		} catch (error) {
+			console.log('Scanner web interface not accessible:', error);
+		}
+
+		if (scannerAccessible) {
+			// Scanner is accessible, open its interface
+			window.open(scannerUrl, '_blank');
+			
+			const userChoice = confirm(
+				`✅ Scanner web interface opened!\n\n` +
+				`Scanner URL: ${scannerUrl}\n\n` +
+				`Instructions:\n` +
+				`1. Use the web interface to scan Page ${pageIndex + 1}\n` +
+				`2. Save/download the scanned image\n` +
+				`3. Click OK to upload the scanned file\n` +
+				`4. Click Cancel to skip this page`
+			);
+			
+			if (userChoice) {
+				await manualImageUpload(pageIndex);
+			} else {
+				throw new Error('Scan cancelled by user');
+			}
+		} else {
+			// Scanner not accessible, provide troubleshooting
+			const troubleshootChoice = confirm(
+				`❌ Cannot connect to network scanner\n\n` +
+				`Scanner URL: ${scannerUrl}\n` +
+				`Error: Connection refused\n\n` +
+				`Troubleshooting:\n` +
+				`• Is the scanner turned on?\n` +
+				`• Is it connected to the network?\n` +
+				`• Check if IP address changed\n` +
+				`• Try opening ${scannerUrl} in browser\n\n` +
+				`Solutions:\n` +
+				`• Click OK to manually upload scanned image\n` +
+				`• Click Cancel to retry scanner connection\n` +
+				`• Check scanner network settings`
+			);
+			
+			if (troubleshootChoice) {
+				await manualImageUpload(pageIndex);
+			} else {
+				throw new Error('Scanner connection failed - please check network settings');
+			}
+		}
+	}
+
+	async function manualImageUpload(pageIndex) {
+		return new Promise((resolve, reject) => {
+			const input = document.createElement('input');
+			input.type = 'file';
+			input.accept = 'image/*,.pdf';
+			input.onchange = async (event) => {
+				const file = event.target && event.target['files'] && event.target['files'][0];
+				if (file) {
+					try {
+						const imageUrl = await blobToBase64(file);
+						
+						const scanData = {
+							pageNumber: pageIndex + 1,
+							imageUrl: imageUrl,
+							timestamp: new Date().toISOString(),
+							filename: file.name,
+							fileSize: file.size
+						};
+						
+						scannedPages[pageIndex] = scanData;
+						scannedPages = [...scannedPages];
+						
+						console.log(`Page ${pageIndex + 1} uploaded manually`);
+						resolve();
+					} catch (error) {
+						reject(new Error('Failed to process uploaded image'));
+					}
+				} else {
+					reject(new Error('No file selected'));
+				}
+			};
+			input.click();
+		});
+	}
+
+	// Helper function to convert blob to base64
+	function blobToBase64(blob) {
+		return new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(reader.result);
+			reader.onerror = reject;
+			reader.readAsDataURL(blob);
+		});
 	}
 
 	async function combinePages() {
@@ -1093,6 +1813,14 @@
 						<button class="back-btn" on:click={() => billType = null}>← Change Type</button>
 					</div>
 
+					<div class="debug-section" style="background: #f0f0f0; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+						<p><strong>Debug Info:</strong></p>
+						<p>Bill Type: {billType}</p>
+						<p>Page Count: {pageCount}</p>
+						<p>Available Printers: {availablePrinters.length}</p>
+						<p>Selected Printer: {selectedPrinter ? selectedPrinter.name : 'None'}</p>
+					</div>
+
 					{#if pageCount === 0}
 						<div class="page-count-input">
 							<h3>Enter Number of Pages</h3>
@@ -1107,88 +1835,204 @@
 								/>
 								<button class="set-pages-btn" on:click={setPageCount}>Set Pages</button>
 							</div>
+							<p class="debug-info">Current page count: {pageCount}</p>
 						</div>
 					{:else}
-						<!-- Printer Selection -->
-						{#if availablePrinters.length > 0 && !selectedPrinter}
-							<div class="printer-selection">
-								<h3>Select Printer/Scanner</h3>
-								<div class="printer-list">
-									{#each availablePrinters as printer}
-										<button 
-											class="printer-item"
-											on:click={() => selectedPrinter = printer}
-										>
-											<span class="printer-icon">🖨️</span>
-											<span class="printer-name">{printer.name}</span>
-										</button>
-									{/each}
-								</div>
-							</div>
-						{/if}
-
-						<!-- Scanning Interface -->
-						{#if selectedPrinter}
-							<div class="scanning-interface">
-								<div class="scanner-info">
-									<h3>Selected: {selectedPrinter.name}</h3>
-									<p>Scanning {pageCount} pages</p>
-								</div>
-
-								<div class="page-templates">
-									{#each Array(pageCount) as _, pageIndex}
-										<div class="page-template" class:scanned={scannedPages[pageIndex]} class:scanning={isScanning && currentScanPage === pageIndex}>
-											<div class="page-header">
-												<h4>Page {pageIndex + 1}</h4>
-												<span class="page-status">
-													{#if scannedPages[pageIndex]}
-														✅ Scanned
-													{:else if isScanning && currentScanPage === pageIndex}
-														⏳ Scanning...
-													{:else}
-														⏸️ Pending
-													{/if}
-												</span>
-											</div>
-											
-											{#if scannedPages[pageIndex]}
-												<div class="scanned-preview">
-													<img src={scannedPages[pageIndex].imageUrl} alt="Scanned page {pageIndex + 1}" />
-													<div class="scan-info">
-														<small>Scanned: {new Date(scannedPages[pageIndex].timestamp).toLocaleTimeString()}</small>
-													</div>
-												</div>
-											{:else}
-												<div class="scan-placeholder">
-													<div class="placeholder-icon">📄</div>
-													<p>Ready to scan</p>
-													<button 
-														class="scan-btn" 
-														on:click={() => scanPage(pageIndex)}
-														disabled={isScanning}
-													>
-														{#if isScanning && currentScanPage === pageIndex}
-															⏳ Scanning...
-														{:else}
-															📷 Scan Page
-														{/if}
-													</button>
-												</div>
-											{/if}
-										</div>
-									{/each}
-								</div>
-
-								<!-- Combine Pages Button -->
-								{#if scannedPages.some(page => page !== null)}
-									<div class="combine-section">
-										<button class="combine-btn" on:click={combinePages}>
-											📑 Combine Pages to PDF
-											<small>({scannedPages.filter(p => p !== null).length}/{pageCount} pages scanned)</small>
-										</button>
+						<!-- Printer/Scanner Configuration Section -->
+						<div class="scanner-config-section">
+							<div class="scanner-config-header">
+								<h3>🖨️ Scanner Configuration</h3>
+								{#if userDefaultScanner}
+									<div class="current-scanner">
+										<span class="scanner-info">
+											<strong>Default Scanner:</strong> {userDefaultScanner.name}
+											<span class="scanner-status">✓ Configured</span>
+										</span>
+										<button class="change-scanner-btn" on:click={showPrinterConfiguration}>Change</button>
+									</div>
+								{:else}
+									<div class="no-scanner">
+										<span class="scanner-warning">⚠️ No default scanner configured</span>
+										<button class="configure-scanner-btn" on:click={showPrinterConfiguration}>Configure Scanner</button>
 									</div>
 								{/if}
 							</div>
+
+							<div class="scanner-actions">
+								<button class="system-settings-btn" on:click={openPrinterSettings}>
+									🖥️ Open System Printer Settings
+								</button>
+								<button class="refresh-scanners-btn" on:click={loadAvailablePrinters}>
+									🔄 Refresh Scanners
+								</button>
+							</div>
+						</div>
+
+						<!-- Printer Selection -->
+						{#if !selectedPrinter && !userDefaultScanner}
+							<div class="printer-selection">
+								<h3>Select Printer/Scanner</h3>
+								<p>Choose your printer or scanner to begin scanning</p>
+								{#if availablePrinters.length > 0}
+									<div class="printer-list">
+										{#each availablePrinters as printer}
+											<button 
+												class="printer-item"
+												on:click={() => selectedPrinter = printer}
+											>
+												<span class="printer-icon">
+													{#if printer.type === 'hp'}
+														🖨️ HP
+													{:else if printer.type === 'canon'}
+														🖨️ Canon  
+													{:else if printer.type === 'epson'}
+														🖨️ Epson
+													{:else if printer.type === 'scanner'}
+														📷 Scanner
+													{:else}
+														🖨️
+													{/if}
+												</span>
+												<span class="printer-name">{printer.name}</span>
+											</button>
+										{/each}
+									</div>
+								{:else}
+									<div class="no-printers">
+										<p>🔍 Searching for printers...</p>
+										<div class="printer-actions">
+											<button class="refresh-printers-btn" on:click={loadAvailablePrinters}>
+												🔄 Refresh Printer List
+											</button>
+											<button class="manual-printer-btn" on:click={addManualPrinter}>
+												➕ Add Your Printer
+											</button>
+										</div>
+										<div class="printer-help">
+											<small>💡 If your printer isn't detected, you can add it manually</small>
+										</div>
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<!-- Page Templates and Scanning Interface -->
+							<div class="scanning-interface">
+								<div class="scanner-info">
+									<h3>🖨️ {selectedPrinter.name}</h3>
+									{#if selectedPrinter.url}
+										<p class="scanner-url">
+											📡 Network Scanner: 
+											<a href={selectedPrinter.url} target="_blank" class="scanner-link">
+												{selectedPrinter.url}
+											</a>
+										</p>
+										<p class="connection-status">🔗 Direct API integration attempt enabled</p>
+									{:else}
+										<p class="connection-status">💻 Local/System Scanner</p>
+									{/if}
+									<p>📄 Scanning {pageCount} {pageCount === 1 ? 'page' : 'pages'}</p>
+									<div class="scan-instructions">
+										<h4>📋 Scanning Process:</h4>
+										<ol>
+											<li>Place document face-down on scanner glass</li>
+											<li>Ensure document is properly aligned</li>
+											<li>Click "📷 Scan Page" button below</li>
+											{#if selectedPrinter.url}
+												<li>If direct API fails, scanner web interface will open</li>
+											{:else}
+												<li>Follow system prompts or upload scanned file</li>
+											{/if}
+										</ol>
+									</div>
+									<button class="change-printer-btn" on:click={() => selectedPrinter = null}>
+										🔄 Change Printer
+									</button>
+									
+									<!-- Scanner Test Button -->
+									{#if selectedPrinter.url}
+										<div class="scanner-test-section">
+											<button 
+												class="test-scanner-btn" 
+												class:testing={scannerConnectionStatus === 'testing'}
+												class:connected={scannerConnectionStatus === 'connected'}
+												class:failed={scannerConnectionStatus === 'failed'}
+												on:click={testScannerConnection}
+												disabled={scannerConnectionStatus === 'testing'}
+											>
+												{#if scannerConnectionStatus === 'testing'}
+													🔄 Testing Connection...
+												{:else if scannerConnectionStatus === 'connected'}
+													✅ Scanner Connected
+												{:else if scannerConnectionStatus === 'failed'}
+													❌ Connection Failed - Retry
+												{:else}
+													🧪 Test Scanner Connection
+												{/if}
+											</button>
+											<small class="test-help">Test network scanner at {selectedPrinter.url}</small>
+										</div>
+									{/if}
+								</div>
+
+								<!-- Page Templates -->
+								<div class="page-templates">
+								{#each Array(pageCount) as _, pageIndex}
+									<div class="page-template" class:scanned={scannedPages[pageIndex]} class:scanning={isScanning && currentScanPage === pageIndex}>
+										<div class="page-header">
+											<h4>Page {pageIndex + 1}</h4>
+											<span class="page-status">
+												{#if scannedPages[pageIndex]}
+													✅ Scanned
+												{:else if isScanning && currentScanPage === pageIndex}
+													⏳ Scanning...
+												{:else}
+													⏸️ Ready to Scan
+												{/if}
+											</span>
+										</div>
+										
+										{#if scannedPages[pageIndex]}
+											<div class="scanned-preview">
+												<div class="page-preview-container">
+													<div class="a4-preview">
+														<img src={scannedPages[pageIndex].imageUrl} alt="Scanned page {pageIndex + 1}" />
+													</div>
+												</div>
+												<div class="scan-info">
+													<small>Scanned: {new Date(scannedPages[pageIndex].timestamp).toLocaleTimeString()}</small>
+												</div>
+											</div>
+										{:else}
+											<div class="scan-placeholder">
+												<div class="placeholder-icon">�</div>
+												<p>Ready to scan</p>
+												<button 
+													class="scan-btn" 
+													on:click={() => scanPage(pageIndex)}
+													disabled={isScanning}
+												>
+													{#if isScanning && currentScanPage === pageIndex}
+														⏳ Scanning...
+													{:else}
+														📷 Scan Page
+													{/if}
+												</button>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+
+							<!-- Combine Pages Button -->
+							{#if scannedPages.some(page => page !== null)}
+								<div class="combine-section">
+									<button class="combine-btn" on:click={combinePages}>
+										📑 Combine Pages to PDF
+										<small>({scannedPages.filter(p => p !== null).length}/{pageCount} pages scanned)</small>
+									</button>
+								</div>
+							{/if}
+						</div>
 						{/if}
 					{/if}
 				</div>
@@ -1311,6 +2155,137 @@
 						</button>
 					{/each}
 				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Printer Configuration Modal -->
+{#if showPrinterConfig}
+	<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="printer-config-title" tabindex="-1" on:click={() => showPrinterConfig = false} on:keydown={(e) => e.key === 'Escape' && (showPrinterConfig = false)}>
+		<div class="modal-content" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+			<div class="modal-header">
+				<h3 id="printer-config-title">🖨️ Configure Scanner/Printer</h3>
+				<button class="close-btn" on:click={() => showPrinterConfig = false}>×</button>
+			</div>
+			<div class="modal-body">
+				<p class="modal-description">Choose your default scanner for this device:</p>
+				
+				<div class="scanner-instructions">
+					<h4>📋 Setup Instructions:</h4>
+					<ol>
+						<li>Make sure your scanner/printer is connected and powered on</li>
+						<li>Click "Open System Settings" to add your scanner to Windows</li>
+						<li>Return here and select your scanner from the list</li>
+						<li>Click "Set as Default" to save your preference</li>
+					</ol>
+				</div>
+
+				<div class="system-settings-section">
+					<button class="system-settings-btn large" on:click={openPrinterSettings}>
+						🖥️ Open System Printer Settings
+					</button>
+					<button class="refresh-scanners-btn" on:click={loadAvailablePrinters}>
+						🔄 Refresh Scanner List
+					</button>
+				</div>
+
+				{#if availablePrinters.length === 0}
+					<div class="empty-state">
+						<p>No scanners detected. Please add your scanner in system settings first.</p>
+					</div>
+				{:else}
+					<div class="scanner-list">
+						{#each availablePrinters as printer}
+							<div class="scanner-option" class:selected={userDefaultScanner?.id === printer.id}>
+								<div class="scanner-info">
+									<span class="scanner-name">{printer.name}</span>
+									<span class="scanner-type">{printer.type}</span>
+									{#if printer.url}
+										<span class="scanner-url">{printer.url}</span>
+									{/if}
+								</div>
+								<div class="scanner-actions">
+									{#if userDefaultScanner?.id === printer.id}
+										<span class="default-badge">✓ Default</span>
+									{:else}
+										<button class="set-default-btn" on:click={() => configureDeviceScanner(printer)}>
+											Set as Default
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<div class="manual-config">
+					<h4>🔧 Manual Scanner Setup:</h4>
+					<p>Can't see your scanner? Add it manually:</p>
+					
+					<div class="manual-options">
+						<div class="network-scanner-setup">
+							<h5>📡 Network Scanner</h5>
+							<div class="network-scanner-form">
+								<input 
+									type="text" 
+									placeholder="Scanner Name (e.g., HP MFP 3303)" 
+									class="scanner-name-input"
+									bind:value={manualScannerName}
+								/>
+								<input 
+									type="text" 
+									placeholder="Scanner URL (e.g., http://192.168.0.148:3911)" 
+									class="scanner-url-input"
+									bind:value={manualScannerUrl}
+								/>
+								<button class="add-network-scanner-btn" on:click={addManualNetworkScanner}>
+									Add Network Scanner
+								</button>
+							</div>
+						</div>
+						
+						<div class="system-scanner-setup">
+							<h5>🖥️ System Scanner</h5>
+							<div class="system-scanner-form">
+								<input 
+									type="text" 
+									placeholder="Scanner Name (e.g., HP DeskJet 3700)" 
+									class="scanner-name-input"
+									bind:value={manualSystemScannerName}
+								/>
+								<select class="scanner-type-select" bind:value={manualScannerType}>
+									<option value="hp">HP Scanner</option>
+									<option value="canon">Canon Scanner</option>
+									<option value="epson">Epson Scanner</option>
+									<option value="brother">Brother Scanner</option>
+									<option value="generic">Generic Scanner</option>
+								</select>
+								<button class="add-system-scanner-btn" on:click={addManualSystemScanner}>
+									Add System Scanner
+								</button>
+							</div>
+						</div>
+					</div>
+					
+					<div class="common-scanners">
+						<h5>🔄 Quick Add Common Scanners:</h5>
+						<div class="quick-scanner-buttons">
+							<button class="quick-scanner-btn" on:click={() => addQuickScanner('HP LaserJet Pro MFP', 'hp')}>
+								HP LaserJet Pro
+							</button>
+							<button class="quick-scanner-btn" on:click={() => addQuickScanner('Canon PIXMA', 'canon')}>
+								Canon PIXMA
+							</button>
+							<button class="quick-scanner-btn" on:click={() => addQuickScanner('Epson WorkForce', 'epson')}>
+								Epson WorkForce
+							</button>
+							<button class="quick-scanner-btn" on:click={() => addQuickScanner('Brother MFC', 'brother')}>
+								Brother MFC
+							</button>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -2414,6 +3389,95 @@
 		margin: 2rem 0;
 	}
 
+	.scanner-info {
+		background: #e8f4f8;
+		padding: 1.5rem;
+		border-radius: 8px;
+		margin-bottom: 2rem;
+		border: 1px solid #b8daff;
+	}
+
+	.connection-status {
+		font-weight: 500;
+		margin: 0.5rem 0;
+		color: #17a2b8;
+	}
+
+	.scan-instructions {
+		background: white;
+		border: 1px solid #dee2e6;
+		border-radius: 6px;
+		padding: 1rem;
+		margin: 1rem 0;
+	}
+
+	.scan-instructions h4 {
+		margin: 0 0 0.5rem 0;
+		color: #495057;
+		font-size: 0.9rem;
+	}
+
+	.scan-instructions ol {
+		margin: 0;
+		padding-left: 1.2rem;
+	}
+
+	.scan-instructions li {
+		margin: 0.3rem 0;
+		font-size: 0.85rem;
+		color: #6c757d;
+	}
+
+	.change-printer-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		margin-top: 1rem;
+	}
+
+	.change-printer-btn:hover {
+		background: #5a6268;
+	}
+
+	.scanner-url {
+		margin: 0.5rem 0;
+		font-size: 0.9rem;
+	}
+
+	.scanner-link {
+		color: #007bff;
+		text-decoration: none;
+		font-family: monospace;
+		background: #f8f9fa;
+		padding: 0.2rem 0.4rem;
+		border-radius: 4px;
+		border: 1px solid #dee2e6;
+	}
+
+	.scanner-link:hover {
+		background: #e9ecef;
+		text-decoration: underline;
+	}
+
+	.change-printer-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		margin-top: 0.5rem;
+	}
+
+	.change-printer-btn:hover {
+		background: #5a6268;
+	}
+
 	.page-templates {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -2436,6 +3500,213 @@
 	.page-template.scanning {
 		border-color: #ffc107;
 		background: #fffcf0;
+	}
+
+	.a4-preview {
+		width: 100%;
+		max-width: 150px;
+		aspect-ratio: 1/1.414; /* A4 ratio */
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		overflow: hidden;
+		background: white;
+		margin: 0 auto;
+	}
+
+	.a4-preview img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.page-preview-container {
+		display: flex;
+		justify-content: center;
+		margin: 1rem 0;
+	}
+
+	.scan-placeholder {
+		text-align: center;
+		padding: 2rem 1rem;
+	}
+
+	.scan-btn {
+		background: #28a745;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		margin-top: 1rem;
+	}
+
+	.scan-btn:hover {
+		background: #218838;
+	}
+
+	.scan-btn:disabled {
+		background: #6c757d;
+		cursor: not-allowed;
+	}
+
+	.printer-selection {
+		margin: 2rem 0;
+		text-align: center;
+		padding: 1.5rem;
+		border: 1px solid #e9ecef;
+		border-radius: 8px;
+		background: #f8f9fa;
+	}
+
+	.printer-list {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+		gap: 1rem;
+		margin: 1rem 0;
+	}
+
+	.printer-item {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem;
+		background: white;
+		border: 2px solid #e9ecef;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		text-align: left;
+	}
+
+	.printer-item:hover {
+		border-color: #3b82f6;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+	}
+
+	.printer-actions {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		margin: 1rem 0;
+		flex-wrap: wrap;
+	}
+
+	.manual-printer-btn {
+		background: #17a2b8;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: background 0.2s ease;
+	}
+
+	.manual-printer-btn:hover {
+		background: #138496;
+	}
+
+	.refresh-printers-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 0.2s ease;
+	}
+
+	.refresh-printers-btn:hover {
+		background: #545b62;
+	}
+
+	.printer-help {
+		text-align: center;
+		margin-top: 1rem;
+		padding: 0.5rem;
+		background: #e7f3ff;
+		border-radius: 4px;
+	}
+
+	.no-printers {
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.page-templates {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		gap: 1rem;
+		margin: 1.5rem 0;
+	}
+
+	.printer-item {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.5rem;
+		background: white;
+		border: 2px solid #e9ecef;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		text-align: left;
+	}
+
+	.printer-item:hover {
+		border-color: #3b82f6;
+		background: #f0f7ff;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+	}
+
+	.printer-icon {
+		font-size: 1.5rem;
+		min-width: 2rem;
+	}
+
+	.printer-name {
+		font-weight: 500;
+		color: #2c3e50;
+	}
+
+	.no-printers {
+		background: #f8f9fa;
+		border-radius: 8px;
+		padding: 2rem;
+		margin: 1rem 0;
+	}
+
+	.refresh-printers-btn {
+		background: #17a2b8;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		margin-top: 1rem;
+	}
+
+	.refresh-printers-btn:hover {
+		background: #138496;
+	}
+
+	.change-printer-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		margin-top: 0.5rem;
+	}
+
+	.change-printer-btn:hover {
+		background: #5a6268;
 	}
 
 	/* Step 3 & 4 Styles */
@@ -2527,5 +3798,381 @@
 
 	.success-btn:hover {
 		background: #218838 !important;
+	}
+
+	/* Scanner Test Button Styles */
+	.scanner-test-section {
+		margin: 1rem 0;
+		padding: 1rem;
+		background: #f8f9fa;
+		border-radius: 8px;
+		border: 1px solid #e9ecef;
+	}
+
+	.test-scanner-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		font-size: 0.95rem;
+		margin-bottom: 0.5rem;
+		width: 100%;
+	}
+
+	.test-scanner-btn:hover:not(:disabled) {
+		background: #5a6268;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(108, 117, 125, 0.3);
+	}
+
+	.test-scanner-btn.testing {
+		background: #ffc107;
+		color: #212529;
+		cursor: not-allowed;
+		animation: pulse 2s infinite;
+	}
+
+	.test-scanner-btn.connected {
+		background: #28a745;
+		color: white;
+	}
+
+	.test-scanner-btn.connected:hover {
+		background: #218838;
+	}
+
+	.test-scanner-btn.failed {
+		background: #dc3545;
+		color: white;
+	}
+
+	.test-scanner-btn.failed:hover {
+		background: #c82333;
+	}
+
+	.test-help {
+		color: #6c757d;
+		font-size: 0.875rem;
+		display: block;
+		text-align: center;
+	}
+
+	@keyframes pulse {
+		0% { opacity: 1; }
+		50% { opacity: 0.7; }
+		100% { opacity: 1; }
+	}
+
+	/* Scanner Configuration Styles */
+	.scanner-config-section {
+		background: #f8fafc;
+		border: 2px solid #e2e8f0;
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.scanner-config-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
+	.current-scanner {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.scanner-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.scanner-status {
+		color: #10b981;
+		font-weight: 500;
+	}
+
+	.scanner-warning {
+		color: #f59e0b;
+		font-weight: 500;
+	}
+
+	.change-scanner-btn, .configure-scanner-btn {
+		background: #3b82f6;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.2s;
+	}
+
+	.change-scanner-btn:hover, .configure-scanner-btn:hover {
+		background: #2563eb;
+	}
+
+	.scanner-actions {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.system-settings-btn, .refresh-scanners-btn {
+		background: #6366f1;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.25rem;
+		border-radius: 8px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 500;
+		transition: all 0.2s;
+	}
+
+	.system-settings-btn:hover, .refresh-scanners-btn:hover {
+		background: #4f46e5;
+		transform: translateY(-1px);
+	}
+
+	.system-settings-btn.large {
+		padding: 1rem 1.5rem;
+		font-size: 1rem;
+	}
+
+	.scanner-instructions {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		padding: 1rem;
+		margin: 1rem 0;
+	}
+
+	.scanner-instructions h4 {
+		margin: 0 0 0.5rem 0;
+		color: #1e40af;
+	}
+
+	.scanner-instructions ol {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.scanner-instructions li {
+		margin-bottom: 0.25rem;
+	}
+
+	.system-settings-section {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		margin: 1.5rem 0;
+	}
+
+	.scanner-list {
+		max-height: 300px;
+		overflow-y: auto;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		margin: 1rem 0;
+	}
+
+	.scanner-option {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 1px solid #e5e7eb;
+		transition: background 0.2s;
+	}
+
+	.scanner-option:hover {
+		background: #f9fafb;
+	}
+
+	.scanner-option.selected {
+		background: #eff6ff;
+		border-color: #3b82f6;
+	}
+
+	.scanner-option:last-child {
+		border-bottom: none;
+	}
+
+	.scanner-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.scanner-name {
+		font-weight: 500;
+		color: #111827;
+	}
+
+	.scanner-type {
+		font-size: 0.875rem;
+		color: #6b7280;
+		text-transform: uppercase;
+	}
+
+	.scanner-url {
+		font-size: 0.75rem;
+		color: #9ca3af;
+		font-family: 'Courier New', monospace;
+	}
+
+	.set-default-btn {
+		background: #10b981;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.2s;
+	}
+
+	.set-default-btn:hover {
+		background: #059669;
+	}
+
+	.default-badge {
+		background: #10b981;
+		color: white;
+		padding: 0.25rem 0.75rem;
+		border-radius: 1rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+	}
+
+	.manual-config {
+		background: #fefce8;
+		border: 1px solid #fde68a;
+		border-radius: 8px;
+		padding: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	.manual-config h4 {
+		margin: 0 0 0.5rem 0;
+		color: #92400e;
+	}
+
+	.manual-options {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.5rem;
+		margin: 1rem 0;
+	}
+
+	.network-scanner-setup,
+	.system-scanner-setup {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		padding: 1rem;
+	}
+
+	.network-scanner-setup h5,
+	.system-scanner-setup h5 {
+		margin: 0 0 0.75rem 0;
+		color: #374151;
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+
+	.network-scanner-form,
+	.system-scanner-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.scanner-name-input, 
+	.scanner-url-input,
+	.scanner-type-select {
+		padding: 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 4px;
+		font-size: 0.875rem;
+	}
+
+	.scanner-type-select {
+		background: white;
+	}
+
+	.add-network-scanner-btn,
+	.add-system-scanner-btn {
+		background: #f59e0b;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.2s;
+	}
+
+	.add-network-scanner-btn:hover,
+	.add-system-scanner-btn:hover {
+		background: #d97706;
+	}
+
+	.common-scanners {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		padding: 1rem;
+		margin-top: 1rem;
+	}
+
+	.common-scanners h5 {
+		margin: 0 0 0.75rem 0;
+		color: #374151;
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+
+	.quick-scanner-buttons {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		gap: 0.5rem;
+	}
+
+	.quick-scanner-btn {
+		background: #6366f1;
+		color: white;
+		border: none;
+		padding: 0.5rem 0.75rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		text-align: center;
+		transition: all 0.2s;
+	}
+
+	.quick-scanner-btn:hover {
+		background: #4f46e5;
+		transform: translateY(-1px);
+	}
+
+	@media (max-width: 768px) {
+		.manual-options {
+			grid-template-columns: 1fr;
+		}
+		
+		.quick-scanner-buttons {
+			grid-template-columns: repeat(2, 1fr);
+		}
 	}
 </style>
