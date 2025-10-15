@@ -94,20 +94,38 @@ export interface Branch {
 }
 
 export interface Vendor {
-	id: string;
-	name: string;
-	company: string;
-	email: string;
-	phone: string;
-	status: 'active' | 'inactive' | 'pending';
-	payment_terms: string;
-	tax_id: string;
-	registration_number: string;
-	address: string;
-	total_orders: number;
-	categories?: string[]; // Array of category names
-	created_at: string;
-	updated_at: string;
+	erp_vendor_id: number;
+	vendor_name: string;
+	salesman_name?: string;
+	salesman_contact?: string;
+	supervisor_name?: string;
+	supervisor_contact?: string;
+	vendor_contact_number?: string;
+	payment_method?: string;
+	credit_period?: number;
+	bank_name?: string;
+	iban?: string;
+	status: string;
+	last_visit?: string;
+	categories?: string[];
+	delivery_modes?: string[];
+	place?: string;
+	location_link?: string;
+	return_expired_products?: string;
+	return_expired_products_note?: string;
+	return_near_expiry_products?: string;
+	return_near_expiry_products_note?: string;
+	return_over_stock?: string;
+	return_over_stock_note?: string;
+	return_damage_products?: string;
+	return_damage_products_note?: string;
+	no_return?: boolean;
+	no_return_note?: string;
+	vat_applicable?: string;
+	vat_number?: string;
+	no_vat_note?: string;
+	created_at?: string;
+	updated_at?: string;
 }
 
 export interface User {
@@ -495,7 +513,7 @@ export const db = {
 			const { data, error } = await supabase
 				.from('vendors')
 				.select('*')
-				.order('company');
+				.order('vendor_name');
 			return { data, error };
 		},
 
