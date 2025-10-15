@@ -7,8 +7,12 @@
   import EditVendor from '../vendor/EditVendor.svelte';
   import { onMount } from 'svelte';
   
-  let steps = ['Select Branch', 'Select Vendor', 'Bill Information', 'Receive Items'];
+  let steps = ['Select Branch', 'Select Vendor', 'Bill Information', 'Finalization'];
   let currentStep = 0;
+  
+  // Clearance Certification state
+  let showCertification = false;
+  let savedReceivingId = null; // Track the saved receiving record ID
   
   // Branch selection state
   let branches = [];
@@ -207,7 +211,8 @@
       selectedBranch = $currentUser.branch_id;
       selectedBranchName = $currentUser.branchName || '';
       showBranchSelector = false;
-      currentStep = 1; // Move to vendor selection
+      // Stay on step 0 to select branch manager and other positions
+      // currentStep = 1; // Don't auto-advance to vendor selection
       await loadVendors();
     }
   });
@@ -271,7 +276,6 @@
         .select(`
           id,
           username,
-          employee_id,
           status,
           hr_employees!inner(
             id,
@@ -286,10 +290,10 @@
       if (usersError) throw usersError;
 
       // Now get position assignments for these employees
-      const employeeIds = usersData?.map(user => user.employee_id).filter(Boolean) || [];
+      const employeeUUIDs = usersData?.map(user => user.hr_employees?.id).filter(Boolean) || [];
       
       let positionsData = [];
-      if (employeeIds.length > 0) {
+      if (employeeUUIDs.length > 0) {
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
           .select(`
@@ -300,7 +304,7 @@
               position_title_ar
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -312,7 +316,7 @@
 
       // Combine the data
       branchManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -372,6 +376,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -387,9 +392,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -399,7 +404,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -411,7 +416,7 @@
 
       // Combine the data
       shelfStockers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -471,6 +476,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -486,9 +492,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -498,7 +504,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -510,7 +516,7 @@
 
       // Combine the data
       accountants = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -569,6 +575,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -584,9 +591,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -596,7 +603,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -608,7 +615,7 @@
 
       // Combine the data
       purchasingManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -668,6 +675,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -683,9 +691,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -695,7 +703,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -707,7 +715,7 @@
 
       // Combine the data
       inventoryManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -767,6 +775,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -782,9 +791,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -794,7 +803,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -806,7 +815,7 @@
 
       // Combine the data
       nightSupervisors = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -866,6 +875,7 @@
           id,
           username,
           hr_employees (
+            id,
             name,
             employee_id
           )
@@ -881,9 +891,9 @@
       // Get position assignments for the branch users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
-        const employeeIds = usersData
-          .filter(user => user.hr_employees?.employee_id)
-          .map(user => user.hr_employees.employee_id);
+        const employeeUUIDs = usersData
+          .filter(user => user.hr_employees?.id)
+          .map(user => user.hr_employees.id);
 
         const { data: posData, error: posError } = await supabase
           .from('hr_position_assignments')
@@ -893,7 +903,7 @@
               position_title_en
             )
           `)
-          .in('employee_id', employeeIds)
+          .in('employee_id', employeeUUIDs)
           .eq('is_current', true);
 
         if (posError) {
@@ -905,7 +915,7 @@
 
       // Combine the data
       warehouseHandlers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.employee_id);
+        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
           id: user.id,
           username: user.username,
@@ -1337,9 +1347,10 @@
   function confirmBranchSelection() {
     if (selectedBranch) {
       showBranchSelector = false;
-      currentStep = 1; // Move to next step
+      // Stay on step 0 to select branch manager and other positions
+      // currentStep will be updated to 1 when continue button is clicked
       
-      // Load vendors for step 2
+      // Load vendors for step 2 (but don't go there yet)
       loadVendors();
       
       // TODO: Save as default if checkbox is checked
@@ -1351,13 +1362,21 @@
 
   function changeBranch() {
     showBranchSelector = true;
-    currentStep = 0; // Go back to branch selection
+    currentStep = 0; // Go back to branch selection step
     selectedVendor = null; // Clear vendor selection
+    // Clear all position selections
+    selectedBranchManager = null;
+    selectedPurchasingManager = null;
+    selectedInventoryManager = null;
+    selectedAccountant = null;
+    selectedShelfStockers = [];
+    selectedNightSupervisors = [];
+    selectedWarehouseHandlers = [];
   }
 
   function selectVendor(vendor) {
     selectedVendor = vendor;
-    currentStep = 2; // Move to date information step
+    currentStep = 2; // Move to bill information step
   }
 
   function changeVendor() {
@@ -1452,7 +1471,7 @@
   }
 
   function goBackToVendorSelection() {
-    currentStep = 1;
+    currentStep = 1; // Go back to vendor selection step
     selectedVendor = null;
   }
 
@@ -1477,7 +1496,7 @@
       alert('Please provide a reason for the VAT number mismatch before proceeding.');
       return;
     }
-    currentStep = 3;
+    currentStep = 3; // Move to step 4 (finalization)
     console.log('Proceeding to receiving with:', {
       vendor: selectedVendor,
       billDate: billDate,
@@ -1575,6 +1594,110 @@
     // Cleanup interval on component destroy
     return () => clearInterval(interval);
   });
+
+  // Clearance Certification Functions
+  async function saveReceivingData() {
+    try {
+      // Prepare receiving record data according to the actual schema
+      const receivingData = {
+        user_id: $currentUser?.id,
+        branch_id: selectedBranch,
+        vendor_id: selectedVendor?.erp_vendor_id, // Use erp_vendor_id as foreign key
+        bill_date: billDate,
+        bill_amount: parseFloat(billAmount || 0),
+        bill_number: billNumber || null,
+        payment_method: selectedVendor?.payment_method || null,
+        credit_period: selectedVendor?.credit_period || null,
+        bank_name: selectedVendor?.bank_name || null,
+        iban: selectedVendor?.iban || null,
+        vendor_vat_number: selectedVendor?.vat_number || null,
+        branch_manager_user_id: selectedBranchManager?.id || null,
+        accountant_user_id: selectedAccountant?.id || null,
+        purchasing_manager_user_id: selectedPurchasingManager?.id || null,
+        shelf_stocker_user_ids: selectedWarehouseHandlers?.map(h => h.id) || [],
+        expired_return_amount: returns.expired.hasReturn === 'yes' ? parseFloat(returns.expired.amount || '0') : 0,
+        near_expiry_return_amount: returns.nearExpiry.hasReturn === 'yes' ? parseFloat(returns.nearExpiry.amount || '0') : 0,
+        over_stock_return_amount: returns.overStock.hasReturn === 'yes' ? parseFloat(returns.overStock.amount || '0') : 0,
+        damage_return_amount: returns.damage.hasReturn === 'yes' ? parseFloat(returns.damage.amount || '0') : 0,
+        has_expired_returns: returns.expired.hasReturn === 'yes',
+        has_near_expiry_returns: returns.nearExpiry.hasReturn === 'yes',
+        has_over_stock_returns: returns.overStock.hasReturn === 'yes',
+        has_damage_returns: returns.damage.hasReturn === 'yes',
+        // ERP document information
+        expired_erp_document_type: returns.expired.hasReturn === 'yes' ? returns.expired.erpDocumentType : null,
+        expired_erp_document_number: returns.expired.hasReturn === 'yes' ? returns.expired.erpDocumentNumber : null,
+        expired_vendor_document_number: returns.expired.hasReturn === 'yes' ? returns.expired.vendorDocumentNumber : null,
+        near_expiry_erp_document_type: returns.nearExpiry.hasReturn === 'yes' ? returns.nearExpiry.erpDocumentType : null,
+        near_expiry_erp_document_number: returns.nearExpiry.hasReturn === 'yes' ? returns.nearExpiry.erpDocumentNumber : null,
+        near_expiry_vendor_document_number: returns.nearExpiry.hasReturn === 'yes' ? returns.nearExpiry.vendorDocumentNumber : null,
+        over_stock_erp_document_type: returns.overStock.hasReturn === 'yes' ? returns.overStock.erpDocumentType : null,
+        over_stock_erp_document_number: returns.overStock.hasReturn === 'yes' ? returns.overStock.erpDocumentNumber : null,
+        over_stock_vendor_document_number: returns.overStock.hasReturn === 'yes' ? returns.overStock.vendorDocumentNumber : null,
+        damage_erp_document_type: returns.damage.hasReturn === 'yes' ? returns.damage.erpDocumentType : null,
+        damage_erp_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.erpDocumentNumber : null,
+        damage_vendor_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.vendorDocumentNumber : null
+      };
+
+      // Save to receiving_records table
+      const { data, error } = await supabase
+        .from('receiving_records')
+        .insert([receivingData])
+        .select();
+
+      if (error) {
+        console.error('Error saving receiving record:', error);
+        alert('Error saving receiving data: ' + error.message);
+        return;
+      }
+
+      console.log('Receiving record saved:', data);
+      savedReceivingId = data[0]?.id; // Store the saved record ID
+      
+      // Move to step 4 for certification generation
+      currentStep = 3;
+      
+      alert('Receiving data saved successfully! You can now generate the clearance certification.');
+
+    } catch (error) {
+      console.error('Error saving receiving data:', error);
+      alert('Error saving receiving data: ' + error.message);
+    }
+  }
+
+  function generateClearanceCertification() {
+    showCertification = true;
+  }
+
+  function printCertification() {
+    const printContent = document.getElementById('certification-template');
+    const originalContent = document.body.innerHTML;
+    
+    document.body.innerHTML = printContent.outerHTML;
+    window.print();
+    document.body.innerHTML = originalContent;
+  }
+
+  async function saveClearanceCertification() {
+    try {
+      if (!savedReceivingId) {
+        alert('No receiving data found. Please go back and save the receiving data first.');
+        return;
+      }
+
+      // The data is already saved from step 3, so we just confirm and close
+      alert('Clearance certification confirmed! The receiving process is now complete.');
+      
+      // Close the certification modal
+      showCertification = false;
+      
+      // Optionally redirect back to main menu or close window
+      // windowManager.closeWindow();
+
+    } catch (error) {
+      console.error('Error confirming certification:', error);
+      alert('Error confirming certification: ' + error.message);
+    }
+  }
 </script>
 <StepIndicator {steps} {currentStep} />
 
@@ -1593,7 +1716,8 @@
   {/if}
 </div>
 
-<!-- Branch Selection Section -->
+<!-- Step 1: Branch Selection Section -->
+{#if currentStep === 0}
 <div class="form-section">
   <h3>Step 1: Select Branch</h3>
   
@@ -2565,22 +2689,23 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <!-- Step 1 Complete - Continue Button -->
-{#if selectedBranch && !showBranchSelector}
+{#if currentStep === 0 && selectedBranch && !showBranchSelector && selectedBranchManager}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">Step 1 Complete: Branch Selected</span>
+      <span class="step-complete-text">Step 1 Complete: Branch & Staff Selected</span>
     </div>
-    <button type="button" on:click={() => currentStep = Math.max(currentStep, 2)} class="continue-step-btn">
+    <button type="button" on:click={() => currentStep = 1} class="continue-step-btn">
       Continue to Step 2: Select Vendor →
     </button>
   </div>
 {/if}
 
-<!-- Vendor Selection Section -->
-{#if currentStep >= 1 && selectedBranch && !showBranchSelector}
+<!-- Step 2: Vendor Selection Section -->
+{#if currentStep === 1 && selectedBranch && !showBranchSelector}
   <div class="form-section">
     <h3>Step 2: Select Vendor</h3>
     
@@ -2946,20 +3071,20 @@
 {/if}
 
 <!-- Step 2 Complete - Continue Button -->
-{#if selectedVendor}
+{#if currentStep === 1 && selectedVendor}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
       <span class="step-complete-text">Step 2 Complete: Vendor Selected</span>
     </div>
-    <button type="button" on:click={() => currentStep = Math.max(currentStep, 3)} class="continue-step-btn">
+    <button type="button" on:click={() => currentStep = 2} class="continue-step-btn">
       Continue to Step 3: Bill Information →
     </button>
   </div>
 {/if}
 
-<!-- Step 3: Date Information -->
-{#if currentStep >= 2 && selectedVendor}
+<!-- Step 3: Bill Information -->
+{#if currentStep === 2 && selectedVendor}
   <div class="form-section">
     <h3>Step 3: Bill Information</h3>
     <p class="step-description">Review current date and enter bill details</p>
@@ -3416,19 +3541,6 @@
       </div>
     {/if}
 
-    <!-- Step 3 Complete - Continue Button -->
-    {#if selectedBranchManager && billDate && billAmount}
-      <div class="step-navigation">
-        <div class="step-complete-info">
-          <span class="step-complete-icon">✅</span>
-          <span class="step-complete-text">Step 3 Complete: Bill Information & User Roles Assigned</span>
-        </div>
-        <button type="button" on:click={() => currentStep = Math.max(currentStep, 4)} class="continue-step-btn">
-          Continue to Step 4: Receive Items →
-        </button>
-      </div>
-    {/if}
-
     <!-- Action Buttons for Step 3 -->
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={goBackToVendorSelection}>
@@ -3436,6 +3548,149 @@
       </button>
       <button type="button" class="primary-btn" on:click={proceedToReceiving}>
         Continue to Receiving →
+      </button>
+    </div>
+  </div>
+{/if}
+
+<!-- Step 3 Complete - Continue Button -->
+{#if currentStep === 2 && selectedBranchManager && billDate && billAmount}
+  <div class="step-navigation">
+    <div class="step-complete-info">
+      <span class="step-complete-icon">✅</span>
+      <span class="step-complete-text">Step 3 Complete: Bill Information & User Roles Assigned</span>
+    </div>
+    <button type="button" on:click={saveReceivingData} class="save-continue-btn">
+      💾 Save & Continue to Certification →
+    </button>
+  </div>
+{/if}
+
+<!-- Step 4: Finalization -->
+{#if currentStep === 3}
+  <div class="form-section">
+    <h3>Step 4: Finalization</h3>
+    {#if savedReceivingId}
+      <p class="step-description">✅ Receiving data saved successfully! Generate clearance certification for completion.</p>
+    {:else}
+      <p class="step-description">⚠️ Please go back to Step 3 and save the receiving data first.</p>
+    {/if}
+    
+    <div class="clearance-section">
+      {#if savedReceivingId}
+        <button type="button" class="generate-cert-btn" on:click={generateClearanceCertification}>
+          📋 Generate Clearance Certification
+        </button>
+      {:else}
+        <button type="button" class="generate-cert-btn-disabled" disabled>
+          📋 Generate Clearance Certification
+        </button>
+        <p class="warning-text">Please save the receiving data from Step 3 first.</p>
+      {/if}
+    </div>
+
+    <!-- Clearance Certification Modal -->
+    {#if showCertification}
+      <div class="certification-modal" on:click|self={() => showCertification = false}>
+        <div class="certification-content">
+          <div class="certification-header">
+            <button class="close-btn" on:click={() => showCertification = false}>×</button>
+            <button class="print-btn" on:click={printCertification}>🖨️ Print</button>
+          </div>
+          
+          <div class="certification-template" id="certification-template">
+            <!-- Company Logo -->
+            <div class="cert-logo">
+              <img src="/icons/icon-192x192.png" alt="Company Logo" class="logo" />
+              <h2>CLEARANCE CERTIFICATION</h2>
+            </div>
+            
+            <!-- Certification Details -->
+            <div class="cert-details">
+              <div class="cert-row">
+                <label>Bill Number:</label>
+                <span>{billNumber || 'N/A'}</span>
+              </div>
+              <div class="cert-row">
+                <label>Bill Date:</label>
+                <span>{billDate}</span>
+              </div>
+              <div class="cert-row">
+                <label>Current Date:</label>
+                <span>{new Date().toLocaleDateString()}</span>
+              </div>
+              <div class="cert-row">
+                <label>Branch:</label>
+                <span>{selectedBranchName}</span>
+              </div>
+              <div class="cert-row">
+                <label>Bill Amount:</label>
+                <span>{parseFloat(billAmount || '0').toFixed(2)}</span>
+              </div>
+              {#if totalReturnAmount > 0}
+              <div class="cert-row">
+                <label>Return Amount:</label>
+                <span>{totalReturnAmount.toFixed(2)}</span>
+              </div>
+              {/if}
+              <div class="cert-row final-amount">
+                <label>Final Amount:</label>
+                <span>{finalBillAmount.toFixed(2)}</span>
+              </div>
+              <div class="cert-row">
+                <label>Salesman Name:</label>
+                <span>{selectedVendor?.salesman_name || 'N/A'}</span>
+              </div>
+              <div class="cert-row">
+                <label>Salesman Contact:</label>
+                <span>{selectedVendor?.salesman_contact || 'N/A'}</span>
+              </div>
+              <div class="cert-row">
+                <label>Logged Employee:</label>
+                <span>{$currentUser?.employeeName || $currentUser?.username}</span>
+              </div>
+            </div>
+
+            <!-- Signatures Section -->
+            <div class="signatures-section">
+              <div class="signature-box">
+                <div class="signature-line"></div>
+                <label>Salesman Signature</label>
+                <p>{selectedVendor?.salesman_name || 'N/A'}</p>
+              </div>
+              <div class="signature-box">
+                <div class="signature-line"></div>
+                <label>Receiver Signature</label>
+                <p>{$currentUser?.employeeName || $currentUser?.username}</p>
+              </div>
+            </div>
+
+            <!-- Certification Footer -->
+            <div class="cert-footer">
+              <p>This certification confirms the receipt of goods as per the details mentioned above.</p>
+              <p><strong>Date: {new Date().toLocaleDateString()}</strong></p>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="cert-actions">
+            <button type="button" class="save-btn" on:click={saveClearanceCertification}>
+              ✅ Confirm Certification
+            </button>
+            <button type="button" class="cancel-btn" on:click={() => showCertification = false}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+    
+    <div class="step-actions">
+      <button type="button" class="secondary-btn" on:click={() => currentStep = 2}>
+        ← Back to Bill Information
+      </button>
+      <button type="button" class="primary-btn" on:click={() => alert('Receiving process would start here!')}>
+        Start Receiving Process →
       </button>
     </div>
   </div>
@@ -5953,6 +6208,33 @@
 		box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
 	}
 
+	.save-continue-btn {
+		background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 1rem 2rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.save-continue-btn:hover {
+		background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+	}
+
+	.save-continue-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+	}
+
 	.secondary-btn {
 		background: #6c757d;
 		color: white;
@@ -6017,6 +6299,339 @@
 		.primary-btn {
 			width: 100%;
 			justify-content: center;
+		}
+	}
+
+	/* Step 4: Receiving Summary */
+	.receiving-summary {
+		background: #f8f9fa;
+		border: 1px solid #dee2e6;
+		border-radius: 12px;
+		padding: 2rem;
+		margin-bottom: 2rem;
+	}
+
+	.receiving-summary h4 {
+		color: #495057;
+		margin-bottom: 1.5rem;
+		font-size: 1.3rem;
+		font-weight: 600;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.receiving-summary h4::before {
+		content: "📋";
+		font-size: 1.2rem;
+	}
+
+	.step-summary {
+		background: #ffffff;
+		border: 1px solid #e9ecef;
+		border-radius: 8px;
+		padding: 1.5rem;
+		margin-bottom: 1.5rem;
+		box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+	}
+
+	.step-summary h5 {
+		color: #2c5aa0;
+		margin-bottom: 1rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+		border-bottom: 2px solid #e9ecef;
+		padding-bottom: 0.5rem;
+	}
+
+	.step-summary:last-child {
+		margin-bottom: 0;
+	}
+
+	.summary-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		gap: 1rem;
+	}
+
+	.summary-item {
+		background: white;
+		padding: 1rem;
+		border-radius: 8px;
+		border-left: 4px solid #1976d2;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.summary-item label {
+		font-weight: 600;
+		color: #495057;
+		font-size: 0.9rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.summary-item span {
+		color: #212529;
+		font-size: 1rem;
+		font-weight: 500;
+	}
+
+	@media (max-width: 768px) {
+		.summary-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	/* Clearance Certification Styles */
+	.clearance-section {
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.generate-cert-btn {
+		background: #28a745;
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 1.5rem 3rem;
+		font-size: 1.2rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+	}
+
+	.generate-cert-btn:hover {
+		background: #218838;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(40, 167, 69, 0.4);
+	}
+
+	.generate-cert-btn-disabled {
+		background: #6c757d;
+		color: #adb5bd;
+		border: none;
+		border-radius: 12px;
+		padding: 1.5rem 3rem;
+		font-size: 1.2rem;
+		font-weight: 600;
+		cursor: not-allowed;
+		box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+	}
+
+	.warning-text {
+		color: #dc3545;
+		margin-top: 1rem;
+		font-weight: 500;
+		text-align: center;
+	}
+
+	.certification-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.8);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		z-index: 1000;
+	}
+
+	.certification-content {
+		background: white;
+		border-radius: 12px;
+		width: 90%;
+		max-width: 800px;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+	}
+
+	.certification-header {
+		display: flex;
+		justify-content: space-between;
+		padding: 1rem;
+		border-bottom: 1px solid #dee2e6;
+		background: #f8f9fa;
+		border-radius: 12px 12px 0 0;
+	}
+
+	.close-btn, .print-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0.5rem;
+		border-radius: 6px;
+		transition: background-color 0.2s;
+	}
+
+	.close-btn:hover {
+		background: #dc3545;
+		color: white;
+	}
+
+	.print-btn:hover {
+		background: #007bff;
+		color: white;
+	}
+
+	.certification-template {
+		padding: 2rem;
+		background: white;
+		font-family: 'Arial', sans-serif;
+	}
+
+	.cert-logo {
+		text-align: center;
+		margin-bottom: 2rem;
+		border-bottom: 3px solid #2c5aa0;
+		padding-bottom: 1rem;
+	}
+
+	.cert-logo .logo {
+		width: 80px;
+		height: 80px;
+		margin-bottom: 1rem;
+	}
+
+	.cert-logo h2 {
+		color: #2c5aa0;
+		margin: 0;
+		font-size: 2rem;
+		font-weight: 700;
+		letter-spacing: 1px;
+	}
+
+	.cert-details {
+		margin: 2rem 0;
+	}
+
+	.cert-row {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.75rem 0;
+		border-bottom: 1px solid #eee;
+	}
+
+	.cert-row.final-amount {
+		border-bottom: 2px solid #2c5aa0;
+		font-weight: 700;
+		font-size: 1.1rem;
+		color: #2c5aa0;
+	}
+
+	.cert-row label {
+		font-weight: 600;
+		color: #495057;
+		min-width: 150px;
+	}
+
+	.cert-row span {
+		color: #212529;
+		text-align: right;
+	}
+
+	.signatures-section {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 3rem;
+		margin: 3rem 0;
+		padding: 2rem;
+		background: #f8f9fa;
+		border-radius: 8px;
+	}
+
+	.signature-box {
+		text-align: center;
+	}
+
+	.signature-line {
+		border-top: 2px solid #495057;
+		margin-bottom: 0.5rem;
+		margin-top: 3rem;
+	}
+
+	.signature-box label {
+		font-weight: 600;
+		color: #495057;
+		display: block;
+		margin-bottom: 0.25rem;
+	}
+
+	.signature-box p {
+		margin: 0;
+		color: #6c757d;
+		font-style: italic;
+	}
+
+	.cert-footer {
+		text-align: center;
+		margin-top: 2rem;
+		padding-top: 1rem;
+		border-top: 1px solid #dee2e6;
+		color: #6c757d;
+	}
+
+	.cert-footer p {
+		margin: 0.5rem 0;
+	}
+
+	.cert-actions {
+		display: flex;
+		justify-content: center;
+		gap: 1rem;
+		padding: 1.5rem;
+		background: #f8f9fa;
+		border-radius: 0 0 12px 12px;
+	}
+
+	.save-btn, .cancel-btn {
+		padding: 0.75rem 2rem;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.save-btn {
+		background: #28a745;
+		color: white;
+	}
+
+	.save-btn:hover {
+		background: #218838;
+	}
+
+	.cancel-btn {
+		background: #6c757d;
+		color: white;
+	}
+
+	.cancel-btn:hover {
+		background: #5a6268;
+	}
+
+	@media print {
+		.certification-header,
+		.cert-actions {
+			display: none !important;
+		}
+		
+		.certification-content {
+			width: 100%;
+			max-width: none;
+			box-shadow: none;
+			border-radius: 0;
+		}
+		
+		.certification-template {
+			padding: 1rem;
 		}
 	}
 </style>

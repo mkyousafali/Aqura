@@ -29,6 +29,14 @@
     // TODO: Implement actual receiving completion logic
     goto('/admin/receiving');
   }
+
+  function backToStep3() {
+    const params = new URLSearchParams({
+      branch: selectedBranch,
+      vendor: selectedVendorId
+    });
+    goto(`/admin/receiving/step3?${params.toString()}`);
+  }
 </script>
 
 <svelte:head>
@@ -108,8 +116,8 @@
     </div>
 
     <div class="action-buttons">
-      <button type="button" class="back-btn" on:click={() => goto(`/admin/receiving/step3?branch=${selectedBranch}&vendor=${selectedVendorId}`)}>
-        ← Back to Bill Information
+      <button type="button" class="back-btn" on:click={backToStep3}>
+        ← Back to Step 3: Bill Information
       </button>
       <button type="button" class="complete-btn" on:click={completeReceiving}>
         Complete Receiving Process ✓

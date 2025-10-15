@@ -55,7 +55,7 @@
 			title: `Start Receiving #${instanceNumber}`,
 			component: StartReceiving,
 			icon: '📦',
-			size: { width: 1000, height: 700 },
+			size: { width: 1200, height: 800 },
 			position: { 
 				x: 100 + (Math.random() * 100),
 				y: 100 + (Math.random() * 100) 

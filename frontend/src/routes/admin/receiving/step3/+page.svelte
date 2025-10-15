@@ -86,6 +86,10 @@
     goto(`/admin/receiving/step4?${params.toString()}`);
   }
 
+  function backToStep2() {
+    goto(`/admin/receiving/step2?branch=${selectedBranch}`);
+  }
+
   function calculateFinalAmount() {
     const amount = parseFloat(billAmount) || 0;
     return amount.toFixed(2);
@@ -245,18 +249,28 @@
       {/if}
     </div>
 
-    <!-- Step 3 Complete - Continue Button -->
-    {#if billDate && billAmount}
-      <div class="step-navigation">
-        <div class="step-complete-info">
-          <span class="step-complete-icon">✅</span>
-          <span class="step-complete-text">Step 3 Complete: Bill Information Entered</span>
-        </div>
-        <button type="button" on:click={continueToStep4} class="continue-step-btn">
-          Continue to Step 4: Receive Items →
+    <!-- Step Navigation -->
+    <div class="step-navigation">
+      <div class="navigation-buttons">
+        <button type="button" on:click={backToStep2} class="back-step-btn">
+          ← Back to Step 2: Select Vendor
         </button>
+        
+        {#if billDate && billAmount}
+          <div class="step-complete-info">
+            <span class="step-complete-icon">✅</span>
+            <span class="step-complete-text">Step 3 Complete: Bill Information Entered</span>
+          </div>
+          <button type="button" on:click={continueToStep4} class="continue-step-btn">
+            Continue to Step 4: Receive Items →
+          </button>
+        {:else}
+          <button type="button" disabled class="continue-step-btn disabled">
+            Fill Required Fields to Continue
+          </button>
+        {/if}
       </div>
-    {/if}
+    </div>
   {/if}
 </div>
 
@@ -576,12 +590,36 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 15px;
     margin: 30px 0;
     padding: 20px;
-    background: linear-gradient(135deg, #e8f5e8 0%, #f0f8f0 100%);
-    border: 2px solid #4caf50;
+    background: white;
     border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .navigation-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+  }
+
+  .back-step-btn {
+    background: #6b7280;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    align-self: flex-start;
+  }
+
+  .back-step-btn:hover {
+    background: #4b5563;
   }
 
   .step-complete-info {
@@ -591,6 +629,10 @@
     color: #2e7d32;
     font-weight: 600;
     font-size: 16px;
+    padding: 10px;
+    background: linear-gradient(135deg, #e8f5e8 0%, #f0f8f0 100%);
+    border: 2px solid #4caf50;
+    border-radius: 8px;
   }
 
   .step-complete-icon {
@@ -614,5 +656,19 @@
     background: linear-gradient(135deg, #388e3c 0%, #4caf50 100%);
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
+  }
+
+  .continue-step-btn.disabled {
+    background: #e0e0e0;
+    color: #9e9e9e;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .continue-step-btn.disabled:hover {
+    background: #e0e0e0;
+    transform: none;
+    box-shadow: none;
   }
 </style>
