@@ -8,7 +8,7 @@ CREATE TABLE receiving_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
     -- User who is performing the receiving
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     
     -- Selected branch for this receiving
     branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
@@ -39,16 +39,16 @@ CREATE TABLE receiving_records (
     vat_mismatch_reason TEXT,
     
     -- Branch manager/responsible user selection
-    branch_manager_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    branch_manager_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     
     -- Shelf stockers selection (multiple users)
-    shelf_stocker_user_ids INTEGER[] DEFAULT '{}',
+    shelf_stocker_user_ids UUID[] DEFAULT '{}',
     
     -- Accountant selection (single user)
-    accountant_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    accountant_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     
     -- Purchasing Manager selection (single user)
-    purchasing_manager_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    purchasing_manager_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     
     -- Return amounts for different categories
     expired_return_amount DECIMAL(12,2) DEFAULT 0,
