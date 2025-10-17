@@ -1,6 +1,7 @@
 
 <script lang="ts">
   import StepIndicator from './StepIndicator.svelte';
+  import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
   import { currentUser } from '$lib/utils/persistentAuth';
   import { supabase } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
@@ -12,6 +13,8 @@
   
   // Clearance Certification state
   let showCertification = false;
+  let showCertificateManager = false;
+  let currentReceivingRecord = null;
   let savedReceivingId = null; // Track the saved receiving record ID
   
   // Branch selection state
@@ -1606,15 +1609,23 @@
         bill_date: billDate,
         bill_amount: parseFloat(billAmount || 0),
         bill_number: billNumber || null,
-        payment_method: selectedVendor?.payment_method || null,
-        credit_period: selectedVendor?.credit_period || null,
+        payment_method: paymentMethod || selectedVendor?.payment_method || null,
+        credit_period: creditPeriod || selectedVendor?.credit_period || null,
+        due_date: dueDate || null, // Use calculated due date
         bank_name: selectedVendor?.bank_name || null,
         iban: selectedVendor?.iban || null,
-        vendor_vat_number: selectedVendor?.vat_number || null,
+        vendor_vat_number: vendorVatNumber || selectedVendor?.vat_number || null,
+        bill_vat_number: billVatNumber || null, // Use bill VAT number from form
+        vat_numbers_match: vatNumbersMatch, // Use calculated VAT number match
+        vat_mismatch_reason: vatMismatchReason || null,
         branch_manager_user_id: selectedBranchManager?.id || null,
         accountant_user_id: selectedAccountant?.id || null,
         purchasing_manager_user_id: selectedPurchasingManager?.id || null,
         shelf_stocker_user_ids: selectedWarehouseHandlers?.map(h => h.id) || [],
+        // New fields from migration 68
+        inventory_manager_user_id: selectedInventoryManager?.id || null,
+        night_supervisor_user_ids: selectedNightSupervisors?.map(s => s.id) || [],
+        warehouse_handler_user_ids: selectedWarehouseHandlers?.map(h => h.id) || [],
         expired_return_amount: returns.expired.hasReturn === 'yes' ? parseFloat(returns.expired.amount || '0') : 0,
         near_expiry_return_amount: returns.nearExpiry.hasReturn === 'yes' ? parseFloat(returns.nearExpiry.amount || '0') : 0,
         over_stock_return_amount: returns.overStock.hasReturn === 'yes' ? parseFloat(returns.overStock.amount || '0') : 0,
@@ -1664,17 +1675,563 @@
     }
   }
 
-  function generateClearanceCertification() {
-    showCertification = true;
+  async function generateClearanceCertification() {
+    if (savedReceivingId) {
+      // Get the saved receiving record for task generation
+      try {
+        const { data, error } = await supabase
+          .from('receiving_records')
+          .select('*')
+          .eq('id', savedReceivingId)
+          .single();
+        
+        if (error) throw error;
+        
+        currentReceivingRecord = data;
+        showCertificateManager = true;
+      } catch (error) {
+        console.error('Error loading receiving record:', error);
+        alert('Error loading receiving record: ' + error.message);
+      }
+    } else {
+      alert('Please save the receiving data first before generating clearance certificate.');
+    }
   }
 
+  // Certificate saving function - FIXED
+  async function saveCertificateAsImage() {
+    try {
+      if (!savedReceivingId) {
+        console.warn('No receiving ID available for certificate generation');
+        return;
+      }
+
+      // Import html2canvas dynamically
+      const { default: html2canvas } = await import('html2canvas');
+      
+      const certificateElement = document.getElementById('certification-template');
+      if (!certificateElement) {
+        console.error('Certificate template element not found');
+        return;
+      }
+
+      console.log('Generating certificate image...');
+      
+      // Capture the certificate as canvas
+      const canvas = await html2canvas(certificateElement, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        width: certificateElement.scrollWidth,
+        height: certificateElement.scrollHeight
+      });
+
+      // Convert canvas to blob  
+      const blob = await new Promise(resolve => {
+        canvas.toBlob(resolve, 'image/png', 0.95);
+      });
+
+      if (!blob) {
+        throw new Error('Failed to generate certificate image');
+      }
+
+      // Generate filename with simpler format
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+      const fileName = `cert_${savedReceivingId}_${timestamp}.png`;
+
+      console.log('Uploading certificate to storage...', fileName);
+      console.log('Blob size:', blob.size, 'bytes');
+      console.log('User:', $currentUser?.id);
+
+      // Check blob size (max 10MB as per bucket settings)
+      if (blob.size > 10 * 1024 * 1024) {
+        throw new Error(`Certificate image too large: ${blob.size} bytes. Max 10MB allowed.`);
+      }
+
+      // Convert blob to File object which might work better
+      const file = new File([blob], fileName, { type: 'image/png' });
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('clearance-certificates')
+        .upload(fileName, file, {
+          contentType: 'image/png',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('Upload error details:', {
+          message: uploadError.message,
+          error: uploadError,
+          fileName,
+          fileSize: file.size,
+          userId: $currentUser?.id
+        });
+        
+        // Try alternative approach if first fails
+        console.log('Trying alternative upload method...');
+        const { data: altUploadData, error: altUploadError } = await supabase.storage
+          .from('clearance-certificates')
+          .upload(fileName, blob, {
+            contentType: 'image/png'
+          });
+        
+        if (altUploadError) {
+          console.error('Alternative upload also failed:', altUploadError);
+          throw new Error(`Failed to upload certificate: ${uploadError.message}`);
+        }
+        
+        console.log('Alternative upload succeeded');
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('clearance-certificates')
+        .getPublicUrl(fileName);
+
+      const certificateUrl = urlData.publicUrl;
+      console.log('Certificate uploaded successfully:', certificateUrl);
+
+      // Update receiving record with certificate URL
+      const { error: updateError } = await supabase
+        .from('receiving_records')
+        .update({
+          certificate_url: certificateUrl,
+          certificate_generated_at: new Date().toISOString(),
+          certificate_file_name: fileName
+        })
+        .eq('id', savedReceivingId);
+
+      if (updateError) {
+        console.error('Error updating receiving record with certificate URL:', updateError);
+        throw updateError;
+      }
+
+      console.log('✅ Certificate saved and URL updated in receiving record');
+      
+    } catch (error) {
+      console.error('❌ Error saving certificate as image:', error);
+      // Don't show error to user as this is a background process
+    }
+  }
+
+  // Print function for certificate
   function printCertification() {
     const printContent = document.getElementById('certification-template');
-    const originalContent = document.body.innerHTML;
+    if (!printContent) return;
     
-    document.body.innerHTML = printContent.outerHTML;
-    window.print();
-    document.body.innerHTML = originalContent;
+    // Create a new window for printing instead of modifying current page
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) return;
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Clearance Certificate</title>
+        <style>
+          * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+          }
+          
+          body { 
+            font-family: Arial, sans-serif; 
+            background: white; 
+            color: black;
+            font-size: 10px;
+            line-height: 1.3;
+          }
+          
+          .certification-template {
+            padding: 8mm;
+            background: white;
+            font-family: Arial, sans-serif;
+            width: 190mm;
+            max-width: 190mm;
+            height: 277mm;
+            margin: 0 auto;
+            box-sizing: border-box;
+            page-break-inside: avoid;
+            font-size: 9px;
+            line-height: 1.2;
+            overflow: hidden;
+          }
+          
+          .cert-header {
+            text-align: center;
+            margin-bottom: 8px;
+            border-bottom: 2px solid #2c5aa0;
+            padding-bottom: 6px;
+          }
+          
+          .cert-logo {
+            margin-bottom: 4px;
+          }
+          
+          .cert-logo .logo {
+            width: 60px;
+            height: 45px;
+            margin: 0 auto;
+            display: block;
+            border: 1px solid #ff6b35;
+            border-radius: 3px;
+            padding: 3px;
+            background: white;
+            object-fit: contain;
+          }
+          
+          .cert-title {
+            margin-top: 4px;
+          }
+          
+          .title-english {
+            color: #2c5aa0;
+            margin: 2px 0;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+          }
+          
+          .title-arabic {
+            color: #2c5aa0;
+            margin: 2px 0;
+            font-size: 12px;
+            font-weight: 700;
+            direction: rtl;
+            font-family: Arial, sans-serif;
+          }
+          
+          .cert-details {
+            margin: 6px 0;
+          }
+          
+          .cert-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 0;
+            border-bottom: 1px solid #eee;
+            min-height: 16px;
+          }
+          
+          .cert-row.final-amount {
+            border-bottom: 2px solid #2c5aa0;
+            font-weight: 700;
+            font-size: 10px;
+            color: #2c5aa0;
+            background: #f8f9fa;
+            padding: 3px;
+            margin: 2px 0;
+            border-radius: 2px;
+          }
+          
+          .label-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 100px;
+          }
+          
+          .label-english {
+            font-weight: 600;
+            color: #495057;
+            font-size: 8px;
+            margin-bottom: 1px;
+          }
+          
+          .label-arabic {
+            font-weight: 600;
+            color: #6c757d;
+            font-size: 7px;
+            direction: rtl;
+            font-family: Arial, sans-serif;
+          }
+          
+          .cert-row .value {
+            color: #212529;
+            text-align: right;
+            font-weight: 500;
+            min-width: 60px;
+            font-size: 9px;
+          }
+          
+          .returns-section {
+            margin: 4px 0;
+            padding: 3px;
+            background: #f8f9fa;
+            border-radius: 2px;
+            border: 1px solid #dee2e6;
+          }
+          
+          .returns-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3px;
+            padding-bottom: 2px;
+            border-bottom: 1px solid #dee2e6;
+          }
+          
+          .return-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1px 0;
+            font-size: 7px;
+            border-bottom: 1px solid #f1f3f4;
+          }
+          
+          .return-row:last-child {
+            border-bottom: none;
+          }
+          
+          .return-row.total-returns {
+            border-top: 1px solid #dee2e6;
+            padding-top: 2px;
+            margin-top: 2px;
+            font-weight: 600;
+            background: #e9ecef;
+            padding: 2px;
+            border-radius: 2px;
+          }
+          
+          .return-type {
+            display: flex;
+            flex-direction: column;
+            min-width: 80px;
+          }
+          
+          .type-english {
+            font-size: 7px;
+            color: #495057;
+            margin-bottom: 1px;
+          }
+          
+          .type-arabic {
+            font-size: 6px;
+            color: #6c757d;
+            direction: rtl;
+            font-family: Arial, sans-serif;
+          }
+          
+          .return-details {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            font-size: 7px;
+          }
+          
+          .status {
+            background: #dc3545;
+            color: white;
+            padding: 1px 2px;
+            border-radius: 1px;
+            font-size: 6px;
+            font-weight: 500;
+          }
+          
+          .status.yes {
+            background: #28a745;
+          }
+          
+          .status.no {
+            background: #6c757d;
+          }
+          
+          .amount {
+            color: #212529;
+            font-weight: 500;
+            min-width: 25px;
+            text-align: right;
+            font-size: 7px;
+          }
+          
+          .amount.total {
+            font-size: 8px;
+            font-weight: 700;
+            color: #2c5aa0;
+          }
+          
+          .signatures-section {
+            margin-top: 6px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          
+          .signature-box {
+            flex: 1;
+            text-align: center;
+            padding: 4px;
+            border: 1px solid #dee2e6;
+            border-radius: 2px;
+            background: #f8f9fa;
+            min-height: 60px;
+          }
+          
+          .signature-line {
+            height: 35px;
+            border-bottom: 1px solid #495057;
+            margin-bottom: 3px;
+          }
+          
+          .signature-labels {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 2px;
+          }
+          
+          .signature-labels .label-english {
+            font-size: 7px;
+            color: #495057;
+            font-weight: 600;
+            margin-bottom: 1px;
+          }
+          
+          .signature-labels .label-arabic {
+            font-size: 6px;
+            color: #6c757d;
+            direction: rtl;
+            font-weight: 600;
+            font-family: Arial, sans-serif;
+          }
+          
+          .signature-box p {
+            color: #212529;
+            font-size: 8px;
+            font-weight: 500;
+            margin-top: 2px;
+          }
+          
+          .cert-footer {
+            text-align: center;
+            margin-top: 6px;
+            padding-top: 4px;
+            border-top: 1px solid #dee2e6;
+            font-size: 7px;
+            color: #6c757d;
+            line-height: 1.2;
+          }
+          
+          .footer-english {
+            margin-bottom: 2px;
+          }
+          
+          .footer-arabic {
+            direction: rtl;
+            font-family: Arial, sans-serif;
+            margin-bottom: 3px;
+          }
+          
+          .date-stamp {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+            padding-top: 3px;
+            border-top: 1px solid #dee2e6;
+            font-size: 7px;
+            color: #495057;
+          }
+          
+          .date-arabic {
+            direction: rtl;
+            font-family: Arial, sans-serif;
+          }
+          
+          @media print { 
+            @page {
+              size: A4;
+              margin: 8mm;
+            }
+            
+            body { 
+              margin: 0; 
+              font-size: 9px;
+            }
+            
+            .certification-template {
+              width: 194mm;
+              max-width: 194mm;
+              height: 281mm;
+              margin: 0;
+              padding: 6mm;
+              box-shadow: none;
+              page-break-inside: avoid;
+              font-size: 8px;
+              overflow: hidden;
+            }
+            
+            .cert-logo .logo {
+              width: 50px;
+              height: 38px;
+            }
+            
+            .title-english {
+              font-size: 12px;
+            }
+            
+            .title-arabic {
+              font-size: 10px;
+            }
+            
+            .cert-row {
+              padding: 1px 0;
+              min-height: 12px;
+            }
+            
+            .label-english {
+              font-size: 7px;
+            }
+            
+            .label-arabic {
+              font-size: 6px;
+            }
+            
+            .cert-row .value {
+              font-size: 8px;
+            }
+            
+            .return-row {
+              padding: 0.5px 0;
+              font-size: 6px;
+            }
+            
+            .signature-box {
+              min-height: 45px;
+              padding: 3px;
+            }
+            
+            .signature-line {
+              height: 25px;
+            }
+            
+            .cert-footer {
+              font-size: 6px;
+            }
+            
+            .date-stamp {
+              font-size: 6px;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${printContent.outerHTML}
+      </body>
+      </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
   }
 
   async function saveClearanceCertification() {
@@ -1684,19 +2241,20 @@
         return;
       }
 
-      // The data is already saved from step 3, so we just confirm and close
-      alert('Clearance certification confirmed! The receiving process is now complete.');
-      
-      // Close the certification modal
-      showCertification = false;
-      
-      // Optionally redirect back to main menu or close window
-      // windowManager.closeWindow();
+      // Show the certificate manager instead of the old certification modal
+      await generateClearanceCertification();
 
     } catch (error) {
-      console.error('Error confirming certification:', error);
-      alert('Error confirming certification: ' + error.message);
+      console.error('Error opening certificate manager:', error);
+      alert('Error opening certificate manager: ' + error.message);
     }
+  }
+  
+  // Handle certificate manager close
+  function handleCertificateManagerClose() {
+    showCertificateManager = false;
+    // Optionally redirect back to main menu or close window
+    // windowManager.closeWindow();
   }
 </script>
 <StepIndicator {steps} {currentStep} />
@@ -3197,8 +3755,8 @@
               />
               <select bind:value={returns.expired.erpDocumentType} class="return-dropdown">
                 <option value="">Select ERP Document Type</option>
-                <option value="GRN">GRN (Goods Receipt Note)</option>
-                <option value="PR">PR (Purchase Receipt)</option>
+                <option value="GRR">GRR (Goods Return Receipt)</option>
+                <option value="PRI">PRI (Purchase Return Invoice)</option>
               </select>
               <input 
                 type="text" 
@@ -3233,8 +3791,8 @@
               />
               <select bind:value={returns.nearExpiry.erpDocumentType} class="return-dropdown">
                 <option value="">Select ERP Document Type</option>
-                <option value="GRN">GRN (Goods Receipt Note)</option>
-                <option value="PR">PR (Purchase Receipt)</option>
+                <option value="GRR">GRR (Goods Return Receipt)</option>
+                <option value="PRI">PRI (Purchase Return Invoice)</option>
               </select>
               <input 
                 type="text" 
@@ -3269,8 +3827,8 @@
               />
               <select bind:value={returns.overStock.erpDocumentType} class="return-dropdown">
                 <option value="">Select ERP Document Type</option>
-                <option value="GRN">GRN (Goods Receipt Note)</option>
-                <option value="PR">PR (Purchase Receipt)</option>
+                <option value="GRR">GRR (Goods Return Receipt)</option>
+                <option value="PRI">PRI (Purchase Return Invoice)</option>
               </select>
               <input 
                 type="text" 
@@ -3305,8 +3863,8 @@
               />
               <select bind:value={returns.damage.erpDocumentType} class="return-dropdown">
                 <option value="">Select ERP Document Type</option>
-                <option value="GRN">GRN (Goods Receipt Note)</option>
-                <option value="PR">PR (Purchase Receipt)</option>
+                <option value="GRR">GRR (Goods Return Receipt)</option>
+                <option value="PRI">PRI (Purchase Return Invoice)</option>
               </select>
               <input 
                 type="text" 
@@ -3542,6 +4100,7 @@
     {/if}
 
     <!-- Action Buttons for Step 3 -->
+    {#if currentStep !== 2 && currentStep !== 3}
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={goBackToVendorSelection}>
         ← Back to Vendor Selection
@@ -3550,6 +4109,16 @@
         Continue to Receiving →
       </button>
     </div>
+    {/if}
+    
+    <!-- Navigation for Step 3 (Bill Information) -->
+    {#if currentStep === 2}
+    <div class="step-actions">
+      <button type="button" class="secondary-btn" on:click={() => currentStep = 1}>
+        ← Back to Vendor Selection
+      </button>
+    </div>
+    {/if}
   </div>
 {/if}
 
@@ -3571,7 +4140,7 @@
   <div class="form-section">
     <h3>Step 4: Finalization</h3>
     {#if savedReceivingId}
-      <p class="step-description">✅ Receiving data saved successfully! Generate clearance certification for completion.</p>
+      <p class="step-description">✅ Receiving data saved successfully! Generate clearance certificate template.</p>
     {:else}
       <p class="step-description">⚠️ Please go back to Step 3 and save the receiving data first.</p>
     {/if}
@@ -3579,11 +4148,11 @@
     <div class="clearance-section">
       {#if savedReceivingId}
         <button type="button" class="generate-cert-btn" on:click={generateClearanceCertification}>
-          📋 Generate Clearance Certification
+          � Generate Clearance Certificate 
         </button>
       {:else}
         <button type="button" class="generate-cert-btn-disabled" disabled>
-          📋 Generate Clearance Certification
+          � Generate Clearance Certificate
         </button>
         <p class="warning-text">Please save the receiving data from Step 3 first.</p>
       {/if}
@@ -3599,76 +4168,199 @@
           </div>
           
           <div class="certification-template" id="certification-template">
-            <!-- Company Logo -->
-            <div class="cert-logo">
-              <img src="/icons/icon-192x192.png" alt="Company Logo" class="logo" />
-              <h2>CLEARANCE CERTIFICATION</h2>
+            <!-- Company Logo - Top Center -->
+            <div class="cert-header">
+              <div class="cert-logo">
+                <img src="/icons/icon-192x192.png" alt="Company Logo" class="logo" />
+              </div>
+              
+              <!-- Bilingual Title -->
+              <div class="cert-title">
+                <h2 class="title-english">CLEARANCE CERTIFICATION</h2>
+                <h2 class="title-arabic">شهادة تخليص البضائع</h2>
+              </div>
             </div>
             
-            <!-- Certification Details -->
+            <!-- Certification Details - Bilingual -->
             <div class="cert-details">
               <div class="cert-row">
-                <label>Bill Number:</label>
-                <span>{billNumber || 'N/A'}</span>
+                <div class="label-group">
+                  <label class="label-english">Bill Number:</label>
+                  <label class="label-arabic">رقم الفاتورة:</label>
+                </div>
+                <span class="value">{billNumber || 'N/A'}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Bill Date:</label>
-                <span>{billDate}</span>
+                <div class="label-group">
+                  <label class="label-english">Bill Date:</label>
+                  <label class="label-arabic">تاريخ الفاتورة:</label>
+                </div>
+                <span class="value">{billDate}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Current Date:</label>
-                <span>{new Date().toLocaleDateString()}</span>
+                <div class="label-group">
+                  <label class="label-english">Branch:</label>
+                  <label class="label-arabic">الفرع:</label>
+                </div>
+                <span class="value">{selectedBranchName}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Branch:</label>
-                <span>{selectedBranchName}</span>
+                <div class="label-group">
+                  <label class="label-english">Bill Amount:</label>
+                  <label class="label-arabic">مبلغ الفاتورة:</label>
+                </div>
+                <span class="value">{parseFloat(billAmount || '0').toFixed(2)}</span>
               </div>
-              <div class="cert-row">
-                <label>Bill Amount:</label>
-                <span>{parseFloat(billAmount || '0').toFixed(2)}</span>
+              
+              <!-- Returns Section -->
+              <div class="returns-section">
+                <div class="returns-header">
+                  <div class="label-group">
+                    <label class="label-english">Returns Summary:</label>
+                    <label class="label-arabic">ملخص المرتجعات:</label>
+                  </div>
+                </div>
+                
+                <!-- Expired Returns -->
+                <div class="return-row">
+                  <div class="return-type">
+                    <span class="type-english">Expired Returns</span>
+                    <span class="type-arabic">مرتجعات منتهية الصلاحية</span>
+                  </div>
+                  <div class="return-details">
+                    <span class="status {returns.expired.hasReturn === 'yes' ? 'yes' : 'no'}">
+                      {returns.expired.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
+                    </span>
+                    <span class="amount">
+                      {returns.expired.hasReturn === 'yes' ? parseFloat(returns.expired.amount || '0').toFixed(2) : '0.00'}
+                    </span>
+                  </div>
+                </div>
+                
+                <!-- Near Expiry Returns -->
+                <div class="return-row">
+                  <div class="return-type">
+                    <span class="type-english">Near Expiry Returns</span>
+                    <span class="type-arabic">مرتجعات قريبة الانتهاء</span>
+                  </div>
+                  <div class="return-details">
+                    <span class="status {returns.nearExpiry.hasReturn === 'yes' ? 'yes' : 'no'}">
+                      {returns.nearExpiry.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
+                    </span>
+                    <span class="amount">
+                      {returns.nearExpiry.hasReturn === 'yes' ? parseFloat(returns.nearExpiry.amount || '0').toFixed(2) : '0.00'}
+                    </span>
+                  </div>
+                </div>
+                
+                <!-- Over Stock Returns -->
+                <div class="return-row">
+                  <div class="return-type">
+                    <span class="type-english">Over Stock Returns</span>
+                    <span class="type-arabic">مرتجعات فائض المخزون</span>
+                  </div>
+                  <div class="return-details">
+                    <span class="status {returns.overStock.hasReturn === 'yes' ? 'yes' : 'no'}">
+                      {returns.overStock.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
+                    </span>
+                    <span class="amount">
+                      {returns.overStock.hasReturn === 'yes' ? parseFloat(returns.overStock.amount || '0').toFixed(2) : '0.00'}
+                    </span>
+                  </div>
+                </div>
+                
+                <!-- Damage Returns -->
+                <div class="return-row">
+                  <div class="return-type">
+                    <span class="type-english">Damage Returns</span>
+                    <span class="type-arabic">مرتجعات تالفة</span>
+                  </div>
+                  <div class="return-details">
+                    <span class="status {returns.damage.hasReturn === 'yes' ? 'yes' : 'no'}">
+                      {returns.damage.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
+                    </span>
+                    <span class="amount">
+                      {returns.damage.hasReturn === 'yes' ? parseFloat(returns.damage.amount || '0').toFixed(2) : '0.00'}
+                    </span>
+                  </div>
+                </div>
+                
+                <!-- Total Returns -->
+                <div class="return-row total-returns">
+                  <div class="return-type">
+                    <span class="type-english">Total Returns</span>
+                    <span class="type-arabic">إجمالي المرتجعات</span>
+                  </div>
+                  <div class="return-details">
+                    <span class="amount total">{totalReturnAmount.toFixed(2)}</span>
+                  </div>
+                </div>
               </div>
-              {#if totalReturnAmount > 0}
-              <div class="cert-row">
-                <label>Return Amount:</label>
-                <span>{totalReturnAmount.toFixed(2)}</span>
-              </div>
-              {/if}
+              
               <div class="cert-row final-amount">
-                <label>Final Amount:</label>
-                <span>{finalBillAmount.toFixed(2)}</span>
+                <div class="label-group">
+                  <label class="label-english">Final Amount:</label>
+                  <label class="label-arabic">المبلغ النهائي:</label>
+                </div>
+                <span class="value">{finalBillAmount.toFixed(2)}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Salesman Name:</label>
-                <span>{selectedVendor?.salesman_name || 'N/A'}</span>
+                <div class="label-group">
+                  <label class="label-english">Salesman Name:</label>
+                  <label class="label-arabic">اسم البائع:</label>
+                </div>
+                <span class="value">{selectedVendor?.salesman_name || 'N/A'}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Salesman Contact:</label>
-                <span>{selectedVendor?.salesman_contact || 'N/A'}</span>
+                <div class="label-group">
+                  <label class="label-english">Salesman Contact:</label>
+                  <label class="label-arabic">رقم البائع:</label>
+                </div>
+                <span class="value">{selectedVendor?.salesman_contact || 'N/A'}</span>
               </div>
+              
               <div class="cert-row">
-                <label>Logged Employee:</label>
-                <span>{$currentUser?.employeeName || $currentUser?.username}</span>
+                <div class="label-group">
+                  <label class="label-english">Logged Employee:</label>
+                  <label class="label-arabic">الموظف المسجل:</label>
+                </div>
+                <span class="value">{$currentUser?.employeeName || $currentUser?.username}</span>
               </div>
             </div>
 
-            <!-- Signatures Section -->
+            <!-- Signatures Section - Bilingual -->
             <div class="signatures-section">
               <div class="signature-box">
                 <div class="signature-line"></div>
-                <label>Salesman Signature</label>
+                <div class="signature-labels">
+                  <label class="label-english">Salesman Signature</label>
+                  <label class="label-arabic">توقيع البائع</label>
+                </div>
                 <p>{selectedVendor?.salesman_name || 'N/A'}</p>
               </div>
               <div class="signature-box">
                 <div class="signature-line"></div>
-                <label>Receiver Signature</label>
+                <div class="signature-labels">
+                  <label class="label-english">Receiver Signature</label>
+                  <label class="label-arabic">توقيع المستلم</label>
+                </div>
                 <p>{$currentUser?.employeeName || $currentUser?.username}</p>
               </div>
             </div>
 
-            <!-- Certification Footer -->
+            <!-- Certification Footer - Bilingual -->
             <div class="cert-footer">
-              <p>This certification confirms the receipt of goods as per the details mentioned above.</p>
-              <p><strong>Date: {new Date().toLocaleDateString()}</strong></p>
+              <p class="footer-english">This certification confirms the receipt of goods as per the details mentioned above.</p>
+              <p class="footer-arabic">تؤكد هذه الشهادة استلام البضائع وفقاً للتفاصيل المذكورة أعلاه.</p>
+              <div class="date-stamp">
+                <span class="date-english"><strong>Date: {new Date().toLocaleDateString()}</strong></span>
+                <span class="date-arabic"><strong>التاريخ: {new Date().toLocaleDateString()}</strong></span>
+              </div>
             </div>
           </div>
 
@@ -3688,9 +4380,6 @@
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={() => currentStep = 2}>
         ← Back to Bill Information
-      </button>
-      <button type="button" class="primary-btn" on:click={() => alert('Receiving process would start here!')}>
-        Start Receiving Process →
       </button>
     </div>
   </div>
@@ -6444,11 +7133,13 @@
 	.certification-content {
 		background: white;
 		border-radius: 12px;
-		width: 90%;
-		max-width: 800px;
-		max-height: 90vh;
+		width: 95%;
+		max-width: 850px;
+		max-height: 95vh;
 		overflow-y: auto;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+		/* Better support for A4 content with proper width */
+		min-height: 80vh;
 	}
 
 	.certification-header {
@@ -6481,69 +7172,255 @@
 	}
 
 	.certification-template {
-		padding: 2rem;
+		padding: 1rem;
 		background: white;
 		font-family: 'Arial', sans-serif;
+		/* A4 Size Dimensions - Fixed width to prevent overflow */
+		width: 190mm;
+		max-width: 190mm;
+		min-height: 297mm;
+		margin: 0 auto;
+		box-sizing: border-box;
+		page-break-inside: avoid;
+		font-size: 0.8rem;
+		line-height: 1.2;
+		overflow: hidden;
+	}
+
+	/* A4 Print Styles */
+	@media print {
+		.certification-template {
+			width: 190mm;
+			max-width: 190mm;
+			height: auto;
+			margin: 0;
+			padding: 8mm;
+			box-shadow: none;
+			page-break-inside: avoid;
+			font-size: 0.75rem;
+			overflow: hidden;
+		}
+		
+		@page {
+			size: A4;
+			margin: 10mm;
+		}
+	}
+
+	.cert-header {
+		text-align: center;
+		margin-bottom: 1rem;
+		border-bottom: 2px solid #2c5aa0;
+		padding-bottom: 0.75rem;
 	}
 
 	.cert-logo {
-		text-align: center;
-		margin-bottom: 2rem;
-		border-bottom: 3px solid #2c5aa0;
-		padding-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	.cert-logo .logo {
-		width: 80px;
-		height: 80px;
-		margin-bottom: 1rem;
+		width: 100px;
+		height: 75px;
+		margin: 0 auto;
+		display: block;
+		border: 2px solid #ff6b35;
+		border-radius: 6px;
+		padding: 8px;
+		background: white;
+		box-shadow: 0 2px 6px rgba(255, 107, 53, 0.2);
+		object-fit: contain;
 	}
 
-	.cert-logo h2 {
+	.cert-title {
+		margin-top: 0.5rem;
+	}
+
+	.title-english {
 		color: #2c5aa0;
-		margin: 0;
-		font-size: 2rem;
+		margin: 0.15rem 0;
+		font-size: 1.4rem;
 		font-weight: 700;
-		letter-spacing: 1px;
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+	}
+
+	.title-arabic {
+		color: #2c5aa0;
+		margin: 0.15rem 0;
+		font-size: 1.2rem;
+		font-weight: 700;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
 	}
 
 	.cert-details {
-		margin: 2rem 0;
+		margin: 1rem 0;
 	}
 
 	.cert-row {
 		display: flex;
 		justify-content: space-between;
-		padding: 0.75rem 0;
+		align-items: center;
+		padding: 0.35rem 0;
 		border-bottom: 1px solid #eee;
+		min-height: 25px;
 	}
 
 	.cert-row.final-amount {
 		border-bottom: 2px solid #2c5aa0;
 		font-weight: 700;
-		font-size: 1.1rem;
+		font-size: 0.9rem;
+		color: #2c5aa0;
+		background: #f8f9fa;
+		padding: 0.5rem;
+		margin: 0.15rem 0;
+		border-radius: 3px;
+	}
+
+	.label-group {
+		display: flex;
+		flex-direction: column;
+		min-width: 160px;
+	}
+
+	.label-english {
+		font-weight: 600;
+		color: #495057;
+		font-size: 0.75rem;
+		margin-bottom: 1px;
+	}
+
+	.label-arabic {
+		font-weight: 600;
+		color: #6c757d;
+		font-size: 0.7rem;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
+	}
+
+	.cert-row .value {
+		color: #212529;
+		text-align: right;
+		font-weight: 500;
+		min-width: 100px;
+		font-size: 0.8rem;
+	}
+
+	/* Returns Section Styles - Ultra Compact */
+	.returns-section {
+		margin: 0.75rem 0;
+		padding: 0.5rem;
+		background: #f8f9fa;
+		border-radius: 4px;
+		border: 1px solid #dee2e6;
+	}
+
+	.returns-header {
+		border-bottom: 1px solid #2c5aa0;
+		padding-bottom: 0.15rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.returns-header .label-group {
+		min-width: auto;
+	}
+
+	.returns-header .label-english {
+		font-size: 0.85rem;
+		font-weight: 700;
 		color: #2c5aa0;
 	}
 
-	.cert-row label {
-		font-weight: 600;
-		color: #495057;
-		min-width: 150px;
+	.returns-header .label-arabic {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #2c5aa0;
 	}
 
-	.cert-row span {
+	.return-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.15rem 0;
+		border-bottom: 1px solid #e9ecef;
+	}
+
+	.return-row.total-returns {
+		border-bottom: none;
+		border-top: 1px solid #2c5aa0;
+		padding-top: 0.25rem;
+		margin-top: 0.15rem;
+		font-weight: 700;
+	}
+
+	.return-type {
+		display: flex;
+		flex-direction: column;
+		min-width: 120px;
+	}
+
+	.type-english {
+		font-weight: 600;
+		color: #495057;
+		font-size: 0.7rem;
+	}
+
+	.type-arabic {
+		font-weight: 600;
+		color: #6c757d;
+		font-size: 0.65rem;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
+	}
+
+	.return-details {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.status {
+		padding: 0.1rem 0.25rem;
+		border-radius: 2px;
+		font-size: 0.65rem;
+		font-weight: 600;
+		min-width: 50px;
+		text-align: center;
+	}
+
+	.status.yes {
+		background: #d4edda;
+		color: #155724;
+		border: 1px solid #c3e6cb;
+	}
+
+	.status.no {
+		background: #f8d7da;
+		color: #721c24;
+		border: 1px solid #f5c6cb;
+	}
+
+	.amount {
+		font-weight: 600;
 		color: #212529;
+		min-width: 40px;
 		text-align: right;
+		font-size: 0.75rem;
+	}
+
+	.amount.total {
+		font-size: 0.85rem;
+		color: #2c5aa0;
 	}
 
 	.signatures-section {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 3rem;
-		margin: 3rem 0;
-		padding: 2rem;
+		gap: 1.5rem;
+		margin: 1rem 0;
+		padding: 1rem;
 		background: #f8f9fa;
-		border-radius: 8px;
+		border-radius: 4px;
 	}
 
 	.signature-box {
@@ -6553,32 +7430,78 @@
 	.signature-line {
 		border-top: 2px solid #495057;
 		margin-bottom: 0.5rem;
-		margin-top: 3rem;
+		margin-top: 2rem;
 	}
 
-	.signature-box label {
+	.signature-labels {
+		margin-bottom: 0.15rem;
+	}
+
+	.signature-box .label-english {
 		font-weight: 600;
 		color: #495057;
 		display: block;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.1rem;
+		font-size: 0.75rem;
+	}
+
+	.signature-box .label-arabic {
+		font-weight: 600;
+		color: #6c757d;
+		display: block;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
+		font-size: 0.7rem;
 	}
 
 	.signature-box p {
-		margin: 0;
+		margin: 0.15rem 0 0 0;
 		color: #6c757d;
 		font-style: italic;
+		font-size: 0.7rem;
 	}
 
 	.cert-footer {
 		text-align: center;
-		margin-top: 2rem;
-		padding-top: 1rem;
+		margin-top: 1rem;
+		padding-top: 0.75rem;
 		border-top: 1px solid #dee2e6;
-		color: #6c757d;
+		color: #495057;
 	}
 
-	.cert-footer p {
-		margin: 0.5rem 0;
+	.footer-english {
+		margin: 0.15rem 0;
+		font-size: 0.8rem;
+		line-height: 1.3;
+	}
+
+	.footer-arabic {
+		margin: 0.15rem 0;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
+		font-size: 0.75rem;
+		line-height: 1.4;
+	}
+
+	.date-stamp {
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid #dee2e6;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.date-english {
+		color: #2c5aa0;
+		font-size: 0.8rem;
+	}
+
+	.date-arabic {
+		color: #2c5aa0;
+		direction: rtl;
+		font-family: 'Arial', 'Tahoma', sans-serif;
+		font-size: 0.75rem;
 	}
 
 	.cert-actions {
@@ -6635,3 +7558,10 @@
 		}
 	}
 </style>
+
+<!-- Clearance Certificate Manager -->
+<ClearanceCertificateManager 
+  bind:show={showCertificateManager}
+  receivingRecord={currentReceivingRecord}
+  on:close={handleCertificateManagerClose}
+/>

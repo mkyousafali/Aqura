@@ -1,6 +1,7 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
 	import StartReceiving from './receiving/StartReceiving.svelte';
+	import ReceivingRecords from './receiving/ReceivingRecords.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -66,6 +67,26 @@
 			closable: true
 		});
 	}
+
+	async function openReceivingRecords() {
+		const windowId = generateWindowId('receiving-records');
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: '📋 Receiving Records',
+			component: ReceivingRecords,
+			icon: '📋',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 </script>
 
 <!-- Receiving Dashboard -->
@@ -100,6 +121,11 @@
 		<button class="start-receiving-btn" on:click={openStartReceiving}>
 			<span class="btn-icon">🚀</span>
 			<span class="btn-text">Start Receiving</span>
+		</button>
+		
+		<button class="receiving-records-btn" on:click={openReceivingRecords}>
+			<span class="btn-icon">📋</span>
+			<span class="btn-text">Receiving Records</span>
 		</button>
 	</div>
 </div>
@@ -245,9 +271,13 @@
 	.action-section {
 		text-align: center;
 		padding: 40px 0;
+		display: flex;
+		justify-content: center;
+		gap: 20px;
+		flex-wrap: wrap;
 	}
 
-	.start-receiving-btn {
+	.start-receiving-btn, .receiving-records-btn {
 		background: linear-gradient(135deg, #059669 0%, #047857 100%);
 		color: white;
 		border: none;
@@ -264,13 +294,26 @@
 		min-width: 200px;
 	}
 
-	.start-receiving-btn:hover {
+	.receiving-records-btn {
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+	}
+
+	.start-receiving-btn:hover, .receiving-records-btn:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 15px 35px rgba(5, 150, 105, 0.4);
+	}
+
+	.start-receiving-btn:hover {
 		background: linear-gradient(135deg, #047857 0%, #065f46 100%);
 	}
 
-	.start-receiving-btn:active {
+	.receiving-records-btn:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		box-shadow: 0 15px 35px rgba(59, 130, 246, 0.4);
+	}
+
+	.start-receiving-btn:active, .receiving-records-btn:active {
 		transform: translateY(0);
 	}
 
@@ -302,7 +345,7 @@
 			font-size: 24px;
 		}
 
-		.start-receiving-btn {
+		.start-receiving-btn, .receiving-records-btn {
 			padding: 16px 32px;
 			font-size: 16px;
 		}

@@ -976,14 +976,17 @@ export class NotificationManagementService {
 	}
 
 	/**
-	 * Listen for real-time notifications and show push notifications
+	 * Listen for real-time notifications and show push notifications with error handling
 	 */
 	async startRealtimeNotificationListener(): Promise<void> {
 		try {
 			const currentUser = await this.getCurrentUser();
-			if (!currentUser) return;
+			if (!currentUser) {
+				console.warn('⚠️ No current user found, skipping real-time notification setup');
+				return;
+			}
 
-			// Subscribe to new notifications for this user
+			// Subscribe to new notifications for this user with enhanced error handling
 			const subscription = supabase
 				.channel('user-notifications')
 				.on(
@@ -997,60 +1000,77 @@ export class NotificationManagementService {
 					async (payload) => {
 						console.log('Real-time notification received:', payload);
 						
-						// Get notification details
-						const { data: notification } = await supabase
-							.from('notifications')
-							.select('*')
-							.eq('id', payload.new.notification_id)
-							.single();
+						try {
+							// Get notification details
+							const { data: notification } = await supabase
+								.from('notifications')
+								.select('*')
+								.eq('id', payload.new.notification_id)
+								.single();
 
-						if (notification) {
-							console.log('🔔 Processing real-time notification for sound:', {
-								id: notification.id,
-								title: notification.title,
-								type: notification.type,
-								priority: notification.priority
-							});
+							if (notification) {
+								console.log('🔔 Processing real-time notification for sound:', {
+									id: notification.id,
+									title: notification.title,
+									type: notification.type,
+									priority: notification.priority
+								});
 
-							// Play in-app notification sound
-							if (notificationSoundManager) {
-								try {
-									await notificationSoundManager.playNotificationSound({
-										id: notification.id,
-										title: notification.title,
-										message: notification.message,
-										type: notification.type || 'info',
-										priority: notification.priority || 'medium',
-										timestamp: new Date(notification.created_at || new Date()),
-										read: false,
-										soundEnabled: true
-									});
-									console.log('✅ Real-time notification sound played for:', notification.title);
-								} catch (error) {
-									console.error('❌ Failed to play real-time notification sound:', error);
+								// Play in-app notification sound
+								if (notificationSoundManager) {
+									try {
+										await notificationSoundManager.playNotificationSound({
+											id: notification.id,
+											title: notification.title,
+											message: notification.message,
+											type: notification.type || 'info',
+											priority: notification.priority || 'medium',
+											timestamp: new Date(notification.created_at || new Date()),
+											read: false,
+											soundEnabled: true
+										});
+										console.log('✅ Real-time notification sound played for:', notification.title);
+									} catch (error) {
+										console.error('❌ Failed to play real-time notification sound:', error);
+									}
+								} else {
+									console.warn('⚠️ Notification sound manager not available for real-time notification');
 								}
-							} else {
-								console.warn('⚠️ Notification sound manager not available for real-time notification');
+
+								// Show push notification
+								await this.sendPushNotification(
+									notification.title,
+									notification.message,
+									[currentUser.id],
+									{
+										notification_id: notification.id,
+										url: `/notifications?id=${notification.id}`
+									}
+								);
 							}
-
-							// Show push notification
-							await this.sendPushNotification(
-								notification.title,
-								notification.message,
-								[currentUser.id],
-								{
-									notification_id: notification.id,
-									url: `/notifications?id=${notification.id}`
-								}
-							);
+						} catch (notificationError) {
+							console.error('❌ Error processing real-time notification:', notificationError);
 						}
 					}
 				)
-				.subscribe();
+				.subscribe((status) => {
+					console.log('Real-time subscription status:', status);
+					
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Real-time notification listener started successfully');
+					} else if (status === 'CHANNEL_ERROR') {
+						console.error('❌ Real-time channel error - network connectivity issue');
+						// Don't retry immediately to avoid spam
+					} else if (status === 'TIMED_OUT') {
+						console.error('❌ Real-time connection timed out - check network connection');
+					} else if (status === 'CLOSED') {
+						console.warn('⚠️ Real-time connection closed');
+					}
+				});
 
-			console.log('Real-time notification listener started');
 		} catch (error) {
-			console.error('Error starting real-time notification listener:', error);
+			console.error('❌ Error starting real-time notification listener:', error);
+			console.warn('🔔 Real-time notifications will not work, but app functionality remains intact');
 		}
 	}
 
