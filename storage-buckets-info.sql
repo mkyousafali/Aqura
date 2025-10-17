@@ -82,3 +82,13 @@ VALUES (
   52428800,
   '["image/jpeg","image/png","image/gif","image/webp","application/pdf","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","text/plain","text/csv"]'
 );
+
+-- Bucket: certificates
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'certificates',
+  'certificates',
+  true,
+  10485760,
+  '["image/jpeg","image/png","image/webp","application/pdf"]'
+);
