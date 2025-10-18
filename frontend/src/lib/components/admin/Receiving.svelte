@@ -6,11 +6,9 @@
 	import ReceivingDataWindow from './receiving/ReceivingDataWindow.svelte';
 
 	let totalReceivedBills = 0;
-	let totalReceivingTasks = 0;
-	let completedReceivingTasks = 0;
-	let incompleteReceivingTasks = 0;
 	let billsWithoutOriginal = 0;
 	let billsWithoutErpReference = 0;
+	let billsWithoutPrExcel = 0;
 	let loading = true;
 
 	// Generate unique window ID using timestamp and random number
@@ -32,78 +30,6 @@
 				totalReceivedBills = 0;
 			} else {
 				totalReceivedBills = billsCount || 0;
-			}
-
-			// Get total count of receiving-related tasks by title pattern
-			const { count: tasksCount, error: tasksError } = await supabase
-				.from('tasks')
-				.select('*', { count: 'exact', head: true })
-				.or('title.ilike.%delivery%,title.ilike.%receiving%,title.ilike.%clearance%,title.ilike.%placement%,title.ilike.%check%');
-
-			if (tasksError) {
-				console.error('Error loading tasks count:', tasksError);
-				totalReceivingTasks = 0;
-			} else {
-				totalReceivingTasks = tasksCount || 0;
-			}
-
-			// Get count of completed receiving tasks using task_completions relationship
-			console.log('🔍 Calling count_completed_receiving_tasks function...');
-			const { data: completedData, error: completedError } = await supabase
-				.rpc('count_completed_receiving_tasks');
-
-			console.log('🔍 Function response:', { completedData, completedError });
-
-			if (completedError) {
-				console.error('Error loading completed receiving tasks count:', completedError);
-				completedReceivingTasks = 0;
-			} else {
-				// Even if function worked, let's debug the data
-				console.log('🔄 Running fallback debug query to see the data...');
-				
-				// First check with select all to see if it's an RLS issue
-				const { data: allData, error: allError } = await supabase
-					.from('receiving_tasks')
-					.select('*');
-				console.log('🔍 All receiving_tasks data:', { allData, allError });
-				
-				const { data: fallbackData, error: fallbackError } = await supabase
-					.from('receiving_tasks')
-					.select('id, task_id')
-					.not('task_id', 'is', null);
-				
-				if (fallbackError) {
-					console.error('Fallback query error:', fallbackError);
-				} else {
-					// Check how many have completions
-					const taskIds = fallbackData?.map(rt => rt.task_id) || [];
-					console.log('📋 Receiving task IDs:', taskIds);
-					
-					if (taskIds.length > 0) {
-						const { data: completionsData, error: completionsError } = await supabase
-							.from('task_completions')
-							.select('task_id')
-							.in('task_id', taskIds);
-							
-						console.log('🎯 Task completions found:', completionsData);
-						const directCount = completionsData?.length || 0;
-						console.log('📊 Direct count vs Function count:', { directCount, functionCount: completedData });
-						
-						// Use the direct count if it's different
-						if (directCount > 0) {
-							completedReceivingTasks = directCount;
-						} else {
-							completedReceivingTasks = completedData || 0;
-						}
-					} else {
-						completedReceivingTasks = completedData || 0;
-					}
-				}
-			}
-			
-			if (false) {
-				console.log('✅ Completed tasks count:', completedData);
-				completedReceivingTasks = completedData || 0;
 			}
 
 			// Get count of bills without original bill uploaded
@@ -128,24 +54,22 @@
 				billsWithoutErpReference = noErpData || 0;
 			}
 
-			// Get count of incomplete receiving tasks
-			const { data: incompleteData, error: incompleteError } = await supabase
-				.rpc('count_incomplete_receiving_tasks');
+			// Get count of bills without PR Excel uploaded
+			const { data: noPrExcelData, error: noPrExcelError } = await supabase
+				.rpc('count_bills_without_pr_excel');
 
-			if (incompleteError) {
-				console.error('Error loading incomplete receiving tasks count:', incompleteError);
-				incompleteReceivingTasks = 0;
+			if (noPrExcelError) {
+				console.error('Error loading bills without PR Excel count:', noPrExcelError);
+				billsWithoutPrExcel = 0;
 			} else {
-				incompleteReceivingTasks = incompleteData || 0;
+				billsWithoutPrExcel = noPrExcelData || 0;
 			}
 		} catch (err) {
 			console.error('Error in loadDashboardData:', err);
 			totalReceivedBills = 0;
-			totalReceivingTasks = 0;
-			completedReceivingTasks = 0;
-			incompleteReceivingTasks = 0;
 			billsWithoutOriginal = 0;
 			billsWithoutErpReference = 0;
+			billsWithoutPrExcel = 0;
 		} finally {
 			loading = false;
 		}
@@ -168,36 +92,6 @@
 			clickable: true
 		},
 		{
-			id: 'card2',
-			title: 'Total Receiving Tasks',
-			description: loading ? 'Loading...' : `${totalReceivingTasks} tasks created`,
-			icon: '📈',
-			color: 'green',
-			count: totalReceivingTasks,
-			dataType: 'tasks',
-			clickable: true
-		},
-		{
-			id: 'card3',
-			title: 'Completed Tasks',
-			description: loading ? 'Loading...' : `${completedReceivingTasks} tasks completed`,
-			icon: '✅',
-			color: 'purple',
-			count: completedReceivingTasks,
-			dataType: 'completed',
-			clickable: true
-		},
-		{
-			id: 'card4',
-			title: 'Incomplete Tasks',
-			description: loading ? 'Loading...' : `${incompleteReceivingTasks} tasks incomplete`,
-			icon: '⏳',
-			color: 'red',
-			count: incompleteReceivingTasks,
-			dataType: 'incomplete',
-			clickable: true
-		},
-		{
 			id: 'card5',
 			title: 'Original Bills Upload Pending',
 			description: loading ? 'Loading...' : `${billsWithoutOriginal} bills pending upload`,
@@ -205,6 +99,16 @@
 			color: 'orange',
 			count: billsWithoutOriginal,
 			dataType: 'no-original',
+			clickable: true
+		},
+		{
+			id: 'card7',
+			title: 'PR Excel Upload Pending',
+			description: loading ? 'Loading...' : `${billsWithoutPrExcel} bills pending PR Excel upload`,
+			icon: '📊',
+			color: 'cyan',
+			count: billsWithoutPrExcel,
+			dataType: 'no-pr-excel',
 			clickable: true
 		},
 		{

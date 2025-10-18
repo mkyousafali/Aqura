@@ -55,6 +55,15 @@
 			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' },
 			{ key: 'upload_action', label: 'Upload', sortable: false, type: 'action' }
 		],
+		'no-pr-excel': [
+			{ key: 'bill_number', label: 'Bill Number', sortable: true },
+			{ key: 'vendor_name', label: 'Vendor', sortable: true },
+			{ key: 'vendor_id', label: 'ERP Vendor ID', sortable: true },
+			{ key: 'bill_date', label: 'Bill Date', sortable: true, type: 'date' },
+			{ key: 'bill_amount', label: 'Amount', sortable: true, type: 'currency' },
+			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' },
+			{ key: 'upload_action', label: 'Upload PR Excel', sortable: false, type: 'action' }
+		],
 		'no-erp': [
 			{ key: 'bill_number', label: 'Bill Number', sortable: true },
 			{ key: 'vendor_name', label: 'Vendor', sortable: true },
@@ -126,8 +135,17 @@
 			switch (dataType) {
 				case 'bills':
 					query = supabase
-						.from('receiving_records_with_erp')
-						.select('*')
+						.from('receiving_records')
+						.select(`
+							*,
+							vendors (
+								vendor_name,
+								vat_number
+							),
+							branches (
+								name_en
+							)
+						`)
 						.order('created_at', { ascending: false });
 					break;
 					
@@ -145,17 +163,53 @@
 					
 				case 'no-original':
 					query = supabase
-						.from('receiving_records_with_erp')
-						.select('*')
+						.from('receiving_records')
+						.select(`
+							*,
+							vendors (
+								vendor_name,
+								vat_number
+							),
+							branches (
+								name_en
+							)
+						`)
 						.or('original_bill_url.is.null,original_bill_url.eq.')
 						.order('created_at', { ascending: false });
 					break;
 					
 				case 'no-erp':
 					query = supabase
-						.from('receiving_records_with_erp')
-						.select('*')
+						.from('receiving_records')
+						.select(`
+							*,
+							vendors (
+								vendor_name,
+								vat_number
+							),
+							branches (
+								name_en
+							)
+						`)
 						.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.')
+						.order('created_at', { ascending: false });
+					break;
+
+				case 'no-pr-excel':
+					console.log('🔍 Loading records without PR Excel...');
+					query = supabase
+						.from('receiving_records')
+						.select(`
+							*,
+							vendors (
+								vendor_name,
+								vat_number
+							),
+							branches (
+								name_en
+							)
+						`)
+						.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.')
 						.order('created_at', { ascending: false });
 					break;
 					
@@ -165,6 +219,10 @@
 
 			const { data: result, error: queryError } = await query;
 			
+			console.log('🔍 Query result for dataType:', dataType);
+			console.log('📊 Data received:', result);
+			console.log('❌ Query error:', queryError);
+
 			if (queryError) {
 				throw queryError;
 			}
@@ -184,6 +242,25 @@
 	function transformData(rawData) {
 		return rawData.map(item => {
 			const transformed = { ...item };
+			
+			// Flatten joined vendor data for receiving_records queries
+			if (dataType === 'bills' || dataType === 'no-original' || dataType === 'no-pr-excel' || dataType === 'no-erp') {
+				// Handle vendor data from join
+				if (item.vendors) {
+					transformed.vendor_name = item.vendors.vendor_name || 'Unknown Vendor';
+					transformed.vendor_vat_number = item.vendors.vat_number || 'N/A';
+				} else {
+					transformed.vendor_name = 'Unknown Vendor';
+					transformed.vendor_vat_number = 'N/A';
+				}
+				
+				// Handle branch data from join
+				if (item.branches) {
+					transformed.branch_name = item.branches.name_en || 'Unknown Branch';
+				} else {
+					transformed.branch_name = 'Unknown Branch';
+				}
+			}
 			
 			// Add computed fields based on data type
 			if (dataType === 'tasks' || dataType === 'incomplete') {
@@ -308,6 +385,74 @@
 		fileInput.click();
 	}
 
+	async function uploadPRExcel(recordId) {
+		uploadingBillId = recordId; // Reuse the same loading state variable
+		
+		// Create file input element
+		const fileInput = document.createElement('input');
+		fileInput.type = 'file';
+		fileInput.accept = '.xlsx,.xls,.csv';
+		fileInput.multiple = false;
+
+		fileInput.onchange = async (event) => {
+			const file = event.target.files[0];
+			if (!file) {
+				uploadingBillId = null;
+				return;
+			}
+
+			try {
+				// Import supabase here to avoid circular dependencies
+				const { supabase } = await import('$lib/utils/supabase');
+				
+				// Generate unique filename
+				const fileExt = file.name.split('.').pop();
+				const fileName = `${recordId}_pr_excel_${Date.now()}.${fileExt}`;
+
+				// Upload file to pr-excel-files storage bucket
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('pr-excel-files')
+					.upload(fileName, file);
+
+				if (uploadError) {
+					console.error('Error uploading PR Excel file:', uploadError);
+					alert('Error uploading PR Excel file. Please try again.');
+					return;
+				}
+
+				// Get public URL
+				const { data: { publicUrl } } = supabase.storage
+					.from('pr-excel-files')
+					.getPublicUrl(fileName);
+
+				// Update the record with the file URL
+				const { error: updateError } = await supabase
+					.from('receiving_records')
+					.update({ pr_excel_file_url: publicUrl })
+					.eq('id', recordId);
+
+				if (updateError) {
+					console.error('Error updating record with PR Excel URL:', updateError);
+					alert('Error saving PR Excel file reference. Please try again.');
+					return;
+				}
+
+				// Reload data to show updated results
+				await loadData();
+				alert('PR Excel file uploaded successfully!');
+				
+			} catch (error) {
+				console.error('Error in PR Excel upload process:', error);
+				alert('Error uploading PR Excel file. Please try again.');
+			} finally {
+				uploadingBillId = null;
+			}
+		};
+
+		// Trigger file selection
+		fileInput.click();
+	}
+
 	function closeWindow() {
 		windowManager.closeWindow(windowId);
 	}
@@ -370,7 +515,13 @@
 										<button
 											class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
 											disabled={uploadingBillId === row.id}
-											on:click={() => uploadOriginalBill(row.id)}
+											on:click={() => {
+												if (dataType === 'no-pr-excel') {
+													uploadPRExcel(row.id);
+												} else {
+													uploadOriginalBill(row.id);
+												}
+											}}
 										>
 											{#if uploadingBillId === row.id}
 												<span class="inline-flex items-center">
@@ -381,7 +532,7 @@
 													Uploading...
 												</span>
 											{:else}
-												Upload Now
+												{dataType === 'no-pr-excel' ? 'Upload PR Excel' : 'Upload Original Bill'}
 											{/if}
 										</button>
 									{:else}

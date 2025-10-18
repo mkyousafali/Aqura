@@ -243,17 +243,17 @@
 	}
 
 	function openTasksWindow() {
-		// Open the Tasks window
+		// Open the My Tasks window using the original MyTasksView component
 		const windowId = generateWindowId('my-tasks');
 		
-		// Import TasksWindow component dynamically
-		import('./TasksWindow.svelte').then(({ default: TasksWindow }) => {
+		// Import MyTasksView component dynamically
+		import('./admin/tasks/MyTasksView.svelte').then(({ default: MyTasksView }) => {
 			windowManager.openWindow({
 				id: windowId,
 				title: `My Tasks (${taskCountData.total})`,
-				component: TasksWindow,
+				component: MyTasksView,
 				icon: '📋',
-				size: { width: 1000, height: 600 },
+				size: { width: 1200, height: 700 },
 				position: { x: 100, y: 50 },
 				resizable: true,
 				minimizable: true,
@@ -261,7 +261,7 @@
 				closable: true
 			});
 		}).catch(error => {
-			console.error('Failed to load TasksWindow component:', error);
+			console.error('Failed to load MyTasksView component:', error);
 			// Fallback: navigate to mobile tasks page
 			goto('/mobile/tasks');
 		});
