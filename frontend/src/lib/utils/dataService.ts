@@ -1714,9 +1714,19 @@ export const dataService = {
 			employee_id: string;
 			document_type: string;
 			document_name: string;
+			document_number?: string;
+			document_description?: string;
 			file_path: string;
 			file_type?: string;
 			expiry_date?: string;
+			document_category?: string;
+			category_start_date?: string;
+			category_end_date?: string;
+			category_days?: number;
+			category_last_working_day?: string;
+			category_reason?: string;
+			category_details?: string;
+			category_content?: string;
 		}): Promise<{ data: any | null; error: any }> {
 			if (USE_SUPABASE) {
 				try {
@@ -1757,6 +1767,7 @@ export const dataService = {
 
 		async update(id: string, updates: {
 			document_name?: string;
+			document_number?: string;
 			file_path?: string;
 			file_size?: number;
 			file_type?: string;
