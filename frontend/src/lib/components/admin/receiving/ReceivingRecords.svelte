@@ -13,6 +13,13 @@
 	let filterOverdueDays = '';
 	let loading = false;
 	let uploadingBillId = null;
+	let uploadingExcelId = null;
+
+	// ERP Reference popup state
+	let showErpPopup = false;
+	let selectedRecord = null;
+	let erpReferenceValue = '';
+	let updatingErp = false;
 
 	onMount(() => {
 		loadReceivingRecords();
@@ -208,6 +215,74 @@
 		fileInput.click();
 	}
 
+	async function uploadPRExcel(recordId) {
+		uploadingExcelId = recordId;
+		
+		// Create file input element
+		const fileInput = document.createElement('input');
+		fileInput.type = 'file';
+		fileInput.accept = '.xlsx,.xls,.csv';
+		fileInput.multiple = false;
+
+		fileInput.onchange = async (event) => {
+			const file = event.target.files[0];
+			if (!file) {
+				uploadingExcelId = null;
+				return;
+			}
+
+			try {
+				// Import supabase here to avoid circular dependencies
+				const { supabase } = await import('$lib/utils/supabase');
+				
+				// Generate unique filename
+				const fileExt = file.name.split('.').pop();
+				const fileName = `${recordId}_pr_excel_${Date.now()}.${fileExt}`;
+
+				// Upload file to pr-excel-files storage bucket
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('pr-excel-files')
+					.upload(fileName, file);
+
+				if (uploadError) {
+					console.error('Error uploading PR Excel file:', uploadError);
+					alert('Error uploading PR Excel file. Please try again.');
+					return;
+				}
+
+				// Get public URL
+				const { data: { publicUrl } } = supabase.storage
+					.from('pr-excel-files')
+					.getPublicUrl(fileName);
+
+				// Update the record with the file URL
+				const { error: updateError } = await supabase
+					.from('receiving_records')
+					.update({ pr_excel_file_url: publicUrl })
+					.eq('id', recordId);
+
+				if (updateError) {
+					console.error('Error updating record with PR Excel:', updateError);
+					alert('Error saving PR Excel file reference. Please try again.');
+					return;
+				}
+
+				// Reload records to show updated data
+				await loadReceivingRecords();
+				alert('PR Excel file uploaded successfully!');
+				
+			} catch (error) {
+				console.error('Error in PR Excel upload process:', error);
+				alert('Error uploading PR Excel file. Please try again.');
+			} finally {
+				uploadingExcelId = null;
+			}
+		};
+
+		// Trigger file selection
+		fileInput.click();
+	}
+
 	// Helper function to format dates as dd/mm/yyyy
 	function formatDate(dateString) {
 		if (!dateString) return 'N/A';
@@ -243,6 +318,67 @@
 			}
 		} catch (error) {
 			return 'Invalid Date';
+		}
+	}
+
+	// ERP Invoice Reference Functions
+	function openErpPopup(record) {
+		selectedRecord = record;
+		erpReferenceValue = record.erp_purchase_invoice_reference || '';
+		showErpPopup = true;
+	}
+
+	function closeErpPopup() {
+		showErpPopup = false;
+		selectedRecord = null;
+		erpReferenceValue = '';
+		updatingErp = false;
+	}
+
+	async function updateErpReference() {
+		if (!selectedRecord || !erpReferenceValue?.trim()) return;
+
+		try {
+			updatingErp = true;
+			
+			const response = await fetch('/api/receiving-records/update-erp', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					receivingRecordId: selectedRecord.id,
+					erpReference: erpReferenceValue.trim()
+				})
+			});
+
+			if (!response.ok) {
+				const error = await response.text();
+				throw new Error(error);
+			}
+
+			// Update the record in our local data
+			const updatedRecords = filteredRecords.map(record => 
+				record.id === selectedRecord.id 
+					? { ...record, erp_purchase_invoice_reference: erpReferenceValue.trim() }
+					: record
+			);
+			filteredRecords = updatedRecords;
+
+			// Also update the main records array
+			receivingRecords = receivingRecords.map(record => 
+				record.id === selectedRecord.id 
+					? { ...record, erp_purchase_invoice_reference: erpReferenceValue.trim() }
+					: record
+			);
+
+			closeErpPopup();
+			alert('ERP invoice reference updated successfully');
+		} catch (error) {
+			console.error('Error updating ERP reference:', error);
+			alert(`Failed to update ERP reference: ${error.message}`);
+		} finally {
+			updatingErp = false;
 		}
 	}
 
@@ -324,6 +460,7 @@
 				<div class="table-header">
 					<div class="header-cell">Certificate</div>
 					<div class="header-cell">Original Bill</div>
+					<div class="header-cell">PR Excel</div>
 					<div class="header-cell">Bill Info</div>
 					<div class="header-cell">Vendor Details</div>
 					<div class="header-cell">Branch</div>
@@ -384,6 +521,31 @@
 							{/if}
 						</div>
 						
+						<div class="cell certificate-cell">
+							{#if record.pr_excel_file_url}
+								<div class="excel-file-container">
+									<a href={record.pr_excel_file_url} target="_blank" class="excel-file-link">
+										<div class="excel-icon">📊</div>
+										<small>PR Excel</small>
+									</a>
+								</div>
+							{:else}
+								<div class="upload-excel-container">
+									{#if uploadingExcelId === record.id}
+										<div class="uploading-indicator">
+											<div class="spinner-small"></div>
+											<small>Uploading...</small>
+										</div>
+									{:else}
+										<button class="upload-excel-btn" on:click={() => uploadPRExcel(record.id)}>
+											<span>📊</span>
+											<small>PR Excel Not Uploaded</small>
+										</button>
+									{/if}
+								</div>
+							{/if}
+						</div>
+						
 						<div class="cell">
 							<div class="bill-info">
 								<strong>#{record.bill_number || 'N/A'}</strong>
@@ -428,11 +590,17 @@
 						
 						<div class="cell">
 							<div class="erp-reference">
-								{#if record.erp_purchase_invoice_reference}
-									<span class="erp-ref-value">{record.erp_purchase_invoice_reference}</span>
-								{:else}
-									<span class="erp-ref-empty">Not Entered</span>
-								{/if}
+									{#if record.erp_purchase_invoice_reference}
+										<span class="erp-ref-value">{record.erp_purchase_invoice_reference}</span>
+									{:else}
+										<button 
+											class="erp-ref-empty clickable" 
+											on:click={() => openErpPopup(record)}
+											title="Click to enter ERP invoice reference"
+										>
+											Not Entered
+										</button>
+									{/if}
 							</div>
 						</div>
 						
@@ -445,6 +613,54 @@
 		{/if}
 	</div>
 </div>
+
+<!-- ERP Invoice Reference Popup -->
+{#if showErpPopup}
+	<div class="erp-popup-overlay" on:click={closeErpPopup}>
+		<div class="erp-popup-modal" on:click|stopPropagation>
+			<div class="erp-popup-header">
+				<h3>Enter ERP Invoice Reference</h3>
+				<button class="erp-popup-close" on:click={closeErpPopup}>&times;</button>
+			</div>
+			<div class="erp-popup-content">
+				<p>Record: {selectedRecord?.bill_number || 'Unknown Bill'}</p>
+				<p>Vendor: {selectedRecord?.vendor_name || 'Unknown Vendor'}</p>
+				<div class="erp-input-group">
+					<label for="erpRef">ERP Invoice Reference:</label>
+					<input 
+						id="erpRef"
+						type="text" 
+						bind:value={erpReferenceValue}
+						placeholder="Enter ERP invoice reference number"
+						class="erp-input"
+						disabled={updatingErp}
+					/>
+				</div>
+			</div>
+			<div class="erp-popup-actions">
+				<button 
+					class="erp-btn-cancel" 
+					on:click={closeErpPopup}
+					disabled={updatingErp}
+				>
+					Cancel
+				</button>
+				<button 
+					class="erp-btn-save" 
+					on:click={updateErpReference}
+					disabled={updatingErp || !erpReferenceValue?.trim()}
+				>
+					{#if updatingErp}
+						<div class="spinner-small"></div>
+						Updating...
+					{:else}
+						Save Reference
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.receiving-records-window {
@@ -542,7 +758,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -554,7 +770,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -690,6 +906,173 @@
 		font-size: 11px;
 	}
 
+	.erp-ref-empty.clickable {
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.erp-ref-empty.clickable:hover {
+		background: #fee2e2;
+		border-color: #fca5a5;
+		transform: translateY(-1px);
+	}
+
+	/* ERP Popup Styles */
+	.erp-popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.erp-popup-modal {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		width: 90%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow: hidden;
+	}
+
+	.erp-popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px 24px;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.erp-popup-header h3 {
+		margin: 0;
+		color: #111827;
+		font-size: 18px;
+		font-weight: 600;
+	}
+
+	.erp-popup-close {
+		background: none;
+		border: none;
+		font-size: 24px;
+		color: #6b7280;
+		cursor: pointer;
+		padding: 0;
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		transition: all 0.2s ease;
+	}
+
+	.erp-popup-close:hover {
+		background: #e5e7eb;
+		color: #374151;
+	}
+
+	.erp-popup-content {
+		padding: 24px;
+	}
+
+	.erp-popup-content p {
+		margin: 0 0 16px 0;
+		color: #6b7280;
+		font-size: 14px;
+	}
+
+	.erp-input-group {
+		margin-top: 20px;
+	}
+
+	.erp-input-group label {
+		display: block;
+		margin-bottom: 8px;
+		color: #374151;
+		font-weight: 500;
+		font-size: 14px;
+	}
+
+	.erp-input {
+		width: 100%;
+		padding: 12px 16px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 14px;
+		transition: all 0.2s ease;
+		box-sizing: border-box;
+	}
+
+	.erp-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.erp-input:disabled {
+		background: #f9fafb;
+		color: #6b7280;
+		cursor: not-allowed;
+	}
+
+	.erp-popup-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 12px;
+		padding: 20px 24px;
+		border-top: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.erp-btn-cancel,
+	.erp-btn-save {
+		padding: 10px 20px;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		border: 1px solid;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.erp-btn-cancel {
+		background: white;
+		color: #6b7280;
+		border-color: #d1d5db;
+	}
+
+	.erp-btn-cancel:hover:not(:disabled) {
+		background: #f9fafb;
+		border-color: #9ca3af;
+	}
+
+	.erp-btn-save {
+		background: #3b82f6;
+		color: white;
+		border-color: #3b82f6;
+	}
+
+	.erp-btn-save:hover:not(:disabled) {
+		background: #2563eb;
+		border-color: #2563eb;
+	}
+
+	.erp-btn-save:disabled,
+	.erp-btn-cancel:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.days-remaining {
 		display: flex;
 		align-items: center;
@@ -745,6 +1128,83 @@
 	.upload-bill-btn span {
 		font-size: 16px;
 		margin-bottom: 2px;
+	}
+
+	/* PR Excel Upload Styles */
+	.upload-excel-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		min-height: 50px;
+	}
+
+	.upload-excel-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		background: #f0f9ff;
+		border: 2px dashed #0ea5e9;
+		border-radius: 6px;
+		color: #0369a1;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		font-size: 8px;
+		padding: 4px;
+		min-height: 50px;
+	}
+
+	.upload-excel-btn:hover {
+		background: #e0f2fe;
+		border-color: #0284c7;
+		transform: scale(1.02);
+	}
+
+	.upload-excel-btn span {
+		font-size: 12px;
+		margin-bottom: 1px;
+	}
+
+	.excel-file-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		min-height: 50px;
+	}
+
+	.excel-file-link {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		background: #f0fdf4;
+		border: 2px solid #22c55e;
+		border-radius: 6px;
+		color: #15803d;
+		text-decoration: none;
+		transition: all 0.3s ease;
+		font-size: 8px;
+		padding: 4px;
+		min-height: 50px;
+	}
+
+	.excel-file-link:hover {
+		background: #dcfce7;
+		border-color: #16a34a;
+		transform: scale(1.02);
+	}
+
+	.excel-icon {
+		font-size: 12px;
+		margin-bottom: 1px;
 	}
 
 	.uploading-indicator {
@@ -825,21 +1285,42 @@
 			font-size: 12px;
 		}
 
+		.upload-excel-container {
+			width: 50px;
+			height: 40px;
+		}
+
+		.upload-excel-btn {
+			font-size: 7px;
+			min-height: 40px;
+		}
+
+		.upload-excel-btn span {
+			font-size: 10px;
+		}
+
+		.excel-file-container {
+			width: 50px;
+			height: 40px;
+		}
+
 		.filters-row {
 			grid-template-columns: 1fr;
 		}
 
-		/* Hide original bill, payment info, days remaining, amounts, and ERP columns on mobile for space */
+		/* Hide original bill, PR Excel, payment info, days remaining, amounts, and ERP columns on mobile for space */
 		.table-header .header-cell:nth-child(2),
-		.table-header .header-cell:nth-child(6),
+		.table-header .header-cell:nth-child(3),
 		.table-header .header-cell:nth-child(7),
 		.table-header .header-cell:nth-child(8),
 		.table-header .header-cell:nth-child(9),
+		.table-header .header-cell:nth-child(10),
 		.table-row .cell:nth-child(2),
-		.table-row .cell:nth-child(6),
+		.table-row .cell:nth-child(3),
 		.table-row .cell:nth-child(7),
 		.table-row .cell:nth-child(8),
-		.table-row .cell:nth-child(9) {
+		.table-row .cell:nth-child(9),
+		.table-row .cell:nth-child(10) {
 			display: none;
 		}
 	}
