@@ -79,6 +79,12 @@
 		loadDashboardData();
 	});
 
+	// Refresh function to reload dashboard data
+	async function refreshDashboard() {
+		loading = true;
+		await loadDashboardData();
+	}
+
 	// Dashboard cards with dynamic data
 	$: dashboardCards = [
 		{
@@ -199,6 +205,17 @@
 			<h1 class="title">📦 Receiving</h1>
 			<p class="subtitle">Manage incoming inventory and deliveries</p>
 		</div>
+		<div class="header-actions">
+			<button 
+				class="refresh-btn" 
+				on:click={refreshDashboard}
+				disabled={loading}
+				title="Refresh Dashboard Data"
+			>
+				<span class="refresh-icon" class:spinning={loading}>🔄</span>
+				<span class="refresh-text">{loading ? 'Refreshing...' : 'Refresh'}</span>
+			</button>
+		</div>
 	</div>
 
 	<!-- Top Dashboard Section with 5 Placeholders -->
@@ -257,7 +274,77 @@
 		margin-bottom: 32px;
 		padding-bottom: 16px;
 		border-bottom: 1px solid #e5e7eb;
-		text-align: center;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.title-section {
+		text-align: left;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.refresh-btn {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		padding: 12px 20px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+		min-height: 44px;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+	}
+
+	.refresh-btn:active:not(:disabled) {
+		transform: translateY(0);
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.refresh-icon {
+		font-size: 16px;
+		transition: transform 0.3s ease;
+		display: inline-block;
+	}
+
+	.refresh-icon.spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.refresh-text {
+		font-size: 14px;
+		white-space: nowrap;
 	}
 
 	.title-section .title {
@@ -526,6 +613,25 @@
 
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
+		.header {
+			flex-direction: column;
+			gap: 16px;
+			text-align: center;
+		}
+
+		.title-section {
+			text-align: center;
+		}
+
+		.header-actions {
+			justify-content: center;
+		}
+
+		.refresh-btn {
+			padding: 10px 16px;
+			font-size: 13px;
+		}
+
 		.dashboard-grid {
 			grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 			gap: 16px;

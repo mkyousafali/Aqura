@@ -14,6 +14,42 @@
   let loading = false;
   let errorMessage = '';
 
+  // VAT verification variables
+  let billVatNumber = '';
+  let vatNumbersMatch = null;
+  let vatMismatchReason = '';
+
+  // Reactive statements for VAT verification
+  $: if (selectedVendor && billVatNumber) {
+    const vendorVat = selectedVendor.vat_number?.replace(/\s/g, '') || '';
+    const billVat = billVatNumber.replace(/\s/g, '');
+    vatNumbersMatch = vendorVat === billVat;
+  } else {
+    vatNumbersMatch = null;
+  }
+
+  // Check if form is complete including VAT verification
+  $: isFormComplete = billDate && billAmount && isVatVerificationComplete;
+  
+  // VAT verification completion check
+  $: isVatVerificationComplete = (() => {
+    if (!selectedVendor) return false;
+    
+    // If VAT is not applicable, verification is complete
+    if (selectedVendor.vat_applicable !== 'VAT Applicable') return true;
+    
+    // If no vendor VAT number, verification is complete
+    if (!selectedVendor.vat_number) return true;
+    
+    // If VAT is applicable and vendor has VAT number, bill VAT number is ALWAYS required
+    if (!billVatNumber || !billVatNumber.trim()) return false;
+    
+    // If VAT numbers don't match, reason is required
+    if (vatNumbersMatch === false && !vatMismatchReason.trim()) return false;
+    
+    return true;
+  })();
+
   onMount(async () => {
     // Get parameters from URL
     selectedBranch = $page.url.searchParams.get('branch') || '';
@@ -74,13 +110,27 @@
       return;
     }
     
+    // VAT verification validation
+    if (selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number) {
+      if (!billVatNumber || !billVatNumber.trim()) {
+        alert('Please enter the VAT number from the bill to proceed');
+        return;
+      }
+      if (vatNumbersMatch === false && !vatMismatchReason.trim()) {
+        alert('Please provide a reason for the VAT number mismatch before proceeding');
+        return;
+      }
+    }
+    
     // Navigate to Step 4 with all parameters
     const params = new URLSearchParams({
       branch: selectedBranch,
       vendor: selectedVendorId,
       billDate,
       billAmount,
-      billNumber: billNumber || ''
+      billNumber: billNumber || '',
+      billVatNumber: billVatNumber || '',
+      vatMismatchReason: vatMismatchReason || ''
     });
     
     goto(`/admin/receiving/step4?${params.toString()}`);
@@ -247,6 +297,81 @@
           </div>
         </div>
       {/if}
+
+      <!-- VAT Number Verification Section -->
+      {#if selectedVendor}
+        <div class="vat-verification-section">
+          <h4>VAT Number Verification</h4>
+          <p class="section-description">Verify VAT number on bill matches vendor VAT number</p>
+          
+          {#if selectedVendor.vat_applicable !== 'VAT Applicable'}
+            <div class="vat-not-applicable">
+              <span class="info-icon">ℹ️</span>
+              <span>VAT is not applicable for this vendor</span>
+            </div>
+          {:else if !selectedVendor.vat_number}
+            <div class="vat-not-applicable">
+              <span class="info-icon">ℹ️</span>
+              <span>No VAT number on file for this vendor</span>
+            </div>
+          {:else}
+            <div class="vat-grid">
+              <div class="vat-field">
+                <label for="vendorVatNumber">Vendor VAT Number:</label>
+                <input 
+                  type="text" 
+                  id="vendorVatNumber"
+                  value={selectedVendor.vat_number}
+                  readonly
+                  class="readonly-input"
+                />
+              </div>
+
+              <div class="vat-field">
+                <label for="billVatNumber">VAT Number on Bill: <span class="required">*</span></label>
+                <input 
+                  type="text" 
+                  id="billVatNumber"
+                  bind:value={billVatNumber}
+                  placeholder="Enter VAT number from bill"
+                  class="form-input"
+                  required
+                />
+              </div>
+            </div>
+
+            <!-- VAT Verification Status -->
+            {#if billVatNumber}
+              <div class="vat-status">
+                {#if vatNumbersMatch === true}
+                  <div class="vat-match">
+                    <span class="status-icon">✅</span>
+                    <span>VAT numbers match - you can proceed</span>
+                  </div>
+                {:else if vatNumbersMatch === false}
+                  <div class="vat-mismatch">
+                    <span class="status-icon">⚠️</span>
+                    <span>VAT numbers don't match</span>
+                  </div>
+                  
+                  <div class="mismatch-reason">
+                    <label for="vatMismatchReason">Reason for VAT Number Mismatch: <span class="required">*</span></label>
+                    <textarea 
+                      id="vatMismatchReason"
+                      bind:value={vatMismatchReason}
+                      placeholder="Please explain why VAT numbers don't match (e.g., bill from different entity, subsidiary, etc.)"
+                      rows="3"
+                      class="reason-textarea"
+                      required
+                    ></textarea>
+                    <p class="reason-note">You can still proceed with the receiving after providing a reason.</p>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <!-- Step Navigation -->
@@ -256,17 +381,25 @@
           ← Back to Step 2: Select Vendor
         </button>
         
-        {#if billDate && billAmount}
+        {#if isFormComplete}
           <div class="step-complete-info">
             <span class="step-complete-icon">✅</span>
-            <span class="step-complete-text">Step 3 Complete: Bill Information Entered</span>
+            <span class="step-complete-text">Step 3 Complete: Bill Information & VAT Verification</span>
           </div>
           <button type="button" on:click={continueToStep4} class="continue-step-btn">
             Continue to Step 4: Receive Items →
           </button>
         {:else}
           <button type="button" disabled class="continue-step-btn disabled">
-            Fill Required Fields to Continue
+            {#if !billDate || !billAmount}
+              Fill Required Fields to Continue
+            {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && (!billVatNumber || !billVatNumber.trim())}
+              Enter VAT Number from Bill to Continue
+            {:else if !isVatVerificationComplete}
+              Complete VAT Verification to Continue
+            {:else}
+              Fill Required Fields to Continue
+            {/if}
           </button>
         {/if}
       </div>
@@ -670,5 +803,134 @@
     background: #e0e0e0;
     transform: none;
     box-shadow: none;
+  }
+
+  /* VAT Verification Styles */
+  .vat-verification-section {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .vat-verification-section h4 {
+    color: #495057;
+    margin: 0 0 10px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .section-description {
+    color: #6b7280;
+    margin-bottom: 15px;
+    font-size: 14px;
+  }
+
+  .vat-not-applicable {
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #1565c0;
+    font-size: 14px;
+  }
+
+  .info-icon {
+    font-size: 16px;
+  }
+
+  .vat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 15px;
+  }
+
+  .vat-field {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .vat-field label {
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 8px;
+  }
+
+  .vat-status {
+    margin-top: 15px;
+  }
+
+  .vat-match {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #155724;
+    font-weight: 500;
+  }
+
+  .vat-mismatch {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #856404;
+    font-weight: 500;
+    margin-bottom: 15px;
+  }
+
+  .status-icon {
+    font-size: 16px;
+  }
+
+  .mismatch-reason {
+    margin-top: 15px;
+  }
+
+  .mismatch-reason label {
+    display: block;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 8px;
+  }
+
+  .reason-textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s;
+  }
+
+  .reason-textarea:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .reason-note {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  @media (max-width: 768px) {
+    .vat-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
