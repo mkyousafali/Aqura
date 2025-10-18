@@ -26,6 +26,11 @@
 	import { cacheManager } from '$lib/utils/cacheManager';
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
+	
+	// Import task badge debug utilities in development
+	if (import.meta.env.DEV) {
+		import('$lib/utils/taskBadgeDebug');
+	}
 
 	// Initialize i18n system
 	initI18n();

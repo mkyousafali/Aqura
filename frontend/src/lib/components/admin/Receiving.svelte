@@ -1,49 +1,221 @@
 <script>
+	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import StartReceiving from './receiving/StartReceiving.svelte';
 	import ReceivingRecords from './receiving/ReceivingRecords.svelte';
+	import ReceivingDataWindow from './receiving/ReceivingDataWindow.svelte';
+
+	let totalReceivedBills = 0;
+	let totalReceivingTasks = 0;
+	let completedReceivingTasks = 0;
+	let incompleteReceivingTasks = 0;
+	let billsWithoutOriginal = 0;
+	let billsWithoutErpReference = 0;
+	let loading = true;
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
-	// Dashboard placeholder cards
-	const dashboardCards = [
+	async function loadDashboardData() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			// Get total count of received bills
+			const { count: billsCount, error: billsError } = await supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true });
+
+			if (billsError) {
+				console.error('Error loading bills count:', billsError);
+				totalReceivedBills = 0;
+			} else {
+				totalReceivedBills = billsCount || 0;
+			}
+
+			// Get total count of receiving-related tasks by title pattern
+			const { count: tasksCount, error: tasksError } = await supabase
+				.from('tasks')
+				.select('*', { count: 'exact', head: true })
+				.or('title.ilike.%delivery%,title.ilike.%receiving%,title.ilike.%clearance%,title.ilike.%placement%,title.ilike.%check%');
+
+			if (tasksError) {
+				console.error('Error loading tasks count:', tasksError);
+				totalReceivingTasks = 0;
+			} else {
+				totalReceivingTasks = tasksCount || 0;
+			}
+
+			// Get count of completed receiving tasks using task_completions relationship
+			console.log('🔍 Calling count_completed_receiving_tasks function...');
+			const { data: completedData, error: completedError } = await supabase
+				.rpc('count_completed_receiving_tasks');
+
+			console.log('🔍 Function response:', { completedData, completedError });
+
+			if (completedError) {
+				console.error('Error loading completed receiving tasks count:', completedError);
+				completedReceivingTasks = 0;
+			} else {
+				// Even if function worked, let's debug the data
+				console.log('🔄 Running fallback debug query to see the data...');
+				
+				// First check with select all to see if it's an RLS issue
+				const { data: allData, error: allError } = await supabase
+					.from('receiving_tasks')
+					.select('*');
+				console.log('🔍 All receiving_tasks data:', { allData, allError });
+				
+				const { data: fallbackData, error: fallbackError } = await supabase
+					.from('receiving_tasks')
+					.select('id, task_id')
+					.not('task_id', 'is', null);
+				
+				if (fallbackError) {
+					console.error('Fallback query error:', fallbackError);
+				} else {
+					// Check how many have completions
+					const taskIds = fallbackData?.map(rt => rt.task_id) || [];
+					console.log('📋 Receiving task IDs:', taskIds);
+					
+					if (taskIds.length > 0) {
+						const { data: completionsData, error: completionsError } = await supabase
+							.from('task_completions')
+							.select('task_id')
+							.in('task_id', taskIds);
+							
+						console.log('🎯 Task completions found:', completionsData);
+						const directCount = completionsData?.length || 0;
+						console.log('📊 Direct count vs Function count:', { directCount, functionCount: completedData });
+						
+						// Use the direct count if it's different
+						if (directCount > 0) {
+							completedReceivingTasks = directCount;
+						} else {
+							completedReceivingTasks = completedData || 0;
+						}
+					} else {
+						completedReceivingTasks = completedData || 0;
+					}
+				}
+			}
+			
+			if (false) {
+				console.log('✅ Completed tasks count:', completedData);
+				completedReceivingTasks = completedData || 0;
+			}
+
+			// Get count of bills without original bill uploaded
+			const { data: noOriginalData, error: noOriginalError } = await supabase
+				.rpc('count_bills_without_original');
+
+			if (noOriginalError) {
+				console.error('Error loading bills without original count:', noOriginalError);
+				billsWithoutOriginal = 0;
+			} else {
+				billsWithoutOriginal = noOriginalData || 0;
+			}
+
+			// Get count of bills without ERP purchase invoice reference
+			const { data: noErpData, error: noErpError } = await supabase
+				.rpc('count_bills_without_erp_reference');
+
+			if (noErpError) {
+				console.error('Error loading bills without ERP reference count:', noErpError);
+				billsWithoutErpReference = 0;
+			} else {
+				billsWithoutErpReference = noErpData || 0;
+			}
+
+			// Get count of incomplete receiving tasks
+			const { data: incompleteData, error: incompleteError } = await supabase
+				.rpc('count_incomplete_receiving_tasks');
+
+			if (incompleteError) {
+				console.error('Error loading incomplete receiving tasks count:', incompleteError);
+				incompleteReceivingTasks = 0;
+			} else {
+				incompleteReceivingTasks = incompleteData || 0;
+			}
+		} catch (err) {
+			console.error('Error in loadDashboardData:', err);
+			totalReceivedBills = 0;
+			totalReceivingTasks = 0;
+			completedReceivingTasks = 0;
+			incompleteReceivingTasks = 0;
+			billsWithoutOriginal = 0;
+			billsWithoutErpReference = 0;
+		} finally {
+			loading = false;
+		}
+	}
+
+	onMount(() => {
+		loadDashboardData();
+	});
+
+	// Dashboard cards with dynamic data
+	$: dashboardCards = [
 		{
 			id: 'card1',
-			title: 'Placeholder 1',
-			description: 'Dashboard section placeholder',
+			title: 'Total Received Bills',
+			description: loading ? 'Loading...' : `${totalReceivedBills} bills received`,
 			icon: '📊',
-			color: 'blue'
+			color: 'blue',
+			count: totalReceivedBills,
+			dataType: 'bills',
+			clickable: true
 		},
 		{
 			id: 'card2',
-			title: 'Placeholder 2',
-			description: 'Dashboard section placeholder',
+			title: 'Total Receiving Tasks',
+			description: loading ? 'Loading...' : `${totalReceivingTasks} tasks created`,
 			icon: '📈',
-			color: 'green'
+			color: 'green',
+			count: totalReceivingTasks,
+			dataType: 'tasks',
+			clickable: true
 		},
 		{
 			id: 'card3',
-			title: 'Placeholder 3',
-			description: 'Dashboard section placeholder',
-			icon: '📉',
-			color: 'purple'
+			title: 'Completed Tasks',
+			description: loading ? 'Loading...' : `${completedReceivingTasks} tasks completed`,
+			icon: '✅',
+			color: 'purple',
+			count: completedReceivingTasks,
+			dataType: 'completed',
+			clickable: true
 		},
 		{
 			id: 'card4',
-			title: 'Placeholder 4',
-			description: 'Dashboard section placeholder',
-			icon: '📋',
-			color: 'orange'
+			title: 'Incomplete Tasks',
+			description: loading ? 'Loading...' : `${incompleteReceivingTasks} tasks incomplete`,
+			icon: '⏳',
+			color: 'red',
+			count: incompleteReceivingTasks,
+			dataType: 'incomplete',
+			clickable: true
 		},
 		{
 			id: 'card5',
-			title: 'Placeholder 5',
-			description: 'Dashboard section placeholder',
+			title: 'Original Bills Upload Pending',
+			description: loading ? 'Loading...' : `${billsWithoutOriginal} bills pending upload`,
 			icon: '📄',
-			color: 'teal'
+			color: 'orange',
+			count: billsWithoutOriginal,
+			dataType: 'no-original',
+			clickable: true
+		},
+		{
+			id: 'card6',
+			title: 'Bills Not Entered to ERP',
+			description: loading ? 'Loading...' : `${billsWithoutErpReference} bills not entered to ERP`,
+			icon: '🔗',
+			color: 'teal',
+			count: billsWithoutErpReference,
+			dataType: 'no-erp',
+			clickable: true
 		}
 	];
 
@@ -87,6 +259,33 @@
 			closable: true
 		});
 	}
+
+	function openCardData(card) {
+		if (!card.clickable || card.count === 0) return;
+		
+		const windowId = generateWindowId('receiving-data');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `${card.title} - Details #${instanceNumber}`,
+			component: ReceivingDataWindow,
+			props: {
+				dataType: card.dataType,
+				title: card.title
+			},
+			icon: card.icon,
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: Math.floor(Math.random() * 200) + 100, 
+				y: Math.floor(Math.random() * 100) + 50 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 </script>
 
 <!-- Receiving Dashboard -->
@@ -103,14 +302,26 @@
 		<h2 class="section-title">Dashboard Overview</h2>
 		<div class="dashboard-grid">
 			{#each dashboardCards as card}
-				<div class="dashboard-card {card.color}">
+				<div 
+					class="dashboard-card {card.color} {card.clickable ? 'clickable' : ''}"
+					on:click={() => openCardData(card)}
+					role="button"
+					tabindex="0"
+					on:keydown={(e) => e.key === 'Enter' && openCardData(card)}
+				>
 					<div class="card-icon">
 						<span class="icon">{card.icon}</span>
 					</div>
 					<div class="card-content">
 						<h3 class="card-title">{card.title}</h3>
+						{#if card.count !== undefined}
+							<div class="card-count">{loading ? '...' : card.count}</div>
+						{/if}
 						<p class="card-description">{card.description}</p>
 					</div>
+					{#if card.clickable}
+						<div class="click-indicator">Click to view details</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -185,12 +396,28 @@
 		text-align: center;
 		transition: all 0.3s ease;
 		position: relative;
-		overflow: hidden;
+		overflow: visible;
 	}
 
 	.dashboard-card:hover {
 		transform: translateY(-4px);
 		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.dashboard-card.clickable {
+		cursor: pointer;
+		user-select: none;
+		padding-bottom: 40px;
+	}
+
+	.dashboard-card.clickable:hover {
+		transform: translateY(-6px);
+		box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.15), 0 15px 15px -5px rgba(0, 0, 0, 0.06);
+	}
+
+	.dashboard-card.clickable:active {
+		transform: translateY(-2px);
+		box-shadow: 0 15px 20px -5px rgba(0, 0, 0, 0.1), 0 8px 8px -5px rgba(0, 0, 0, 0.04);
 	}
 
 	.dashboard-card.blue:hover {
@@ -216,6 +443,11 @@
 	.dashboard-card.teal:hover {
 		border-color: #14b8a6;
 		background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+	}
+
+	.dashboard-card.red:hover {
+		border-color: #ef4444;
+		background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
 	}
 
 	.card-icon {
@@ -246,7 +478,11 @@
 	}
 
 	.dashboard-card.teal .card-icon {
-		background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+		background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+	}
+
+	.dashboard-card.red .card-icon {
+		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 	}
 
 	.card-icon .icon {
@@ -261,11 +497,70 @@
 		margin: 0 0 8px 0;
 	}
 
+	.card-count {
+		font-size: 32px;
+		font-weight: 700;
+		color: #1f2937;
+		margin: 8px 0 12px 0;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+	}
+
+	.dashboard-card.blue .card-count {
+		color: #2563eb;
+	}
+
+	.dashboard-card.green .card-count {
+		color: #059669;
+	}
+
+	.dashboard-card.purple .card-count {
+		color: #7c3aed;
+	}
+
+	.dashboard-card.orange .card-count {
+		color: #d97706;
+	}
+
+	.dashboard-card.teal .card-count {
+		color: #0f766e;
+	}
+
+	.dashboard-card.red .card-count {
+		color: #dc2626;
+	}
+
 	.card-description {
 		font-size: 14px;
 		color: #6b7280;
 		margin: 0;
-		line-height: 1.5;
+		line-height: 1.4;
+	}
+
+	.click-indicator {
+		position: absolute;
+		bottom: 12px;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 9px;
+		font-weight: 600;
+		color: #6366f1;
+		background: rgba(99, 102, 241, 0.1);
+		padding: 3px 8px;
+		border-radius: 12px;
+		opacity: 0.8;
+		transition: all 0.2s ease;
+		border: 1px solid rgba(99, 102, 241, 0.2);
+		z-index: 10;
+		white-space: nowrap;
+		text-align: center;
+	}
+
+	.dashboard-card.clickable:hover .click-indicator {
+		opacity: 1;
+		color: #4f46e5;
+		background: rgba(99, 102, 241, 0.15);
+		border-color: rgba(99, 102, 241, 0.3);
+		transform: translateX(-50%) scale(1.05);
 	}
 
 	.action-section {

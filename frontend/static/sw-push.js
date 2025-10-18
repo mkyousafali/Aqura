@@ -187,8 +187,37 @@ self.addEventListener('notificationclick', event => {
     
     event.notification.close();
 
-    if (event.action === 'close') {
-        console.log('🖱️ Close action clicked');
+    if (event.action === 'close' || event.action === 'dismiss') {
+        console.log('🖱️ Close/Dismiss action clicked');
+        return;
+    }
+
+    // Handle task-specific actions
+    if (event.action === 'view_tasks' || event.notification.data?.type === 'task_notification') {
+        console.log('📋 Task notification clicked, opening tasks view');
+        const taskUrl = '/mobile/tasks';
+        
+        event.waitUntil(
+            clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+                // Try to focus existing window first
+                for (let client of clientList) {
+                    if (client.url.includes(self.location.origin)) {
+                        return client.focus().then(client => {
+                            client.postMessage({
+                                type: 'NAVIGATE_TO_TASKS',
+                                url: taskUrl
+                            });
+                            return client;
+                        });
+                    }
+                }
+                
+                // Open new window if no existing window found
+                if (clients.openWindow) {
+                    return clients.openWindow(taskUrl);
+                }
+            })
+        );
         return;
     }
 
@@ -275,4 +304,63 @@ self.addEventListener('activate', event => {
             console.log('🎯 Push Service Worker now controlling all clients');
         })
     );
+});
+
+// Handle task count badge updates
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'UPDATE_TASK_BADGE') {
+        const { taskCount } = event.data;
+        console.log('📋 Updating task badge count:', taskCount);
+        
+        if ('setAppBadge' in navigator) {
+            if (taskCount > 0) {
+                navigator.setAppBadge(taskCount)
+                    .then(() => console.log('✅ Task badge updated:', taskCount))
+                    .catch(err => console.warn('❌ Failed to update task badge:', err));
+            } else {
+                navigator.clearAppBadge()
+                    .then(() => console.log('✅ Task badge cleared'))
+                    .catch(err => console.warn('❌ Failed to clear task badge:', err));
+            }
+        } else {
+            console.warn('⚠️ App Badge API not supported');
+        }
+    }
+
+    if (event.data && event.data.type === 'TASK_NOTIFICATION') {
+        const { title, body, taskCount, overdue } = event.data;
+        console.log('📋 Showing task notification:', { title, body, taskCount, overdue });
+        
+        const options = {
+            body: body,
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/icon-96x96.png',
+            tag: 'task-update',
+            data: {
+                type: 'task_notification',
+                taskCount: taskCount,
+                overdue: overdue,
+                timestamp: Date.now(),
+                url: '/mobile/tasks'
+            },
+            requireInteraction: overdue > 0, // Require interaction if there are overdue tasks
+            vibrate: overdue > 0 ? [300, 100, 300, 100, 300] : [200, 100, 200],
+            actions: [
+                {
+                    action: 'view_tasks',
+                    title: 'View Tasks',
+                    icon: '/icons/icon-96x96.png'
+                },
+                {
+                    action: 'dismiss',
+                    title: 'Dismiss',
+                    icon: '/icons/icon-96x96.png'
+                }
+            ]
+        };
+
+        self.registration.showNotification(title, options)
+            .then(() => console.log('✅ Task notification shown'))
+            .catch(err => console.error('❌ Failed to show task notification:', err));
+    }
 });

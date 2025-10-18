@@ -560,10 +560,8 @@
     }
   }
 
-  // Load purchasing managers for the selected branch
+  // Load purchasing managers from ALL branches (not just selected branch)
   async function loadPurchasingManagersForSelection() {
-    if (!selectedBranch) return;
-    
     try {
       purchasingManagersLoading = true;
       purchasingManagers = [];
@@ -571,19 +569,23 @@
       filteredPurchasingManagers = [];
       selectedPurchasingManager = null;
 
-      // Get all users for the selected branch
+      // Get all active users from ALL branches with their branch information
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select(`
           id,
           username,
+          branch_id,
+          branches!inner (
+            id,
+            name_en
+          ),
           hr_employees (
             id,
             name,
             employee_id
           )
         `)
-        .eq('branch_id', parseInt(selectedBranch))
         .eq('status', 'active');
 
       if (usersError) {
@@ -591,7 +593,7 @@
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for all users
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
@@ -616,7 +618,7 @@
         }
       }
 
-      // Combine the data
+      // Combine the data with branch information
       purchasingManagers = (usersData || []).map(user => {
         const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
         return {
@@ -624,11 +626,13 @@
           username: user.username,
           employeeName: user.hr_employees?.name || 'N/A',
           employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
+          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned',
+          branchName: user.branches?.name_en || 'Unknown Branch',
+          branchId: user.branch_id
         };
       });
 
-      // Filter for actual purchasing managers
+      // Filter for actual purchasing managers from all branches
       actualPurchasingManagers = purchasingManagers.filter(user => 
         user.position.toLowerCase().includes('purchasing') && 
         user.position.toLowerCase().includes('manager')
@@ -638,14 +642,14 @@
       if (actualPurchasingManagers.length > 0) {
         filteredPurchasingManagers = actualPurchasingManagers;
         showAllUsersForPurchasingManager = false;
-        console.log('Found purchasing managers:', actualPurchasingManagers);
+        console.log('Found purchasing managers across all branches:', actualPurchasingManagers);
       } else {
         filteredPurchasingManagers = purchasingManagers;
         showAllUsersForPurchasingManager = true;
         console.log('No purchasing managers found, showing all users for selection');
       }
 
-      console.log('Loaded branch users for purchasing manager selection:', {
+      console.log('Loaded users from all branches for purchasing manager selection:', {
         totalUsers: purchasingManagers.length,
         purchasingManagers: actualPurchasingManagers.length,
         showingAllUsers: showAllUsersForPurchasingManager
@@ -1069,7 +1073,8 @@
         user.username.toLowerCase().includes(query) ||
         user.employeeName.toLowerCase().includes(query) ||
         user.employeeId.toLowerCase().includes(query) ||
-        user.position.toLowerCase().includes(query)
+        user.position.toLowerCase().includes(query) ||
+        user.branchName.toLowerCase().includes(query)
       );
     }
   }
@@ -1278,8 +1283,8 @@
     loadAccountantsForSelection();
   }
 
-  // Load purchasing managers when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
+  // Load purchasing managers from all branches when branch manager is selected
+  $: if (selectedBranchManager) {
     loadPurchasingManagersForSelection();
   }
 
@@ -2431,6 +2436,7 @@
               </span>
               <span class="purchasing-manager-value">
                 {selectedPurchasingManager.username} - {selectedPurchasingManager.employeeName}
+                <span class="selected-branch-info">({selectedPurchasingManager.branchName})</span>
                 {#if selectedPurchasingManager.position.toLowerCase().includes('purchasing') && selectedPurchasingManager.position.toLowerCase().includes('manager')}
                   <span class="purchasing-manager-badge">Purchasing Manager</span>
                 {/if}
@@ -2453,7 +2459,7 @@
                 <span class="warning-icon">⚠️</span>
                 <div class="message-content">
                   <h5>No Purchasing Manager Found</h5>
-                  <p>No users with "Purchasing Manager" position found for this branch. You can select any other user to handle purchasing tasks.</p>
+                  <p>No users with "Purchasing Manager" position found across all branches. You can select any other user to handle purchasing tasks.</p>
                   <button type="button" class="select-any-user-btn" on:click={showAllUsersForPurchasingManagerSelection}>
                     Select Any User as Purchasing Manager
                   </button>
@@ -2470,7 +2476,7 @@
             {#if showAllUsersForPurchasingManager}
               <div class="fallback-notice">
                 <span class="info-icon">ℹ️</span>
-                <span>No official purchasing manager found. Please select any user from the list below to handle purchasing tasks:</span>
+                <span>No official purchasing manager found across all branches. Please select any user from the list below to handle purchasing tasks:</span>
               </div>
             {/if}
 
@@ -2479,7 +2485,7 @@
               <input 
                 type="text" 
                 bind:value={purchasingManagerSearchQuery}
-                placeholder="Search by username, employee name, or position..."
+                placeholder="Search by username, employee name, branch, or position..."
                 class="search-input"
               />
             </div>
@@ -2492,6 +2498,7 @@
                     <th>Username</th>
                     <th>Employee Name</th>
                     <th>Employee ID</th>
+                    <th>Branch</th>
                     <th>Position</th>
                     <th>Action</th>
                   </tr>
@@ -2502,6 +2509,12 @@
                       <td class="username-cell">{user.username}</td>
                       <td class="name-cell">{user.employeeName}</td>
                       <td class="id-cell">{user.employeeId}</td>
+                      <td class="branch-cell">
+                        <span class="branch-name">{user.branchName}</span>
+                        {#if user.branchId == selectedBranch}
+                          <span class="current-branch-badge">Current</span>
+                        {/if}
+                      </td>
                       <td class="position-cell">
                         {user.position}
                         {#if user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}
@@ -5161,6 +5174,36 @@
 
 	.purchasing-manager-row.is-purchasing-manager {
 		background: #f3e5f5;
+	}
+
+	.branch-cell {
+		padding: 0.75rem;
+		border-bottom: 1px solid #dee2e6;
+		vertical-align: middle;
+	}
+
+	.branch-name {
+		font-weight: 500;
+		color: #495057;
+	}
+
+	.current-branch-badge {
+		display: inline-block;
+		background: #28a745;
+		color: white;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 2px 6px;
+		border-radius: 3px;
+		margin-left: 8px;
+		text-transform: uppercase;
+	}
+
+	.selected-branch-info {
+		color: #6c757d;
+		font-style: italic;
+		margin-left: 8px;
+		font-size: 0.9rem;
 	}
 
 	.select-purchasing-manager-btn {

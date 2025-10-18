@@ -6,6 +6,7 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
+	import { taskCounts, taskCountService } from '$lib/stores/taskCount';
 	import NotificationCenter from './admin/communication/NotificationCenter.svelte';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -23,6 +24,9 @@
 
 	// Subscribe to notification counts store
 	$: counts = $notificationCounts;
+	
+	// Subscribe to task counts store
+	$: taskCountData = $taskCounts;
 
 	// Language data
 	$: availableLocales = getAvailableLocales();
@@ -46,6 +50,9 @@
 		fetchNotificationCounts();
 		// Refresh count every 30 seconds
 		const notificationInterval = setInterval(fetchNotificationCounts, 30000);
+		
+		// Initialize task count monitoring
+		taskCountService.initTaskCountMonitoring();
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
@@ -235,6 +242,34 @@
 		setTimeout(refreshNotificationCounts, 1000);
 	}
 
+	function openTasksWindow() {
+		// Open the Tasks window
+		const windowId = generateWindowId('my-tasks');
+		
+		// Import TasksWindow component dynamically
+		import('./TasksWindow.svelte').then(({ default: TasksWindow }) => {
+			windowManager.openWindow({
+				id: windowId,
+				title: `My Tasks (${taskCountData.total})`,
+				component: TasksWindow,
+				icon: '📋',
+				size: { width: 1000, height: 600 },
+				position: { x: 100, y: 50 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}).catch(error => {
+			console.error('Failed to load TasksWindow component:', error);
+			// Fallback: navigate to mobile tasks page
+			goto('/mobile/tasks');
+		});
+
+		// Refresh task counts after opening
+		setTimeout(() => taskCountService.refreshTaskCounts(), 1000);
+	}
+
 	function openQuickAnnouncements() {
 		const windowId = generateWindowId('quick-announcements');
 		
@@ -322,6 +357,18 @@
 
 	<!-- Quick Access Buttons -->
 	<div class="quick-access">
+		<!-- My Tasks -->
+		<button 
+			class="quick-btn tasks-btn"
+			on:click={openTasksWindow}
+			title="My Tasks ({taskCountData.total} total{taskCountData.overdue > 0 ? `, ${taskCountData.overdue} overdue` : ''})"
+		>
+			<div class="quick-icon">📋</div>
+			{#if taskCountData.total > 0}
+				<div class="quick-badge {taskCountData.overdue > 0 ? 'overdue' : ''}">{taskCountData.total > 99 ? '99+' : taskCountData.total}</div>
+			{/if}
+		</button>
+		
 		<!-- Quick Notifications -->
 		<button 
 			class="quick-btn notifications-btn"
@@ -587,17 +634,29 @@
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
+	.tasks-btn .quick-badge {
+		background: #3b82f6;
+	}
+
+	.tasks-btn .quick-badge.overdue {
+		background: #ef4444;
+		animation: pulse 2s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.7;
+		}
+	}
+
 	.notifications-btn .quick-badge {
 		background: #10b981;
 	}
 
-	.announcements-btn .quick-badge {
-		background: #f59e0b;
-	}
 
-	.calendar-btn .quick-badge {
-		background: #3b82f6;
-	}
 
 	.system-tray {
 		display: flex;
