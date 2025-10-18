@@ -330,6 +330,7 @@
 					<div class="header-cell">Payment Info</div>
 					<div class="header-cell">Days to Due</div>
 					<div class="header-cell">Amounts</div>
+					<div class="header-cell">ERP Invoice Ref</div>
 					<div class="header-cell">Date</div>
 				</div>
 				
@@ -376,7 +377,7 @@
 									{:else}
 										<button class="upload-bill-btn" on:click={() => uploadOriginalBill(record.id)}>
 											<span>📎</span>
-											<small>Upload Bill</small>
+											<small>Original Bill Not Uploaded</small>
 										</button>
 									{/if}
 								</div>
@@ -422,6 +423,16 @@
 							<div class="amounts">
 								<div>Bill: {parseFloat(record.bill_amount || 0).toFixed(2)}</div>
 								<div>Final: {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
+							</div>
+						</div>
+						
+						<div class="cell">
+							<div class="erp-reference">
+								{#if record.erp_purchase_invoice_reference}
+									<span class="erp-ref-value">{record.erp_purchase_invoice_reference}</span>
+								{:else}
+									<span class="erp-ref-empty">Not Entered</span>
+								{/if}
 							</div>
 						</div>
 						
@@ -531,7 +542,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 100px;
+		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -543,7 +554,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 100px;
+		grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -644,6 +655,39 @@
 	.amounts div {
 		font-size: 12px;
 		color: #374151;
+	}
+
+	.erp-reference {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		font-size: 12px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		font-weight: 500;
+	}
+
+	.erp-ref-value {
+		background: #f0fdf4;
+		color: #16a34a;
+		border: 1px solid #bbf7d0;
+		padding: 6px 10px;
+		border-radius: 6px;
+		font-family: 'Courier New', monospace;
+		font-weight: 600;
+		font-size: 11px;
+		word-break: break-all;
+	}
+
+	.erp-ref-empty {
+		background: #fef2f2;
+		color: #dc2626;
+		border: 1px solid #fecaca;
+		padding: 6px 10px;
+		border-radius: 6px;
+		font-style: italic;
+		font-size: 11px;
 	}
 
 	.days-remaining {
@@ -785,15 +829,17 @@
 			grid-template-columns: 1fr;
 		}
 
-		/* Hide original bill, payment info, days remaining, and amounts columns on mobile for space */
+		/* Hide original bill, payment info, days remaining, amounts, and ERP columns on mobile for space */
 		.table-header .header-cell:nth-child(2),
 		.table-header .header-cell:nth-child(6),
 		.table-header .header-cell:nth-child(7),
 		.table-header .header-cell:nth-child(8),
+		.table-header .header-cell:nth-child(9),
 		.table-row .cell:nth-child(2),
 		.table-row .cell:nth-child(6),
 		.table-row .cell:nth-child(7),
-		.table-row .cell:nth-child(8) {
+		.table-row .cell:nth-child(8),
+		.table-row .cell:nth-child(9) {
 			display: none;
 		}
 	}
