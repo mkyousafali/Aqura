@@ -4136,7 +4136,7 @@
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && selectedBranchManager && billDate && billAmount}
+{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
