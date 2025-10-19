@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import WarningDetailsModal from './WarningDetailsModal.svelte';
 
@@ -31,6 +31,7 @@
 
 			if (branchError) throw branchError;
 			branches = data || [];
+			console.log('🏢 Available branches:', branches);
 		} catch (err) {
 			console.error('Error loading branches:', err);
 		}
@@ -40,16 +41,20 @@
 		try {
 			loading = true;
 			error = null;
+			console.log('🔍 Loading warnings for WarningListView...');
 
+			// Try regular client first - Fix the relationship: warnings -> hr_employees -> branches
 			let query = supabase
 				.from('employee_warnings')
 				.select(`
 					*,
 					users!user_id(username),
-					hr_employees(name, employee_id),
-					branches!branch_id(name_en)
+					hr_employees(name, employee_id, branch_id, branches(name_en))
 				`)
-				.eq('is_deleted', false);
+				.or('is_deleted.is.null,is_deleted.eq.false');
+
+			// If that fails, try admin client
+			let useAdminClient = false;
 
 			// Apply filters
 			if (selectedStatus !== 'all') {
@@ -57,25 +62,25 @@
 			}
 
 			if (selectedBranch !== 'all') {
-				query = query.eq('branch_id', selectedBranch);
+				query = query.eq('hr_employees.branch_id', selectedBranch);
 			}
 
 			if (searchTerm) {
 				query = query.or(`warning_text.ilike.%${searchTerm}%,username.ilike.%${searchTerm}%`);
 			}
 
-			// Get total count for pagination  
+			// Get total count for pagination - Try regular client first
 			let countQuery = supabase
 				.from('employee_warnings')
 				.select('id', { count: 'exact', head: true })
-				.eq('is_deleted', false);
+				.or('is_deleted.is.null,is_deleted.eq.false');
 				
 			// Apply same filters for count
 			if (selectedStatus !== 'all') {
 				countQuery = countQuery.eq('warning_status', selectedStatus);
 			}
 			if (selectedBranch !== 'all') {
-				countQuery = countQuery.eq('branch_id', selectedBranch);
+				countQuery = countQuery.eq('hr_employees.branch_id', selectedBranch);
 			}
 			if (searchTerm) {
 				countQuery = countQuery.or(`warning_text.ilike.%${searchTerm}%,username.ilike.%${searchTerm}%`);
@@ -85,12 +90,46 @@
 			totalItems = count || 0;
 
 			// Get paginated data
-			const { data, error: queryError } = await query
+			let { data, error: queryError } = await query
 				.order('issued_at', { ascending: false })
 				.range((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage - 1);
 
+			// If regular client fails, try admin client
+			if (queryError || !data || data.length === 0) {
+				console.log('🔄 Regular client failed for warnings list, trying admin client...');
+				const adminQuery = supabaseAdmin
+					.from('employee_warnings')
+					.select(`
+						*,
+						users!user_id(username),
+						hr_employees(name, employee_id, branch_id, branches(name_en))
+					`)
+					.or('is_deleted.is.null,is_deleted.eq.false');
+
+				// Apply same filters for admin query
+				if (selectedStatus !== 'all') {
+					adminQuery.eq('warning_status', selectedStatus);
+				}
+				if (selectedBranch !== 'all') {
+					adminQuery.eq('hr_employees.branch_id', selectedBranch);
+				}
+				if (searchTerm) {
+					adminQuery.or(`warning_text.ilike.%${searchTerm}%,username.ilike.%${searchTerm}%`);
+				}
+
+				const adminResult = await adminQuery
+					.order('issued_at', { ascending: false })
+					.range((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage - 1);
+
+				data = adminResult.data;
+				queryError = adminResult.error;
+				useAdminClient = true;
+			}
+
 			if (queryError) throw queryError;
 			warnings = data || [];
+			console.log('📊 Loaded warnings for list view:', warnings.length, 'records', useAdminClient ? '(using admin client)' : '(using regular client)');
+			console.log('🏢 Employee and branch data sample:', warnings[0]?.hr_employees, 'from warning:', warnings[0]?.employee_id);
 		} catch (err) {
 			console.error('Error loading warnings:', err);
 			error = err.message;
@@ -288,7 +327,7 @@
 								{/if}
 							</td>
 							<td>{formatDate(warning.issued_at)}</td>
-							<td>{warning.branches?.name_en || '-'}</td>
+							<td>{warning.hr_employees?.branches?.name_en || 'No Branch'}</td>
 							<td>
 								<button 
 									class="view-btn"

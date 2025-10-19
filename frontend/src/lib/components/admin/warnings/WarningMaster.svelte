@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import WarningListView from './WarningListView.svelte';
 	import WarningStatistics from './WarningStatistics.svelte';
 	import ActiveFinesView from './ActiveFinesView.svelte';
@@ -29,31 +29,61 @@
 	async function fetchWarningStatistics() {
 		try {
 			isLoading = true;
+			console.log('🔍 Fetching warning statistics...');
 			
-			// Get warning counts
-			const { data: warnings, error: warningsError } = await supabase
+			// First, let's try to get ALL records to see what's in the database
+			console.log('🔍 Testing: Getting ALL warning records first...');
+			let { data: allWarnings, error: allError } = await supabase
 				.from('employee_warnings')
-				.select('warning_status, has_fine, fine_amount, fine_status')
-				.eq('is_deleted', false);
+				.select('warning_status, has_fine, fine_amount, fine_status, is_deleted, id, warning_type, username, created_at');
+
+			console.log('📊 ALL warnings in database:', allWarnings);
+			console.log('❌ All warnings error:', allError);
+
+			// Now try with the is_deleted filter
+			let { data: warnings, error: warningsError } = await supabase
+				.from('employee_warnings')
+				.select('warning_status, has_fine, fine_amount, fine_status, is_deleted, id, warning_type')
+				.or('is_deleted.is.null,is_deleted.eq.false');
+
+			console.log('📊 Filtered warnings (is_deleted=false OR null):', warnings);
+
+			// If regular client fails, try admin client
+			if (warningsError || !warnings || warnings.length === 0) {
+				console.log('🔄 Regular client failed or returned no data, trying admin client...');
+				const adminResult = await supabaseAdmin
+					.from('employee_warnings')
+					.select('warning_status, has_fine, fine_amount, fine_status, is_deleted, id, warning_type')
+					.or('is_deleted.is.null,is_deleted.eq.false');
+				
+				warnings = adminResult.data;
+				warningsError = adminResult.error;
+				console.log('📊 Admin client warnings:', warnings);
+			}
+
+			console.log('📊 Raw warnings data:', warnings);
+			console.log('❌ Warnings error:', warningsError);
 
 			if (warningsError) {
 				console.error('Error fetching warnings:', warningsError);
+				console.error('Error details:', warningsError.message);
 				return;
 			}
 
 			// Calculate statistics
 			const stats = {
-				total_warnings: warnings.length,
-				active_warnings: warnings.filter(w => w.warning_status === 'active').length,
-				resolved_warnings: warnings.filter(w => w.warning_status === 'resolved').length,
-				total_fines: warnings.filter(w => w.has_fine === true).length,
+				total_warnings: warnings?.length || 0,
+				active_warnings: warnings?.filter(w => w.warning_status === 'active').length || 0,
+				resolved_warnings: warnings?.filter(w => w.warning_status === 'resolved').length || 0,
+				total_fines: warnings?.filter(w => w.has_fine === true).length || 0,
 				total_fine_amount: warnings
-					.filter(w => w.has_fine === true && w.fine_amount)
-					.reduce((sum, w) => sum + (parseFloat(w.fine_amount) || 0), 0),
-				pending_fines: warnings.filter(w => w.has_fine === true && w.fine_status === 'pending').length,
-				paid_fines: warnings.filter(w => w.has_fine === true && w.fine_status === 'paid').length
+					?.filter(w => w.has_fine === true && w.fine_amount)
+					.reduce((sum, w) => sum + (parseFloat(w.fine_amount) || 0), 0) || 0,
+				pending_fines: warnings?.filter(w => w.has_fine === true && w.fine_status === 'pending').length || 0,
+				paid_fines: warnings?.filter(w => w.has_fine === true && w.fine_status === 'paid').length || 0
 			};
 
+			console.log('📈 Calculated stats:', stats);
 			warningStats = stats;
 		} catch (error) {
 			console.error('Error fetching warning statistics:', error);

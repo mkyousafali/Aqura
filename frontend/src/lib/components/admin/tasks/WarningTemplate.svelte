@@ -274,6 +274,43 @@
 		isEditing = !isEditing;
 	}
 
+	// Function to lookup user ID by username
+	async function lookupUserIdByUsername(username) {
+		try {
+			console.log(`Looking up user ID for username: ${username}`);
+			
+			// First try the users table
+			const { data: userData, error: userError } = await supabaseAdmin
+				.from('users')
+				.select('id')
+				.eq('username', username)
+				.single();
+
+			if (userData && !userError) {
+				console.log(`Found user ID ${userData.id} for username ${username}`);
+				return userData.id;
+			}
+
+			// If not found in users table, try hr_employees table
+			const { data: hrData, error: hrError } = await supabaseAdmin
+				.from('hr_employees')
+				.select('id')
+				.eq('username', username)
+				.single();
+
+			if (hrData && !hrError) {
+				console.log(`Found employee ID ${hrData.id} for username ${username}`);
+				return hrData.id;
+			}
+
+			console.warn(`No user ID found for username: ${username}`);
+			return null;
+		} catch (error) {
+			console.error(`Error looking up user ID for username ${username}:`, error);
+			return null;
+		}
+	}
+
 	async function sendInternalNotification() {
 		isSending = true;
 		sendError = null;
@@ -285,12 +322,25 @@
 			}
 
 			// Determine the target user ID - try multiple possible fields
-			const targetUserId = data.recipientUserId || 
+			let targetUserId = data.recipientUserId || 
 							   data.assignmentData?.assigned_to_user_id || 
-							   data.assignmentData?.assignedToUserId;
+							   data.assignmentData?.assignedToUserId ||
+							   data.assignmentData?.user_id ||
+							   data.assignmentData?.userId;
 
 			if (!targetUserId) {
-				throw new Error('No valid user ID found for notification target');
+				// If we still don't have a user ID, try to look it up by username
+				const username = data.recipientUsername || data.assignmentData?.assigned_to_username || data.assignmentData?.assigned_to;
+				if (username) {
+					console.warn(`No user ID found for notification target. Attempting to look up user ID for username: ${username}`);
+					targetUserId = await lookupUserIdByUsername(username);
+					
+					if (!targetUserId) {
+						throw new Error(`No valid user ID found for notification target "${username}". User ID is required for push notifications.`);
+					}
+				} else {
+					throw new Error('No valid user ID or username found for notification target');
+				}
 			}
 
 			// Create notification using notificationManagement for proper push notification support
@@ -337,12 +387,22 @@
 			// Get the employee information from the user_id to properly link the employee
 			let employeeId = null;
 			let actualUsername = null;
+			let actualUserId = null;
 			
-			const targetUserId = data.recipientUserId || 
-							   data.assignmentData?.assigned_to_user_id || 
-							   data.assignmentData?.assignedToUserId;
+			// First try to get user ID from data, then lookup by username if needed
+			actualUserId = data.recipientUserId || 
+						   data.assignmentData?.assigned_to_user_id || 
+						   data.assignmentData?.assignedToUserId;
 			
-			if (targetUserId) {
+			if (!actualUserId) {
+				// Try to lookup user ID by username
+				const username = data.recipientUsername || data.assignmentData?.assigned_to_username || data.assignmentData?.assigned_to;
+				if (username) {
+					actualUserId = await lookupUserIdByUsername(username);
+				}
+			}
+			
+			if (actualUserId) {
 				try {
 					// Get user details to find linked employee
 					const { data: userDetails, error: userError } = await supabaseAdmin
@@ -353,7 +413,7 @@
 							employee_id,
 							hr_employees(id, name, employee_id)
 						`)
-						.eq('id', targetUserId)
+						.eq('id', actualUserId)
 						.single();
 					
 					if (!userError && userDetails) {
@@ -375,7 +435,7 @@
 
 			// Prepare warning record data matching the database schema
 			const warningRecord = {
-				user_id: data.recipientUserId || data.assignmentData?.assigned_to_user_id || data.assignmentData?.assignedToUserId,
+				user_id: actualUserId, // Use the looked-up user ID
 				employee_id: employeeId, // Now properly linked to hr_employees table
 				username: actualUsername || data.recipientUsername || data.assignmentData?.assigned_to || 'unknown_user',
 				warning_type: data.warningType,

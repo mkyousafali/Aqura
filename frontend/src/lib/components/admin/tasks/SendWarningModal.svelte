@@ -118,7 +118,7 @@
 			warningData = {
 				recipientName: assignment.assigned_to || assignment.assignedToEmployee || 'Unknown Employee',
 				recipientUsername: assignment.assigned_to_username || assignment.assignedTo || assignment.assigned_to || 'Unknown',
-				recipientUserId: assignment.assigned_to_user_id || assignment.assignedToId,
+				recipientUserId: assignment.assigned_to_user_id || assignment.assignedToId || assignment.user_id || assignment.userId,
 				assignedBy: assignment.assigned_by || assignment.assignedBy || 'Unknown',
 				totalAssigned: assignment.total_assigned || assignment.totalAssigned || 0,
 				totalCompleted: assignment.total_completed || assignment.totalCompleted || 0,
