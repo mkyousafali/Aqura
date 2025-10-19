@@ -217,15 +217,36 @@
 
 	async function checkWhatsAppContact() {
 		try {
-			// First get the user's employee_id
-			const { data: userData, error: userError } = await supabase
-				.from('users')
-				.select('employee_id')
-				.eq('username', data.recipientUsername)
-				.single();
+			let userData = null;
+			let userError = null;
+
+			// First try to get user by username if available
+			if (data.recipientUsername && data.recipientUsername !== 'Unknown') {
+				const result = await supabase
+					.from('users')
+					.select('employee_id, username')
+					.eq('username', data.recipientUsername)
+					.single();
+				
+				userData = result.data;
+				userError = result.error;
+			}
+
+			// If username lookup failed or no username, try by user ID
+			if ((!userData || userError) && data.recipientUserId) {
+				console.log('Trying user lookup by ID:', data.recipientUserId);
+				const result = await supabase
+					.from('users')
+					.select('employee_id, username')
+					.eq('id', data.recipientUserId)
+					.single();
+				
+				userData = result.data;
+				userError = result.error;
+			}
 
 			if (userError || !userData?.employee_id) {
-				console.log('No employee_id found for user:', data.recipientUsername);
+				console.log('No employee_id found for user:', data.recipientUsername, 'or user ID:', data.recipientUserId);
 				return;
 			}
 
@@ -263,6 +284,15 @@
 				await saveWarningRecord();
 			}
 
+			// Determine the target user ID - try multiple possible fields
+			const targetUserId = data.recipientUserId || 
+							   data.assignmentData?.assigned_to_user_id || 
+							   data.assignmentData?.assignedToUserId;
+
+			if (!targetUserId) {
+				throw new Error('No valid user ID found for notification target');
+			}
+
 			// Create notification using notificationManagement for proper push notification support
 			const notificationData = {
 				title: 'Performance Warning',
@@ -270,10 +300,15 @@
 				type: 'warning',
 				priority: 'high',
 				target_type: 'specific_users',
-				target_users: [data.assignmentData.assignedToUserId]
+				target_users: [targetUserId]
 			};
 
-			await notificationManagement.createNotification(notificationData, data.assignedBy);
+			// Use assigned_by or current user for createdBy - handle undefined case
+			const createdBy = data.assignedBy || 
+							  data.assignmentData?.assigned_by || 
+							  'System Administrator';
+
+			await notificationManagement.createNotification(notificationData, createdBy);
 
 			alert('Warning notification sent successfully with push notification!');
 			dispatch('close');
@@ -303,7 +338,11 @@
 			let employeeId = null;
 			let actualUsername = null;
 			
-			if (data.assignmentData.assignedToUserId) {
+			const targetUserId = data.recipientUserId || 
+							   data.assignmentData?.assigned_to_user_id || 
+							   data.assignmentData?.assignedToUserId;
+			
+			if (targetUserId) {
 				try {
 					// Get user details to find linked employee
 					const { data: userDetails, error: userError } = await supabaseAdmin
@@ -314,7 +353,7 @@
 							employee_id,
 							hr_employees(id, name, employee_id)
 						`)
-						.eq('id', data.assignmentData.assignedToUserId)
+						.eq('id', targetUserId)
 						.single();
 					
 					if (!userError && userDetails) {
@@ -327,7 +366,7 @@
 							employeeData: userDetails.hr_employees
 						});
 					} else {
-						console.warn('Could not find user details for ID:', data.assignmentData.assignedToUserId);
+						console.warn('Could not find user details for ID:', targetUserId);
 					}
 				} catch (err) {
 					console.error('Error fetching user details:', err);
@@ -336,9 +375,9 @@
 
 			// Prepare warning record data matching the database schema
 			const warningRecord = {
-				user_id: data.assignmentData.assignedToUserId,
+				user_id: data.recipientUserId || data.assignmentData?.assigned_to_user_id || data.assignmentData?.assignedToUserId,
 				employee_id: employeeId, // Now properly linked to hr_employees table
-				username: actualUsername || data.assignmentData.assignedTo || data.recipientUsername, // Use actual username, not employee name
+				username: actualUsername || data.recipientUsername || data.assignmentData?.assigned_to || 'unknown_user',
 				warning_type: data.warningType,
 				has_fine: data.hasFine || false,
 				fine_amount: data.fineAmount || null,
@@ -346,18 +385,18 @@
 				fine_status: data.hasFine ? 'pending' : null,
 				warning_text: editableWarning,
 				language_code: data.language || 'en',
-				task_id: data.assignmentData.taskId || null,
-				task_title: data.assignmentData.taskTitle || null,
-				task_description: data.assignmentData.taskDescription || null,
-				assignment_id: data.assignmentData.assignmentId || null,
-				total_tasks_assigned: data.totalAssigned || 0,
-				total_tasks_completed: data.totalCompleted || 0,
-				total_tasks_overdue: data.totalOverdue || 0,
+				task_id: data.assignmentData?.taskId || data.assignmentData?.task_id || null,
+				task_title: data.assignmentData?.taskTitle || data.assignmentData?.task_title || null,
+				task_description: data.assignmentData?.taskDescription || data.assignmentData?.task_description || null,
+				assignment_id: data.assignmentData?.assignmentId || data.assignmentData?.assignment_id || data.assignmentData?.id || null,
+				total_tasks_assigned: data.totalAssigned || data.assignmentData?.total_assigned || 0,
+				total_tasks_completed: data.totalCompleted || data.assignmentData?.total_completed || 0,
+				total_tasks_overdue: data.totalOverdue || data.assignmentData?.total_overdue || 0,
 				completion_rate: data.completionRate || 0,
-				issued_by: user.id,
-				issued_by_username: user.username || 'system',
+				issued_by: user?.id || 'system',
+				issued_by_username: user?.username || 'system',
 				warning_status: 'active',
-				branch_id: data.assignmentData.branchId || null,
+				branch_id: data.assignmentData?.branchId || data.assignmentData?.branch_id || null,
 				severity_level: determineSeverityLevel(),
 				follow_up_required: data.hasFine || data.completionRate < 50,
 				follow_up_date: data.hasFine ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : null // 7 days from now
