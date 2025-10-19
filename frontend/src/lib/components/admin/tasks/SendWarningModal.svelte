@@ -116,16 +116,17 @@
 
 			// Prepare warning data for template
 			warningData = {
-				recipientName: assignment.assignedToEmployee || assignment.assignedTo,
-				recipientUsername: assignment.assignedTo,
-				assignedBy: assignment.assignedBy,
-				totalAssigned: assignment.totalAssigned,
-				totalCompleted: assignment.totalCompleted,
-				totalOverdue: assignment.totalOverdue,
-				completionRate: assignment.totalAssigned > 0 ? 
-					Math.round((assignment.totalCompleted / assignment.totalAssigned) * 100) : 0,
-				overdueRate: assignment.totalAssigned > 0 ? 
-					Math.round((assignment.totalOverdue / assignment.totalAssigned) * 100) : 0,
+				recipientName: assignment.assigned_to || assignment.assignedToEmployee || 'Unknown Employee',
+				recipientUsername: assignment.assigned_to_username || assignment.assignedTo || assignment.assigned_to || 'Unknown',
+				recipientUserId: assignment.assigned_to_user_id || assignment.assignedToId,
+				assignedBy: assignment.assigned_by || assignment.assignedBy || 'Unknown',
+				totalAssigned: assignment.total_assigned || assignment.totalAssigned || 0,
+				totalCompleted: assignment.total_completed || assignment.totalCompleted || 0,
+				totalOverdue: assignment.total_overdue || assignment.totalOverdue || 0,
+				completionRate: (assignment.total_assigned || assignment.totalAssigned) > 0 ? 
+					Math.round(((assignment.total_completed || assignment.totalCompleted) / (assignment.total_assigned || assignment.totalAssigned)) * 100) : 0,
+				overdueRate: (assignment.total_assigned || assignment.totalAssigned) > 0 ? 
+					Math.round(((assignment.total_overdue || assignment.totalOverdue) / (assignment.total_assigned || assignment.totalAssigned)) * 100) : 0,
 				warningText: generatedWarning,
 				language: selectedLanguage,
 				warningType: selectedWarningType,
