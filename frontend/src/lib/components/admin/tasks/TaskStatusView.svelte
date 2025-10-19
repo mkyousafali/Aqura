@@ -335,8 +335,9 @@
 				target_users: [assignment.assigned_to_id]
 			};
 
+			// Pass the assigned_by name instead of assigned_by_id (UUID)
 			// @ts-ignore - type inference issue with literal types in JavaScript context
-			await notificationManagement.createNotification(notificationData, assignment.assigned_by_id);
+			await notificationManagement.createNotification(notificationData, assignment.assigned_by);
 
 			alert('Reminder notification sent successfully with push notification!');
 		} catch (err) {
