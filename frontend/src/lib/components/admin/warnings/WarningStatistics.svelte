@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 
 	let loading = true;
 	let error = null;
@@ -42,6 +42,7 @@
 		try {
 			loading = true;
 			error = null;
+			console.log('🔍 Loading statistics for WarningStatistics...');
 
 			// Calculate date range
 			const endDate = new Date();
@@ -52,20 +53,43 @@
 				.from('employee_warnings')
 				.select(`
 					*,
-					branches!branch_id(name_en)
+					hr_employees(name, employee_id, branch_id, branches(name_en))
 				`)
-				.eq('is_deleted', false)
+				.or('is_deleted.is.null,is_deleted.eq.false')
 				.gte('issued_at', startDate.toISOString())
 				.lte('issued_at', endDate.toISOString());
 
 			if (selectedBranch !== 'all') {
-				query = query.eq('branch_id', selectedBranch);
+				query = query.eq('hr_employees.branch_id', selectedBranch);
 			}
 
-			const { data: warnings, error: queryError } = await query;
+			let { data: warnings, error: queryError } = await query;
+
+			// If regular client fails, try admin client
+			if (queryError || !warnings || warnings.length === 0) {
+				console.log('🔄 Regular client failed for statistics, trying admin client...');
+				let adminQuery = supabaseAdmin
+					.from('employee_warnings')
+					.select(`
+						*,
+						hr_employees(name, employee_id, branch_id, branches(name_en))
+					`)
+					.or('is_deleted.is.null,is_deleted.eq.false')
+					.gte('issued_at', startDate.toISOString())
+					.lte('issued_at', endDate.toISOString());
+
+				if (selectedBranch !== 'all') {
+					adminQuery = adminQuery.eq('hr_employees.branch_id', selectedBranch);
+				}
+
+				const adminResult = await adminQuery;
+				warnings = adminResult.data;
+				queryError = adminResult.error;
+			}
 
 			if (queryError) throw queryError;
 
+			console.log('📊 Loaded warnings for statistics:', warnings?.length || 0, 'records');
 			// Process statistics
 			processStatistics(warnings || []);
 		} catch (err) {
@@ -104,7 +128,7 @@
 		// Branch statistics
 		const branchCounts = {};
 		warnings.forEach(w => {
-			const branchName = w.branches?.name_en || 'Unknown';
+			const branchName = w.hr_employees?.branches?.name_en || 'Unknown';
 			branchCounts[branchName] = (branchCounts[branchName] || 0) + 1;
 		});
 
