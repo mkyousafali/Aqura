@@ -165,20 +165,44 @@ export class NotificationManagementService {
 	 */
 	async createNotification(notification: CreateNotificationRequest, createdBy: string): Promise<NotificationItem> {
 		try {
-			// Get user UUID - createdBy could be username or employee name
-			let { data: userData, error: userError } = await supabase
-				.from('users')
-				.select('id, username, role_type')
-				.eq('username', createdBy)
-				.maybeSingle();
+			// Check if createdBy is a UUID (36 characters with hyphens in specific positions)
+			const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(createdBy);
+			
+			let userData: any = null;
+			
+			if (isUUID) {
+				// If it's a UUID, search by user ID directly
+				console.log('🔍 [NotificationManagement] Searching user by UUID:', createdBy);
+				const { data: uuidUser, error: uuidError } = await supabase
+					.from('users')
+					.select('id, username, role_type')
+					.eq('id', createdBy)
+					.maybeSingle();
 
-			if (userError) {
-				console.error('❌ [NotificationManagement] Database error finding user by username:', createdBy, userError);
-				throw new Error('Database error while finding user');
+				if (uuidError) {
+					console.error('❌ [NotificationManagement] Database error finding user by UUID:', createdBy, uuidError);
+				} else if (uuidUser) {
+					userData = uuidUser;
+					console.log('✅ [NotificationManagement] Found user by UUID:', userData.username);
+				}
+			} else {
+				// Get user UUID - createdBy could be username or employee name
+				const { data: usernameUser, error: userError } = await supabase
+					.from('users')
+					.select('id, username, role_type')
+					.eq('username', createdBy)
+					.maybeSingle();
+
+				if (userError) {
+					console.error('❌ [NotificationManagement] Database error finding user by username:', createdBy, userError);
+				} else if (usernameUser) {
+					userData = usernameUser;
+					console.log('✅ [NotificationManagement] Found user by username:', userData.username);
+				}
 			}
 
 			if (!userData) {
-				console.log('🔍 [NotificationManagement] User not found by username, trying by employee name:', createdBy);
+				console.log('🔍 [NotificationManagement] User not found by username/UUID, trying by employee name:', createdBy);
 				
 				// Try to find user by employee name through hr_employees table
 				const { data: employeeUser, error: employeeError } = await supabase
@@ -204,7 +228,7 @@ export class NotificationManagementService {
 
 					if (caseError || !caseInsensitiveUser) {
 						console.error('❌ [NotificationManagement] User not found by any method:', createdBy);
-						throw new Error(`User '${createdBy}' not found in the system (tried username and employee name)`);
+						throw new Error(`User '${createdBy}' not found in the system (tried username, UUID, and employee name)`);
 					}
 					
 					userData = caseInsensitiveUser;
