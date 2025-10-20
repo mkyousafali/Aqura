@@ -1,10 +1,5 @@
 {
-  "buildCommand": "cd frontend && pnpm install && pnpm build",
-  "installCommand": "pnpm install --frozen-lockfile",
-  "outputDirectory": "frontend/.svelte-kit/output/client",
-  "functions": {
-    "src/routes/api/**/*.ts": {
-      "runtime": "nodejs20.x"
-    }
-  }
+  "framework": "sveltekit",
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter aqura-frontend build"
 }

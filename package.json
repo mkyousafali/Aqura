@@ -22,8 +22,8 @@
     "setup": "pnpm install && pnpm --filter frontend install && cd backend && go mod download",
     "docker:dev": "docker-compose -f docker-compose.dev.yml up",
     "docker:prod": "docker-compose -f docker-compose.prod.yml up",
-    "i18n:extract": "pnpm --filter frontend i18n:extract",
-    "i18n:build": "pnpm --filter frontend i18n:build"
+    "i18n:extract": "pnpm --filter aqura-frontend i18n:extract",
+    "i18n:build": "pnpm --filter aqura-frontend i18n:build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
