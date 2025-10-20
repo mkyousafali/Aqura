@@ -11,6 +11,9 @@
 	let filterFromDays = '';
 	let filterToDays = '';
 	let filterOverdueDays = '';
+	let selectedBranch = '';
+	let branchFilterMode = 'all'; // 'all', 'branch'
+	let branches = [];
 	let loading = false;
 	let uploadingBillId = null;
 	let uploadingExcelId = null;
@@ -22,8 +25,25 @@
 	let updatingErp = false;
 
 	onMount(() => {
+		loadBranches();
 		loadReceivingRecords();
 	});
+
+	async function loadBranches() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en')
+				.order('name_en');
+
+			if (error) throw error;
+			branches = data || [];
+		} catch (err) {
+			console.error('Error loading branches:', err);
+			branches = [];
+		}
+	}
 
 	async function loadReceivingRecords() {
 		loading = true;
@@ -81,6 +101,12 @@
 	}
 
 	function applyFilters() {
+		console.log('Filter values:', { 
+			branchFilterMode, 
+			selectedBranch, 
+			recordCount: receivingRecords.length 
+		});
+		
 		filteredRecords = receivingRecords.filter(record => {
 			const matchesSearch = !searchTerm || 
 				record.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -95,6 +121,19 @@
 			
 			const matchesVendorName = !filterVendorName || 
 				record.vendors?.vendor_name?.toLowerCase().includes(filterVendorName.toLowerCase());
+
+			// Filter by branch
+			const matchesBranch = branchFilterMode === 'all' || 
+				(branchFilterMode === 'branch' && selectedBranch && record.branch_id?.toString() === selectedBranch.toString());
+			
+			if (branchFilterMode === 'branch') {
+				console.log('Branch filter debug:', {
+					recordId: record.id,
+					recordBranchId: record.branch_id,
+					selectedBranch,
+					matches: matchesBranch
+				});
+			}
 
 			// Calculate days remaining for this record
 			let daysRemaining = null;
@@ -119,7 +158,7 @@
 				 daysRemaining < 0 && 
 				 Math.abs(daysRemaining) >= parseInt(filterOverdueDays));
 
-			return matchesSearch && matchesVendorId && matchesVatNumber && matchesVendorName && matchesDaysRange && matchesOverdueDays;
+			return matchesSearch && matchesVendorId && matchesVatNumber && matchesVendorName && matchesBranch && matchesDaysRange && matchesOverdueDays;
 		}).sort((a, b) => {
 			// Calculate days remaining for both records
 			const getDaysForRecord = (record) => {
@@ -138,6 +177,13 @@
 			// Sort by days remaining (ascending: most overdue first, then closest due dates)
 			return daysA - daysB;
 		});
+	}
+
+	// Reactive statements to trigger filtering when filter values change
+	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || 
+	      filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || 
+	      filterOverdueDays !== undefined || branchFilterMode !== undefined || selectedBranch !== undefined) {
+		applyFilters();
 	}
 
 	function viewCertificate(certificateUrl) {
@@ -415,6 +461,47 @@
 				bind:value={searchTerm}
 				class="search-input"
 			/>
+		</div>
+		
+		<!-- Branch Filter -->
+		<div class="filter-section">
+			<div class="branch-filter">
+				<h4>🏢 Filter by Branch</h4>
+				<div class="filter-controls">
+					<div class="filter-options">
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={branchFilterMode} 
+								value="all"
+							/>
+							<span class="option-text">All Branches</span>
+						</label>
+						
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={branchFilterMode} 
+								value="branch"
+							/>
+							<span class="option-text">By Branch</span>
+						</label>
+					</div>
+					
+					{#if branchFilterMode === 'branch'}
+						<div class="branch-selector">
+							<select bind:value={selectedBranch} class="branch-select">
+								<option value="">Choose a branch...</option>
+								{#each branches as branch}
+									<option value={branch.id}>
+										{branch.name_en}
+									</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
+				</div>
+			</div>
 		</div>
 		
 		<div class="filters-row">
@@ -731,6 +818,72 @@
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+
+	.filter-section {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin-bottom: 16px;
+	}
+
+	.branch-filter h4 {
+		margin: 0 0 1rem 0;
+		color: #1e293b;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.filter-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.filter-options {
+		display: flex;
+		gap: 2rem;
+		flex-wrap: wrap;
+	}
+
+	.filter-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-weight: 500;
+		color: #475569;
+	}
+
+	.filter-option input[type="radio"] {
+		margin: 0;
+		transform: scale(1.2);
+	}
+
+	.option-text {
+		font-size: 0.95rem;
+	}
+
+	.branch-selector {
+		margin-top: 0.5rem;
+	}
+
+	.branch-select {
+		padding: 0.75rem 1rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: white;
+		color: #1e293b;
+		min-width: 300px;
+		cursor: pointer;
+	}
+
+	.branch-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.records-container {
