@@ -44,15 +44,23 @@
       loading = true;
       errorMessage = '';
 
+      // Load vendors filtered by selected branch only (not unassigned vendors)
       const { data, error } = await supabase
         .from('vendors')
         .select('*')
         .eq('status', 'Active')
+        .eq('branch_id', selectedBranch) // Only vendors assigned to this specific branch
         .order('vendor_name', { ascending: true });
 
       if (error) throw error;
       vendors = data || [];
       filteredVendors = vendors;
+      
+      // If no vendors found for this branch, show message
+      if (vendors.length === 0) {
+        errorMessage = `No vendors found for the selected branch. Please upload vendor data for this branch first or assign existing vendors to this branch.`;
+      }
+      
     } catch (err) {
       errorMessage = 'Failed to load vendors: ' + err.message;
       console.error('Error loading vendors:', err);

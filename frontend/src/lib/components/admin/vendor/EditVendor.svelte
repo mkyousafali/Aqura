@@ -4,6 +4,7 @@
 	export let onCancel;
 	export let isCreating = false; // Flag to indicate creation mode
 
+	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 
 	// Payment method options
@@ -29,6 +30,11 @@
 	let editData = { ...vendor };
 	let isSaving = false;
 	let error = null;
+
+	// Branch management
+	let branches = [];
+	let loadingBranches = false;
+	let selectedBranchId = editData.branch_id || null;
 
 	// Category management
 	let selectedCategories = editData.categories || [];
@@ -314,6 +320,30 @@
 		}
 	}
 
+	// Load branches from database
+	async function loadBranches() {
+		loadingBranches = true;
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) throw error;
+			branches = data || [];
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		} finally {
+			loadingBranches = false;
+		}
+	}
+
+	// Component initialization
+	onMount(async () => {
+		await loadBranches();
+	});
+
 	// Save vendor changes
 	async function saveVendor() {
 		try {
@@ -329,6 +359,12 @@
 
 			if (!editData.vendor_name || !editData.vendor_name.trim()) {
 				error = 'Vendor Name is required';
+				isSaving = false;
+				return;
+			}
+
+			if (!selectedBranchId) {
+				error = 'Branch selection is required';
 				isSaving = false;
 				return;
 			}
@@ -360,6 +396,7 @@
 				vat_applicable: vatInfo.applicable,
 				vat_number: vatInfo.number || null,
 				no_vat_note: vatInfo.noVatNote || null,
+				branch_id: selectedBranchId || null,
 				status: editData.status || 'Active'
 			};
 
@@ -378,11 +415,13 @@
 				if (createError) throw createError;
 				result = data;
 			} else {
-				// For updates, don't allow changing ERP vendor ID
+				// For updates, use both erp_vendor_id and original branch_id to uniquely identify the vendor
+				const originalBranchId = vendor.branch_id;
 				const { data, error: updateError } = await supabase
 					.from('vendors')
 					.update(vendorData)
 					.eq('erp_vendor_id', vendor.erp_vendor_id)
+					.eq('branch_id', originalBranchId)
 					.select()
 					.single();
 
@@ -449,6 +488,26 @@
 						class="form-input"
 						required
 					/>
+				</div>
+				<div class="form-field">
+					<label for="branch-select">Branch *</label>
+					{#if loadingBranches}
+						<div class="loading-state">Loading branches...</div>
+					{:else}
+						<select 
+							id="branch-select"
+							bind:value={selectedBranchId}
+							class="form-select"
+							required
+						>
+							<option value="">Choose a branch...</option>
+							{#each branches as branch}
+								<option value={branch.id}>
+									{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+								</option>
+							{/each}
+						</select>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1191,6 +1250,31 @@
 		background: #f3f4f6;
 		color: #6b7280;
 		cursor: not-allowed;
+	}
+
+	.form-select {
+		padding: 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		background: white;
+		transition: all 0.2s;
+		cursor: pointer;
+	}
+
+	.form-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.loading-state {
+		padding: 0.75rem;
+		color: #64748b;
+		font-style: italic;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
 	}
 
 	/* Place & Location Styles */
