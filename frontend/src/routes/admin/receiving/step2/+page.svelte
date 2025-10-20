@@ -50,7 +50,8 @@
         .select('*')
         .eq('status', 'Active')
         .eq('branch_id', selectedBranch) // Only vendors assigned to this specific branch
-        .order('vendor_name', { ascending: true });
+        .order('vendor_name', { ascending: true })
+        .limit(10000); // Increase limit to show all vendors
 
       if (error) throw error;
       vendors = data || [];

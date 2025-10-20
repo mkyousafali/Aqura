@@ -513,7 +513,8 @@ export const db = {
 			const { data, error } = await supabase
 				.from('vendors')
 				.select('*')
-				.order('vendor_name');
+				.order('vendor_name')
+				.limit(10000); // Increase limit to show all vendors
 			return { data, error };
 		},
 
