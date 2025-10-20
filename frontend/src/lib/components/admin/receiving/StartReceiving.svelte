@@ -207,6 +207,11 @@
     { key: 'actions', label: 'Actions' }
   ];
 
+  // Add reactive statement to reload vendors when branch changes
+  $: if (selectedBranch && !showBranchSelector) {
+    loadVendors();
+  }
+
   onMount(async () => {
     await loadBranches();
     // Check if user has a default branch
@@ -247,15 +252,30 @@
       vendorLoading = true;
       vendorError = '';
 
+      if (!selectedBranch) {
+        vendors = [];
+        filteredVendors = [];
+        vendorLoading = false;
+        return;
+      }
+
+      // Load vendors filtered by selected branch
       const { data, error } = await supabase
         .from('vendors')
         .select('*')
+        .or(`branch_id.eq.${selectedBranch},branch_id.is.null`) // Include vendors for this branch or unassigned vendors
         .eq('status', 'Active')
         .order('vendor_name', { ascending: true });
 
       if (error) throw error;
       vendors = data || [];
       filteredVendors = vendors;
+      
+      // Show message if no vendors found for this branch
+      if (vendors.length === 0) {
+        vendorError = `No vendors assigned to this branch. Please upload vendor data for this branch first.`;
+      }
+      
     } catch (err) {
       vendorError = 'Failed to load vendors: ' + err.message;
       console.error('Error loading vendors:', err);

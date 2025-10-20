@@ -11,19 +11,51 @@
 	let billsWithoutPrExcel = 0;
 	let loading = true;
 
+	// Branch filtering variables
+	let branches = [];
+	let selectedBranch = '';
+	let branchFilterMode = 'all'; // 'all', 'branch'
+	let loadingBranches = false;
+
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	}
+
+	// Load branches for filtering
+	async function loadBranches() {
+		loadingBranches = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) throw error;
+			branches = data || [];
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		} finally {
+			loadingBranches = false;
+		}
 	}
 
 	async function loadDashboardData() {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// Get total count of received bills
-			const { count: billsCount, error: billsError } = await supabase
+			// Get total count of received bills (filtered by branch if selected)
+			let billsQuery = supabase
 				.from('receiving_records')
 				.select('*', { count: 'exact', head: true });
+			
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				billsQuery = billsQuery.eq('branch_id', selectedBranch);
+			}
+			
+			const { count: billsCount, error: billsError } = await billsQuery;
 
 			if (billsError) {
 				console.error('Error loading bills count:', billsError);
@@ -32,37 +64,73 @@
 				totalReceivedBills = billsCount || 0;
 			}
 
-			// Get count of bills without original bill uploaded
-			const { data: noOriginalData, error: noOriginalError } = await supabase
-				.rpc('count_bills_without_original');
+			// Get count of bills without original bill uploaded (with branch filter)
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				const { data: noOriginalData, error: noOriginalError } = await supabase
+					.rpc('count_bills_without_original_by_branch', { branch_id_param: selectedBranch });
 
-			if (noOriginalError) {
-				console.error('Error loading bills without original count:', noOriginalError);
-				billsWithoutOriginal = 0;
+				if (noOriginalError) {
+					console.error('Error loading bills without original count:', noOriginalError);
+					billsWithoutOriginal = 0;
+				} else {
+					billsWithoutOriginal = noOriginalData || 0;
+				}
 			} else {
-				billsWithoutOriginal = noOriginalData || 0;
+				const { data: noOriginalData, error: noOriginalError } = await supabase
+					.rpc('count_bills_without_original');
+
+				if (noOriginalError) {
+					console.error('Error loading bills without original count:', noOriginalError);
+					billsWithoutOriginal = 0;
+				} else {
+					billsWithoutOriginal = noOriginalData || 0;
+				}
 			}
 
-			// Get count of bills without ERP purchase invoice reference
-			const { data: noErpData, error: noErpError } = await supabase
-				.rpc('count_bills_without_erp_reference');
+			// Get count of bills without ERP purchase invoice reference (with branch filter)
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				const { data: noErpData, error: noErpError } = await supabase
+					.rpc('count_bills_without_erp_reference_by_branch', { branch_id_param: selectedBranch });
 
-			if (noErpError) {
-				console.error('Error loading bills without ERP reference count:', noErpError);
-				billsWithoutErpReference = 0;
+				if (noErpError) {
+					console.error('Error loading bills without ERP reference count:', noErpError);
+					billsWithoutErpReference = 0;
+				} else {
+					billsWithoutErpReference = noErpData || 0;
+				}
 			} else {
-				billsWithoutErpReference = noErpData || 0;
+				const { data: noErpData, error: noErpError } = await supabase
+					.rpc('count_bills_without_erp_reference');
+
+				if (noErpError) {
+					console.error('Error loading bills without ERP reference count:', noErpError);
+					billsWithoutErpReference = 0;
+				} else {
+					billsWithoutErpReference = noErpData || 0;
+				}
 			}
 
-			// Get count of bills without PR Excel uploaded
-			const { data: noPrExcelData, error: noPrExcelError } = await supabase
-				.rpc('count_bills_without_pr_excel');
+			// Get count of bills without PR Excel uploaded (with branch filter)
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				const { data: noPrExcelData, error: noPrExcelError } = await supabase
+					.rpc('count_bills_without_pr_excel_by_branch', { branch_id_param: selectedBranch });
 
-			if (noPrExcelError) {
-				console.error('Error loading bills without PR Excel count:', noPrExcelError);
-				billsWithoutPrExcel = 0;
+				if (noPrExcelError) {
+					console.error('Error loading bills without PR Excel count:', noPrExcelError);
+					billsWithoutPrExcel = 0;
+				} else {
+					billsWithoutPrExcel = noPrExcelData || 0;
+				}
 			} else {
-				billsWithoutPrExcel = noPrExcelData || 0;
+				const { data: noPrExcelData, error: noPrExcelError } = await supabase
+					.rpc('count_bills_without_pr_excel');
+
+				if (noPrExcelError) {
+					console.error('Error loading bills without PR Excel count:', noPrExcelError);
+					billsWithoutPrExcel = 0;
+				} else {
+					billsWithoutPrExcel = noPrExcelData || 0;
+				}
 			}
 		} catch (err) {
 			console.error('Error in loadDashboardData:', err);
@@ -75,9 +143,24 @@
 		}
 	}
 
-	onMount(() => {
-		loadDashboardData();
+	onMount(async () => {
+		await loadBranches();
+		await loadDashboardData();
 	});
+
+	// Reactive statements for branch filter changes
+	$: if (branchFilterMode === 'all') {
+		selectedBranch = '';
+		loadDashboardData();
+	} else if (branchFilterMode === 'branch' && selectedBranch) {
+		loadDashboardData();
+	} else if (branchFilterMode === 'branch' && !selectedBranch) {
+		// Reset data when branch mode is selected but no branch is chosen
+		totalReceivedBills = 0;
+		billsWithoutOriginal = 0;
+		billsWithoutErpReference = 0;
+		billsWithoutPrExcel = 0;
+	}
 
 	// Refresh function to reload dashboard data
 	async function refreshDashboard() {
@@ -220,6 +303,51 @@
 
 	<!-- Top Dashboard Section with 5 Placeholders -->
 	<div class="dashboard-section">
+		<!-- Branch Filter Section -->
+		<div class="filter-section">
+			<div class="branch-filter">
+				<h4>🏢 Filter by Branch</h4>
+				<div class="filter-controls">
+					<div class="filter-options">
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={branchFilterMode} 
+								value="all"
+							/>
+							<span class="option-text">All Branches</span>
+						</label>
+						
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={branchFilterMode} 
+								value="branch"
+							/>
+							<span class="option-text">By Branch</span>
+						</label>
+					</div>
+					
+					{#if branchFilterMode === 'branch'}
+						<div class="branch-selector">
+							{#if loadingBranches}
+								<div class="loading-state">Loading branches...</div>
+							{:else}
+								<select bind:value={selectedBranch} class="branch-select">
+									<option value="">Choose a branch...</option>
+									{#each branches as branch}
+										<option value={branch.id}>
+											{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+										</option>
+									{/each}
+								</select>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+
 		<h2 class="section-title">Dashboard Overview</h2>
 		<div class="dashboard-grid">
 			{#each dashboardCards as card}
@@ -268,6 +396,82 @@
 		height: 100%;
 		background: white;
 		overflow-y: auto;
+	}
+
+	/* Filter Section Styles */
+	.filter-section {
+		margin-bottom: 2rem;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 12px;
+		padding: 1.5rem;
+	}
+
+	.branch-filter h4 {
+		margin: 0 0 1rem 0;
+		color: #1e293b;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.filter-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.filter-options {
+		display: flex;
+		gap: 2rem;
+		flex-wrap: wrap;
+	}
+
+	.filter-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-weight: 500;
+		color: #475569;
+	}
+
+	.filter-option input[type="radio"] {
+		margin: 0;
+		transform: scale(1.2);
+	}
+
+	.option-text {
+		font-size: 0.95rem;
+	}
+
+	.branch-selector {
+		margin-top: 0.5rem;
+	}
+
+	.branch-select {
+		padding: 0.75rem 1rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: white;
+		color: #1e293b;
+		min-width: 300px;
+		cursor: pointer;
+	}
+
+	.branch-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.loading-state {
+		padding: 0.75rem 1rem;
+		color: #64748b;
+		font-style: italic;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
 	}
 
 	.header {

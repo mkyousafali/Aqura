@@ -31,29 +31,45 @@
 			// Import supabase here to avoid circular dependencies
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			const { data, error } = await supabase
+			// First, get receiving records without joins
+			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
 				.select(`
 					*,
-					vendors (
-						erp_vendor_id,
-						vendor_name,
-						vat_number,
-						salesman_name,
-						salesman_contact
-					),
 					branches (
 						name_en
 					)
 				`)
 				.order('created_at', { ascending: false });
 
-			if (error) {
-				console.error('Error loading receiving records:', error);
-				receivingRecords = [];
-			} else {
-				receivingRecords = data || [];
+			if (recordsError) {
+				throw recordsError;
 			}
+
+			// Then, for each record, get the vendor info manually
+			const recordsWithVendors = await Promise.all((records || []).map(async (record) => {
+				const { data: vendorData, error: vendorError } = await supabase
+					.from('vendors')
+					.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact')
+					.eq('erp_vendor_id', record.vendor_id)
+					.eq('branch_id', record.branch_id)
+					.single();
+
+				if (vendorError) {
+					console.warn(`Could not find vendor ${record.vendor_id} for branch ${record.branch_id}:`, vendorError);
+					return {
+						...record,
+						vendors: null
+					};
+				}
+
+				return {
+					...record,
+					vendors: vendorData
+				};
+			}));
+
+			receivingRecords = recordsWithVendors;
 			
 			applyFilters();
 		} catch (err) {

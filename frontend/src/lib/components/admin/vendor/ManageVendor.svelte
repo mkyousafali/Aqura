@@ -12,11 +12,18 @@
 	let isLoading = true;
 	let error = null;
 
+	// Branch filtering
+	let branches = [];
+	let selectedBranch = '';
+	let loadingBranches = false;
+	let branchFilterMode = 'all'; // 'all', 'branch', 'unassigned'
+
 	// Column visibility management
 	let showColumnSelector = false;
 	let visibleColumns = {
 		erp_vendor_id: true,
 		vendor_name: true,
+		branch_name: true, // Add branch column
 		salesman_name: true,
 		salesman_contact: false,
 		supervisor_name: false,
@@ -46,6 +53,7 @@
 	const columnDefinitions = [
 		{ key: 'erp_vendor_id', label: 'ERP Vendor ID' },
 		{ key: 'vendor_name', label: 'Vendor Name' },
+		{ key: 'branch_name', label: 'Branch' },
 		{ key: 'salesman_name', label: 'Salesman Name' },
 		{ key: 'salesman_contact', label: 'Salesman Contact' },
 		{ key: 'supervisor_name', label: 'Supervisor Name' },
@@ -72,9 +80,52 @@
 	];
 
 	// Load vendor data on component mount
+	// Reactive statements
+	$: if (branchFilterMode === 'all') {
+		selectedBranch = null;
+		loadVendors();
+	} else if (branchFilterMode === 'unassigned') {
+		selectedBranch = null;
+		loadVendors();
+	} else if (branchFilterMode === 'branch') {
+		// Reset vendors when switching to branch mode
+		if (!selectedBranch) {
+			vendors = [];
+			filteredVendors = [];
+			totalVendors = 0;
+		} else {
+			loadVendors();
+		}
+	}
+
+	// Load vendors when branch selection changes (only for branch mode)
+	$: if (branchFilterMode === 'branch' && selectedBranch) {
+		loadVendors();
+	}
+
 	onMount(async () => {
+		await loadBranches();
 		await loadVendors();
 	});
+
+	// Load branches from database
+	async function loadBranches() {
+		loadingBranches = true;
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) throw error;
+			branches = data || [];
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		} finally {
+			loadingBranches = false;
+		}
+	}
 
 	// Load vendors from database
 	async function loadVendors() {
@@ -82,10 +133,29 @@
 			isLoading = true;
 			error = null;
 
-			const { data, error: fetchError } = await supabase
+			// If "By Branch" is selected but no branch is chosen, don't load vendors
+			if (branchFilterMode === 'branch' && !selectedBranch) {
+				vendors = [];
+				filteredVendors = [];
+				totalVendors = 0;
+				isLoading = false;
+				return;
+			}
+
+			let query = supabase
 				.from('vendors')
-				.select('*')
+				.select('*, branches(name_en)')
 				.order('erp_vendor_id', { ascending: true });
+
+			// Apply branch filtering
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				query = query.eq('branch_id', selectedBranch);
+			} else if (branchFilterMode === 'unassigned') {
+				query = query.is('branch_id', null);
+			}
+			// For 'all' mode, no additional filtering is applied
+
+			const { data, error: fetchError } = await query;
 
 			if (fetchError) throw fetchError;
 
@@ -166,8 +236,11 @@
 				onSave: async (updatedVendor) => {
 					console.log('Vendor updated:', updatedVendor);
 					try {
-						// Update local vendor data with proper reactivity
-						const index = vendors.findIndex(v => v.erp_vendor_id === updatedVendor.erp_vendor_id);
+						// Update local vendor data with proper reactivity using both erp_vendor_id and branch_id
+						const index = vendors.findIndex(v => 
+							v.erp_vendor_id === updatedVendor.erp_vendor_id && 
+							v.branch_id === vendor.branch_id // Use original branch_id to find the vendor
+						);
 						if (index !== -1) {
 							vendors[index] = { ...updatedVendor };
 							vendors = [...vendors]; // Trigger reactivity
@@ -391,6 +464,60 @@
 		</div>
 	</div>
 
+	<!-- Branch Filter Section -->
+	<div class="filter-section">
+		<div class="branch-filter">
+			<h4>🏢 Filter by Branch</h4>
+			<div class="filter-controls">
+				<div class="filter-options">
+					<label class="filter-option">
+						<input 
+							type="radio" 
+							bind:group={branchFilterMode} 
+							value="all"
+						/>
+						<span class="option-text">All Vendors ({totalVendors})</span>
+					</label>
+					
+					<label class="filter-option">
+						<input 
+							type="radio" 
+							bind:group={branchFilterMode} 
+							value="branch"
+						/>
+						<span class="option-text">By Branch</span>
+					</label>
+					
+					<label class="filter-option">
+						<input 
+							type="radio" 
+							bind:group={branchFilterMode} 
+							value="unassigned"
+						/>
+						<span class="option-text">Unassigned Vendors</span>
+					</label>
+				</div>
+				
+				{#if branchFilterMode === 'branch'}
+					<div class="branch-selector">
+						{#if loadingBranches}
+							<div class="loading-state">Loading branches...</div>
+						{:else}
+							<select bind:value={selectedBranch} class="branch-select">
+								<option value="">Choose a branch...</option>
+								{#each branches as branch}
+									<option value={branch.id}>
+										{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+									</option>
+								{/each}
+							</select>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+
 	<!-- Search Section -->
 	<div class="search-section">
 		<div class="search-bar">
@@ -408,7 +535,11 @@
 			</div>
 		</div>
 		<div class="search-results">
-			Showing {filteredVendors.length} of {totalVendors} vendors
+			{#if branchFilterMode === 'branch' && !selectedBranch}
+				<span class="branch-selection-hint">Please select a branch to view vendors</span>
+			{:else}
+				Showing {filteredVendors.length} of {totalVendors} vendors
+			{/if}
 		</div>
 	</div>
 
@@ -476,6 +607,7 @@
 						<tr>
 							{#if visibleColumns.erp_vendor_id}<th>ERP Vendor ID</th>{/if}
 							{#if visibleColumns.vendor_name}<th>Vendor Name</th>{/if}
+							{#if visibleColumns.branch_name}<th>Branch</th>{/if}
 							{#if visibleColumns.salesman_name}<th>Salesman Name</th>{/if}
 							{#if visibleColumns.salesman_contact}<th>Salesman Contact</th>{/if}
 							{#if visibleColumns.supervisor_name}<th>Supervisor Name</th>{/if}
@@ -502,6 +634,15 @@
 								{/if}
 								{#if visibleColumns.vendor_name}
 									<td class="vendor-name">{vendor.vendor_name}</td>
+								{/if}
+								{#if visibleColumns.branch_name}
+									<td class="branch-name">
+										{#if vendor.branches?.name_en}
+											<span class="branch-assigned">{vendor.branches.name_en}</span>
+										{:else}
+											<span class="branch-unassigned">Unassigned</span>
+										{/if}
+									</td>
 								{/if}
 								{#if visibleColumns.salesman_name}
 									<td class="vendor-data">
@@ -897,6 +1038,79 @@
 	.refresh-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* Filter Section */
+	.filter-section {
+		margin-bottom: 2rem;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 12px;
+		padding: 1.5rem;
+	}
+
+	.branch-filter h4 {
+		margin: 0 0 1rem 0;
+		color: #1e293b;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.filter-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.filter-options {
+		display: flex;
+		gap: 2rem;
+		flex-wrap: wrap;
+	}
+
+	.filter-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-weight: 500;
+		color: #475569;
+	}
+
+	.filter-option input[type="radio"] {
+		margin: 0;
+		transform: scale(1.2);
+	}
+
+	.option-text {
+		font-size: 0.95rem;
+	}
+
+	.branch-selector {
+		margin-top: 0.5rem;
+	}
+
+	.branch-select {
+		padding: 0.75rem 1rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: white;
+		color: #1e293b;
+		min-width: 300px;
+		cursor: pointer;
+	}
+
+	.branch-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.loading-state {
+		padding: 0.75rem 1rem;
+		color: #64748b;
+		font-style: italic;
 	}
 
 	/* Search Section */
@@ -1587,5 +1801,40 @@
 		font-size: 0.75rem;
 		font-weight: 500;
 		white-space: nowrap;
+	}
+
+	/* Branch Column Styles */
+	.branch-name {
+		font-weight: 500;
+		padding: 0.25rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		display: inline-block;
+		min-width: 80px;
+		text-align: center;
+	}
+
+	.branch-assigned {
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+	}
+
+	.branch-unassigned {
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #fde68a;
+		font-style: italic;
+	}
+
+	/* Branch Selection Hint */
+	.branch-selection-hint {
+		color: #64748b;
+		font-style: italic;
+		font-size: 0.9rem;
+		background: #f1f5f9;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		border: 1px solid #e2e8f0;
 	}
 </style>
