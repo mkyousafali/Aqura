@@ -38,7 +38,7 @@
   let shelfStockers = []; // All users from selected branch
   let actualShelfStockers = []; // Only users with "Shelf Stocker" position
   let filteredShelfStockers = [];
-  let selectedShelfStockers = []; // Multiple selection
+  let selectedShelfStocker = null; // Single selection
   let shelfStockersLoading = false;
   let shelfStockerSearchQuery = '';
   let showAllUsersForShelfStockers = false; // Flag to show all users when no shelf stockers found
@@ -83,7 +83,7 @@
   let warehouseHandlers = []; // All users from selected branch
   let actualWarehouseHandlers = []; // Only users with "Warehouse" or "Stock Handler" position
   let filteredWarehouseHandlers = [];
-  let selectedWarehouseHandlers = []; // Multiple selection
+  let selectedWarehouseHandler = null; // Single selection
   let warehouseHandlersLoading = false;
   let warehouseHandlerSearchQuery = '';
   let showAllUsersForWarehouseHandlers = false; // Flag to show all users when no warehouse handlers found
@@ -265,7 +265,8 @@
         .select('*')
         .or(`branch_id.eq.${selectedBranch},branch_id.is.null`) // Include vendors for this branch or unassigned vendors
         .eq('status', 'Active')
-        .order('vendor_name', { ascending: true });
+        .order('vendor_name', { ascending: true })
+        .limit(10000); // Increase limit to show all vendors
 
       if (error) throw error;
       vendors = data || [];
@@ -390,7 +391,7 @@
       shelfStockers = [];
       actualShelfStockers = [];
       filteredShelfStockers = [];
-      selectedShelfStockers = [];
+      selectedShelfStocker = null;
 
       // Get all users for the selected branch
       const { data: usersData, error: usersError } = await supabase
@@ -893,7 +894,7 @@
       warehouseHandlers = [];
       actualWarehouseHandlers = [];
       filteredWarehouseHandlers = [];
-      selectedWarehouseHandlers = [];
+      selectedWarehouseHandler = null;
 
       // Get all users for the selected branch
       const { data: usersData, error: usersError } = await supabase
@@ -1031,18 +1032,13 @@
   }
 
   function selectShelfStocker(user) {
-    // Check if user is already selected
-    const isAlreadySelected = selectedShelfStockers.some(stocker => stocker.id === user.id);
-    
-    if (!isAlreadySelected) {
-      selectedShelfStockers = [...selectedShelfStockers, user];
-      console.log('Selected shelf stockers:', selectedShelfStockers);
-    }
+    selectedShelfStocker = user;
+    console.log('Selected shelf stocker:', selectedShelfStocker);
   }
 
-  function removeShelfStocker(userId) {
-    selectedShelfStockers = selectedShelfStockers.filter(stocker => stocker.id !== userId);
-    console.log('Updated selected shelf stockers:', selectedShelfStockers);
+  function removeShelfStocker() {
+    selectedShelfStocker = null;
+    console.log('Removed shelf stocker selection');
   }
 
   // Function to show all users when no shelf stockers found
@@ -1194,17 +1190,13 @@
   }
 
   function selectWarehouseHandler(user) {
-    const isAlreadySelected = selectedWarehouseHandlers.some(handler => handler.id === user.id);
-    
-    if (!isAlreadySelected) {
-      selectedWarehouseHandlers = [...selectedWarehouseHandlers, user];
-      console.log('Selected warehouse handlers:', selectedWarehouseHandlers);
-    }
+    selectedWarehouseHandler = user;
+    console.log('Selected warehouse handler:', selectedWarehouseHandler);
   }
 
-  function removeWarehouseHandler(userId) {
-    selectedWarehouseHandlers = selectedWarehouseHandlers.filter(handler => handler.id !== userId);
-    console.log('Updated selected warehouse handlers:', selectedWarehouseHandlers);
+  function removeWarehouseHandler() {
+    selectedWarehouseHandler = null;
+    console.log('Removed warehouse handler selection');
   }
 
   function showAllUsersForWarehouseHandlerSelection() {
@@ -1397,9 +1389,9 @@
     selectedPurchasingManager = null;
     selectedInventoryManager = null;
     selectedAccountant = null;
-    selectedShelfStockers = [];
+    selectedShelfStocker = null;
     selectedNightSupervisors = [];
-    selectedWarehouseHandlers = [];
+    selectedWarehouseHandler = null;
   }
 
   function selectVendor(vendor) {
@@ -1646,11 +1638,11 @@
         branch_manager_user_id: selectedBranchManager?.id || null,
         accountant_user_id: selectedAccountant?.id || null,
         purchasing_manager_user_id: selectedPurchasingManager?.id || null,
-        shelf_stocker_user_ids: selectedWarehouseHandlers?.map(h => h.id) || [],
+        shelf_stocker_user_ids: selectedShelfStocker ? [selectedShelfStocker.id] : [],
         // New fields from migration 68
         inventory_manager_user_id: selectedInventoryManager?.id || null,
         night_supervisor_user_ids: selectedNightSupervisors?.map(s => s.id) || [],
-        warehouse_handler_user_ids: selectedWarehouseHandlers?.map(h => h.id) || [],
+        warehouse_handler_user_ids: selectedWarehouseHandler ? [selectedWarehouseHandler.id] : [],
         expired_return_amount: returns.expired.hasReturn === 'yes' ? parseFloat(returns.expired.amount || '0') : 0,
         near_expiry_return_amount: returns.nearExpiry.hasReturn === 'yes' ? parseFloat(returns.nearExpiry.amount || '0') : 0,
         over_stock_return_amount: returns.overStock.hasReturn === 'yes' ? parseFloat(returns.overStock.amount || '0') : 0,
@@ -2827,34 +2819,30 @@
       <div class="warehouse-handlers-section">
         <h4>
           {#if showAllUsersForWarehouseHandlers}
-            Select Users as Warehouse & Stock Handlers (Multiple)
+            Select User as Warehouse & Stock Handler
           {:else}
-            Select Warehouse & Stock Handlers (Multiple)
+            Select Warehouse & Stock Handler
           {/if}
         </h4>
         
-        {#if selectedWarehouseHandlers.length > 0}
-          <div class="selected-warehouse-handlers">
-            <h5>Selected Warehouse & Stock Handlers ({selectedWarehouseHandlers.length}):</h5>
-            <div class="selected-warehouse-handlers-list">
-              {#each selectedWarehouseHandlers as handler}
-                <div class="selected-warehouse-handler-item">
-                  <span class="warehouse-handler-info">
-                    {handler.username} - {handler.employeeName}
-                    {#if (handler.position.toLowerCase().includes('warehouse') || (handler.position.toLowerCase().includes('stock') && handler.position.toLowerCase().includes('handler')))}
-                      <span class="warehouse-handler-badge">Warehouse Handler</span>
-                    {/if}
-                  </span>
-                  <button 
-                    type="button" 
-                    class="remove-warehouse-handler-btn"
-                    on:click={() => removeWarehouseHandler(handler.id)}
-                    title="Remove this warehouse handler"
-                  >
-                    ×
-                  </button>
-                </div>
-              {/each}
+        {#if selectedWarehouseHandler}
+          <div class="selected-warehouse-handler">
+            <h5>Selected Warehouse & Stock Handler:</h5>
+            <div class="selected-warehouse-handler-item">
+              <span class="warehouse-handler-info">
+                {selectedWarehouseHandler.username} - {selectedWarehouseHandler.employeeName}
+                {#if (selectedWarehouseHandler.position.toLowerCase().includes('warehouse') || (selectedWarehouseHandler.position.toLowerCase().includes('stock') && selectedWarehouseHandler.position.toLowerCase().includes('handler')))}
+                  <span class="warehouse-handler-badge">Warehouse Handler</span>
+                {/if}
+              </span>
+              <button 
+                type="button" 
+                class="remove-warehouse-handler-btn"
+                on:click={removeWarehouseHandler}
+                title="Remove this warehouse handler"
+              >
+                ×
+              </button>
             </div>
           </div>
         {/if}
@@ -2912,7 +2900,7 @@
               </thead>
               <tbody>
                 {#each filteredWarehouseHandlers as user}
-                  {@const isSelected = selectedWarehouseHandlers.some(handler => handler.id === user.id)}
+                  {@const isSelected = selectedWarehouseHandler && selectedWarehouseHandler.id === user.id}
                   <tr class="warehouse-handler-row" class:is-warehouse-handler={(user.position.toLowerCase().includes('warehouse') || (user.position.toLowerCase().includes('stock') && user.position.toLowerCase().includes('handler')))} class:is-selected={isSelected}>
                     <td class="username-cell">{user.username}</td>
                     <td class="name-cell">{user.employeeName}</td>
@@ -2928,7 +2916,7 @@
                         <button 
                           type="button" 
                           class="remove-warehouse-handler-btn"
-                          on:click={() => removeWarehouseHandler(user.id)}
+                          on:click={removeWarehouseHandler}
                         >
                           Remove
                         </button>
@@ -2977,35 +2965,31 @@
       <div class="shelf-stockers-section">
         <h4>
           {#if showAllUsersForShelfStockers}
-            Select Users as Shelf Stockers (Multiple)
+            Select User as Shelf Stocker
           {:else}
-            Select Shelf Stockers (Multiple)
+            Select Shelf Stocker
           {/if}
         </h4>
         
-        <!-- Selected Shelf Stockers Display -->
-        {#if selectedShelfStockers.length > 0}
-          <div class="selected-stockers">
-            <h5>Selected Shelf Stockers ({selectedShelfStockers.length}):</h5>
-            <div class="selected-stockers-list">
-              {#each selectedShelfStockers as stocker}
-                <div class="selected-stocker-item">
-                  <span class="stocker-info">
-                    {stocker.username} - {stocker.employeeName}
-                    {#if stocker.position.toLowerCase().includes('shelf') && stocker.position.toLowerCase().includes('stocker')}
-                      <span class="stocker-badge">Shelf Stocker</span>
-                    {/if}
-                  </span>
-                  <button 
-                    type="button" 
-                    class="remove-stocker-btn"
-                    on:click={() => removeShelfStocker(stocker.id)}
-                    title="Remove this shelf stocker"
-                  >
-                    ×
-                  </button>
-                </div>
-              {/each}
+        <!-- Selected Shelf Stocker Display -->
+        {#if selectedShelfStocker}
+          <div class="selected-stocker">
+            <h5>Selected Shelf Stocker:</h5>
+            <div class="selected-stocker-item">
+              <span class="stocker-info">
+                {selectedShelfStocker.username} - {selectedShelfStocker.employeeName}
+                {#if selectedShelfStocker.position.toLowerCase().includes('shelf') && selectedShelfStocker.position.toLowerCase().includes('stocker')}
+                  <span class="stocker-badge">Shelf Stocker</span>
+                {/if}
+              </span>
+              <button 
+                type="button" 
+                class="remove-stocker-btn"
+                on:click={removeShelfStocker}
+                title="Remove this shelf stocker"
+              >
+                ×
+              </button>
             </div>
           </div>
         {/if}
@@ -3067,7 +3051,7 @@
               </thead>
               <tbody>
                 {#each filteredShelfStockers as user}
-                  {@const isSelected = selectedShelfStockers.some(stocker => stocker.id === user.id)}
+                  {@const isSelected = selectedShelfStocker && selectedShelfStocker.id === user.id}
                   <tr class="stocker-row" class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
                     <td class="username-cell">{user.username}</td>
                     <td class="name-cell">{user.employeeName}</td>
@@ -3083,7 +3067,7 @@
                         <button 
                           type="button" 
                           class="remove-stocker-btn"
-                          on:click={() => removeShelfStocker(user.id)}
+                          on:click={removeShelfStocker}
                         >
                           Remove
                         </button>

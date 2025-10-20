@@ -145,7 +145,8 @@
 			let query = supabase
 				.from('vendors')
 				.select('*, branches(name_en)')
-				.order('erp_vendor_id', { ascending: true });
+				.order('erp_vendor_id', { ascending: true })
+				.range(0, 99999); // Very large range to ensure all vendors are fetched
 
 			// Apply branch filtering
 			if (branchFilterMode === 'branch' && selectedBranch) {
@@ -161,7 +162,25 @@
 
 			vendors = data || [];
 			filteredVendors = vendors;
-			totalVendors = vendors.length;
+
+			// Get the actual total count with a separate query
+			let countQuery = supabase
+				.from('vendors')
+				.select('*', { count: 'exact', head: true });
+
+			// Apply the same filtering for count
+			if (branchFilterMode === 'branch' && selectedBranch) {
+				countQuery = countQuery.eq('branch_id', selectedBranch);
+			} else if (branchFilterMode === 'unassigned') {
+				countQuery = countQuery.is('branch_id', null);
+			}
+
+			const { count, error: countError } = await countQuery;
+			if (!countError) {
+				totalVendors = count || 0;
+			} else {
+				totalVendors = vendors.length; // Fallback to fetched data length
+			}
 
 		} catch (err) {
 			error = err.message;
