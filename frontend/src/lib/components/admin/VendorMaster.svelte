@@ -2,6 +2,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import UploadVendor from './vendor/UploadVendor.svelte';
 	import ManageVendor from './vendor/ManageVendor.svelte';
+	import PaymentManager from './vendor/PaymentManager.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -23,6 +24,13 @@
 			description: 'View, edit and manage vendor records',
 			icon: '🏪',
 			color: 'green'
+		},
+		{
+			id: 'payment-manager',
+			title: 'Payment Manager',
+			description: 'Manage vendor payments and financial records',
+			icon: '💳',
+			color: 'purple'
 		}
 	];
 
@@ -58,6 +66,23 @@
 				position: { 
 					x: 80 + (Math.random() * 100),
 					y: 80 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else if (vendorOperation.id === 'payment-manager') {
+			// Open Payment Manager component (placeholder for now)
+			windowManager.openWindow({
+				id: windowId,
+				title: `Payment Manager #${instanceNumber}`,
+				component: PaymentManager,
+				icon: vendorOperation.icon,
+				size: { width: 1000, height: 700 },
+				position: { 
+					x: 120 + (Math.random() * 100),
+					y: 120 + (Math.random() * 100) 
 				},
 				resizable: true,
 				minimizable: true,
@@ -189,6 +214,11 @@
 		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
 	}
 
+	.dashboard-card.purple:hover {
+		border-color: #8b5cf6;
+		background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+	}
+
 	.card-icon {
 		width: 64px;
 		height: 64px;
@@ -205,6 +235,10 @@
 
 	.green .card-icon {
 		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	}
+
+	.purple .card-icon {
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
 	}
 
 	.card-icon .icon {

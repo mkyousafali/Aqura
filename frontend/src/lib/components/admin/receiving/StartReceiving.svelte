@@ -1324,12 +1324,21 @@
 
   $: finalBillAmount = parseFloat(billAmount || 0) - totalReturnAmount;
 
-  // Reactive statement to calculate due date for credit methods
-  $: if (billDate && creditPeriod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')) {
-    const billDateObj = new Date(billDate);
-    const dueDateObj = new Date(billDateObj);
-    dueDateObj.setDate(billDateObj.getDate() + parseInt(creditPeriod));
-    dueDate = dueDateObj.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+  // Reactive statement to calculate due date based on payment method
+  $: if (paymentMethod) {
+    if (paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery') {
+      // For delivery methods, due date is current date (immediate payment)
+      const today = new Date();
+      dueDate = today.toISOString().split('T')[0];
+    } else if (billDate && creditPeriod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')) {
+      // For credit methods, due date is bill date + credit period
+      const billDateObj = new Date(billDate);
+      const dueDateObj = new Date(billDateObj);
+      dueDateObj.setDate(billDateObj.getDate() + parseInt(creditPeriod));
+      dueDate = dueDateObj.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+    } else {
+      dueDate = '';
+    }
   } else {
     dueDate = '';
   }
@@ -4010,11 +4019,16 @@
       </div>
     {/if}
 
-    <!-- Due Date Section - Show for Credit methods only -->
-    {#if selectedVendor && paymentMethod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')}
+    <!-- Due Date Section - Show for all payment methods -->
+    {#if selectedVendor && paymentMethod}
       <div class="due-date-section">
         <h4>Due Date Information</h4>
-        <p class="section-description">Calculated based on bill date and credit period</p>
+        
+        {#if paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery'}
+          <p class="section-description">Payment due on delivery (current date)</p>
+        {:else if paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit'}
+          <p class="section-description">Calculated based on bill date and credit period</p>
+        {/if}
         
         <div class="due-date-field">
           <label for="dueDate">Due Date:</label>
@@ -4025,10 +4039,16 @@
               value={dueDate}
               readonly
               class="readonly-input"
-              title="Calculated as Bill Date + Credit Period"
+              title={paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery' 
+                     ? 'Due on delivery (current date)' 
+                     : 'Calculated as Bill Date + Credit Period'}
             />
-            <span class="calculation-info">Bill Date + {creditPeriod} days</span>
-          {:else if billDate && !creditPeriod}
+            {#if paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit'}
+              <span class="calculation-info">Bill Date + {creditPeriod} days</span>
+            {:else}
+              <span class="calculation-info">Due on delivery</span>
+            {/if}
+          {:else if (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit') && billDate && !creditPeriod}
             <div class="due-date-notice">
               <span class="notice-text">Please enter credit period to calculate due date</span>
             </div>
