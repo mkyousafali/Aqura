@@ -2,7 +2,6 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import UploadVendor from './vendor/UploadVendor.svelte';
 	import ManageVendor from './vendor/ManageVendor.svelte';
-	import PaymentManager from './vendor/PaymentManager.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -24,13 +23,6 @@
 			description: 'View, edit and manage vendor records',
 			icon: '🏪',
 			color: 'green'
-		},
-		{
-			id: 'payment-manager',
-			title: 'Payment Manager',
-			description: 'Manage vendor payments and financial records',
-			icon: '💳',
-			color: 'purple'
 		}
 	];
 
@@ -66,23 +58,6 @@
 				position: { 
 					x: 80 + (Math.random() * 100),
 					y: 80 + (Math.random() * 100) 
-				},
-				resizable: true,
-				minimizable: true,
-				maximizable: true,
-				closable: true
-			});
-		} else if (vendorOperation.id === 'payment-manager') {
-			// Open Payment Manager component (placeholder for now)
-			windowManager.openWindow({
-				id: windowId,
-				title: `Payment Manager #${instanceNumber}`,
-				component: PaymentManager,
-				icon: vendorOperation.icon,
-				size: { width: 1000, height: 700 },
-				position: { 
-					x: 120 + (Math.random() * 100),
-					y: 120 + (Math.random() * 100) 
 				},
 				resizable: true,
 				minimizable: true,

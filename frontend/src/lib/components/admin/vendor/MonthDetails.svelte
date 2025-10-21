@@ -9,6 +9,12 @@
 	let monthDetailData = [];
 	let scheduledPayments = [];
 	
+	// Filter state
+	let filterBranch = '';
+	let filterPaymentMethod = '';
+	let branches = [];
+	let paymentMethods = [];
+	
 	// Drag and drop state
 	let draggedPayment = null;
 	let showSplitModal = false;
@@ -19,6 +25,8 @@
 	// Initialize component
 	onMount(async () => {
 		if (monthData) {
+			await loadBranches();
+			await loadPaymentMethods();
 			await loadScheduledPayments();
 			generateAllDaysOfMonth(monthData);
 		}
@@ -27,6 +35,102 @@
 	// Reactive statement to regenerate data when scheduledPayments change
 	$: if (scheduledPayments.length >= 0 && monthData) {
 		generateAllDaysOfMonth(monthData);
+	}
+
+	// Reactive statement to filter payments when filter changes
+	$: filteredPayments = scheduledPayments.filter(payment => {
+		if (filterBranch && payment.branch_name !== filterBranch) return false;
+		if (filterPaymentMethod && payment.payment_method !== filterPaymentMethod) return false;
+		return true;
+	});
+
+	// Regenerate data when filters change
+	$: if (monthData && (filterBranch !== undefined || filterPaymentMethod !== undefined)) {
+		generateAllDaysOfMonth(monthData);
+	}
+
+	// Calculate totals by payment method
+	$: totalsByPaymentMethod = scheduledPayments.reduce((acc, payment) => {
+		const method = payment.payment_method || 'Unknown';
+		const amount = payment.final_bill_amount || 0;
+		
+		if (!acc[method]) {
+			acc[method] = 0;
+		}
+		acc[method] += amount;
+		
+		return acc;
+	}, {});
+
+	// Load all branches from database
+	async function loadBranches() {
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('name_en, name_ar')
+				.eq('is_active', true)
+				.order('name_en', { ascending: true });
+
+			if (error) {
+				console.error('Error loading branches:', error);
+				return;
+			}
+
+			branches = data?.map(b => b.name_en) || [];
+			console.log('Loaded branches:', branches);
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		}
+	}
+
+	// Load all payment methods (you can customize this list)
+	async function loadPaymentMethods() {
+		try {
+			// Get unique payment methods from vendor_payment_schedule
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select('payment_method');
+
+			if (error) {
+				console.error('Error loading payment methods:', error);
+				// Fallback to default list
+				paymentMethods = ['Cash on Delivery', 'Bank Credit'];
+				return;
+			}
+
+			// Extract unique payment methods
+			const methodSet = new Set();
+			data?.forEach(payment => {
+				if (payment.payment_method && payment.payment_method.trim() !== '') {
+					methodSet.add(payment.payment_method.trim());
+				}
+			});
+
+			paymentMethods = Array.from(methodSet).sort();
+			console.log('Loaded payment methods:', paymentMethods);
+		} catch (error) {
+			console.error('Error loading payment methods:', error);
+			// Fallback to default list
+			paymentMethods = ['Cash on Delivery', 'Bank Credit'];
+		}
+	}
+
+	// Extract unique branches and payment methods for filters
+	function extractFilterOptions() {
+		const branchSet = new Set();
+		const paymentMethodSet = new Set();
+		
+		scheduledPayments.forEach(payment => {
+			if (payment.branch_name && payment.branch_name.trim() !== '') {
+				branchSet.add(payment.branch_name.trim());
+			}
+			if (payment.payment_method && payment.payment_method.trim() !== '') {
+				paymentMethodSet.add(payment.payment_method.trim());
+			}
+		});
+		
+		console.log('Extracted branches from payments:', Array.from(branchSet));
+		console.log('Extracted payment methods from payments:', Array.from(paymentMethodSet));
 	}
 
 	// Load scheduled payments from database
@@ -67,8 +171,9 @@
 				paymentCount: 0
 			};
 
-			// Find payments for this specific day
-			scheduledPayments.forEach(payment => {
+			// Find payments for this specific day (use filteredPayments)
+			const paymentsToUse = filteredPayments || scheduledPayments;
+			paymentsToUse.forEach(payment => {
 				const paymentDate = new Date(payment.due_date);
 				if (paymentDate.toDateString() === dayDate.toDateString()) {
 					dayInfo.payments.push(payment);
@@ -100,8 +205,33 @@
 
 	// Format currency display
 	function formatCurrency(amount) {
-		if (!amount || amount === 0) return 'SAR 0.00';
-		return `SAR ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+		if (!amount || amount === 0) return '0.00';
+		return `${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+	}
+
+	// Handle date selection and scroll to that date
+	function handleDateSelect(event) {
+		const selectedDate = event.target.value;
+		
+		if (selectedDate) {
+			// Use requestAnimationFrame to ensure DOM is ready
+			requestAnimationFrame(() => {
+				const element = document.getElementById(`day-${selectedDate}`);
+				
+				if (element) {
+					// Simple scroll into view
+					element.scrollIntoView({ 
+						behavior: 'smooth', 
+						block: 'center'
+					});
+					
+					// Reset the select after scrolling
+					setTimeout(() => {
+						event.target.value = '';
+					}, 1000);
+				}
+			});
+		}
 	}
 
 	// Format date for database without timezone conversion issues
@@ -197,6 +327,9 @@
 			// Update original payment with remaining amount
 			await updatePaymentAmount(splitPayment.id, remainingAmount);
 			
+			// Reload data to show updated amounts immediately
+			await loadScheduledPayments();
+			
 			// Show success message
 			alert(`Payment split successfully!\n\n✅ Created new payment: ${formatCurrency(splitAmount)} on ${splitPayment.newDate.toLocaleDateString()}\n✅ Updated original payment: ${formatCurrency(remainingAmount)} on ${new Date(splitPayment.due_date).toLocaleDateString()}`);
 			
@@ -277,6 +410,9 @@
 					bank_name: originalPayment.bank_name,
 					iban: originalPayment.iban,
 					due_date: formatDateForDB(newDate),
+					original_due_date: originalPayment.original_due_date, // Preserve original due date
+					original_bill_amount: originalPayment.original_bill_amount, // Preserve original bill amount
+					original_final_amount: originalPayment.original_final_amount, // Preserve original final amount
 					credit_period: originalPayment.credit_period,
 					vat_number: originalPayment.vat_number,
 					payment_status: 'scheduled',
@@ -321,12 +457,32 @@
 				<span class="summary-label">Total Amount:</span>
 				<span class="summary-value">{formatCurrency(monthData.total)}</span>
 			</div>
+			{#each Object.entries(totalsByPaymentMethod) as [method, amount]}
+				<div class="summary-item payment-method-total">
+					<span class="summary-label">{method}:</span>
+					<span class="summary-value">{formatCurrency(amount)}</span>
+				</div>
+			{/each}
+			
+			<!-- Go to Date Selector -->
+			<div class="summary-item go-to-date">
+				<span class="summary-label">Go to Date:</span>
+				<select class="date-select" on:change={handleDateSelect}>
+					<option value="">Select a date</option>
+					{#each monthDetailData as dayData}
+						<option value={dayData.date}>
+							{dayData.date} - {dayData.dayName} {dayData.paymentCount > 0 ? `(${dayData.paymentCount} payments)` : ''}
+						</option>
+					{/each}
+				</select>
+			</div>
 		</div>
 
 		<!-- Days List -->
 		<div class="month-days-list">
 			{#each monthDetailData as dayData}
 				<div 
+					id="day-{dayData.date}"
 					class="day-details-card" 
 					class:has-payments={dayData.paymentCount > 0}
 					class:drop-zone={draggedPayment}
@@ -356,6 +512,20 @@
 						<div class="payment-section">
 							<div class="section-header">
 								<h3 class="section-title">🏪 Vendor Payments</h3>
+								<div class="filter-controls">
+									<select class="filter-select" bind:value={filterBranch}>
+										<option value="">All Branches</option>
+										{#each branches as branch}
+											<option value={branch}>{branch}</option>
+										{/each}
+									</select>
+									<select class="filter-select" bind:value={filterPaymentMethod}>
+										<option value="">All Payment Methods</option>
+										{#each paymentMethods as method}
+											<option value={method}>{method}</option>
+										{/each}
+									</select>
+								</div>
 								<div class="section-summary">
 									{#if dayData.paymentCount > 0}
 										<span>{Object.keys(dayData.paymentsByVendor).length} vendor{Object.keys(dayData.paymentsByVendor).length !== 1 ? 's' : ''}</span>
@@ -368,36 +538,31 @@
 							</div>
 
 								<!-- Common Table Header (separate from vendor cards) -->
+								<div class="payments-table-wrapper">
 								<div class="payments-table-header">
 									<div class="table-header-row">
-										<div class="header-column">Bill #</div>
-										<div class="header-column">Amount</div>
-										<div class="header-column">Bill Date</div>
-										<div class="header-column">Due Date</div>
-										<div class="header-column">Branch</div>
-										<div class="header-column">Payment Method</div>
-										<div class="header-column">Bank Name</div>
-										<div class="header-column">IBAN</div>
-										<div class="header-column">Status</div>
+										<div class="header-column" title="Drag to reschedule">⋮⋮</div>
+										<div class="header-column" title="Bill Number">Bill #</div>
+										<div class="header-column" title="Vendor Name">Vendor</div>
+										<div class="header-column" title="Final Bill Amount">Amount</div>
+										<div class="header-column" title="Original Bill Amount">Orig. Bill</div>
+										<div class="header-column" title="Original Final Amount">Orig. Final</div>
+										<div class="header-column" title="Bill Date">Bill Date</div>
+										<div class="header-column" title="Due Date">Due Date</div>
+										<div class="header-column" title="Original Due Date">Orig. Due</div>
+										<div class="header-column" title="Branch Name">Branch</div>
+										<div class="header-column" title="Payment Method">Payment</div>
+										<div class="header-column" title="Bank Name">Bank</div>
+										<div class="header-column" title="IBAN">IBAN</div>
+										<div class="header-column status-header" title="Payment Status">Status</div>
 									</div>
 								</div>
 
 								<!-- Vendors Container with Payment Rows -->
 								<div class="vendors-container">
+									<div class="vendors-scroll-container">
 									{#if dayData.paymentCount > 0}
 										{#each Object.entries(dayData.paymentsByVendor) as [vendorKey, vendorGroup], vendorIndex}
-										<div class="vendor-group" style="border-left: 4px solid {getVendorColor(vendorIndex)};">
-											<!-- Vendor Title Row (separate from table) -->
-											<div class="vendor-title-row" style="background-color: {getVendorColor(vendorIndex)}15; border-left: 4px solid {getVendorColor(vendorIndex)};">
-												<h4 class="vendor-name" style="color: {getVendorColor(vendorIndex)};">
-													{vendorGroup.vendor_name}
-												</h4>
-												<div class="vendor-summary">
-													<span>{vendorGroup.payments.length} payment{vendorGroup.payments.length !== 1 ? 's' : ''}</span>
-													<span>{formatCurrency(vendorGroup.totalAmount)}</span>
-												</div>
-											</div>
-									
 											<!-- Payment Rows (matching table header) -->
 											<div class="vendor-payments-rows">
 												{#each vendorGroup.payments as payment}
@@ -406,23 +571,30 @@
 														draggable="true"
 														class:dragging={draggedPayment && draggedPayment.id === payment.id}
 														on:dragstart={(e) => handleDragStart(e, payment)}
-														title="Drag to reschedule payment"
+														title="Drag to reschedule payment - {vendorGroup.vendor_name}"
 														style="border-left: 4px solid {getVendorColor(vendorIndex)};"
 													>
-														<div class="drag-handle" style="color: {getVendorColor(vendorIndex)};">⋮⋮</div>
-														
 														<div class="payment-data-row">
-															<div class="data-cell">#{payment.bill_number || 'N/A'}</div>
+															<div class="data-cell drag-handle" style="color: {getVendorColor(vendorIndex)};">⋮⋮</div>
+															<div class="data-cell bill-cell">
+																<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
+															</div>
+															<div class="data-cell vendor-cell" style="color: {getVendorColor(vendorIndex)};">
+																{vendorGroup.vendor_name}
+															</div>
 															<div class="data-cell amount">{formatCurrency(payment.final_bill_amount)}</div>
+															<div class="data-cell amount original-amount">{formatCurrency(payment.original_bill_amount || 0)}</div>
+															<div class="data-cell amount original-amount">{formatCurrency(payment.original_final_amount || 0)}</div>
 															<div class="data-cell">{payment.bill_date ? new Date(payment.bill_date).toLocaleDateString() : 'N/A'}</div>
 															<div class="data-cell">{payment.due_date ? new Date(payment.due_date).toLocaleDateString() : 'N/A'}</div>
+															<div class="data-cell">{payment.original_due_date ? new Date(payment.original_due_date).toLocaleDateString() : 'N/A'}</div>
 															<div class="data-cell">{payment.branch_name || 'N/A'}</div>
 															<div class="data-cell">
 																<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
 															</div>
 															<div class="data-cell">{payment.bank_name || 'N/A'}</div>
 															<div class="data-cell">{payment.iban || 'N/A'}</div>
-															<div class="data-cell">
+															<div class="data-cell status-cell">
 																<span class="status-badge {getPaymentStatusStyle(payment.payment_status)}">
 																	{payment.payment_status || 'scheduled'}
 																</span>
@@ -431,7 +603,6 @@
 													</div>
 												{/each}
 											</div>
-								</div>
 						{/each}
 									{:else}
 										<!-- Empty state for vendor payments -->
@@ -439,6 +610,8 @@
 											<div class="empty-message">No vendor payments scheduled for this date</div>
 										</div>
 									{/if}
+									</div>
+								</div>
 								</div>
 							</div>
 
@@ -504,15 +677,27 @@
 							<span class="value">{splitPayment.bill_number}</span>
 						</div>
 						<div class="detail-row">
-							<span class="label">Original Amount:</span>
-							<span class="value amount-original">{formatCurrency(splitPayment.final_bill_amount)}</span>
+							<span class="label">Current Amount:</span>
+							<span class="value amount-current">{formatCurrency(splitPayment.final_bill_amount)}</span>
 						</div>
+						{#if splitPayment.original_final_amount || splitPayment.original_bill_amount}
 						<div class="detail-row">
-							<span class="label">From Date:</span>
+							<span class="label">Original Amount:</span>
+							<span class="value amount-original">{formatCurrency(splitPayment.original_final_amount || splitPayment.original_bill_amount)}</span>
+						</div>
+						{/if}
+						<div class="detail-row">
+							<span class="label">Current Due Date:</span>
 							<span class="value">{new Date(splitPayment.due_date).toLocaleDateString()}</span>
 						</div>
+						{#if splitPayment.original_due_date}
 						<div class="detail-row">
-							<span class="label">To Date:</span>
+							<span class="label">Original Due Date:</span>
+							<span class="value">{new Date(splitPayment.original_due_date).toLocaleDateString()}</span>
+						</div>
+						{/if}
+						<div class="detail-row">
+							<span class="label">Split To Date:</span>
 							<span class="value">{splitPayment.newDate.toLocaleDateString()}</span>
 						</div>
 					</div>
@@ -552,7 +737,6 @@
 										step="0.01"
 										placeholder="Enter amount to split"
 									/>
-									<span class="currency-symbol">SAR</span>
 								</div>
 								
 								<!-- Amount Breakdown Display -->
@@ -605,6 +789,11 @@
 		margin-bottom: 24px;
 		padding-bottom: 16px;
 		border-bottom: 2px solid #e2e8f0;
+		position: sticky;
+		top: 0;
+		background: white;
+		z-index: 101;
+		padding-top: 16px;
 	}
 
 	.month-details-header h2 {
@@ -622,12 +811,57 @@
 		background: white;
 		border-radius: 8px;
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+		position: sticky;
+		top: 80px;
+		z-index: 100;
+		flex-wrap: wrap;
 	}
 
 	.summary-item {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+		padding-left: 16px;
+		border-left: 2px solid #e5e7eb;
+	}
+
+	.summary-item:first-child {
+		padding-left: 0;
+		border-left: none;
+	}
+
+	.summary-item.payment-method-total {
+		padding-left: 16px;
+		border-left: 2px solid #e5e7eb;
+	}
+
+	.summary-item.go-to-date {
+		margin-left: auto;
+		padding-left: 16px;
+		border-left: 2px solid #e5e7eb;
+	}
+
+	.date-select {
+		padding: 8px 12px;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		background: white;
+		font-size: 14px;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 250px;
+		font-weight: 600;
+	}
+
+	.date-select:hover {
+		border-color: #3b82f6;
+	}
+
+	.date-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.summary-label {
@@ -739,6 +973,36 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: 16px;
+		flex-wrap: wrap;
+	}
+
+	.filter-controls {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
+	.filter-select {
+		padding: 8px 12px;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		background: white;
+		font-size: 13px;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 180px;
+	}
+
+	.filter-select:hover {
+		border-color: #3b82f6;
+	}
+
+	.filter-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.section-title {
@@ -956,7 +1220,26 @@
 
 	/* Status Cell */
 	.status-cell {
+		text-align: center !important;
+		margin-left: 70px !important;
+		padding-left: 35px !important;
+		display: flex !important;
+		justify-content: flex-end !important;
+		width: 100% !important;
+		position: relative !important;
+		right: -50px !important;
+	}
+
+	.header-column.status-header {
+		margin-left: 0px;
+		padding-left: 0px;
 		text-align: center;
+		margin-right: 0px;
+		padding-right: 0px;
+		width: 100%;
+		display: flex;
+		justify-content: center;
+		overflow: visible;
 	}
 
 	.status-cell .scheduled-date,
@@ -972,26 +1255,39 @@
 	}
 
 	/* Vendor Grouping Styles */
+	.vendors-scroll-container {
+		min-width: 1365px;
+	}
+
 	.vendors-container {
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: 0;
 	}
 
 	.vendor-group {
-		border: 3px solid;
-		border-radius: 12px;
+		border: 1px solid #e5e7eb;
+		border-top: none;
+		border-radius: 0;
 		overflow: hidden;
 		background: white;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		margin: 0;
+		padding: 0;
 	}
 
 	.vendor-summary {
 		display: flex;
-		gap: 20px;
-		font-size: 14px;
+		gap: 12px;
+		font-size: 12px;
 		font-weight: 600;
 		color: #374151;
+	}
+
+	/* Table Wrapper */
+	.payments-table-wrapper {
+		overflow-x: auto;
+		margin: 0 -20px;
+		padding: 0 20px;
 	}
 
 	/* Table Header Structure */
@@ -1000,43 +1296,73 @@
 		border: 2px solid #e2e8f0;
 		border-radius: 8px 8px 0 0;
 		margin-bottom: 0;
+		min-width: 1365px;
 	}
 
 	.table-header-row {
 		display: grid;
-		grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1.2fr 1fr 1fr;
+		grid-template-columns: 40px 110px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 120px;
 		gap: 12px;
-		padding: 16px 20px;
+		padding: 14px 18px;
+		margin-left: 0px;
+		box-sizing: border-box;
+		width: 100%;
 		font-weight: 700;
 		color: #475569;
 		text-transform: uppercase;
-		font-size: 12px;
-		letter-spacing: 0.5px;
+		font-size: 10px;
+		letter-spacing: 0.3px;
+		white-space: nowrap;
+		overflow: hidden;
 	}
 
 	.header-column {
 		text-align: left;
+		display: flex;
+		align-items: center;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 8px 4px;
+	}
+
+	.header-column:nth-child(4),
+	.header-column:nth-child(5),
+	.header-column:nth-child(6) {
+		text-align: right;
+		justify-content: flex-end;
+	}
+
+	.vendors-scroll-container {
+		overflow-x: auto;
+		min-width: 100%;
+		width: 1200px;
 	}
 
 	/* Vendor Structure */
 	.vendor-title-row {
-		padding: 12px 20px;
+		padding: 6px 16px;
 		margin: 0;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		border-bottom: 1px solid #e5e7eb;
+		border-top: none;
+		min-width: 1100px;
+		font-size: 12px;
 	}
 
 	.vendor-name {
 		margin: 0;
-		font-size: 16px;
+		font-size: 14px;
 		font-weight: 700;
 	}
 
 	.vendor-payments-rows {
 		display: flex;
 		flex-direction: column;
+		margin: 0;
+		padding: 0;
 	}
 
 	.vendor-payments-table table {
@@ -1068,17 +1394,19 @@
 
 	/* Payment Row Styles */
 	.payment-row {
-		border: 1px solid #e5e7eb;
-		border-top: none;
+		border: none;
+		border-bottom: 1px solid #e5e7eb;
 		margin: 0;
 		background: white;
-		padding: 16px 20px;
+		padding: 0;
 		cursor: grab;
 		transition: all 0.2s ease;
 		position: relative;
 		display: flex;
-		align-items: center;
-		gap: 16px;
+		align-items: flex-start;
+		gap: 0;
+		min-width: 1365px;
+		min-height: 50px;
 	}
 
 	.payment-row:last-child {
@@ -1098,33 +1426,211 @@
 
 	.payment-data-row {
 		display: grid;
-		grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1.2fr 1fr 1fr;
+		grid-template-columns: 40px 110px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 120px;
 		gap: 12px;
 		flex: 1;
 		align-items: center;
+		grid-auto-rows: minmax(50px, auto);
+		padding: 8px 18px;
+		margin-left: 0px;
+		width: 100%;
+		box-sizing: border-box;
 	}
 
 	.data-cell {
-		font-size: 14px;
+		font-size: 11px;
 		color: #374151;
 		display: flex;
 		align-items: center;
+		justify-content: flex-start;
+		padding: 8px 4px;
+		word-wrap: break-word;
+		word-break: break-word;
+		hyphens: auto;
+		line-height: 1.2;
+		min-height: 40px;
+		vertical-align: middle;
+	}
+
+	.data-cell:nth-child(13) {
+		padding-left: 150px;
+		min-width: 350px;
+		max-width: 350px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.data-cell:nth-child(12) {
+		padding-left: 120px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 200px;
+		max-width: 200px;
+	}
+
+	.data-cell:nth-child(11) {
+		padding-left: 140px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 300px;
+		max-width: 300px;
+	}
+
+	.data-cell:nth-child(10) {
+		padding-left: 100px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 250px;
+		max-width: 250px;
+	}
+
+	.data-cell:nth-child(9) {
+		padding-left: 110px;
+		white-space: nowrap;
+	}
+
+	.data-cell:nth-child(8) {
+		padding-left: 110px;
+		white-space: nowrap;
+	}
+
+	.data-cell:nth-child(7) {
+		padding-left: 120px;
+		white-space: nowrap;
+	}
+
+	.data-cell:nth-child(6) {
+		padding-left: 200px;
+	}
+
+	.data-cell:nth-child(5) {
+		padding-left: 200px;
+	}
+
+	.data-cell:nth-child(4) {
+		padding-left: 280px;
+	}
+
+	.data-cell:nth-child(3) {
+		padding-left: 100px;
 	}
 
 	.data-cell.amount {
-		font-weight: 700;
+		font-weight: 800; /* same as original amounts */
 		color: #059669;
-		font-size: 15px;
+		font-size: 12px; /* same as original amounts */
+		text-align: right;
+		justify-content: flex-end;
+		font-family: monospace;
+		align-items: flex-start;
+		white-space: nowrap;
+		padding-right: 6px; /* small breathing room from edge */
+	}
+
+	.data-cell.amount.original-amount {
+		font-weight: 800; /* even bolder for original amounts */
+		font-size: 12px; /* bigger size */
+		color: #0d7377; /* slightly different green */
+	}
+
+	.data-cell.drag-handle {
+		font-size: 14px;
+		cursor: grab;
+		opacity: 0.5;
+		transition: opacity 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: bold;
+		min-height: 30px;
+	}
+
+	.payment-row:hover .data-cell.drag-handle {
+		opacity: 1;
+	}
+
+	.bill-info {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.bill-number {
+		font-weight: 600;
+		font-size: 11px;
+		color: #1e293b;
+	}
+
+	.vendor-name-small {
+		font-size: 9px;
+		font-weight: 500;
+		opacity: 0.8;
+	}
+
+	.data-cell.vendor-cell {
+		font-weight: 600;
+		font-size: 10px;
+		word-wrap: break-word;
+		word-break: break-word;
+		hyphens: auto;
+		margin-left: 0px;
+		padding-left: 50px;
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		min-height: 40px;
+		white-space: normal;
+		overflow: visible;
+		min-width: 280px;
+		max-width: 280px;
+	}
+
+	.data-cell.bill-cell {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		overflow: hidden;
+		max-width: 110px;
+		min-width: 110px;
+		width: 110px;
+		padding-left: 0px;
+		margin-left: 0px;
+		min-height: 40px;
+	}
+
+	.bill-number-badge {
+		background: #f3f4f6;
+		padding: 4px 6px;
+		border-radius: 4px;
+		font-size: 10px;
+		font-weight: 600;
+		color: #374151;
+		border: 1px solid #e5e7eb;
+		display: inline-block;
+		white-space: nowrap;
+		max-width: 75px;
+		width: fit-content;
+		text-align: center;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.payment-method {
 		background: #e5e7eb;
-		padding: 4px 8px;
-		border-radius: 4px;
-		font-size: 12px;
+		padding: 1px 4px;
+		border-radius: 3px;
+		font-size: 9px;
 		font-weight: 600;
 		display: inline-block;
 		width: fit-content;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
 	}
 
 	/* Drag and Drop Styles */
@@ -1479,6 +1985,11 @@
 		font-size: 11px;
 		font-weight: 600;
 		text-transform: uppercase;
+		margin-left: 0px;
+		white-space: nowrap;
+		display: inline-block;
+		min-width: 80px;
+		text-align: center;
 	}
 
 	.status-scheduled {

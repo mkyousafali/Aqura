@@ -1168,9 +1168,11 @@
 <style>
 	.payment-manager {
 		padding: 24px;
-		height: 100%;
+		height: 100vh;
 		background: white;
-		overflow-y: auto;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.header {
@@ -1556,11 +1558,16 @@
 		border: 1px solid #e2e8f0;
 		overflow: hidden;
 		flex: 1;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.records-table {
 		display: flex;
 		flex-direction: column;
+		flex: 1;
+		overflow: auto;
 	}
 
 	.table-header {
@@ -1573,6 +1580,10 @@
 		font-weight: 600;
 		color: #374151;
 		font-size: 14px;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		flex-shrink: 0;
 	}
 
 	.header-cell {

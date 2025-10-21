@@ -160,22 +160,10 @@
 
 			return matchesSearch && matchesVendorId && matchesVatNumber && matchesVendorName && matchesBranch && matchesDaysRange && matchesOverdueDays;
 		}).sort((a, b) => {
-			// Calculate days remaining for both records
-			const getDaysForRecord = (record) => {
-				if (!record.due_date) return 999999; // Records without due dates go to bottom
-				const dueDate = new Date(record.due_date);
-				const today = new Date();
-				today.setHours(0, 0, 0, 0);
-				dueDate.setHours(0, 0, 0, 0);
-				const diffTime = dueDate.getTime() - today.getTime();
-				return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-			};
-
-			const daysA = getDaysForRecord(a);
-			const daysB = getDaysForRecord(b);
-
-			// Sort by days remaining (ascending: most overdue first, then closest due dates)
-			return daysA - daysB;
+			// Sort by creation date (newest first - latest receiving bills on top)
+			const dateA = new Date(a.created_at);
+			const dateB = new Date(b.created_at);
+			return dateB.getTime() - dateA.getTime();
 		});
 	}
 
@@ -768,9 +756,11 @@
 <style>
 	.receiving-records-window {
 		padding: 24px;
-		height: 100%;
+		height: 100vh;
 		background: white;
-		overflow-y: auto;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.filters-section {
@@ -892,6 +882,9 @@
 		border: 1px solid #e2e8f0;
 		overflow: hidden;
 		flex: 1;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.loading {
@@ -923,6 +916,8 @@
 	.records-table {
 		display: flex;
 		flex-direction: column;
+		flex: 1;
+		overflow: auto;
 	}
 
 	.table-header {
@@ -935,6 +930,10 @@
 		font-weight: 600;
 		color: #374151;
 		font-size: 14px;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		flex-shrink: 0;
 	}
 
 	.table-row {

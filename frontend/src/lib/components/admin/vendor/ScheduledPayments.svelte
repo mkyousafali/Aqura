@@ -17,7 +17,11 @@
 	let selectedDay = null;
 	let showDetails = false;
 	
-
+	// Filters
+	let filterBranch = '';
+	let filterPaymentMethod = '';
+	let branches = [];
+	let paymentMethods = [];
 	
 	// Monthly totals
 	let monthlyData = [];
@@ -28,6 +32,8 @@
 	onMount(async () => {
 		generateWeekDays();
 		calculateMonthlyTotals();
+		await loadBranches();
+		await loadPaymentMethods();
 		await loadScheduledPayments();
 	});
 
@@ -85,11 +91,80 @@
 		}
 	}
 
+	// Load branches for filter
+	async function loadBranches() {
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('name_en, name_ar, is_active')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) {
+				console.error('Error loading branches:', error);
+				return;
+			}
+
+			branches = data || [];
+			console.log('Loaded branches:', branches.map(b => b.name_en));
+		} catch (err) {
+			console.error('Error loading branches:', err);
+		}
+	}
+
+	// Load payment methods for filter
+	async function loadPaymentMethods() {
+		try {
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select('payment_method')
+				.not('payment_method', 'is', null);
+
+			if (error) {
+				console.error('Error loading payment methods:', error);
+				return;
+			}
+
+			// Get unique payment methods
+			const uniqueMethods = [...new Set(data.map(item => item.payment_method))];
+			paymentMethods = uniqueMethods.filter(method => method).sort();
+			console.log('Loaded payment methods:', paymentMethods);
+		} catch (err) {
+			console.error('Error loading payment methods:', err);
+		}
+	}
+
+	// Filter payments based on selected filters
+	$: filteredPayments = scheduledPayments.filter(payment => {
+		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
+		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
+		return branchMatch && paymentMethodMatch;
+	});
+
+	// Re-group payments when filters change
+	$: if (filteredPayments && weekDays.length > 0) {
+		groupPaymentsByDay();
+		calculateMonthlyTotals();
+	}
+
+	// Filter selected day payments
+	$: filteredSelectedDayPayments = selectedDay?.payments.filter(payment => {
+		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
+		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
+		return branchMatch && paymentMethodMatch;
+	}) || [];
+
+	// Calculate filtered total
+	$: filteredSelectedDayTotal = filteredSelectedDayPayments.reduce(
+		(sum, payment) => sum + (payment.final_bill_amount || 0), 
+		0
+	);
+
 	// Group payments by day
 	function groupPaymentsByDay() {
-		console.log('Grouping payments by day...', scheduledPayments.length, 'payments');
+		console.log('Grouping payments by day...', filteredPayments.length, 'payments');
 		weekDays.forEach(day => {
-			day.payments = scheduledPayments.filter(payment => {
+			day.payments = filteredPayments.filter(payment => {
 				const paymentDate = new Date(payment.due_date);
 				const matches = paymentDate.toDateString() === day.fullDate.toDateString();
 				if (matches) {
@@ -441,12 +516,28 @@
 			<div class="details-summary">
 				<div class="summary-item">
 					<span class="summary-label">Total Payments:</span>
-					<span class="summary-value">{selectedDay.payments.length}</span>
+					<span class="summary-value">{filteredSelectedDayPayments.length}</span>
 				</div>
 				<div class="summary-item">
 					<span class="summary-label">Total Amount:</span>
-					<span class="summary-value">{formatCurrency(selectedDay.totalAmount)}</span>
+					<span class="summary-value">{formatCurrency(filteredSelectedDayTotal)}</span>
 				</div>
+			</div>
+
+			<div class="filter-controls">
+				<select class="filter-select" bind:value={filterBranch}>
+					<option value="">All Branches</option>
+					{#each branches as branch}
+						<option value={branch.name_en}>{branch.name_en}</option>
+					{/each}
+				</select>
+				
+				<select class="filter-select" bind:value={filterPaymentMethod}>
+					<option value="">All Payment Methods</option>
+					{#each paymentMethods as method}
+						<option value={method}>{method}</option>
+					{/each}
+				</select>
 			</div>
 
 			<div class="details-table">
@@ -454,26 +545,34 @@
 					<thead>
 						<tr>
 							<th>Vendor Name</th>
+							<th>Branch</th>
 							<th>Bill Number</th>
 							<th>Payment Method</th>
 							<th>Amount</th>
+							<th>Original Bill Amount</th>
+							<th>Original Final Amount</th>
 							<th>Due Date</th>
+							<th>Original Due Date</th>
 							<th>Status</th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each selectedDay.payments as payment}
+						{#each filteredSelectedDayPayments as payment}
 							<tr>
 								<td class="vendor-cell">
 									<div class="vendor-name">{payment.vendor_name || 'Unknown Vendor'}</div>
 									<div class="vendor-id">ID: {payment.vendor_id || 'N/A'}</div>
 								</td>
+								<td>{payment.branch_name || 'N/A'}</td>
 								<td>{payment.bill_number || 'N/A'}</td>
 								<td>
 									<span class="payment-method-badge">{payment.payment_method || 'Cash on Delivery'}</span>
 								</td>
 								<td class="amount-cell">{formatCurrency(payment.final_bill_amount || 0)}</td>
+								<td class="amount-cell">{formatCurrency(payment.original_bill_amount || 0)}</td>
+								<td class="amount-cell">{formatCurrency(payment.original_final_amount || 0)}</td>
 								<td>{new Date(payment.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+								<td>{payment.original_due_date ? new Date(payment.original_due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}</td>
 								<td>
 									<span class="status-badge status-{payment.payment_status}">{payment.payment_status || 'scheduled'}</span>
 								</td>
@@ -505,6 +604,8 @@
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		gap: 20px;
+		flex-wrap: wrap;
 	}
 
 	.title-section h1 {
@@ -518,6 +619,35 @@
 		margin: 8px 0 0 0;
 		color: #64748b;
 		font-size: 16px;
+	}
+
+	.filter-controls {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
+	.filter-select {
+		padding: 10px 16px;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		background: white;
+		color: #1e293b;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 180px;
+	}
+
+	.filter-select:hover {
+		border-color: #3b82f6;
+	}
+
+	.filter-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.week-navigation {
@@ -873,6 +1003,10 @@
 		padding: 24px;
 		margin-top: 32px;
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+		max-height: 80vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.details-header {
@@ -918,6 +1052,24 @@
 		border-radius: 8px;
 	}
 
+	.details-section .filter-controls {
+		display: flex;
+		gap: 12px;
+		margin-bottom: 20px;
+		padding: 16px;
+		background: #f8fafc;
+		border-radius: 8px;
+		align-items: center;
+	}
+
+	.details-section .filter-controls::before {
+		content: '🔍 Filters:';
+		font-size: 14px;
+		font-weight: 600;
+		color: #475569;
+		margin-right: 8px;
+	}
+
 	.summary-item {
 		display: flex;
 		flex-direction: column;
@@ -939,16 +1091,21 @@
 	}
 
 	.details-table {
-		overflow-x: auto;
+		flex: 1;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		min-height: 300px;
+		max-height: 60vh;
+		overflow: auto;
+		background: white;
 	}
 
 	.details-table table {
 		width: 100%;
+		min-width: 1200px;
 		border-collapse: collapse;
 		background: white;
-		border-radius: 8px;
-		overflow: hidden;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 	}
 
 	.details-table th {
@@ -961,6 +1118,10 @@
 		padding: 16px 12px;
 		text-align: left;
 		border-bottom: 1px solid #e2e8f0;
+		white-space: nowrap;
+		position: sticky;
+		top: 0;
+		z-index: 10;
 	}
 
 	.details-table td {

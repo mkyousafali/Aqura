@@ -12,6 +12,7 @@
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
 	import OperationsMaster from '$lib/components/admin/OperationsMaster.svelte';
 	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
+	import FinanceMaster from '$lib/components/admin/FinanceMaster.svelte';
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import Settings from '$lib/components/admin/Settings.svelte';
@@ -159,6 +160,28 @@
 			title: `Vendor Master #${instanceNumber}`,
 			component: VendorMaster,
 			icon: '🏪',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMasterSubmenu = false;
+	}
+
+	function openFinanceMaster() {
+		const windowId = generateWindowId('finance-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Finance Master #${instanceNumber}`,
+			component: FinanceMaster,
+			icon: '💰',
 			size: { width: 1200, height: 800 },
 			position: { 
 				x: 50 + (Math.random() * 100), // Slightly offset each new window
@@ -418,6 +441,10 @@
 		<button class="submenu-item" on:click={openVendorMaster}>
 			<span class="menu-icon">🏪</span>
 			<span class="menu-text">Vendor Master</span>
+		</button>
+		<button class="submenu-item" on:click={openFinanceMaster}>
+			<span class="menu-icon">💰</span>
+			<span class="menu-text">Finance Master</span>
 		</button>
 		<button class="submenu-item" on:click={openHRMaster}>
 			<span class="menu-icon">👥</span>

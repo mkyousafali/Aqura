@@ -1638,8 +1638,8 @@
         payment_method: paymentMethod || selectedVendor?.payment_method || null,
         credit_period: creditPeriod || selectedVendor?.credit_period || null,
         due_date: dueDate || null, // Use calculated due date
-        bank_name: selectedVendor?.bank_name || null,
-        iban: selectedVendor?.iban || null,
+        bank_name: bankName || selectedVendor?.bank_name || null,
+        iban: iban || selectedVendor?.iban || null,
         vendor_vat_number: vendorVatNumber || selectedVendor?.vat_number || null,
         bill_vat_number: billVatNumber || null, // Use bill VAT number from form
         vat_numbers_match: vatNumbersMatch, // Use calculated VAT number match
@@ -1689,6 +1689,49 @@
 
       console.log('Receiving record saved:', data);
       savedReceivingId = data[0]?.id; // Store the saved record ID
+      
+      // Check if payment method differs from vendor's default and ask to update vendor table
+      const paymentMethodChanged = paymentMethod && selectedVendor?.payment_method && 
+                                   paymentMethod !== selectedVendor.payment_method;
+      const bankNameChanged = bankName && selectedVendor?.bank_name && 
+                              bankName !== selectedVendor.bank_name;
+      const ibanChanged = iban && selectedVendor?.iban && 
+                          iban !== selectedVendor.iban;
+
+      if (paymentMethodChanged || bankNameChanged || ibanChanged) {
+        const shouldUpdateVendor = confirm(
+          `Payment information differs from vendor's default settings:\n\n` +
+          (paymentMethodChanged ? `• Payment Method: ${selectedVendor.payment_method} → ${paymentMethod}\n` : '') +
+          (bankNameChanged ? `• Bank Name: ${selectedVendor.bank_name} → ${bankName}\n` : '') +
+          (ibanChanged ? `• IBAN: ${selectedVendor.iban} → ${iban}\n` : '') +
+          `\nWould you like to update the vendor table with these new payment details?`
+        );
+
+        if (shouldUpdateVendor) {
+          try {
+            const vendorUpdateData = {};
+            if (paymentMethodChanged) vendorUpdateData.payment_method = paymentMethod;
+            if (bankNameChanged) vendorUpdateData.bank_name = bankName;
+            if (ibanChanged) vendorUpdateData.iban = iban;
+
+            const { error: vendorError } = await supabase
+              .from('vendors')
+              .update(vendorUpdateData)
+              .eq('erp_vendor_id', selectedVendor.erp_vendor_id)
+              .eq('branch_id', selectedBranch);
+
+            if (vendorError) {
+              console.error('Error updating vendor:', vendorError);
+              alert('Failed to update vendor table: ' + vendorError.message);
+            } else {
+              alert('Vendor table updated successfully with new payment information!');
+            }
+          } catch (error) {
+            console.error('Error updating vendor:', error);
+            alert('Error updating vendor: ' + error.message);
+          }
+        }
+      }
       
       // Move to step 4 for certification generation
       currentStep = 3;
@@ -3997,23 +4040,6 @@
           <div class="payment-notice">
             <span class="notice-icon">ℹ️</span>
             <span>Payment information has been modified for this receiving.</span>
-          </div>
-          
-          <div class="payment-actions">
-            <button 
-              type="button" 
-              class="update-vendor-btn"
-              on:click={updateVendorPaymentInfo}
-            >
-              Update Vendor Table
-            </button>
-            <button 
-              type="button" 
-              class="update-receiving-btn"
-              on:click={updateReceivingOnlyPaymentInfo}
-            >
-              Update Receiving Only
-            </button>
           </div>
         {/if}
       </div>
