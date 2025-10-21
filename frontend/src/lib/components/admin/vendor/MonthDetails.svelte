@@ -209,29 +209,33 @@
 		return `${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 	}
 
-	// Handle date selection and scroll to that date
+	// Handle date selection and scroll to that date (legacy function for dropdown if needed)
 	function handleDateSelect(event) {
 		const selectedDate = event.target.value;
 		
 		if (selectedDate) {
-			// Use requestAnimationFrame to ensure DOM is ready
-			requestAnimationFrame(() => {
-				const element = document.getElementById(`day-${selectedDate}`);
-				
-				if (element) {
-					// Simple scroll into view
-					element.scrollIntoView({ 
-						behavior: 'smooth', 
-						block: 'center'
-					});
-					
-					// Reset the select after scrolling
-					setTimeout(() => {
-						event.target.value = '';
-					}, 1000);
-				}
-			});
+			scrollToDate(selectedDate);
+			// Reset the select after scrolling
+			setTimeout(() => {
+				event.target.value = '';
+			}, 1000);
 		}
+	}
+
+	// Scroll to specific date (used by calendar view)
+	function scrollToDate(dateNumber) {
+		// Use requestAnimationFrame to ensure DOM is ready
+		requestAnimationFrame(() => {
+			const element = document.getElementById(`day-${dateNumber}`);
+			
+			if (element) {
+				// Simple scroll into view
+				element.scrollIntoView({ 
+					behavior: 'smooth', 
+					block: 'center'
+				});
+			}
+		});
 	}
 
 	// Format date for database without timezone conversion issues
@@ -464,17 +468,28 @@
 				</div>
 			{/each}
 			
-			<!-- Go to Date Selector -->
-			<div class="summary-item go-to-date">
-				<span class="summary-label">Go to Date:</span>
-				<select class="date-select" on:change={handleDateSelect}>
-					<option value="">Select a date</option>
+			<!-- Calendar Navigation -->
+			<div class="summary-item calendar-nav">
+				<span class="summary-label">Quick Navigation:</span>
+				<div class="calendar-grid">
 					{#each monthDetailData as dayData}
-						<option value={dayData.date}>
-							{dayData.date} - {dayData.dayName} {dayData.paymentCount > 0 ? `(${dayData.paymentCount} payments)` : ''}
-						</option>
+						<div 
+							class="calendar-day {dayData.paymentCount > 0 ? 'has-payments' : 'no-payments'}"
+							on:click={() => scrollToDate(dayData.date)}
+						>
+							<div class="day-number">{dayData.date}</div>
+							<div class="day-name">{dayData.dayName.substring(0, 3)}</div>
+							{#if dayData.paymentCount > 0}
+								<div class="payment-info">
+									<div class="payment-count">{dayData.paymentCount} bills</div>
+									<div class="payment-total">{formatCurrency(dayData.totalAmount)}</div>
+								</div>
+							{:else}
+								<div class="no-payment-info">No bills</div>
+							{/if}
+						</div>
 					{/each}
-				</select>
+				</div>
 			</div>
 		</div>
 
@@ -835,33 +850,100 @@
 		border-left: 2px solid #e5e7eb;
 	}
 
-	.summary-item.go-to-date {
+	.summary-item.calendar-nav {
 		margin-left: auto;
 		padding-left: 16px;
 		border-left: 2px solid #e5e7eb;
+		max-width: 60%;
 	}
 
-	.date-select {
-		padding: 8px 12px;
-		border: 1px solid #e5e7eb;
-		border-radius: 6px;
+	.calendar-grid {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: 8px;
+		margin-top: 8px;
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.calendar-day {
 		background: white;
-		font-size: 14px;
-		color: #374151;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 8px 4px;
+		text-align: center;
 		cursor: pointer;
 		transition: all 0.2s;
-		min-width: 250px;
+		min-height: 80px;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		font-size: 11px;
+	}
+
+	.calendar-day:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.calendar-day.has-payments {
+		border-color: #10b981;
+		background: linear-gradient(135deg, #d1fae5 0%, #ffffff 100%);
+	}
+
+	.calendar-day.has-payments:hover {
+		border-color: #059669;
+		background: linear-gradient(135deg, #a7f3d0 0%, #d1fae5 100%);
+	}
+
+	.calendar-day.no-payments {
+		border-color: #d1d5db;
+		background: #f9fafb;
+		opacity: 0.7;
+	}
+
+	.day-number {
+		font-size: 16px;
+		font-weight: 700;
+		color: #1e293b;
+		margin-bottom: 2px;
+	}
+
+	.day-name {
+		font-size: 10px;
+		color: #64748b;
+		font-weight: 500;
+		margin-bottom: 4px;
+	}
+
+	.payment-info {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+	}
+
+	.payment-count {
+		font-size: 10px;
+		color: #059669;
 		font-weight: 600;
+		margin-bottom: 2px;
 	}
 
-	.date-select:hover {
-		border-color: #3b82f6;
+	.payment-total {
+		font-size: 9px;
+		color: #1e293b;
+		font-weight: 700;
 	}
 
-	.date-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	.no-payment-info {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 9px;
+		color: #9ca3af;
+		font-weight: 500;
 	}
 
 	.summary-label {
