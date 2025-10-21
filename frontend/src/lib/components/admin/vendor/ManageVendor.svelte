@@ -943,7 +943,10 @@
 	.manage-vendor {
 		padding: 1.5rem;
 		background: #f8fafc;
-		min-height: 100vh;
+		height: 100vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 	}
 
@@ -1311,10 +1314,14 @@
 		border-radius: 12px;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 		overflow: hidden;
+		max-height: 70vh;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.vendor-table {
-		overflow-x: auto;
+		overflow: auto;
+		flex: 1;
 	}
 
 	table {
@@ -1324,6 +1331,9 @@
 
 	thead {
 		background: #f1f5f9;
+		position: sticky;
+		top: 0;
+		z-index: 10;
 	}
 
 	th {
@@ -1332,6 +1342,8 @@
 		font-weight: 600;
 		color: #374151;
 		border-bottom: 1px solid #e5e7eb;
+		background: #f1f5f9;
+		white-space: nowrap;
 	}
 
 	td {

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS vendor_payment_schedule (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     receiving_record_id UUID REFERENCES receiving_records(id) ON DELETE CASCADE,
     bill_number VARCHAR(255),
-    vendor_id VARCHAR(255),
+    vendor_id INTEGER,
     vendor_name VARCHAR(255),
     branch_id INTEGER REFERENCES branches(id),
     branch_name VARCHAR(255),
@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS vendor_payment_schedule (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add original_due_date column if it doesn't exist
+ALTER TABLE vendor_payment_schedule 
+ADD COLUMN IF NOT EXISTS original_due_date DATE;
+
+-- Add original amount columns if they don't exist
+ALTER TABLE vendor_payment_schedule 
+ADD COLUMN IF NOT EXISTS original_bill_amount DECIMAL(15,2);
+
+ALTER TABLE vendor_payment_schedule 
+ADD COLUMN IF NOT EXISTS original_final_amount DECIMAL(15,2);
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_vendor_payment_schedule_receiving_record_id ON vendor_payment_schedule(receiving_record_id);
@@ -101,6 +112,9 @@ BEGIN
                 bank_name,
                 iban,
                 due_date,
+                original_due_date,
+                original_bill_amount,
+                original_final_amount,
                 credit_period,
                 vat_number,
                 payment_status,
@@ -110,7 +124,7 @@ BEGIN
             SELECT 
                 NEW.id,
                 NEW.bill_number,
-                NEW.vendor_id::VARCHAR,
+                NEW.vendor_id,
                 v.vendor_name,
                 NEW.branch_id,
                 b.name_en,
@@ -121,13 +135,16 @@ BEGIN
                 NEW.bank_name,
                 NEW.iban,
                 NEW.due_date,
+                NEW.due_date, -- Store original due date same as current due date initially
+                NEW.bill_amount, -- Store original bill amount
+                COALESCE(NEW.final_bill_amount, NEW.bill_amount), -- Store original final amount
                 NEW.credit_period,
                 NEW.vendor_vat_number,
                 'scheduled',
                 NOW(),
                 'Auto-scheduled when certificate was generated in receiving process'
             FROM branches b
-            LEFT JOIN vendors v ON v.erp_vendor_id = NEW.vendor_id::VARCHAR AND v.branch_id = NEW.branch_id
+            LEFT JOIN vendors v ON v.erp_vendor_id = NEW.vendor_id AND v.branch_id = NEW.branch_id
             WHERE b.id = NEW.branch_id;
             
         END IF;
@@ -158,3 +175,7 @@ COMMENT ON TABLE vendor_payment_schedule IS 'Schedule and track vendor payments'
 COMMENT ON COLUMN vendor_payment_schedule.payment_status IS 'Payment status: scheduled, paid, cancelled, overdue';
 COMMENT ON COLUMN vendor_payment_schedule.scheduled_date IS 'When the payment was scheduled';
 COMMENT ON COLUMN vendor_payment_schedule.paid_date IS 'When the payment was actually made';
+COMMENT ON COLUMN vendor_payment_schedule.due_date IS 'Current due date (can be rescheduled)';
+COMMENT ON COLUMN vendor_payment_schedule.original_due_date IS 'Original due date when first scheduled (never changes)';
+COMMENT ON COLUMN vendor_payment_schedule.original_bill_amount IS 'Original bill amount when first scheduled (never changes)';
+COMMENT ON COLUMN vendor_payment_schedule.original_final_amount IS 'Original final amount when first scheduled (never changes)';
