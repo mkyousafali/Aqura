@@ -96,6 +96,14 @@
   let vendorLoading = false;
   let vendorError = '';
 
+  // Vendor update popup state
+  let showVendorUpdatePopup = false;
+  let vendorToUpdate = null;
+  let updatedSalesmanName = '';
+  let updatedSalesmanContact = '';
+  let updatedVatNumber = '';
+  let isUpdatingVendor = false;
+
   // Date information for Step 3
   let currentDateTime = '';
   let billDate = '';
@@ -115,6 +123,16 @@
   let vendorVatNumber = ''; // VAT number from vendor record
   let billVatNumber = ''; // VAT number entered from bill
   let vatMismatchReason = ''; // Reason for VAT number mismatch
+
+  // Function to mask VAT number (show only last 4 digits)
+  function maskVatNumber(vatNumber) {
+    if (!vatNumber || vatNumber.length <= 4) {
+      return vatNumber;
+    }
+    const lastFour = vatNumber.slice(-4);
+    const maskedPart = '*'.repeat(vatNumber.length - 4);
+    return maskedPart + lastFour;
+  }
 
   // Return processing information with ERP document details for each category
   let returns = {
@@ -1404,13 +1422,106 @@
   }
 
   function selectVendor(vendor) {
-    selectedVendor = vendor;
-    currentStep = 2; // Move to bill information step
+    // Check if vendor is missing critical information
+    const missingSalesmanName = !vendor.salesman_name || vendor.salesman_name.trim() === '';
+    const missingSalesmanContact = !vendor.salesman_contact || vendor.salesman_contact.trim() === '';
+    const missingVatNumber = !vendor.vat_number || vendor.vat_number.trim() === '';
+
+    if (missingSalesmanName || missingSalesmanContact || missingVatNumber) {
+      // Show popup to update vendor information
+      vendorToUpdate = vendor;
+      updatedSalesmanName = vendor.salesman_name || '';
+      updatedSalesmanContact = vendor.salesman_contact || '';
+      updatedVatNumber = vendor.vat_number || '';
+      showVendorUpdatePopup = true;
+    } else {
+      // Vendor has all required information, proceed normally
+      selectedVendor = vendor;
+      currentStep = 2; // Move to bill information step
+    }
   }
 
   function changeVendor() {
     selectedVendor = null;
     currentStep = 1; // Go back to vendor selection
+  }
+
+  // Handle vendor update popup actions
+  async function updateVendorInformation() {
+    if (!vendorToUpdate) return;
+
+    isUpdatingVendor = true;
+    try {
+      const updateData = {};
+      
+      // Only update fields that were changed
+      if (updatedSalesmanName !== vendorToUpdate.salesman_name) {
+        updateData.salesman_name = updatedSalesmanName.trim();
+      }
+      if (updatedSalesmanContact !== vendorToUpdate.salesman_contact) {
+        updateData.salesman_contact = updatedSalesmanContact.trim();
+      }
+      if (updatedVatNumber !== vendorToUpdate.vat_number) {
+        updateData.vat_number = updatedVatNumber.trim();
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        const { error } = await supabase
+          .from('vendors')
+          .update(updateData)
+          .eq('erp_vendor_id', vendorToUpdate.erp_vendor_id)
+          .eq('branch_id', selectedBranch);
+
+        if (error) {
+          console.error('Error updating vendor:', error);
+          alert('Failed to update vendor information: ' + error.message);
+          return;
+        }
+
+        // Update the vendor in the local vendors array
+        const vendorIndex = vendors.findIndex(v => 
+          v.erp_vendor_id === vendorToUpdate.erp_vendor_id && 
+          v.branch_id === selectedBranch
+        );
+        if (vendorIndex !== -1) {
+          vendors[vendorIndex] = { ...vendors[vendorIndex], ...updateData };
+          vendors = [...vendors]; // Trigger reactivity
+        }
+
+        // Update vendorToUpdate with new values
+        vendorToUpdate = { ...vendorToUpdate, ...updateData };
+        
+        alert('Vendor information updated successfully!');
+      }
+
+      // Proceed with vendor selection
+      proceedWithVendorSelection();
+      
+    } catch (error) {
+      console.error('Unexpected error updating vendor:', error);
+      alert('An unexpected error occurred while updating vendor information.');
+    } finally {
+      isUpdatingVendor = false;
+    }
+  }
+
+  function proceedWithVendorSelection() {
+    selectedVendor = vendorToUpdate;
+    showVendorUpdatePopup = false;
+    vendorToUpdate = null;
+    currentStep = 2; // Move to bill information step
+  }
+
+  function skipVendorUpdate() {
+    proceedWithVendorSelection();
+  }
+
+  function closeVendorUpdatePopup() {
+    showVendorUpdatePopup = false;
+    vendorToUpdate = null;
+    updatedSalesmanName = '';
+    updatedSalesmanContact = '';
+    updatedVatNumber = '';
   }
 
   // Toggle column visibility
@@ -4111,11 +4222,15 @@
               <input 
                 type="text" 
                 id="vendorVatNumber"
-                value={vendorVatNumber}
+                value={vendorVatNumber ? maskVatNumber(vendorVatNumber) : ''}
                 readonly
-                class="readonly-input"
+                class="readonly-input masked-vat"
                 placeholder="No VAT number on file"
+                title="Enter full VAT number in the field below to verify"
               />
+              {#if vendorVatNumber}
+                <small class="vat-hint">Enter full VAT number below to verify</small>
+              {/if}
             </div>
 
             <div class="vat-field">
@@ -6809,6 +6924,23 @@
 		font-size: 1rem;
 	}
 
+	.readonly-input.masked-vat {
+		background: #f8f9fa;
+		border: 2px solid #6c757d;
+		color: #495057;
+		font-family: 'Courier New', monospace;
+		font-weight: 600;
+		letter-spacing: 2px;
+		font-size: 1.1rem;
+	}
+
+	.vat-hint {
+		color: #6c757d;
+		font-size: 0.85rem;
+		font-style: italic;
+		margin-top: 0.25rem;
+	}
+
 	.vat-status {
 		margin-top: 1rem;
 		padding: 1rem;
@@ -7650,7 +7782,253 @@
 			padding: 1rem;
 		}
 	}
+
+	/* Vendor Update Popup Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		z-index: 10000;
+	}
+
+	.vendor-update-modal {
+		background: white;
+		border-radius: 12px;
+		width: 90%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+		animation: modalSlideIn 0.3s ease-out;
+	}
+
+	@keyframes modalSlideIn {
+		from {
+			opacity: 0;
+			transform: translateY(-20px) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f8fafc;
+		border-radius: 12px 12px 0 0;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		color: #1f2937;
+		font-size: 1.25rem;
+		font-weight: 600;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		font-size: 24px;
+		color: #6b7280;
+		cursor: pointer;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.close-btn:hover {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.modal-content {
+		padding: 1.5rem;
+	}
+
+	.vendor-info {
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+		padding: 1rem;
+		margin-bottom: 1rem;
+		color: #0c4a6e;
+	}
+
+	.missing-info-message {
+		color: #d97706;
+		background: #fef3c7;
+		border: 1px solid #fcd34d;
+		border-radius: 8px;
+		padding: 1rem;
+		margin-bottom: 1.5rem;
+		font-size: 0.95rem;
+	}
+
+	.form-group {
+		margin-bottom: 1.25rem;
+	}
+
+	.form-group label {
+		display: block;
+		margin-bottom: 0.5rem;
+		color: #374151;
+		font-weight: 500;
+		font-size: 0.95rem;
+	}
+
+	.form-input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 1rem;
+		transition: border-color 0.2s, box-shadow 0.2s;
+		box-sizing: border-box;
+	}
+
+	.form-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 1rem;
+		padding: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+		background: #f8fafc;
+		border-radius: 0 0 12px 12px;
+	}
+
+	.btn-update {
+		flex: 1;
+		background: #10b981;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.btn-update:hover:not(:disabled) {
+		background: #059669;
+	}
+
+	.btn-update:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.btn-skip {
+		flex: 1;
+		background: #6b7280;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.btn-skip:hover:not(:disabled) {
+		background: #4b5563;
+	}
+
+	.btn-skip:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+	}
 </style>
+
+<!-- Vendor Update Popup -->
+{#if showVendorUpdatePopup && vendorToUpdate}
+<div class="modal-overlay" on:click={closeVendorUpdatePopup}>
+  <div class="vendor-update-modal" on:click|stopPropagation>
+    <div class="modal-header">
+      <h3>Update Vendor Information</h3>
+      <button class="close-btn" on:click={closeVendorUpdatePopup}>×</button>
+    </div>
+    
+    <div class="modal-content">
+      <p class="vendor-info">
+        <strong>Vendor:</strong> {vendorToUpdate.vendor_name}
+      </p>
+      <p class="missing-info-message">
+        This vendor is missing some important information. Would you like to update it now?
+      </p>
+      
+      <div class="form-group">
+        <label for="salesmanName">Salesman Name:</label>
+        <input 
+          id="salesmanName"
+          type="text" 
+          bind:value={updatedSalesmanName}
+          placeholder="Enter salesman name"
+          class="form-input"
+        />
+      </div>
+      
+      <div class="form-group">
+        <label for="salesmanContact">Salesman Contact:</label>
+        <input 
+          id="salesmanContact"
+          type="text" 
+          bind:value={updatedSalesmanContact}
+          placeholder="Enter salesman contact number"
+          class="form-input"
+        />
+      </div>
+      
+      <div class="form-group">
+        <label for="vatNumber">VAT Number:</label>
+        <input 
+          id="vatNumber"
+          type="text" 
+          bind:value={updatedVatNumber}
+          placeholder="Enter VAT number"
+          class="form-input"
+        />
+      </div>
+    </div>
+    
+    <div class="modal-actions">
+      <button 
+        class="btn-update" 
+        on:click={updateVendorInformation}
+        disabled={isUpdatingVendor}
+      >
+        {isUpdatingVendor ? 'Updating...' : 'Update & Continue'}
+      </button>
+      <button 
+        class="btn-skip" 
+        on:click={skipVendorUpdate}
+        disabled={isUpdatingVendor}
+      >
+        Not Now
+      </button>
+    </div>
+  </div>
+</div>
+{/if}
 
 <!-- Clearance Certificate Manager -->
 <ClearanceCertificateManager 

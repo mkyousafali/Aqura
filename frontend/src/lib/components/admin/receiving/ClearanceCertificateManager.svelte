@@ -55,6 +55,30 @@
         branchName = receivingRecord.branch_id ? `Branch ID: ${receivingRecord.branch_id}` : 'Unknown Branch';
       }
       
+      // Get vendor information including salesman details
+      let vendorName = 'Unknown Vendor';
+      let salesmanName = 'Not Assigned';
+      let salesmanContact = 'Not Available';
+      
+      if (receivingRecord.vendor_id && receivingRecord.branch_id) {
+        try {
+          const { data: vendorData, error: vendorError } = await supabase
+            .from('vendors')
+            .select('vendor_name, salesman_name, salesman_contact')
+            .eq('erp_vendor_id', receivingRecord.vendor_id)
+            .eq('branch_id', receivingRecord.branch_id)
+            .single();
+
+          if (!vendorError && vendorData) {
+            vendorName = vendorData.vendor_name || 'Unknown Vendor';
+            salesmanName = vendorData.salesman_name || 'Not Assigned';
+            salesmanContact = vendorData.salesman_contact || 'Not Available';
+          }
+        } catch (error) {
+          console.error('Error fetching vendor information:', error);
+        }
+      }
+
       // Create clearance certificate data
       const certificateData = {
         receiving_record_id: receivingRecord.id,
@@ -62,7 +86,7 @@
         bill_number: receivingRecord.bill_number || 's545',
         bill_amount: receivingRecord.bill_amount,
         payment_method: receivingRecord.payment_method || 'N/A',
-        vendor_name: receivingRecord.vendor_name || 'Unknown Vendor',
+        vendor_name: vendorName,
         branch_name: branchName,
         generated_by: $currentUser?.username || 'Unknown User',
         generated_at: new Date().toISOString(),
@@ -95,9 +119,9 @@
         
         total_return_amount: receivingRecord.total_return_amount || 0,
         final_bill_amount: receivingRecord.final_bill_amount || receivingRecord.bill_amount,
-        // Personnel data
-        salesman_name: receivingRecord.salesman_name || 'yousuf',
-        salesman_contact: receivingRecord.salesman_contact || '966548357066'
+        // Personnel data - using fetched vendor information
+        salesman_name: salesmanName,
+        salesman_contact: salesmanContact
       };
       
       // Create professional HTML certificate template matching the exact format required
@@ -487,6 +511,15 @@
         <div class="header">
             <div class="certificate-title">CLEARANCE CERTIFICATION</div>
             <div class="certificate-title-ar">شهادة تخليص البضائع</div>
+        </div>
+        
+        <!-- Vendor Name -->
+        <div class="detail-row">
+            <div class="detail-label">
+                Vendor Name:
+                <div class="detail-label-ar">اسم المورد:</div>
+            </div>
+            <div class="detail-value">${certificateData.vendor_name}</div>
         </div>
         
         <!-- Bill Details -->
