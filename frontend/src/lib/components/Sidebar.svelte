@@ -28,6 +28,9 @@
 	let submenuTop = 0;
 	let workSubmenuTop = 0;
 	
+	// Version popup state
+	let showVersionPopup = false;
+	
 	// Force reactivity when locale changes
 	$: locale = $currentLocale;
 
@@ -386,6 +389,16 @@
 			minimizable: true,
 		});
 	}
+
+	// Show version popup with update information
+	function showVersionInfo() {
+		showVersionPopup = true;
+	}
+
+	// Close version popup
+	function closeVersionPopup() {
+		showVersionPopup = false;
+	}
 </script>
 
 <div class="sidebar">
@@ -484,7 +497,9 @@
 		
 		<!-- Version Information -->
 		<div class="version-info">
-			<span class="version-text">v1.0.1</span>
+			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
+				v1.0.2
+			</button>
 		</div>
 	</div>
 </div>
@@ -565,6 +580,42 @@
 			<span class="menu-icon">📦</span>
 			<span class="menu-text">Start Receiving</span>
 		</button>
+	</div>
+{/if}
+
+<!-- Version Information Popup -->
+{#if showVersionPopup}
+	<div class="version-popup-overlay" on:click={closeVersionPopup}>
+		<div class="version-popup" on:click|stopPropagation>
+			<div class="version-popup-header">
+				<h3>What's New in v1.0.2</h3>
+				<button class="close-btn" on:click={closeVersionPopup}>×</button>
+			</div>
+			<div class="version-popup-content">
+				<div class="update-section">
+					<h4>🎉 Latest Updates</h4>
+					<ul>
+						<li><strong>Interactive Version:</strong> Version number is now clickable with detailed update information</li>
+						<li><strong>Work Submenu:</strong> Added "Start Receiving" button to Work section for easy access</li>
+						<li><strong>Field Validation:</strong> Made bill date, amount, and number mandatory in receiving process</li>
+						<li><strong>User Experience:</strong> Enhanced form validation with visual indicators</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🔧 Technical Improvements</h4>
+					<ul>
+						<li>Implemented automated version management system</li>
+						<li>Fixed duplicate function declarations</li>
+						<li>Enhanced hover-based submenu system</li>
+						<li>Improved error messaging for required fields</li>
+					</ul>
+				</div>
+				<div class="version-info-footer">
+					<p><strong>Release Date:</strong> October 22, 2025</p>
+					<p><strong>Build:</strong> Production Ready</p>
+				</div>
+			</div>
+		</div>
 	</div>
 {/if}
 
@@ -869,10 +920,147 @@
 	}
 
 	.version-text {
-		color: rgba(226, 232, 240, 0.7);
-		font-size: 10px;
-		font-weight: 400;
+		background: none;
+		border: none;
+		color: rgba(226, 232, 240, 0.8);
+		font-size: 12px;
+		font-weight: 500;
 		font-family: monospace;
 		letter-spacing: 0.5px;
+		cursor: pointer;
+		padding: 2px 4px;
+		border-radius: 3px;
+		transition: all 0.2s ease;
+	}
+
+	.version-text:hover {
+		color: rgba(226, 232, 240, 1);
+		background: rgba(255, 255, 255, 0.1);
+		transform: scale(1.05);
+	}
+
+	.version-text:active {
+		transform: scale(0.95);
+	}
+
+	/* Version Popup Styles */
+	.version-popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 10000;
+		backdrop-filter: blur(4px);
+	}
+
+	.version-popup {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+		max-width: 500px;
+		width: 90%;
+		max-height: 80vh;
+		overflow-y: auto;
+		animation: popupSlideIn 0.3s ease;
+	}
+
+	@keyframes popupSlideIn {
+		from {
+			opacity: 0;
+			transform: scale(0.9) translateY(-20px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1) translateY(0);
+		}
+	}
+
+	.version-popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px 24px 16px;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.version-popup-header h3 {
+		margin: 0;
+		color: #1f2937;
+		font-size: 20px;
+		font-weight: 600;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		font-size: 24px;
+		color: #6b7280;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 4px;
+		transition: all 0.2s ease;
+		line-height: 1;
+	}
+
+	.close-btn:hover {
+		color: #ef4444;
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	.version-popup-content {
+		padding: 20px 24px;
+	}
+
+	.update-section {
+		margin-bottom: 24px;
+	}
+
+	.update-section:last-of-type {
+		margin-bottom: 16px;
+	}
+
+	.update-section h4 {
+		margin: 0 0 12px 0;
+		color: #374151;
+		font-size: 16px;
+		font-weight: 600;
+	}
+
+	.update-section ul {
+		margin: 0;
+		padding-left: 20px;
+		color: #4b5563;
+		line-height: 1.6;
+	}
+
+	.update-section li {
+		margin-bottom: 8px;
+	}
+
+	.update-section li strong {
+		color: #1f2937;
+		font-weight: 600;
+	}
+
+	.version-info-footer {
+		border-top: 1px solid #e5e7eb;
+		padding-top: 16px;
+		margin-top: 16px;
+	}
+
+	.version-info-footer p {
+		margin: 4px 0;
+		color: #6b7280;
+		font-size: 14px;
+	}
+
+	.version-info-footer strong {
+		color: #374151;
+		font-weight: 600;
 	}
 </style>

@@ -76,13 +76,30 @@ function updateSidebarVersion(newVersion) {
   
   try {
     let content = fs.readFileSync(sidebarPath, 'utf8');
+    let updated = false;
     
-    // Find and replace version in the version-text span
+    // Find and replace version in the clickable button (new format)
+    const buttonVersionRegex = /(\s+)v[\d.]+(\s+<\/button>)/g;
+    if (content.match(buttonVersionRegex)) {
+      content = content.replace(buttonVersionRegex, `$1v${newVersion}$2`);
+      updated = true;
+    }
+    
+    // Find and replace version in popup header
+    const popupHeaderRegex = /<h3>What's New in v[\d.]+<\/h3>/g;
+    if (content.match(popupHeaderRegex)) {
+      content = content.replace(popupHeaderRegex, `<h3>What's New in v${newVersion}</h3>`);
+      updated = true;
+    }
+    
+    // Legacy: Find and replace version in the version-text span (fallback)
     const versionRegex = /<span class="version-text">v[\d.]+<\/span>/g;
-    const newVersionTag = `<span class="version-text">v${newVersion}</span>`;
-    
     if (content.match(versionRegex)) {
-      content = content.replace(versionRegex, newVersionTag);
+      content = content.replace(versionRegex, `<span class="version-text">v${newVersion}</span>`);
+      updated = true;
+    }
+    
+    if (updated) {
       fs.writeFileSync(sidebarPath, content);
       console.log(`✅ Updated Sidebar.svelte version display to v${newVersion}`);
       return true;
