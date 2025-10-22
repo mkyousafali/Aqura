@@ -142,33 +142,12 @@
 				return;
 			}
 
-			let query = supabase
-				.from('vendors')
-				.select('*, branches(name_en)')
-				.order('erp_vendor_id', { ascending: true })
-				.range(0, 99999); // Very large range to ensure all vendors are fetched
-
-			// Apply branch filtering
-			if (branchFilterMode === 'branch' && selectedBranch) {
-				query = query.eq('branch_id', selectedBranch);
-			} else if (branchFilterMode === 'unassigned') {
-				query = query.is('branch_id', null);
-			}
-			// For 'all' mode, no additional filtering is applied
-
-			const { data, error: fetchError } = await query;
-
-			if (fetchError) throw fetchError;
-
-			vendors = data || [];
-			filteredVendors = vendors;
-
-			// Get the actual total count with a separate query
+			// First get the total count
 			let countQuery = supabase
 				.from('vendors')
 				.select('*', { count: 'exact', head: true });
 
-			// Apply the same filtering for count
+			// Apply branch filtering for count
 			if (branchFilterMode === 'branch' && selectedBranch) {
 				countQuery = countQuery.eq('branch_id', selectedBranch);
 			} else if (branchFilterMode === 'unassigned') {
@@ -176,11 +155,54 @@
 			}
 
 			const { count, error: countError } = await countQuery;
-			if (!countError) {
-				totalVendors = count || 0;
-			} else {
-				totalVendors = vendors.length; // Fallback to fetched data length
+			if (countError) throw countError;
+
+			const totalCount = count || 0;
+			totalVendors = totalCount;
+			console.log('Total vendor count:', totalCount);
+
+			// Fetch ALL vendors using pagination to bypass Supabase 1000 record limit
+			let allVendors = [];
+			const pageSize = 1000;
+			let currentPage = 0;
+			let hasMore = true;
+
+			while (hasMore) {
+				const startRange = currentPage * pageSize;
+				const endRange = startRange + pageSize - 1;
+
+				let query = supabase
+					.from('vendors')
+					.select('*, branches(name_en)')
+					.order('erp_vendor_id', { ascending: true })
+					.range(startRange, endRange);
+
+				// Apply branch filtering
+				if (branchFilterMode === 'branch' && selectedBranch) {
+					query = query.eq('branch_id', selectedBranch);
+				} else if (branchFilterMode === 'unassigned') {
+					query = query.is('branch_id', null);
+				}
+
+				const { data, error: fetchError } = await query;
+				if (fetchError) throw fetchError;
+
+				if (data && data.length > 0) {
+					allVendors = [...allVendors, ...data];
+					currentPage++;
+					hasMore = data.length === pageSize; // Continue if we got a full page
+					console.log(`Loaded page ${currentPage}, total vendors so far: ${allVendors.length}`);
+				} else {
+					hasMore = false;
+				}
 			}
+
+			vendors = allVendors;
+			filteredVendors = vendors;
+
+			console.log(`Successfully loaded ${vendors.length} vendors out of ${totalVendors} total`);
+
+
 
 		} catch (err) {
 			error = err.message;
@@ -461,22 +483,12 @@
 
 	<!-- Dashboard Card -->
 	<div class="dashboard-section">
-		<div class="vendor-card">
-			<div class="card-icon">👥</div>
-			<div class="card-content">
-				<h3>Total Vendors</h3>
-				{#if isLoading}
-					<div class="loading-count">...</div>
-				{:else}
-					<div class="vendor-count">{totalVendors}</div>
-				{/if}
-				<p>Active vendor records</p>
-			</div>
-			<div class="header-buttons">
-				<button class="create-btn" on:click={openCreateVendor}>
+		<div class="vendor-card-minimal">
+			<div class="header-buttons-minimal">
+				<button class="create-btn-small" on:click={openCreateVendor}>
 					➕ Create Vendor
 				</button>
-				<button class="refresh-btn" on:click={refreshData} disabled={isLoading}>
+				<button class="refresh-btn-small" on:click={refreshData} disabled={isLoading}>
 					🔄 Refresh
 				</button>
 			</div>
@@ -1023,6 +1035,64 @@
 		display: flex;
 		gap: 0.75rem;
 		align-items: center;
+	}
+
+	/* Minimal vendor card styles */
+	.vendor-card-minimal {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		padding: 1rem;
+		border-radius: 8px;
+		display: flex;
+		justify-content: center;
+		max-width: 400px;
+		margin: 0 auto;
+	}
+
+	.header-buttons-minimal {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.create-btn-small {
+		background: #10b981;
+		color: white;
+		border: 1px solid #059669;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 500;
+		font-size: 0.875rem;
+	}
+
+	.create-btn-small:hover {
+		background: #059669;
+		transform: translateY(-1px);
+	}
+
+	.refresh-btn-small {
+		background: #6b7280;
+		color: white;
+		border: 1px solid #4b5563;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 500;
+		font-size: 0.875rem;
+	}
+
+	.refresh-btn-small:hover:not(:disabled) {
+		background: #4b5563;
+		transform: translateY(-1px);
+	}
+
+	.refresh-btn-small:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+		transform: none;
 	}
 
 	.create-btn {
