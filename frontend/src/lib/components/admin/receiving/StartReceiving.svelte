@@ -1737,6 +1737,23 @@
 
   // Clearance Certification Functions
   async function saveReceivingData() {
+    // Validate required fields before saving
+    if (!billDate || !billAmount || !billNumber || !billNumber.trim()) {
+      const missingFields = [];
+      if (!billDate) missingFields.push('Bill Date');
+      if (!billAmount) missingFields.push('Bill Amount');
+      if (!billNumber || !billNumber.trim()) missingFields.push('Bill Number');
+      
+      alert(`Please fill in the following required fields:\n• ${missingFields.join('\n• ')}`);
+      return;
+    }
+
+    // Validate bill amount is greater than 0
+    if (parseFloat(billAmount) <= 0) {
+      alert('Bill Amount must be greater than 0');
+      return;
+    }
+
     try {
       // Prepare receiving record data according to the actual schema
       const receivingData = {
@@ -3839,17 +3856,18 @@
       </div>
       
       <div class="date-field">
-        <label for="billDate">Bill Date:</label>
+        <label for="billDate">Bill Date: <span class="required">*</span></label>
         <input 
           type="date" 
           id="billDate"
           bind:value={billDate}
           class="editable-input"
+          required
         />
       </div>
 
       <div class="amount-field">
-        <label for="billAmount">Bill Amount:</label>
+        <label for="billAmount">Bill Amount: <span class="required">*</span></label>
         <input 
           type="number" 
           id="billAmount"
@@ -3858,17 +3876,19 @@
           min="0"
           placeholder="0.00"
           class="editable-input"
+          required
         />
       </div>
 
       <div class="bill-number-field">
-        <label for="billNumber">Bill Number:</label>
+        <label for="billNumber">Bill Number: <span class="required">*</span></label>
         <input 
           type="text" 
           id="billNumber"
           bind:value={billNumber}
           placeholder="Enter bill number"
           class="editable-input"
+          required
         />
       </div>
     </div>
@@ -4301,7 +4321,7 @@
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
+{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && billNumber && billNumber.trim() && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
@@ -6531,6 +6551,11 @@
 		font-size: 1rem;
 	}
 
+	.required {
+		color: #e53e3e;
+		font-weight: bold;
+	}
+
 	.readonly-input {
 		padding: 0.75rem;
 		border: 2px solid #e0e0e0;
@@ -6555,6 +6580,16 @@
 		color: #333;
 		font-size: 1rem;
 		transition: all 0.2s ease;
+	}
+
+	.editable-input:invalid, .editable-input[required]:not(:focus):invalid {
+		border-color: #fed7d7;
+		background-color: #fef5f5;
+	}
+
+	.editable-input:required:not(:focus):not([value=""]):invalid {
+		border-color: #e53e3e;
+		background-color: #fef5f5;
 	}
 
 	.editable-input:focus {

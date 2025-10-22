@@ -16,13 +16,17 @@
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import Settings from '$lib/components/admin/Settings.svelte';
+	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
 
 	let showMasterSubmenu = false;
 	let showSettingsSubmenu = false;
+	let showWorkSubmenu = false;
 	let submenuTimeout: ReturnType<typeof setTimeout> | null = null;
 	let masterButtonElement: HTMLButtonElement;
 	let settingsButtonElement: HTMLButtonElement;
+	let workButtonElement: HTMLButtonElement;
 	let submenuTop = 0;
+	let workSubmenuTop = 0;
 	
 	// Force reactivity when locale changes
 	$: locale = $currentLocale;
@@ -329,6 +333,59 @@
 			showSettingsSubmenu = false;
 		}, 300);
 	}
+
+	// Work submenu functions
+	function handleWorkMouseEnter() {
+		if (submenuTimeout) {
+			clearTimeout(submenuTimeout);
+			submenuTimeout = null;
+		}
+		// Calculate the position of the submenu
+		if (workButtonElement) {
+			const rect = workButtonElement.getBoundingClientRect();
+			workSubmenuTop = rect.top;
+		}
+		showWorkSubmenu = true;
+	}
+
+	function handleWorkMouseLeave() {
+		submenuTimeout = setTimeout(() => {
+			showWorkSubmenu = false;
+		}, 300);
+	}
+
+	function handleWorkSubmenuMouseEnter() {
+		if (submenuTimeout) {
+			clearTimeout(submenuTimeout);
+			submenuTimeout = null;
+		}
+	}
+
+	function handleWorkSubmenuMouseLeave() {
+		submenuTimeout = setTimeout(() => {
+			showWorkSubmenu = false;
+		}, 300);
+	}
+
+	// Open Start Receiving window
+	function openStartReceiving() {
+		const windowId = generateWindowId('start-receiving');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		windowManager.openWindow({
+			id: windowId,
+			title: `Start Receiving #${instanceNumber}`,
+			component: StartReceiving,
+			icon: '📦',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
 </script>
 
 <div class="sidebar">
@@ -362,10 +419,13 @@
 		<div class="menu-section">
 			<button 
 				class="section-button"
-				on:click={() => showComingSoon(t('nav.work') || 'Work')}
+				bind:this={workButtonElement}
+				on:mouseenter={handleWorkMouseEnter}
+				on:mouseleave={handleWorkMouseLeave}
 			>
 				<span class="section-icon">💼</span>
 				<span class="section-text">{t('nav.work') || 'Work'}</span>
+				<span class="submenu-arrow">▶</span>
 			</button>
 		</div>
 
@@ -482,6 +542,23 @@
 		<button class="submenu-item" on:click={openUserManagement}>
 			<span class="menu-icon">👤</span>
 			<span class="menu-text">User Management</span>
+		</button>
+	</div>
+{/if}
+
+<!-- Work Submenu - positioned outside sidebar to overlay on top -->
+{#if showWorkSubmenu}
+	<div 
+		role="menu"
+		tabindex="-1"
+		class="submenu"
+		style="top: {workSubmenuTop}px;"
+		on:mouseenter={handleWorkSubmenuMouseEnter}
+		on:mouseleave={handleWorkSubmenuMouseLeave}
+	>
+		<button class="submenu-item" on:click={openStartReceiving}>
+			<span class="menu-icon">📦</span>
+			<span class="menu-text">Start Receiving</span>
 		</button>
 	</div>
 {/if}
