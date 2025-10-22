@@ -6,6 +6,7 @@
 
 	// Props
 	export let user: any = null;
+	export let onDataChanged: (() => void) | undefined = undefined;
 
 	// Form data initialized with user data
 	let formData = {
@@ -29,7 +30,7 @@
 	let branches: Array<{ id: string; name: string }> = [];
 	let employees: Array<{ id: string; name: string; branch_id: string; employee_id: string; position_title_en: string }> = [];
 	let roles: Array<{ id: string; name: string; code: string }> = [];
-	let positions: Array<{ id: string; name: string }> = [];
+	let positions: Array<{ id: string; position_title_en: string; position_title_ar: string }> = [];
 
 	// Search and filtering for employees
 	let employeeSearchTerm = '';
@@ -38,6 +39,7 @@
 	let loadingData = true;
 	let errors: Record<string, string> = {};
 	let dataError = '';
+	let isManualEmployeeSelection = false;
 
 	// Load data from database
 	async function loadInitialData() {
@@ -76,6 +78,10 @@
 			if (formData.employeeId) {
 				selectedEmployee = employees.find(emp => emp.id === formData.employeeId) || null;
 				console.log('🔍 [EditUser] Found selected employee:', selectedEmployee);
+				
+				// Don't auto-update position during initialization for existing users
+				// This allows manual position assignment different from HR records
+				console.log('📝 [EditUser] Keeping existing position assignment during initialization');
 			}
 
 		} catch (error) {
@@ -95,7 +101,32 @@
 		selectedEmployee = employee;
 		formData.employeeId = employee.id;
 		employeeSearchTerm = '';
+		isManualEmployeeSelection = true;
 		console.log('📝 [EditUser] Selected employee:', employee);
+		
+		// Only auto-update position for manual selections, not during initialization
+		if (employee.position_title_en && isManualEmployeeSelection) {
+			console.log('🔍 [EditUser] Looking for position:', employee.position_title_en);
+			console.log('🔍 [EditUser] Available positions:', positions.map(p => p.position_title_en));
+			
+			const matchingPosition = positions.find(pos => pos.position_title_en === employee.position_title_en);
+			if (matchingPosition) {
+				const oldPositionId = formData.positionId;
+				
+				// Update position ID and force reactivity
+				formData = {
+					...formData,
+					positionId: matchingPosition.id
+				};
+				
+				console.log('📝 [EditUser] Updated position from:', oldPositionId, 'to:', matchingPosition.id, '(' + matchingPosition.position_title_en + ')');
+				console.log('📝 [EditUser] New formData.positionId:', formData.positionId);
+				
+			} else {
+				console.warn('⚠️ [EditUser] Could not find matching position for:', employee.position_title_en);
+				console.warn('⚠️ [EditUser] Available positions are:', positions);
+			}
+		}
 		
 		// Clear any previous employee error
 		if (errors.employeeId) {
@@ -164,7 +195,7 @@
 	let previousRoleType = '';
 	$: if (formData.roleType !== previousRoleType) {
 		console.log('🔄 [EditUser] Role type changed from', previousRoleType, 'to', formData.roleType);
-		if (previousRoleType !== '') { // Only clear if this isn't the initial load
+		if (previousRoleType !== '' && loadingData === false) { // Only clear if this isn't the initial load and data is loaded
 			formData.roleId = '';
 			formData.positionId = '';
 			console.log('🔄 [EditUser] Cleared role/position selection due to role type change');
@@ -301,21 +332,45 @@
 		successMessage = '';
 
 		try {
-			// Simulate API call
-			await new Promise(resolve => setTimeout(resolve, 2000));
-			
-			// Here you would make the actual API call to update the user
+			// Prepare update data in the format expected by the database
 			const updateData = {
-				...formData,
-				avatar: avatarFile,
-				passwordChanged: showPasswordFields,
-				quickAccessChanged: showQuickAccessFields
+				username: formData.username,
+				role_type: formData.roleType,
+				user_type: formData.userType,
+				branch_id: formData.branchId ? parseInt(formData.branchId) : null,
+				employee_id: formData.employeeId || null,
+				position_id: formData.positionId || null,
+				status: formData.status
 			};
+
 			console.log('Updating user with data:', updateData);
 
+			// Make the actual API call to update the user
+			await userManagement.updateUser(formData.id, updateData);
+
+			// Handle password update if changed
+			if (showPasswordFields && formData.password) {
+				await userManagement.resetUserPassword(formData.id, formData.password);
+			}
+
+			// Handle quick access code update if changed
+			if (showQuickAccessFields && formData.quickAccessCode) {
+				// Note: This would need a separate method in userManagement for updating quick access code
+				// For now, we'll include it in the main update
+			}
+
 			successMessage = 'User updated successfully!';
+			
+			// Refresh parent component data
+			if (onDataChanged) {
+				await onDataChanged();
+			}
+			
+			// Dispatch update event to refresh parent component
+			dispatch('updated', { userId: formData.id });
 
 		} catch (error) {
+			console.error('Error updating user:', error);
 			errors.submit = error.message || 'Failed to update user';
 		} finally {
 			isLoading = false;
@@ -343,6 +398,12 @@
 	// Watch for status changes
 	$: if (formData.status) {
 		checkMasterAdminSafeguard();
+	}
+
+	// Debug: Watch for position ID changes
+	$: if (formData.positionId) {
+		const currentPosition = positions.find(p => p.id === formData.positionId);
+		console.log('🔄 [EditUser] Position ID changed to:', formData.positionId, 'Position:', currentPosition?.position_title_en);
 	}
 </script>
 
@@ -709,17 +770,19 @@
 					{#if formData.roleType === 'Position-based'}
 						<div class="form-group">
 							<label for="positionId" class="form-label">Position *</label>
-							<select
-								id="positionId"
-								bind:value={formData.positionId}
-								class="form-select"
-								class:error={errors.positionId}
-							>
-								<option value="">Select Position</option>
-								{#each positions as position}
-									<option value={position.id}>{position.position_title_en}</option>
-								{/each}
-							</select>
+							{#key formData.positionId}
+								<select
+									id="positionId"
+									bind:value={formData.positionId}
+									class="form-select"
+									class:error={errors.positionId}
+								>
+									<option value="">Select Position</option>
+									{#each positions as position}
+										<option value={position.id}>{position.position_title_en}</option>
+									{/each}
+								</select>
+							{/key}
 							{#if errors.positionId}
 								<span class="error-message">{errors.positionId}</span>
 							{/if}
