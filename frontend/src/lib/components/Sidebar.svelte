@@ -498,7 +498,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.0.6
+				v1.0.7
 			</button>
 		</div>
 	</div>
@@ -588,18 +588,28 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.0.6</h3>
+				<h3>What's New in v1.0.7</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>👤 User Management Fixes</h4>
+					<h4>� Payment Manager Enhancement</h4>
 					<ul>
-						<li><strong>EditUser Component:</strong> Fixed position assignment issues where manual position changes weren't persisting correctly</li>
-						<li><strong>Position Dropdown:</strong> Enhanced reactivity to show correct employee positions when switching branches</li>
-						<li><strong>Database Integration:</strong> Real-time updates for user branch and position changes now work properly</li>
-						<li><strong>Manual Override:</strong> Users can now manually change positions and they persist correctly</li>
-						<li><strong>Form Reactivity:</strong> Improved Svelte component reactivity using key blocks and reactive statements</li>
+						<li><strong>Task Status Details:</strong> Added comprehensive Task Status (Card 4) functionality with detailed view window</li>
+						<li><strong>Task Completion Tracking:</strong> Real-time tracking of task completion status with visual progress indicators</li>
+						<li><strong>Vendor Integration:</strong> Enhanced task details with vendor name display for better user experience</li>
+						<li><strong>Multi-step Completion:</strong> Track task finished, photo upload, and ERP reference completion stages</li>
+						<li><strong>Advanced Filtering:</strong> Search and filter tasks by completion status, vendor, branch, and date ranges</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🔧 UI/UX Improvements</h4>
+					<ul>
+						<li><strong>Window Management:</strong> Enhanced native window system for payment manager detail views</li>
+						<li><strong>Data Loading:</strong> Improved data fetching with comprehensive error handling and debug logging</li>
+						<li><strong>Table Display:</strong> Optimized table layouts with responsive design and proper column sizing</li>
+						<li><strong>Status Indicators:</strong> Visual completion badges and progress indicators for better task tracking</li>
+						<li><strong>User Experience:</strong> Streamlined task details interface with vendor names instead of technical IDs</li>
 					</ul>
 				</div>
 				<div class="update-section">
