@@ -5,15 +5,23 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import ScheduledPayments from './ScheduledPayments.svelte';
+	import PaidPaymentsDetails from './PaidPaymentsDetails.svelte';
+	import UnpaidScheduledDetails from './UnpaidScheduledDetails.svelte';
+	import TaskStatusDetails from './TaskStatusDetails.svelte';
 
 	// Data variables
 	let receivingRecords = [];
 	let filteredRecords = [];
 	let branches = [];
 	let scheduledPayments = new Map(); // Map to track scheduled payments by receiving_record_id
+	let paidTransactions = []; // Store paid transactions from payment_transactions table
+	let taskStatusData = { totalTasks: 0, completedTasks: 0, pendingTasks: 0 }; // Store task status data for Card 4
 	let isLoading = false;
 	let error = '';
 	let searchQuery = '';
+	
+	// Paid Payments variables
+	let paidPaymentsDetails = [];
 	
 	// Filter variables
 	let branchFilterMode = 'all'; // 'all', 'branch'
@@ -37,19 +45,36 @@
 		overdue: 0,
 		totalVendors: 0,
 		scheduledAmount: 0,
-		scheduledByPaymentMethod: {}
+		scheduledByPaymentMethod: {},
+		totalScheduledBills: 0,
+		unpaidScheduledAmount: 0,
+		unpaidScheduledByPaymentMethod: {},
+		unpaidScheduledBills: 0,
+		paidAmount: 0,
+		paidByPaymentMethod: {},
+		paidTransactionsCount: 0,
+		taskStatus: { totalTasks: 0, completedTasks: 0, pendingTasks: 0 }
 	};
 
-	// Reactive statement to recalculate stats when scheduled payments change
-	$: if (scheduledPayments && receivingRecords.length > 0) {
+	// Reactive statement to recalculate stats when data changes
+	$: if (scheduledPayments && receivingRecords.length > 0 && paidTransactions) {
 		calculateStatistics();
 	}
 
 	// Load initial data
 	onMount(async () => {
 		await loadBranches();
-		await loadScheduledPayments(); // Load scheduled payments FIRST
+		await loadScheduledPayments(); // Load scheduled payments FIRST (for table logic)
+		await loadAllScheduledPaymentsForCards(); // Load all scheduled payments (for cards)
+		await loadPaidTransactions(); // Load paid transactions
+		await loadTaskStatusData(); // Load task status data (for Card 4)
 		await loadReceivingRecords();
+		
+		// Auto-process Cash on Delivery payments
+		await processCashOnDeliveryPayments();
+		
+		// Final calculation after all data is loaded
+		calculateStatistics();
 	});
 
 	// Load branches for filter
@@ -82,7 +107,6 @@
 			// Create a map for quick lookup - store both payment_status and is_paid
 			scheduledPayments = new Map();
 			data?.forEach(schedule => {
-				console.log(`Scheduled payment:`, schedule);
 				scheduledPayments.set(schedule.receiving_record_id, {
 					payment_status: schedule.payment_status,
 					is_paid: schedule.is_paid
@@ -91,6 +115,317 @@
 			console.log(`Total scheduled payments loaded: ${scheduledPayments.size}`);
 		} catch (err) {
 			console.error('Error loading scheduled payments:', err);
+		}
+	}
+
+	// Load all scheduled payments data for cards (separate from table logic)
+	let allScheduledPaymentsData = [];
+	let isProcessingCashPayments = false;
+	let processedPaymentIds = new Set();
+	
+	// Auto-process Cash on Delivery payments
+	async function processCashOnDeliveryPayments() {
+		if (isProcessingCashPayments) {
+			console.log('Cash payment processing already in progress, skipping...');
+			return;
+		}
+
+		try {
+			isProcessingCashPayments = true;
+			
+			// Find all cash-on-delivery payments that are not yet marked as paid from allScheduledPaymentsData
+			const cashPayments = allScheduledPaymentsData.filter(payment => 
+				(payment.payment_method === 'Cash on Delivery' || 
+				 payment.payment_method === 'COD' || 
+				 payment.payment_method?.toLowerCase().includes('cash on delivery') ||
+				 payment.payment_method?.toLowerCase().includes('cod')) &&
+				!payment.is_paid &&
+				!processedPaymentIds.has(payment.id) // Skip already processed payments
+			);
+
+			console.log(`Found ${cashPayments.length} unprocessed cash payments in Payment Manager`);
+
+			// Process each cash payment automatically
+			for (const payment of cashPayments) {
+				if (!payment.is_paid && !processedPaymentIds.has(payment.id)) {
+					console.log('Auto-processing cash payment in Payment Manager:', payment.id);
+					processedPaymentIds.add(payment.id); // Mark as being processed
+					
+					// Mark payment as paid in vendor_payment_schedule
+					const { error } = await supabase
+						.from('vendor_payment_schedule')
+						.update({ 
+							is_paid: true,
+							paid_date: new Date().toISOString(),
+							payment_reference: `AUTO-COD-${Date.now()}`
+						})
+						.eq('id', payment.id);
+
+					if (error) {
+						console.error('Error auto-processing cash payment:', error);
+					} else {
+						console.log('Successfully auto-processed cash payment:', payment.id);
+					}
+					
+					// Small delay to prevent overwhelming the system
+					await new Promise(resolve => setTimeout(resolve, 200));
+				}
+			}
+
+			// Reload data after processing to reflect changes
+			if (cashPayments.length > 0) {
+				await loadScheduledPayments();
+				await loadAllScheduledPaymentsForCards();
+				await loadPaidTransactions();
+				calculateStatistics();
+			}
+		} catch (error) {
+			console.error('Error processing cash-on-delivery payments in Payment Manager:', error);
+		} finally {
+			isProcessingCashPayments = false;
+		}
+	}
+	
+	async function loadAllScheduledPaymentsForCards() {
+		try {
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select('*');
+
+			if (error) {
+				console.error('Error loading all scheduled payments for cards:', error);
+				return;
+			}
+
+			allScheduledPaymentsData = data || [];
+		} catch (err) {
+			console.error('Error loading all scheduled payments for cards:', err);
+		}
+	}
+
+	// Load task status data for Card 4
+	async function loadTaskStatusData() {
+		try {
+			// Get all task_ids from payment_transactions table
+			const { data: paymentTasks, error: paymentError } = await supabase
+				.from('payment_transactions')
+				.select('task_id')
+				.not('task_id', 'is', null);
+
+			if (paymentError) {
+				console.error('Error loading payment transaction tasks:', paymentError);
+				return;
+			}
+
+			// Get unique task_ids
+			const uniqueTaskIds = [...new Set(paymentTasks?.map(p => p.task_id).filter(Boolean) || [])];
+
+			if (uniqueTaskIds.length === 0) {
+				taskStatusData = { totalTasks: 0, completedTasks: 0, pendingTasks: 0 };
+				return;
+			}
+
+			// Get task completions for these task_ids
+			const { data: completions, error: completionError } = await supabase
+				.from('task_completions')
+				.select('task_id')
+				.in('task_id', uniqueTaskIds);
+
+			if (completionError) {
+				console.error('Error loading task completions:', completionError);
+				return;
+			}
+
+			const completedTaskIds = new Set(completions?.map(c => c.task_id) || []);
+			const totalTasks = uniqueTaskIds.length;
+			const completedTasks = completedTaskIds.size;
+			const pendingTasks = totalTasks - completedTasks;
+
+			taskStatusData = {
+				totalTasks,
+				completedTasks,
+				pendingTasks
+			};
+
+		} catch (err) {
+			console.error('Error loading task status data:', err);
+			taskStatusData = { totalTasks: 0, completedTasks: 0, pendingTasks: 0 };
+		}
+	}
+
+	// Load detailed paid payments data for modal
+	async function loadPaidPaymentsDetails() {
+		try {
+			const { data, error } = await supabase
+				.from('payment_transactions')
+				.select(`
+					*,
+					receiving_records (
+						vendor_id,
+						original_bill_url,
+						branch_id,
+						branches (
+							name_en,
+							name_ar
+						)
+					)
+				`)
+				.order('transaction_date', { ascending: false });
+
+			if (error) {
+				console.error('Error loading paid payments details:', error);
+				return [];
+			}
+
+			// Now get vendor names by fetching from vendors table
+			if (data && data.length > 0) {
+				const vendorIds = [...new Set(data
+					.filter(payment => payment.receiving_records?.vendor_id)
+					.map(payment => payment.receiving_records.vendor_id))];
+
+				if (vendorIds.length > 0) {
+					const { data: vendorsData, error: vendorsError } = await supabase
+						.from('vendors')
+						.select('erp_vendor_id, vendor_name, branch_id')
+						.in('erp_vendor_id', vendorIds);
+
+					if (!vendorsError && vendorsData) {
+						// Create a map of vendor_id to vendor_name by branch
+						const vendorMap = {};
+						vendorsData.forEach(vendor => {
+							const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+							vendorMap[key] = vendor.vendor_name;
+						});
+
+						// Add vendor names to the payment data
+						data.forEach(payment => {
+							if (payment.receiving_records?.vendor_id && payment.receiving_records?.branch_id) {
+								const key = `${payment.receiving_records.vendor_id}_${payment.receiving_records.branch_id}`;
+								payment.vendor_name = vendorMap[key] || 'Unknown Vendor';
+							}
+						});
+					}
+				}
+			}
+
+			return data || [];
+		} catch (err) {
+			console.error('Error loading paid payments details:', err);
+			return [];
+		}
+	}
+
+	// Open paid payments in new application window
+	async function openPaidPaymentsModal() {
+		const paidPayments = await loadPaidPaymentsDetails();
+		
+		// Open new application window using window manager
+		windowManager.openWindow({
+			id: 'paid-payments-details',
+			title: 'Paid Payments Details',
+			component: PaidPaymentsDetails,
+			props: {
+				payments: paidPayments
+			},
+			icon: '💰',
+			size: { width: 1200, height: 700 },
+			minSize: { width: 800, height: 500 },
+			position: { x: 100, y: 100 }
+		});
+	}
+
+	// Open unpaid scheduled payments in new application window
+	async function openUnpaidScheduledModal() {
+		console.log('Opening unpaid scheduled modal...');
+		const unpaidScheduled = await loadUnpaidScheduledPayments();
+		
+		// Open new application window using window manager
+		windowManager.openWindow({
+			id: 'unpaid-scheduled-details',
+			title: 'Unpaid Scheduled Payments Details',
+			component: UnpaidScheduledDetails,
+			props: {
+				payments: unpaidScheduled
+			},
+			icon: '📅',
+			size: { width: 1300, height: 700 },
+			minSize: { width: 900, height: 500 },
+			position: { x: 150, y: 150 }
+		});
+	}
+
+	// Open task status details in new application window
+	async function openTaskStatusModal() {
+		console.log('Opening task status modal...');
+		
+		// Open new application window using window manager
+		windowManager.openWindow({
+			id: 'task-status-details',
+			title: 'Task Status Details',
+			component: TaskStatusDetails,
+			props: {},
+			icon: '📋',
+			size: { width: 1400, height: 700 },
+			minSize: { width: 1000, height: 500 },
+			position: { x: 200, y: 200 }
+		});
+	}
+
+	// Load unpaid scheduled payments details
+	async function loadUnpaidScheduledPayments() {
+		try {
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select(`
+					*,
+					branches (
+						name_en,
+						name_ar
+					),
+					receiving_records (
+						original_bill_url,
+						erp_purchase_invoice_reference,
+						created_at
+					)
+				`)
+				.eq('is_paid', false)
+				.order('due_date', { ascending: true });
+
+			if (error) {
+				console.error('Error loading unpaid scheduled payments:', error);
+				return [];
+			}
+
+			return data || [];
+		} catch (err) {
+			console.error('Error loading unpaid scheduled payments:', err);
+			return [];
+		}
+	}
+
+	// Close paid payments modal
+	function viewOriginalBill(url) {
+		if (url) {
+			window.open(url, '_blank');
+		}
+	}
+
+	// Load paid transactions from payment_transactions table as per migration 58
+	async function loadPaidTransactions() {
+		try {
+			const { data, error: transactionError } = await supabase
+				.from('payment_transactions')
+				.select('*');
+
+			if (transactionError) {
+				console.error('Error loading paid transactions:', transactionError);
+				return;
+			}
+
+			paidTransactions = data || [];
+			console.log(`Total paid transactions loaded: ${paidTransactions.length}`);
+		} catch (err) {
+			console.error('Error loading paid transactions:', err);
 		}
 	}
 
@@ -109,7 +444,15 @@
 	// Get payment schedule status
 	function getPaymentScheduleStatus(receivingRecordId) {
 		const scheduleInfo = scheduledPayments.get(receivingRecordId);
-		return scheduleInfo?.payment_status || null;
+		if (!scheduleInfo) return null;
+		
+		// If is_paid is true, return 'paid' regardless of payment_status
+		if (scheduleInfo.is_paid === true) {
+			return 'paid';
+		}
+		
+		// Otherwise return the payment_status
+		return scheduleInfo.payment_status || 'scheduled';
 	}
 
 	// Sort records to show unscheduled payments first, ordered by due date
@@ -175,7 +518,7 @@
 			// Filter out bills that are marked as paid
 			receivingRecords = (receivingData || []).filter(record => {
 				const isPaid = isPaymentPaid(record.id);
-				console.log(`Record ${record.id} - Bill ${record.bill_number} - isPaid: ${isPaid}`);
+
 				return !isPaid;
 			});
 
@@ -262,7 +605,7 @@
 		const currentMonth = today.getMonth();
 		const currentYear = today.getFullYear();
 
-		// Get unique vendors
+		// Get unique vendors from receiving records
 		const uniqueVendors = new Set();
 		receivingRecords.forEach(record => {
 			if (record.vendor_id) {
@@ -270,7 +613,7 @@
 			}
 		});
 
-		// Count records by status and date
+		// Initialize counters
 		let totalThisMonth = 0;
 		let pending = 0;
 		let completed = 0;
@@ -278,12 +621,62 @@
 		let overdue = 0;
 		let scheduledAmount = 0;
 		let scheduledByPaymentMethod = {};
+		let totalScheduledBills = 0;
+		let unpaidScheduledAmount = 0;
+		let unpaidScheduledByPaymentMethod = {};
+		let unpaidScheduledBills = 0;
 
-		// Initialize all payment categories with 0
+		// Initialize all payment categories with 0 for scheduled payments
 		paymentCategories.forEach(category => {
 			scheduledByPaymentMethod[category] = 0;
+			unpaidScheduledByPaymentMethod[category] = 0;
 		});
 
+		// Calculate scheduled payments (directly from vendor_payment_schedule table)
+		// This shows ALL scheduled payments whether paid or not, from vendor_payment_schedule only
+		allScheduledPaymentsData.forEach(scheduleRecord => {
+			// Count total scheduled bills (both paid and unpaid)
+			totalScheduledBills++;
+			
+			// Get amount from vendor_payment_schedule fields
+			const amount = scheduleRecord.final_bill_amount || scheduleRecord.bill_amount || 0;
+			
+			scheduledAmount += amount;
+
+			// Count by status for processing/completed counters
+			if (scheduleRecord.is_paid === true) {
+				completed++;
+			} else {
+				processing++;
+				// Count unpaid scheduled payments
+				unpaidScheduledBills++;
+				unpaidScheduledAmount += amount;
+			}
+
+			// Get payment method from vendor_payment_schedule table directly
+			const rawPaymentMethod = scheduleRecord.payment_method || 'Cash on Delivery';
+
+			let paymentMethod = 'Cash on Delivery';
+			
+			if (rawPaymentMethod.toLowerCase().includes('cash on delivery') || rawPaymentMethod.toLowerCase().includes('cod')) {
+				paymentMethod = 'Cash on Delivery';
+			} else if (rawPaymentMethod.toLowerCase().includes('bank on delivery') || rawPaymentMethod.toLowerCase().includes('bod')) {
+				paymentMethod = 'Bank on Delivery';
+			} else if (rawPaymentMethod.toLowerCase().includes('cash credit')) {
+				paymentMethod = 'Cash Credit';
+			} else if (rawPaymentMethod.toLowerCase().includes('bank credit')) {
+				paymentMethod = 'Bank Credit';
+			}
+
+			scheduledByPaymentMethod[paymentMethod] += amount;
+			
+			// Add to unpaid totals if not paid
+			if (scheduleRecord.is_paid !== true) {
+				unpaidScheduledByPaymentMethod[paymentMethod] += amount;
+			}
+		});
+
+		// Calculate other statistics from receiving_records (for table and unscheduled payments)
 		receivingRecords.forEach(record => {
 			const recordDate = new Date(record.created_at);
 			const isThisMonth = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
@@ -292,36 +685,10 @@
 				totalThisMonth++;
 			}
 
-			// Check if payment is scheduled
+			// Check if payment is NOT scheduled for pending/overdue counts
 			const isScheduled = isPaymentScheduled(record.id);
-			const scheduleStatus = getPaymentScheduleStatus(record.id);
-
-			if (scheduleStatus === 'paid') {
-				completed++;
-			} else if (scheduleStatus === 'scheduled') {
-				processing++;
-				// Add to scheduled amount
-				const amount = record.final_bill_amount || record.bill_amount || 0;
-				scheduledAmount += amount;
-				
-				// Map payment method to standard category
-				const rawPaymentMethod = record.payment_method || 'Cash on Delivery';
-				let paymentMethod = 'Cash on Delivery'; // default
-				
-				// Map various payment method names to the actual app categories
-				if (rawPaymentMethod.toLowerCase().includes('cash on delivery') || rawPaymentMethod.toLowerCase().includes('cod')) {
-					paymentMethod = 'Cash on Delivery';
-				} else if (rawPaymentMethod.toLowerCase().includes('bank on delivery') || rawPaymentMethod.toLowerCase().includes('bod')) {
-					paymentMethod = 'Bank on Delivery';
-				} else if (rawPaymentMethod.toLowerCase().includes('cash credit')) {
-					paymentMethod = 'Cash Credit';
-				} else if (rawPaymentMethod.toLowerCase().includes('bank credit')) {
-					paymentMethod = 'Bank Credit';
-				}
-				
-				scheduledByPaymentMethod[paymentMethod] += amount;
-			} else if (!isScheduled) {
-				// Check if overdue based on due date
+			if (!isScheduled) {
+				// Check if overdue based on due date for unscheduled payments
 				if (record.due_date) {
 					const dueDate = new Date(record.due_date);
 					if (dueDate < today) {
@@ -335,6 +702,40 @@
 			}
 		});
 
+		// Calculate paid amounts (from payment_transactions table)
+		let paidAmount = 0;
+		let paidByPaymentMethod = {};
+		let paidTransactionsCount = 0;
+
+		// Initialize all payment categories with 0 for paid payments
+		paymentCategories.forEach(category => {
+			paidByPaymentMethod[category] = 0;
+		});
+
+		paidTransactions.forEach(transaction => {
+			paidTransactionsCount++;
+			// Get amount from payment_transactions table amount column (migration 58)
+			const amount = transaction.amount || 0;
+			paidAmount += amount;
+
+			// Get payment method from payment_transactions table payment_method column (migration 58)
+			const paymentMethod = transaction.payment_method || 'Cash on Delivery';
+
+			// Map payment method to standard category
+			let standardPaymentMethod = 'Cash on Delivery';
+			if (paymentMethod.toLowerCase().includes('cash on delivery') || paymentMethod.toLowerCase().includes('cod')) {
+				standardPaymentMethod = 'Cash on Delivery';
+			} else if (paymentMethod.toLowerCase().includes('bank on delivery') || paymentMethod.toLowerCase().includes('bod')) {
+				standardPaymentMethod = 'Bank on Delivery';
+			} else if (paymentMethod.toLowerCase().includes('cash credit')) {
+				standardPaymentMethod = 'Cash Credit';
+			} else if (paymentMethod.toLowerCase().includes('bank credit')) {
+				standardPaymentMethod = 'Bank Credit';
+			}
+
+			paidByPaymentMethod[standardPaymentMethod] += amount;
+		});
+
 		stats = {
 			totalPayments: totalThisMonth,
 			pending: pending,
@@ -343,7 +744,15 @@
 			overdue: overdue,
 			totalVendors: uniqueVendors.size,
 			scheduledAmount: scheduledAmount,
-			scheduledByPaymentMethod: scheduledByPaymentMethod
+			scheduledByPaymentMethod: scheduledByPaymentMethod,
+			totalScheduledBills: totalScheduledBills,
+			unpaidScheduledAmount: unpaidScheduledAmount,
+			unpaidScheduledByPaymentMethod: unpaidScheduledByPaymentMethod,
+			unpaidScheduledBills: unpaidScheduledBills,
+			paidAmount: paidAmount,
+			paidByPaymentMethod: paidByPaymentMethod,
+			paidTransactionsCount: paidTransactionsCount,
+			taskStatus: taskStatusData || { totalTasks: 0, completedTasks: 0, pendingTasks: 0 }
 		};
 	}
 
@@ -537,13 +946,6 @@
 		}
 	}
 
-	// View original bill in new window
-	function viewOriginalBill(billUrl) {
-		if (billUrl) {
-			window.open(billUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-		}
-	}
-
 	// Check if file is PDF
 	function isPdfFile(url) {
 		if (!url) return false;
@@ -664,8 +1066,17 @@
 
 	// Refresh data function
 	async function refreshData() {
-		await loadScheduledPayments(); // Load scheduled payments first
+		await loadScheduledPayments(); // Load scheduled payments first (for table logic)
+		await loadAllScheduledPaymentsForCards(); // Load all scheduled payments (for cards)
+		await loadPaidTransactions(); // Load paid transactions
+		await loadTaskStatusData(); // Load task status data (for Card 4)
 		await loadReceivingRecords();
+		
+		// Auto-process Cash on Delivery payments
+		await processCashOnDeliveryPayments();
+		
+		// Final calculation after all data is loaded
+		calculateStatistics();
 	}
 </script>
 
@@ -694,28 +1105,72 @@
 						<h3>Scheduled Payments</h3>
 						<p class="total-amount">{formatCurrency(stats.scheduledAmount)}</p>
 						<div class="payment-breakdown">
-							{#each Object.entries(stats.scheduledByPaymentMethod) as [method, amount]}
+							{#each Object.entries(stats.scheduledByPaymentMethod || {}) as [method, amount]}
 								<div class="payment-method-item">
 									<span class="method-name">{method}:</span>
 									<span class="method-amount">{formatCurrency(amount)}</span>
 								</div>
 							{/each}
 						</div>
-						<p class="count-label">{stats.processing} bills scheduled</p>
+						<p class="count-label">{stats.totalScheduledBills} bills scheduled</p>
 						<p class="click-hint">Click to view details</p>
 					</div>
 				</div>
 				
-				<div class="status-card">
-					<p class="status-value">2</p>
+				<div class="status-card paid-card clickable" on:click={openPaidPaymentsModal}>
+					<div class="card-icon">💰</div>
+					<div class="card-content">
+						<h3>Paid Payments</h3>
+						<p class="total-amount">{formatCurrency(stats.paidAmount)}</p>
+						<div class="payment-breakdown">
+							{#each Object.entries(stats.paidByPaymentMethod || {}) as [method, amount]}
+								<div class="payment-method-item">
+									<span class="method-name">{method}:</span>
+									<span class="method-amount">{formatCurrency(amount)}</span>
+								</div>
+							{/each}
+						</div>
+						<p class="count-label">{stats.paidTransactionsCount} transactions completed</p>
+						<p class="click-hint">Click to view details</p>
+					</div>
 				</div>
 				
-				<div class="status-card">
-					<p class="status-value">3</p>
+				<div class="status-card unpaid-scheduled-card clickable" on:click={openUnpaidScheduledModal}>
+					<div class="card-icon">⏳</div>
+					<div class="card-content">
+						<h3>Unpaid Scheduled</h3>
+						<p class="total-amount">{formatCurrency(stats.unpaidScheduledAmount)}</p>
+						<div class="payment-breakdown">
+							{#each Object.entries(stats.unpaidScheduledByPaymentMethod || {}) as [method, amount]}
+								<div class="payment-method-item">
+									<span class="method-name">{method}:</span>
+									<span class="method-amount">{formatCurrency(amount)}</span>
+								</div>
+							{/each}
+						</div>
+						<p class="count-label">{stats.unpaidScheduledBills} bills pending payment</p>
+						<p class="click-hint">Click to view details</p>
+					</div>
 				</div>
 				
-				<div class="status-card">
-					<p class="status-value">4</p>
+				<div class="status-card task-status-card clickable" on:click={openTaskStatusModal}>
+					<div class="card-icon">📋</div>
+					<div class="card-content">
+						<h3>Task Status</h3>
+						<p class="total-amount">{stats.taskStatus.totalTasks} Total</p>
+						<div class="task-breakdown">
+							<div class="task-status-item">
+								<span class="status-name">Completed:</span>
+								<span class="status-count completed">{stats.taskStatus.completedTasks}</span>
+							</div>
+							<div class="task-status-item">
+								<span class="status-name">Pending:</span>
+								<span class="status-count pending">{stats.taskStatus.pendingTasks}</span>
+							</div>
+						</div>
+						<p class="count-label">From payment transactions</p>
+						<p class="click-hint">Click to view details</p>
+					</div>
 				</div>
 				
 				<div class="status-card">
@@ -954,6 +1409,8 @@
 		</div>
 	</div>
 </div>
+
+
 
 <!-- Edit Modal -->
 {#if showEditModal && editingRecord}
@@ -1290,6 +1747,7 @@
 
 	.status-card.clickable {
 		cursor: pointer;
+		transition: all 0.2s ease;
 	}
 
 	.status-card.clickable:hover {
@@ -1304,6 +1762,102 @@
 		padding: 24px;
 		text-align: left;
 		min-height: 200px;
+	}
+
+	.paid-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 16px;
+		padding: 24px;
+		text-align: left;
+		min-height: 200px;
+	}
+
+	.paid-card .card-icon {
+		background: #10b981;
+	}
+
+	.paid-card .total-amount {
+		color: #10b981;
+	}
+
+	.unpaid-scheduled-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 16px;
+		padding: 24px;
+		text-align: left;
+		min-height: 200px;
+	}
+
+	.unpaid-scheduled-card .card-icon {
+		background: #f59e0b;
+		color: white;
+	}
+
+	.unpaid-scheduled-card .total-amount {
+		color: #f59e0b;
+	}
+
+	.unpaid-scheduled-card.clickable:hover {
+		background: #fffbeb;
+		border-color: #f59e0b;
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(245, 158, 11, 0.1);
+	}
+
+	.unpaid-scheduled-card.clickable:active {
+		transform: translateY(0);
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
+	}
+
+	.task-status-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 16px;
+		padding: 24px;
+		text-align: left;
+		min-height: 200px;
+	}
+
+	.task-status-card .card-icon {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.task-status-card .total-amount {
+		color: #8b5cf6;
+	}
+
+	.task-breakdown {
+		margin: 0 0 12px 0;
+	}
+
+	.task-status-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 4px;
+		padding: 2px 0;
+	}
+
+	.status-name {
+		font-size: 12px;
+		color: #6b7280;
+		font-weight: 500;
+	}
+
+	.status-count {
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.status-count.completed {
+		color: #10b981;
+	}
+
+	.status-count.pending {
+		color: #f59e0b;
 	}
 
 	.card-icon {
@@ -2297,6 +2851,24 @@
 		background: #047857;
 	}
 
+	/* Clickable Task Status Card */
+	.task-status-card.clickable {
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.task-status-card.clickable:hover {
+		background: #f0f4ff;
+		border-color: #667eea;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+	}
+
+	.task-status-card.clickable:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+	}
+
 	@media (max-width: 768px) {
 		.form-row {
 			grid-template-columns: 1fr;
@@ -2307,4 +2879,6 @@
 			margin: 20px;
 		}
 	}
+
+
 </style>
