@@ -67,23 +67,28 @@
 		}
 	}
 
-	// Load scheduled payments to track which ones are already scheduled
+	// Load scheduled payments to track which ones are already scheduled and paid
 	async function loadScheduledPayments() {
 		try {
 			const { data, error: scheduleError } = await supabase
 				.from('vendor_payment_schedule')
-				.select('receiving_record_id, payment_status');
+				.select('receiving_record_id, payment_status, is_paid');
 
 			if (scheduleError) {
 				console.error('Error loading scheduled payments:', scheduleError);
 				return;
 			}
 
-			// Create a map for quick lookup
+			// Create a map for quick lookup - store both payment_status and is_paid
 			scheduledPayments = new Map();
 			data?.forEach(schedule => {
-				scheduledPayments.set(schedule.receiving_record_id, schedule.payment_status);
+				console.log(`Scheduled payment:`, schedule);
+				scheduledPayments.set(schedule.receiving_record_id, {
+					payment_status: schedule.payment_status,
+					is_paid: schedule.is_paid
+				});
 			});
+			console.log(`Total scheduled payments loaded: ${scheduledPayments.size}`);
 		} catch (err) {
 			console.error('Error loading scheduled payments:', err);
 		}
@@ -94,9 +99,17 @@
 		return scheduledPayments.has(receivingRecordId);
 	}
 
+	// Check if a payment is marked as paid
+	function isPaymentPaid(receivingRecordId) {
+		const scheduleInfo = scheduledPayments.get(receivingRecordId);
+		console.log(`Checking payment status for ${receivingRecordId}:`, scheduleInfo);
+		return scheduleInfo?.is_paid === true;
+	}
+
 	// Get payment schedule status
 	function getPaymentScheduleStatus(receivingRecordId) {
-		return scheduledPayments.get(receivingRecordId) || null;
+		const scheduleInfo = scheduledPayments.get(receivingRecordId);
+		return scheduleInfo?.payment_status || null;
 	}
 
 	// Sort records to show unscheduled payments first, ordered by due date
@@ -135,12 +148,13 @@
 			isLoading = true;
 			error = '';
 
-			// Load receiving records with branch relationship only
+			// Load receiving records with proper JOIN to vendors and branches tables
 			let query = supabase
 				.from('receiving_records')
 				.select(`
 					*,
-					branches(name_en, name_ar)
+					branches(name_en, name_ar),
+					vendors!receiving_records_vendor_fkey(erp_vendor_id, vendor_name, bank_name, iban, vat_number)
 				`)
 				.order('created_at', { ascending: false })
 				.range(0, 99999);
@@ -154,25 +168,16 @@
 
 			if (receivingError) throw receivingError;
 
-			// Load vendors separately since there's no foreign key relationship
-			const { data: vendorsData, error: vendorsError } = await supabase
-				.from('vendors')
-				.select('erp_vendor_id, vendor_name, branch_id')
-				.range(0, 99999);
+			// Ensure scheduled payments are loaded before filtering
+			await loadScheduledPayments();
 
-			if (vendorsError) throw vendorsError;
-
-			// Create vendor lookup map using erp_vendor_id as key
-			const vendorMap = {};
-			vendorsData?.forEach(vendor => {
-				vendorMap[vendor.erp_vendor_id] = vendor;
+			// No need for manual vendor matching anymore - data comes with proper JOINs
+			// Filter out bills that are marked as paid
+			receivingRecords = (receivingData || []).filter(record => {
+				const isPaid = isPaymentPaid(record.id);
+				console.log(`Record ${record.id} - Bill ${record.bill_number} - isPaid: ${isPaid}`);
+				return !isPaid;
 			});
-
-			// Combine data by matching vendor_id manually
-			receivingRecords = (receivingData || []).map(record => ({
-				...record,
-				vendors: vendorMap[record.vendor_id] || null
-			}));
 
 			// Sort records: unscheduled payments first (by due date), then scheduled payments
 			await sortRecordsByScheduleStatus();
