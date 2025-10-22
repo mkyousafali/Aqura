@@ -593,38 +593,38 @@
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Payment Manager Improvements</h4>
+					<h4>👤 User Management Fixes</h4>
 					<ul>
-						<li><strong>Vendor Name Fix:</strong> Fixed vendor names showing "N/A" in Payment Manager - now displays correctly</li>
-						<li><strong>Paid Bills Filter:</strong> Paid bills are now automatically hidden from Payment Manager table</li>
-						<li><strong>Enhanced JOIN Logic:</strong> Improved database relationships using proper foreign key JOINs</li>
-						<li><strong>Better Data Integrity:</strong> Comprehensive vendor data fetching with bank names and IBAN</li>
-						<li><strong>Debug Console:</strong> Added detailed logging for payment status tracking</li>
+						<li><strong>EditUser Component:</strong> Fixed position assignment issues where manual position changes weren't persisting correctly</li>
+						<li><strong>Position Dropdown:</strong> Enhanced reactivity to show correct employee positions when switching branches</li>
+						<li><strong>Database Integration:</strong> Real-time updates for user branch and position changes now work properly</li>
+						<li><strong>Manual Override:</strong> Users can now manually change positions and they persist correctly</li>
+						<li><strong>Form Reactivity:</strong> Improved Svelte component reactivity using key blocks and reactive statements</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 Database & Security</h4>
+					<h4>🔧 Bug Fixes & Stability</h4>
 					<ul>
-						<li><strong>RLS Policy Fixes:</strong> Disabled problematic RLS policies for smooth operation</li>
-						<li><strong>Migration Updates:</strong> New migrations for vendor_payment_schedule and payment_transactions</li>
-						<li><strong>Error Resolution:</strong> Fixed 406 Not Acceptable errors in table queries</li>
-						<li><strong>Data Consistency:</strong> Improved payment status synchronization between views</li>
-						<li><strong>Performance:</strong> Optimized queries with proper indexing and relationships</li>
+						<li><strong>Null Pointer Errors:</strong> Fixed "Cannot read properties of null (reading 'toLowerCase')" in UserManagement search</li>
+						<li><strong>Search Filtering:</strong> Added proper null checks in user search and filtering functionality</li>
+						<li><strong>Position Matching:</strong> Fixed position auto-selection logic when editing user employee assignments</li>
+						<li><strong>Form Validation:</strong> Enhanced form data validation and error handling</li>
+						<li><strong>UI Consistency:</strong> Position assignments now display correctly across all components</li>
 					</ul>
 				</div>
 				<div class="update-section">
 					<h4>🎯 User Experience</h4>
 					<ul>
-						<li><strong>Clean Interface:</strong> Payment Manager now only shows unpaid/pending bills</li>
-						<li><strong>Real-time Updates:</strong> Payment status changes reflect immediately across components</li>
-						<li><strong>Better Workflow:</strong> Mark paid in Month view → Automatically hidden in Payment Manager</li>
-						<li><strong>Data Accuracy:</strong> Vendor information now displays consistently across all views</li>
+						<li><strong>Seamless Editing:</strong> User editing now works smoothly with real database updates</li>
+						<li><strong>Position Synchronization:</strong> Employee position changes reflect immediately in the UI</li>
+						<li><strong>Better Feedback:</strong> Clear success messages when user details are updated</li>
+						<li><strong>Search Reliability:</strong> Search functionality no longer crashes on null values</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 22, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Focus:</strong> Payment Manager Data Integrity & User Experience</p>
+					<p><strong>Focus:</strong> User Management Reliability & EditUser Functionality</p>
 				</div>
 			</div>
 		</div>
