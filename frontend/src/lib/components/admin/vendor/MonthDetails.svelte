@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// Props passed from parent
 	export let monthData = null;
@@ -138,7 +139,19 @@
 		try {
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
-				.select('*')
+				.select(`
+					*,
+					receiving_records!receiving_record_id (
+						accountant_user_id,
+						bill_number,
+						vendor_id,
+						user_id,
+						original_bill_url,
+						users!user_id (
+							username
+						)
+					)
+				`)
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -147,8 +160,63 @@
 			}
 
 			scheduledPayments = data || [];
+			
+			// Only auto-process cash payments on initial load, not on every reload
+			if (data && data.length > 0) {
+				setTimeout(() => {
+					processCashOnDeliveryPayments();
+				}, 1000); // Delay to prevent infinite loops
+			}
 		} catch (error) {
 			console.error('Error loading scheduled payments:', error);
+		}
+	}
+
+	// Add processing lock to prevent multiple simultaneous processing
+	let isProcessingCashPayments = false;
+	let processedPaymentIds = new Set();
+
+	// Automatically mark cash-on-delivery payments as paid and create tasks
+	async function processCashOnDeliveryPayments() {
+		if (isProcessingCashPayments) {
+			console.log('Cash payment processing already in progress, skipping...');
+			return;
+		}
+
+		try {
+			isProcessingCashPayments = true;
+			
+			// Find all cash-on-delivery payments that are not yet marked as paid
+			const cashPayments = scheduledPayments.filter(payment => 
+				(payment.payment_method === 'Cash on Delivery' || 
+				 payment.payment_method === 'COD' || 
+				 payment.payment_method?.toLowerCase().includes('cash on delivery') ||
+				 payment.payment_method?.toLowerCase().includes('cod')) &&
+				!payment.is_paid &&
+				!processedPaymentIds.has(payment.id) // Skip already processed payments
+			);
+
+			console.log(`Found ${cashPayments.length} unprocessed cash payments`);
+
+			// Process each cash payment automatically (but prevent infinite loops)
+			for (const payment of cashPayments) {
+				if (!payment.is_paid && !processedPaymentIds.has(payment.id)) {
+					console.log('Auto-processing cash payment:', payment.id);
+					processedPaymentIds.add(payment.id); // Mark as being processed
+					await handlePaymentStatusChange(payment.id, true, true); // Pass true for isAutoProcessed
+					// Small delay to prevent overwhelming the system
+					await new Promise(resolve => setTimeout(resolve, 200));
+				}
+			}
+
+			// Reload data after processing to reflect changes
+			if (cashPayments.length > 0) {
+				await loadScheduledPayments();
+			}
+		} catch (error) {
+			console.error('Error processing cash-on-delivery payments:', error);
+		} finally {
+			isProcessingCashPayments = false;
 		}
 	}
 
@@ -437,64 +505,299 @@
 			alert('Failed to create split payment');
 		}
 	}
+
+	// Handle payment status change (mark as paid)
+	async function handlePaymentStatusChange(paymentId, isPaid, isAutoProcessed = false) {
+		try {
+			if (isPaid) {
+				// First, get the payment details with receiving record information
+				const { data: paymentData, error: paymentError } = await supabase
+					.from('vendor_payment_schedule')
+					.select(`
+						*,
+						receiving_records!receiving_record_id (
+							accountant_user_id,
+							bill_number,
+							vendor_id,
+							user_id,
+							original_bill_url,
+							users!user_id (
+								username
+							)
+						)
+					`)
+					.eq('id', paymentId)
+					.single();
+
+				if (paymentError || !paymentData) {
+					console.error('Error fetching payment data:', paymentError);
+					alert('Failed to fetch payment details');
+					return;
+				}
+
+				const payment = paymentData;
+				const receivingRecord = payment.receiving_records;
+
+				// Check if transaction already exists to prevent duplicates
+				const { data: existingTransactions, error: checkError } = await supabase
+					.from('payment_transactions')
+					.select('id')
+					.eq('payment_schedule_id', paymentId);
+
+				if (!checkError && existingTransactions && existingTransactions.length > 0) {
+					console.log('Transaction already exists for payment:', paymentId);
+					if (!isAutoProcessed) {
+						alert('Payment is already marked as paid and transaction exists');
+					}
+					return;
+				}
+
+				// Update payment status in vendor_payment_schedule
+				const { error: updateError } = await supabase
+					.from('vendor_payment_schedule')
+					.update({ 
+						is_paid: true, 
+						paid_date: new Date().toISOString()
+					})
+					.eq('id', paymentId);
+
+				if (updateError) {
+					console.error('Error updating payment status:', updateError);
+					if (!isAutoProcessed) {
+						alert('Failed to update payment status');
+					}
+					return;
+				}
+
+				// Create payment transaction record
+				const { data: transactionData, error: transactionError } = await supabase
+					.from('payment_transactions')
+					.insert({
+						payment_schedule_id: paymentId,
+						receiving_record_id: payment.receiving_record_id,
+						receiver_user_id: receivingRecord?.user_id,
+						accountant_user_id: receivingRecord?.accountant_user_id,
+						transaction_date: new Date().toISOString(),
+						amount: payment.final_bill_amount || payment.bill_amount,
+						payment_method: payment.payment_method,
+						bank_name: payment.bank_name,
+						iban: payment.iban,
+						vendor_name: payment.vendor_name,
+						bill_number: payment.bill_number,
+						original_bill_url: receivingRecord?.original_bill_url,
+						created_by: $currentUser?.id
+					})
+					.select()
+					.single();
+
+				if (transactionError) {
+					console.error('Error creating transaction record:', transactionError);
+				}
+
+				// Create task for accountant if we have accountant info
+				if (receivingRecord?.accountant_user_id) {
+					const receiverName = receivingRecord.users 
+						? receivingRecord.users.username
+						: 'Unknown';
+
+					const taskTitle = 'New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt';
+					const taskDescription = `Payment Details:
+- Bill Number: ${payment.bill_number || 'N/A'}
+- Bill Amount: ${payment.bill_amount ? payment.bill_amount.toLocaleString() : 'N/A'}
+- Vendor Name: ${payment.vendor_name || 'N/A'}
+- Receiver: ${receiverName}
+- Payment Method: ${payment.payment_method || 'N/A'}`;
+
+					// Create the task
+					const { data: taskData, error: taskError } = await supabase
+						.from('tasks')
+						.insert({
+							title: taskTitle,
+							description: taskDescription,
+							created_by: $currentUser?.id,
+							created_by_name: $currentUser?.username || $currentUser?.displayName,
+							require_task_finished: true,
+							priority: 'medium',
+							status: 'active'
+						})
+						.select()
+						.single();
+
+					if (taskError) {
+						console.error('Error creating task:', taskError);
+					} else {
+						// Assign task to accountant
+						const { data: assignmentData, error: assignmentError } = await supabase
+							.from('task_assignments')
+							.insert({
+								task_id: taskData.id,
+								assignment_type: 'user',
+								assigned_to_user_id: receivingRecord.accountant_user_id,
+								assigned_by: $currentUser?.id,
+								assigned_by_name: $currentUser?.username || $currentUser?.displayName,
+								deadline_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Due tomorrow
+								require_task_finished: true,
+								status: 'assigned'
+							})
+							.select()
+							.single();
+
+						if (assignmentError) {
+							console.error('Error assigning task:', assignmentError);
+						} else {
+							// Update payment transaction with task and assignment IDs
+							if (transactionData) {
+								const { error: updateTransactionError } = await supabase
+									.from('payment_transactions')
+									.update({
+										task_id: taskData.id,
+										task_assignment_id: assignmentData.id
+									})
+									.eq('id', transactionData.id);
+
+								if (updateTransactionError) {
+									console.error('Error updating transaction with task IDs:', updateTransactionError);
+								}
+							}
+							// Send notification to accountant
+							try {
+								const { error: notificationError } = await supabase
+									.from('notifications')
+									.insert({
+										title: 'New Payment Task Assigned',
+										message: `You have been assigned a payment processing task for ${payment.vendor_name || 'vendor'}. Bill Amount: ${payment.bill_amount ? payment.bill_amount.toLocaleString() : 'N/A'}`,
+										type: 'task_assigned',
+										priority: 'medium',
+										target_type: 'specific_users',
+										target_users: [receivingRecord.accountant_user_id],
+										created_by: $currentUser?.id,
+										created_by_name: $currentUser?.username || $currentUser?.displayName || 'System',
+										task_id: taskData.id,
+										task_assignment_id: assignmentData.id
+									});
+
+								if (notificationError) {
+									console.error('Error sending notification:', notificationError);
+								}
+							} catch (notificationErr) {
+								console.error('Error creating notification:', notificationErr);
+							}
+						}
+					}
+				}
+
+				if (!isAutoProcessed) {
+					alert('Payment marked as paid successfully and task created for accountant');
+				}
+			} else {
+				// Unmark as paid - update vendor_payment_schedule
+				const { error: updateError } = await supabase
+					.from('vendor_payment_schedule')
+					.update({ 
+						is_paid: false, 
+						payment_reference: null,
+						paid_date: null
+					})
+					.eq('id', paymentId);
+
+				if (updateError) {
+					console.error('Error updating payment status:', updateError);
+					alert('Failed to update payment status');
+					return;
+				}
+
+				// Delete payment transaction record
+				const { error: deleteError } = await supabase
+					.from('payment_transactions')
+					.delete()
+					.eq('payment_schedule_id', paymentId);
+
+				if (deleteError) {
+					console.error('Error deleting transaction record:', deleteError);
+				}
+
+				alert('Payment unmarked successfully');
+			}
+
+			// Reload data to reflect changes
+			await loadScheduledPayments();
+		} catch (error) {
+			console.error('Error handling payment status change:', error);
+			alert('Failed to update payment status');
+		}
+	}
 </script>
 
 <!-- Month Details Window Content -->
 <div class="month-details-container">
 	{#if monthData}
-		<!-- Header Section -->
-		<div class="month-details-header">
-			<h2>📊 {monthData.monthName} {monthData.year} - Payment Schedule</h2>
-		</div>
-
-		<!-- Summary Section -->
-		<div class="month-summary">
-			<div class="summary-item">
-				<span class="summary-label">Days with Payments:</span>
-				<span class="summary-value">{monthDetailData.filter(d => d.paymentCount > 0).length}</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Total Payments:</span>
-				<span class="summary-value">{monthData.paymentCount}</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Total Amount:</span>
-				<span class="summary-value">{formatCurrency(monthData.total)}</span>
-			</div>
-			{#each Object.entries(totalsByPaymentMethod) as [method, amount]}
-				<div class="summary-item payment-method-total">
-					<span class="summary-label">{method}:</span>
-					<span class="summary-value">{formatCurrency(amount)}</span>
+		<!-- Fixed Header Section -->
+		<div class="fixed-header-section">
+			<div class="header-cards-container">
+			<div class="header-card payment-summary-card">
+				<div class="header-card-title">
+					<h3>📊 Payment Summary</h3>
 				</div>
-			{/each}
-			
-			<!-- Calendar Navigation -->
-			<div class="summary-item calendar-nav">
-				<span class="summary-label">Quick Navigation:</span>
-				<div class="calendar-grid">
-					{#each monthDetailData as dayData}
-						<div 
-							class="calendar-day {dayData.paymentCount > 0 ? 'has-payments' : 'no-payments'}"
-							on:click={() => scrollToDate(dayData.date)}
-						>
-							<div class="day-number">{dayData.date}</div>
-							<div class="day-name">{dayData.dayName.substring(0, 3)}</div>
-							{#if dayData.paymentCount > 0}
-								<div class="payment-info">
-									<div class="payment-count">{dayData.paymentCount} bills</div>
-									<div class="payment-total">{formatCurrency(dayData.totalAmount)}</div>
-								</div>
-							{:else}
-								<div class="no-payment-info">No bills</div>
-							{/if}
+				<div class="header-card-content">
+					<div class="compact-stats">
+						<div class="stat-item">
+							<span class="stat-value">{monthDetailData.filter(d => d.paymentCount > 0).length}</span>
+							<span class="stat-label">Days</span>
 						</div>
-					{/each}
+						<div class="stat-item">
+							<span class="stat-value">{monthData.paymentCount}</span>
+							<span class="stat-label">Payments</span>
+						</div>
+						<div class="stat-item total-stat">
+							<span class="stat-value total">{formatCurrency(monthData.total)}</span>
+							<span class="stat-label">Total Amount</span>
+						</div>
+					</div>
+					
+					<!-- Compact Payment Methods -->
+					<div class="compact-methods">
+						{#each Object.entries(totalsByPaymentMethod) as [method, amount]}
+							<div class="method-chip">
+								<span class="method-name">{method}</span>
+								<span class="method-value">{formatCurrency(amount)}</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			</div>
+
+			<!-- Compact Calendar Card -->
+			<div class="header-card calendar-card">
+				<div class="header-card-title">
+					<h3>📅 Schedule Calendar</h3>
+				</div>
+				<div class="header-card-content">
+					<div class="compact-calendar-grid">
+						{#each monthDetailData as dayData}
+							<div 
+								class="mini-calendar-day {dayData.paymentCount > 0 ? 'has-payments' : 'no-payments'}"
+								on:click={() => scrollToDate(dayData.date)}
+								title="Click to jump to {dayData.dayName}, {monthData.month} {dayData.date} - {dayData.paymentCount} payments, {formatCurrency(dayData.totalAmount)}"
+							>
+								<div class="mini-day-number">{dayData.date}</div>
+								{#if dayData.paymentCount > 0}
+									<div class="mini-payment-info">
+										<div class="mini-count">{dayData.paymentCount} bills</div>
+										<div class="mini-amount">{formatCurrency(dayData.totalAmount)}</div>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				</div>
 			</div>
 		</div>
+		</div>
 
-		<!-- Days List -->
-		<div class="month-days-list">
+		<!-- Scrollable Content Section -->
+		<div class="scrollable-content-section">
+			<!-- Days List -->
+			<div class="month-days-list">
 			{#each monthDetailData as dayData}
 				<div 
 					id="day-{dayData.date}"
@@ -569,6 +872,7 @@
 										<div class="header-column" title="Payment Method">Payment</div>
 										<div class="header-column" title="Bank Name">Bank</div>
 										<div class="header-column" title="IBAN">IBAN</div>
+										<div class="header-column payment-status-header" title="Mark as Paid">Mark Paid</div>
 										<div class="header-column status-header" title="Payment Status">Status</div>
 									</div>
 								</div>
@@ -609,6 +913,16 @@
 															</div>
 															<div class="data-cell">{payment.bank_name || 'N/A'}</div>
 															<div class="data-cell">{payment.iban || 'N/A'}</div>
+															<div class="data-cell"></div>
+															<div class="data-cell payment-status-cell">
+																<input 
+																	type="checkbox" 
+																	class="payment-checkbox"
+																	data-payment-id="{payment.id}"
+																	checked={payment.is_paid || false}
+																	on:change={(e) => handlePaymentStatusChange(payment.id, e.currentTarget.checked)}
+																/>
+															</div>
 															<div class="data-cell status-cell">
 																<span class="status-badge {getPaymentStatusStyle(payment.payment_status)}">
 																	{payment.payment_status || 'scheduled'}
@@ -662,6 +976,7 @@
 						</div>
 				</div>
 			{/each}
+			</div>
 		</div>
 	{:else}
 		<div class="no-data">
@@ -794,10 +1109,24 @@
 
 <style>
 	.month-details-container {
-		padding: 20px;
-		max-height: 100%;
-		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
 		background: #f8fafc;
+		overflow: hidden;
+	}
+
+	.fixed-header-section {
+		flex-shrink: 0;
+		padding: 8px 8px 0 8px;
+		background: #f8fafc;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
+	.scrollable-content-section {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0 8px 8px 8px;
 	}
 
 	.month-details-header {
@@ -818,102 +1147,234 @@
 		font-weight: 600;
 	}
 
-	.month-summary {
-		display: flex;
-		gap: 32px;
-		margin-bottom: 32px;
-		padding: 20px;
+	.header-cards-container {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 16px;
+		margin-bottom: 12px;
+	}
+
+	.header-card {
 		background: white;
 		border-radius: 8px;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-		position: sticky;
-		top: 80px;
-		z-index: 100;
-		flex-wrap: wrap;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		overflow: hidden;
+		transition: all 0.2s ease;
+		border: 1px solid #e2e8f0;
 	}
 
-	.summary-item {
+	.header-card:hover {
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+	}
+
+	.header-card-title {
+		background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+		padding: 12px 16px;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
+	.header-card-title h3 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.payment-summary-card .header-card-title {
+		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+		border-bottom-color: #10b981;
+	}
+
+	.payment-summary-card .header-card-title h3 {
+		color: #059669;
+	}
+
+	.calendar-card .header-card-title {
+		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+		border-bottom-color: #3b82f6;
+	}
+
+	.calendar-card .header-card-title h3 {
+		color: #1d4ed8;
+	}
+
+	.header-card-content {
+		padding: 16px;
+	}
+
+	.compact-stats {
+		display: flex;
+		gap: 16px;
+		margin-bottom: 12px;
+	}
+
+	.stat-item {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		padding-left: 16px;
-		border-left: 2px solid #e5e7eb;
+		align-items: center;
+		padding: 8px 12px;
+		background: #f8fafc;
+		border-radius: 6px;
+		min-width: 60px;
+		flex: 1;
 	}
 
-	.summary-item:first-child {
-		padding-left: 0;
-		border-left: none;
+	.stat-item.total-stat {
+		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+		border: 1px solid #10b981;
 	}
 
-	.summary-item.payment-method-total {
-		padding-left: 16px;
-		border-left: 2px solid #e5e7eb;
+	.stat-value {
+		font-weight: 700;
+		color: #1e293b;
+		font-size: 16px;
+		line-height: 1;
 	}
 
-	.summary-item.calendar-nav {
-		margin-left: auto;
-		padding-left: 16px;
-		border-left: 2px solid #e5e7eb;
-		max-width: 60%;
+	.stat-value.total {
+		color: #059669;
+		font-size: 18px;
 	}
 
-	.calendar-grid {
+	.stat-label {
+		font-size: 11px;
+		color: #64748b;
+		font-weight: 500;
+		margin-top: 2px;
+		text-align: center;
+	}
+
+	.compact-methods {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.method-chip {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+		background: #f1f5f9;
+		border-radius: 20px;
+		border: 1px solid #e2e8f0;
+		font-size: 12px;
+	}
+
+	.method-name {
+		color: #64748b;
+		font-weight: 500;
+	}
+
+	.method-value {
+		color: #059669;
+		font-weight: 600;
+	}
+
+	.compact-calendar-grid {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
-		gap: 8px;
-		margin-top: 8px;
-		max-height: 200px;
+		gap: 6px;
+		max-height: 250px;
 		overflow-y: auto;
+		padding: 6px;
+		background: #f8fafc;
+		border-radius: 6px;
 	}
 
-	.calendar-day {
+	.mini-calendar-day {
 		background: white;
-		border: 2px solid #e5e7eb;
+		border: 1px solid #e5e7eb;
 		border-radius: 8px;
-		padding: 8px 4px;
+		padding: 6px 4px;
 		text-align: center;
 		cursor: pointer;
-		transition: all 0.2s;
-		min-height: 80px;
+		transition: all 0.2s ease;
+		min-height: 55px;
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: 12px;
+		position: relative;
 	}
 
-	.calendar-day:hover {
-		transform: translateY(-2px);
+	.mini-calendar-day:hover {
+		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 
-	.calendar-day.has-payments {
+	.mini-calendar-day.has-payments {
 		border-color: #10b981;
-		background: linear-gradient(135deg, #d1fae5 0%, #ffffff 100%);
+		background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%);
 	}
 
-	.calendar-day.has-payments:hover {
+	.mini-calendar-day.has-payments:hover {
 		border-color: #059669;
-		background: linear-gradient(135deg, #a7f3d0 0%, #d1fae5 100%);
+		background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
 	}
 
-	.calendar-day.no-payments {
-		border-color: #d1d5db;
+	.mini-calendar-day.no-payments {
+		border-color: #e2e8f0;
 		background: #f9fafb;
 		opacity: 0.7;
 	}
 
+	.mini-day-number {
+		font-size: 14px;
+		font-weight: 600;
+		color: #1e293b;
+		line-height: 1;
+	}
+
+	.mini-calendar-day.has-payments .mini-day-number {
+		color: #059669;
+	}
+
+	.mini-payment-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		margin-top: 4px;
+		gap: 2px;
+	}
+
+	.mini-count {
+		font-size: 9px;
+		color: #059669;
+		font-weight: 600;
+		line-height: 1;
+	}
+
+	.mini-amount {
+		font-size: 9px;
+		color: #1e293b;
+		font-weight: 700;
+		line-height: 1;
+		background: rgba(16, 185, 129, 0.1);
+		padding: 2px 4px;
+		border-radius: 4px;
+	}
+
 	.day-number {
-		font-size: 16px;
+		font-size: 18px;
 		font-weight: 700;
 		color: #1e293b;
-		margin-bottom: 2px;
+		margin-bottom: 4px;
+		line-height: 1;
+	}
+
+	.calendar-day.has-payments .day-number {
+		color: #059669;
 	}
 
 	.day-name {
-		font-size: 10px;
+		font-size: 11px;
 		color: #64748b;
 		font-weight: 500;
-		margin-bottom: 4px;
+		margin-bottom: 6px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	.payment-info {
@@ -921,6 +1382,10 @@
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
+		background: rgba(16, 185, 129, 0.1);
+		border-radius: 6px;
+		padding: 6px 4px;
+		margin-top: 4px;
 	}
 
 	.payment-count {
@@ -931,7 +1396,7 @@
 	}
 
 	.payment-total {
-		font-size: 9px;
+		font-size: 10px;
 		color: #1e293b;
 		font-weight: 700;
 	}
@@ -1338,7 +1803,7 @@
 
 	/* Vendor Grouping Styles */
 	.vendors-scroll-container {
-		min-width: 1365px;
+		min-width: 1527px;
 	}
 
 	.vendors-container {
@@ -1378,12 +1843,12 @@
 		border: 2px solid #e2e8f0;
 		border-radius: 8px 8px 0 0;
 		margin-bottom: 0;
-		min-width: 1365px;
+		min-width: 1527px;
 	}
 
 	.table-header-row {
 		display: grid;
-		grid-template-columns: 40px 110px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 120px;
+		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 100px 140px;
 		gap: 12px;
 		padding: 14px 18px;
 		margin-left: 0px;
@@ -1487,7 +1952,7 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 0;
-		min-width: 1365px;
+		min-width: 1527px;
 		min-height: 50px;
 	}
 
@@ -1508,7 +1973,7 @@
 
 	.payment-data-row {
 		display: grid;
-		grid-template-columns: 40px 110px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 120px;
+		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 80px 5px 140px;
 		gap: 12px;
 		flex: 1;
 		align-items: center;
@@ -1660,7 +2125,7 @@
 		word-break: break-word;
 		hyphens: auto;
 		margin-left: 0px;
-		padding-left: 50px;
+		padding-left: 65px;
 		display: flex;
 		align-items: center;
 		justify-content: flex-start;
@@ -1693,12 +2158,12 @@
 		color: #374151;
 		border: 1px solid #e5e7eb;
 		display: inline-block;
-		white-space: nowrap;
-		max-width: 75px;
+		white-space: normal;
+		max-width: 120px;
 		width: fit-content;
 		text-align: center;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		word-break: break-word;
+		line-height: 1.3;
 	}
 
 	.payment-method {
@@ -2101,5 +2566,154 @@
 		height: 200px;
 		color: #64748b;
 		font-style: italic;
+	}
+
+	/* Responsive Design */
+	@media (max-width: 1024px) {
+		.header-cards-container {
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+		
+		.compact-calendar-grid {
+			max-height: 140px;
+		}
+		
+		.compact-stats {
+			gap: 12px;
+		}
+	}
+
+	@media (max-width: 768px) {
+		.header-card-content {
+			padding: 12px;
+		}
+		
+		.header-card-title {
+			padding: 10px 12px;
+		}
+		
+		.header-card-title h3 {
+			font-size: 13px;
+		}
+		
+		.compact-calendar-grid {
+			gap: 3px;
+			max-height: 120px;
+		}
+		
+		.mini-calendar-day {
+			min-height: 28px;
+			padding: 4px 2px;
+		}
+		
+		.mini-day-number {
+			font-size: 11px;
+		}
+		
+		.mini-payment-indicator {
+			width: 12px;
+			height: 12px;
+			font-size: 7px;
+		}
+		
+		.compact-stats {
+			gap: 8px;
+		}
+		
+		.stat-item {
+			padding: 6px 8px;
+			min-width: 50px;
+		}
+		
+		.stat-value {
+			font-size: 14px;
+		}
+		
+		.stat-value.total {
+			font-size: 16px;
+		}
+		
+		.method-chip {
+			padding: 4px 8px;
+			font-size: 11px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.header-cards-container {
+			gap: 8px;
+		}
+		
+		.compact-calendar-grid {
+			gap: 2px;
+			max-height: 100px;
+			padding: 2px;
+		}
+		
+		.mini-calendar-day {
+			min-height: 24px;
+			padding: 2px 1px;
+		}
+		
+		.mini-day-number {
+			font-size: 10px;
+		}
+		
+		.mini-payment-indicator {
+			width: 10px;
+			height: 10px;
+			font-size: 6px;
+		}
+		
+		.compact-stats {
+			flex-direction: column;
+			gap: 6px;
+		}
+		
+		.stat-item {
+			flex-direction: row;
+			justify-content: space-between;
+			padding: 6px 10px;
+		}
+		
+		.compact-methods {
+			gap: 4px;
+		}
+		
+		.method-chip {
+			padding: 3px 6px;
+			font-size: 10px;
+		}
+	}
+
+
+
+
+
+	.payment-status-header {
+		text-align: center;
+		font-size: 10px;
+		font-weight: 700;
+		color: #475569;
+		text-transform: uppercase;
+	}
+
+	.payment-status-cell {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 8px;
+	}
+
+	.payment-checkbox {
+		width: 20px;
+		height: 20px;
+		cursor: pointer;
+		accent-color: #10b981;
+		margin: 2;
+		opacity: 1 !important;
+		position: relative !important;
+		z-index: 10;
 	}
 </style>
