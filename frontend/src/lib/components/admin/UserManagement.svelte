@@ -225,9 +225,9 @@
 	// Filtered users based on search and filters
 	$: filteredUsers = users.filter(user => {
 		const matchesSearch = searchQuery === '' || 
-			user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			user.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			user.branch_name.toLowerCase().includes(searchQuery.toLowerCase());
+			(user.username && user.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
+			(user.employee_name && user.employee_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+			(user.branch_name && user.branch_name.toLowerCase().includes(searchQuery.toLowerCase()));
 		
 		const matchesBranch = branchFilter === '' || user.branch_name === branchFilter;
 		const matchesRole = roleFilter === '' || user.role_type === roleFilter;
