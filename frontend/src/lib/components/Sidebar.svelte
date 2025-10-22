@@ -498,7 +498,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.0.2
+				v1.0.3
 			</button>
 		</div>
 	</div>
@@ -588,31 +588,43 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.0.2</h3>
+				<h3>What's New in v1.0.3</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🎉 Latest Updates</h4>
+					<h4>💳 Payment Management System</h4>
 					<ul>
-						<li><strong>Interactive Version:</strong> Version number is now clickable with detailed update information</li>
-						<li><strong>Work Submenu:</strong> Added "Start Receiving" button to Work section for easy access</li>
-						<li><strong>Field Validation:</strong> Made bill date, amount, and number mandatory in receiving process</li>
-						<li><strong>User Experience:</strong> Enhanced form validation with visual indicators</li>
+						<li><strong>Mark Paid Column:</strong> Added new "Mark Paid" checkbox column after Status in payment schedule</li>
+						<li><strong>Automatic Cash Processing:</strong> Cash-on-delivery payments are now automatically marked as paid</li>
+						<li><strong>Task Creation:</strong> Automatically creates verification tasks for accountants when payments are marked</li>
+						<li><strong>Payment Transactions:</strong> Full transaction tracking with comprehensive payment details</li>
+						<li><strong>Notification System:</strong> Real-time notifications sent to assigned accountants</li>
 					</ul>
 				</div>
 				<div class="update-section">
 					<h4>🔧 Technical Improvements</h4>
 					<ul>
-						<li>Implemented automated version management system</li>
-						<li>Fixed duplicate function declarations</li>
-						<li>Enhanced hover-based submenu system</li>
-						<li>Improved error messaging for required fields</li>
+						<li><strong>Database Migrations:</strong> New payment_transactions table with full traceability</li>
+						<li><strong>Duplicate Prevention:</strong> Smart duplicate transaction detection and cleanup</li>
+						<li><strong>Processing Lock:</strong> Prevents infinite loops in automatic processing</li>
+						<li><strong>Enhanced Security:</strong> Proper RLS policies for payment data protection</li>
+						<li><strong>Performance:</strong> Optimized payment processing with smart batching</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>📊 Data & Reporting</h4>
+					<ul>
+						<li><strong>Payment References:</strong> Automatic reference number generation and tracking</li>
+						<li><strong>Bank Integration:</strong> Support for bank names and IBAN tracking</li>
+						<li><strong>Document Links:</strong> Original bill document URL preservation</li>
+						<li><strong>Audit Trail:</strong> Complete payment history with timestamps and user tracking</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 22, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
+					<p><strong>Major Feature:</strong> Complete Payment Processing System</p>
 				</div>
 			</div>
 		</div>
