@@ -1,6 +1,6 @@
 {
   "name": "aqura",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aqura Management System - PWA-first windowed management platform",
   "private": true,
   "type": "module",
@@ -23,7 +23,11 @@
     "docker:dev": "docker-compose -f docker-compose.dev.yml up",
     "docker:prod": "docker-compose -f docker-compose.prod.yml up",
     "i18n:extract": "pnpm --filter aqura-frontend i18n:extract",
-    "i18n:build": "pnpm --filter aqura-frontend i18n:build"
+    "i18n:build": "pnpm --filter aqura-frontend i18n:build",
+    "version:patch": "node scripts/update-version.js patch",
+    "version:minor": "node scripts/update-version.js minor",
+    "version:major": "node scripts/update-version.js major",
+    "version:update": "node scripts/update-version.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

@@ -481,6 +481,11 @@
 				<span class="pwa-text">Install App</span>
 			</button>
 		{/if}
+		
+		<!-- Version Information -->
+		<div class="version-info">
+			<span class="version-text">v1.0.1</span>
+		</div>
 	</div>
 </div>
 
@@ -853,5 +858,21 @@
 	.pwa-text {
 		font-weight: 500;
 		white-space: nowrap;
+	}
+
+	/* Version Information */
+	.version-info {
+		margin-top: 8px;
+		text-align: center;
+		border-top: 1px solid rgba(74, 85, 104, 0.5);
+		padding-top: 6px;
+	}
+
+	.version-text {
+		color: rgba(226, 232, 240, 0.7);
+		font-size: 10px;
+		font-weight: 400;
+		font-family: monospace;
+		letter-spacing: 0.5px;
 	}
 </style>
