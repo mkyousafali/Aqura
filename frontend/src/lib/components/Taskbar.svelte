@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentLocale, switchLocale, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
 	import { onMount, createEventDispatcher } from 'svelte';
@@ -225,7 +226,7 @@
 	function openQuickNotifications() {
 		const windowId = generateWindowId('quick-notifications');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'My Notifications',
 			component: NotificationCenter,
@@ -248,7 +249,7 @@
 		
 		// Import MyTasksView component dynamically
 		import('./admin/tasks/MyTasksView.svelte').then(({ default: MyTasksView }) => {
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `My Tasks (${taskCountData.total})`,
 				component: MyTasksView,
@@ -274,7 +275,7 @@
 		const windowId = generateWindowId('quick-announcements');
 		
 		// For now, show a placeholder - can be replaced with actual component
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'My Announcements',
 			component: null,
@@ -292,7 +293,7 @@
 		const windowId = generateWindowId('quick-calendar');
 		
 		// For now, show a placeholder - can be replaced with actual component
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'My Calendar Events',
 			component: null,

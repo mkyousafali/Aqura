@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ScheduledPayments from './ScheduledPayments.svelte';
 	import PaidPaymentsDetails from './PaidPaymentsDetails.svelte';
 	import UnpaidScheduledDetails from './UnpaidScheduledDetails.svelte';
@@ -265,7 +266,7 @@
 		const paidPayments = await loadPaidPaymentsDetails();
 		
 		// Open new application window using window manager
-		windowManager.openWindow({
+		openWindow({
 			id: 'paid-payments-details',
 			title: 'Paid Payments Details',
 			component: PaidPaymentsDetails,
@@ -285,7 +286,7 @@
 		const unpaidScheduled = await loadUnpaidScheduledPayments();
 		
 		// Open new application window using window manager
-		windowManager.openWindow({
+		openWindow({
 			id: 'unpaid-scheduled-details',
 			title: 'Unpaid Scheduled Payments Details',
 			component: UnpaidScheduledDetails,
@@ -304,7 +305,7 @@
 		console.log('Opening task status modal...');
 		
 		// Open new application window using window manager
-		windowManager.openWindow({
+		openWindow({
 			id: 'task-status-details',
 			title: 'Task Status Details',
 			component: TaskStatusDetails,
@@ -784,7 +785,7 @@
 		const windowId = generateWindowId('scheduled-payments');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Scheduled Payments #${instanceNumber}`,
 			component: ScheduledPayments,

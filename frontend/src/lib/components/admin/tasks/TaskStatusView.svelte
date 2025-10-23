@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import SendWarningModal from './SendWarningModal.svelte';
@@ -350,7 +351,7 @@
 
 	function openWarningModal(assignment) {
 		// Open SendWarningModal as a window instead of a modal
-		windowManager.openWindow({
+		openWindow({
 			component: SendWarningModal,
 			title: 'Generate Warning',
 			props: {

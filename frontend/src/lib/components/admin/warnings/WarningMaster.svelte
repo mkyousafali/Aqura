@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import WarningListView from './WarningListView.svelte';
 	import WarningStatistics from './WarningStatistics.svelte';
@@ -102,7 +103,7 @@
 	function openWarningList() {
 		const windowId = generateWindowId('warning-list');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Warning Records',
 			component: WarningListView,
@@ -122,7 +123,7 @@
 	function openWarningStatistics() {
 		const windowId = generateWindowId('warning-stats');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Warning Statistics & Reports',
 			component: WarningStatistics,
@@ -142,7 +143,7 @@
 	function openActiveFines() {
 		const windowId = generateWindowId('active-fines');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Active Fines Management',
 			component: ActiveFinesView,
@@ -167,7 +168,7 @@
 		const windowId = generateWindowId('task-status');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Task Status #${instanceNumber}`,
 			component: TaskStatusView,

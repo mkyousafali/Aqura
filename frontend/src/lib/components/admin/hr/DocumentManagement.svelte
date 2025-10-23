@@ -3,6 +3,7 @@
 	import { dataService } from '$lib/utils/dataService';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeDocumentManager from './EmployeeDocumentManager.svelte';
 
 	// State management
@@ -112,7 +113,7 @@
 		const windowId = `employee-documents-${employee.id}-${Date.now()}`;
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `📄 Document Management - ${employee.name} (#${instanceNumber})`,
 			component: EmployeeDocumentManager,

@@ -5,6 +5,7 @@
   import { currentUser } from '$lib/utils/persistentAuth';
   import { supabase } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
   import EditVendor from '../vendor/EditVendor.svelte';
   import { onMount } from 'svelte';
   
@@ -1549,7 +1550,7 @@
   function openEditWindow(vendor) {
     const windowId = generateWindowId();
     
-    windowManager.openWindow({
+    openWindow({
       id: windowId,
       title: `Edit Vendor - ${vendor.vendor_name}`,
       component: EditVendor,

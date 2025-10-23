@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db, supabase } from '$lib/utils/supabase';
@@ -606,7 +607,7 @@
 	function openCreateNotification() {
 		const windowId = `create-notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Create Notification',
 			component: CreateNotification,
@@ -626,7 +627,7 @@
 	function openAdminReadStatus() {
 		const windowId = `admin-read-status-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Admin: Read Status Per User',
 			component: AdminReadStatusModal,
@@ -694,7 +695,7 @@
 			}
 		}
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Complete Task: ${taskData.title || 'Task'}`,
 			component: TaskCompletionModal,

@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import StartReceiving from './receiving/StartReceiving.svelte';
 	import ReceivingRecords from './receiving/ReceivingRecords.svelte';
 	import ReceivingDataWindow from './receiving/ReceivingDataWindow.svelte';
@@ -288,7 +289,7 @@
 		const windowId = generateWindowId('start-receiving');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Start Receiving #${instanceNumber}`,
 			component: StartReceiving,
@@ -308,7 +309,7 @@
 	async function openReceivingRecords() {
 		const windowId = generateWindowId('receiving-records');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: '📋 Receiving Records',
 			component: ReceivingRecords,
@@ -331,7 +332,7 @@
 		const windowId = generateWindowId('receiving-data');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${card.title} - Details #${instanceNumber}`,
 			component: ReceivingDataWindow,

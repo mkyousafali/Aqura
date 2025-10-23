@@ -22,6 +22,7 @@
 	import { pushNotificationService } from '$lib/utils/pushNotifications';
 	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { cacheManager } from '$lib/utils/cacheManager';
 	import { startNotificationListener } from '$lib/stores/notifications';
@@ -46,6 +47,263 @@
 	let showUpdatePrompt = false;
 	let needRefresh;
 	let updateServiceWorker;
+	
+	// Popout mode detection
+	let isPopoutMode = false;
+	let popoutWindowId = '';
+	let popoutWindowData = null;
+	
+	// Check if this is a popout instance using URL parameters
+	$: {
+		if (typeof window !== 'undefined') {
+			const urlParams = new URLSearchParams(window.location.search);
+			const popoutParam = urlParams.get('popout');
+			const windowDataParam = urlParams.get('windowData');
+			
+			isPopoutMode = !!popoutParam;
+			popoutWindowId = popoutParam || '';
+			
+			// Parse window data if available
+			if (windowDataParam) {
+				try {
+					popoutWindowData = JSON.parse(decodeURIComponent(windowDataParam));
+				} catch (e) {
+					console.error('Failed to parse window data:', e);
+				}
+			}
+			
+			// Also check hash as fallback
+			if (!isPopoutMode) {
+				const hash = window.location.hash;
+				const popoutMatch = hash.match(/^#popout=(.+)$/);
+				isPopoutMode = !!popoutMatch;
+				popoutWindowId = popoutMatch ? popoutMatch[1] : '';
+			}
+			
+			// Debug logging
+			if (isPopoutMode) {
+				console.log('🪟 Popout mode detected:', popoutWindowId);
+				if (popoutWindowData) {
+					console.log('🪟 Window data:', popoutWindowData);
+				}
+			}
+		}
+	}
+	
+	// Recreate the window in popout mode
+	$: if (isPopoutMode && popoutWindowData) {
+		if (isAuthenticated) {
+			console.log('🔐 Authentication confirmed in popout:', isAuthenticated);
+			console.log('🪟 Creating popout window...');
+			createPopoutWindow();
+		} else {
+			console.log('🔐 Authentication pending in popout mode...');
+			console.log('🔐 Auth state:', isAuthenticated);
+			// For popout windows, try to create anyway after a delay
+			setTimeout(() => {
+				if (!isAuthenticated) {
+					console.log('🔐 Force creating popout window (authentication timeout)');
+					createPopoutWindow();
+				}
+			}, 2000);
+		}
+	}
+	
+	async function createPopoutWindow() {
+		if (!popoutWindowData) return;
+		
+		try {
+			// Map component names to actual components
+			let component;
+			switch (popoutWindowData.component) {
+				case 'BranchMaster':
+					const { default: BranchMaster } = await import('$lib/components/admin/BranchMaster.svelte');
+					component = BranchMaster;
+					break;
+				case 'StartReceiving':
+					const { default: StartReceiving } = await import('$lib/components/admin/receiving/StartReceiving.svelte');
+					component = StartReceiving;
+					break;
+				case 'Receiving':
+					const { default: Receiving } = await import('$lib/components/admin/Receiving.svelte');
+					component = Receiving;
+					break;
+				case 'ReceivingRecords':
+					const { default: ReceivingRecords } = await import('$lib/components/admin/receiving/ReceivingRecords.svelte');
+					component = ReceivingRecords;
+					break;
+				case 'ReceivingTasksDashboard':
+					const { default: ReceivingTasksDashboard } = await import('$lib/components/admin/receiving/ReceivingTasksDashboard.svelte');
+					component = ReceivingTasksDashboard;
+					break;
+				case 'ReceivingDataWindow':
+					const { default: ReceivingDataWindow } = await import('$lib/components/admin/receiving/ReceivingDataWindow.svelte');
+					component = ReceivingDataWindow;
+					break;
+				case 'ScheduledPayments':
+					const { default: ScheduledPayments } = await import('$lib/components/admin/vendor/ScheduledPayments.svelte');
+					component = ScheduledPayments;
+					break;
+				case 'TaskMaster':
+					const { default: TaskMaster } = await import('$lib/components/admin/TaskMaster.svelte');
+					component = TaskMaster;
+					break;
+				case 'HRMaster':
+					const { default: HRMaster } = await import('$lib/components/admin/HRMaster.svelte');
+					component = HRMaster;
+					break;
+				case 'OperationsMaster':
+					const { default: OperationsMaster } = await import('$lib/components/admin/OperationsMaster.svelte');
+					component = OperationsMaster;
+					break;
+				case 'VendorMaster':
+					const { default: VendorMaster } = await import('$lib/components/admin/VendorMaster.svelte');
+					component = VendorMaster;
+					break;
+				case 'FinanceMaster':
+					const { default: FinanceMaster } = await import('$lib/components/admin/FinanceMaster.svelte');
+					component = FinanceMaster;
+					break;
+				case 'UserManagement':
+					const { default: UserManagement } = await import('$lib/components/admin/UserManagement.svelte');
+					component = UserManagement;
+					break;
+				case 'CommunicationCenter':
+					const { default: CommunicationCenter } = await import('$lib/components/admin/CommunicationCenter.svelte');
+					component = CommunicationCenter;
+					break;
+				case 'Settings':
+					const { default: Settings } = await import('$lib/components/admin/Settings.svelte');
+					component = Settings;
+					break;
+				case 'UploadVendor':
+					const { default: UploadVendor } = await import('$lib/components/admin/vendor/UploadVendor.svelte');
+					component = UploadVendor;
+					break;
+				case 'ManageVendor':
+					const { default: ManageVendor } = await import('$lib/components/admin/vendor/ManageVendor.svelte');
+					component = ManageVendor;
+					break;
+				case 'PaymentManager':
+					const { default: PaymentManager } = await import('$lib/components/admin/vendor/PaymentManager.svelte');
+					component = PaymentManager;
+					break;
+				case 'WarningMaster':
+					const { default: WarningMaster } = await import('$lib/components/admin/warnings/WarningMaster.svelte');
+					component = WarningMaster;
+					break;
+				case 'TaskStatusView':
+					const { default: TaskStatusView } = await import('$lib/components/admin/tasks/TaskStatusView.svelte');
+					component = TaskStatusView;
+					break;
+				case 'TaskTemplateView':
+					const { default: TaskViewTable } = await import('$lib/components/admin/tasks/TaskViewTable.svelte');
+					component = TaskViewTable;
+					break;
+				case 'TaskAssignView':
+					const { default: TaskAssignmentView } = await import('$lib/components/admin/tasks/TaskAssignmentView.svelte');
+					component = TaskAssignmentView;
+					break;
+				case 'MyTasksView':
+					const { default: MyTasksView } = await import('$lib/components/admin/tasks/MyTasksView.svelte');
+					component = MyTasksView;
+					break;
+				case 'MyAssignmentsView':
+					const { default: MyAssignmentsView } = await import('$lib/components/admin/tasks/MyAssignmentsView.svelte');
+					component = MyAssignmentsView;
+					break;
+				case 'EditUser':
+					const { default: EditUser } = await import('$lib/components/admin/user/EditUser.svelte');
+					component = EditUser;
+					break;
+				case 'NotificationCenter':
+					const { default: NotificationCenter } = await import('$lib/components/admin/communication/NotificationCenter.svelte');
+					component = NotificationCenter;
+					break;
+				case 'DocumentManagement':
+					const { default: DocumentManagement } = await import('$lib/components/admin/hr/DocumentManagement.svelte');
+					component = DocumentManagement;
+					break;
+				default:
+					console.warn('Unknown component:', popoutWindowData.component);
+					console.log('Available data:', popoutWindowData);
+					return;
+			}
+			
+			// Recreate the window in the window manager
+			const windowConfig = {
+				id: popoutWindowData.id,
+				title: popoutWindowData.title,
+				component: component,
+				props: popoutWindowData.props || {},
+				icon: popoutWindowData.icon,
+				size: popoutWindowData.size,
+				position: { x: 0, y: 0 }, // Will be full screen in popout
+				resizable: false,
+				minimizable: false,
+				maximizable: false,
+				closable: false,
+				popOutEnabled: false, // Disable pop-out in the popout
+				state: 'normal',
+				isActive: true
+			};
+			
+			console.log('🪟 Creating window with config:', windowConfig);
+			windowManager.openWindow(windowConfig);
+			
+			// Ensure the window is activated after a brief delay
+			setTimeout(() => {
+				windowManager.activateWindow(popoutWindowData.id);
+			}, 100);
+			
+			console.log('🪟 Recreated window in popout mode:', popoutWindowData.id);
+		} catch (error) {
+			console.error('Failed to create popout window:', error);
+		}
+	}
+
+	// Handle window open requests from pop-out windows
+	function handleCrossWindowMessages() {
+		if (typeof window !== 'undefined') {
+			window.addEventListener('message', (event) => {
+				// Only handle messages from our own domain
+				if (event.origin !== window.location.origin) return;
+				
+				if (event.data && event.data.type === 'open-window-from-popout') {
+					const { windowConfig } = event.data;
+					console.log('🪟 Opening window from popout:', windowConfig);
+					
+					// Open the window in the main application and also pop it out
+					const newWindowId = windowManager.openWindow(windowConfig);
+					
+					// Immediately pop out the new window so it appears as a separate browser window
+					setTimeout(() => {
+						windowManager.popOutWindow(newWindowId);
+					}, 100);
+				}
+			});
+		}
+	}
+
+	// Initialize cross-window message handling
+	onMount(() => {
+		handleCrossWindowMessages();
+		
+		// Expose window manager proxy for popout iframes
+		if (typeof window !== 'undefined' && popoutWindowId) {
+			window.windowManagerProxy = {
+				openWindow: (config) => {
+					// Send message to parent window to open a new window
+					if (window.parent && window.parent !== window) {
+						window.parent.postMessage({
+							type: 'open-window-from-popout',
+							windowConfig: config
+						}, window.location.origin);
+					}
+				}
+			};
+		}
+	});
 	
 	// PWA update functions
 	async function handlePWAUpdate() {
@@ -504,7 +762,7 @@
 	function openNotificationWindow(notificationId: string | null = null) {
 		const windowId = `notification-center-${Date.now()}`;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: notificationId ? 'Notifications - Specific Item' : 'Notifications',
 			component: NotificationWindow,
@@ -673,30 +931,37 @@
 	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>
 		<!-- Show full UI only if authenticated and not on login page -->
 		{#if isAuthenticated && !isLoginPage}
-			<!-- Sidebar Navigation -->
-			<Sidebar />
-			
-			<!-- Desktop Background -->
-			<div class="desktop" style="margin-left: {$sidebar.width}px">
-				<!-- Main content area -->
-				<main class="main-content">
-					<slot />
-				</main>
+			{#if isPopoutMode}
+				<!-- Popout mode - show only the specific window without sidebar/taskbar -->
+				<div class="popout-container">
+					<WindowManager popoutOnly={popoutWindowId} />
+				</div>
+			{:else}
+				<!-- Normal mode - show full UI -->
+				<!-- Sidebar Navigation -->
+				<Sidebar />
 				
-				<!-- Window Management System -->
-				<WindowManager />
-				
-				<!-- Command Palette -->
-				<CommandPalette 
-					bind:visible={showCommandPalette}
-					on:close={() => showCommandPalette = false}
-				/>
+				<!-- Desktop Background -->
+				<div class="desktop" style="margin-left: {$sidebar.width}px">
+					<!-- Main content area -->
+					<main class="main-content">
+						<slot />
+					</main>
+					
+					<!-- Window Management System -->
+					<WindowManager />
+					
+					<!-- Command Palette -->
+					<CommandPalette 
+						bind:visible={showCommandPalette}
+						on:close={() => showCommandPalette = false}
+					/>
 
-				<!-- User Switcher Modal -->
-				<UserSwitcher
-					isOpen={showUserSwitcher}
-					onClose={() => showUserSwitcher = false}
-				/>
+					<!-- User Switcher Modal -->
+					<UserSwitcher
+						isOpen={showUserSwitcher}
+						onClose={() => showUserSwitcher = false}
+					/>
 
 				<!-- Push Notification Settings Modal -->
 				{#if showNotificationSettings}
@@ -766,6 +1031,7 @@
 			
 			<!-- Toast Notifications -->
 			<ToastNotifications />
+			{/if}
 		{:else}
 			<!-- Simple layout for login page or unauthenticated users -->
 			<main class="simple-layout">
@@ -859,6 +1125,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+		z-index: 1;
+	}
+
+	/* Popout container for iframe mode */
+	.popout-container {
+		width: 100vw;
+		height: 100vh;
+		overflow: hidden;
 		position: relative;
 		z-index: 1;
 	}

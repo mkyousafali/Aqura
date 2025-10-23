@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { getStatistics } from '$lib/stores/taskStore';
 	import TaskCreateForm from './tasks/TaskCreateForm.svelte';
 	import TaskViewTable from './tasks/TaskViewTable.svelte';
@@ -54,7 +55,7 @@
 	function openCreateTask() {
 		const windowId = generateWindowId('create-task');
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Create New Task Template',
 			component: TaskCreateForm,
@@ -75,7 +76,7 @@
 		const windowId = generateWindowId('view-tasks');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `View Task Templates #${instanceNumber}`,
 			component: TaskViewTable,
@@ -96,7 +97,7 @@
 		const windowId = generateWindowId('assign-tasks');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Assign Tasks #${instanceNumber}`,
 			component: TaskAssignmentView,
@@ -117,7 +118,7 @@
 		const windowId = generateWindowId('task-status');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Task Status #${instanceNumber}`,
 			component: TaskStatusView,
@@ -138,7 +139,7 @@
 		const windowId = generateWindowId('my-tasks');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `My Tasks #${instanceNumber}`,
 			component: MyTasksView,
@@ -159,7 +160,7 @@
 		const windowId = generateWindowId('my-assignments');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `My Assignments #${instanceNumber}`,
 			component: MyAssignmentsView,
@@ -182,7 +183,7 @@
 
 	function openQuickTaskWindow() {
 		const windowId = generateWindowId('quick-task');
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Quick Task',
 			component: QuickTaskWindow

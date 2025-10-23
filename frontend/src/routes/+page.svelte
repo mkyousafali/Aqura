@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { localeData, t } from '$lib/i18n';
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import WelcomeWindow from '$lib/components/WelcomeWindow.svelte';
@@ -22,7 +23,7 @@
 
 	// Sample windows for demonstration
 	function openWelcomeWindow() {
-		windowManager.openWindow({
+		openWindow({
 			id: 'welcome',
 			title: $localeData ? t('welcome.title') : 'Welcome to Aqura',
 			component: WelcomeWindow,

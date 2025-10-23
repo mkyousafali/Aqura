@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '../../../stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeSalary from './EmployeeSalary.svelte';
 
 	// Props
@@ -362,7 +363,7 @@
 		}
 
 		// Open new salary management window
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `💰 Salary Management - ${employee.name_en} (${employee.employee_id})`,
 			component: EmployeeSalary,

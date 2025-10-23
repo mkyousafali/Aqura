@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EditVendor from './EditVendor.svelte';
 
 	// State management
@@ -258,7 +259,7 @@
 	function openEditWindow(vendor) {
 		const windowId = generateWindowId();
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Edit Vendor - ${vendor.vendor_name}`,
 			component: EditVendor,
@@ -312,7 +313,7 @@
 	function openCreateVendor() {
 		const windowId = generateWindowId();
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Create New Vendor',
 			component: EditVendor,

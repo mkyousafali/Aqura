@@ -21,6 +21,9 @@ export interface WindowConfig {
 	isActive: boolean;
 	isDragging: boolean;
 	isResizing: boolean;
+	popOutEnabled?: boolean; // New property for pop-out functionality
+	isPoppedOut?: boolean; // Track if window is currently popped out
+	popOutWindow?: Window; // Reference to the popped out window
 }
 
 export interface TaskbarItem {
@@ -37,6 +40,17 @@ class WindowManager {
 	private activeWindowId: Writable<string | null> = writable(null);
 	private nextZIndex = 1001;
 	private windowCounter = 0;
+
+	constructor() {
+		// Set up message listener for pop-in requests from pop-out windows
+		if (typeof window !== 'undefined') {
+			window.addEventListener('message', (event) => {
+				if (event.data && event.data.type === 'pop-in-window') {
+					this.popInWindow(event.data.windowId);
+				}
+			});
+		}
+	}
 
 	// Derived stores
 	public readonly windowList: Readable<WindowConfig[]> = derived(
@@ -95,7 +109,10 @@ class WindowManager {
 			state: 'normal',
 			isActive: true,
 			isDragging: false,
-			isResizing: false
+			isResizing: false,
+			popOutEnabled: config.popOutEnabled !== false, // Enable pop-out by default
+			isPoppedOut: false,
+			popOutWindow: undefined
 		};
 
 		this.windows.update(windows => {
@@ -281,6 +298,281 @@ class WindowManager {
 	public closeAllWindows(): void {
 		this.windows.set(new Map());
 		this.activeWindowId.set(null);
+	}
+
+	/**
+	 * Pop out a window to a new browser window
+	 */
+	public popOutWindow(windowId: string): void {
+		const windows = get(this.windows);
+		const windowConfig = windows.get(windowId);
+		if (!windowConfig || windowConfig.isPoppedOut) return;
+
+		// Create a new browser window
+		const popOutFeatures = [
+			`width=${windowConfig.size.width}`,
+			`height=${windowConfig.size.height}`,
+			`left=${windowConfig.position.x}`,
+			`top=${windowConfig.position.y}`,
+			'menubar=no',
+			'toolbar=no',
+			'location=no',
+			'status=no',
+			'scrollbars=yes',
+			'resizable=yes'
+		].join(',');
+
+		const popOutWindow = globalThis.window.open('', `popout_${windowId}`, popOutFeatures);
+		
+		if (!popOutWindow) {
+			console.error('Failed to open pop-out window. Pop-ups may be blocked.');
+			return;
+		}
+
+		// Get current app URL
+		const currentUrl = globalThis.window.location.href;
+		const baseUrl = currentUrl.split('#')[0].split('?')[0]; // Remove any hash and query params
+		
+		// Serialize the window data to pass to iframe
+		// Try to get a better component name
+		let componentName = windowConfig.component.name || 'UnknownComponent';
+		
+		// Map known components to their proper names
+		if (componentName === 'wrapper' || !componentName || componentName === 'UnknownComponent') {
+			// Try to infer from the window title
+			if (windowConfig.title.includes('Branches Master')) {
+				componentName = 'BranchMaster';
+			} else if (windowConfig.title.includes('Start Receiving')) {
+				componentName = 'StartReceiving';
+			} else if (windowConfig.title.includes('Receiving Records') || windowConfig.title.includes('📋 Receiving Records')) {
+				componentName = 'ReceivingRecords';
+			} else if (windowConfig.title.includes('Receiving Tasks')) {
+				componentName = 'ReceivingTasksDashboard';
+			} else if (windowConfig.title.includes('Receiving Data')) {
+				componentName = 'ReceivingDataWindow';
+			} else if (windowConfig.title.match(/^Receiving #\d+$/)) {
+				// This is the main Receiving dashboard from Operations Master
+				componentName = 'Receiving';
+			} else if (windowConfig.title.includes('Upload Vendor')) {
+				componentName = 'UploadVendor';
+			} else if (windowConfig.title.includes('Manage Vendor')) {
+				componentName = 'ManageVendor';
+			} else if (windowConfig.title.includes('Payment Manager') || windowConfig.title.includes('Scheduled Payments')) {
+				componentName = 'PaymentManager';
+			} else if (windowConfig.title.includes('Task Status')) {
+				componentName = 'TaskStatusView';
+			} else if (windowConfig.title.includes('View Task Templates')) {
+				componentName = 'TaskTemplateView';
+			} else if (windowConfig.title.includes('Assign Tasks')) {
+				componentName = 'TaskAssignView';
+			} else if (windowConfig.title.includes('My Tasks')) {
+				componentName = 'MyTasksView';
+			} else if (windowConfig.title.includes('My Assignments')) {
+				componentName = 'MyAssignmentsView';
+			} else if (windowConfig.title.includes('Edit User')) {
+				componentName = 'EditUser';
+			} else if (windowConfig.title.includes('Notification Center')) {
+				componentName = 'NotificationCenter';
+			} else if (windowConfig.title.includes('Document Management')) {
+				componentName = 'DocumentManagement';
+			} else if (windowConfig.title.includes('Scheduled Payments')) {
+				componentName = 'ScheduledPayments';
+			} else if (windowConfig.title.includes('Task Master')) {
+				componentName = 'TaskMaster';
+			} else if (windowConfig.title.includes('HR Master')) {
+				componentName = 'HRMaster';
+			} else if (windowConfig.title.includes('Operations Master')) {
+				componentName = 'OperationsMaster';
+			} else if (windowConfig.title.includes('Vendor Master')) {
+				componentName = 'VendorMaster';
+			} else if (windowConfig.title.includes('Finance Master')) {
+				componentName = 'FinanceMaster';
+			} else if (windowConfig.title.includes('User Management')) {
+				componentName = 'UserManagement';
+			} else if (windowConfig.title.includes('Communication Center')) {
+				componentName = 'CommunicationCenter';
+			} else if (windowConfig.title.includes('Settings')) {
+				componentName = 'Settings';
+			}
+		}
+		
+		const windowData = encodeURIComponent(JSON.stringify({
+			id: windowConfig.id,
+			title: windowConfig.title,
+			component: componentName,
+			icon: windowConfig.icon,
+			size: windowConfig.size,
+			props: windowConfig.props || {}
+		}));
+		
+		// Construct the iframe URL with popout parameter and window data
+		const iframeUrl = `${baseUrl}?popout=${windowId}&windowData=${windowData}`;
+
+		// Set up the pop-out window with iframe containing the app
+		popOutWindow.document.title = windowConfig.title;
+		popOutWindow.document.head.innerHTML = `
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>${windowConfig.title}</title>
+			<style>
+				body {
+					margin: 0;
+					padding: 0;
+					font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+					background: #f5f5f5;
+					height: 100vh;
+					overflow: hidden;
+				}
+				.popout-header {
+					background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+					color: white;
+					padding: 8px 16px;
+					display: flex;
+					align-items: center;
+					justify-content: space-between;
+					font-weight: 500;
+					font-size: 14px;
+					border-bottom: 1px solid #4338CA;
+					flex-shrink: 0;
+					height: 40px;
+					box-sizing: border-box;
+					position: relative;
+					z-index: 1000;
+				}
+				.popout-header.minimal {
+					padding: 4px 16px;
+					height: 32px;
+					font-size: 12px;
+				}
+				.popout-title {
+					display: flex;
+					align-items: center;
+					gap: 8px;
+				}
+				.popout-controls {
+					display: flex;
+					gap: 8px;
+				}
+				.popout-btn {
+					background: rgba(255, 255, 255, 0.2);
+					color: white;
+					border: none;
+					padding: 4px 8px;
+					border-radius: 4px;
+					cursor: pointer;
+					font-size: 12px;
+					font-weight: 500;
+					transition: background 0.15s ease;
+				}
+				.popout-btn:hover {
+					background: rgba(255, 255, 255, 0.3);
+				}
+				.popout-iframe {
+					width: 100%;
+					height: calc(100vh - 32px);
+					border: none;
+					background: white;
+				}
+				.loading-message {
+					position: absolute;
+					top: 50%;
+					left: 50%;
+					transform: translate(-50%, -50%);
+					text-align: center;
+					color: #6B7280;
+					z-index: 10;
+					background: rgba(255, 255, 255, 0.9);
+					padding: 20px;
+					border-radius: 8px;
+					box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+				}
+			</style>
+		`;
+
+		// Create the pop-out window content with iframe
+		popOutWindow.document.body.innerHTML = `
+			<div class="popout-header" id="popout-header">
+				<div class="popout-title">
+					<span>${windowConfig.icon || '📱'}</span>
+					<span>${windowConfig.title}</span>
+				</div>
+				<div class="popout-controls">
+					<button class="popout-btn" onclick="returnToApp()">↩️ Return to App</button>
+					<button class="popout-btn" onclick="window.close()">✕ Close</button>
+				</div>
+			</div>
+			<div class="loading-message" id="loading">
+				<p>Loading window content...</p>
+				<small>Loading: ${windowConfig.title}</small>
+			</div>
+			<iframe 
+				class="popout-iframe" 
+				src="${iframeUrl}"
+				title="${windowConfig.title}"
+				onload="
+					document.getElementById('loading').style.display='none';
+				"
+				onerror="document.getElementById('loading').innerHTML='<p>Error loading content</p><small>Component: ${componentName}</small>'"
+			></iframe>
+			<script>
+				function returnToApp() {
+					// Notify parent window to pop this window back in
+					if (window.opener && !window.opener.closed) {
+						window.opener.postMessage({
+							type: 'pop-in-window',
+							windowId: '${windowId}'
+						}, '*');
+						window.close();
+					}
+				}
+			</script>
+		`;
+
+		// Update window state
+		this.windows.update(windows => {
+			const windowConfig = windows.get(windowId);
+			if (windowConfig) {
+				windowConfig.isPoppedOut = true;
+				windowConfig.popOutWindow = popOutWindow;
+				windowConfig.state = 'minimized'; // Hide in main app
+			}
+			return windows;
+		});
+
+		// Handle pop-out window close
+		popOutWindow.addEventListener('beforeunload', () => {
+			this.popInWindow(windowId);
+		});
+
+		// Focus the pop-out window
+		popOutWindow.focus();
+	}
+
+	/**
+	 * Pop in a window back to the main application
+	 */
+	public popInWindow(windowId: string): void {
+		this.windows.update(windows => {
+			const windowConfig = windows.get(windowId);
+			if (windowConfig && windowConfig.isPoppedOut) {
+				// Close the pop-out window if it exists
+				if (windowConfig.popOutWindow && !windowConfig.popOutWindow.closed) {
+					windowConfig.popOutWindow.close();
+				}
+
+				// Reset window state
+				windowConfig.isPoppedOut = false;
+				windowConfig.popOutWindow = undefined;
+				windowConfig.state = 'normal';
+				
+				// Activate the window
+				windows.forEach(w => w.isActive = false);
+				windowConfig.isActive = true;
+				windowConfig.zIndex = this.nextZIndex++;
+				this.activeWindowId.set(windowId);
+			}
+			return windows;
+		});
 	}
 
 	/**

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import WarningDetailsModal from './WarningDetailsModal.svelte';
 
 	let warnings = [];
@@ -171,7 +172,7 @@
 	function viewWarningDetails(warning) {
 		const windowId = `warning-details-${warning.id}`;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Warning Details - ${warning.hr_employees?.name || warning.username}`,
 			component: WarningDetailsModal,

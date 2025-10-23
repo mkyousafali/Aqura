@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	let loading = true;
 	let error = null;
@@ -191,7 +192,7 @@
 	function viewWarningDetails(warning) {
 		// Open warning details in a new window
 		const windowId = `warning-details-${Date.now()}`;
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Warning Details - ${warning.hr_employees?.employee_id || 'Unknown'}`,
 			component: null, // This would need to be created as a proper component

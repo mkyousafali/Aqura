@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
 	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
@@ -310,7 +311,7 @@
 			openQuickTaskCompletion(task);
 		} else {
 			const windowId = `task-completion-${task.id}`;
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `Complete Task: ${task.title}`,
 				component: TaskCompletionModal,
@@ -369,7 +370,7 @@
 			openQuickTaskDetails(task);
 		} else {
 			const windowId = `task-details-${task.id}`;
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `Task Details: ${task.title}`,
 				component: TaskDetailsModal,
@@ -396,7 +397,7 @@
 
 	function openQuickTaskDetails(task) {
 		const windowId = `quick-task-details-${task.id}`;
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `⚡ Quick Task Details: ${task.title}`,
 			component: QuickTaskDetailsModal,

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { loadTasks, assignTasks } from '$lib/stores/taskStoreSupabase';
 	import { db } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
@@ -735,7 +736,7 @@
 
 	function createNewTask() {
 		// Open TaskCreateForm in a new window
-		windowManager.openWindow({
+		openWindow({
 			component: TaskCreateForm,
 			title: 'Create New Task',
 			props: {
@@ -756,7 +757,7 @@
 
 	function editTask(task) {
 		// Open TaskCreateForm in edit mode
-		windowManager.openWindow({
+		openWindow({
 			component: TaskCreateForm,
 			title: `Edit Task: ${task.title}`,
 			props: {

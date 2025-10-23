@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import MonthDetails from './MonthDetails.svelte';
 
 	// Current date and navigation
@@ -271,7 +272,7 @@
 		const windowId = generateWindowId('month-details');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${monthData.monthName} ${monthData.year} - Payment Details #${instanceNumber}`,
 			component: MonthDetails,

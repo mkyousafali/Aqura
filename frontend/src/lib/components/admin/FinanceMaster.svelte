@@ -1,5 +1,6 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PaymentManager from './vendor/PaymentManager.svelte';
 
 	// Generate unique window ID using timestamp and random number
@@ -24,7 +25,7 @@
 		
 		if (financeOperation.id === 'payment-manager') {
 			// Open Payment Manager component
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `Payment Manager #${instanceNumber}`,
 				component: PaymentManager,

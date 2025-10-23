@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import { db } from '$lib/utils/supabase';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
@@ -146,7 +147,7 @@
 
 	function openTaskCompletion() {
 		const completionWindowId = `task-completion-${task.id}`;
-		windowManager.openWindow({
+		openWindow({
 			id: completionWindowId,
 			title: `Complete Task: ${task.title}`,
 			component: TaskCompletionModal,
