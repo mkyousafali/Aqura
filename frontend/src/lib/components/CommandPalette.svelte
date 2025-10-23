@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow as openWindowSafe } from '$lib/utils/windowManagerUtils';
 	import { t } from '$lib/i18n';
 
 	export let visible = false;
@@ -58,7 +59,7 @@
 			description: t('commands.manageBranches') || 'Manage company branches',
 			category: t('admin.title') || 'Admin',
 			icon: '🏢',
-			action: () => openWindow('branch-master'),
+			action: () => openWindowLocal('branch-master'),
 			keywords: ['office', 'location']
 		},
 		{
@@ -67,7 +68,7 @@
 			description: t('commands.manageVendors') || 'Manage vendors and suppliers',
 			category: t('admin.title') || 'Admin',
 			icon: '🤝',
-			action: () => openWindow('vendor-master'),
+			action: () => openWindowLocal('vendor-master'),
 			keywords: ['supplier', 'contractor']
 		},
 		{
@@ -76,7 +77,7 @@
 			description: t('commands.manageInvoices') || 'Manage invoices and billing',
 			category: t('nav.finance') || 'Finance',
 			icon: '📄',
-			action: () => openWindow('invoice-master'),
+			action: () => openWindowLocal('invoice-master'),
 			keywords: ['bill', 'payment', 'finance']
 		},
 		{
@@ -85,7 +86,7 @@
 			description: t('commands.manageUsers') || 'Manage system users and roles',
 			category: t('admin.title') || 'Admin',
 			icon: '👤',
-			action: () => openWindow('user-master'),
+			action: () => openWindowLocal('user-master'),
 			keywords: ['account', 'permission', 'role']
 		},
 		{
@@ -94,7 +95,7 @@
 			description: t('commands.importData') || 'Import data from Excel files',
 			category: t('commands.tools') || 'Tools',
 			icon: '📥',
-			action: () => openWindow('data-import'),
+			action: () => openWindowLocal('data-import'),
 			keywords: ['excel', 'xlsx', 'upload']
 		},
 
@@ -105,7 +106,7 @@
 			description: t('commands.helpDesc') || 'View system documentation',
 			category: t('commands.helpCategory') || 'Help',
 			icon: '❓',
-			action: () => openWindow('help'),
+			action: () => openWindowLocal('help'),
 			keywords: ['docs', 'manual', 'guide']
 		},
 		{
@@ -114,7 +115,7 @@
 			description: t('commands.aboutDesc') || 'System information and version',
 			category: t('commands.helpCategory') || 'Help',
 			icon: 'ℹ️',
-			action: () => openWindow('about'),
+			action: () => openWindowLocal('about'),
 			keywords: ['version', 'info']
 		}
 	];
@@ -145,7 +146,7 @@
 		searchInput.focus();
 	}
 
-	function openWindow(windowType: string) {
+	function openWindowLocal(windowType: string) {
 		// This would normally import the actual components
 		// For now, just create placeholder windows
 		const config = {
@@ -192,7 +193,7 @@
 				render: () => `<div class="p-6"><h2 class="text-xl font-bold mb-4">${config.title}</h2><p>This module is under development.</p></div>`
 			};
 			
-			windowManager.openWindow({
+			openWindowSafe({
 				...config,
 				component: PlaceholderComponent
 			});

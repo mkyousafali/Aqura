@@ -3,18 +3,33 @@
 	import { sidebar } from '$lib/stores/sidebar';
 	import Window from '$lib/components/Window.svelte';
 
+	// Export prop for popout mode
+	export let popoutOnly: string = '';
+
 	// Subscribe to window list
 	$: windows = windowManager.windowList;
+	
+	// Filter windows based on mode
+	$: filteredWindows = popoutOnly 
+		? $windows.filter(w => w.id === popoutOnly)
+		: $windows.filter(w => !w.isPoppedOut);
+		
+	// Debug logging for popout mode
+	$: if (popoutOnly) {
+		console.log('🪟 WindowManager in popout mode for:', popoutOnly);
+		console.log('🪟 Available windows:', $windows.map(w => w.id));
+		console.log('🪟 Filtered windows:', filteredWindows.map(w => w.id));
+	}
 </script>
 
 <!-- Window Container -->
-<div class="window-manager" style="left: {$sidebar.width}px; width: calc(100vw - {$sidebar.width}px);">
-	{#each $windows as window (window.id)}
+<div class="window-manager" class:popout-mode={!!popoutOnly} style="left: {popoutOnly ? '0px' : $sidebar.width + 'px'}; width: {popoutOnly ? '100vw' : `calc(100vw - ${$sidebar.width}px)`};">
+	{#each filteredWindows as window (window.id)}
 		<Window {window} />
 	{/each}
 	
 	<!-- Modal Backdrop -->
-	{#if $windows.some(w => w.modal && w.state !== 'minimized')}
+	{#if filteredWindows.some(w => w.modal && w.state !== 'minimized')}
 		<div class="modal-backdrop"></div>
 	{/if}
 </div>
@@ -27,6 +42,21 @@
 		pointer-events: none;
 		z-index: 1000;
 		transition: left 0.3s ease, width 0.3s ease;
+	}
+
+	.window-manager.popout-mode {
+		left: 0 !important;
+		width: 100vw !important;
+		transition: none;
+	}
+
+	.window-manager.popout-mode :global(.window) {
+		position: static !important;
+		width: 100% !important;
+		height: 100vh !important;
+		border-radius: 0 !important;
+		box-shadow: none !important;
+		border: none !important;
 	}
 
 	.window-manager :global(.window) {

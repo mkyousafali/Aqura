@@ -3,6 +3,7 @@
 	import { dataService } from '$lib/utils/dataService';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import OtherDocumentsManager from './OtherDocumentsManager.svelte';
 
 	// Props
@@ -249,7 +250,7 @@
 		const windowId = `other-documents-${employee.id}-${Date.now()}`;
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `📋 Other Documents - ${employee.name} (#${instanceNumber})`,
 			component: OtherDocumentsManager,

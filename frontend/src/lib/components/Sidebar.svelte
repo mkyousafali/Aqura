@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { t, currentLocale } from '$lib/i18n';
 	import { showInstallPrompt, isInstalled, installPWA, initPWAInstall } from '$lib/stores/pwaInstall';
@@ -17,6 +18,7 @@
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import Settings from '$lib/components/admin/Settings.svelte';
 	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
+	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
 
 	let showMasterSubmenu = false;
 	let showSettingsSubmenu = false;
@@ -74,7 +76,7 @@
 		const windowId = generateWindowId('branch-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${t('admin.branchesMaster') || 'Branch Master'} #${instanceNumber}`,
 			component: BranchMaster,
@@ -96,7 +98,7 @@
 		const windowId = generateWindowId('task-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${t('admin.taskMaster') || 'Task Master'} #${instanceNumber}`,
 			component: TaskMaster,
@@ -118,7 +120,7 @@
 		const windowId = generateWindowId('hr-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `HR Master #${instanceNumber}`,
 			component: HRMaster,
@@ -140,7 +142,7 @@
 		const windowId = generateWindowId('operations-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Operations Master #${instanceNumber}`,
 			component: OperationsMaster,
@@ -162,7 +164,7 @@
 		const windowId = generateWindowId('vendor-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Vendor Master #${instanceNumber}`,
 			component: VendorMaster,
@@ -184,7 +186,7 @@
 		const windowId = generateWindowId('finance-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Finance Master #${instanceNumber}`,
 			component: FinanceMaster,
@@ -211,7 +213,7 @@
 		const windowId = generateWindowId('user-management');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `User Management #${instanceNumber}`,
 			component: UserManagement,
@@ -233,7 +235,7 @@
 		const windowId = generateWindowId('settings');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Sound Settings #${instanceNumber}`,
 			component: Settings,
@@ -255,7 +257,7 @@
 		const windowId = generateWindowId('communication-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Communication Center #${instanceNumber}`,
 			component: CommunicationCenter,
@@ -375,7 +377,7 @@
 		const windowId = generateWindowId('start-receiving');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Start Receiving #${instanceNumber}`,
 			component: StartReceiving,
@@ -384,6 +386,26 @@
 			position: { 
 				x: 100 + (Math.random() * 100),
 				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	// Open Scheduled Payments window
+	function openScheduledPayments() {
+		const windowId = generateWindowId('scheduled-payments');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Scheduled Payments #${instanceNumber}`,
+			component: ScheduledPayments,
+			icon: '💰',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 120 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -498,7 +520,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.1.0
+				v1.1.1
 			</button>
 		</div>
 	</div>
@@ -580,6 +602,10 @@
 			<span class="menu-icon">📦</span>
 			<span class="menu-text">Start Receiving</span>
 		</button>
+		<button class="submenu-item" on:click={openScheduledPayments}>
+			<span class="menu-icon">💰</span>
+			<span class="menu-text">Scheduled Payments</span>
+		</button>
 	</div>
 {/if}
 
@@ -588,58 +614,59 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.1.0</h3>
+				<h3>What's New in v1.1.1</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Original Bill Update Feature</h4>
+					<h4>🖥️ Pop-Out Window System</h4>
 					<ul>
-						<li><strong>Update Button:</strong> New "Update" button appears next to existing original bills for easy file replacement</li>
-						<li><strong>Smart Layout:</strong> Update button positioned on the right side of thumbnails for optimal space usage</li>
-						<li><strong>File Management:</strong> Updated files get unique timestamps while preserving original files</li>
-						<li><strong>Loading States:</strong> Clear visual feedback during upload with "Updating..." indicator</li>
-						<li><strong>Success Confirmation:</strong> Instant success alerts and automatic data refresh after updates</li>
-						<li><strong>Multi-Component Support:</strong> Available in both main Receiving Records table and data window views</li>
+						<li><strong>Multi-Monitor Support:</strong> Move any window to separate browser windows for external monitors</li>
+						<li><strong>Dual-Screen Icon:</strong> Clear visual indicator showing two monitors side by side</li>
+						<li><strong>Cross-Window Communication:</strong> Seamless data synchronization between main app and pop-out windows</li>
+						<li><strong>Return to App:</strong> Easy return functionality from pop-out windows back to main interface</li>
+						<li><strong>Component Mapping:</strong> Comprehensive support for all admin modules (Tasks, Receiving, Vendor, HR, etc.)</li>
+						<li><strong>Authentication Handling:</strong> Automatic authentication state management in pop-out windows</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🛠 Technical Enhancements</h4>
+					<h4>🛠️ Technical Implementation</h4>
 					<ul>
-						<li><strong>Dual Button System:</strong> Shows both "✓ Uploaded" status and "🔄 Update" button for existing files</li>
-						<li><strong>File Naming Convention:</strong> Updated files use "_updated_" prefix with timestamp for easy identification</li>
-						<li><strong>Database Integration:</strong> Automatic database timestamp updates when files are replaced</li>
-						<li><strong>Error Handling:</strong> Comprehensive error handling with user-friendly messages</li>
-						<li><strong>State Management:</strong> Separate update states to prevent conflicts with initial uploads</li>
-						<li><strong>UI Consistency:</strong> Maintains design consistency across different table views</li>
+						<li><strong>Window Manager:</strong> Enhanced window management with pop-out and pop-in capabilities</li>
+						<li><strong>Safe Window Handling:</strong> Popup blocker detection and fallback mechanisms</li>
+						<li><strong>Dynamic Component Loading:</strong> Automatic component inference and dynamic imports</li>
+						<li><strong>URL Parameter Passing:</strong> Efficient state transfer via URL parameters</li>
+						<li><strong>Message API:</strong> Cross-window communication using postMessage for real-time updates</li>
+						<li><strong>Error Recovery:</strong> Graceful handling of window failures and blockers</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📋 User Interface Improvements</h4>
+					<h4>🎨 User Interface Enhancements</h4>
 					<ul>
-						<li><strong>Horizontal Layout:</strong> Update button positioned to the right of thumbnails for better space utilization</li>
-						<li><strong>Visual Distinction:</strong> Orange/yellow styling clearly identifies update functionality</li>
-						<li><strong>Compact Design:</strong> Optimized button size (40px) fits perfectly in table cells</li>
-						<li><strong>Hover Effects:</strong> Interactive feedback with scale transitions and color changes</li>
-						<li><strong>Accessibility:</strong> Proper tooltips and ARIA labels for screen reader compatibility</li>
+						<li><strong>Button Positioning:</strong> Pop-out button strategically placed before minimize button in title bar</li>
+						<li><strong>Visual Design:</strong> Dual-monitor icon (14px) with clear two-screen representation</li>
+						<li><strong>Hover Effects:</strong> Interactive feedback with scale transitions and brightness changes</li>
+						<li><strong>Accessibility:</strong> Proper ARIA labels and keyboard navigation support</li>
+						<li><strong>Responsive Layout:</strong> Optimal button sizing and spacing in window title bars</li>
+						<li><strong>Color Coordination:</strong> Consistent styling with existing window control elements</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎯 Workflow Benefits</h4>
+					<h4>📋 Productivity Benefits</h4>
 					<ul>
-						<li><strong>Document Management:</strong> Easily replace incorrect or updated original bills without losing history</li>
-						<li><strong>Version Control:</strong> Maintains clear audit trail of file updates with timestamps</li>
-						<li><strong>User Convenience:</strong> No need to delete and re-upload - simply click update</li>
-						<li><strong>Error Correction:</strong> Quick fix for accidentally uploaded wrong documents</li>
-						<li><strong>Quality Assurance:</strong> Ensures latest versions of documents are always available</li>
-						<li><strong>Compliance:</strong> Maintains document integrity while allowing necessary updates</li>
+						<li><strong>Multi-Tasking:</strong> Work with multiple admin modules simultaneously on different screens</li>
+						<li><strong>Screen Real Estate:</strong> Maximize workspace by spreading windows across multiple monitors</li>
+						<li><strong>Workflow Efficiency:</strong> Keep reference data on one screen while working on another</li>
+						<li><strong>Focus Mode:</strong> Isolate specific tasks to dedicated screens for better concentration</li>
+						<li><strong>Data Comparison:</strong> Compare information side-by-side across different modules</li>
+						<li><strong>Presentation Ready:</strong> Share specific windows during meetings without exposing entire desktop</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 23, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.1.0 - Original Bill Update Feature</p>
-					<p><strong>Focus:</strong> Enhanced Document Management & User Experience</p>
+					<p><strong>Version:</strong> 1.1.1 - Multi-Monitor Pop-Out System</p>
+					<p><strong>Focus:</strong> Enhanced Multi-Tasking & Workspace Management</p>
 				</div>
 			</div>
 		</div>

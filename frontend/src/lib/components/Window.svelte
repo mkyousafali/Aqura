@@ -18,6 +18,9 @@
 	$: isMinimized = window.state === 'minimized';
 	$: isActive = window.isActive;
 	
+	// Check if we're in a popout iframe
+	$: isInPopout = typeof globalThis !== 'undefined' && globalThis.window && globalThis.window.location.hash.includes('#popout=');
+	
 	// Debug reactive statement
 	$: {
 		console.log('Window state changed:', {
@@ -171,6 +174,18 @@
 			windowManager.closeWindow(window.id);
 		}
 	}
+
+	function popOut() {
+		if (window.popOutEnabled && !window.isPoppedOut) {
+			windowManager.popOutWindow(window.id);
+		}
+	}
+
+	function popIn() {
+		if (window.isPoppedOut) {
+			windowManager.popInWindow(window.id);
+		}
+	}
 </script>
 
 <div
@@ -207,6 +222,36 @@
 		</div>
 		
 		<div class="title-bar-controls">
+			{#if window.popOutEnabled && !window.modal && !isInPopout}
+				<button
+					class="control-button popout"
+					on:click|stopPropagation={window.isPoppedOut ? popIn : popOut}
+					title={window.isPoppedOut ? 'Pop In' : 'Pop Out'}
+					aria-label={window.isPoppedOut ? 'Pop window back into application' : 'Pop window out to new browser window'}
+				>
+					{#if window.isPoppedOut}
+						<svg viewBox="0 0 16 16" width="14" height="14">
+							<!-- Single screen (popped in state) -->
+							<rect x="3" y="4" width="10" height="6" stroke="currentColor" stroke-width="1" fill="none" />
+							<rect x="7" y="10" width="2" height="1" fill="currentColor" />
+							<line x1="4" y1="12" x2="12" y2="12" stroke="currentColor" stroke-width="1" />
+						</svg>
+					{:else}
+						<svg viewBox="0 0 16 16" width="14" height="14">
+							<!-- Two screens side by side -->
+							<rect x="1" y="3" width="5" height="4" stroke="currentColor" stroke-width="1" fill="none" />
+							<rect x="10" y="3" width="5" height="4" stroke="currentColor" stroke-width="1" fill="none" />
+							<!-- Monitor stands -->
+							<rect x="3" y="7" width="1" height="1.5" fill="currentColor" />
+							<rect x="12" y="7" width="1" height="1.5" fill="currentColor" />
+							<!-- Monitor bases -->
+							<line x1="2" y1="9" x2="5" y2="9" stroke="currentColor" stroke-width="1" />
+							<line x1="11" y1="9" x2="14" y2="9" stroke="currentColor" stroke-width="1" />
+						</svg>
+					{/if}
+				</button>
+			{/if}
+			
 			{#if window.minimizable}
 				<button
 					class="control-button minimize"
@@ -434,6 +479,11 @@
 
 	.control-button.close:hover {
 		background: #ef4444;
+		color: white;
+	}
+
+	.control-button.popout:hover {
+		background: #3b82f6;
 		color: white;
 	}
 

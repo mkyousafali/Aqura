@@ -3,6 +3,7 @@
 	import DocumentManagement from './hr/DocumentManagement.svelte';
 	import SalaryManagement from './hr/SalaryManagement.svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	// Import window components (will create these)
 	import UploadEmployees from './hr/UploadEmployees.svelte';
@@ -151,7 +152,7 @@
 			return;
 		}
 
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${button.title} #${instanceNumber}`,
 			component: component,

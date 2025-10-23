@@ -1,5 +1,6 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import UploadVendor from './vendor/UploadVendor.svelte';
 	import ManageVendor from './vendor/ManageVendor.svelte';
 
@@ -32,7 +33,7 @@
 		
 		if (vendorOperation.id === 'upload-vendor') {
 			// Open Upload Vendor component
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `Upload Vendor #${instanceNumber}`,
 				component: UploadVendor,
@@ -49,7 +50,7 @@
 			});
 		} else if (vendorOperation.id === 'manage-vendor') {
 			// Open Manage Vendor component
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `Manage Vendor #${instanceNumber}`,
 				component: ManageVendor,

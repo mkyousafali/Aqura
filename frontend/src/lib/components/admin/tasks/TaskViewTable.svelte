@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { deleteTask as deleteTaskStore, loadTasks, searchTasks } from '$lib/stores/taskStore';
 	import { db } from '$lib/utils/supabase';
 	import TaskCreateForm from './TaskCreateForm.svelte';
@@ -199,7 +200,7 @@
 
 	function editTask(task: any) {
 		// Open the task creation form in edit mode
-		windowManager.openWindow({
+		openWindow({
 			id: `edit-task-${task.id}`,
 			title: `Edit Task: ${task.title}`,
 			component: TaskCreateForm,

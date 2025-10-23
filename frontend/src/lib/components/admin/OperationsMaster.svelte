@@ -1,5 +1,6 @@
 <script>
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import Receiving from './Receiving.svelte';
 
 	// Generate unique window ID using timestamp and random number
@@ -24,7 +25,7 @@
 		
 		if (operation.id === 'receiving') {
 			// Open Receiving component
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `${operation.title} #${instanceNumber}`,
 				component: Receiving,
@@ -41,7 +42,7 @@
 			});
 		} else {
 			// Open placeholder for other operations
-			windowManager.openWindow({
+			openWindow({
 				id: windowId,
 				title: `${operation.title} #${instanceNumber}`,
 				component: null, // Blank window for now

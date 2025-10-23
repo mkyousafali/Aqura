@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { userManagement } from '$lib/utils/userManagement';
 	import CreateUser from './user/CreateUser.svelte';
@@ -136,7 +137,7 @@
 				return;
 		}
 
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `${button.title} #${instanceNumber}`,
 			component: component,
@@ -160,7 +161,7 @@
 		const windowId = generateWindowId('edit-user');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Edit User: ${user.username} #${instanceNumber}`,
 			component: EditUser,

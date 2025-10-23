@@ -32,12 +32,14 @@
 	let updatingErp = false;
 
 	onMount(() => {
+		console.log('🔍 ReceivingRecords component mounted');
 		loadBranches();
 		loadReceivingRecords();
 	});
 
 	async function loadBranches() {
 		try {
+			console.log('🔍 Loading branches...');
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase
 				.from('branches')
@@ -46,6 +48,7 @@
 
 			if (error) throw error;
 			branches = data || [];
+			console.log('🔍 Branches loaded:', branches.length);
 		} catch (err) {
 			console.error('Error loading branches:', err);
 			branches = [];
@@ -55,6 +58,7 @@
 	async function loadReceivingRecords() {
 		loading = true;
 		try {
+			console.log('🔍 Loading receiving records...');
 			// Import supabase here to avoid circular dependencies
 			const { supabase } = await import('$lib/utils/supabase');
 			
@@ -97,6 +101,7 @@
 			}));
 
 			receivingRecords = recordsWithVendors;
+			console.log('🔍 Receiving records loaded:', receivingRecords.length);
 			
 			applyFilters();
 		} catch (err) {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import NotificationCenter from './communication/NotificationCenter.svelte';
@@ -30,7 +31,7 @@
 		const windowId = generateWindowId('notification-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: `Notification Center #${instanceNumber}`,
 			component: NotificationCenter,
@@ -53,7 +54,7 @@
 	function openAdminReadStatus() {
 		const windowId = `admin-read-status-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 		
-		windowManager.openWindow({
+		openWindow({
 			id: windowId,
 			title: 'Admin: Read Status Per User',
 			component: AdminReadStatusModal,
