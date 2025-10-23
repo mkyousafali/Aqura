@@ -17,6 +17,7 @@
 	let loading = true;
 	let error = null;
 	let uploadingBillId = null;
+	let updatingBillId = null;
 	let sortBy = '';
 	let sortOrder = 'asc';
 	
@@ -501,6 +502,79 @@
 		fileInput.click();
 	}
 
+	async function updateOriginalBill(recordId) {
+		updatingBillId = recordId;
+		
+		// Create file input element
+		const fileInput = document.createElement('input');
+		fileInput.type = 'file';
+		fileInput.accept = '.pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp';
+		fileInput.multiple = false;
+
+		fileInput.onchange = async (event) => {
+			const file = event.target.files[0];
+			if (!file) {
+				updatingBillId = null;
+				return;
+			}
+
+			try {
+				// Import supabase here to avoid circular dependencies
+				const { supabase } = await import('$lib/utils/supabase');
+				
+				// Generate unique filename with "updated" prefix
+				const fileExt = file.name.split('.').pop();
+				const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;
+
+				// Upload file to original-bills storage bucket
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('original-bills')
+					.upload(fileName, file);
+
+				if (uploadError) {
+					console.error('Error uploading updated file:', uploadError);
+					alert('Error uploading updated file. Please try again.');
+					return;
+				}
+
+				// Get public URL
+				const { data: { publicUrl } } = supabase.storage
+					.from('original-bills')
+					.getPublicUrl(fileName);
+
+				// Update the record with the new file URL
+				const { error: updateError } = await supabase
+					.from('receiving_records')
+					.update({ 
+						original_bill_url: publicUrl,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', recordId);
+
+				if (updateError) {
+					console.error('Error updating record:', updateError);
+					alert('Error saving updated file reference. Please try again.');
+					return;
+				}
+
+				// Show success message
+				alert('Original bill updated successfully!');
+
+				// Reload data to show updated status
+				await loadData();
+				
+			} catch (error) {
+				console.error('Error in update process:', error);
+				alert('Error updating file. Please try again.');
+			} finally {
+				updatingBillId = null;
+			}
+		};
+
+		// Trigger file selection
+		fileInput.click();
+	}
+
 	async function uploadPRExcel(recordId) {
 		uploadingBillId = recordId; // Reuse the same loading state variable
 		
@@ -732,29 +806,68 @@
 							{#each columns as column}
 								<td class="px-4 py-2 text-center">
 									{#if column.key === 'upload_action'}
-										<button
-											class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-											disabled={uploadingBillId === row.id}
-											on:click={() => {
-												if (dataType === 'no-pr-excel') {
-													uploadPRExcel(row.id);
-												} else {
-													uploadOriginalBill(row.id);
-												}
-											}}
-										>
-											{#if uploadingBillId === row.id}
-												<span class="inline-flex items-center">
-													<svg class="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-														<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-														<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-													</svg>
-													Uploading...
-												</span>
-											{:else}
-												{dataType === 'no-pr-excel' ? 'Upload PR Excel' : 'Upload Original Bill'}
-											{/if}
-										</button>
+										<!-- Check if this record already has the file -->
+										{#if (dataType === 'no-original' && row.original_bill_url) || (dataType === 'no-pr-excel' && row.pr_excel_file_url)}
+											<!-- Show update button for existing files -->
+											<div class="flex gap-1">
+												<button
+													class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs"
+													disabled={true}
+													title="File already uploaded"
+												>
+													✓ Uploaded
+												</button>
+												<button
+													class="bg-orange-500 hover:bg-orange-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+													disabled={updatingBillId === row.id}
+													on:click={() => {
+														if (dataType === 'no-pr-excel') {
+															uploadPRExcel(row.id);
+														} else {
+															updateOriginalBill(row.id);
+														}
+													}}
+													title="Upload updated version"
+												>
+													{#if updatingBillId === row.id}
+														<span class="inline-flex items-center">
+															<svg class="animate-spin -ml-1 mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+																<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+																<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+															</svg>
+															Updating...
+														</span>
+													{:else}
+														🔄 Update
+													{/if}
+												</button>
+											</div>
+										{:else}
+											<!-- Show upload button for missing files -->
+											<button
+												class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+												disabled={uploadingBillId === row.id}
+												on:click={() => {
+													if (dataType === 'no-pr-excel') {
+														uploadPRExcel(row.id);
+													} else {
+														uploadOriginalBill(row.id);
+													}
+												}}
+											>
+												{#if uploadingBillId === row.id}
+													<span class="inline-flex items-center">
+														<svg class="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+															<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+															<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+														</svg>
+														Uploading...
+													</span>
+												{:else}
+													{dataType === 'no-pr-excel' ? 'Upload PR Excel' : 'Upload Original Bill'}
+												{/if}
+											</button>
+										{/if}
 									{:else}
 										{formatValue(row[column.key], column.type)}
 									{/if}

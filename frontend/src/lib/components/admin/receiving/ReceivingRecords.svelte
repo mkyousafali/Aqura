@@ -19,6 +19,7 @@
 	let uploadingBillId = null;
 	let uploadingExcelId = null;
 	let generatingCertificateId = null;
+	let updatingBillId = null;
 
 	// Certificate generation state
 	let showCertificateModal = false;
@@ -264,6 +265,79 @@
 				alert('Error uploading file. Please try again.');
 			} finally {
 				uploadingBillId = null;
+			}
+		};
+
+		// Trigger file selection
+		fileInput.click();
+	}
+
+	async function updateOriginalBill(recordId) {
+		updatingBillId = recordId;
+		
+		// Create file input element
+		const fileInput = document.createElement('input');
+		fileInput.type = 'file';
+		fileInput.accept = '.pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp';
+		fileInput.multiple = false;
+
+		fileInput.onchange = async (event) => {
+			const file = event.target.files[0];
+			if (!file) {
+				updatingBillId = null;
+				return;
+			}
+
+			try {
+				// Import supabase here to avoid circular dependencies
+				const { supabase } = await import('$lib/utils/supabase');
+				
+				// Generate unique filename with "updated" prefix
+				const fileExt = file.name.split('.').pop();
+				const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;
+
+				// Upload file to original-bills storage bucket
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('original-bills')
+					.upload(fileName, file);
+
+				if (uploadError) {
+					console.error('Error uploading updated file:', uploadError);
+					alert('Error uploading updated file. Please try again.');
+					return;
+				}
+
+				// Get public URL
+				const { data: { publicUrl } } = supabase.storage
+					.from('original-bills')
+					.getPublicUrl(fileName);
+
+				// Update the record with the new file URL
+				const { error: updateError } = await supabase
+					.from('receiving_records')
+					.update({ 
+						original_bill_url: publicUrl,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', recordId);
+
+				if (updateError) {
+					console.error('Error updating record:', updateError);
+					alert('Error saving updated file reference. Please try again.');
+					return;
+				}
+
+				// Show success message
+				alert('Original bill updated successfully!');
+
+				// Reload records to show updated data
+				await loadReceivingRecords();
+				
+			} catch (error) {
+				console.error('Error in update process:', error);
+				alert('Error updating file. Please try again.');
+			} finally {
+				updatingBillId = null;
 			}
 		};
 
@@ -636,17 +710,32 @@
 						
 						<div class="cell certificate-cell">
 							{#if record.original_bill_url}
-								<div class="certificate-thumbnail" on:click={() => viewOriginalBill(record.original_bill_url)}>
-									{#if isPdfFile(record.original_bill_url)}
-										<div class="pdf-thumbnail">
-											<div class="pdf-icon">📄</div>
-											<div class="pdf-label">PDF</div>
+								<div class="original-bill-with-update">
+									<div class="certificate-thumbnail" on:click={() => viewOriginalBill(record.original_bill_url)}>
+										{#if isPdfFile(record.original_bill_url)}
+											<div class="pdf-thumbnail">
+												<div class="pdf-icon">📄</div>
+												<div class="pdf-label">PDF</div>
+											</div>
+										{:else}
+											<img src={record.original_bill_url} alt="Original Bill" loading="lazy" />
+										{/if}
+										<div class="thumbnail-overlay">
+											<span>🔍</span>
 										</div>
-									{:else}
-										<img src={record.original_bill_url} alt="Original Bill" loading="lazy" />
-									{/if}
-									<div class="thumbnail-overlay">
-										<span>🔍</span>
+									</div>
+									<div class="update-bill-section">
+										{#if updatingBillId === record.id}
+											<div class="updating-indicator">
+												<div class="spinner-small"></div>
+												<small>Updating...</small>
+											</div>
+										{:else}
+											<button class="update-bill-btn" on:click={() => updateOriginalBill(record.id)} title="Upload updated version">
+												<span>🔄</span>
+												<small>Update</small>
+											</button>
+										{/if}
 									</div>
 								</div>
 							{:else}
@@ -1485,6 +1574,67 @@
 	.upload-bill-btn span {
 		font-size: 16px;
 		margin-bottom: 2px;
+	}
+
+	/* Original Bill with Update Button Styles */
+	.original-bill-with-update {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		justify-content: space-between;
+	}
+
+	.update-bill-section {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.update-bill-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 6px;
+		background: #fef3c7;
+		border: 1px solid #f59e0b;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		color: #92400e;
+		font-size: 9px;
+		min-width: 40px;
+		height: 40px;
+	}
+
+	.update-bill-btn:hover {
+		background: #fbbf24;
+		color: #78350f;
+		transform: scale(1.05);
+		border-color: #d97706;
+	}
+
+	.update-bill-btn span {
+		font-size: 12px;
+		margin-bottom: 1px;
+	}
+
+	.updating-indicator {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 6px;
+		background: #f3f4f6;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		color: #6b7280;
+		font-size: 9px;
+		min-width: 40px;
+		height: 40px;
 	}
 
 	/* PR Excel Upload Styles */
