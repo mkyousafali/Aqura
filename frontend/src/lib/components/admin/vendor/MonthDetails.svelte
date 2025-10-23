@@ -160,64 +160,19 @@
 			}
 
 			scheduledPayments = data || [];
-			
-			// Only auto-process cash payments on initial load, not on every reload
-			if (data && data.length > 0) {
-				setTimeout(() => {
-					processCashOnDeliveryPayments();
-				}, 1000); // Delay to prevent infinite loops
-			}
 		} catch (error) {
 			console.error('Error loading scheduled payments:', error);
 		}
 	}
 
-	// Add processing lock to prevent multiple simultaneous processing
-	let isProcessingCashPayments = false;
-	let processedPaymentIds = new Set();
-
-	// Automatically mark cash-on-delivery payments as paid and create tasks
+	// Auto-process Cash on Delivery payments
+	// REMOVED: Database trigger now handles everything automatically on INSERT
+	// This function is kept for backward compatibility but does nothing
+	// Migration 70 trigger auto-marks COD as paid during INSERT
 	async function processCashOnDeliveryPayments() {
-		if (isProcessingCashPayments) {
-			console.log('Cash payment processing already in progress, skipping...');
-			return;
-		}
-
-		try {
-			isProcessingCashPayments = true;
-			
-			// Find all cash-on-delivery payments that are not yet marked as paid
-			const cashPayments = scheduledPayments.filter(payment => 
-				(payment.payment_method === 'Cash on Delivery' || 
-				 payment.payment_method === 'COD' || 
-				 payment.payment_method?.toLowerCase().includes('cash on delivery') ||
-				 payment.payment_method?.toLowerCase().includes('cod')) &&
-				!payment.is_paid &&
-				!processedPaymentIds.has(payment.id) // Skip already processed payments
-			);
-
-			console.log(`Found ${cashPayments.length} unprocessed cash payments`);
-
-			// Process each cash payment automatically (but prevent infinite loops)
-			for (const payment of cashPayments) {
-				if (!payment.is_paid && !processedPaymentIds.has(payment.id)) {
-					console.log('Auto-processing cash payment:', payment.id);
-					processedPaymentIds.add(payment.id); // Mark as being processed
-					await handlePaymentStatusChange(payment.id, true, true); // Pass true for isAutoProcessed
-					// Small delay to prevent overwhelming the system
-					await new Promise(resolve => setTimeout(resolve, 200));
-				}
-			}
-
-			// Reload data after processing to reflect changes
-			if (cashPayments.length > 0) {
-				await loadScheduledPayments();
-			}
-		} catch (error) {
-			console.error('Error processing cash-on-delivery payments:', error);
-		} finally {
-			isProcessingCashPayments = false;
-		}
+		// No longer needed - database trigger handles COD auto-payment on INSERT
+		// See migration 70_fix_cash_on_delivery_auto_payment.sql
+		console.log('✅ Cash-on-delivery auto-payment now handled by database trigger (Migration 70)');
 	}
 
 	// Generate all days of the month (including days without payments)
