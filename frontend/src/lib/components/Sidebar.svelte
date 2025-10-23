@@ -498,7 +498,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.0.10
+				v1.0.12
 			</button>
 		</div>
 	</div>
@@ -588,65 +588,58 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.0.10</h3>
+				<h3>What's New in v1.0.12</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Advanced Filtering System</h4>
+					<h4>💰 Cash-on-Delivery Auto-Payment Fix</h4>
 					<ul>
-						<li><strong>Branch Filtering:</strong> Filter receiving records by specific branches or view all branches at once</li>
-						<li><strong>Date Filtering:</strong> Four flexible date filter options:
-							<ul>
-								<li>All Dates - View complete history</li>
-								<li>Today - Focus on current day's records</li>
-								<li>Yesterday - Review previous day's activities</li>
-								<li>Date Range - Select custom date ranges for specific periods</li>
-							</ul>
-						</li>
-						<li><strong>Real-time Updates:</strong> Dashboard cards and detail windows update instantly when filters change</li>
-						<li><strong>Integrated Filtering:</strong> Filters work seamlessly across all 4 dashboard cards and their detail windows</li>
-						<li><strong>Persistent Filters:</strong> Selected filters are passed from dashboard to detail windows for consistent view</li>
+						<li><strong>Automatic Payment Marking:</strong> Cash-on-delivery payments are now automatically marked as paid when created</li>
+						<li><strong>Database Trigger:</strong> Migration 70 adds comprehensive automation trigger that handles COD payments on INSERT</li>
+						<li><strong>Task Creation:</strong> Automatically creates accountant tasks with proper title and 24-hour deadline</li>
+						<li><strong>Transaction Records:</strong> Payment transactions are created immediately with all required details</li>
+						<li><strong>Notifications:</strong> Accountants receive instant notifications with bill details and payment information</li>
+						<li><strong>Payment Manager:</strong> Improved frontend processing with better error handling and state management</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📊 Enhanced Dashboard</h4>
+					<h4>� Technical Improvements</h4>
 					<ul>
-						<li><strong>Filtered Counts:</strong> All dashboard cards now respect branch and date filters:
-							<ul>
-								<li>Total Received Bills</li>
-								<li>Original Bills Upload Pending</li>
-								<li>PR Excel Upload Pending</li>
-								<li>Bills Not Entered to ERP</li>
-							</ul>
-						</li>
-						<li><strong>Professional UI:</strong> Consistent styling for all filter components matching existing design patterns</li>
-						<li><strong>Responsive Design:</strong> Filters adapt beautifully to different screen sizes</li>
-						<li><strong>Intuitive Controls:</strong> Radio buttons for quick mode selection, date pickers for precise range selection</li>
+						<li><strong>Trigger Enhancement:</strong> BEFORE INSERT/UPDATE trigger automatically detects and processes COD payments</li>
+						<li><strong>Field Cleanup:</strong> Removed unnecessary payment_reference field that caused conflicts</li>
+						<li><strong>Status Updates:</strong> Properly sets is_paid, paid_date, and payment_status fields</li>
+						<li><strong>Accountant Assignment:</strong> Uses accountant from receiving_records or auto-assigns from branch</li>
+						<li><strong>Task Requirements:</strong> Tasks require ERP reference, payment receipt upload, and task completion</li>
+						<li><strong>Frontend Optimization:</strong> Removed duplicate COD processing from PaymentManager - all handled by database trigger</li>
+						<li><strong>Duplicate Prevention:</strong> Fixed unique constraint violation errors by centralizing logic in database layer</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🪟 Detail Window Improvements</h4>
+					<h4>📋 Task & Notification Details</h4>
 					<ul>
-						<li><strong>Built-in Filters:</strong> Each detail window includes its own branch and date filter controls</li>
-						<li><strong>Filter Synchronization:</strong> Opening a detail window from a filtered dashboard preserves the filter state</li>
-						<li><strong>Independent Filtering:</strong> Adjust filters within detail windows without affecting dashboard</li>
-						<li><strong>Smart Query Optimization:</strong> Efficient database queries with combined branch and date filtering</li>
+						<li><strong>Task Title:</strong> "New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt"</li>
+						<li><strong>Enhanced Description:</strong> Includes bill number, amount, vendor name, receiver username, payment method details</li>
+						<li><strong>High Priority:</strong> All payment tasks are marked as high priority with 24-hour deadline</li>
+						<li><strong>Complete Information:</strong> Bank name, IBAN, due date, and special COD indicator included</li>
+						<li><strong>Action Checklist:</strong> Clear steps for accountant: Enter in ERP, update reference, upload receipt</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>⚡ Performance Enhancements</h4>
+					<h4>🎯 User Experience</h4>
 					<ul>
-						<li><strong>Direct Queries:</strong> Replaced RPC functions with optimized direct queries for better performance</li>
-						<li><strong>Reactive Updates:</strong> Automatic data refresh when filter criteria change</li>
-						<li><strong>Efficient Filtering:</strong> Server-side filtering reduces data transfer and improves response times</li>
-						<li><strong>Error Prevention:</strong> Fixed infinite loop issues with proper event-driven architecture</li>
+						<li><strong>Instant Processing:</strong> COD payments appear as "SCHEDULED" status immediately after creation</li>
+						<li><strong>Month View Compatibility:</strong> Works seamlessly in payment manager month view</li>
+						<li><strong>Manual Override:</strong> Non-COD payments can still be manually marked as paid by accountants</li>
+						<li><strong>Error Recovery:</strong> Failed processing attempts are properly tracked and can be retried</li>
+						<li><strong>Audit Trail:</strong> Complete logging of automation actions in database notices</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 23, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Focus:</strong> Advanced Filtering & Dashboard Analytics</p>
+					<p><strong>Migration:</strong> 70_fix_cash_on_delivery_auto_payment.sql (Apply manually in Supabase SQL Editor)</p>
+					<p><strong>Focus:</strong> Cash-on-Delivery Payment Automation</p>
 				</div>
 			</div>
 		</div>
