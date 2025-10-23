@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
 
 	// State for receiving records
 	let receivingRecords = [];
@@ -17,6 +18,11 @@
 	let loading = false;
 	let uploadingBillId = null;
 	let uploadingExcelId = null;
+	let generatingCertificateId = null;
+
+	// Certificate generation state
+	let showCertificateModal = false;
+	let selectedRecordForCertificate = null;
 
 	// ERP Reference popup state
 	let showErpPopup = false;
@@ -432,6 +438,22 @@
 		}
 	}
 
+	async function generateCertificate(record) {
+		selectedRecordForCertificate = record;
+		showCertificateModal = true;
+	}
+
+	function closeCertificateModal() {
+		showCertificateModal = false;
+		selectedRecordForCertificate = null;
+	}
+
+	function handleCertificateGenerated() {
+		// Reload records to show the updated certificate
+		loadReceivingRecords();
+		closeCertificateModal();
+	}
+
 	// Reactive statement to apply filters when search/filter values change
 	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || filterOverdueDays !== undefined) {
 		applyFilters();
@@ -440,6 +462,29 @@
 
 <!-- Receiving Records Window Content -->
 <div class="receiving-records-window">
+	<!-- Window Header -->
+	<div class="window-header">
+		<div class="window-title">
+			<h2>📦 Receiving Records</h2>
+			<p>Manage and track all receiving records</p>
+		</div>
+		<div class="window-actions">
+			<button 
+				class="refresh-btn" 
+				on:click={loadReceivingRecords}
+				disabled={loading}
+				title="Refresh receiving records"
+			>
+				{#if loading}
+					<div class="spinner-small"></div>
+				{:else}
+					<span>🔄</span>
+				{/if}
+				Refresh
+			</button>
+		</div>
+	</div>
+
 	<!-- Search and Filter Section -->
 	<div class="filters-section">
 		<div class="search-bar">
@@ -573,9 +618,18 @@
 									</div>
 								</div>
 							{:else}
-								<div class="no-certificate">
-									<span>📄</span>
-									<small>No Certificate</small>
+								<div class="generate-certificate-container">
+									{#if generatingCertificateId === record.id}
+										<div class="generating-indicator">
+											<div class="spinner-small"></div>
+											<small>Generating...</small>
+										</div>
+									{:else}
+										<button class="generate-certificate-btn" on:click={() => generateCertificate(record)}>
+											<span>�</span>
+											<small>Generate Certificate</small>
+										</button>
+									{/if}
 								</div>
 							{/if}
 						</div>
@@ -753,6 +807,16 @@
 	</div>
 {/if}
 
+<!-- Certificate Generation Modal -->
+{#if showCertificateModal && selectedRecordForCertificate}
+	<ClearanceCertificateManager 
+		receivingRecord={selectedRecordForCertificate}
+		show={true}
+		on:certificateGenerated={handleCertificateGenerated}
+		on:close={closeCertificateModal}
+	/>
+{/if}
+
 <style>
 	.receiving-records-window {
 		padding: 24px;
@@ -761,6 +825,80 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+	}
+
+	.window-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 24px;
+		padding-bottom: 16px;
+		border-bottom: 2px solid #e2e8f0;
+	}
+
+	.window-title h2 {
+		margin: 0 0 4px 0;
+		color: #1e293b;
+		font-size: 24px;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.window-title p {
+		margin: 0;
+		color: #64748b;
+		font-size: 14px;
+		font-weight: 400;
+	}
+
+	.window-actions {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
+	.refresh-btn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 16px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.refresh-btn span {
+		font-size: 16px;
+		animation: none;
+	}
+
+	.refresh-btn:hover:not(:disabled) span {
+		animation: rotate 0.6s ease-in-out;
+	}
+
+	@keyframes rotate {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	.filters-section {
@@ -1000,6 +1138,57 @@
 
 	.certificate-thumbnail:hover .thumbnail-overlay {
 		opacity: 1;
+	}
+
+	.generate-certificate-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 80px;
+		height: 60px;
+	}
+
+	.generate-certificate-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		background: #f0f9ff;
+		border: 2px dashed #3b82f6;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		color: #1d4ed8;
+		font-size: 10px;
+		padding: 4px;
+	}
+
+	.generate-certificate-btn:hover {
+		background: #dbeafe;
+		border-color: #2563eb;
+		color: #1e40af;
+		transform: scale(1.02);
+	}
+
+	.generate-certificate-btn span {
+		font-size: 16px;
+		margin-bottom: 2px;
+	}
+
+	.generating-indicator {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		background: #fef3c7;
+		border: 2px solid #f59e0b;
+		border-radius: 8px;
+		color: #92400e;
+		font-size: 10px;
 	}
 
 	.no-certificate {
@@ -1429,6 +1618,29 @@
 			padding: 16px;
 		}
 
+		.window-header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 12px;
+		}
+
+		.window-title h2 {
+			font-size: 20px;
+		}
+
+		.window-actions {
+			align-self: flex-end;
+		}
+
+		.refresh-btn {
+			padding: 8px 12px;
+			font-size: 12px;
+		}
+
+		.refresh-btn span {
+			font-size: 14px;
+		}
+
 		.table-header, .table-row {
 			grid-template-columns: 80px 1fr 1fr 1fr;
 			gap: 8px;
@@ -1443,6 +1655,19 @@
 		.upload-bill-container {
 			width: 60px;
 			height: 45px;
+		}
+
+		.generate-certificate-container {
+			width: 60px;
+			height: 45px;
+		}
+
+		.generate-certificate-btn {
+			font-size: 8px;
+		}
+
+		.generate-certificate-btn span {
+			font-size: 12px;
 		}
 
 		.upload-bill-btn {

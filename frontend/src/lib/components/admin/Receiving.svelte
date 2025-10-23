@@ -16,6 +16,23 @@
 	let selectedBranch = '';
 	let branchFilterMode = 'all'; // 'all', 'branch'
 	let loadingBranches = false;
+	
+	// Date filtering variables
+	let dateFilterMode = 'all'; // 'all', 'today', 'yesterday', 'range'
+	let dateFrom = '';
+	let dateTo = '';
+	
+	// Helper functions for date filtering
+	function getToday() {
+		const today = new Date();
+		return today.toISOString().split('T')[0];
+	}
+	
+	function getYesterday() {
+		const yesterday = new Date();
+		yesterday.setDate(yesterday.getDate() - 1);
+		return yesterday.toISOString().split('T')[0];
+	}
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -46,13 +63,24 @@
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// Get total count of received bills (filtered by branch if selected)
+			// Get total count of received bills (filtered by branch and date if selected)
 			let billsQuery = supabase
 				.from('receiving_records')
 				.select('*', { count: 'exact', head: true });
 			
 			if (branchFilterMode === 'branch' && selectedBranch) {
 				billsQuery = billsQuery.eq('branch_id', selectedBranch);
+			}
+			
+			// Apply date filtering
+			if (dateFilterMode === 'today') {
+				const today = getToday();
+				billsQuery = billsQuery.gte('created_at', `${today}T00:00:00`).lt('created_at', `${today}T23:59:59`);
+			} else if (dateFilterMode === 'yesterday') {
+				const yesterday = getYesterday();
+				billsQuery = billsQuery.gte('created_at', `${yesterday}T00:00:00`).lt('created_at', `${yesterday}T23:59:59`);
+			} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+				billsQuery = billsQuery.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
 			}
 			
 			const { count: billsCount, error: billsError } = await billsQuery;
@@ -64,73 +92,94 @@
 				totalReceivedBills = billsCount || 0;
 			}
 
-			// Get count of bills without original bill uploaded (with branch filter)
+			// Get count of bills without original bill uploaded (with branch and date filter)
+			let noOriginalQuery = supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true })
+				.or('original_bill_url.is.null,original_bill_url.eq.');
+			
 			if (branchFilterMode === 'branch' && selectedBranch) {
-				const { data: noOriginalData, error: noOriginalError } = await supabase
-					.rpc('count_bills_without_original_by_branch', { branch_id_param: selectedBranch });
-
-				if (noOriginalError) {
-					console.error('Error loading bills without original count:', noOriginalError);
-					billsWithoutOriginal = 0;
-				} else {
-					billsWithoutOriginal = noOriginalData || 0;
-				}
+				noOriginalQuery = noOriginalQuery.eq('branch_id', selectedBranch);
+			}
+			
+			// Apply date filtering
+			if (dateFilterMode === 'today') {
+				const today = getToday();
+				noOriginalQuery = noOriginalQuery.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+			} else if (dateFilterMode === 'yesterday') {
+				const yesterday = getYesterday();
+				noOriginalQuery = noOriginalQuery.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+			} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+				noOriginalQuery = noOriginalQuery.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+			}
+			
+			const { count: noOriginalCount, error: noOriginalError } = await noOriginalQuery;
+			
+			if (noOriginalError) {
+				console.error('Error loading bills without original count:', noOriginalError);
+				billsWithoutOriginal = 0;
 			} else {
-				const { data: noOriginalData, error: noOriginalError } = await supabase
-					.rpc('count_bills_without_original');
-
-				if (noOriginalError) {
-					console.error('Error loading bills without original count:', noOriginalError);
-					billsWithoutOriginal = 0;
-				} else {
-					billsWithoutOriginal = noOriginalData || 0;
-				}
+				billsWithoutOriginal = noOriginalCount || 0;
 			}
 
-			// Get count of bills without ERP purchase invoice reference (with branch filter)
+			// Get count of bills without ERP purchase invoice reference (with branch and date filter)
+			let noErpQuery = supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true })
+				.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.');
+			
 			if (branchFilterMode === 'branch' && selectedBranch) {
-				const { data: noErpData, error: noErpError } = await supabase
-					.rpc('count_bills_without_erp_reference_by_branch', { branch_id_param: selectedBranch });
-
-				if (noErpError) {
-					console.error('Error loading bills without ERP reference count:', noErpError);
-					billsWithoutErpReference = 0;
-				} else {
-					billsWithoutErpReference = noErpData || 0;
-				}
+				noErpQuery = noErpQuery.eq('branch_id', selectedBranch);
+			}
+			
+			// Apply date filtering
+			if (dateFilterMode === 'today') {
+				const today = getToday();
+				noErpQuery = noErpQuery.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+			} else if (dateFilterMode === 'yesterday') {
+				const yesterday = getYesterday();
+				noErpQuery = noErpQuery.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+			} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+				noErpQuery = noErpQuery.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+			}
+			
+			const { count: noErpCount, error: noErpError } = await noErpQuery;
+			
+			if (noErpError) {
+				console.error('Error loading bills without ERP reference count:', noErpError);
+				billsWithoutErpReference = 0;
 			} else {
-				const { data: noErpData, error: noErpError } = await supabase
-					.rpc('count_bills_without_erp_reference');
-
-				if (noErpError) {
-					console.error('Error loading bills without ERP reference count:', noErpError);
-					billsWithoutErpReference = 0;
-				} else {
-					billsWithoutErpReference = noErpData || 0;
-				}
+				billsWithoutErpReference = noErpCount || 0;
 			}
 
-			// Get count of bills without PR Excel uploaded (with branch filter)
+			// Get count of bills without PR Excel uploaded (with branch and date filter)
+			let noPrExcelQuery = supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true })
+				.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.');
+			
 			if (branchFilterMode === 'branch' && selectedBranch) {
-				const { data: noPrExcelData, error: noPrExcelError } = await supabase
-					.rpc('count_bills_without_pr_excel_by_branch', { branch_id_param: selectedBranch });
-
-				if (noPrExcelError) {
-					console.error('Error loading bills without PR Excel count:', noPrExcelError);
-					billsWithoutPrExcel = 0;
-				} else {
-					billsWithoutPrExcel = noPrExcelData || 0;
-				}
+				noPrExcelQuery = noPrExcelQuery.eq('branch_id', selectedBranch);
+			}
+			
+			// Apply date filtering
+			if (dateFilterMode === 'today') {
+				const today = getToday();
+				noPrExcelQuery = noPrExcelQuery.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+			} else if (dateFilterMode === 'yesterday') {
+				const yesterday = getYesterday();
+				noPrExcelQuery = noPrExcelQuery.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+			} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+				noPrExcelQuery = noPrExcelQuery.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+			}
+			
+			const { count: noPrExcelCount, error: noPrExcelError } = await noPrExcelQuery;
+			
+			if (noPrExcelError) {
+				console.error('Error loading bills without PR Excel count:', noPrExcelError);
+				billsWithoutPrExcel = 0;
 			} else {
-				const { data: noPrExcelData, error: noPrExcelError } = await supabase
-					.rpc('count_bills_without_pr_excel');
-
-				if (noPrExcelError) {
-					console.error('Error loading bills without PR Excel count:', noPrExcelError);
-					billsWithoutPrExcel = 0;
-				} else {
-					billsWithoutPrExcel = noPrExcelData || 0;
-				}
+				billsWithoutPrExcel = noPrExcelCount || 0;
 			}
 		} catch (err) {
 			console.error('Error in loadDashboardData:', err);
@@ -156,6 +205,29 @@
 		loadDashboardData();
 	} else if (branchFilterMode === 'branch' && !selectedBranch) {
 		// Reset data when branch mode is selected but no branch is chosen
+		totalReceivedBills = 0;
+		billsWithoutOriginal = 0;
+		billsWithoutErpReference = 0;
+		billsWithoutPrExcel = 0;
+	}
+	
+	// Reactive statements for date filter changes
+	$: if (dateFilterMode === 'all') {
+		dateFrom = '';
+		dateTo = '';
+		loadDashboardData();
+	} else if (dateFilterMode === 'today') {
+		dateFrom = '';
+		dateTo = '';
+		loadDashboardData();
+	} else if (dateFilterMode === 'yesterday') {
+		dateFrom = '';
+		dateTo = '';
+		loadDashboardData();
+	} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+		loadDashboardData();
+	} else if (dateFilterMode === 'range' && (!dateFrom || !dateTo)) {
+		// Reset data when range mode is selected but dates are not chosen
 		totalReceivedBills = 0;
 		billsWithoutOriginal = 0;
 		billsWithoutErpReference = 0;
@@ -265,7 +337,13 @@
 			component: ReceivingDataWindow,
 			props: {
 				dataType: card.dataType,
-				title: card.title
+				title: card.title,
+				// Pass current filter settings to the detail window
+				initialBranchFilter: branchFilterMode,
+				initialSelectedBranch: selectedBranch,
+				initialDateFilter: dateFilterMode,
+				initialDateFrom: dateFrom,
+				initialDateTo: dateTo
 			},
 			icon: card.icon,
 			size: { width: 1200, height: 800 },
@@ -342,6 +420,65 @@
 									{/each}
 								</select>
 							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+		
+		<!-- Date Filter Section -->
+		<div class="filter-section">
+			<div class="date-filter">
+				<h4>📅 Filter by Date</h4>
+				<div class="filter-controls">
+					<div class="filter-options">
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={dateFilterMode} 
+								value="all"
+							/>
+							<span class="option-text">All Dates</span>
+						</label>
+						
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={dateFilterMode} 
+								value="today"
+							/>
+							<span class="option-text">Today</span>
+						</label>
+						
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={dateFilterMode} 
+								value="yesterday"
+							/>
+							<span class="option-text">Yesterday</span>
+						</label>
+						
+						<label class="filter-option">
+							<input 
+								type="radio" 
+								bind:group={dateFilterMode} 
+								value="range"
+							/>
+							<span class="option-text">Date Range</span>
+						</label>
+					</div>
+					
+					{#if dateFilterMode === 'range'}
+						<div class="date-range-selector">
+							<div class="date-input-group">
+								<span class="date-label">From:</span>
+								<input type="date" bind:value={dateFrom} class="date-input" />
+							</div>
+							<div class="date-input-group">
+								<span class="date-label">To:</span>
+								<input type="date" bind:value={dateTo} class="date-input" />
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -460,6 +597,45 @@
 	}
 
 	.branch-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+	
+	.date-filter {
+		margin-top: 1rem;
+	}
+	
+	.date-range-selector {
+		margin-top: 0.5rem;
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+	
+	.date-input-group {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	
+	.date-label {
+		font-size: 0.875rem;
+		color: #475569;
+		font-weight: 500;
+	}
+	
+	.date-input {
+		padding: 0.5rem 0.75rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		background: white;
+		color: #1e293b;
+		cursor: pointer;
+	}
+	
+	.date-input:focus {
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
