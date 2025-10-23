@@ -5,15 +5,18 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Supabase configuration
-const supabaseUrl = 'https://xgzsdagdqsqjtlgrksml.supabase.co';
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnenNkYWdkcXNxanRsZ3Jrc21sIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcyODI5NTQxNywiZXhwIjoyMDQzODcxNDE3fQ.UhEUL6-WYMIXlhxUDzUjEW-QWYh4JA4JJcjkp6GdVpc';
+const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
+const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(
+  'https://vmypotfsyrvuublyddyt.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ'
+);
 
 async function applyMigration() {
     try {
         console.log('Reading migration file...');
-        const migrationPath = path.join(__dirname, 'supabase', 'migrations', '73_receiving_tasks_system.sql');
+        const migrationPath = path.join(__dirname, 'supabase', 'migrations', '59_auto_payment_transaction_automation.sql');
         const migrationSql = fs.readFileSync(migrationPath, 'utf8');
         
         console.log('Applying migration...');

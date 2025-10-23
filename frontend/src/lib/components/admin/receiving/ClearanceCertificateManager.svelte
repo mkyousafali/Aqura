@@ -1120,7 +1120,7 @@
               </button>
             </div>
           {:else if !certificateSaved}
-            <!-- Step 2: Show Certificate Template with Save and Print buttons -->
+            <!-- Step 2: Show Certificate Template with Save button only -->
             <div class="mb-6">
               <h3 class="text-lg font-medium text-gray-900 mb-4">Clearance Certificate Generated</h3>
               
@@ -1143,12 +1143,12 @@
                 ></iframe>
               </div>
               
-              <!-- Action Buttons -->
-              <div class="flex space-x-3">
+              <!-- Save Button Only -->
+              <div class="mb-4">
                 <button
                   on:click={saveCertificateAsImage}
                   disabled={isUploading}
-                  class="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  class="w-full bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {#if isUploading}
                     <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -1157,15 +1157,8 @@
                     </svg>
                     Saving...
                   {:else}
-                    💾 Save
+                    💾 Save Certificate
                   {/if}
-                </button>
-                
-                <button
-                  on:click={printCertificate}
-                  class="flex-1 bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 flex items-center justify-center"
-                >
-                  🖨️ Print
                 </button>
               </div>
               
@@ -1214,21 +1207,31 @@
                 />
               </div>
               
-              <button
-                on:click={createTasksWithCertificate}
-                disabled={isGenerating}
-                class="w-full bg-orange-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-              >
-                {#if isGenerating}
-                  <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <!-- Action Buttons: Print and Assign Tasks -->
+              <div class="flex space-x-3 mb-4">
+                <button
+                  on:click={printCertificate}
+                  class="flex-1 bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 flex items-center justify-center"
+                >
+                  🖨️ Print Certificate
+                </button>
+                
+                <button
+                  on:click={createTasksWithCertificate}
+                  disabled={isGenerating}
+                  class="flex-1 bg-orange-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {#if isGenerating}
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Creating Tasks...
-                {:else}
-                  🚀 Assign Tasks
-                {/if}
+                    </svg>
+                    Creating Tasks...
+                  {:else}
+                    🚀 Assign Tasks
+                  {/if}
               </button>
+              </div>
             </div>
           {:else}
             <!-- Step 4: Tasks Generated Successfully -->

@@ -5,6 +5,11 @@
 	export let windowId;
 	export let dataType; // 'bills', 'tasks', 'completed', 'incomplete', 'no-original', 'no-erp'
 	export let title;
+	export let initialBranchFilter = 'all'; // Receive branch filter from parent
+	export let initialSelectedBranch = ''; // Receive selected branch from parent
+	export let initialDateFilter = 'all'; // Receive date filter from parent
+	export let initialDateFrom = ''; // Receive date from from parent
+	export let initialDateTo = ''; // Receive date to from parent
 
 	let data = [];
 	let filteredData = [];
@@ -14,6 +19,17 @@
 	let uploadingBillId = null;
 	let sortBy = '';
 	let sortOrder = 'asc';
+	
+	// Branch filtering
+	let branches = [];
+	let branchFilterMode = initialBranchFilter;
+	let selectedBranch = initialSelectedBranch;
+	let loadingBranches = false;
+	
+	// Date filtering
+	let dateFilterMode = initialDateFilter;
+	let dateFrom = initialDateFrom;
+	let dateTo = initialDateTo;
 
 	// Column configurations for different data types
 	const columnConfigs = {
@@ -124,6 +140,18 @@
 		
 		filteredData = filtered;
 	}
+	
+	// Helper functions for date filtering
+	function getToday() {
+		const today = new Date();
+		return today.toISOString().split('T')[0];
+	}
+	
+	function getYesterday() {
+		const yesterday = new Date();
+		yesterday.setDate(yesterday.getDate() - 1);
+		return yesterday.toISOString().split('T')[0];
+	}
 
 	async function loadData() {
 		try {
@@ -145,8 +173,25 @@
 							branches (
 								name_en
 							)
-						`)
-						.order('created_at', { ascending: false });
+						`);
+					
+					// Apply branch filter
+					if (branchFilterMode === 'branch' && selectedBranch) {
+						query = query.eq('branch_id', selectedBranch);
+					}
+					
+					// Apply date filter
+					if (dateFilterMode === 'today') {
+						const today = getToday();
+						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+					} else if (dateFilterMode === 'yesterday') {
+						const yesterday = getYesterday();
+						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+					}
+					
+					query = query.order('created_at', { ascending: false });
 					break;
 					
 				case 'tasks':
@@ -174,8 +219,25 @@
 								name_en
 							)
 						`)
-						.or('original_bill_url.is.null,original_bill_url.eq.')
-						.order('created_at', { ascending: false });
+						.or('original_bill_url.is.null,original_bill_url.eq.');
+					
+					// Apply branch filter
+					if (branchFilterMode === 'branch' && selectedBranch) {
+						query = query.eq('branch_id', selectedBranch);
+					}
+					
+					// Apply date filter
+					if (dateFilterMode === 'today') {
+						const today = getToday();
+						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+					} else if (dateFilterMode === 'yesterday') {
+						const yesterday = getYesterday();
+						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+					}
+					
+					query = query.order('created_at', { ascending: false });
 					break;
 					
 				case 'no-erp':
@@ -191,8 +253,25 @@
 								name_en
 							)
 						`)
-						.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.')
-						.order('created_at', { ascending: false });
+						.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.');
+					
+					// Apply branch filter
+					if (branchFilterMode === 'branch' && selectedBranch) {
+						query = query.eq('branch_id', selectedBranch);
+					}
+					
+					// Apply date filter
+					if (dateFilterMode === 'today') {
+						const today = getToday();
+						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+					} else if (dateFilterMode === 'yesterday') {
+						const yesterday = getYesterday();
+						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+					}
+					
+					query = query.order('created_at', { ascending: false });
 					break;
 
 				case 'no-pr-excel':
@@ -209,8 +288,25 @@
 								name_en
 							)
 						`)
-						.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.')
-						.order('created_at', { ascending: false });
+						.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.');
+					
+					// Apply branch filter
+					if (branchFilterMode === 'branch' && selectedBranch) {
+						query = query.eq('branch_id', selectedBranch);
+					}
+					
+					// Apply date filter
+					if (dateFilterMode === 'today') {
+						const today = getToday();
+						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+					} else if (dateFilterMode === 'yesterday') {
+						const yesterday = getYesterday();
+						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+					}
+					
+					query = query.order('created_at', { ascending: false });
 					break;
 					
 				default:
@@ -236,6 +332,26 @@
 			data = [];
 		} finally {
 			loading = false;
+		}
+	}
+	
+	// Load branches for filtering
+	async function loadBranches() {
+		loadingBranches = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: branchData, error } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) throw error;
+			branches = branchData || [];
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		} finally {
+			loadingBranches = false;
 		}
 	}
 
@@ -458,8 +574,14 @@
 	}
 
 	onMount(() => {
+		loadBranches();
 		loadData();
 	});
+	
+	// Function to handle filter changes
+	function handleFilterChange() {
+		loadData();
+	}
 </script>
 
 <div class="receiving-data-window">
@@ -469,6 +591,104 @@
 	</div>
 
 	<div class="window-controls">
+		<!-- Branch Filter -->
+		<div class="filter-section">
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={branchFilterMode}
+					value="all"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				All Branches
+			</label>
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={branchFilterMode}
+					value="branch"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				By Branch
+			</label>
+			{#if branchFilterMode === 'branch'}
+				<select bind:value={selectedBranch} class="branch-select" disabled={loadingBranches} on:change={handleFilterChange}>
+					<option value="">Select Branch...</option>
+					{#each branches as branch}
+						<option value={branch.id}>{branch.name_en}</option>
+					{/each}
+				</select>
+			{/if}
+		</div>
+		
+		<!-- Date Filter -->
+		<div class="date-filter">
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={dateFilterMode}
+					value="all"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				All Dates
+			</label>
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={dateFilterMode}
+					value="today"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				Today
+			</label>
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={dateFilterMode}
+					value="yesterday"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				Yesterday
+			</label>
+			<label class="filter-label">
+				<input
+					type="radio"
+					bind:group={dateFilterMode}
+					value="range"
+					class="filter-radio"
+					on:change={handleFilterChange}
+				/>
+				Date Range
+			</label>
+			{#if dateFilterMode === 'range'}
+				<div class="date-range-selector">
+					<div class="date-input-group">
+						<span class="date-label">From:</span>
+						<input
+							type="date"
+							bind:value={dateFrom}
+							class="date-input"
+							on:change={handleFilterChange}
+						/>
+					</div>
+					<div class="date-input-group">
+						<span class="date-label">To:</span>
+						<input
+							type="date"
+							bind:value={dateTo}
+							class="date-input"
+							on:change={handleFilterChange}
+						/>
+					</div>
+				</div>
+			{/if}
+		</div>
+		
 		<div class="search-container">
 			<input
 				type="text"
@@ -594,15 +814,100 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: 16px;
 		padding: 16px 20px;
 		border-bottom: 1px solid #e2e8f0;
 		background: white;
+		flex-wrap: wrap;
+	}
+	
+	.filter-section {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	
+	.filter-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 14px;
+		color: #475569;
+		cursor: pointer;
+		user-select: none;
+	}
+	
+	.filter-radio {
+		cursor: pointer;
+	}
+	
+	.branch-select {
+		padding: 6px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		background: white;
+		cursor: pointer;
+		min-width: 200px;
+	}
+	
+	.branch-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+	
+	.branch-select:disabled {
+		background: #f3f4f6;
+		cursor: not-allowed;
+	}
+	
+	.date-filter {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	
+	.date-range-selector {
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	
+	.date-input-group {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	
+	.date-label {
+		font-size: 14px;
+		color: #475569;
+		font-weight: 500;
+	}
+	
+	.date-input {
+		padding: 6px 10px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		background: white;
+		cursor: pointer;
+	}
+	
+	.date-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.search-container {
 		position: relative;
 		flex: 1;
 		max-width: 400px;
+		min-width: 200px;
 	}
 
 	.search-input {

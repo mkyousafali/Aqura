@@ -498,7 +498,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.0.7
+				v1.0.10
 			</button>
 		</div>
 	</div>
@@ -588,53 +588,65 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.0.7</h3>
+				<h3>What's New in v1.0.10</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Payment Manager Enhancement</h4>
+					<h4>� Advanced Filtering System</h4>
 					<ul>
-						<li><strong>Task Status Details:</strong> Added comprehensive Task Status (Card 4) functionality with detailed view window</li>
-						<li><strong>Task Completion Tracking:</strong> Real-time tracking of task completion status with visual progress indicators</li>
-						<li><strong>Vendor Integration:</strong> Enhanced task details with vendor name display for better user experience</li>
-						<li><strong>Multi-step Completion:</strong> Track task finished, photo upload, and ERP reference completion stages</li>
-						<li><strong>Advanced Filtering:</strong> Search and filter tasks by completion status, vendor, branch, and date ranges</li>
+						<li><strong>Branch Filtering:</strong> Filter receiving records by specific branches or view all branches at once</li>
+						<li><strong>Date Filtering:</strong> Four flexible date filter options:
+							<ul>
+								<li>All Dates - View complete history</li>
+								<li>Today - Focus on current day's records</li>
+								<li>Yesterday - Review previous day's activities</li>
+								<li>Date Range - Select custom date ranges for specific periods</li>
+							</ul>
+						</li>
+						<li><strong>Real-time Updates:</strong> Dashboard cards and detail windows update instantly when filters change</li>
+						<li><strong>Integrated Filtering:</strong> Filters work seamlessly across all 4 dashboard cards and their detail windows</li>
+						<li><strong>Persistent Filters:</strong> Selected filters are passed from dashboard to detail windows for consistent view</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 UI/UX Improvements</h4>
+					<h4>📊 Enhanced Dashboard</h4>
 					<ul>
-						<li><strong>Window Management:</strong> Enhanced native window system for payment manager detail views</li>
-						<li><strong>Data Loading:</strong> Improved data fetching with comprehensive error handling and debug logging</li>
-						<li><strong>Table Display:</strong> Optimized table layouts with responsive design and proper column sizing</li>
-						<li><strong>Status Indicators:</strong> Visual completion badges and progress indicators for better task tracking</li>
-						<li><strong>User Experience:</strong> Streamlined task details interface with vendor names instead of technical IDs</li>
+						<li><strong>Filtered Counts:</strong> All dashboard cards now respect branch and date filters:
+							<ul>
+								<li>Total Received Bills</li>
+								<li>Original Bills Upload Pending</li>
+								<li>PR Excel Upload Pending</li>
+								<li>Bills Not Entered to ERP</li>
+							</ul>
+						</li>
+						<li><strong>Professional UI:</strong> Consistent styling for all filter components matching existing design patterns</li>
+						<li><strong>Responsive Design:</strong> Filters adapt beautifully to different screen sizes</li>
+						<li><strong>Intuitive Controls:</strong> Radio buttons for quick mode selection, date pickers for precise range selection</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 Bug Fixes & Stability</h4>
+					<h4>🪟 Detail Window Improvements</h4>
 					<ul>
-						<li><strong>Null Pointer Errors:</strong> Fixed "Cannot read properties of null (reading 'toLowerCase')" in UserManagement search</li>
-						<li><strong>Search Filtering:</strong> Added proper null checks in user search and filtering functionality</li>
-						<li><strong>Position Matching:</strong> Fixed position auto-selection logic when editing user employee assignments</li>
-						<li><strong>Form Validation:</strong> Enhanced form data validation and error handling</li>
-						<li><strong>UI Consistency:</strong> Position assignments now display correctly across all components</li>
+						<li><strong>Built-in Filters:</strong> Each detail window includes its own branch and date filter controls</li>
+						<li><strong>Filter Synchronization:</strong> Opening a detail window from a filtered dashboard preserves the filter state</li>
+						<li><strong>Independent Filtering:</strong> Adjust filters within detail windows without affecting dashboard</li>
+						<li><strong>Smart Query Optimization:</strong> Efficient database queries with combined branch and date filtering</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎯 User Experience</h4>
+					<h4>⚡ Performance Enhancements</h4>
 					<ul>
-						<li><strong>Seamless Editing:</strong> User editing now works smoothly with real database updates</li>
-						<li><strong>Position Synchronization:</strong> Employee position changes reflect immediately in the UI</li>
-						<li><strong>Better Feedback:</strong> Clear success messages when user details are updated</li>
-						<li><strong>Search Reliability:</strong> Search functionality no longer crashes on null values</li>
+						<li><strong>Direct Queries:</strong> Replaced RPC functions with optimized direct queries for better performance</li>
+						<li><strong>Reactive Updates:</strong> Automatic data refresh when filter criteria change</li>
+						<li><strong>Efficient Filtering:</strong> Server-side filtering reduces data transfer and improves response times</li>
+						<li><strong>Error Prevention:</strong> Fixed infinite loop issues with proper event-driven architecture</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 22, 2025</p>
+					<p><strong>Release Date:</strong> October 23, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Focus:</strong> User Management Reliability & EditUser Functionality</p>
+					<p><strong>Focus:</strong> Advanced Filtering & Dashboard Analytics</p>
 				</div>
 			</div>
 		</div>
