@@ -23,6 +23,11 @@
 	let splitAmount = 0;
 	let remainingAmount = 0;
 
+	// Edit payment method state
+	let editingPaymentId = null;
+	let showPaymentMethodModal = false;
+	let editingPayment = null;
+
 	// Initialize component
 	onMount(async () => {
 		if (monthData) {
@@ -50,15 +55,24 @@
 		generateAllDaysOfMonth(monthData);
 	}
 
-	// Calculate totals by payment method
+	// Calculate totals by payment method for the current month
 	$: totalsByPaymentMethod = scheduledPayments.reduce((acc, payment) => {
-		const method = payment.payment_method || 'Unknown';
-		const amount = payment.final_bill_amount || 0;
+		const paymentDate = new Date(payment.due_date);
+		const currentMonth = monthData?.month;
+		const currentYear = monthData?.year;
 		
-		if (!acc[method]) {
-			acc[method] = 0;
+		// Only include payments from the current month/year
+		if (currentMonth !== undefined && currentYear !== undefined && 
+			paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear) {
+			
+			const method = payment.payment_method || 'Unknown';
+			const amount = payment.final_bill_amount || 0;
+			
+			if (!acc[method]) {
+				acc[method] = 0;
+			}
+			acc[method] += amount;
 		}
-		acc[method] += amount;
 		
 		return acc;
 	}, {});
@@ -69,22 +83,36 @@
 		let totalPaid = 0;
 		let totalUnpaid = 0;
 		
-		monthDetailData.forEach(dayData => {
-			dayData.payments.forEach(payment => {
-				const amount = payment.final_bill_amount || 0;
-				totalScheduled += amount;
+		// Calculate from scheduled payments for the current month
+		const currentMonth = monthData?.month;
+		const currentYear = monthData?.year;
+		
+		if (scheduledPayments && currentMonth !== undefined && currentYear !== undefined) {
+			scheduledPayments.forEach(payment => {
+				const paymentDate = new Date(payment.due_date);
 				
-				// Check if payment is paid (is_paid === true, not just truthy)
-				if (payment.is_paid === true) {
-					totalPaid += amount;
-				} else {
-					totalUnpaid += amount;
+				// Check if payment is in the current month/year
+				if (paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear) {
+					const amount = payment.final_bill_amount || 0;
+					totalScheduled += amount;
+					
+					// Check if payment is paid (is_paid === true, not just truthy)
+					if (payment.is_paid === true) {
+						totalPaid += amount;
+					} else {
+						totalUnpaid += amount;
+					}
 				}
 			});
-		});
+		}
 		
 		totalPaidAmount = totalPaid;
 		totalUnpaidAmount = totalUnpaid;
+		
+		// Update monthData.total with the calculated total for this month
+		if (monthData) {
+			monthData.total = totalScheduled;
+		}
 		
 		// Debug logging
 		console.log('Month totals:', { totalScheduled, totalPaid, totalUnpaid, monthTotal: monthData?.total });
@@ -719,6 +747,112 @@
 			alert('Failed to update payment status');
 		}
 	}
+
+	// Edit payment method functions
+	function openPaymentMethodEdit(payment) {
+		editingPayment = payment;
+		editingPaymentId = payment.id;
+		editForm = {
+			payment_method: payment.payment_method || 'Cash on Delivery',
+			bank_name: payment.bank_name || '',
+			iban: payment.iban || '',
+			due_date: payment.due_date || '',
+			credit_period: payment.credit_period || ''
+		};
+		showPaymentMethodModal = true;
+	}
+
+	function closePaymentMethodEdit() {
+		showPaymentMethodModal = false;
+		editingPayment = null;
+		editingPaymentId = null;
+		editForm = {
+			payment_method: '',
+			bank_name: '',
+			iban: '',
+			due_date: '',
+			credit_period: ''
+		};
+	}
+
+	// Edit form state
+	let editForm = {
+		payment_method: '',
+		bank_name: '',
+		iban: '',
+		due_date: '',
+		credit_period: ''
+	};
+
+	// Handle payment method changes to clear/show appropriate fields
+	function handlePaymentMethodChange() {
+		if (editForm.payment_method) {
+			// Handle delivery methods
+			if (editForm.payment_method === 'Cash on Delivery' || editForm.payment_method === 'Bank on Delivery') {
+				editForm.credit_period = '';
+				// Set due date to current date for both delivery methods
+				const today = new Date();
+				editForm.due_date = today.toISOString().split('T')[0];
+				
+				if (editForm.payment_method === 'Cash on Delivery') {
+					editForm.bank_name = '';
+					editForm.iban = '';
+				}
+			}
+			// Clear bank fields for cash credit
+			else if (editForm.payment_method === 'Cash Credit') {
+				editForm.bank_name = '';
+				editForm.iban = '';
+			}
+		}
+	}
+
+	// Calculate due date automatically when credit period changes for credit methods
+	function handleCreditPeriodChange() {
+		if (editForm.credit_period && (editForm.payment_method === 'Cash Credit' || editForm.payment_method === 'Bank Credit')) {
+			const today = new Date();
+			const creditDays = parseInt(editForm.credit_period);
+			if (creditDays > 0) {
+				const dueDate = new Date(today.getTime() + (creditDays * 24 * 60 * 60 * 1000));
+				editForm.due_date = dueDate.toISOString().split('T')[0];
+			}
+		}
+	}
+
+	async function savePaymentMethodEdit() {
+		if (!editingPaymentId || !editForm.payment_method) {
+			alert('Please select a payment method');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('vendor_payment_schedule')
+				.update({ 
+					payment_method: editForm.payment_method,
+					bank_name: editForm.bank_name.trim() || null,
+					iban: editForm.iban.trim() || null,
+					due_date: editForm.due_date || null,
+					credit_period: editForm.credit_period ? parseInt(editForm.credit_period) : null,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', editingPaymentId);
+
+			if (error) {
+				console.error('Error updating payment method:', error);
+				alert('Failed to update payment method');
+				return;
+			}
+
+			// Reload data to reflect changes
+			await loadScheduledPayments();
+			alert('Payment method updated successfully');
+			closePaymentMethodEdit();
+		} catch (error) {
+			console.error('Error updating payment method:', error);
+			alert('Failed to update payment method');
+		}
+	}
 </script>
 
 <!-- Month Details Window Content -->
@@ -746,7 +880,7 @@
 							</div>
 							<div class="stat-item total-stat">
 								<span class="stat-value total">{formatCurrency(monthData.total)}</span>
-								<span class="stat-label">Total Amount</span>
+								<span class="stat-label">Total Scheduled Amount</span>
 							</div>
 							<div class="stat-item paid-stat">
 								<span class="stat-value paid">{formatCurrency(totalPaidAmount)}</span>
@@ -911,8 +1045,17 @@
 															<div class="data-cell">{payment.due_date ? new Date(payment.due_date).toLocaleDateString() : 'N/A'}</div>
 															<div class="data-cell">{payment.original_due_date ? new Date(payment.original_due_date).toLocaleDateString() : 'N/A'}</div>
 															<div class="data-cell">{payment.branch_name || 'N/A'}</div>
-															<div class="data-cell">
+															<div class="data-cell payment-method-cell">
 																<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
+																{#if !payment.is_paid}
+																	<button 
+																		class="edit-payment-method-btn"
+																		on:click={() => openPaymentMethodEdit(payment)}
+																		title="Edit payment method"
+																	>
+																		✏️
+																	</button>
+																{/if}
 															</div>
 															<div class="data-cell">{payment.bank_name || 'N/A'}</div>
 															<div class="data-cell">{payment.iban || 'N/A'}</div>
@@ -1105,6 +1248,110 @@
 						</div>
 					</div>
 				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Payment Method Modal -->
+{#if showPaymentMethodModal && editingPayment}
+	<div class="modal-overlay" on:click={closePaymentMethodEdit}>
+		<div class="edit-modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>Edit Payment Details</h3>
+				<button class="close-btn" on:click={closePaymentMethodEdit}>×</button>
+			</div>
+			
+			<div class="modal-content">
+				<div class="edit-form">
+					<div class="form-row">
+						<!-- Show Bank Name and IBAN only for Bank methods -->
+						{#if editForm.payment_method && (editForm.payment_method === 'Bank on Delivery' || editForm.payment_method === 'Bank Credit')}
+							<div class="form-group">
+								<label for="bank_name">Bank Name</label>
+								<input 
+									type="text" 
+									id="bank_name"
+									bind:value={editForm.bank_name}
+									placeholder="Enter bank name"
+								/>
+							</div>
+							
+							<div class="form-group">
+								<label for="iban">IBAN</label>
+								<input 
+									type="text" 
+									id="iban"
+									bind:value={editForm.iban}
+									placeholder="Enter IBAN number"
+								/>
+							</div>
+						{:else}
+							<!-- Empty placeholders when bank fields are not needed -->
+							<div class="form-group placeholder-field">
+								<label>Bank Name</label>
+								<div class="disabled-field">Not applicable for {editForm.payment_method || 'selected payment method'}</div>
+							</div>
+							<div class="form-group placeholder-field">
+								<label>IBAN</label>
+								<div class="disabled-field">Not applicable for {editForm.payment_method || 'selected payment method'}</div>
+							</div>
+						{/if}
+					</div>
+					
+					<div class="form-row">
+						<div class="form-group">
+							<label for="due_date">Due Date</label>
+							<input 
+								type="date" 
+								id="due_date"
+								bind:value={editForm.due_date}
+								placeholder="dd/mm/yyyy"
+							/>
+						</div>
+						
+						<div class="form-group">
+							<label for="payment_method">Payment Method</label>
+							<select bind:value={editForm.payment_method} on:change={handlePaymentMethodChange}>
+								<option value="">Select Payment Method</option>
+								<option value="Cash on Delivery">Cash on Delivery</option>
+								<option value="Bank on Delivery">Bank on Delivery</option>
+								<option value="Cash Credit">Cash Credit</option>
+								<option value="Bank Credit">Bank Credit</option>
+							</select>
+						</div>
+					</div>
+					
+					<!-- Show Credit Period only for Credit methods -->
+					{#if editForm.payment_method && (editForm.payment_method === 'Cash Credit' || editForm.payment_method === 'Bank Credit')}
+						<div class="form-row single-column">
+							<div class="form-group">
+								<label for="credit_period">Credit Period (days)</label>
+								<input 
+									type="number" 
+									id="credit_period"
+									bind:value={editForm.credit_period}
+									on:input={handleCreditPeriodChange}
+									placeholder="Enter credit period in days"
+									min="0"
+								/>
+							</div>
+						</div>
+					{:else if editForm.payment_method}
+						<!-- Show disabled field for delivery methods -->
+						<div class="form-row single-column">
+							<div class="form-group placeholder-field">
+								<label>Credit Period (days)</label>
+								<div class="disabled-field">Not applicable for {editForm.payment_method}</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+			
+			<div class="modal-footer">
+				<button class="cancel-btn" on:click={closePaymentMethodEdit}>Cancel</button>
+				<button class="save-btn" on:click={savePaymentMethodEdit}>Save Changes</button>
 			</div>
 		</div>
 	</div>
@@ -2799,5 +3046,160 @@
 		opacity: 1 !important;
 		position: relative !important;
 		z-index: 10;
+	}
+
+	/* Payment Method Edit Button Styles */
+	.payment-method-cell {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		justify-content: flex-start;
+		position: relative;
+	}
+
+	.edit-payment-method-btn {
+		background: #f59e0b;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 4px 6px;
+		font-size: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		opacity: 0.8;
+		min-width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: 8px;
+		flex-shrink: 0;
+	}
+
+	.edit-payment-method-btn:hover {
+		background: #d97706;
+		opacity: 1;
+		transform: scale(1.1);
+	}
+
+	/* Edit Modal Styles - Matching PaymentManager */
+	.edit-modal {
+		background: white;
+		border-radius: 12px;
+		width: 90%;
+		max-width: 600px;
+		max-height: 80vh;
+		overflow-y: auto;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+	}
+
+	.edit-form {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+	}
+
+	.form-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 16px;
+	}
+
+	.form-row.single-column {
+		grid-template-columns: 1fr;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.form-group label {
+		font-weight: 500;
+		color: #374151;
+		font-size: 14px;
+	}
+
+	.form-group input,
+	.form-group select {
+		padding: 10px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		transition: border-color 0.2s ease;
+	}
+
+	.form-group input:focus,
+	.form-group select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.placeholder-field {
+		opacity: 0.6;
+	}
+
+	.disabled-field {
+		padding: 10px 12px;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		color: #6b7280;
+		font-style: italic;
+		font-size: 14px;
+	}
+
+	.modal-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 12px;
+		padding: 0 24px 24px 24px;
+		border-top: 1px solid #e5e7eb;
+		margin-top: 24px;
+		padding-top: 24px;
+	}
+
+	.cancel-btn {
+		padding: 10px 20px;
+		border: 1px solid #d1d5db;
+		background: white;
+		color: #374151;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+
+	.cancel-btn:hover {
+		background: #f9fafb;
+		border-color: #9ca3af;
+	}
+
+	.save-btn {
+		padding: 10px 20px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+
+	.save-btn:hover {
+		background: #2563eb;
+	}
+
+	@media (max-width: 768px) {
+		.form-row {
+			grid-template-columns: 1fr;
+		}
+		
+		.edit-modal {
+			width: 95%;
+			margin: 20px;
+		}
 	}
 </style>

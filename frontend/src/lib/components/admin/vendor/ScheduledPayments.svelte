@@ -67,7 +67,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('*')
-				.eq('payment_status', 'scheduled')
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -77,7 +76,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 			console.log('Loaded scheduled payments:', data);
 			scheduledPayments = data || [];
-			totalScheduledAmount = scheduledPayments.reduce((sum, payment) => sum + (payment.final_bill_amount || 0), 0);
+			totalScheduledAmount = scheduledPayments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
 			
 			// Group payments by day after loading data
 			groupPaymentsByDay();
@@ -173,7 +172,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				}
 				return matches;
 			});
-			day.totalAmount = day.payments.reduce((sum, payment) => sum + (payment.final_bill_amount || 0), 0);
+			day.totalAmount = day.payments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
 			console.log(`Day ${day.dayName} ${day.date}: ${day.payments.length} payments, total: ${day.totalAmount}`);
 		});
 	}
@@ -234,10 +233,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		day.payments.forEach(payment => {
 			const method = payment.payment_method || 'Cash on Delivery';
 			if (methodTotals.hasOwnProperty(method)) {
-				methodTotals[method] += (payment.final_bill_amount || 0);
+				methodTotals[method] += (payment.final_bill_amount || payment.bill_amount || 0);
 			} else {
 				// If method not in our categories, add to default
-				methodTotals['Cash on Delivery'] += (payment.final_bill_amount || 0);
+				methodTotals['Cash on Delivery'] += (payment.final_bill_amount || payment.bill_amount || 0);
 			}
 		});
 
@@ -333,7 +332,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Generate visible months
 		monthlyData = generateMonthsData(currentMonthIndex, visibleMonthsCount);
 		
-		// Calculate totals from scheduled payments
+		// Calculate totals from ALL scheduled payments (ignore filters for monthly totals)
 		scheduledPayments.forEach(payment => {
 			const paymentDate = new Date(payment.due_date);
 			const paymentMonth = paymentDate.getMonth();
@@ -342,7 +341,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Find matching month in visible data
 			const monthData = monthlyData.find(m => m.month === paymentMonth && m.year === paymentYear);
 			if (monthData) {
-				monthData.total += (payment.final_bill_amount || 0);
+				monthData.total += (payment.final_bill_amount || payment.bill_amount || 0);
 				monthData.paymentCount++;
 			}
 		});

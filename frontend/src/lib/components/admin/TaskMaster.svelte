@@ -17,6 +17,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		total_tasks: 0,
 		active_tasks: 0,
 		completed_tasks: 0,
+		incomplete_tasks: 0,
 		my_assigned_tasks: 0,
 		my_completed_tasks: 0,
 		my_assignments: 0,
@@ -188,6 +189,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				total_tasks: totalTasksCount || 0,
 				active_tasks: activeTasksCount || 0,
 				completed_tasks: completedTasksCount || 0,
+				incomplete_tasks: (totalTasksCount || 0) - (completedTasksCount || 0),
 				my_assigned_tasks: myAssignedCount || 0,
 				my_completed_tasks: myCompletedCount || 0,
 				my_assignments: myAssignmentsCount || 0,
@@ -203,6 +205,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				total_tasks: 0,
 				active_tasks: 0,
 				completed_tasks: 0,
+				incomplete_tasks: 0,
 				my_assigned_tasks: 0,
 				my_completed_tasks: 0,
 				my_assignments: 0,
@@ -309,6 +312,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			total_tasks: 'Total Tasks',
 			active_tasks: 'Active Tasks',
 			completed_tasks: 'Total Completed Tasks',
+			incomplete_tasks: 'Total Incomplete Tasks',
 			my_assigned_tasks: 'My Assigned Tasks',
 			my_completed_tasks: 'My Completed Tasks',
 			my_assignments: 'My Assignments',
@@ -465,6 +469,22 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<div class="stat-info">
 						<p class="stat-label">Total Completed Tasks</p>
 						<p class="stat-value">{taskStats.completed_tasks}</p>
+					</div>
+				</div>
+			</div>
+
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('incomplete_tasks')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('incomplete_tasks')}>
+				<div class="stat-content">
+					<div class="stat-icon bg-red-100">
+						<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<p class="stat-label">Total Incomplete Tasks</p>
+						<p class="stat-value">{taskStats.incomplete_tasks}</p>
 					</div>
 				</div>
 			</div>
