@@ -520,7 +520,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.1.2
+				v1.2.0
 			</button>
 		</div>
 	</div>
@@ -614,7 +614,7 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.1.2</h3>
+				<h3>What's New in v1.2.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
@@ -665,8 +665,8 @@
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 24, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.1.2 - Task Display & Completion Fixes</p>
-					<p><strong>Focus:</strong> Enhanced Data Visibility & Desktop Quick Task Completion</p>
+					<p><strong>Version:</strong> 1.2.0 - Payment Management & Task Dashboard Enhancements</p>
+					<p><strong>Focus:</strong> Payment System Refinements, Task Management Dashboard & Data Validation</p>
 				</div>
 			</div>
 		</div>

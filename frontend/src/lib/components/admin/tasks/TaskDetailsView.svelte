@@ -26,6 +26,7 @@
 		total_tasks: 'Total Tasks',
 		active_tasks: 'Active Tasks',
 		completed_tasks: 'Total Completed Tasks',
+		incomplete_tasks: 'Total Incomplete Tasks',
 		my_assigned_tasks: 'My Assigned Tasks',
 		my_completed_tasks: 'My Completed Tasks',
 		my_assignments: 'My Assignments',
@@ -74,6 +75,8 @@
 				await loadActiveTasks();
 			} else if (cardType === 'completed_tasks') {
 				await loadCompletedTasks();
+			} else if (cardType === 'incomplete_tasks') {
+				await loadIncompleteTasks();
 			} else if (cardType === 'my_assigned_tasks') {
 				await loadMyAssignedTasks(user);
 			} else if (cardType === 'my_completed_tasks') {
@@ -258,6 +261,101 @@
 		}
 	}
 
+	async function loadIncompleteTasks() {
+		// Load all tasks (like loadTotalTasks) but filter out completed ones
+		// First, get all completed task IDs for filtering
+
+		// Get completed task_assignment IDs
+		const { data: completedTaskIds, error: ctError } = await supabase
+			.from('task_completions')
+			.select('assignment_id');
+
+		// Get completed quick_task_assignment IDs  
+		const { data: completedQuickIds, error: cqError } = await supabase
+			.from('quick_task_completions')
+			.select('assignment_id');
+
+		if (ctError) console.error('Error loading completed task IDs:', ctError);
+		if (cqError) console.error('Error loading completed quick task IDs:', cqError);
+
+		const completedTaskAssignmentIds = completedTaskIds?.map(c => c.assignment_id) || [];
+		const completedQuickAssignmentIds = completedQuickIds?.map(c => c.assignment_id) || [];
+
+		// Load from task_assignments with branches relation
+		let taskAssignmentsQuery = supabase
+			.from('task_assignments')
+			.select(`
+				*,
+				tasks(*),
+				branches:assigned_to_branch_id(id, name_en),
+				assigner:assigned_by(id, username),
+				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
+			`);
+
+		// Only apply filter if there are completed tasks to exclude
+		if (completedTaskAssignmentIds.length > 0) {
+			taskAssignmentsQuery = taskAssignmentsQuery.not('id', 'in', `(${completedTaskAssignmentIds.join(',')})`);
+		}
+
+		const { data: taskAssignments, error: taError } = await taskAssignmentsQuery;
+
+		if (taError) console.error('Error loading incomplete task_assignments:', taError);
+
+		// Load from quick_task_assignments with quick_tasks.branches relation
+		let quickAssignmentsQuery = supabase
+			.from('quick_task_assignments')
+			.select(`
+				*,
+				quick_tasks!inner(
+					*,
+					branches:assigned_to_branch_id(id, name_en),
+					assigner:assigned_by(id, username)
+				),
+				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
+			`);
+
+		// Only apply filter if there are completed quick tasks to exclude
+		if (completedQuickAssignmentIds.length > 0) {
+			quickAssignmentsQuery = quickAssignmentsQuery.not('id', 'in', `(${completedQuickAssignmentIds.join(',')})`);
+		}
+
+		const { data: quickAssignments, error: qaError } = await quickAssignmentsQuery;
+
+		if (qaError) console.error('Error loading incomplete quick_task_assignments:', qaError);
+
+		if (taskAssignments) {
+			tasks = [...tasks, ...taskAssignments.map(ta => ({
+				...ta,
+				task_title: ta.tasks?.title || 'N/A',
+				task_description: ta.tasks?.description || '',
+				task_type: 'regular',
+				branch_name: ta.assignee?.user_branch?.name_en || ta.branches?.name_en || 'N/A',
+				branch_id: ta.assignee?.user_branch?.id || ta.assigned_to_branch_id,
+				assigned_date: ta.assigned_at,
+				deadline: ta.deadline_datetime || ta.deadline_date,
+				assigned_by_name: ta.assigner?.username,
+				assigned_to_name: ta.assignee?.username
+			}))];
+		}
+
+		if (quickAssignments) {
+			tasks = [...tasks, ...quickAssignments.map(qa => ({
+				...qa,
+				task_title: qa.quick_tasks?.title || 'N/A',
+				task_description: qa.quick_tasks?.description || '',
+				task_type: 'quick',
+				branch_name: qa.assignee?.user_branch?.name_en || qa.quick_tasks?.branches?.name_en || 'N/A',
+				branch_id: qa.assignee?.user_branch?.id || qa.quick_tasks?.assigned_to_branch_id,
+				assigned_date: qa.quick_tasks?.created_at,
+				deadline: qa.quick_tasks?.deadline_datetime,
+				assigned_by_name: qa.quick_tasks?.assigner?.username,
+				assigned_to_name: qa.assignee?.username,
+				price_tag: qa.quick_tasks?.price_tag,
+				issue_type: qa.quick_tasks?.issue_type
+			}))];
+		}
+	}
+
 	async function loadMyAssignedTasks(user: any) {
 		// Load from task_assignments with branches
 		const { data: myTaskAssignments, error: taError } = await supabase
@@ -425,7 +523,7 @@
 					branches:assigned_to_branch_id(id, name_en),
 					assigner:assigned_by(id, username)
 				),
-				assignee:assigned_to_user_id(id, username)
+				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
 			`)
 			.eq('quick_tasks.assigned_by', user.id);
 
@@ -437,8 +535,8 @@
 				task_title: ta.tasks?.title || 'N/A',
 				task_description: ta.tasks?.description || '',
 				task_type: 'regular',
-				branch_name: ta.branches?.name_en || 'N/A',
-				branch_id: ta.assigned_to_branch_id,
+				branch_name: ta.assignee?.user_branch?.name_en || ta.branches?.name_en || 'N/A',
+				branch_id: ta.assignee?.user_branch?.id || ta.assigned_to_branch_id,
 				assigned_date: ta.assigned_at,
 				deadline: ta.deadline_datetime || ta.deadline_date,
 				assigned_to: ta.assigned_to_user_id,
@@ -453,8 +551,8 @@
 				task_title: qa.quick_tasks?.title || 'N/A',
 				task_description: qa.quick_tasks?.description || '',
 				task_type: 'quick',
-				branch_name: qa.quick_tasks?.branches?.name_en || 'N/A',
-				branch_id: qa.quick_tasks?.assigned_to_branch_id,
+				branch_name: qa.assignee?.user_branch?.name_en || qa.quick_tasks?.branches?.name_en || 'N/A',
+				branch_id: qa.assignee?.user_branch?.id || qa.quick_tasks?.assigned_to_branch_id,
 				assigned_date: qa.quick_tasks?.created_at,
 				deadline: qa.quick_tasks?.deadline_datetime,
 				assigned_to: qa.assigned_to_user_id,

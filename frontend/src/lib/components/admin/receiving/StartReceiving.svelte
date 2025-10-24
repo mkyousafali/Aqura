@@ -11,6 +11,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   
   let steps = ['Select Branch', 'Select Vendor', 'Bill Information', 'Finalization'];
   let currentStep = 0;
+  let allRequiredUsersSelected = false; // Track if all required users are selected
   
   // Clearance Certification state
   let showCertification = false;
@@ -230,6 +231,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   $: if (selectedBranch && !showBranchSelector) {
     loadVendors();
   }
+
+  // Reactive statement to check if all required users are selected
+  // Note: Night Supervisors require at least 1 selection (multiple selection but minimum 1)
+  $: allRequiredUsersSelected = selectedBranch && 
+    selectedBranchManager && 
+    selectedAccountant && 
+    selectedPurchasingManager && 
+    selectedInventoryManager && 
+    selectedShelfStocker && 
+    selectedWarehouseHandler &&
+    selectedNightSupervisors.length > 0;
 
   onMount(async () => {
     await loadBranches();
@@ -1803,6 +1815,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         damage_erp_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.erpDocumentNumber : null,
         damage_vendor_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.vendorDocumentNumber : null
       };
+
+      // Check for duplicate bills before saving
+      console.log('Checking for duplicate bills...');
+      const { data: existingRecords, error: duplicateError } = await supabase
+        .from('receiving_records')
+        .select('id, bill_number, bill_amount, created_at')
+        .eq('vendor_id', selectedVendor?.erp_vendor_id)
+        .eq('branch_id', selectedBranch)
+        .eq('bill_amount', parseFloat(billAmount))
+        .eq('bill_number', billNumber.trim());
+
+      if (duplicateError) {
+        console.error('Error checking for duplicates:', duplicateError);
+        alert('Error checking for duplicate bills: ' + duplicateError.message);
+        return;
+      }
+
+      if (existingRecords && existingRecords.length > 0) {
+        const duplicateRecord = existingRecords[0];
+        const duplicateDate = new Date(duplicateRecord.created_at).toLocaleDateString();
+        
+        alert(
+          `❌ Bill Already Recorded!\n\n` +
+          `This bill has already been recorded:\n` +
+          `• Bill Number: ${duplicateRecord.bill_number}\n` +
+          `• Bill Amount: SAR ${duplicateRecord.bill_amount}\n` +
+          `• Vendor: ${selectedVendor?.vendor_name}\n` +
+          `• Branch: ${selectedBranchName}\n` +
+          `• Previously recorded on: ${duplicateDate}\n\n` +
+          `Please check the bill details and ensure this is not a duplicate entry.`
+        );
+        
+        console.log('Duplicate bill found:', duplicateRecord);
+        return; // Don't save the duplicate
+      }
+
+      console.log('No duplicate found, proceeding with save...');
 
       // Save to receiving_records table
       const { data, error } = await supabase
@@ -3448,13 +3497,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Step 1 Complete - Continue Button -->
-{#if currentStep === 0 && selectedBranch && !showBranchSelector && selectedBranchManager}
+{#if currentStep === 0 && selectedBranch && !showBranchSelector}
   <div class="step-navigation">
     <div class="step-complete-info">
-      <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">Step 1 Complete: Branch & Staff Selected</span>
+      {#if allRequiredUsersSelected}
+        <span class="step-complete-icon">✅</span>
+        <span class="step-complete-text">Step 1 Complete: Branch & Staff Selected</span>
+      {:else}
+        <span class="step-incomplete-icon">⚠️</span>
+        <span class="step-incomplete-text">Please select all required staff members</span>
+      {/if}
     </div>
-    <button type="button" on:click={() => currentStep = 1} class="continue-step-btn">
+    <button 
+      type="button" 
+      on:click={() => currentStep = 1} 
+      class="continue-step-btn"
+      disabled={!allRequiredUsersSelected}
+    >
       Continue to Step 2: Select Vendor →
     </button>
   </div>
@@ -7133,6 +7192,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		color: #2e7d32;
 	}
 
+	.step-incomplete-icon {
+		font-size: 20px;
+	}
+
+	.step-incomplete-text {
+		color: #f57c00;
+		font-weight: 500;
+	}
+
 	.continue-step-btn {
 		background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
 		color: white;
@@ -7147,15 +7215,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		text-transform: none;
 	}
 
-	.continue-step-btn:hover {
+	.continue-step-btn:hover:not(:disabled) {
 		background: linear-gradient(135deg, #388e3c 0%, #4caf50 100%);
 		transform: translateY(-2px);
 		box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
 	}
 
-	.continue-step-btn:active {
+	.continue-step-btn:active:not(:disabled) {
 		transform: translateY(0);
 		box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+	}
+
+	.continue-step-btn:disabled {
+		background: linear-gradient(135deg, #bdbdbd 0%, #9e9e9e 100%);
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		opacity: 0.6;
 	}
 
 	.save-continue-btn {
