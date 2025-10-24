@@ -21,6 +21,12 @@
 	let sortBy = '';
 	let sortOrder = 'asc';
 	
+	// ERP Reference popup state
+	let showErpPopup = false;
+	let selectedRecord = null;
+	let erpReferenceValue = '';
+	let updatingErp = false;
+	
 	// Branch filtering
 	let branches = [];
 	let branchFilterMode = initialBranchFilter;
@@ -38,6 +44,7 @@
 			{ key: 'bill_number', label: 'Bill Number', sortable: true },
 			{ key: 'vendor_name', label: 'Vendor', sortable: true },
 			{ key: 'vendor_id', label: 'ERP Vendor ID', sortable: true },
+			{ key: 'branch_name', label: 'Branch', sortable: true },
 			{ key: 'bill_date', label: 'Bill Date', sortable: true, type: 'date' },
 			{ key: 'bill_amount', label: 'Amount', sortable: true, type: 'currency' },
 			{ key: 'created_at', label: 'Created Date', sortable: true, type: 'date' }
@@ -67,6 +74,7 @@
 			{ key: 'bill_number', label: 'Bill Number', sortable: true },
 			{ key: 'vendor_name', label: 'Vendor', sortable: true },
 			{ key: 'vendor_id', label: 'ERP Vendor ID', sortable: true },
+			{ key: 'branch_name', label: 'Branch', sortable: true },
 			{ key: 'bill_date', label: 'Bill Date', sortable: true, type: 'date' },
 			{ key: 'bill_amount', label: 'Amount', sortable: true, type: 'currency' },
 			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' },
@@ -76,6 +84,7 @@
 			{ key: 'bill_number', label: 'Bill Number', sortable: true },
 			{ key: 'vendor_name', label: 'Vendor', sortable: true },
 			{ key: 'vendor_id', label: 'ERP Vendor ID', sortable: true },
+			{ key: 'branch_name', label: 'Branch', sortable: true },
 			{ key: 'bill_date', label: 'Bill Date', sortable: true, type: 'date' },
 			{ key: 'bill_amount', label: 'Amount', sortable: true, type: 'currency' },
 			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' },
@@ -85,9 +94,11 @@
 			{ key: 'bill_number', label: 'Bill Number', sortable: true },
 			{ key: 'vendor_name', label: 'Vendor', sortable: true },
 			{ key: 'vendor_id', label: 'ERP Vendor ID', sortable: true },
+			{ key: 'branch_name', label: 'Branch', sortable: true },
 			{ key: 'bill_date', label: 'Bill Date', sortable: true, type: 'date' },
 			{ key: 'bill_amount', label: 'Amount', sortable: true, type: 'currency' },
-			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' }
+			{ key: 'created_at', label: 'Received At', sortable: true, type: 'date' },
+			{ key: 'erp_action', label: 'ERP Reference', sortable: false, type: 'action' }
 		]
 	};
 
@@ -245,12 +256,20 @@
 					query = supabase
 						.from('receiving_records')
 						.select(`
-							*,
-							vendors (
+							id,
+							bill_number,
+							vendor_id,
+							bill_date,
+							bill_amount,
+							final_bill_amount,
+							created_at,
+							erp_purchase_invoice_reference,
+							branch_id,
+							vendors!inner (
 								vendor_name,
 								vat_number
 							),
-							branches (
+							branches!inner (
 								name_en
 							)
 						`)
@@ -643,6 +662,64 @@
 		fileInput.click();
 	}
 
+	// ERP Reference functions
+	function openErpPopup(record) {
+		selectedRecord = record;
+		erpReferenceValue = record.erp_purchase_invoice_reference || '';
+		showErpPopup = true;
+	}
+
+	function closeErpPopup() {
+		showErpPopup = false;
+		selectedRecord = null;
+		erpReferenceValue = '';
+		updatingErp = false;
+	}
+
+	async function updateErpReference() {
+		if (!selectedRecord || !erpReferenceValue.trim()) {
+			alert('Please enter a valid ERP reference number');
+			return;
+		}
+
+		updatingErp = true;
+		
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			const { error } = await supabase
+				.from('receiving_records')
+				.update({ 
+					erp_purchase_invoice_reference: erpReferenceValue.trim(),
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', selectedRecord.id);
+
+			if (error) {
+				console.error('Error updating ERP reference:', error);
+				alert('Error updating ERP reference. Please try again.');
+				return;
+			}
+
+			// Update the local data
+			const updatedData = data.map(item => 
+				item.id === selectedRecord.id 
+					? { ...item, erp_purchase_invoice_reference: erpReferenceValue.trim() }
+					: item
+			);
+			data = updatedData;
+
+			console.log('✅ ERP reference updated successfully');
+			closeErpPopup();
+			
+		} catch (error) {
+			console.error('Error updating ERP reference:', error);
+			alert('Error updating ERP reference. Please try again.');
+		} finally {
+			updatingErp = false;
+		}
+	}
+
 	function closeWindow() {
 		windowManager.closeWindow(windowId);
 	}
@@ -868,6 +945,27 @@
 												{/if}
 											</button>
 										{/if}
+									{:else if column.key === 'erp_action'}
+										{#if row.erp_purchase_invoice_reference}
+											<div class="erp-reference-display">
+												<span class="erp-ref-value">{row.erp_purchase_invoice_reference}</span>
+												<button 
+													class="erp-edit-btn"
+													on:click={() => openErpPopup(row)}
+													title="Edit ERP Reference"
+												>
+													✏️
+												</button>
+											</div>
+										{:else}
+											<button 
+												class="erp-ref-empty"
+												on:click={() => openErpPopup(row)}
+												title="Click to enter ERP invoice reference"
+											>
+												Enter ERP Ref
+											</button>
+										{/if}
 									{:else}
 										{formatValue(row[column.key], column.type)}
 									{/if}
@@ -880,6 +978,60 @@
 		{/if}
 	</div>
 </div>
+
+<!-- ERP Invoice Reference Popup -->
+{#if showErpPopup}
+	<div class="erp-popup-overlay" on:click={closeErpPopup}>
+		<div class="erp-popup-modal" on:click|stopPropagation>
+			<div class="erp-popup-header">
+				<h3>Update ERP Invoice Reference</h3>
+				<button class="erp-popup-close" on:click={closeErpPopup}>&times;</button>
+			</div>
+			<div class="erp-popup-content">
+				<p><strong>Bill Number:</strong> {selectedRecord?.bill_number || 'Unknown Bill'}</p>
+				<p><strong>Vendor:</strong> {selectedRecord?.vendor_name || 'Unknown Vendor'}</p>
+				<p><strong>Amount:</strong> {selectedRecord?.bill_amount ? parseFloat(selectedRecord.bill_amount).toFixed(2) : '0.00'} SAR</p>
+				<div class="erp-input-group">
+					<label for="erpRef">ERP Invoice Reference:</label>
+					<input 
+						id="erpRef"
+						type="text" 
+						bind:value={erpReferenceValue}
+						placeholder="Enter ERP invoice reference"
+						class="erp-input"
+						disabled={updatingErp}
+					/>
+				</div>
+				<div class="erp-popup-actions">
+					<button 
+						class="erp-cancel-btn"
+						on:click={closeErpPopup}
+						disabled={updatingErp}
+					>
+						Cancel
+					</button>
+					<button 
+						class="erp-save-btn"
+						on:click={updateErpReference}
+						disabled={updatingErp || !erpReferenceValue.trim()}
+					>
+						{#if updatingErp}
+							<span class="flex items-center">
+								<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Updating...
+							</span>
+						{:else}
+							Update
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.receiving-data-window {
@@ -1103,5 +1255,207 @@
 
 	.error {
 		color: #dc2626;
+	}
+
+	/* ERP Reference Styles */
+	.erp-reference-display {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.erp-ref-value {
+		background: #f0fdf4;
+		color: #16a34a;
+		border: 1px solid #bbf7d0;
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.erp-edit-btn {
+		background: #f59e0b;
+		color: white;
+		border: none;
+		padding: 4px 6px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 12px;
+		transition: background-color 0.2s;
+	}
+
+	.erp-edit-btn:hover {
+		background: #d97706;
+	}
+
+	.erp-ref-empty {
+		background: #fee2e2;
+		color: #dc2626;
+		border: 1px solid #fecaca;
+		padding: 6px 10px;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 12px;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+
+	.erp-ref-empty:hover {
+		background: #fca5a5;
+		color: #991b1b;
+	}
+
+	/* ERP Popup Styles */
+	.erp-popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 10000;
+		backdrop-filter: blur(2px);
+	}
+
+	.erp-popup-modal {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+		max-width: 500px;
+		width: 90%;
+		max-height: 80vh;
+		overflow-y: auto;
+		animation: popupSlideIn 0.3s ease;
+	}
+
+	@keyframes popupSlideIn {
+		from {
+			opacity: 0;
+			transform: scale(0.9) translateY(-20px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1) translateY(0);
+		}
+	}
+
+	.erp-popup-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px 24px 16px;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.erp-popup-header h3 {
+		margin: 0;
+		color: #1f2937;
+		font-size: 18px;
+		font-weight: 600;
+	}
+
+	.erp-popup-close {
+		background: none;
+		border: none;
+		font-size: 24px;
+		color: #6b7280;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 4px;
+		transition: all 0.2s ease;
+		line-height: 1;
+	}
+
+	.erp-popup-close:hover {
+		color: #ef4444;
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	.erp-popup-content {
+		padding: 20px 24px;
+	}
+
+	.erp-popup-content p {
+		margin: 0 0 12px 0;
+		color: #4b5563;
+		font-size: 14px;
+	}
+
+	.erp-input-group {
+		margin: 16px 0;
+	}
+
+	.erp-input-group label {
+		display: block;
+		margin-bottom: 6px;
+		font-weight: 500;
+		color: #374151;
+	}
+
+	.erp-input {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		transition: border-color 0.2s ease;
+	}
+
+	.erp-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.erp-input:disabled {
+		background: #f9fafb;
+		color: #6b7280;
+		cursor: not-allowed;
+	}
+
+	.erp-popup-actions {
+		display: flex;
+		gap: 12px;
+		justify-content: flex-end;
+		margin-top: 20px;
+	}
+
+	.erp-cancel-btn,
+	.erp-save-btn {
+		padding: 10px 20px;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		border: none;
+	}
+
+	.erp-cancel-btn {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.erp-cancel-btn:hover:not(:disabled) {
+		background: #e5e7eb;
+	}
+
+	.erp-save-btn {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.erp-save-btn:hover:not(:disabled) {
+		background: #2563eb;
+	}
+
+	.erp-save-btn:disabled,
+	.erp-cancel-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>
