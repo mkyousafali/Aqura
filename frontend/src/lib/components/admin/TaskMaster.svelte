@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
-	import { getStatistics } from '$lib/stores/taskStore';
+
 	import TaskCreateForm from './tasks/TaskCreateForm.svelte';
 	import TaskViewTable from './tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from './tasks/TaskAssignmentView.svelte';
@@ -10,6 +10,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskStatusView from './tasks/TaskStatusView.svelte';
 	import MyAssignmentsView from './tasks/MyAssignmentsView.svelte';
 	import QuickTaskWindow from './tasks/QuickTaskWindow.svelte';
+	import TaskDetailsView from './tasks/TaskDetailsView.svelte';
 
 	// Task statistics
 	let taskStats = {
@@ -17,7 +18,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		active_tasks: 0,
 		completed_tasks: 0,
 		my_assigned_tasks: 0,
-		my_completed_tasks: 0
+		my_completed_tasks: 0,
+		my_assignments: 0,
+		my_assignments_completed: 0
 	};
 
 	let isLoading = true;
@@ -31,15 +34,180 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	async function fetchTaskStatistics() {
 		try {
 			isLoading = true;
-			const result = await getStatistics('e1fdaee2-97f0-4fc1-872f-9d99c6bd684b');
 			
-			if (result.success && result.data) {
-				taskStats = result.data;
-			} else {
-				console.error('Error fetching task statistics:', result.error);
+			// Import supabase inside the function to avoid circular dependencies  
+			const { supabase } = await import('$lib/utils/supabase');
+			const { currentUser } = await import('$lib/utils/persistentAuth');
+			const { get } = await import('svelte/store');
+			
+			const user = get(currentUser);
+			if (!user) {
+				console.error('No current user found');
+				isLoading = false;
+				return;
 			}
+
+			// Get total tasks count as sum of task_assignments and quick_task_assignments
+			// Migration 33 -> task_assignments, Migration 23 -> quick_task_assignments
+			const [taskAssignRes, quickAssignRes] = await Promise.all([
+				supabase.from('task_assignments').select('*', { count: 'exact', head: true }),
+				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true })
+			]);
+
+			if (taskAssignRes.error) {
+				console.error('Error fetching task_assignments count:', taskAssignRes.error);
+			}
+
+			if (quickAssignRes.error) {
+				console.error('Error fetching quick_task_assignments count:', quickAssignRes.error);
+			}
+
+			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0);
+			console.log('📊 Total tasks:', totalTasksCount, 'task_assignments:', taskAssignRes.count, 'quick_task_assignments:', quickAssignRes.count);
+
+			// Get active tasks count
+			const { count: activeTasksCount, error: activeError } = await supabase
+				.from('tasks')
+				.select('*', { count: 'exact', head: true })
+				.eq('status', 'active');
+
+			if (activeError) {
+				console.error('Error fetching active tasks:', activeError);
+			}
+
+			// Get completed tasks count as sum of task_completions and quick_task_completions
+			// Migration 34 -> task_completions, Migration 24 -> quick_task_completions
+			const [taskCompRes, quickCompRes] = await Promise.all([
+				supabase.from('task_completions').select('*', { count: 'exact', head: true }),
+				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true })
+			]);
+
+			if (taskCompRes.error) {
+				console.error('Error fetching task_completions count:', taskCompRes.error);
+			}
+
+			if (quickCompRes.error) {
+				console.error('Error fetching quick_task_completions count:', quickCompRes.error);
+			}
+
+			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0);
+			console.log('✅ Completed tasks:', completedTasksCount, 'task_completions:', taskCompRes.count, 'quick_task_completions:', quickCompRes.count);
+
+			// Get tasks assigned to current user from both task_assignments and quick_task_assignments
+			const [myTaskAssignRes, myQuickAssignRes] = await Promise.all([
+				supabase.from('task_assignments')
+					.select('*', { count: 'exact', head: true })
+					.eq('assigned_to_user_id', user.id)
+					.in('status', ['assigned', 'in_progress', 'pending']),
+				supabase.from('quick_task_assignments')
+					.select('*', { count: 'exact', head: true })
+					.eq('assigned_to_user_id', user.id)
+					.in('status', ['assigned', 'in_progress', 'pending'])
+			]);
+
+			if (myTaskAssignRes.error) {
+				console.error('Error fetching my task_assignments:', myTaskAssignRes.error);
+			}
+
+			if (myQuickAssignRes.error) {
+				console.error('Error fetching my quick_task_assignments:', myQuickAssignRes.error);
+			}
+
+			const myAssignedCount = (myTaskAssignRes.count || 0) + (myQuickAssignRes.count || 0);
+			console.log('👤 My assigned tasks:', myAssignedCount, 'task_assignments:', myTaskAssignRes.count, 'quick_task_assignments:', myQuickAssignRes.count);
+
+			// Get tasks completed by current user from both task_completions and quick_task_completions
+			// Note: task_completions uses 'completed_by' (text), quick_task_completions uses 'completed_by_user_id' (uuid)
+			const [myTaskCompRes, myQuickCompRes] = await Promise.all([
+				supabase.from('task_completions')
+					.select('*', { count: 'exact', head: true })
+					.eq('completed_by', user.id),
+				supabase.from('quick_task_completions')
+					.select('*', { count: 'exact', head: true })
+					.eq('completed_by_user_id', user.id)
+			]);
+
+			if (myTaskCompRes.error) {
+				console.error('Error fetching my task_completions:', myTaskCompRes.error);
+			}
+
+			if (myQuickCompRes.error) {
+				console.error('Error fetching my quick_task_completions:', myQuickCompRes.error);
+			}
+
+			const myCompletedCount = (myTaskCompRes.count || 0) + (myQuickCompRes.count || 0);
+			console.log('✔️ My completed tasks:', myCompletedCount, 'task_completions:', myTaskCompRes.count, 'quick_task_completions:', myQuickCompRes.count);
+
+			// Get tasks assigned BY current user to others (My Assignments)
+			// task_assignments uses 'assigned_by' (text), need to join quick_task_assignments with quick_tasks
+			const [myTaskAssignedByRes, myQuickAssignedByRes] = await Promise.all([
+				supabase.from('task_assignments')
+					.select('*', { count: 'exact', head: true })
+					.eq('assigned_by', user.id),
+				supabase.from('quick_task_assignments')
+					.select('quick_tasks!inner(assigned_by)', { count: 'exact', head: true })
+					.eq('quick_tasks.assigned_by', user.id)
+			]);
+
+			if (myTaskAssignedByRes.error) {
+				console.error('Error fetching my task_assignments (assigned by):', myTaskAssignedByRes.error);
+			}
+
+			if (myQuickAssignedByRes.error) {
+				console.error('Error fetching my quick_task_assignments (assigned by):', myQuickAssignedByRes.error);
+			}
+
+			const myAssignmentsCount = (myTaskAssignedByRes.count || 0) + (myQuickAssignedByRes.count || 0);
+			console.log('📋 My assignments (assigned by me):', myAssignmentsCount, 'task_assignments:', myTaskAssignedByRes.count, 'quick_task_assignments:', myQuickAssignedByRes.count);
+
+			// Get tasks assigned BY current user that have been completed by others
+			// Join task_completions with task_assignments where assigned_by = user.id
+			// Join quick_task_completions with quick_task_assignments + quick_tasks where assigned_by = user.id
+			const [myTaskAssignCompRes, myQuickAssignCompRes] = await Promise.all([
+				supabase.from('task_completions')
+					.select('task_assignments!inner(assigned_by)', { count: 'exact', head: true })
+					.eq('task_assignments.assigned_by', user.id),
+				supabase.from('quick_task_completions')
+					.select('quick_task_assignments!inner(quick_tasks!inner(assigned_by))', { count: 'exact', head: true })
+					.eq('quick_task_assignments.quick_tasks.assigned_by', user.id)
+			]);
+
+			if (myTaskAssignCompRes.error) {
+				console.error('Error fetching my task assignments completed:', myTaskAssignCompRes.error);
+			}
+
+			if (myQuickAssignCompRes.error) {
+				console.error('Error fetching my quick task assignments completed:', myQuickAssignCompRes.error);
+			}
+
+			const myAssignmentsCompletedCount = (myTaskAssignCompRes.count || 0) + (myQuickAssignCompRes.count || 0);
+			console.log('✅ My assignments completed by users:', myAssignmentsCompletedCount, 'task_completions:', myTaskAssignCompRes.count, 'quick_task_completions:', myQuickAssignCompRes.count);
+
+			// Update task statistics
+			taskStats = {
+				total_tasks: totalTasksCount || 0,
+				active_tasks: activeTasksCount || 0,
+				completed_tasks: completedTasksCount || 0,
+				my_assigned_tasks: myAssignedCount || 0,
+				my_completed_tasks: myCompletedCount || 0,
+				my_assignments: myAssignmentsCount || 0,
+				my_assignments_completed: myAssignmentsCompletedCount || 0
+			};
+
+			console.log('✅ Task statistics loaded:', taskStats);
+			
 		} catch (error) {
 			console.error('Error fetching task statistics:', error);
+			// Set default values on error
+			taskStats = {
+				total_tasks: 0,
+				active_tasks: 0,
+				completed_tasks: 0,
+				my_assigned_tasks: 0,
+				my_completed_tasks: 0,
+				my_assignments: 0,
+				my_assignments_completed: 0
+			};
 		} finally {
 			isLoading = false;
 		}
@@ -124,6 +292,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			component: TaskStatusView,
 			icon: '📊',
 			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openTaskDetails(cardType: string) {
+		const windowId = generateWindowId('task-details');
+		const cardTitles = {
+			total_tasks: 'Total Tasks',
+			active_tasks: 'Active Tasks',
+			completed_tasks: 'Total Completed Tasks',
+			my_assigned_tasks: 'My Assigned Tasks',
+			my_completed_tasks: 'My Completed Tasks',
+			my_assignments: 'My Assignments',
+			my_assignments_completed: 'My Assignments Completed'
+		};
+		
+		openWindow({
+			id: windowId,
+			title: cardTitles[cardType] || 'Task Details',
+			component: TaskDetailsView,
+			props: { cardType },
+			icon: '📋',
+			size: { width: 1200, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
@@ -239,7 +437,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				</div>
 			{/each}
 		{:else}
-			<div class="stat-card">
+			<div class="stat-card clickable" role="button" tabindex="0" 
+				on:click={() => openTaskDetails('total_tasks')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('total_tasks')}>
 				<div class="stat-content">
 					<div class="stat-icon bg-blue-100">
 						<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -253,21 +453,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				</div>
 			</div>
 
-			<div class="stat-card">
-				<div class="stat-content">
-					<div class="stat-icon bg-green-100">
-						<svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<p class="stat-label">Active Tasks</p>
-						<p class="stat-value">{taskStats.active_tasks}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="stat-card">
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('completed_tasks')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('completed_tasks')}>
 				<div class="stat-content">
 					<div class="stat-icon bg-purple-100">
 						<svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -275,13 +463,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						</svg>
 					</div>
 					<div class="stat-info">
-						<p class="stat-label">Completed Tasks</p>
+						<p class="stat-label">Total Completed Tasks</p>
 						<p class="stat-value">{taskStats.completed_tasks}</p>
 					</div>
 				</div>
 			</div>
 
-			<div class="stat-card">
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('my_assigned_tasks')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assigned_tasks')}>
 				<div class="stat-content">
 					<div class="stat-icon bg-orange-100">
 						<svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,13 +479,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						</svg>
 					</div>
 					<div class="stat-info">
-						<p class="stat-label">My Assigned</p>
+						<p class="stat-label">My Assigned Tasks</p>
 						<p class="stat-value">{taskStats.my_assigned_tasks}</p>
 					</div>
 				</div>
 			</div>
 
-			<div class="stat-card">
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('my_completed_tasks')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_completed_tasks')}>
 				<div class="stat-content">
 					<div class="stat-icon bg-teal-100">
 						<svg class="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -303,8 +495,40 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						</svg>
 					</div>
 					<div class="stat-info">
-						<p class="stat-label">My Completed</p>
+						<p class="stat-label">My Completed Tasks</p>
 						<p class="stat-value">{taskStats.my_completed_tasks}</p>
+					</div>
+				</div>
+			</div>
+
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('my_assignments')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assignments')}>
+				<div class="stat-content">
+					<div class="stat-icon bg-indigo-100">
+						<svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<p class="stat-label">My Assignments</p>
+						<p class="stat-value">{taskStats.my_assignments}</p>
+					</div>
+				</div>
+			</div>
+
+			<div class="stat-card clickable" role="button" tabindex="0"
+				on:click={() => openTaskDetails('my_assignments_completed')}
+				on:keydown={(e) => e.key === 'Enter' && openTaskDetails('my_assignments_completed')}>
+				<div class="stat-content">
+					<div class="stat-icon bg-teal-100">
+						<svg class="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<p class="stat-label">My Assignments Completed</p>
+						<p class="stat-value">{taskStats.my_assignments_completed}</p>
 					</div>
 				</div>
 			</div>
@@ -443,12 +667,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		height: 100%;
 		background: white;
 		overflow-y: auto;
-		max-width: 1200px;
-		margin: 0 auto;
+		width: 100%;
+		box-sizing: border-box;
 	}
 
 	.header {
 		margin-bottom: 32px;
+		max-width: 1200px;
+		margin-left: auto;
+		margin-right: auto;
 	}
 
 	.title-section {
@@ -532,19 +759,59 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 		gap: 16px;
 		margin-bottom: 32px;
+		max-width: 1200px;
+		margin-left: auto;
+		margin-right: auto;
 	}
 
 	.stat-card {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
+		background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+		border: 2px solid transparent;
+		border-radius: 16px;
 		padding: 20px;
-		transition: all 0.2s ease;
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		position: relative;
+		overflow: hidden;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+		min-height: 120px;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+	}
+
+	.stat-card.clickable {
+		cursor: pointer;
+	}
+
+	.stat-card.clickable:active {
+		transform: translateY(-2px) scale(0.98);
+	}
+
+	.stat-card.clickable:focus {
+		outline: 3px solid #667eea;
+		outline-offset: 2px;
+	}
+
+	.stat-card::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 4px;
+		background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);
+		opacity: 0;
+		transition: opacity 0.3s ease;
 	}
 
 	.stat-card:hover {
-		border-color: #d1d5db;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+		transform: translateY(-4px);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+		border-color: rgba(59, 130, 246, 0.2);
+	}
+
+	.stat-card:hover::before {
+		opacity: 1;
 	}
 
 	.stat-card.loading {
@@ -554,36 +821,50 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.stat-content {
 		display: flex;
 		align-items: center;
-		space-x: 12px;
+		gap: 14px;
 	}
 
 	.stat-icon {
-		width: 40px;
-		height: 40px;
-		border-radius: 8px;
+		width: 48px;
+		height: 48px;
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		margin-right: 12px;
+		position: relative;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+		transition: transform 0.3s ease;
+	}
+
+	.stat-card:hover .stat-icon {
+		transform: scale(1.1) rotate(5deg);
 	}
 
 	.stat-info {
 		flex: 1;
+		min-width: 0;
 	}
 
 	.stat-label {
-		font-size: 14px;
-		font-weight: 500;
-		color: #6b7280;
-		margin: 0 0 4px 0;
+		font-size: 11px;
+		font-weight: 600;
+		color: #9ca3af;
+		margin: 0 0 8px 0;
+		text-transform: uppercase;
+		letter-spacing: 0.8px;
+		line-height: 1.2;
 	}
 
 	.stat-value {
-		font-size: 24px;
-		font-weight: 700;
-		color: #111827;
+		font-size: 28px;
+		font-weight: 800;
+		background: linear-gradient(135deg, #111827 0%, #4b5563 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
 		margin: 0;
+		line-height: 1.1;
 	}
 
 	.loading-bar {
@@ -607,6 +888,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 		gap: 24px;
 		margin-bottom: 32px;
+		max-width: 1200px;
+		margin-left: auto;
+		margin-right: auto;
 	}
 
 	.dashboard-card {
@@ -707,6 +991,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		padding: 24px;
+		max-width: 1200px;
+		margin-left: auto;
+		margin-right: auto;
 	}
 
 	.features-header {

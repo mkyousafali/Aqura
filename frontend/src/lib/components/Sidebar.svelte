@@ -520,7 +520,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.1.1
+				v1.1.2
 			</button>
 		</div>
 	</div>
@@ -614,59 +614,59 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.1.1</h3>
+				<h3>What's New in v1.1.2</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🖥️ Pop-Out Window System</h4>
+					<h4>✅ Task Display Improvements</h4>
 					<ul>
-						<li><strong>Multi-Monitor Support:</strong> Move any window to separate browser windows for external monitors</li>
-						<li><strong>Dual-Screen Icon:</strong> Clear visual indicator showing two monitors side by side</li>
-						<li><strong>Cross-Window Communication:</strong> Seamless data synchronization between main app and pop-out windows</li>
-						<li><strong>Return to App:</strong> Easy return functionality from pop-out windows back to main interface</li>
-						<li><strong>Component Mapping:</strong> Comprehensive support for all admin modules (Tasks, Receiving, Vendor, HR, etc.)</li>
-						<li><strong>Authentication Handling:</strong> Automatic authentication state management in pop-out windows</li>
+						<li><strong>Quick Task Dates Fixed:</strong> Assigned date and deadline now display correctly for all quick tasks</li>
+						<li><strong>User Branch Display:</strong> Tasks assigned to users now show the user's branch name instead of N/A</li>
+						<li><strong>Completed Tasks Enhanced:</strong> Added deadline and status columns to completed task windows</li>
+						<li><strong>Completion Dates Fixed:</strong> Quick task completion dates now display properly in all views</li>
+						<li><strong>Status Display Fixed:</strong> All task types now show proper status instead of N/A</li>
+						<li><strong>My Assignments Complete:</strong> Fixed missing deadline and status in assignments completed view</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🛠️ Technical Implementation</h4>
+					<h4>� Database & Functions</h4>
 					<ul>
-						<li><strong>Window Manager:</strong> Enhanced window management with pop-out and pop-in capabilities</li>
-						<li><strong>Safe Window Handling:</strong> Popup blocker detection and fallback mechanisms</li>
-						<li><strong>Dynamic Component Loading:</strong> Automatic component inference and dynamic imports</li>
-						<li><strong>URL Parameter Passing:</strong> Efficient state transfer via URL parameters</li>
-						<li><strong>Message API:</strong> Cross-window communication using postMessage for real-time updates</li>
-						<li><strong>Error Recovery:</strong> Graceful handling of window failures and blockers</li>
+						<li><strong>Quick Task Completion:</strong> Created submit_quick_task_completion function for desktop interface</li>
+						<li><strong>Schema Corrections:</strong> Fixed column name mismatches (created_at, photo_path, completion_status)</li>
+						<li><strong>Cascading Updates:</strong> Automatic status updates for assignments and tasks on completion</li>
+						<li><strong>Idempotency:</strong> Safe re-submission handling with existing completion detection</li>
+						<li><strong>User FK Constraints:</strong> Enhanced data integrity with proper foreign key relationships</li>
+						<li><strong>Migration 79:</strong> Ready to deploy quick task completion functionality</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎨 User Interface Enhancements</h4>
+					<h4>📊 Data Mapping Updates</h4>
 					<ul>
-						<li><strong>Button Positioning:</strong> Pop-out button strategically placed before minimize button in title bar</li>
-						<li><strong>Visual Design:</strong> Dual-monitor icon (14px) with clear two-screen representation</li>
-						<li><strong>Hover Effects:</strong> Interactive feedback with scale transitions and brightness changes</li>
-						<li><strong>Accessibility:</strong> Proper ARIA labels and keyboard navigation support</li>
-						<li><strong>Responsive Layout:</strong> Optimal button sizing and spacing in window title bars</li>
-						<li><strong>Color Coordination:</strong> Consistent styling with existing window control elements</li>
+						<li><strong>Date Path Corrections:</strong> All queries now fetch dates from correct parent tables</li>
+						<li><strong>Branch FK Lookups:</strong> Implemented nested foreign key queries for user branches</li>
+						<li><strong>Fallback Logic:</strong> Smart fallbacks ensure data displays even when optional fields are missing</li>
+						<li><strong>Six Load Functions:</strong> Updated all task loading functions for consistent data display</li>
+						<li><strong>Completion Tracking:</strong> Proper mapping of completion dates using created_at timestamps</li>
+						<li><strong>Price Tag & Issue Type:</strong> Quick tasks now include all relevant metadata</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📋 Productivity Benefits</h4>
+					<h4>🎯 User Experience</h4>
 					<ul>
-						<li><strong>Multi-Tasking:</strong> Work with multiple admin modules simultaneously on different screens</li>
-						<li><strong>Screen Real Estate:</strong> Maximize workspace by spreading windows across multiple monitors</li>
-						<li><strong>Workflow Efficiency:</strong> Keep reference data on one screen while working on another</li>
-						<li><strong>Focus Mode:</strong> Isolate specific tasks to dedicated screens for better concentration</li>
-						<li><strong>Data Comparison:</strong> Compare information side-by-side across different modules</li>
-						<li><strong>Presentation Ready:</strong> Share specific windows during meetings without exposing entire desktop</li>
+						<li><strong>Consistent Data:</strong> All task windows now show complete information without N/A placeholders</li>
+						<li><strong>Better Attribution:</strong> Clear visibility of who assigned tasks and who they're assigned to</li>
+						<li><strong>Deadline Tracking:</strong> Easy to see task deadlines across all views</li>
+						<li><strong>Status Visibility:</strong> Quick identification of task completion status</li>
+						<li><strong>Desktop Parity:</strong> Desktop users can now complete quick tasks like mobile users</li>
+						<li><strong>Branch Context:</strong> Always know which branch a task belongs to or user works in</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 23, 2025</p>
+					<p><strong>Release Date:</strong> October 24, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.1.1 - Multi-Monitor Pop-Out System</p>
-					<p><strong>Focus:</strong> Enhanced Multi-Tasking & Workspace Management</p>
+					<p><strong>Version:</strong> 1.1.2 - Task Display & Completion Fixes</p>
+					<p><strong>Focus:</strong> Enhanced Data Visibility & Desktop Quick Task Completion</p>
 				</div>
 			</div>
 		</div>
