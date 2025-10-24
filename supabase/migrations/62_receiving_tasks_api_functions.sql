@@ -347,13 +347,21 @@ Deadline: %s (24 hours)',
                     assignment_type,
                     assigned_to_user_id,
                     assigned_by,
-                    assigned_at
+                    assigned_at,
+                    deadline_datetime,
+                    deadline_date,
+                    deadline_time,
+                    status
                 ) VALUES (
                     new_task_id,
                     'user',
                     user_id::text,
                     generated_by_user_id::text,
-                    NOW()
+                    NOW(),
+                    deadline_time,
+                    deadline_time::date,
+                    deadline_time::time,
+                    'assigned'
                 );
                 
                 task_count := task_count + 1;
