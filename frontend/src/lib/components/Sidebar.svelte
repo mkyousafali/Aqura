@@ -974,27 +974,33 @@
 	}
 
 	.version-text {
-		background: none;
-		border: none;
-		color: rgba(226, 232, 240, 0.8);
-		font-size: 12px;
-		font-weight: 500;
+		background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: white;
+		font-size: 11px;
+		font-weight: 600;
 		font-family: monospace;
 		letter-spacing: 0.5px;
 		cursor: pointer;
-		padding: 2px 4px;
-		border-radius: 3px;
+		padding: 6px 12px;
+		border-radius: 6px;
 		transition: all 0.2s ease;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		text-transform: uppercase;
+		width: 100%;
+		text-align: center;
 	}
 
 	.version-text:hover {
-		color: rgba(226, 232, 240, 1);
-		background: rgba(255, 255, 255, 0.1);
-		transform: scale(1.05);
+		background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
+		border-color: rgba(255, 255, 255, 0.3);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 	}
 
 	.version-text:active {
-		transform: scale(0.95);
+		transform: translateY(0);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	/* Version Popup Styles */
