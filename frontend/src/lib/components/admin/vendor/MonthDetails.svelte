@@ -63,6 +63,36 @@
 		return acc;
 	}, {});
 
+	// Calculate total paid and unpaid amounts for the current month only
+	$: {
+		let totalScheduled = 0;
+		let totalPaid = 0;
+		let totalUnpaid = 0;
+		
+		monthDetailData.forEach(dayData => {
+			dayData.payments.forEach(payment => {
+				const amount = payment.final_bill_amount || 0;
+				totalScheduled += amount;
+				
+				// Check if payment is paid (is_paid === true, not just truthy)
+				if (payment.is_paid === true) {
+					totalPaid += amount;
+				} else {
+					totalUnpaid += amount;
+				}
+			});
+		});
+		
+		totalPaidAmount = totalPaid;
+		totalUnpaidAmount = totalUnpaid;
+		
+		// Debug logging
+		console.log('Month totals:', { totalScheduled, totalPaid, totalUnpaid, monthTotal: monthData?.total });
+	}
+
+	let totalPaidAmount = 0;
+	let totalUnpaidAmount = 0;
+
 	// Load all branches from database
 	async function loadBranches() {
 		try {
@@ -191,7 +221,9 @@
 				payments: [],
 				paymentsByVendor: {},
 				totalAmount: 0,
-				paymentCount: 0
+				unpaidAmount: 0,
+				paymentCount: 0,
+				isFullyPaid: true
 			};
 
 			// Find payments for this specific day (use filteredPayments)
@@ -202,6 +234,12 @@
 					dayInfo.payments.push(payment);
 					dayInfo.totalAmount += (payment.final_bill_amount || 0);
 					dayInfo.paymentCount++;
+
+					// Calculate unpaid amount
+					if (!payment.is_paid) {
+						dayInfo.unpaidAmount += (payment.final_bill_amount || 0);
+						dayInfo.isFullyPaid = false;
+					}
 
 					// Group by vendor
 					const vendorKey = payment.vendor_id || 'unknown';
@@ -689,56 +727,66 @@
 		<!-- Fixed Header Section -->
 		<div class="fixed-header-section">
 			<div class="header-cards-container">
-			<div class="header-card payment-summary-card">
+			<!-- Compact Calendar Card with integrated summary -->
+			<div class="header-card calendar-card">
 				<div class="header-card-title">
-					<h3>📊 Payment Summary</h3>
+					<h3>� Schedule Calendar</h3>
 				</div>
 				<div class="header-card-content">
-					<div class="compact-stats">
-						<div class="stat-item">
-							<span class="stat-value">{monthDetailData.filter(d => d.paymentCount > 0).length}</span>
-							<span class="stat-label">Days</span>
+					<!-- Payment Summary inside calendar -->
+					<div class="calendar-summary">
+						<div class="compact-stats">
+							<div class="stat-item">
+								<span class="stat-value">{monthDetailData.filter(d => d.paymentCount > 0).length}</span>
+								<span class="stat-label">Days</span>
+							</div>
+							<div class="stat-item">
+								<span class="stat-value">{monthData.paymentCount}</span>
+								<span class="stat-label">Payments</span>
+							</div>
+							<div class="stat-item total-stat">
+								<span class="stat-value total">{formatCurrency(monthData.total)}</span>
+								<span class="stat-label">Total Amount</span>
+							</div>
+							<div class="stat-item paid-stat">
+								<span class="stat-value paid">{formatCurrency(totalPaidAmount)}</span>
+								<span class="stat-label">Total Paid</span>
+							</div>
+							<div class="stat-item unpaid-stat">
+								<span class="stat-value unpaid">{formatCurrency(totalUnpaidAmount)}</span>
+								<span class="stat-label">Total Unpaid</span>
+							</div>
 						</div>
-						<div class="stat-item">
-							<span class="stat-value">{monthData.paymentCount}</span>
-							<span class="stat-label">Payments</span>
-						</div>
-						<div class="stat-item total-stat">
-							<span class="stat-value total">{formatCurrency(monthData.total)}</span>
-							<span class="stat-label">Total Amount</span>
+						
+						<!-- Compact Payment Methods -->
+						<div class="compact-methods">
+							{#each Object.entries(totalsByPaymentMethod) as [method, amount]}
+								<div class="method-chip">
+									<span class="method-name">{method}</span>
+									<span class="method-value">{formatCurrency(amount)}</span>
+								</div>
+							{/each}
 						</div>
 					</div>
 					
-					<!-- Compact Payment Methods -->
-					<div class="compact-methods">
-						{#each Object.entries(totalsByPaymentMethod) as [method, amount]}
-							<div class="method-chip">
-								<span class="method-name">{method}</span>
-								<span class="method-value">{formatCurrency(amount)}</span>
-							</div>
-						{/each}
-					</div>
-				</div>
-			</div>
-
-			<!-- Compact Calendar Card -->
-			<div class="header-card calendar-card">
-				<div class="header-card-title">
-					<h3>📅 Schedule Calendar</h3>
-				</div>
-				<div class="header-card-content">
 					<div class="compact-calendar-grid">
 						{#each monthDetailData as dayData}
 							<div 
-								class="mini-calendar-day {dayData.paymentCount > 0 ? 'has-payments' : 'no-payments'}"
+								class="mini-calendar-day {dayData.paymentCount > 0 ? (dayData.isFullyPaid ? 'has-payments fully-paid' : 'has-payments has-unpaid') : 'no-payments'}"
 								on:click={() => scrollToDate(dayData.date)}
-								title="Click to jump to {dayData.dayName}, {monthData.month} {dayData.date} - {dayData.paymentCount} payments, {formatCurrency(dayData.totalAmount)}"
+								title="Click to jump to {dayData.dayName}, {monthData.month} {dayData.date} - {dayData.paymentCount} payments, Total: {formatCurrency(dayData.totalAmount)}, Unpaid: {formatCurrency(dayData.unpaidAmount)}"
 							>
-								<div class="mini-day-number">{dayData.date}</div>
+								<div class="mini-day-info">
+									<div class="mini-day-number">{dayData.date}</div>
+									<div class="mini-day-name">{dayData.dayName}</div>
+								</div>
 								{#if dayData.paymentCount > 0}
 									<div class="mini-payment-info">
 										<div class="mini-count">{dayData.paymentCount} bills</div>
 										<div class="mini-amount">{formatCurrency(dayData.totalAmount)}</div>
+										{#if dayData.unpaidAmount > 0}
+											<div class="mini-unpaid">Unpaid: {formatCurrency(dayData.unpaidAmount)}</div>
+										{/if}
 									</div>
 								{/if}
 							</div>
@@ -1103,9 +1151,7 @@
 	}
 
 	.header-cards-container {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
+		display: block; /* Changed from grid to block for full width */
 		margin-bottom: 12px;
 	}
 
@@ -1116,6 +1162,7 @@
 		overflow: hidden;
 		transition: all 0.2s ease;
 		border: 1px solid #e2e8f0;
+		width: 100%; /* Full width */
 	}
 
 	.header-card:hover {
@@ -1157,52 +1204,78 @@
 		padding: 16px;
 	}
 
+	.calendar-summary {
+		margin-bottom: 12px;
+		padding-bottom: 12px;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
 	.compact-stats {
 		display: flex;
-		gap: 16px;
-		margin-bottom: 12px;
+		gap: 12px;
+		margin-bottom: 0;
+		align-items: center;
 	}
 
 	.stat-item {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		align-items: center;
-		padding: 8px 12px;
+		gap: 6px;
+		padding: 4px 10px;
 		background: #f8fafc;
 		border-radius: 6px;
-		min-width: 60px;
-		flex: 1;
+		min-width: auto;
+		flex: 0 0 auto;
 	}
 
 	.stat-item.total-stat {
 		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
 		border: 1px solid #10b981;
+		margin-left: auto;
+	}
+
+	.stat-item.paid-stat {
+		background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+		border: 1px solid #3b82f6;
+	}
+
+	.stat-item.unpaid-stat {
+		background: linear-gradient(135deg, #ffedd5 0%, #fff7ed 100%);
+		border: 1px solid #fb923c;
 	}
 
 	.stat-value {
 		font-weight: 700;
 		color: #1e293b;
-		font-size: 16px;
+		font-size: 14px;
 		line-height: 1;
 	}
 
 	.stat-value.total {
 		color: #059669;
-		font-size: 18px;
+		font-size: 16px;
+	}
+
+	.stat-value.paid {
+		color: #2563eb;
+		font-size: 14px;
+	}
+
+	.stat-value.unpaid {
+		color: #ea580c;
+		font-size: 14px;
 	}
 
 	.stat-label {
 		font-size: 11px;
 		color: #64748b;
 		font-weight: 500;
-		margin-top: 2px;
 		text-align: center;
 	}
 
 	.compact-methods {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
+		display: none; /* Hide payment methods to save space */
 	}
 
 	.method-chip {
@@ -1229,10 +1302,10 @@
 	.compact-calendar-grid {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
-		gap: 6px;
-		max-height: 250px;
-		overflow-y: auto;
-		padding: 6px;
+		gap: 6px; /* Reduced from 8px */
+		max-height: none; /* Remove max-height to show all dates without scrolling */
+		overflow-y: visible; /* No scrolling needed */
+		padding: 8px;
 		background: #f8fafc;
 		border-radius: 6px;
 	}
@@ -1241,15 +1314,15 @@
 		background: white;
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
-		padding: 6px 4px;
+		padding: 8px 6px; /* Reduced from 10px 6px */
 		text-align: center;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		min-height: 55px;
+		min-height: 50px; /* Reduced from 75px */
 		display: flex;
-		flex-direction: column;
+		flex-direction: row; /* Changed to row layout */
 		align-items: center;
-		justify-content: space-between;
+		justify-content: space-between; /* Space between date and amount */
 		font-size: 12px;
 		position: relative;
 	}
@@ -1259,14 +1332,34 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 
-	.mini-calendar-day.has-payments {
+	/* Fully paid dates - green background */
+	.mini-calendar-day.has-payments.fully-paid {
 		border-color: #10b981;
-		background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%);
+		background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
 	}
 
-	.mini-calendar-day.has-payments:hover {
+	.mini-calendar-day.has-payments.fully-paid:hover {
 		border-color: #059669;
-		background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
+		background: linear-gradient(135deg, #a7f3d0 0%, #d1fae5 100%);
+	}
+
+	.mini-calendar-day.has-payments.fully-paid .mini-day-number {
+		color: #059669;
+	}
+
+	/* Unpaid dates - light orange background */
+	.mini-calendar-day.has-payments.has-unpaid {
+		border-color: #fb923c;
+		background: linear-gradient(135deg, #fed7aa 0%, #ffedd5 100%);
+	}
+
+	.mini-calendar-day.has-payments.has-unpaid:hover {
+		border-color: #f97316;
+		background: linear-gradient(135deg, #fdba74 0%, #fed7aa 100%);
+	}
+
+	.mini-calendar-day.has-payments.has-unpaid .mini-day-number {
+		color: #ea580c;
 	}
 
 	.mini-calendar-day.no-payments {
@@ -1275,40 +1368,76 @@
 		opacity: 0.7;
 	}
 
-	.mini-day-number {
-		font-size: 14px;
-		font-weight: 600;
-		color: #1e293b;
-		line-height: 1;
+	.mini-day-info {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+		flex-shrink: 0;
 	}
 
-	.mini-calendar-day.has-payments .mini-day-number {
-		color: #059669;
+	.mini-day-number {
+		font-size: 16px; /* Reduced from 18px */
+		font-weight: 700; /* Increased from 600 */
+		color: #1e293b;
+		line-height: 1;
+		flex-shrink: 0;
+	}
+
+	.mini-day-name {
+		font-size: 8px;
+		color: #64748b;
+		font-weight: 500;
+		line-height: 1;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
 	}
 
 	.mini-payment-info {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		margin-top: 4px;
+		align-items: flex-end; /* Align to the right */
+		margin-top: 0; /* Remove top margin */
 		gap: 2px;
+		flex: 1;
+		min-width: 0;
 	}
 
 	.mini-count {
-		font-size: 9px;
+		font-size: 8px; /* Reduced from 10px */
 		color: #059669;
 		font-weight: 600;
 		line-height: 1;
+		white-space: nowrap;
 	}
 
 	.mini-amount {
-		font-size: 9px;
+		font-size: 10px; /* Reduced from 11px */
 		color: #1e293b;
 		font-weight: 700;
 		line-height: 1;
-		background: rgba(16, 185, 129, 0.1);
-		padding: 2px 4px;
-		border-radius: 4px;
+		background: rgba(16, 185, 129, 0.15);
+		padding: 2px 4px; /* Reduced from 3px 5px */
+		border-radius: 3px;
+		white-space: nowrap;
+	}
+
+	/* Unpaid amount styling */
+	.mini-unpaid {
+		font-size: 8px; /* Reduced from 10px */
+		color: #ea580c;
+		font-weight: 700;
+		line-height: 1;
+		background: rgba(249, 115, 22, 0.15);
+		padding: 2px 4px; /* Reduced from 3px 5px */
+		border-radius: 3px;
+		margin-top: 1px;
+		white-space: nowrap;
+	}
+
+	/* Update color for unpaid dates */
+	.mini-calendar-day.has-unpaid .mini-count {
+		color: #ea580c;
 	}
 
 	.day-number {
