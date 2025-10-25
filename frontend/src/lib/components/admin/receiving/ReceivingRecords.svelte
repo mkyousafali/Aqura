@@ -62,13 +62,20 @@
 			// Import supabase here to avoid circular dependencies
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// First, get receiving records without joins
+			// First, get receiving records with user and branch information
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
 				.select(`
 					*,
 					branches (
 						name_en
+					),
+					users!receiving_records_user_id_fkey (
+						id,
+						username,
+						hr_employees (
+							name
+						)
 					)
 				`)
 				.order('created_at', { ascending: false });
@@ -123,7 +130,9 @@
 			const matchesSearch = !searchTerm || 
 				record.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				record.vendors?.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				record.vendors?.vat_number?.toLowerCase().includes(searchTerm.toLowerCase());
+				record.vendors?.vat_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.users?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				record.users?.hr_employees?.name?.toLowerCase().includes(searchTerm.toLowerCase());
 			
 			const matchesVendorId = !filterVendorId || 
 				record.vendors?.erp_vendor_id?.toString().includes(filterVendorId);
@@ -569,7 +578,7 @@
 		<div class="search-bar">
 			<input 
 				type="text" 
-				placeholder="Search by bill number, vendor name, or VAT number..." 
+				placeholder="Search by bill number, vendor name, VAT number, or reviewer..." 
 				bind:value={searchTerm}
 				class="search-input"
 			/>
@@ -679,6 +688,7 @@
 					<div class="header-cell">Bill Info</div>
 					<div class="header-cell">Vendor Details</div>
 					<div class="header-cell">Branch</div>
+					<div class="header-cell">Received By</div>
 					<div class="header-cell">Payment Info</div>
 					<div class="header-cell">Days to Due</div>
 					<div class="header-cell">Amounts</div>
@@ -802,6 +812,13 @@
 						
 						<div class="cell">
 							<span>{record.branches?.name_en || 'N/A'}</span>
+						</div>
+						
+						<div class="cell">
+							<div class="reviewed-by-info">
+								<strong>{record.users?.hr_employees?.name || record.users?.username || 'N/A'}</strong>
+								<small>@{record.users?.username || 'unknown'}</small>
+							</div>
 						</div>
 						
 						<div class="cell">
@@ -1154,7 +1171,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -1170,7 +1187,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -1303,18 +1320,18 @@
 		margin-bottom: 4px;
 	}
 
-	.bill-info, .vendor-info, .payment-info, .amounts {
+	.bill-info, .vendor-info, .payment-info, .amounts, .reviewed-by-info {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 	}
 
-	.bill-info strong, .vendor-info strong, .payment-info strong {
+	.bill-info strong, .vendor-info strong, .payment-info strong, .reviewed-by-info strong {
 		color: #1f2937;
 		font-weight: 600;
 	}
 
-	.bill-info small, .vendor-info small, .payment-info small {
+	.bill-info small, .vendor-info small, .payment-info small, .reviewed-by-info small {
 		color: #6b7280;
 		font-size: 12px;
 	}
@@ -1856,19 +1873,23 @@
 			grid-template-columns: 1fr;
 		}
 
-		/* Hide original bill, PR Excel, payment info, days remaining, amounts, and ERP columns on mobile for space */
+		/* Hide original bill, PR Excel, received by, payment info, days remaining, amounts, and ERP columns on mobile for space */
 		.table-header .header-cell:nth-child(2),
 		.table-header .header-cell:nth-child(3),
 		.table-header .header-cell:nth-child(7),
 		.table-header .header-cell:nth-child(8),
 		.table-header .header-cell:nth-child(9),
 		.table-header .header-cell:nth-child(10),
+		.table-header .header-cell:nth-child(11),
+		.table-header .header-cell:nth-child(12),
 		.table-row .cell:nth-child(2),
 		.table-row .cell:nth-child(3),
 		.table-row .cell:nth-child(7),
 		.table-row .cell:nth-child(8),
 		.table-row .cell:nth-child(9),
-		.table-row .cell:nth-child(10) {
+		.table-row .cell:nth-child(10),
+		.table-row .cell:nth-child(11),
+		.table-row .cell:nth-child(12) {
 			display: none;
 		}
 	}
