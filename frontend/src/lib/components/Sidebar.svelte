@@ -520,7 +520,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.2.1
+				v1.2.2
 			</button>
 		</div>
 	</div>
@@ -614,59 +614,56 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.2.1</h3>
+				<h3>What's New in v1.2.2</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>✅ Task Display Improvements</h4>
+					<h4>📱 Mobile Interface Improvements</h4>
 					<ul>
-						<li><strong>Quick Task Dates Fixed:</strong> Assigned date and deadline now display correctly for all quick tasks</li>
-						<li><strong>User Branch Display:</strong> Tasks assigned to users now show the user's branch name instead of N/A</li>
-						<li><strong>Completed Tasks Enhanced:</strong> Added deadline and status columns to completed task windows</li>
-						<li><strong>Completion Dates Fixed:</strong> Quick task completion dates now display properly in all views</li>
-						<li><strong>Status Display Fixed:</strong> All task types now show proper status instead of N/A</li>
-						<li><strong>My Assignments Complete:</strong> Fixed missing deadline and status in assignments completed view</li>
+						<li><strong>Task Count Synchronization:</strong> Fixed pending task count inconsistency between dashboard and navigation badge</li>
+						<li><strong>Badge Count Logic:</strong> Updated mobile bottom navigation to show accurate task counts (7 tasks now display correctly)</li>
+						<li><strong>Status Filtering:</strong> Improved task counting to include all non-completed/cancelled tasks as pending</li>
+						<li><strong>Dashboard Stats:</strong> Mobile dashboard now shows real-time accurate task statistics</li>
+						<li><strong>Navigation Consistency:</strong> Task icon badge matches dashboard pending count perfectly</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Database & Functions</h4>
+					<h4>💰 Manual Scheduling Enhancement</h4>
 					<ul>
-						<li><strong>Quick Task Completion:</strong> Created submit_quick_task_completion function for desktop interface</li>
-						<li><strong>Schema Corrections:</strong> Fixed column name mismatches (created_at, photo_path, completion_status)</li>
-						<li><strong>Cascading Updates:</strong> Automatic status updates for assignments and tasks on completion</li>
-						<li><strong>Idempotency:</strong> Safe re-submission handling with existing completion detection</li>
-						<li><strong>User FK Constraints:</strong> Enhanced data integrity with proper foreign key relationships</li>
-						<li><strong>Migration 79:</strong> Ready to deploy quick task completion functionality</li>
+						<li><strong>Two-Step Workflow:</strong> Implemented branch selection → vendor selection → payment details process</li>
+						<li><strong>Branch Selection UI:</strong> Interactive cards showing all available branches</li>
+						<li><strong>Vendor Filtering:</strong> Dynamic vendor table filtered by selected branch with vendor ID and name</li>
+						<li><strong>Step Indicator:</strong> Visual progress indicator showing current step in the workflow</li>
+						<li><strong>Data Integration:</strong> Proper vendor_payment_schedule table insertion with branch and vendor relationships</li>
+						<li><strong>Navigation Controls:</strong> Back buttons and step validation for smooth user experience</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📊 Data Mapping Updates</h4>
+					<h4>� Technical Improvements</h4>
 					<ul>
-						<li><strong>Date Path Corrections:</strong> All queries now fetch dates from correct parent tables</li>
-						<li><strong>Branch FK Lookups:</strong> Implemented nested foreign key queries for user branches</li>
-						<li><strong>Fallback Logic:</strong> Smart fallbacks ensure data displays even when optional fields are missing</li>
-						<li><strong>Six Load Functions:</strong> Updated all task loading functions for consistent data display</li>
-						<li><strong>Completion Tracking:</strong> Proper mapping of completion dates using created_at timestamps</li>
-						<li><strong>Price Tag & Issue Type:</strong> Quick tasks now include all relevant metadata</li>
+						<li><strong>Database Query Optimization:</strong> Updated task assignment queries for better performance</li>
+						<li><strong>Status Mapping:</strong> Unified status handling across mobile and desktop interfaces</li>
+						<li><strong>Component Architecture:</strong> Enhanced ManualScheduling component with proper state management</li>
+						<li><strong>Error Handling:</strong> Improved validation and error feedback in manual scheduling</li>
+						<li><strong>Data Consistency:</strong> Ensured consistent task counting logic across all interfaces</li>
 					</ul>
 				</div>
 				<div class="update-section">
 					<h4>🎯 User Experience</h4>
 					<ul>
-						<li><strong>Consistent Data:</strong> All task windows now show complete information without N/A placeholders</li>
-						<li><strong>Better Attribution:</strong> Clear visibility of who assigned tasks and who they're assigned to</li>
-						<li><strong>Deadline Tracking:</strong> Easy to see task deadlines across all views</li>
-						<li><strong>Status Visibility:</strong> Quick identification of task completion status</li>
-						<li><strong>Desktop Parity:</strong> Desktop users can now complete quick tasks like mobile users</li>
-						<li><strong>Branch Context:</strong> Always know which branch a task belongs to or user works in</li>
+						<li><strong>Accurate Counts:</strong> Users now see correct pending task counts everywhere</li>
+						<li><strong>Intuitive Workflow:</strong> Manual scheduling follows logical step-by-step process</li>
+						<li><strong>Visual Feedback:</strong> Clear progress indicators and selection states</li>
+						<li><strong>Mobile Optimization:</strong> Improved mobile interface responsiveness and accuracy</li>
+						<li><strong>Data Validation:</strong> Enhanced form validation and user guidance</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 24, 2025</p>
+					<p><strong>Release Date:</strong> October 25, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.2.0 - Payment Management & Task Dashboard Enhancements</p>
-					<p><strong>Focus:</strong> Payment System Refinements, Task Management Dashboard & Data Validation</p>
+					<p><strong>Version:</strong> 1.2.2 - Mobile Task Sync & Manual Scheduling Workflow</p>
+					<p><strong>Focus:</strong> Mobile Interface Consistency, Finance Management Workflow & Data Accuracy</p>
 				</div>
 			</div>
 		</div>

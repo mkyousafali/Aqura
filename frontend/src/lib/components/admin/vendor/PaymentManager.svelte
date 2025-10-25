@@ -71,8 +71,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		await loadTaskStatusData(); // Load task status data (for Card 4)
 		await loadReceivingRecords();
 		
-		// Auto-process Cash on Delivery payments
-		await processCashOnDeliveryPayments();
+		// COD auto-processing removed - manual payments only
+		console.log('ℹ️ COD auto-processing disabled - all payments require manual marking');
 		
 		// Final calculation after all data is loaded
 		calculateStatistics();
@@ -122,14 +122,459 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Load all scheduled payments data for cards (separate from table logic)
 	let allScheduledPaymentsData = [];
 	
-	// Auto-process Cash on Delivery payments
-	// REMOVED: Database trigger now handles everything automatically on INSERT
-	// This function is kept for backward compatibility but does nothing
-	// Migration 70 trigger auto-marks COD as paid during INSERT
-	async function processCashOnDeliveryPayments() {
-		// No longer needed - database trigger handles COD auto-payment on INSERT
-		// See migration 70_fix_cash_on_delivery_auto_payment.sql
-		console.log('✅ Cash-on-delivery auto-payment now handled by database trigger (Migration 70)');
+	// Frontend Fallback Payment Processing System - DISABLED
+	// COD auto-processing has been completely removed
+	// All payments now require manual marking
+	
+	// Remove sync variables and functions since COD auto-processing is disabled
+	// The system now works on manual payments only
+	
+	// COD auto-processing completely removed - manual payments only
+
+	// Comprehensive sync function that handles ALL manually marked payments missing transactions
+	async function syncAllMissingTransactions() {
+		console.log('🔄 Running comprehensive transaction sync (MANUAL PAYMENTS ONLY)...');
+		syncMessage = 'Scanning manually marked payments for missing transactions...';
+		
+		try {
+			// Get ALL payments marked as paid
+			const { data: allPaidPayments, error: paidError } = await supabase
+				.from('vendor_payment_schedule')
+				.select(`
+					*,
+					receiving_records!receiving_record_id (
+						accountant_user_id,
+						user_id,
+						bill_number,
+						original_bill_url,
+						users!user_id (
+							username
+						)
+					)
+				`)
+				.eq('is_paid', true)
+				.order('paid_date', { ascending: false });
+
+			if (paidError) {
+				console.error('Error fetching all paid payments:', paidError);
+				syncStats.errors++;
+				return;
+			}
+
+			console.log(`📊 Found ${allPaidPayments?.length || 0} payments marked as paid (manually)`);
+			syncStats.found = allPaidPayments?.length || 0;
+
+			// Get ALL existing transactions
+			const { data: allTransactions, error: transError } = await supabase
+				.from('payment_transactions')
+				.select('payment_schedule_id');
+
+			if (transError) {
+				console.error('Error fetching existing transactions:', transError);
+				syncStats.errors++;
+				return;
+			}
+
+			// Create a Set of payment IDs that already have transactions
+			const existingTransactionIds = new Set(
+				allTransactions?.map(t => t.payment_schedule_id) || []
+			);
+
+			console.log(`� Found ${allTransactions?.length || 0} existing transaction records`);
+
+			let processed = 0;
+			const missingTransactions = [];
+
+			// Check each paid payment for missing transaction
+			for (const payment of allPaidPayments || []) {
+				if (!existingTransactionIds.has(payment.id)) {
+					missingTransactions.push(payment);
+					const paymentType = payment.payment_method?.toLowerCase().includes('cash on delivery') ? 'COD (Manual)' : 'Manual';
+					console.log(`❌ Missing transaction for payment ID: ${payment.id}, Bill: ${payment.bill_number}, Vendor: ${payment.vendor_name}, Method: ${payment.payment_method} (${paymentType})`);
+				}
+			}
+
+			console.log(`🔍 Found ${missingTransactions.length} manually marked payments missing transaction records`);
+
+			// Process each missing transaction
+			for (const payment of missingTransactions) {
+				try {
+					const paymentType = payment.payment_method?.toLowerCase().includes('cash on delivery') ? 'COD Manual Sync' : 'Manual Payment Sync';
+					await createMissingTransaction(payment, paymentType);
+					processed++;
+					syncStats.fixed++;
+					
+					syncMessage = `Processing missing transactions... (${processed}/${missingTransactions.length})`;
+				} catch (error) {
+					console.error(`Error creating transaction for payment ${payment.id}:`, error);
+					syncStats.errors++;
+				}
+			}
+
+			if (processed > 0) {
+				console.log(`🔧 Successfully created ${processed} missing transaction records for manually marked payments`);
+				// Reload transaction data to update UI
+				await loadPaidTransactions();
+			}
+		} catch (error) {
+			console.error('Error in comprehensive sync:', error);
+			syncStats.errors++;
+		}
+	}
+
+	// New function to sync existing transactions that don't have tasks
+	async function syncExistingTransactionsWithoutTasks() {
+		console.log('🔄 Checking existing transactions for missing tasks...');
+		syncMessage = 'Scanning existing transactions for missing tasks...';
+		
+		try {
+			// Get all payment transactions with their related payment schedule data
+			const { data: allTransactions, error: transError } = await supabase
+				.from('payment_transactions')
+				.select(`
+					*,
+					vendor_payment_schedule!payment_schedule_id (
+						*,
+						receiving_records!receiving_record_id (
+							accountant_user_id,
+							user_id,
+							bill_number,
+							original_bill_url,
+							users!user_id (
+								username
+							)
+						)
+					)
+				`)
+				.order('transaction_date', { ascending: false });
+
+			if (transError) {
+				console.error('Error fetching existing transactions:', transError);
+				syncStats.errors++;
+				return;
+			}
+
+			syncStats.existingTransactions = allTransactions?.length || 0;
+			console.log(`📊 Found ${syncStats.existingTransactions} existing transaction records`);
+
+			// Filter transactions that don't have tasks assigned
+			const transactionsWithoutTasks = allTransactions?.filter(transaction => !transaction.task_id) || [];
+			
+			console.log(`🔍 Found ${transactionsWithoutTasks.length} transactions without tasks`);
+
+			let tasksCreated = 0;
+
+			// Process each transaction without a task
+			for (const transaction of transactionsWithoutTasks) {
+				try {
+					const paymentSchedule = transaction.vendor_payment_schedule;
+					const receivingRecord = paymentSchedule?.receiving_records;
+
+					// Skip if no accountant assigned
+					if (!receivingRecord?.accountant_user_id) {
+						console.log(`⚠️ Transaction ${transaction.id} has no accountant assigned - skipping task creation`);
+						continue;
+					}
+
+					console.log(`📋 Creating missing task for transaction ${transaction.id}:`, {
+						bill_number: transaction.bill_number,
+						vendor_name: transaction.vendor_name,
+						amount: transaction.amount,
+						accountant_id: receivingRecord.accountant_user_id
+					});
+
+					// Create task for this transaction
+					const receiverName = receivingRecord.users?.username || 'Unknown';
+					
+					const { data: taskData, error: taskError } = await supabase
+						.from('tasks')
+						.insert({
+							title: 'Payment transaction requires ERP entry and receipt upload',
+							description: `Transaction Details:
+- Transaction ID: ${transaction.id}
+- Bill Number: ${transaction.bill_number || 'N/A'}
+- Bill Amount: ${(transaction.amount || 0).toLocaleString()}
+- Vendor Name: ${transaction.vendor_name || 'N/A'}
+- Receiver: ${receiverName}
+- Payment Method: ${transaction.payment_method || 'N/A'}
+- Transaction Date: ${transaction.transaction_date ? new Date(transaction.transaction_date).toLocaleDateString() : 'N/A'}
+
+This payment transaction was found without an associated task. Please enter into ERP, update reference, and upload receipt.`,
+							created_by: receivingRecord.user_id,
+							created_by_name: 'System - Transaction Task Sync',
+							require_task_finished: true,
+							priority: 'medium',
+							status: 'active'
+						})
+						.select()
+						.single();
+
+					if (taskError) {
+						console.error('❌ Error creating task for transaction:', taskError);
+						syncStats.errors++;
+						continue;
+					}
+
+					console.log('✅ Task created successfully:', taskData.id);
+
+					// Create task assignment
+					const { data: assignmentData, error: assignmentError } = await supabase
+						.from('task_assignments')
+						.insert({
+							task_id: taskData.id,
+							assignment_type: 'user',
+							assigned_to_user_id: receivingRecord.accountant_user_id,
+							assigned_by: receivingRecord.user_id,
+							assigned_by_name: 'System - Transaction Task Sync',
+							deadline_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+							require_task_finished: true,
+							status: 'assigned'
+						})
+						.select()
+						.single();
+
+					if (assignmentError) {
+						console.error('❌ Error creating task assignment:', assignmentError);
+						syncStats.errors++;
+						continue;
+					}
+
+					console.log('✅ Task assignment created successfully:', assignmentData.id);
+
+					// Update the transaction record with the task ID
+					const { error: updateError } = await supabase
+						.from('payment_transactions')
+						.update({
+							task_id: taskData.id,
+							task_assignment_id: assignmentData.id,
+							updated_at: new Date().toISOString()
+						})
+						.eq('id', transaction.id);
+
+					if (updateError) {
+						console.error('❌ Error updating transaction with task ID:', updateError);
+					} else {
+						console.log('✅ Transaction updated with task references');
+					}
+
+					// Create notification
+					const { error: notificationError } = await supabase
+						.from('notifications')
+						.insert({
+							title: 'Payment Transaction Task Assigned',
+							message: `You have been assigned a task for payment transaction ${transaction.bill_number || transaction.id}. Amount: ${(transaction.amount || 0).toLocaleString()} (Retroactive task creation)`,
+							type: 'task_assigned',
+							priority: 'medium',
+							target_type: 'specific_users',
+							target_users: JSON.stringify([receivingRecord.accountant_user_id]),
+							created_by: receivingRecord.user_id,
+							created_by_name: 'System - Transaction Task Sync',
+							task_id: taskData.id,
+							task_assignment_id: assignmentData.id
+						});
+
+					if (notificationError) {
+						console.error('❌ Error creating notification:', notificationError);
+					} else {
+						console.log('✅ Notification created successfully');
+					}
+
+					tasksCreated++;
+					syncStats.tasksCreated++;
+					
+					syncMessage = `Creating tasks for existing transactions... (${tasksCreated}/${transactionsWithoutTasks.length})`;
+
+				} catch (error) {
+					console.error(`❌ Error processing transaction ${transaction.id}:`, error);
+					syncStats.errors++;
+				}
+			}
+
+			if (tasksCreated > 0) {
+				console.log(`🔧 Successfully created ${tasksCreated} tasks for existing transactions`);
+			} else {
+				console.log('✅ All existing transactions already have tasks assigned');
+			}
+
+		} catch (error) {
+			console.error('Error in existing transaction task sync:', error);
+			syncStats.errors++;
+		}
+	}
+
+	// Sync missing payment transactions for COD payments
+	async function syncCODPayments() {
+		// This function is now part of syncAllMissingTransactions
+		// Keeping for backward compatibility
+		console.log('� COD sync is now handled by comprehensive sync function');
+	}
+
+	// Sync missing transaction records for manual payments  
+	async function syncManualPayments() {
+		// This function is now part of syncAllMissingTransactions
+		// Keeping for backward compatibility
+		console.log('🔄 Manual payment sync is now handled by comprehensive sync function');
+	}
+
+	// Generic function to create missing transaction and task
+	async function createMissingTransaction(payment, source) {
+		try {
+			const receivingRecord = payment.receiving_records;
+			console.log(`🔧 Creating transaction for payment ${payment.id}:`, {
+				bill_number: payment.bill_number,
+				vendor_name: payment.vendor_name,
+				payment_method: payment.payment_method,
+				accountant_user_id: receivingRecord?.accountant_user_id,
+				receiver_user_id: receivingRecord?.user_id
+			});
+
+			// Create payment transaction record
+			const { error: transactionError } = await supabase
+				.from('payment_transactions')
+				.insert({
+					payment_schedule_id: payment.id,
+					receiving_record_id: payment.receiving_record_id,
+					receiver_user_id: receivingRecord?.user_id,
+					accountant_user_id: receivingRecord?.accountant_user_id,
+					transaction_date: payment.paid_date || new Date().toISOString(),
+					amount: payment.final_bill_amount || payment.bill_amount,
+					payment_method: payment.payment_method,
+					bank_name: payment.bank_name,
+					iban: payment.iban,
+					vendor_name: payment.vendor_name,
+					bill_number: payment.bill_number,
+					original_bill_url: receivingRecord?.original_bill_url,
+					notes: `Auto-generated by frontend fallback system - ${source}`,
+					created_by: null // System generated
+				});
+
+			if (transactionError) {
+				console.error('❌ Error creating transaction:', transactionError);
+				return;
+			}
+
+			console.log('✅ Transaction record created successfully');
+
+			// Create task for accountant if accountant exists
+			if (receivingRecord?.accountant_user_id) {
+				console.log(`📋 Creating task for accountant: ${receivingRecord.accountant_user_id}`);
+				
+				// Create the task (removed duplicate checking for simplicity)
+				const receiverName = receivingRecord.users?.username || 'Unknown';
+
+				const { data: taskData, error: taskError } = await supabase
+					.from('tasks')
+					.insert({
+						title: 'New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt',
+						description: `Payment Details:
+- Bill Number: ${payment.bill_number || 'N/A'}
+- Bill Amount: ${(payment.final_bill_amount || payment.bill_amount || 0).toLocaleString()}
+- Vendor Name: ${payment.vendor_name || 'N/A'}
+- Receiver: ${receiverName}
+- Payment Method: ${payment.payment_method || 'N/A'}
+
+Auto-generated by frontend fallback system (${source})`,
+						created_by: receivingRecord.user_id,
+						created_by_name: `System - ${source}`,
+						require_task_finished: true,
+						priority: 'medium',
+						status: 'active'
+					})
+					.select()
+					.single();
+
+				if (taskError) {
+					console.error('❌ Error creating task:', taskError);
+				} else if (taskData) {
+					console.log('✅ Task created successfully:', taskData.id);
+					
+					// Create task assignment
+					const { data: assignmentData, error: assignmentError } = await supabase
+						.from('task_assignments')
+						.insert({
+							task_id: taskData.id,
+							assignment_type: 'user',
+							assigned_to_user_id: receivingRecord.accountant_user_id,
+							assigned_by: receivingRecord.user_id,
+							assigned_by_name: `System - ${source}`,
+							deadline_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+							require_task_finished: true,
+							status: 'assigned'
+						})
+						.select()
+						.single();
+
+					if (assignmentError) {
+						console.error('❌ Error creating task assignment:', assignmentError);
+					} else if (assignmentData) {
+						console.log('✅ Task assignment created successfully:', assignmentData.id);
+						syncStats.tasksCreated++; // Track task creation
+						
+						// Create notification
+						const { error: notificationError } = await supabase
+							.from('notifications')
+							.insert({
+								title: 'Payment Task Assigned (Auto-Generated)',
+								message: `You have been assigned a payment processing task for ${payment.vendor_name || 'vendor'}. Bill Amount: ${(payment.final_bill_amount || payment.bill_amount || 0).toLocaleString()} (Generated by ${source})`,
+								type: 'task_assigned',
+								priority: 'medium',
+								target_type: 'specific_users',
+								target_users: JSON.stringify([receivingRecord.accountant_user_id]),
+								created_by: receivingRecord.user_id,
+								created_by_name: `System - ${source}`,
+								task_id: taskData.id,
+								task_assignment_id: assignmentData.id
+							});
+
+						if (notificationError) {
+							console.error('❌ Error creating notification:', notificationError);
+						} else {
+							console.log('✅ Notification created successfully');
+						}
+					}
+				}
+			} else {
+				console.log('⚠️ No accountant assigned to this receiving record - skipping task creation');
+			}
+
+			console.log(`✅ Completed processing for payment ${payment.id} (${source})`);
+		} catch (error) {
+			console.error(`❌ Error creating missing transaction for payment ${payment.id}:`, error);
+		}
+	}
+
+	// General sync function to ensure data consistency
+	async function syncMissingPaymentTransactions() {
+		console.log('🔄 Running comprehensive payment sync check...');
+		syncMessage = 'Verifying payment data consistency...';
+		
+		try {
+			// Update any payments that have payment_status = 'paid' but is_paid = false
+			const { error: statusSyncError } = await supabase
+				.from('vendor_payment_schedule')
+				.update({ is_paid: true })
+				.eq('payment_status', 'paid')
+				.eq('is_paid', false);
+
+			if (statusSyncError) {
+				console.error('Error syncing payment statuses:', statusSyncError);
+			}
+
+			// Update any payments that have is_paid = true but payment_status != 'paid'
+			const { error: flagSyncError } = await supabase
+				.from('vendor_payment_schedule')
+				.update({ payment_status: 'paid' })
+				.eq('is_paid', true)
+				.neq('payment_status', 'paid');
+
+			if (flagSyncError) {
+				console.error('Error syncing payment flags:', flagSyncError);
+			}
+
+			console.log('✅ Payment status synchronization completed');
+		} catch (error) {
+			console.error('Error in payment sync:', error);
+		}
 	}
 	
 	async function loadAllScheduledPaymentsForCards() {
@@ -1080,8 +1525,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		await loadTaskStatusData(); // Load task status data (for Card 4)
 		await loadReceivingRecords();
 		
-		// Auto-process Cash on Delivery payments
-		await processCashOnDeliveryPayments();
+		// COD auto-processing removed - manual payments only
+		console.log('ℹ️ Data refreshed - COD auto-processing disabled');
 		
 		// Final calculation after all data is loaded
 		calculateStatistics();
@@ -1723,6 +2168,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.refresh-text {
 		font-weight: 500;
 	}
+
+	/* Sync Status Styles - REMOVED (COD auto-processing disabled) */
 
 	.content {
 		display: flex;

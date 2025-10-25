@@ -122,23 +122,31 @@
 			// Include both regular tasks and quick tasks
 			const { data: myTasks, error: taskError } = await supabase
 				.from('task_assignments')
-				.select('id')
-				.eq('assigned_to_user_id', currentUserData.id)
-				.in('status', ['assigned', 'in_progress']);
+				.select('id, status')
+				.eq('assigned_to_user_id', currentUserData.id);
 
 			const { data: myQuickTasks, error: quickTaskError } = await supabase
 				.from('quick_task_assignments')
-				.select('id')
-				.eq('assigned_to_user_id', currentUserData.id)
-				.in('status', ['assigned', 'in_progress', 'pending']);
+				.select('id, status')
+				.eq('assigned_to_user_id', currentUserData.id);
 
-			if (!taskError && myTasks && !quickTaskError && myQuickTasks) {
-				taskCount = myTasks.length + myQuickTasks.length;
-			} else if (!taskError && myTasks) {
-				taskCount = myTasks.length;
-			} else if (!quickTaskError && myQuickTasks) {
-				taskCount = myQuickTasks.length;
+			let taskCounter = 0;
+			
+			// Count non-completed regular tasks
+			if (!taskError && myTasks) {
+				taskCounter += myTasks.filter(t => 
+					t.status !== 'completed' && t.status !== 'cancelled'
+				).length;
 			}
+			
+			// Count non-completed quick tasks  
+			if (!quickTaskError && myQuickTasks) {
+				taskCounter += myQuickTasks.filter(t => 
+					t.status !== 'completed' && t.status !== 'cancelled'
+				).length;
+			}
+			
+			taskCount = taskCounter;
 
 		} catch (error) {
 			if (!silent) {

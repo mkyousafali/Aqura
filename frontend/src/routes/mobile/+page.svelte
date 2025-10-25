@@ -127,8 +127,9 @@
 
 			if (!taskError && taskAssignments) {
 				stats.totalTasks = taskAssignments.length;
+				// Count pending tasks based on assignment status - include all non-completed/cancelled statuses
 				stats.pendingTasks = taskAssignments.filter(t => 
-					t.status === 'assigned' || t.status === 'in_progress'
+					t.status !== 'completed' && t.status !== 'cancelled'
 				).length;
 				stats.completedTasks = taskAssignments.filter(t => 
 					t.status === 'completed'

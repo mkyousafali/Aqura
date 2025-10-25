@@ -33,6 +33,65 @@ The version update script modifies:
 2. **`/frontend/package.json`** - Frontend project version
 3. **`/frontend/src/lib/components/Sidebar.svelte`** - User-visible version display
 
+## 📝 Version Popup Content Update
+
+**Important**: After running the version update script, you MUST manually update the version popup content to reflect the changes made in the new version.
+
+### Location
+File: `/frontend/src/lib/components/Sidebar.svelte` (lines ~615-675)
+
+### Required Updates
+1. **Update Section Headers**: Change feature categories to match your changes
+2. **Update Feature Lists**: Replace bullet points with actual features implemented
+3. **Update Release Date**: Set to current date
+4. **Update Version Description**: Update the version subtitle and focus areas
+
+### Content Structure Template
+```svelte
+<div class="update-section">
+    <h4>📱 [Category Name]</h4>
+    <ul>
+        <li><strong>[Feature Name]:</strong> [Description of what was implemented]</li>
+        <li><strong>[Feature Name]:</strong> [Description of what was implemented]</li>
+    </ul>
+</div>
+```
+
+### Common Categories
+- 📱 Mobile Interface Improvements
+- 💰 Financial Management Features  
+- 🔧 Technical Improvements
+- 🎯 User Experience Enhancements
+- 🛠 Database & Functions
+- 📊 Data Management Updates
+- 🔐 Security Improvements
+- 🎨 UI/UX Improvements
+
+### Footer Template
+```svelte
+<div class="version-info-footer">
+    <p><strong>Release Date:</strong> [Current Date]</p>
+    <p><strong>Build:</strong> Production Ready</p>
+    <p><strong>Version:</strong> [Version Number] - [Short Description]</p>
+    <p><strong>Focus:</strong> [Main Focus Areas]</p>
+</div>
+```
+
+### Example Workflow
+1. Run version update: `npm run version:patch`
+2. Edit Sidebar.svelte version popup content
+3. Update feature descriptions to match your changes
+4. Update release date and version info
+5. Commit all changes: `git add -A && git commit -m "feat: description"`
+6. Push to repository: `git push origin master`
+
+### Content Guidelines
+- **Be Specific**: Describe exactly what was implemented, not just "improvements"
+- **Use Action Words**: "Fixed", "Implemented", "Enhanced", "Added", "Optimized"
+- **Include Context**: Mention specific components, features, or user benefits
+- **Group Related Changes**: Organize features by category for better readability
+- **Update Dates**: Always use the current release date
+
 ## 🔧 Manual Script Usage
 
 ```bash

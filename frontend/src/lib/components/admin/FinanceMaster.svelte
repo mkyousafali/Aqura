@@ -2,6 +2,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PaymentManager from './vendor/PaymentManager.svelte';
+	import ManualScheduling from './finance/ManualScheduling.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -16,6 +17,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			description: 'Manage vendor payments and financial records',
 			icon: '💳',
 			color: 'purple'
+		},
+		{
+			id: 'manual-scheduling',
+			title: 'Manual Scheduling',
+			description: 'Schedule payments manually for unscheduled records',
+			icon: '📅',
+			color: 'blue'
 		}
 	];
 
@@ -34,6 +42,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				position: { 
 					x: 120 + (Math.random() * 100),
 					y: 120 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else if (financeOperation.id === 'manual-scheduling') {
+			// Open Manual Scheduling component
+			openWindow({
+				id: windowId,
+				title: `Manual Scheduling #${instanceNumber}`,
+				component: ManualScheduling,
+				icon: financeOperation.icon,
+				size: { width: 1200, height: 800 },
+				position: { 
+					x: 140 + (Math.random() * 100),
+					y: 140 + (Math.random() * 100) 
 				},
 				resizable: true,
 				minimizable: true,
@@ -138,6 +163,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.finance-card.purple:hover {
 		border-color: #7c3aed;
 		background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+	}
+
+	.finance-card.blue {
+		border-color: #3b82f6;
+		background: linear-gradient(135deg, #f3f4f6 0%, #eff6ff 100%);
+	}
+
+	.finance-card.blue:hover {
+		border-color: #2563eb;
+		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
 	}
 
 	.card-icon {
