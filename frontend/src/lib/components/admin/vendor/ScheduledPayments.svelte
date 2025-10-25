@@ -200,12 +200,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Format currency
 	function formatCurrency(amount) {
-		return new Intl.NumberFormat('en-US', {
-			style: 'currency',
-			currency: 'SAR',
-			minimumFractionDigits: 0,
-			maximumFractionDigits: 0
-		}).format(amount).replace('SAR', 'SAR');
+		if (!amount || amount === 0) return '0.00';
+		
+		// Convert to number and format with exact precision (no rounding)
+		const numericAmount = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+		
+		// Format with exactly 2 decimal places without rounding for display
+		const formattedAmount = numericAmount.toFixed(2);
+		
+		// Add thousand separators while preserving exact decimals
+		const [integer, decimal] = formattedAmount.split('.');
+		const integerWithCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		
+		return `${integerWithCommas}.${decimal}`;
 	}
 
 	// Check if day is today

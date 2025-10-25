@@ -144,6 +144,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 
 			allScheduledPaymentsData = data || [];
+			console.log('📋 Loaded scheduled payments data:', {
+				count: allScheduledPaymentsData.length,
+				sample: allScheduledPaymentsData[0]
+			});
 		} catch (err) {
 			console.error('Error loading all scheduled payments for cards:', err);
 		}
@@ -369,7 +373,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 
 			paidTransactions = data || [];
-			console.log(`Total paid transactions loaded: ${paidTransactions.length}`);
+			console.log('💰 Loaded paid transactions data:', {
+				count: paidTransactions.length,
+				sample: paidTransactions[0]
+			});
 		} catch (err) {
 			console.error('Error loading paid transactions:', err);
 		}
@@ -401,30 +408,41 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		return scheduleInfo.payment_status || 'scheduled';
 	}
 
-	// Sort records to show unscheduled payments first, ordered by due date
-	async function sortRecordsByScheduleStatus() {
+	// Sort records to show unpaid payments first (by due date), then paid payments
+	async function sortRecordsByPaymentStatus() {
 		receivingRecords.sort((a, b) => {
-			const aScheduled = isPaymentScheduled(a.id);
-			const bScheduled = isPaymentScheduled(b.id);
+			const aPaid = isPaymentPaid(a.id);
+			const bPaid = isPaymentPaid(b.id);
 
-			// If one is scheduled and one is not, unscheduled comes first
-			if (aScheduled && !bScheduled) return 1;
-			if (!aScheduled && bScheduled) return -1;
+			// If one is paid and one is unpaid, unpaid comes first
+			if (aPaid && !bPaid) return 1;
+			if (!aPaid && bPaid) return -1;
 
-			// If both are unscheduled, sort by due date (earliest first)
-			if (!aScheduled && !bScheduled) {
+			// If both are unpaid, sort by due date (earliest/most urgent first)
+			if (!aPaid && !bPaid) {
+				// Handle overdue payments first (no due date or past due)
 				if (!a.due_date && !b.due_date) return 0;
-				if (!a.due_date) return 1; // Records without due date go to end
+				if (!a.due_date) return 1; // Records without due date go after those with due dates
 				if (!b.due_date) return -1;
-				return new Date(a.due_date) - new Date(b.due_date);
+				
+				const aDueDate = new Date(a.due_date);
+				const bDueDate = new Date(b.due_date);
+				const today = new Date();
+				
+				const aOverdue = aDueDate < today;
+				const bOverdue = bDueDate < today;
+				
+				// Overdue payments come first, sorted by how overdue they are
+				if (aOverdue && !bOverdue) return -1;
+				if (!aOverdue && bOverdue) return 1;
+				
+				// Both overdue or both not overdue - sort by due date
+				return aDueDate - bDueDate;
 			}
 
-			// If both are scheduled, sort by due date as well
-			if (aScheduled && bScheduled) {
-				if (!a.due_date && !b.due_date) return 0;
-				if (!a.due_date) return 1;
-				if (!b.due_date) return -1;
-				return new Date(a.due_date) - new Date(b.due_date);
+			// If both are paid, sort by created date (newest first)
+			if (aPaid && bPaid) {
+				return new Date(b.created_at) - new Date(a.created_at);
 			}
 
 			return 0;
@@ -461,15 +479,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			await loadScheduledPayments();
 
 			// No need for manual vendor matching anymore - data comes with proper JOINs
-			// Filter out bills that are marked as paid
-			receivingRecords = (receivingData || []).filter(record => {
-				const isPaid = isPaymentPaid(record.id);
+			// Show ALL records (both paid and unpaid) but sort unpaid ones first
+			receivingRecords = receivingData || [];
 
-				return !isPaid;
-			});
-
-			// Sort records: unscheduled payments first (by due date), then scheduled payments
-			await sortRecordsByScheduleStatus();
+			// Sort records: unpaid first (by due date), then paid records
+			await sortRecordsByPaymentStatus();
 
 			filteredRecords = receivingRecords;
 			totalRecords = receivingRecords.length;
@@ -515,30 +529,40 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		sortFilteredRecords();
 	}
 
-	// Sort filtered records by schedule status and due date
+	// Sort filtered records by payment status and due date
 	function sortFilteredRecords() {
 		filteredRecords.sort((a, b) => {
-			const aScheduled = isPaymentScheduled(a.id);
-			const bScheduled = isPaymentScheduled(b.id);
+			const aPaid = isPaymentPaid(a.id);
+			const bPaid = isPaymentPaid(b.id);
 
-			// If one is scheduled and one is not, unscheduled comes first
-			if (aScheduled && !bScheduled) return 1;
-			if (!aScheduled && bScheduled) return -1;
+			// If one is paid and one is unpaid, unpaid comes first
+			if (aPaid && !bPaid) return 1;
+			if (!aPaid && bPaid) return -1;
 
-			// If both are unscheduled, sort by due date (earliest first)
-			if (!aScheduled && !bScheduled) {
+			// If both are unpaid, sort by due date (earliest/most urgent first)
+			if (!aPaid && !bPaid) {
 				if (!a.due_date && !b.due_date) return 0;
-				if (!a.due_date) return 1; // Records without due date go to end
+				if (!a.due_date) return 1; // Records without due date go after those with due dates
 				if (!b.due_date) return -1;
-				return new Date(a.due_date) - new Date(b.due_date);
+				
+				const aDueDate = new Date(a.due_date);
+				const bDueDate = new Date(b.due_date);
+				const today = new Date();
+				
+				const aOverdue = aDueDate < today;
+				const bOverdue = bDueDate < today;
+				
+				// Overdue payments come first, sorted by how overdue they are
+				if (aOverdue && !bOverdue) return -1;
+				if (!aOverdue && bOverdue) return 1;
+				
+				// Both overdue or both not overdue - sort by due date
+				return aDueDate - bDueDate;
 			}
 
-			// If both are scheduled, sort by due date as well
-			if (aScheduled && bScheduled) {
-				if (!a.due_date && !b.due_date) return 0;
-				if (!a.due_date) return 1;
-				if (!b.due_date) return -1;
-				return new Date(a.due_date) - new Date(b.due_date);
+			// If both are paid, sort by created date (newest first)
+			if (aPaid && bPaid) {
+				return new Date(b.created_at) - new Date(a.created_at);
 			}
 
 			return 0;
@@ -551,9 +575,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const currentMonth = today.getMonth();
 		const currentYear = today.getFullYear();
 
-		// Get unique vendors from receiving records
+		// Get unique vendors from scheduled payments
 		const uniqueVendors = new Set();
-		receivingRecords.forEach(record => {
+		allScheduledPaymentsData.forEach(record => {
 			if (record.vendor_id) {
 				uniqueVendors.add(record.vendor_id);
 			}
@@ -565,6 +589,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		let completed = 0;
 		let processing = 0;
 		let overdue = 0;
+		
+		// Scheduled payments calculations (from vendor_payment_schedule table)
 		let scheduledAmount = 0;
 		let scheduledByPaymentMethod = {};
 		let totalScheduledBills = 0;
@@ -572,36 +598,51 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		let unpaidScheduledByPaymentMethod = {};
 		let unpaidScheduledBills = 0;
 
-		// Initialize all payment categories with 0 for scheduled payments
+		// Initialize all payment categories with 0
 		paymentCategories.forEach(category => {
 			scheduledByPaymentMethod[category] = 0;
 			unpaidScheduledByPaymentMethod[category] = 0;
 		});
 
-		// Calculate scheduled payments (directly from vendor_payment_schedule table)
-		// This shows ALL scheduled payments whether paid or not, from vendor_payment_schedule only
+		// Calculate from vendor_payment_schedule table ONLY
 		allScheduledPaymentsData.forEach(scheduleRecord => {
+			const recordDate = new Date(scheduleRecord.created_at || scheduleRecord.scheduled_date);
+			const isThisMonth = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+			
+			if (isThisMonth) {
+				totalThisMonth++;
+			}
+
 			// Count total scheduled bills (both paid and unpaid)
 			totalScheduledBills++;
 			
 			// Get amount from vendor_payment_schedule fields
 			const amount = scheduleRecord.final_bill_amount || scheduleRecord.bill_amount || 0;
-			
 			scheduledAmount += amount;
 
-			// Count by status for processing/completed counters
+			// Count by payment status
 			if (scheduleRecord.is_paid === true) {
 				completed++;
 			} else {
-				processing++;
+				// Check if overdue for unpaid scheduled payments
+				if (scheduleRecord.due_date) {
+					const dueDate = new Date(scheduleRecord.due_date);
+					if (dueDate < today) {
+						overdue++;
+					} else {
+						processing++;
+					}
+				} else {
+					processing++;
+				}
+				
 				// Count unpaid scheduled payments
 				unpaidScheduledBills++;
 				unpaidScheduledAmount += amount;
 			}
 
-			// Get payment method from vendor_payment_schedule table directly
+			// Normalize payment method
 			const rawPaymentMethod = scheduleRecord.payment_method || 'Cash on Delivery';
-
 			let paymentMethod = 'Cash on Delivery';
 			
 			if (rawPaymentMethod.toLowerCase().includes('cash on delivery') || rawPaymentMethod.toLowerCase().includes('cod')) {
@@ -614,6 +655,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				paymentMethod = 'Bank Credit';
 			}
 
+			// Add to scheduled totals
 			scheduledByPaymentMethod[paymentMethod] += amount;
 			
 			// Add to unpaid totals if not paid
@@ -622,33 +664,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 		});
 
-		// Calculate other statistics from receiving_records (for table and unscheduled payments)
+		// Count pending payments from receiving_records that are NOT in vendor_payment_schedule
 		receivingRecords.forEach(record => {
-			const recordDate = new Date(record.created_at);
-			const isThisMonth = recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
-			
-			if (isThisMonth) {
-				totalThisMonth++;
-			}
-
-			// Check if payment is NOT scheduled for pending/overdue counts
+			const isPaid = isPaymentPaid(record.id);
 			const isScheduled = isPaymentScheduled(record.id);
-			if (!isScheduled) {
-				// Check if overdue based on due date for unscheduled payments
-				if (record.due_date) {
-					const dueDate = new Date(record.due_date);
-					if (dueDate < today) {
-						overdue++;
-					} else {
-						pending++;
-					}
-				} else {
-					pending++;
-				}
+			
+			// Only count unscheduled unpaid records as pending
+			if (!isPaid && !isScheduled) {
+				pending++;
 			}
 		});
 
-		// Calculate paid amounts (from payment_transactions table)
+		// Calculate paid amounts (from payment_transactions table ONLY)
 		let paidAmount = 0;
 		let paidByPaymentMethod = {};
 		let paidTransactionsCount = 0;
@@ -658,13 +685,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			paidByPaymentMethod[category] = 0;
 		});
 
+		// Calculate from payment_transactions table ONLY
 		paidTransactions.forEach(transaction => {
 			paidTransactionsCount++;
-			// Get amount from payment_transactions table amount column (migration 58)
-			const amount = transaction.amount || 0;
+			
+			// Get amount from payment_transactions table
+			const amount = transaction.amount || transaction.final_bill_amount || transaction.bill_amount || 0;
 			paidAmount += amount;
 
-			// Get payment method from payment_transactions table payment_method column (migration 58)
+			// Get payment method from payment_transactions table
 			const paymentMethod = transaction.payment_method || 'Cash on Delivery';
 
 			// Map payment method to standard category
@@ -700,14 +729,47 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			paidTransactionsCount: paidTransactionsCount,
 			taskStatus: taskStatusData || { totalTasks: 0, completedTasks: 0, pendingTasks: 0 }
 		};
+
+		// Debug logging
+		console.log('📊 Payment Manager Statistics Debug:');
+		console.log('🗓️ Scheduled Payments:', {
+			total: totalScheduledBills,
+			amount: scheduledAmount,
+			breakdown: scheduledByPaymentMethod
+		});
+		console.log('💰 Paid Payments:', {
+			total: paidTransactionsCount,
+			amount: paidAmount,
+			breakdown: paidByPaymentMethod
+		});
+		console.log('⏳ Unpaid Scheduled:', {
+			total: unpaidScheduledBills,
+			amount: unpaidScheduledAmount,
+			breakdown: unpaidScheduledByPaymentMethod
+		});
+		console.log('📋 Other Counts:', {
+			pending: pending,
+			processing: processing,
+			completed: completed,
+			overdue: overdue
+		});
 	}
 
 	// Format currency
 	function formatCurrency(amount) {
-		return new Intl.NumberFormat('en-US', {
-			style: 'currency',
-			currency: 'SAR'
-		}).format(amount || 0);
+		if (!amount || amount === 0) return '0.00';
+		
+		// Convert to number and format with exact precision (no rounding)
+		const numericAmount = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+		
+		// Format with exactly 2 decimal places without rounding for display
+		const formattedAmount = numericAmount.toFixed(2);
+		
+		// Add thousand separators while preserving exact decimals
+		const [integer, decimal] = formattedAmount.split('.');
+		const integerWithCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		
+		return `${integerWithCommas}.${decimal}`;
 	}
 
 	// Format date
@@ -867,7 +929,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		await loadScheduledPayments();
 		
 		// Re-sort records after scheduling
-		await sortRecordsByScheduleStatus();
+		await sortRecordsByPaymentStatus();
 		if (searchQuery.trim()) {
 			handleSearch();
 		} else {
@@ -1199,6 +1261,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			{:else}
 				<div class="table-info">
 					<span>Showing {filteredRecords.length} of {totalRecords} records</span>
+					<div class="payment-summary">
+						<span class="unpaid-count">📋 {filteredRecords.filter(r => !isPaymentPaid(r.id)).length} Unpaid</span>
+						<span class="paid-count">✅ {filteredRecords.filter(r => isPaymentPaid(r.id)).length} Paid</span>
+					</div>
 				</div>
 
 				<div class="records-container">
@@ -1221,7 +1287,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						</div>
 						
 						{#each filteredRecords as record}
-							<div class="table-row">
+							<div class="table-row {isPaymentPaid(record.id) ? 'paid-record' : 'unpaid-record'}">
 								<div class="cell certificate-cell">
 									{#if record.certificate_url}
 										<div class="certificate-thumbnail" on:click={() => viewCertificate(record.certificate_url)}>
@@ -1267,6 +1333,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<div class="bill-info">
 										<strong>#{record.bill_number || 'N/A'}</strong>
 										<small>{formatDate(record.bill_date)}</small>
+										{#if isPaymentPaid(record.id)}
+											<div class="payment-status-badge paid">✅ PAID</div>
+										{:else}
+											<div class="payment-status-badge unpaid">⏳ UNPAID</div>
+										{/if}
 									</div>
 								</div>
 								
@@ -2824,6 +2895,74 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			width: 95%;
 			margin: 20px;
 		}
+	}
+
+	/* Payment Status Styling */
+	.paid-record {
+		background: #f0fdf4;
+		border-left: 4px solid #10b981;
+		opacity: 0.8;
+	}
+
+	.unpaid-record {
+		background: #fefefe;
+		border-left: 4px solid #f59e0b;
+	}
+
+	.unpaid-record.overdue {
+		background: #fef2f2;
+		border-left: 4px solid #ef4444;
+	}
+
+	.payment-status-badge {
+		margin-top: 4px;
+		padding: 2px 6px;
+		border-radius: 12px;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		display: inline-block;
+		width: fit-content;
+	}
+
+	.payment-status-badge.paid {
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #bbf7d0;
+	}
+
+	.payment-status-badge.unpaid {
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #fde68a;
+	}
+
+	.payment-summary {
+		display: flex;
+		gap: 16px;
+		margin-top: 8px;
+		align-items: center;
+	}
+
+	.unpaid-count {
+		background: #fef3c7;
+		color: #92400e;
+		padding: 4px 8px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 600;
+		border: 1px solid #fde68a;
+	}
+
+	.paid-count {
+		background: #dcfce7;
+		color: #166534;
+		padding: 4px 8px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 600;
+		border: 1px solid #bbf7d0;
 	}
 
 
