@@ -295,7 +295,18 @@
 	// Format currency display
 	function formatCurrency(amount) {
 		if (!amount || amount === 0) return '0.00';
-		return `${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+		
+		// Convert to number and format with exact precision (no rounding)
+		const numericAmount = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+		
+		// Format with exactly 2 decimal places without rounding for display
+		const formattedAmount = numericAmount.toFixed(2);
+		
+		// Add thousand separators while preserving exact decimals
+		const [integer, decimal] = formattedAmount.split('.');
+		const integerWithCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		
+		return `${integerWithCommas}.${decimal}`;
 	}
 
 	// Handle date selection and scroll to that date (legacy function for dropdown if needed)
