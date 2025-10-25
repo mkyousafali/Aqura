@@ -8,10 +8,12 @@
 	let branches = [];
 	let vendors = [];
 	let filteredVendors = [];
+	let searchTerm = '';
 	
 	// Two-step form state
 	let currentStep = 1;
 	let selectedBranch = null;
+	let selectedBranchId = ''; // For dropdown binding
 	let selectedVendor = null;
 	
 	// Manual entry form for vendor_payment_schedule table
@@ -20,7 +22,7 @@
 		bill_date: '',
 		bill_amount: 0,
 		final_bill_amount: 0,
-		payment_method: 'Manual Transfer',
+		payment_method: 'Cash on Delivery',
 		bank_name: '',
 		iban: '',
 		due_date: '',
@@ -32,12 +34,10 @@
 
 	// Payment method options
 	const paymentMethods = [
-		'Manual Transfer',
-		'Bank Transfer',
-		'Check',
-		'Cash',
-		'Credit Card',
-		'Cash on Delivery'
+		'Cash on Delivery',
+		'Bank on Delivery', 
+		'Cash Credit',
+		'Bank Credit'
 	];
 
 	// Payment status options
@@ -54,6 +54,12 @@
 		await loadData();
 		setDefaultDates();
 	});
+
+	// Reactive statement to ensure dropdown binding works properly
+	$: if (selectedBranch && selectedBranchId !== selectedBranch.id.toString()) {
+		selectedBranchId = selectedBranch.id.toString();
+		console.log('🔄 Syncing dropdown value:', selectedBranchId);
+	}
 
 	async function loadData() {
 		isLoading = true;
@@ -85,27 +91,192 @@
 
 	async function loadVendors() {
 		try {
-			const { data, error } = await supabase
-				.from('vendors')
-				.select('erp_vendor_id, vendor_name, bank_name, iban, vat_number, branch_id')
-				.order('vendor_name');
+			console.log('🔄 Loading vendors - timestamp:', new Date().toISOString());
+			
+			// Load ALL vendors using pagination to bypass Supabase default limits
+			let allVendors = [];
+			let hasMore = true;
+			let offset = 0;
+			const pageSize = 1000;
+			
+			while (hasMore) {
+				console.log(`🔄 Loading vendors page ${Math.floor(offset/pageSize) + 1} (offset: ${offset})`);
+				
+				const { data, error } = await supabase
+					.from('vendors')
+					.select('erp_vendor_id, vendor_name, bank_name, iban, vat_number, branch_id, status')
+					.order('erp_vendor_id') // Order by ID for consistent pagination
+					.range(offset, offset + pageSize - 1);
 
-			if (error) throw error;
-			vendors = data || [];
+				if (error) {
+					console.error('❌ Error loading vendors:', error);
+					throw error;
+				}
+				
+				const pageVendors = data || [];
+				allVendors = [...allVendors, ...pageVendors];
+				
+				console.log(`📄 Page ${Math.floor(offset/pageSize) + 1}: loaded ${pageVendors.length} vendors (total so far: ${allVendors.length})`);
+				
+				// Check if we got a full page - if not, we're done
+				hasMore = pageVendors.length === pageSize;
+				offset += pageSize;
+				
+				// Safety check to prevent infinite loops
+				if (offset > 10000) {
+					console.warn('⚠️ Safety limit reached, stopping pagination');
+					break;
+				}
+			}
+			
+			vendors = allVendors;
+			
+			console.log(`📊 Loaded ${vendors.length} vendors total (no limit applied)`);
+			console.log('📊 First 5 vendors:', vendors.slice(0, 5));
+			
+			// Debug: Check for vendors with branch_id issues
+			const vendorsWithNullBranch = vendors.filter(v => !v.branch_id);
+			const vendorsWithBranch3 = vendors.filter(v => v.branch_id === 3);
+			const vendorsWithBranch3String = vendors.filter(v => v.branch_id === '3');
+			
+			console.log(`📊 Vendors with null/undefined branch_id: ${vendorsWithNullBranch.length}`);
+			console.log(`📊 Vendors with branch_id === 3: ${vendorsWithBranch3.length}`);
+			console.log(`📊 Vendors with branch_id === '3': ${vendorsWithBranch3String.length}`);
+			
+			// Try to detect if we're hitting a limit by checking if the last vendor has branch_id 3
+			const lastVendors = vendors.slice(-10);
+			const lastVendorsWithBranch3 = lastVendors.filter(v => v.branch_id === 3);
+			console.log(`📊 Last 10 vendors:`, lastVendors.map(v => `${v.erp_vendor_id}(${v.branch_id})`));
+			console.log(`📊 Last 10 vendors with branch 3: ${lastVendorsWithBranch3.length}`);
+			
+			// If we're missing vendors, try loading branch 3 specifically
+			if (vendorsWithBranch3.length < 500) {
+				console.log('� Vendor count seems low, trying direct branch query...');
+				await loadVendorsDirectlyForBranch3();
+			}
+			
+			// Group vendors by branch for debugging
+			const branchGroups = vendors.reduce((acc, vendor) => {
+				const branchId = vendor.branch_id || 'unassigned';
+				if (!acc[branchId]) acc[branchId] = [];
+				acc[branchId].push(vendor);
+				return acc;
+			}, {});
+			
+			console.log('📊 Vendors by branch:', branchGroups);
 		} catch (error) {
 			console.error('Error loading vendors:', error);
 		}
 	}
 
+	// Helper function to load vendors directly for branch 3
+	async function loadVendorsDirectlyForBranch3() {
+		try {
+			console.log('🎯 Loading vendors directly for branch 3...');
+			const { data, error } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, bank_name, iban, vat_number, branch_id, status')
+				.eq('branch_id', 3)
+				.order('vendor_name');
+
+			if (error) {
+				console.error('❌ Error loading branch 3 vendors:', error);
+				return;
+			}
+			
+			const branch3Vendors = data || [];
+			console.log(`🎯 Direct query found ${branch3Vendors.length} vendors for branch 3`);
+			
+			// Merge with existing vendors, avoiding duplicates
+			const existingVendorIds = new Set(vendors.map(v => `${v.erp_vendor_id}-${v.branch_id}`));
+			const newVendors = branch3Vendors.filter(v => 
+				!existingVendorIds.has(`${v.erp_vendor_id}-${v.branch_id}`)
+			);
+			
+			if (newVendors.length > 0) {
+				console.log(`🎯 Adding ${newVendors.length} missing vendors for branch 3`);
+				vendors = [...vendors, ...newVendors];
+			}
+			
+		} catch (error) {
+			console.error('Error loading branch 3 vendors directly:', error);
+		}
+	}
+
 	function onBranchSelect(branchId) {
-		selectedBranch = branches.find(b => b.id === branchId);
+		console.log('🏛️ Branch selection triggered:', branchId, typeof branchId);
+		if (!branchId) {
+			selectedBranch = null;
+			selectedBranchId = '';
+			filteredVendors = [];
+			return;
+		}
+		
+		// Convert to number for comparison, but keep string for dropdown
+		const branchIdNum = parseInt(branchId);
+		selectedBranch = branches.find(b => b.id === branchIdNum);
+		selectedBranchId = branchId.toString(); // Ensure it's a string for dropdown
+		console.log('🏛️ Selected branch:', selectedBranch);
+		console.log('🏛️ Selected branch ID for dropdown:', selectedBranchId);
+		
 		if (selectedBranch) {
 			// Filter vendors by selected branch
-			filteredVendors = vendors.filter(v => v.branch_id === branchId);
+			searchTerm = ''; // Clear search when changing branch
+			filterVendors();
 			
 			// Update form with branch details
 			manualForm.branch_id = selectedBranch.id;
 			manualForm.branch_name = selectedBranch.name_en;
+		}
+	}
+
+	function filterVendors() {
+		if (!selectedBranch) return;
+		
+		const branchIdStr = selectedBranch.id.toString();
+		const branchIdNum = selectedBranch.id;
+		
+		console.log(`🔍 Filtering for branch: ${selectedBranch.name_en} (ID: ${branchIdNum})`);
+		
+		// More inclusive filtering - handle both string and number branch_id
+		let baseVendors = vendors.filter(v => {
+			if (!v.branch_id && v.branch_id !== 0) return false; // Skip null/undefined but allow 0
+			
+			// Check both string and number comparisons
+			const matches = (
+				v.branch_id === branchIdNum ||           // Number comparison
+				v.branch_id === branchIdStr ||           // String comparison
+				v.branch_id.toString() === branchIdStr   // Convert to string comparison
+			);
+			
+			return matches;
+		});
+		
+		console.log(`🏢 Found ${baseVendors.length} vendors for branch ${selectedBranch.name_en} (ID: ${selectedBranch.id})`);
+		console.log(`🔍 Expected vendor count: 503 (from exact query)`);
+		
+		if (baseVendors.length !== 503) {
+			console.warn(`⚠️ Vendor count mismatch! Expected 503, got ${baseVendors.length}`);
+			// Show some sample vendors that might be missing
+			const sampleMissingVendors = vendors.filter(v => 
+				v.branch_id && 
+				v.branch_id != branchIdNum && 
+				v.branch_id != branchIdStr
+			).slice(0, 5);
+			console.log('🔍 Sample vendors with different branch_id format:', sampleMissingVendors);
+		}
+		
+		if (searchTerm.trim()) {
+			const search = searchTerm.toLowerCase();
+			const searchOriginal = searchTerm.trim();
+			filteredVendors = baseVendors.filter(vendor => 
+				vendor.vendor_name.toLowerCase().includes(search) ||
+				vendor.erp_vendor_id.toString().includes(searchOriginal)
+			);
+			console.log(`🔍 Search "${searchTerm}" found ${filteredVendors.length} vendors`);
+			console.log(`🔍 Matching vendors:`, filteredVendors.map(v => `${v.erp_vendor_id} - ${v.vendor_name}`));
+		} else {
+			filteredVendors = baseVendors;
 		}
 	}
 
@@ -152,6 +323,39 @@
 		}
 	}
 
+	function handlePaymentMethodChange() {
+		if (manualForm.payment_method) {
+			// Handle delivery methods
+			if (manualForm.payment_method === 'Cash on Delivery' || manualForm.payment_method === 'Bank on Delivery') {
+				manualForm.credit_period = '';
+				// Set due date to current date for both delivery methods
+				const today = new Date();
+				manualForm.due_date = today.toISOString().split('T')[0];
+				
+				if (manualForm.payment_method === 'Cash on Delivery') {
+					manualForm.bank_name = '';
+					manualForm.iban = '';
+				}
+			}
+			// Clear bank fields for cash credit
+			else if (manualForm.payment_method === 'Cash Credit') {
+				manualForm.bank_name = '';
+				manualForm.iban = '';
+			}
+		}
+	}
+
+	function handleCreditPeriodChange() {
+		if (manualForm.credit_period && (manualForm.payment_method === 'Cash Credit' || manualForm.payment_method === 'Bank Credit')) {
+			const billDate = new Date(manualForm.bill_date);
+			const creditDays = parseInt(manualForm.credit_period);
+			if (creditDays > 0) {
+				const dueDate = new Date(billDate.getTime() + (creditDays * 24 * 60 * 60 * 1000));
+				manualForm.due_date = dueDate.toISOString().split('T')[0];
+			}
+		}
+	}
+
 	function copyBillAmount() {
 		manualForm.final_bill_amount = manualForm.bill_amount;
 	}
@@ -173,12 +377,53 @@
 				return;
 			}
 
+			// Validate bill amount is greater than 0
+			if (parseFloat(manualForm.bill_amount) <= 0) {
+				alert('❌ Bill Amount must be greater than 0');
+				return;
+			}
+
+			// Check for duplicate bills before saving
+			console.log('Checking for duplicate payment schedules...');
+			const { data: existingRecords, error: duplicateError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('id, bill_number, bill_amount, created_at, vendor_name, branch_name')
+				.eq('vendor_id', selectedVendor.erp_vendor_id.toString()) // Use vendor_id and convert to string
+				.eq('branch_id', selectedBranch.id)
+				.eq('bill_amount', parseFloat(manualForm.bill_amount))
+				.eq('bill_number', manualForm.bill_number.trim());
+
+			if (duplicateError) {
+				console.error('Error checking for duplicates:', duplicateError);
+				alert('❌ Error checking for duplicate bills: ' + duplicateError.message);
+				return;
+			}
+
+			if (existingRecords && existingRecords.length > 0) {
+				const duplicateRecord = existingRecords[0];
+				const duplicateDate = new Date(duplicateRecord.created_at).toLocaleDateString();
+				
+				alert(
+					`❌ Payment Schedule Already Exists!\n\n` +
+					`This bill has already been scheduled for payment:\n` +
+					`• Bill Number: ${duplicateRecord.bill_number}\n` +
+					`• Bill Amount: ${formatCurrency(duplicateRecord.bill_amount)}\n` +
+					`• Vendor: ${duplicateRecord.vendor_name}\n` +
+					`• Branch: ${duplicateRecord.branch_name}\n` +
+					`• Previously scheduled on: ${duplicateDate}\n\n` +
+					`Please check the bill details and ensure this is not a duplicate entry.`
+				);
+				
+				console.log('Duplicate payment schedule found:', duplicateRecord);
+				return;
+			}
+
 			// Insert into vendor_payment_schedule table
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.insert({
 					bill_number: manualForm.bill_number,
-					erp_vendor_id: selectedVendor.erp_vendor_id,
+					vendor_id: selectedVendor.erp_vendor_id.toString(), // Use vendor_id and convert to string
 					vendor_name: selectedVendor.vendor_name,
 					branch_id: selectedBranch.id,
 					branch_name: selectedBranch.name_en,
@@ -215,15 +460,17 @@
 	function resetForm() {
 		currentStep = 1;
 		selectedBranch = null;
+		selectedBranchId = '';
 		selectedVendor = null;
 		filteredVendors = [];
+		searchTerm = '';
 		
 		manualForm = {
 			bill_number: '',
 			bill_date: '',
 			bill_amount: 0,
 			final_bill_amount: 0,
-			payment_method: 'Manual Transfer',
+			payment_method: 'Cash on Delivery',
 			bank_name: '',
 			iban: '',
 			due_date: '',
@@ -269,70 +516,100 @@
 		<div class="step-container">
 			<div class="step-header">
 				<h2>🏢 Step 1: Select Branch & Vendor</h2>
-				<p>Choose a branch to see available vendors, then select the vendor for payment scheduling</p>
+				<p>Choose a branch from the dropdown, then search and select the vendor for payment scheduling</p>
 			</div>
 
-			<!-- Branch Selection -->
-			<div class="selection-section">
-				<h3>Select Branch</h3>
-				<div class="branch-grid">
-					{#each branches as branch}
-						<div 
-							class="branch-card" 
-							class:selected={selectedBranch?.id === branch.id}
-							on:click={() => onBranchSelect(branch)}
-							role="button"
-							tabindex="0"
-						>
-							<div class="branch-icon">🏢</div>
-							<div class="branch-name">{branch.name_en}</div>
-							<div class="branch-code">{branch.id}</div>
-						</div>
-					{/each}
-				</div>
-			</div>
-
-			<!-- Vendor Selection (shown after branch selection) -->
-			{#if selectedBranch && filteredVendors.length > 0}
+			<div class="selection-content">
+				<!-- Branch Selection Dropdown -->
 				<div class="selection-section">
-					<h3>Select Vendor from {selectedBranch.name_en}</h3>
-					<div class="vendor-table-container">
-						<table class="vendor-table">
-							<thead>
-								<tr>
-									<th>Vendor ID</th>
-									<th>Vendor Name</th>
-									<th>Action</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredVendors as vendor}
-									<tr 
-										class="vendor-row" 
-										class:selected={selectedVendor?.erp_vendor_id === vendor.erp_vendor_id}
-									>
-										<td class="vendor-id">{vendor.erp_vendor_id}</td>
-										<td class="vendor-name">{vendor.vendor_name}</td>
-										<td class="vendor-action">
-											<button 
-												type="button" 
-												class="select-vendor-btn"
-												on:click={() => onVendorSelect(vendor)}
-											>
-												Select
-											</button>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
+					<h3>Select Branch</h3>
+					<div class="dropdown-container">
+						<select 
+							bind:value={selectedBranchId} 
+							on:change={(e) => onBranchSelect(e.target.value)}
+							class="branch-dropdown"
+						>
+							<option value="">Choose a branch...</option>
+							{#each branches as branch}
+								<option value={branch.id}>{branch.name_en}</option>
+							{/each}
+						</select>
 					</div>
 				</div>
-			{:else if selectedBranch && filteredVendors.length === 0}
-				<div class="no-vendors">
-					<p>⚠️ No vendors found for {selectedBranch.name_en}</p>
-				</div>
-			{/if}
+
+				<!-- Vendor Selection (shown after branch selection) -->
+				{#if selectedBranch}
+					<div class="selection-section">
+						<h3>Select Vendor from {selectedBranch.name_en} ({filteredVendors.length} vendors available)</h3>
+						
+						<!-- Search Input -->
+						<div class="search-container">
+							<div class="search-input-wrapper">
+								<span class="search-icon">🔍</span>
+								<input 
+									type="text" 
+									bind:value={searchTerm}
+									on:input={filterVendors}
+									placeholder="Search vendors by name or ID..."
+									class="search-input"
+								>
+								{#if searchTerm}
+									<button 
+										type="button" 
+										class="clear-search" 
+										on:click={() => { searchTerm = ''; filterVendors(); }}
+									>
+										✕
+									</button>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Vendor Table -->
+						{#if filteredVendors.length > 0}
+							<div class="vendor-table-container">
+								<table class="vendor-table">
+									<thead>
+										<tr>
+											<th>Vendor ID</th>
+											<th>Vendor Name</th>
+											<th>Action</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each filteredVendors as vendor}
+											<tr 
+												class="vendor-row" 
+												class:selected={selectedVendor?.erp_vendor_id === vendor.erp_vendor_id}
+											>
+												<td class="vendor-id">{vendor.erp_vendor_id}</td>
+												<td class="vendor-name">{vendor.vendor_name}</td>
+												<td class="vendor-action">
+													<button 
+														type="button" 
+														class="select-vendor-btn"
+														on:click={() => onVendorSelect(vendor.erp_vendor_id)}
+													>
+														Select
+													</button>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{:else if selectedBranch && searchTerm}
+							<div class="no-vendors">
+								<p>🔍 No vendors found matching "{searchTerm}" in {selectedBranch.name_en}</p>
+							</div>
+						{:else if selectedBranch}
+							<div class="no-vendors">
+								<p>⚠️ No vendors found for {selectedBranch.name_en}</p>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
 		</div>
 	{:else if currentStep === 2}
 		<!-- Step 2: Payment Details Form -->
@@ -353,127 +630,118 @@
 			</div>
 
 			<div class="form-container">
-		<form on:submit|preventDefault={savePaymentSchedule} class="payment-form">
-			
-			<!-- Basic Information Section -->
-			<div class="form-section">
-				<h3 class="section-title">📋 Basic Information</h3>
-				<div class="form-grid">
-					<div class="form-group">
-						<label>Bill Number *</label>
-						<input 
-							type="text" 
-							bind:value={manualForm.bill_number} 
-							placeholder="Enter bill number"
-							required
-						>
-					</div>
+				<form on:submit|preventDefault={savePaymentSchedule} class="payment-form">
+					
+					<!-- Basic Information Section -->
+					<div class="form-section">
+						<h3 class="section-title">📋 Basic Information</h3>
+						<div class="form-grid">
+							<div class="form-group">
+								<label>Bill Number *</label>
+								<input 
+									type="text" 
+									bind:value={manualForm.bill_number} 
+									placeholder="Enter bill number"
+									required
+								>
+							</div>
 
-					<div class="form-group">
-						<label>Vendor *</label>
-						<select bind:value={manualForm.vendor_id} on:change={onVendorChange} required>
-							<option value="">Select Vendor</option>
-							{#each vendors as vendor}
-								<option value={vendor.erp_vendor_id}>{vendor.vendor_name}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="form-group">
-						<label>Branch *</label>
-						<select bind:value={manualForm.branch_id} on:change={onBranchChange} required>
-							<option value="">Select Branch</option>
-							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="form-group">
-						<label>Bill Date *</label>
-						<input 
-							type="date" 
-							bind:value={manualForm.bill_date} 
-							on:change={calculateDueDate}
-							required
-						>
-					</div>
-				</div>
-			</div>
-
-			<!-- Financial Information Section -->
-			<div class="form-section">
-				<h3 class="section-title">💰 Financial Details</h3>
-				<div class="form-grid">
-					<div class="form-group">
-						<label>Bill Amount *</label>
-						<div class="amount-input-group">
-							<input 
-								type="number" 
-								bind:value={manualForm.bill_amount} 
-								step="0.01" 
-								min="0"
-								placeholder="0.00"
-								required
-							>
-							<button type="button" class="copy-btn" on:click={copyBillAmount} title="Copy to Final Amount">
-								📋
-							</button>
+							<div class="form-group">
+								<label>Bill Date *</label>
+								<input 
+									type="date" 
+									bind:value={manualForm.bill_date} 
+									on:change={calculateDueDate}
+									required
+								>
+							</div>
 						</div>
 					</div>
 
-					<div class="form-group">
-						<label>Final Bill Amount</label>
-						<input 
-							type="number" 
-							bind:value={manualForm.final_bill_amount} 
-							step="0.01" 
-							min="0"
-							placeholder="Same as bill amount"
-						>
-					</div>
+					<!-- Financial Information Section -->
+					<div class="form-section">
+						<h3 class="section-title">💰 Financial Details</h3>
+						<div class="form-grid">
+							<div class="form-group">
+								<label>Bill Amount *</label>
+								<div class="amount-input-group">
+									<input 
+										type="number" 
+										bind:value={manualForm.bill_amount} 
+										step="0.01" 
+										min="0"
+										placeholder="0.00"
+										required
+									>
+									<button type="button" class="copy-btn" on:click={copyBillAmount} title="Copy to Final Amount">
+										📋
+									</button>
+								</div>
+							</div>
+
+							<div class="form-group">
+								<label>Final Bill Amount</label>
+								<input 
+									type="number" 
+									bind:value={manualForm.final_bill_amount} 
+									step="0.01" 
+									min="0"
+									placeholder="Same as bill amount"
+								>
+							</div>
 
 					<div class="form-group">
 						<label>Payment Method</label>
-						<select bind:value={manualForm.payment_method}>
+						<select bind:value={manualForm.payment_method} on:change={handlePaymentMethodChange}>
 							{#each paymentMethods as method}
 								<option value={method}>{method}</option>
 							{/each}
 						</select>
+					</div>							<div class="form-group">
+								<label>Payment Status</label>
+								<select bind:value={manualForm.payment_status}>
+									{#each paymentStatuses as status}
+										<option value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
+									{/each}
+								</select>
+							</div>
+						</div>
 					</div>
-
-					<div class="form-group">
-						<label>Payment Status</label>
-						<select bind:value={manualForm.payment_status}>
-							{#each paymentStatuses as status}
-								<option value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
-			</div>
 
 			<!-- Payment Information Section -->
 			<div class="form-section">
 				<h3 class="section-title">🏦 Payment Information</h3>
 				<div class="form-grid">
-					<div class="form-group">
-						<label>Bank Name</label>
-						<input 
-							type="text" 
-							bind:value={manualForm.bank_name} 
-							placeholder="Bank name"
-						>
-					</div>
+					<!-- Show Bank Name and IBAN only for Bank methods -->
+					{#if manualForm.payment_method && (manualForm.payment_method === 'Bank on Delivery' || manualForm.payment_method === 'Bank Credit')}
+						<div class="form-group">
+							<label>Bank Name</label>
+							<input 
+								type="text" 
+								bind:value={manualForm.bank_name} 
+								placeholder="Bank name"
+							>
+						</div>
 
-					<div class="form-group">
-						<label>IBAN</label>
-						<input 
-							type="text" 
-							bind:value={manualForm.iban} 
-							placeholder="SA00 0000 0000 0000 0000 0000"
-						>
-					</div>
+						<div class="form-group">
+							<label>IBAN</label>
+							<input 
+								type="text" 
+								bind:value={manualForm.iban} 
+								placeholder="SA00 0000 0000 0000 0000 0000"
+							>
+						</div>
+					{:else}
+						<!-- Empty placeholders when bank fields are not needed -->
+						<div class="form-group placeholder-field">
+							<label>Bank Name</label>
+							<div class="disabled-field">Not applicable for {manualForm.payment_method || 'selected payment method'}</div>
+						</div>
+						<div class="form-group placeholder-field">
+							<label>IBAN</label>
+							<div class="disabled-field">Not applicable for {manualForm.payment_method || 'selected payment method'}</div>
+						</div>
+					{/if}
 
 					<div class="form-group">
 						<label>VAT Number</label>
@@ -484,58 +752,65 @@
 						>
 					</div>
 
-					<div class="form-group">
-						<label>Credit Period (Days)</label>
-						<input 
-							type="number" 
-							bind:value={manualForm.credit_period} 
-							on:change={calculateDueDate}
-							min="1" 
-							max="365"
-						>
-					</div>
-				</div>
-			</div>
-
-			<!-- Due Date and Notes Section -->
-			<div class="form-section">
-				<h3 class="section-title">📅 Schedule Information</h3>
-				<div class="form-grid">
-					<div class="form-group">
-						<label>Due Date *</label>
-						<input 
-							type="date" 
-							bind:value={manualForm.due_date} 
-							required
-						>
-					</div>
-
-					<div class="form-group full-width">
-						<label>Notes</label>
-						<textarea 
-							bind:value={manualForm.notes} 
-							rows="3"
-							placeholder="Additional notes about this payment schedule..."
-						></textarea>
-					</div>
-				</div>
-			</div>
-
-			<!-- Form Actions -->
-			<div class="form-actions">
-				<button type="button" class="reset-btn" on:click={resetForm} disabled={isLoading}>
-					🔄 Reset Form
-				</button>
-				<button type="submit" class="save-btn" disabled={isLoading}>
-					{#if isLoading}
-						💾 Saving...
-					{:else}
-						💾 Save Payment Schedule
+					<!-- Show Credit Period only for Credit methods -->
+					{#if manualForm.payment_method && (manualForm.payment_method === 'Cash Credit' || manualForm.payment_method === 'Bank Credit')}
+						<div class="form-group">
+							<label>Credit Period (Days)</label>
+							<input 
+								type="number" 
+								bind:value={manualForm.credit_period} 
+								on:input={handleCreditPeriodChange}
+								min="1" 
+								max="365"
+								placeholder="Enter credit period in days"
+							>
+						</div>
+					{:else if manualForm.payment_method}
+						<div class="form-group placeholder-field">
+							<label>Credit Period (Days)</label>
+							<div class="disabled-field">Not applicable for {manualForm.payment_method}</div>
+						</div>
 					{/if}
-				</button>
+				</div>
+			</div>					<!-- Due Date and Notes Section -->
+					<div class="form-section">
+						<h3 class="section-title">📅 Schedule Information</h3>
+						<div class="form-grid">
+							<div class="form-group">
+								<label>Due Date *</label>
+								<input 
+									type="date" 
+									bind:value={manualForm.due_date} 
+									required
+								>
+							</div>
+
+							<div class="form-group full-width">
+								<label>Notes</label>
+								<textarea 
+									bind:value={manualForm.notes} 
+									rows="3"
+									placeholder="Additional notes about this payment schedule..."
+								></textarea>
+							</div>
+						</div>
+					</div>
+
+					<!-- Form Actions -->
+					<div class="form-actions">
+						<button type="button" class="reset-btn" on:click={resetForm} disabled={isLoading}>
+							🔄 Reset Form
+						</button>
+						<button type="submit" class="save-btn" disabled={isLoading}>
+							{#if isLoading}
+								💾 Saving...
+							{:else}
+								💾 Save Payment Schedule
+							{/if}
+						</button>
+					</div>
+				</form>
 			</div>
-		</form>
-		</div>
 	</div>
 	{/if}
 </div>
@@ -628,6 +903,91 @@
 		overflow: hidden;
 	}
 
+	.selection-content {
+		padding: 2rem;
+	}
+
+	/* Dropdown Styles */
+	.dropdown-container {
+		margin-bottom: 2rem;
+	}
+
+	.branch-dropdown {
+		width: 100%;
+		padding: 0.875rem 1rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: white;
+		color: #1e293b;
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.branch-dropdown:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.branch-dropdown:hover {
+		border-color: #cbd5e1;
+	}
+
+	/* Search Styles */
+	.search-container {
+		margin-bottom: 1.5rem;
+	}
+
+	.search-input-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+		max-width: 400px;
+	}
+
+	.search-icon {
+		position: absolute;
+		left: 0.875rem;
+		color: #64748b;
+		font-size: 1rem;
+		z-index: 1;
+	}
+
+	.search-input {
+		width: 100%;
+		padding: 0.875rem 1rem 0.875rem 2.5rem;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: white;
+		transition: all 0.3s ease;
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.clear-search {
+		position: absolute;
+		right: 0.875rem;
+		background: none;
+		border: none;
+		color: #64748b;
+		cursor: pointer;
+		font-size: 1rem;
+		padding: 0.25rem;
+		border-radius: 4px;
+		transition: all 0.2s ease;
+	}
+
+	.clear-search:hover {
+		background: #f1f5f9;
+		color: #374151;
+	}
+
 	.step-header {
 		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 		color: white;
@@ -662,7 +1022,7 @@
 
 	/* Branch Selection Styles */
 	.selection-section {
-		padding: 2rem;
+		margin-bottom: 2rem;
 	}
 
 	.selection-section h3 {
@@ -670,51 +1030,6 @@
 		font-weight: 600;
 		color: #1e293b;
 		margin: 0 0 1rem 0;
-	}
-
-	.branch-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-		gap: 1rem;
-	}
-
-	.branch-card {
-		border: 2px solid #e2e8f0;
-		border-radius: 12px;
-		padding: 1.5rem;
-		text-align: center;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		background: white;
-	}
-
-	.branch-card:hover {
-		border-color: #3b82f6;
-		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(59, 130, 246, 0.1);
-	}
-
-	.branch-card.selected {
-		border-color: #3b82f6;
-		background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(59, 130, 246, 0.2);
-	}
-
-	.branch-icon {
-		font-size: 2rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.branch-name {
-		font-weight: 600;
-		color: #1e293b;
-		margin-bottom: 0.25rem;
-	}
-
-	.branch-code {
-		font-size: 0.875rem;
-		color: #64748b;
 	}
 
 	/* Vendor Table Styles */
@@ -895,6 +1210,16 @@
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.form-group.placeholder-field .disabled-field {
+		padding: 0.75rem;
+		border: 2px solid #f3f4f6;
+		border-radius: 8px;
+		background: #f8fafc;
+		color: #9ca3af;
+		font-size: 0.9rem;
+		font-style: italic;
 	}
 
 	.amount-input-group {

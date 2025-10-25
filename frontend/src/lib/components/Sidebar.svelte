@@ -520,7 +520,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.2.2
+				v1.3.0
 			</button>
 		</div>
 	</div>
@@ -614,29 +614,30 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.2.2</h3>
+				<h3>What's New in v1.3.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>📱 Mobile Interface Improvements</h4>
+					<h4>� Advanced Vendor Search</h4>
 					<ul>
-						<li><strong>Task Count Synchronization:</strong> Fixed pending task count inconsistency between dashboard and navigation badge</li>
-						<li><strong>Badge Count Logic:</strong> Updated mobile bottom navigation to show accurate task counts (7 tasks now display correctly)</li>
-						<li><strong>Status Filtering:</strong> Improved task counting to include all non-completed/cancelled tasks as pending</li>
-						<li><strong>Dashboard Stats:</strong> Mobile dashboard now shows real-time accurate task statistics</li>
-						<li><strong>Navigation Consistency:</strong> Task icon badge matches dashboard pending count perfectly</li>
+						<li><strong>Comprehensive Search System:</strong> Added vendor search functionality with text input and dropdown filters</li>
+						<li><strong>Multi-Filter Support:</strong> Combined branch, payment method, and vendor filtering with real-time results</li>
+						<li><strong>Search Results Table:</strong> Detailed table view showing all filtered payments with vendor details</li>
+						<li><strong>Smart Status Indicators:</strong> Color-coded status badges for overdue, due soon, and scheduled payments</li>
+						<li><strong>Filter Summary:</strong> Real-time display of filtered results count and active search terms</li>
+						<li><strong>Clear Filters:</strong> One-click reset button to clear all active filters and searches</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>💰 Manual Scheduling Enhancement</h4>
+					<h4>� Payment Management Enhancements</h4>
 					<ul>
-						<li><strong>Two-Step Workflow:</strong> Implemented branch selection → vendor selection → payment details process</li>
-						<li><strong>Branch Selection UI:</strong> Interactive cards showing all available branches</li>
-						<li><strong>Vendor Filtering:</strong> Dynamic vendor table filtered by selected branch with vendor ID and name</li>
-						<li><strong>Step Indicator:</strong> Visual progress indicator showing current step in the workflow</li>
-						<li><strong>Data Integration:</strong> Proper vendor_payment_schedule table insertion with branch and vendor relationships</li>
-						<li><strong>Navigation Controls:</strong> Back buttons and step validation for smooth user experience</li>
+						<li><strong>Individual Reschedule Buttons:</strong> Added reschedule buttons to each payment row in MonthDetails</li>
+						<li><strong>Enhanced Reschedule Modal:</strong> Date picker integration for button-triggered reschedule actions</li>
+						<li><strong>Grid Layout Updates:</strong> Updated payment table layout to accommodate new Actions column</li>
+						<li><strong>Paid Payment Filtering:</strong> Automatically exclude paid payments from all views and search results</li>
+						<li><strong>Null Safety:</strong> Added proper null checks to prevent date formatting errors</li>
+						<li><strong>Responsive Actions:</strong> Payment action buttons with proper styling and hover effects</li>
 					</ul>
 				</div>
 				<div class="update-section">
@@ -650,20 +651,21 @@
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎯 User Experience</h4>
+					<h4>� UI/UX Improvements</h4>
 					<ul>
-						<li><strong>Accurate Counts:</strong> Users now see correct pending task counts everywhere</li>
-						<li><strong>Intuitive Workflow:</strong> Manual scheduling follows logical step-by-step process</li>
-						<li><strong>Visual Feedback:</strong> Clear progress indicators and selection states</li>
-						<li><strong>Mobile Optimization:</strong> Improved mobile interface responsiveness and accuracy</li>
-						<li><strong>Data Validation:</strong> Enhanced form validation and user guidance</li>
+						<li><strong>Professional Search Interface:</strong> Clean, modern search controls in main page header</li>
+						<li><strong>Responsive Table Design:</strong> Mobile-friendly search results with horizontal scrolling</li>
+						<li><strong>Visual Feedback:</strong> Hover effects, focus states, and interactive button styling</li>
+						<li><strong>Contextual Information:</strong> Smart display of search context and filtered result counts</li>
+						<li><strong>Action Column Integration:</strong> Seamless addition of action buttons without layout disruption</li>
+						<li><strong>Status Badge Consistency:</strong> Unified status display across all payment views</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 25, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.2.2 - Mobile Task Sync & Manual Scheduling Workflow</p>
-					<p><strong>Focus:</strong> Mobile Interface Consistency, Finance Management Workflow & Data Accuracy</p>
+					<p><strong>Version:</strong> 1.3.0 - Advanced Search & Payment Management</p>
+					<p><strong>Focus:</strong> Vendor Search Functionality, Payment Reschedule Enhancements & Data Accuracy</p>
 				</div>
 			</div>
 		</div>

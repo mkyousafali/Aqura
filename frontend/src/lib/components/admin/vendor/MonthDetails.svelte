@@ -3,6 +3,16 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
+	// Helper function to format date as dd/mm/yyyy
+	function formatDate(dateInput) {
+		if (!dateInput) return 'N/A';
+		const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const year = date.getFullYear();
+		return `${day}/${month}/${year}`;
+	}
+
 	// Props passed from parent
 	export let monthData = null;
 
@@ -22,6 +32,7 @@
 	let splitPayment = null;
 	let splitAmount = 0;
 	let remainingAmount = 0;
+	let newDateInput = '';
 
 	// Edit payment method state
 	let editingPaymentId = null;
@@ -407,8 +418,18 @@
 		showSplitModal = true;
 	}
 
+	// Function to open reschedule modal from button click
+	function openRescheduleModal(payment) {
+		// For button click, we need to ask user for the new date
+		// We'll modify the modal to include date picker when newDate is not provided
+		splitPayment = { ...payment };
+		splitAmount = parseFloat(payment.final_bill_amount || payment.bill_amount || 0);
+		remainingAmount = splitAmount;
+		showSplitModal = true;
+	}
+
 	function handleFullMove() {
-		if (!splitPayment) return;
+		if (!splitPayment || !splitPayment.newDate) return;
 		
 		// Update the payment's due date
 		updatePaymentDate(splitPayment.id, splitPayment.newDate, splitPayment.final_bill_amount);
@@ -416,13 +437,13 @@
 	}
 
 	async function handleSplitMove() {
-		if (!splitPayment || splitAmount <= 0 || splitAmount >= parseFloat(splitPayment.final_bill_amount)) {
-			alert('Please enter a valid split amount');
+		if (!splitPayment || !splitPayment.newDate || splitAmount <= 0 || splitAmount >= parseFloat(splitPayment.final_bill_amount)) {
+			alert('Please enter a valid split amount and new date');
 			return;
 		}
 
 		const originalAmount = parseFloat(splitPayment.final_bill_amount || splitPayment.bill_amount || 0);
-		const remainingAmount = originalAmount - splitAmount;
+		remainingAmount = originalAmount - splitAmount;
 
 		try {
 			// Create new payment record for the split amount
@@ -434,10 +455,8 @@
 			// Reload data to show updated amounts immediately
 			await loadScheduledPayments();
 			
-			// Show success message
-			alert(`Payment split successfully!\n\n✅ Created new payment: ${formatCurrency(splitAmount)} on ${splitPayment.newDate.toLocaleDateString()}\n✅ Updated original payment: ${formatCurrency(remainingAmount)} on ${new Date(splitPayment.due_date).toLocaleDateString()}`);
-			
-			closeSplitModal();
+		// Show success message
+		alert(`Payment split successfully!\n\n✅ Created new payment: ${formatCurrency(splitAmount)} on ${formatDate(splitPayment.newDate)}\n✅ Updated original payment: ${formatCurrency(remainingAmount)} on ${formatDate(splitPayment.due_date)}`);			closeSplitModal();
 		} catch (error) {
 			console.error('Error splitting payment:', error);
 			alert('Failed to split payment. Please try again.');
@@ -450,6 +469,7 @@
 		draggedPayment = null;
 		splitAmount = 0;
 		remainingAmount = 0;
+		newDateInput = '';
 	}
 
 	async function updatePaymentDate(paymentId, newDate, amount) {
@@ -1022,6 +1042,7 @@
 										<div class="header-column" title="IBAN">IBAN</div>
 										<div class="header-column payment-status-header" title="Mark as Paid">Mark Paid</div>
 										<div class="header-column status-header" title="Payment Status">Status</div>
+										<div class="header-column actions-header" title="Reschedule Actions">Actions</div>
 									</div>
 								</div>
 
@@ -1052,9 +1073,9 @@
 															<div class="data-cell amount">{formatCurrency(payment.final_bill_amount)}</div>
 															<div class="data-cell amount original-amount">{formatCurrency(payment.original_bill_amount || 0)}</div>
 															<div class="data-cell amount original-amount">{formatCurrency(payment.original_final_amount || 0)}</div>
-															<div class="data-cell">{payment.bill_date ? new Date(payment.bill_date).toLocaleDateString() : 'N/A'}</div>
-															<div class="data-cell">{payment.due_date ? new Date(payment.due_date).toLocaleDateString() : 'N/A'}</div>
-															<div class="data-cell">{payment.original_due_date ? new Date(payment.original_due_date).toLocaleDateString() : 'N/A'}</div>
+															<div class="data-cell">{formatDate(payment.bill_date)}</div>
+															<div class="data-cell">{formatDate(payment.due_date)}</div>
+															<div class="data-cell">{formatDate(payment.original_due_date)}</div>
 															<div class="data-cell">{payment.branch_name || 'N/A'}</div>
 															<div class="data-cell payment-method-cell">
 																<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
@@ -1084,6 +1105,19 @@
 																<span class="status-badge {getPaymentStatusStyle(payment.payment_status)}">
 																	{payment.payment_status || 'scheduled'}
 																</span>
+															</div>
+															<div class="data-cell actions-cell">
+																{#if !payment.is_paid}
+																	<button 
+																		class="reschedule-btn"
+																		on:click|stopPropagation={() => openRescheduleModal(payment)}
+																		title="Reschedule Payment"
+																	>
+																		📅
+																	</button>
+																{:else}
+																	<span class="paid-label">✓</span>
+																{/if}
 															</div>
 														</div>
 													</div>
@@ -1175,18 +1209,34 @@
 						{/if}
 						<div class="detail-row">
 							<span class="label">Current Due Date:</span>
-							<span class="value">{new Date(splitPayment.due_date).toLocaleDateString()}</span>
+							<span class="value">{formatDate(splitPayment.due_date)}</span>
 						</div>
 						{#if splitPayment.original_due_date}
 						<div class="detail-row">
 							<span class="label">Original Due Date:</span>
-							<span class="value">{new Date(splitPayment.original_due_date).toLocaleDateString()}</span>
+							<span class="value">{formatDate(splitPayment.original_due_date)}</span>
 						</div>
 						{/if}
 						<div class="detail-row">
 							<span class="label">Split To Date:</span>
-							<span class="value">{splitPayment.newDate.toLocaleDateString()}</span>
+							<span class="value">{splitPayment.newDate ? formatDate(splitPayment.newDate) : 'Not set'}</span>
 						</div>
+						{#if !splitPayment.newDate}
+						<div class="detail-row">
+							<span class="label">Select New Date:</span>
+							<input 
+								type="date" 
+								bind:value={newDateInput}
+								on:change={(e) => {
+									if (e.target.value) {
+										splitPayment.newDate = new Date(e.target.value);
+									}
+								}}
+								class="date-input"
+								min={new Date().toISOString().split('T')[0]}
+							/>
+						</div>
+						{/if}
 					</div>
 				</div>
 				
@@ -1233,11 +1283,11 @@
 											<h5>Payment Split Breakdown:</h5>
 										</div>
 										<div class="breakdown-row">
-											<span class="breakdown-label">Amount moving to {splitPayment.newDate.toLocaleDateString()}:</span>
+											<span class="breakdown-label">Amount moving to {splitPayment.newDate ? formatDate(splitPayment.newDate) : 'Not set'}:</span>
 											<span class="breakdown-value move-amount">+ {formatCurrency(splitAmount)}</span>
 										</div>
 										<div class="breakdown-row">
-											<span class="breakdown-label">Amount remaining on {new Date(splitPayment.due_date).toLocaleDateString()}:</span>
+											<span class="breakdown-label">Amount remaining on {formatDate(splitPayment.due_date)}:</span>
 											<span class="breakdown-value remain-amount">= {formatCurrency(parseFloat(splitPayment.final_bill_amount) - splitAmount)}</span>
 										</div>
 										<div class="breakdown-divider"></div>
@@ -2190,7 +2240,7 @@
 
 	.table-header-row {
 		display: grid;
-		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 100px 140px;
+		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 100px 140px 120px;
 		gap: 12px;
 		padding: 14px 18px;
 		margin-left: 0px;
@@ -2315,7 +2365,7 @@
 
 	.payment-data-row {
 		display: grid;
-		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 80px 5px 140px;
+		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 80px 5px 140px 120px;
 		gap: 12px;
 		flex: 1;
 		align-items: center;
@@ -2342,9 +2392,9 @@
 	}
 
 	.data-cell:nth-child(13) {
-		padding-left: 150px;
-		min-width: 350px;
-		max-width: 350px;
+		padding-left: 80px;
+		min-width: 300px;
+		max-width: 300px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -3201,6 +3251,87 @@
 
 	.save-btn:hover {
 		background: #2563eb;
+	}
+
+	.actions-header {
+		font-weight: 600;
+		color: #374151;
+		text-align: center;
+	}
+
+	.actions-cell {
+		display: flex;
+		justify-content: flex-start;
+		align-items: center;
+		padding: 8px 4px 8px 160px;
+		min-width: 100px;
+	}
+
+	.reschedule-btn {
+		padding: 6px 12px;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.reschedule-btn:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.reschedule-btn:active {
+		transform: translateY(0);
+	}
+
+	.reschedule-btn:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	.paid-label {
+		color: #10b981;
+		font-weight: 600;
+		font-size: 11px;
+		padding: 4px 8px;
+		background: rgba(16, 185, 129, 0.1);
+		border-radius: 4px;
+	}
+
+	.date-input {
+		padding: 8px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		background: white;
+		color: #374151;
+		min-width: 150px;
+	}
+
+	.date-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	/* Responsive grid for Actions column */
+	@media (max-width: 1400px) {
+		.payment-header-row,
+		.payment-data-row {
+			grid-template-columns: 35px 120px 160px 90px 100px 100px 85px 85px 95px 120px 90px 140px 130px 70px 5px 130px 100px;
+		}
 	}
 
 	@media (max-width: 768px) {

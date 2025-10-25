@@ -5,6 +5,16 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import MonthDetails from './MonthDetails.svelte';
 
+	// Helper function to format date as dd/mm/yyyy
+	function formatDate(dateString) {
+		if (!dateString) return 'N/A';
+		const date = new Date(dateString);
+		const day = String(date.getDate()).padStart(2, '0');
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const year = date.getFullYear();
+		return `${day}/${month}/${year}`;
+	}
+
 	// Current date and navigation
 	let currentDate = new Date();
 	let currentWeek = new Date();
@@ -21,8 +31,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Filters
 	let filterBranch = '';
 	let filterPaymentMethod = '';
+	let filterVendor = '';
+	let searchVendor = '';
 	let branches = [];
 	let paymentMethods = [];
+	let vendors = [];
+	let totalVendorsInDB = 0; // Total count from vendors table
+	
+	// Vendor search state
+	let showVendorSearch = false;
+	let vendorSearchResults = [];
+	let selectedVendor = null;
+
+	// Use the total vendor count from database
+	$: totalVendorCount = totalVendorsInDB;
 	
 	// Monthly totals
 	let monthlyData = [];
@@ -35,6 +57,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		calculateMonthlyTotals();
 		await loadBranches();
 		await loadPaymentMethods();
+		await loadVendors();
 		await loadScheduledPayments();
 	});
 
@@ -67,6 +90,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('*')
+				.not('payment_status', 'ilike', 'paid')
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -76,7 +100,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 			console.log('Loaded scheduled payments:', data);
 			scheduledPayments = data || [];
-			totalScheduledAmount = scheduledPayments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
 			
 			// Group payments by day after loading data
 			groupPaymentsByDay();
@@ -134,12 +157,127 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	// Load vendors for filter
+	async function loadVendors() {
+		try {
+			// Get total count of vendors
+			const { count, error } = await supabase
+				.from('vendors')
+				.select('*', { count: 'exact', head: true });
+
+			if (error) {
+				console.error('Error loading vendor count:', error);
+			} else {
+				totalVendorsInDB = count || 0;
+				console.log('Total vendors in database:', totalVendorsInDB);
+			}
+
+			// Get unique vendor names for search functionality
+			const { data, error: dataError } = await supabase
+				.from('vendors')
+				.select('vendor_name')
+				.not('vendor_name', 'is', null);
+
+			if (dataError) {
+				console.error('Error loading vendor names:', dataError);
+				return;
+			}
+
+			// Get unique vendor names
+			const uniqueVendors = [...new Set(data.map(item => item.vendor_name))];
+			vendors = uniqueVendors.filter(vendor => vendor).sort();
+			
+			console.log('Loaded unique vendor names:', vendors.length);
+		} catch (err) {
+			console.error('Error loading vendors:', err);
+		}
+	}
+
+	// Clear all filters
+	function clearFilters() {
+		filterBranch = '';
+		filterPaymentMethod = '';
+		filterVendor = '';
+		searchVendor = '';
+		selectedVendor = null;
+		showVendorSearch = false;
+		vendorSearchResults = [];
+	}
+
+	// Handle vendor search input
+	function handleVendorSearch() {
+		if (searchVendor.length >= 2) {
+			// Get scheduled payments based on selected branch
+			let availablePayments;
+			if (filterBranch) {
+				availablePayments = scheduledPayments.filter(payment => payment.branch_name === filterBranch);
+			} else {
+				availablePayments = scheduledPayments;
+			}
+			
+			// Get unique vendors with their IDs
+			const vendorMap = new Map();
+			availablePayments.forEach(payment => {
+				if (payment.vendor_name) {
+					const key = payment.vendor_name;
+					if (!vendorMap.has(key)) {
+						vendorMap.set(key, {
+							name: payment.vendor_name,
+							id: payment.vendor_id
+						});
+					}
+				}
+			});
+			
+			const uniqueVendors = Array.from(vendorMap.values());
+			
+			// Filter vendors based on search input (search both name and ID)
+			const searchLower = searchVendor.toLowerCase();
+			vendorSearchResults = uniqueVendors.filter(vendor => 
+				vendor.name.toLowerCase().includes(searchLower) ||
+				(vendor.id && vendor.id.toString().toLowerCase().includes(searchLower))
+			).slice(0, 10); // Limit to 10 results
+			
+			showVendorSearch = vendorSearchResults.length > 0;
+		} else {
+			showVendorSearch = false;
+			vendorSearchResults = [];
+		}
+		
+		// Clear selected vendor when search changes
+		selectedVendor = null;
+		filterVendor = '';
+	}
+
+	// Select vendor from search results
+	function selectVendor(vendorObj) {
+		selectedVendor = vendorObj.name;
+		filterVendor = vendorObj.name;
+		searchVendor = vendorObj.name;
+		showVendorSearch = false;
+		vendorSearchResults = [];
+	}
+
+	// Check if payment is due soon (within 3 days)
+	function isPaymentDueSoon(payment) {
+		const dueDate = new Date(payment.due_date);
+		const today = new Date();
+		const diffTime = dueDate.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		return diffDays <= 3 && diffDays >= 0;
+	}
+
 	// Filter payments based on selected filters
 	$: filteredPayments = scheduledPayments.filter(payment => {
 		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
-		return branchMatch && paymentMethodMatch;
+		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
+		const notPaid = payment.payment_status !== 'paid' && payment.payment_status !== 'Paid' && payment.payment_status !== 'PAID';
+		return branchMatch && paymentMethodMatch && vendorMatch && notPaid;
 	});
+
+	// Calculate total from filtered payments
+	$: totalScheduledAmount = filteredPayments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
 
 	// Re-group payments when filters change
 	$: if (filteredPayments && weekDays.length > 0) {
@@ -151,7 +289,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: filteredSelectedDayPayments = selectedDay?.payments.filter(payment => {
 		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
-		return branchMatch && paymentMethodMatch;
+		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
+		const notPaid = payment.payment_status !== 'paid' && payment.payment_status !== 'Paid' && payment.payment_status !== 'PAID';
+		return branchMatch && paymentMethodMatch && vendorMatch && notPaid;
 	}) || [];
 
 	// Calculate filtered total
@@ -371,29 +511,135 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 <!-- Scheduled Payments Window Content -->
 <div class="scheduled-payments">
 	<div class="header">
-		<div class="title-section">
-			<h1>💰 Scheduled Payments</h1>
-			<p>Total Scheduled: <strong>{formatCurrency(totalScheduledAmount)}</strong></p>
+		<div class="header-top">
+			<div class="title-section">
+				<h1>💰 Scheduled Payments</h1>
+				<p>Total Scheduled: <strong>{formatCurrency(totalScheduledAmount)}</strong></p>
+			</div>
+			
+			<div class="week-navigation">
+				<button class="nav-btn" on:click={previousWeek}>
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+					</svg>
+				</button>
+				
+				<span class="week-info">
+					{currentWeek.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+				</span>
+				
+				<button class="nav-btn" on:click={nextWeek}>
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+					</svg>
+				</button>
+			</div>
 		</div>
 		
-		<div class="week-navigation">
-			<button class="nav-btn" on:click={previousWeek}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-				</svg>
-			</button>
+		<!-- Main Search and Filter Controls -->
+		<div class="main-filter-controls">
+			<select class="filter-select" bind:value={filterBranch}>
+				<option value="">All Branches</option>
+				{#each branches as branch}
+					<option value={branch.name_en}>{branch.name_en}</option>
+				{/each}
+			</select>
 			
-			<span class="week-info">
-				{currentWeek.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-			</span>
+			<select class="filter-select" bind:value={filterPaymentMethod}>
+				<option value="">All Payment Methods</option>
+				{#each paymentMethods as method}
+					<option value={method}>{method}</option>
+				{/each}
+			</select>
 			
-			<button class="nav-btn" on:click={nextWeek}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
-				</svg>
+			<input 
+				type="text" 
+				placeholder="🔍 Search vendors by name or ID..." 
+				bind:value={searchVendor}
+				on:input={handleVendorSearch}
+				class="search-input"
+			/>
+
+			<button class="clear-filters-btn" on:click={clearFilters}>
+				Clear Filters
 			</button>
 		</div>
+
+		{#if filterBranch || filterPaymentMethod || selectedVendor}
+		<div class="main-filter-summary">
+			<span class="filter-summary-text">
+				📊 Showing {filteredPayments.length} of {scheduledPayments.length} payments
+				{#if selectedVendor}, for vendor: "{selectedVendor}"{/if}
+			</span>
+		</div>
+		{/if}
 	</div>
+
+	<!-- Vendor Search Results -->
+	{#if showVendorSearch && vendorSearchResults.length > 0}
+	<div class="vendor-search-results">
+		<div class="vendor-search-header">
+			<h4>🔍 Select Vendor</h4>
+			<span class="vendor-count">{vendorSearchResults.length} vendors found</span>
+		</div>
+		<div class="vendor-list">
+			{#each vendorSearchResults as vendor}
+			<div class="vendor-item" on:click={() => selectVendor(vendor)}>
+				<div class="vendor-info">
+					<span class="vendor-name">{vendor.name}</span>
+					{#if vendor.id}
+						<span class="vendor-id-badge">ID: {vendor.id}</span>
+					{/if}
+				</div>
+				<span class="select-hint">Click to select</span>
+			</div>
+			{/each}
+		</div>
+	</div>
+	{/if}
+
+	<!-- Search Results Table -->
+	{#if selectedVendor && filteredPayments.length > 0}
+	<div class="search-results-section">
+		<div class="search-results-header">
+			<h3>📋 Payments for {selectedVendor}</h3>
+			<span class="results-count">{filteredPayments.length} payments found</span>
+		</div>
+		
+		<div class="search-results-table">
+			<table>
+				<thead>
+					<tr>
+						<th>Vendor Name</th>
+						<th>Bill Number</th>
+						<th>Due Date</th>
+						<th>Amount</th>
+						<th>Payment Method</th>
+						<th>Branch</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each filteredPayments as payment}
+					<tr class="payment-row">
+						<td class="vendor-name">{payment.vendor_name || 'N/A'}</td>
+						<td class="bill-number">{payment.bill_number || 'N/A'}</td>
+						<td class="due-date">{formatDate(payment.due_date)}</td>
+						<td class="amount">{formatCurrency(payment.final_bill_amount || payment.bill_amount || 0)}</td>
+						<td class="payment-method">{payment.payment_method || 'N/A'}</td>
+						<td class="branch">{payment.branch_name || 'N/A'}</td>
+						<td class="status">
+							<span class="status-badge" class:overdue={new Date(payment.due_date) < new Date()} class:due-soon={isPaymentDueSoon(payment)} class:normal={!new Date(payment.due_date) < new Date() && !isPaymentDueSoon(payment)}>
+								{new Date(payment.due_date) < new Date() ? 'Overdue' : isPaymentDueSoon(payment) ? 'Due Soon' : 'Scheduled'}
+							</span>
+						</td>
+					</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</div>
+	{/if}
 
 	<div class="week-view">
 		{#each weekDays as day}
@@ -545,7 +791,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<option value={method}>{method}</option>
 					{/each}
 				</select>
+				
+				<select class="filter-select" bind:value={filterVendor}>
+					<option value="">All Vendors</option>
+					{#each vendors as vendor}
+						<option value={vendor}>{vendor}</option>
+					{/each}
+				</select>
+				
+				<input 
+					type="text" 
+					placeholder="Search vendors..." 
+					bind:value={searchVendor}
+					class="search-input"
+				/>
+				
+				<button class="clear-filters-btn" on:click={clearFilters}>
+					Clear Filters
+				</button>
 			</div>
+
+			{#if filterBranch || filterPaymentMethod || filterVendor || searchVendor}
+			<div class="filter-summary">
+				<span class="filter-summary-text">
+					Showing {filteredPayments.length} of {scheduledPayments.length} payments
+					{#if searchVendor}, filtered by vendor: "{searchVendor}"{/if}
+				</span>
+			</div>
+			{/if}
 
 			<div class="details-table">
 				<table>
@@ -578,8 +851,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<td class="amount-cell">{formatCurrency(payment.final_bill_amount || 0)}</td>
 								<td class="amount-cell">{formatCurrency(payment.original_bill_amount || 0)}</td>
 								<td class="amount-cell">{formatCurrency(payment.original_final_amount || 0)}</td>
-								<td>{new Date(payment.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-								<td>{payment.original_due_date ? new Date(payment.original_due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}</td>
+								<td>{formatDate(payment.due_date)}</td>
+								<td>{formatDate(payment.original_due_date)}</td>
 								<td>
 									<span class="status-badge status-{payment.payment_status}">{payment.payment_status || 'scheduled'}</span>
 								</td>
@@ -604,15 +877,284 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.header {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
+		flex-direction: column;
+		gap: 20px;
 		margin-bottom: 32px;
 		padding: 20px;
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		gap: 20px;
+	}
+
+	.main-filter-controls {
+		display: flex;
+		gap: 12px;
+		align-items: center;
 		flex-wrap: wrap;
+		padding: 16px;
+		background: #f8fafc;
+		border-radius: 8px;
+		border: 1px solid #e2e8f0;
+	}
+
+	.vendor-count-display {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 12px 16px;
+		background: #e0f2fe;
+		border: 1px solid #0891b2;
+		border-radius: 6px;
+		font-size: 14px;
+		min-width: 200px;
+	}
+
+	.vendor-count-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		white-space: nowrap;
+	}
+
+	.vendor-count-row.total-vendors {
+		padding-top: 4px;
+		border-top: 1px solid #0891b2;
+		opacity: 0.8;
+	}
+
+	.vendor-count-label {
+		color: #0c4a6e;
+		font-weight: 500;
+	}
+
+	.vendor-count-number {
+		color: #0c4a6e;
+		font-weight: 700;
+		font-size: 16px;
+	}
+
+	.vendor-count-context {
+		color: #0369a1;
+		font-size: 12px;
+		font-style: italic;
+	}
+
+	.main-filter-summary {
+		padding: 12px 16px;
+		background: #f1f5f9;
+		border-radius: 6px;
+		border-left: 4px solid #3b82f6;
+	}
+
+	.main-filter-summary .filter-summary-text {
+		color: #475569;
+		font-size: 14px;
+		font-weight: 500;
+	}
+
+	.header-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 20px;
+	}
+
+	/* Vendor Search Results Styles */
+	.vendor-search-results {
+		margin: 16px 0;
+		background: white;
+		border-radius: 8px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		border: 1px solid #e2e8f0;
+		max-width: 600px;
+	}
+
+	.vendor-search-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 16px 20px;
+		background: #f8fafc;
+		border-bottom: 1px solid #e2e8f0;
+		border-radius: 8px 8px 0 0;
+	}
+
+	.vendor-search-header h4 {
+		margin: 0;
+		color: #1e293b;
+		font-size: 16px;
+		font-weight: 600;
+	}
+
+	.vendor-count {
+		background: #3b82f6;
+		color: white;
+		padding: 4px 8px;
+		border-radius: 8px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.vendor-list {
+		max-height: 300px;
+		overflow-y: auto;
+	}
+
+	.vendor-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 12px 20px;
+		border-bottom: 1px solid #f1f5f9;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.vendor-item:hover {
+		background: #f8fafc;
+		transform: translateX(4px);
+	}
+
+	.vendor-item:hover .select-hint {
+		background: #3b82f6;
+		color: white;
+		transform: scale(1.05);
+	}
+
+	.vendor-item:last-child {
+		border-bottom: none;
+	}
+
+	.vendor-name {
+		font-weight: 600;
+		color: #1e293b;
+	}
+
+	.vendor-info {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.vendor-id-badge {
+		font-size: 11px;
+		color: #64748b;
+		background: #f1f5f9;
+		padding: 2px 8px;
+		border-radius: 4px;
+		width: fit-content;
+	}
+
+	.select-hint {
+		color: #64748b;
+		font-size: 12px;
+		padding: 6px 16px;
+		background: #f1f5f9;
+		border-radius: 6px;
+		font-weight: 500;
+		transition: all 0.2s ease;
+		border: 1px solid #e2e8f0;
+	}
+
+	/* Search Results Table Styles */
+	.search-results-section {
+		margin: 24px 0;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		overflow: hidden;
+	}
+
+	.search-results-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px 24px;
+		background: #f8fafc;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
+	.search-results-header h3 {
+		margin: 0;
+		color: #1e293b;
+		font-size: 18px;
+		font-weight: 600;
+	}
+
+	.results-count {
+		background: #3b82f6;
+		color: white;
+		padding: 4px 12px;
+		border-radius: 12px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.search-results-table {
+		overflow-x: auto;
+	}
+
+	.search-results-table table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.search-results-table th {
+		background: #f1f5f9;
+		padding: 12px 16px;
+		text-align: left;
+		font-weight: 600;
+		color: #374151;
+		border-bottom: 1px solid #e2e8f0;
+		font-size: 14px;
+	}
+
+	.search-results-table td {
+		padding: 12px 16px;
+		border-bottom: 1px solid #f1f5f9;
+		color: #374151;
+		font-size: 14px;
+	}
+
+	.payment-row:hover {
+		background: #f8fafc;
+	}
+
+	.vendor-name {
+		font-weight: 600;
+		color: #1e293b;
+	}
+
+	.amount {
+		font-weight: 600;
+		color: #059669;
+	}
+
+	.status-badge {
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.status-badge.overdue {
+		background: #fef2f2;
+		color: #dc2626;
+		border: 1px solid #fecaca;
+	}
+
+	.status-badge.due-soon {
+		background: #fff7ed;
+		color: #ea580c;
+		border: 1px solid #fed7aa;
+	}
+
+	.status-badge.normal {
+		background: #f0fdf4;
+		color: #16a34a;
+		border: 1px solid #bbf7d0;
 	}
 
 	.title-section h1 {
@@ -655,6 +1197,69 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.search-input {
+		padding: 10px 16px;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		background: white;
+		color: #1e293b;
+		font-size: 14px;
+		font-weight: 500;
+		transition: all 0.2s;
+		min-width: 200px;
+	}
+
+	.search-input:hover {
+		border-color: #3b82f6;
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.search-input::placeholder {
+		color: #64748b;
+		font-weight: normal;
+	}
+
+	.clear-filters-btn {
+		padding: 10px 20px;
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.clear-filters-btn:hover {
+		background: #dc2626;
+		transform: translateY(-1px);
+	}
+
+	.clear-filters-btn:active {
+		transform: translateY(0);
+	}
+
+	.filter-summary {
+		margin: 10px 0;
+		padding: 8px 12px;
+		background: #f1f5f9;
+		border-radius: 6px;
+		border-left: 4px solid #3b82f6;
+	}
+
+	.filter-summary-text {
+		color: #475569;
+		font-size: 14px;
+		font-weight: 500;
 	}
 
 	.week-navigation {
