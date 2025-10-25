@@ -164,6 +164,10 @@
 					const { default: FinanceMaster } = await import('$lib/components/admin/FinanceMaster.svelte');
 					component = FinanceMaster;
 					break;
+				case 'ManualScheduling':
+					const { default: ManualScheduling } = await import('$lib/components/admin/finance/ManualScheduling.svelte');
+					component = ManualScheduling;
+					break;
 				case 'UserManagement':
 					const { default: UserManagement } = await import('$lib/components/admin/UserManagement.svelte');
 					component = UserManagement;
