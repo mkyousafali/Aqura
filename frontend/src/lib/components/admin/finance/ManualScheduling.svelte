@@ -28,7 +28,6 @@
 		due_date: '',
 		credit_period: 30,
 		vat_number: '',
-		payment_status: 'scheduled',
 		notes: ''
 	};
 
@@ -40,15 +39,7 @@
 		'Bank Credit'
 	];
 
-	// Payment status options
-	const paymentStatuses = [
-		'scheduled',
-		'pending',
-		'processing',
-		'paid',
-		'overdue',
-		'cancelled'
-	];
+	// Payment status removed - now using is_paid boolean
 
 	onMount(async () => {
 		await loadData();
@@ -427,22 +418,20 @@
 					vendor_name: selectedVendor.vendor_name,
 					branch_id: selectedBranch.id,
 					branch_name: selectedBranch.name_en,
-					bill_date: manualForm.bill_date,
-					bill_amount: manualForm.bill_amount,
-					final_bill_amount: manualForm.final_bill_amount || manualForm.bill_amount,
-					payment_method: manualForm.payment_method,
-					bank_name: manualForm.bank_name,
-					iban: manualForm.iban,
-					due_date: manualForm.due_date,
-					credit_period: manualForm.credit_period,
-					vat_number: manualForm.vat_number,
-					payment_status: manualForm.payment_status,
-					scheduled_date: new Date().toISOString(),
-					notes: manualForm.notes || `Manually created on ${new Date().toLocaleDateString()}`
-				})
-				.select();
-
-			if (error) throw error;
+				bill_date: manualForm.bill_date,
+				bill_amount: manualForm.bill_amount,
+				final_bill_amount: manualForm.final_bill_amount || manualForm.bill_amount,
+				payment_method: manualForm.payment_method,
+				bank_name: manualForm.bank_name,
+				iban: manualForm.iban,
+				due_date: manualForm.due_date,
+				credit_period: manualForm.credit_period,
+				vat_number: manualForm.vat_number,
+				is_paid: false,
+				scheduled_date: new Date().toISOString(),
+				notes: manualForm.notes || `Manually created on ${new Date().toLocaleDateString()}`
+			})
+			.select();			if (error) throw error;
 
 			alert(`✅ Payment Schedule Created Successfully!\n\nBill: ${manualForm.bill_number}\nVendor: ${selectedVendor.vendor_name} (${selectedVendor.erp_vendor_id})\nBranch: ${selectedBranch.name_en}\nAmount: ${formatCurrency(manualForm.final_bill_amount || manualForm.bill_amount)}\nDue Date: ${new Date(manualForm.due_date).toLocaleDateString()}`);
 

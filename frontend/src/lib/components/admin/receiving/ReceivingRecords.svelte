@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// State for receiving records
 	let receivingRecords = [];
@@ -20,6 +21,10 @@
 	let uploadingExcelId = null;
 	let generatingCertificateId = null;
 	let updatingBillId = null;
+	let deletingRecordId = null;
+
+	// Check if current user is master admin
+	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
 
 	// Certificate generation state
 	let showCertificateModal = false;
@@ -542,6 +547,43 @@
 		closeCertificateModal();
 	}
 
+	async function deleteReceivingRecord(recordId) {
+		if (!isMasterAdmin) {
+			alert('Only Master Admins can delete receiving records');
+			return;
+		}
+
+		const record = receivingRecords.find(r => r.id === recordId);
+		const confirmMessage = `Are you sure you want to delete this receiving record?\n\nBill: ${record?.bill_number || 'Unknown'}\nVendor: ${record?.vendors?.vendor_name || 'Unknown'}\n\nThis action cannot be undone.`;
+		
+		if (!confirm(confirmMessage)) {
+			return;
+		}
+
+		try {
+			deletingRecordId = recordId;
+			const { supabase } = await import('$lib/utils/supabase');
+
+			const { error } = await supabase
+				.from('receiving_records')
+				.delete()
+				.eq('id', recordId);
+
+			if (error) throw error;
+
+			// Remove from local arrays
+			receivingRecords = receivingRecords.filter(r => r.id !== recordId);
+			filteredRecords = filteredRecords.filter(r => r.id !== recordId);
+
+			alert('Receiving record deleted successfully');
+		} catch (error) {
+			console.error('Error deleting receiving record:', error);
+			alert(`Failed to delete receiving record: ${error.message}`);
+		} finally {
+			deletingRecordId = null;
+		}
+	}
+
 	// Reactive statement to apply filters when search/filter values change
 	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || filterOverdueDays !== undefined) {
 		applyFilters();
@@ -694,6 +736,9 @@
 					<div class="header-cell">Amounts</div>
 					<div class="header-cell">ERP Invoice Ref</div>
 					<div class="header-cell">Date</div>
+					{#if isMasterAdmin}
+						<div class="header-cell">Actions</div>
+					{/if}
 				</div>
 				
 				{#each filteredRecords as record}
@@ -863,6 +908,25 @@
 						<div class="cell">
 							<small>{formatDate(record.created_at)}</small>
 						</div>
+						
+						{#if isMasterAdmin}
+							<div class="cell actions-cell">
+								{#if deletingRecordId === record.id}
+									<div class="deleting-indicator">
+										<div class="spinner-small"></div>
+										<small>Deleting...</small>
+									</div>
+								{:else}
+									<button 
+										class="delete-btn" 
+										on:click={() => deleteReceivingRecord(record.id)}
+										title="Delete this receiving record (Master Admin only)"
+									>
+										<span>🗑️</span>
+									</button>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -1171,7 +1235,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -1187,7 +1251,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -1383,6 +1447,54 @@
 		background: #fee2e2;
 		border-color: #fca5a5;
 		transform: translateY(-1px);
+	}
+
+	/* Actions Cell and Delete Button Styles */
+	.actions-cell {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.delete-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		background: #fee2e2;
+		border: 1px solid #fecaca;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		color: #dc2626;
+		font-size: 16px;
+	}
+
+	.delete-btn:hover {
+		background: #fecaca;
+		border-color: #fca5a5;
+		transform: scale(1.1);
+		box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+	}
+
+	.delete-btn:active {
+		transform: scale(0.95);
+	}
+
+	.deleting-indicator {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 6px;
+		background: #f3f4f6;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		color: #6b7280;
+		font-size: 9px;
+		min-width: 50px;
 	}
 
 	/* ERP Popup Styles */
@@ -1814,9 +1926,19 @@
 		}
 
 		.table-header, .table-row {
-			grid-template-columns: 80px 1fr 1fr 1fr;
+			grid-template-columns: 80px 1fr 1fr 1fr 80px;
 			gap: 8px;
 			font-size: 12px;
+		}
+
+		.table-row .cell:nth-child(2),
+		.table-row .cell:nth-child(3),
+		.table-row .cell:nth-child(7),
+		.table-row .cell:nth-child(8),
+		.table-row .cell:nth-child(9),
+		.table-row .cell:nth-child(10),
+		.table-row .cell:nth-child(11) {
+			display: none;
 		}
 
 		.certificate-thumbnail {
@@ -1867,6 +1989,12 @@
 		.excel-file-container {
 			width: 50px;
 			height: 40px;
+		}
+
+		.delete-btn {
+			width: 30px;
+			height: 30px;
+			font-size: 14px;
 		}
 
 		.filters-row {

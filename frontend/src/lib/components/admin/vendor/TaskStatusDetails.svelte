@@ -18,26 +18,27 @@
 	let uniqueBranches = [];
 	let uniqueStatuses = [];
 
-	// Load tasks data - First get payment transactions with task_ids, then get their completion status
+	// Load tasks data - First get payments with task_ids, then get their completion status
 	async function loadTasks() {
 		
 		try {
 			console.log('TaskStatusDetails: Starting to load tasks...');
 			
-			// Step 1: Get all payment_transactions that have task_ids (exact same query as card)
+			// Step 1: Get all vendor_payment_schedule records that are paid and have task_ids
 			const { data: paymentTasks, error: paymentError } = await supabase
-				.from('payment_transactions')
+				.from('vendor_payment_schedule')
 				.select('*')
+				.eq('is_paid', true)
 				.not('task_id', 'is', null);
 
-			console.log('TaskStatusDetails: Payment transactions query result:', { 
+			console.log('TaskStatusDetails: Payment schedule query result:', { 
 				data: paymentTasks, 
 				error: paymentError,
 				count: paymentTasks?.length || 0
 			});
 
 			if (paymentError) {
-				console.error('Error loading payment transactions:', paymentError);
+				console.error('Error loading payment schedule:', paymentError);
 				return;
 			}
 
@@ -45,7 +46,7 @@
 				tasks = [];
 				uniqueBranches = [];
 				uniqueStatuses = [];
-				console.log('TaskStatusDetails: No payment transactions with task_ids found');
+				console.log('TaskStatusDetails: No paid payments with task_ids found');
 				return;
 			}
 
