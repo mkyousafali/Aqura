@@ -27,16 +27,14 @@
 			// Search filter
 			if (searchQuery) {
 				const query = searchQuery.toLowerCase();
-				const matchesSearch = 
-					payment.vendor_name?.toLowerCase().includes(query) ||
-					payment.receiving_records?.vendor_id?.toString().includes(query) ||
-					payment.receiving_records?.branches?.name_en?.toLowerCase().includes(query) ||
-					payment.bill_number?.toLowerCase().includes(query) ||
-					payment.reference_number?.toLowerCase().includes(query) ||
-					payment.amount?.toString().includes(query) ||
-					payment.payment_method?.toLowerCase().includes(query);
-				
-				if (!matchesSearch) return false;
+			const matchesSearch = 
+				payment.vendor_name?.toLowerCase().includes(query) ||
+				payment.receiving_records?.vendor_id?.toString().includes(query) ||
+				payment.receiving_records?.branches?.name_en?.toLowerCase().includes(query) ||
+				payment.bill_number?.toLowerCase().includes(query) ||
+				payment.payment_reference?.toLowerCase().includes(query) ||
+				(payment.final_bill_amount || payment.bill_amount)?.toString().includes(query) ||
+				payment.payment_method?.toLowerCase().includes(query);				if (!matchesSearch) return false;
 			}
 
 			// Branch filter
@@ -49,21 +47,19 @@
 				return false;
 			}
 
-			// Date range filter
-			if (dateFrom || dateTo) {
-				const paymentDate = new Date(payment.transaction_date);
-				if (dateFrom && paymentDate < new Date(dateFrom)) return false;
-				if (dateTo && paymentDate > new Date(dateTo)) return false;
-			}
+		// Date range filter
+		if (dateFrom || dateTo) {
+			const paymentDate = new Date(payment.paid_date || payment.transaction_date);
+			if (dateFrom && paymentDate < new Date(dateFrom)) return false;
+			if (dateTo && paymentDate > new Date(dateTo)) return false;
+		}
 
-			return true;
-		});
-	}
+		return true;
+	});
+}
 
-	// Calculate filtered totals
-	$: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-
-	// Format currency
+// Calculate filtered totals
+$: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final_bill_amount || p.bill_amount) || 0), 0);	// Format currency
 	function formatCurrency(amount) {
 		if (!amount) return 'SAR 0.00';
 		return `SAR ${parseFloat(amount).toFixed(2)}`;
@@ -104,8 +100,8 @@
 		isUpdating = true;
 		try {
 			const { error } = await supabase
-				.from('payment_transactions')
-				.update({ reference_number: editingValue.trim() || null })
+				.from('vendor_payment_schedule')
+				.update({ payment_reference: editingValue.trim() || null })
 				.eq('id', paymentId);
 
 			if (error) {
@@ -117,7 +113,7 @@
 			// Update the local payments array
 			const paymentIndex = payments.findIndex(p => p.id === paymentId);
 			if (paymentIndex !== -1) {
-				payments[paymentIndex].reference_number = editingValue.trim() || null;
+				payments[paymentIndex].payment_reference = editingValue.trim() || null;
 				payments = [...payments]; // Trigger reactivity
 			}
 
@@ -235,10 +231,10 @@
 					{#each filteredPayments as payment}
 						<tr>
 							<td class="date-cell">
-								{new Date(payment.transaction_date).toLocaleDateString('en-GB')}
+								{new Date(payment.paid_date || payment.transaction_date).toLocaleDateString('en-GB')}
 							</td>
 							<td class="amount-cell">
-								{formatCurrency(payment.amount)}
+								{formatCurrency(payment.final_bill_amount || payment.bill_amount)}
 							</td>
 							<td class="bill-number-cell">
 								{payment.bill_number || 'N/A'}
@@ -312,10 +308,10 @@
 								{:else}
 									<div 
 										class="reference-display"
-										on:click={() => startEditReference(payment.id, payment.reference_number)}
+										on:click={() => startEditReference(payment.id, payment.payment_reference)}
 										title="Click to edit reference number"
 									>
-										{payment.reference_number || 'Click to add'}
+										{payment.payment_reference || 'Click to add'}
 									</div>
 								{/if}
 							</td>

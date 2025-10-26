@@ -90,7 +90,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('*')
-				.not('payment_status', 'ilike', 'paid')
+				.eq('is_paid', false)
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -272,7 +272,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
 		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
-		const notPaid = payment.payment_status !== 'paid' && payment.payment_status !== 'Paid' && payment.payment_status !== 'PAID';
+		const notPaid = !payment.is_paid; // Only show unpaid payments
 		return branchMatch && paymentMethodMatch && vendorMatch && notPaid;
 	});
 
@@ -290,7 +290,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
 		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
-		const notPaid = payment.payment_status !== 'paid' && payment.payment_status !== 'Paid' && payment.payment_status !== 'PAID';
+		const notPaid = !payment.is_paid; // Only show unpaid payments
 		return branchMatch && paymentMethodMatch && vendorMatch && notPaid;
 	}) || [];
 
@@ -854,7 +854,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<td>{formatDate(payment.due_date)}</td>
 								<td>{formatDate(payment.original_due_date)}</td>
 								<td>
-									<span class="status-badge status-{payment.payment_status}">{payment.payment_status || 'scheduled'}</span>
+									<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+									{payment.is_paid ? 'Paid' : 'Scheduled'}
+								</span>
 								</td>
 							</tr>
 						{/each}

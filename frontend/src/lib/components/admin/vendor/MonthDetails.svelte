@@ -354,15 +354,7 @@
 		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 	}
 
-	// Get payment status class
-	function getPaymentStatusStyle(status) {
-		switch (status) {
-			case 'paid': return 'status-paid';
-			case 'overdue': return 'status-overdue';
-			case 'cancelled': return 'status-cancelled';
-			default: return 'status-scheduled';
-		}
-	}
+	// Function removed - now using is_paid boolean directly for styling
 
 	// Get unique color for each vendor
 	function getVendorColor(index) {
@@ -534,16 +526,14 @@
 					bank_name: originalPayment.bank_name,
 					iban: originalPayment.iban,
 					due_date: formatDateForDB(newDate),
-					original_due_date: originalPayment.original_due_date, // Preserve original due date
-					original_bill_amount: originalPayment.original_bill_amount, // Preserve original bill amount
-					original_final_amount: originalPayment.original_final_amount, // Preserve original final amount
-					credit_period: originalPayment.credit_period,
-					vat_number: originalPayment.vat_number,
-					payment_status: 'scheduled',
-					notes: (originalPayment.notes || '') + ' [Split from original payment]'
-				});
-
-			if (error) {
+				original_due_date: originalPayment.original_due_date, // Preserve original due date
+				original_bill_amount: originalPayment.original_bill_amount, // Preserve original bill amount
+				original_final_amount: originalPayment.original_final_amount, // Preserve original final amount
+				credit_period: originalPayment.credit_period,
+				vat_number: originalPayment.vat_number,
+				is_paid: false,
+				notes: (originalPayment.notes || '') + ' [Split from original payment]'
+			});			if (error) {
 				console.error('Error creating split payment:', error);
 				alert('Failed to create split payment');
 				return;
@@ -587,66 +577,40 @@
 					return;
 				}
 
-				const payment = paymentData;
-				const receivingRecord = payment.receiving_records;
+			const payment = paymentData;
+			const receivingRecord = payment.receiving_records;
 
-				// Check if transaction already exists to prevent duplicates
-				const { data: existingTransactions, error: checkError } = await supabase
-					.from('payment_transactions')
-					.select('id')
-					.eq('payment_schedule_id', paymentId);
+			// Generate payment reference number
+			const generatePaymentReference = () => {
+				const timestamp = Date.now();
+				const random = Math.floor(Math.random() * 10000);
+				return `CP#${random}`;
+			};
 
-				if (!checkError && existingTransactions && existingTransactions.length > 0) {
-					console.log('Transaction already exists for payment:', paymentId);
-					if (!isAutoProcessed) {
-						alert('Payment is already marked as paid and transaction exists');
-					}
-					return;
+			const paymentReference = generatePaymentReference();
+
+			// Update payment status in vendor_payment_schedule
+			const { error: updateError } = await supabase
+				.from('vendor_payment_schedule')
+				.update({ 
+					is_paid: true, 
+					paid_date: new Date().toISOString(),
+					payment_reference: paymentReference,
+					transaction_date: new Date().toISOString(),
+					receiver_user_id: receivingRecord?.user_id,
+					accountant_user_id: receivingRecord?.accountant_user_id,
+					original_bill_url: receivingRecord?.original_bill_url,
+					created_by: $currentUser?.id
+				})
+				.eq('id', paymentId);
+
+			if (updateError) {
+				console.error('Error updating payment status:', updateError);
+				if (!isAutoProcessed) {
+					alert('Failed to update payment status');
 				}
-
-				// Update payment status in vendor_payment_schedule
-				const { error: updateError } = await supabase
-					.from('vendor_payment_schedule')
-					.update({ 
-						is_paid: true, 
-						paid_date: new Date().toISOString()
-					})
-					.eq('id', paymentId);
-
-				if (updateError) {
-					console.error('Error updating payment status:', updateError);
-					if (!isAutoProcessed) {
-						alert('Failed to update payment status');
-					}
-					return;
-				}
-
-				// Create payment transaction record
-				const { data: transactionData, error: transactionError } = await supabase
-					.from('payment_transactions')
-					.insert({
-						payment_schedule_id: paymentId,
-						receiving_record_id: payment.receiving_record_id,
-						receiver_user_id: receivingRecord?.user_id,
-						accountant_user_id: receivingRecord?.accountant_user_id,
-						transaction_date: new Date().toISOString(),
-						amount: payment.final_bill_amount || payment.bill_amount,
-						payment_method: payment.payment_method,
-						bank_name: payment.bank_name,
-						iban: payment.iban,
-						vendor_name: payment.vendor_name,
-						bill_number: payment.bill_number,
-						original_bill_url: receivingRecord?.original_bill_url,
-						created_by: $currentUser?.id
-					})
-					.select()
-					.single();
-
-				if (transactionError) {
-					console.error('Error creating transaction record:', transactionError);
-				}
-
-				// Create task for accountant if we have accountant info
+				return;
+			}				// Create task for accountant if we have accountant info
 				if (receivingRecord?.accountant_user_id) {
 					const receiverName = receivingRecord.users 
 						? receivingRecord.users.username
@@ -697,20 +661,19 @@
 						if (assignmentError) {
 							console.error('Error assigning task:', assignmentError);
 						} else {
-							// Update payment transaction with task and assignment IDs
-							if (transactionData) {
-								const { error: updateTransactionError } = await supabase
-									.from('payment_transactions')
-									.update({
-										task_id: taskData.id,
-										task_assignment_id: assignmentData.id
-									})
-									.eq('id', transactionData.id);
+							// Update vendor_payment_schedule with task and assignment IDs
+							const { error: updatePaymentError } = await supabase
+								.from('vendor_payment_schedule')
+								.update({
+									task_id: taskData.id,
+									task_assignment_id: assignmentData.id
+								})
+								.eq('id', paymentId);
 
-								if (updateTransactionError) {
-									console.error('Error updating transaction with task IDs:', updateTransactionError);
-								}
+							if (updatePaymentError) {
+								console.error('Error updating payment with task IDs:', updatePaymentError);
 							}
+							
 							// Send notification to accountant
 							try {
 								const { error: notificationError } = await supabase
@@ -741,37 +704,28 @@
 				if (!isAutoProcessed) {
 					alert('Payment marked as paid successfully and task created for accountant');
 				}
-			} else {
-				// Unmark as paid - update vendor_payment_schedule
-				const { error: updateError } = await supabase
-					.from('vendor_payment_schedule')
-					.update({ 
-						is_paid: false, 
-						payment_reference: null,
-						paid_date: null
-					})
-					.eq('id', paymentId);
+		} else {
+			// Unmark as paid - update vendor_payment_schedule
+			const { error: updateError } = await supabase
+				.from('vendor_payment_schedule')
+				.update({ 
+					is_paid: false, 
+					payment_reference: null,
+					paid_date: null,
+					task_id: null,
+					task_assignment_id: null,
+					transaction_date: null
+				})
+				.eq('id', paymentId);
 
-				if (updateError) {
-					console.error('Error updating payment status:', updateError);
-					alert('Failed to update payment status');
-					return;
-				}
-
-				// Delete payment transaction record
-				const { error: deleteError } = await supabase
-					.from('payment_transactions')
-					.delete()
-					.eq('payment_schedule_id', paymentId);
-
-				if (deleteError) {
-					console.error('Error deleting transaction record:', deleteError);
-				}
-
-				alert('Payment unmarked successfully');
+			if (updateError) {
+				console.error('Error updating payment status:', updateError);
+				alert('Failed to update payment status');
+				return;
 			}
 
-			// Reload data to reflect changes
+			alert('Payment unmarked successfully');
+		}			// Reload data to reflect changes
 			await loadScheduledPayments();
 		} catch (error) {
 			console.error('Error handling payment status change:', error);
@@ -1102,8 +1056,8 @@
 																/>
 															</div>
 															<div class="data-cell status-cell">
-																<span class="status-badge {getPaymentStatusStyle(payment.payment_status)}">
-																	{payment.payment_status || 'scheduled'}
+																<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+																	{payment.is_paid ? 'Paid' : 'Scheduled'}
 																</span>
 															</div>
 															<div class="data-cell actions-cell">
