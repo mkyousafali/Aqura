@@ -1143,13 +1143,44 @@ export const db = {
 			if (notification_ids.length === 0) {
 				return { data: [], error: null };
 			}
-			
-			const { data, error } = await supabase
-				.from('notification_attachments')
-				.select('*')
-				.in('notification_id', notification_ids)
-				.order('created_at', { ascending: false });
-			return { data, error };
+
+			// Supabase REST GET with a very large `.in()` list can produce extremely
+			// long URLs which hit server / proxy limits and return 400 Bad Request.
+			// Chunk the IDs into smaller groups to avoid too-long query strings.
+			const CHUNK_SIZE = 100; // safe default; tune if needed
+			const chunks: string[][] = [];
+			for (let i = 0; i < notification_ids.length; i += CHUNK_SIZE) {
+				chunks.push(notification_ids.slice(i, i + CHUNK_SIZE));
+			}
+
+			const promises = chunks.map(chunkIds =>
+				supabase
+					.from('notification_attachments')
+					.select('*')
+					.in('notification_id', chunkIds)
+					.order('created_at', { ascending: false })
+			);
+
+			// Run in parallel and merge results
+			const results = await Promise.all(promises);
+			let combined: any[] = [];
+			let firstError: any = null;
+			for (const res of results) {
+				if (res.error && !firstError) firstError = res.error;
+				if (res.data && res.data.length > 0) combined = combined.concat(res.data);
+			}
+
+			// Deduplicate attachments by id (in case of overlap) and sort by created_at desc
+			const seen = new Set();
+			const deduped = combined.filter(att => {
+				if (seen.has(att.id)) return false;
+				seen.add(att.id);
+				return true;
+			});
+
+			deduped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+			return { data: deduped, error: firstError };
 		},
 
 		async create(attachment: Omit<NotificationAttachment, 'id' | 'created_at'>) {
