@@ -599,6 +599,22 @@
 							showUpdatePrompt = false;
 						};
 						
+						// Force check for updates every 30 seconds
+						const checkForUpdates = async () => {
+							if (registration) {
+								console.log('🔍 Checking for service worker updates...');
+								try {
+									await registration.update();
+								} catch (error) {
+									console.warn('⚠️ Update check failed:', error);
+								}
+							}
+						};
+						
+						// Check for updates immediately and then every 30 seconds
+						checkForUpdates();
+						setInterval(checkForUpdates, 30000);
+						
 						console.log('✅ PWA initialization completed');
 					} else {
 						console.warn('⚠️ Service Workers not supported');
