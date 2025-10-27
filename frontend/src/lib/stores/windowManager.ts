@@ -15,6 +15,7 @@ export interface WindowConfig {
 	minimizable?: boolean;
 	maximizable?: boolean;
 	closable?: boolean;
+	refreshable?: boolean; // New property for refresh button
 	modal?: boolean;
 	zIndex: number;
 	state: 'normal' | 'minimized' | 'maximized';
@@ -570,6 +571,20 @@ class WindowManager {
 				windowConfig.isActive = true;
 				windowConfig.zIndex = this.nextZIndex++;
 				this.activeWindowId.set(windowId);
+			}
+			return windows;
+		});
+	}
+
+	/**
+	 * Refresh a window by triggering component remount
+	 */
+	public refreshWindow(windowId: string): void {
+		this.windows.update(windows => {
+			const windowConfig = windows.get(windowId);
+			if (windowConfig) {
+				// Force component re-render by creating new props object
+				windowConfig.props = { ...windowConfig.props };
 			}
 			return windows;
 		});

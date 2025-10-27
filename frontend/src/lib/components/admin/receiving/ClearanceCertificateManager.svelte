@@ -118,7 +118,9 @@
         damage_vendor_document_number: receivingRecord.damage_vendor_document_number || 'N/A',
         
         total_return_amount: receivingRecord.total_return_amount || 0,
-        final_bill_amount: receivingRecord.final_bill_amount || receivingRecord.bill_amount,
+        // Calculate final bill amount: Bill Amount - Total Returns
+        final_bill_amount: receivingRecord.final_bill_amount || 
+                          (receivingRecord.bill_amount - (receivingRecord.total_return_amount || 0)),
         // Personnel data - using fetched vendor information
         salesman_name: salesmanName,
         salesman_contact: salesmanContact
@@ -552,7 +554,7 @@
                 Bill Amount:
                 <div class="detail-label-ar">مبلغ الفاتورة:</div>
             </div>
-            <div class="detail-value">${certificateData.bill_amount}.00</div>
+            <div class="detail-value">SAR ${certificateData.bill_amount}.00</div>
         </div>
         
         <div class="detail-row">
@@ -600,7 +602,7 @@
                 </div>
                 <div class="returns-status">
                     <span class="status-badge ${certificateData.expired_return_amount > 0 ? 'yes' : 'no'}">${certificateData.expired_return_amount > 0 ? 'Yes / نعم' : 'No / لا'}</span>
-                    <span class="amount">${certificateData.expired_return_amount.toFixed(2)}</span>
+                    <span class="amount">SAR ${certificateData.expired_return_amount.toFixed(2)}</span>
                     <span class="doc-type">${certificateData.expired_erp_document_type}</span>
                     <span class="doc-number">${certificateData.expired_erp_document_number}</span>
                     <span class="vendor-doc">${certificateData.expired_vendor_document_number}</span>
@@ -614,7 +616,7 @@
                 </div>
                 <div class="returns-status">
                     <span class="status-badge ${certificateData.near_expiry_return_amount > 0 ? 'yes' : 'no'}">${certificateData.near_expiry_return_amount > 0 ? 'Yes / نعم' : 'No / لا'}</span>
-                    <span class="amount">${certificateData.near_expiry_return_amount.toFixed(2)}</span>
+                    <span class="amount">SAR ${certificateData.near_expiry_return_amount.toFixed(2)}</span>
                     <span class="doc-type">${certificateData.near_expiry_erp_document_type}</span>
                     <span class="doc-number">${certificateData.near_expiry_erp_document_number}</span>
                     <span class="vendor-doc">${certificateData.near_expiry_vendor_document_number}</span>
@@ -628,7 +630,7 @@
                 </div>
                 <div class="returns-status">
                     <span class="status-badge ${certificateData.over_stock_return_amount > 0 ? 'yes' : 'no'}">${certificateData.over_stock_return_amount > 0 ? 'Yes / نعم' : 'No / لا'}</span>
-                    <span class="amount">${certificateData.over_stock_return_amount.toFixed(2)}</span>
+                    <span class="amount">SAR ${certificateData.over_stock_return_amount.toFixed(2)}</span>
                     <span class="doc-type">${certificateData.over_stock_erp_document_type}</span>
                     <span class="doc-number">${certificateData.over_stock_erp_document_number}</span>
                     <span class="vendor-doc">${certificateData.over_stock_vendor_document_number}</span>
@@ -642,7 +644,7 @@
                 </div>
                 <div class="returns-status">
                     <span class="status-badge ${certificateData.damage_return_amount > 0 ? 'yes' : 'no'}">${certificateData.damage_return_amount > 0 ? 'Yes / نعم' : 'No / لا'}</span>
-                    <span class="amount">${certificateData.damage_return_amount.toFixed(2)}</span>
+                    <span class="amount">SAR ${certificateData.damage_return_amount.toFixed(2)}</span>
                     <span class="doc-type">${certificateData.damage_erp_document_type}</span>
                     <span class="doc-number">${certificateData.damage_erp_document_number}</span>
                     <span class="vendor-doc">${certificateData.damage_vendor_document_number}</span>
@@ -656,7 +658,7 @@
                 </div>
                 <div class="returns-status">
                     <span class="status-badge" style="visibility: hidden;"></span>
-                    <span class="amount">${certificateData.total_return_amount.toFixed(2)}</span>
+                    <span class="amount">SAR ${certificateData.total_return_amount.toFixed(2)}</span>
                     <span class="doc-type">-</span>
                     <span class="doc-number">-</span>
                     <span class="vendor-doc">-</span>
@@ -670,7 +672,7 @@
                 Final Amount:
                 <div class="detail-label-ar">المبلغ النهائي:</div>
             </div>
-            <div class="detail-value">${certificateData.final_bill_amount.toFixed(2)}</div>
+            <div class="detail-value">SAR ${certificateData.final_bill_amount.toFixed(2)}</div>
         </div>
         
         <!-- Personnel Information -->
