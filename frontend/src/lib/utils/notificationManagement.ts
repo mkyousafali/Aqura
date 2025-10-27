@@ -69,48 +69,66 @@ export class NotificationManagementService {
 	async getAllNotifications(userId?: string): Promise<NotificationItem[]> {
 		try {
 			if (userId) {
-				// Include read states for the specific user
+				// Query from notification_recipients to only get notifications targeted to this user
 				const { data, error } = await supabase
-					.from('notifications')
+					.from('notification_recipients')
 					.select(`
-						*,
-						notification_read_states(
-							is_read,
-							read_at,
-							user_id
+						notification_id,
+						user_id,
+						created_at,
+						notifications!inner (
+							id,
+							title,
+							message,
+							type,
+							priority,
+							status,
+							created_at,
+							created_by,
+							created_by_name,
+							metadata,
+							task_id,
+							task_assignment_id,
+							target_type,
+							target_users
 						)
 					`)
+					.eq('user_id', userId)
+					.eq('notifications.status', 'published')
 					.order('created_at', { ascending: false });
 
 				if (error) {
 					throw error;
 				}
 
-				// Transform to include read status for the specific user
-				return data?.map(notification => {
-					// Find read state for this specific user
-					const userReadState = notification.notification_read_states?.find(
-						(readState: any) => readState.user_id === userId
-					);
+				// Get read states for all notifications in a single query
+				const notificationIds = data?.map(r => r.notification_id) || [];
+				const { data: readStates } = await supabase
+					.from('notification_read_states')
+					.select('notification_id, is_read, read_at')
+					.eq('user_id', userId)
+					.in('notification_id', notificationIds);
+
+				// Create a map of read states for quick lookup
+				const readStatesMap = new Map<string, { is_read: boolean; read_at?: string }>(
+					readStates?.map(rs => [rs.notification_id, { is_read: rs.is_read, read_at: rs.read_at }]) || []
+				);
+
+				// Transform data to match NotificationItem interface
+				return data?.map(recipient => {
+					const notification = recipient.notifications;
+					const readState = readStatesMap.get(recipient.notification_id);
 					
 					return {
 						...notification,
-						is_read: userReadState?.is_read || false,
-						read_at: userReadState?.read_at || null
+						is_read: readState?.is_read || false,
+						read_at: readState?.read_at || null
 					};
 				}) || [];
 			} else {
-				// Fallback: get all notifications without read states
-				const { data, error } = await supabase
-					.from('notifications')
-					.select('*')
-					.order('created_at', { ascending: false });
-
-				if (error) {
-					throw error;
-				}
-
-				return data || [];
+				// Fallback: if no user ID, return empty array (security: don't show all notifications)
+				console.warn('⚠️ getAllNotifications called without userId - returning empty array');
+				return [];
 			}
 		} catch (error) {
 			console.error('Error fetching notifications:', error);
