@@ -686,16 +686,9 @@
 								<option value={method}>{method}</option>
 							{/each}
 						</select>
-					</div>							<div class="form-group">
-								<label>Payment Status</label>
-								<select bind:value={manualForm.payment_status}>
-									{#each paymentStatuses as status}
-										<option value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
-									{/each}
-								</select>
-							</div>
-						</div>
 					</div>
+				</div>
+			</div>
 
 			<!-- Payment Information Section -->
 			<div class="form-section">
