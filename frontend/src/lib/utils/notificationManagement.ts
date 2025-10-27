@@ -123,35 +123,68 @@ export class NotificationManagementService {
 	 */
 	async getUserNotifications(userId: string): Promise<UserNotificationItem[]> {
 		try {
+			// Query from notification_recipients to only get notifications targeted to this user
 			const { data, error } = await supabase
-				.from('notifications')
+				.from('notification_recipients')
 				.select(`
-					*,
-					notification_read_states(
-						is_read,
-						read_at
+					notification_id,
+					user_id,
+					created_at,
+					notifications!inner (
+						id,
+						title,
+						message,
+						type,
+						priority,
+						status,
+						created_at,
+						created_by,
+						created_by_name,
+						metadata,
+						task_id,
+						task_assignment_id
 					)
 				`)
-				.eq('notification_read_states.user_id', userId)
-				.eq('status', 'published')
+				.eq('user_id', userId)
+				.eq('notifications.status', 'published')
 				.order('created_at', { ascending: false });
 
 			if (error) {
 				throw error;
 			}
 
+			// Get read states for all notifications in a single query
+			const notificationIds = data?.map(r => r.notification_id) || [];
+			const { data: readStates } = await supabase
+				.from('notification_read_states')
+				.select('notification_id, is_read, read_at')
+				.eq('user_id', userId)
+				.in('notification_id', notificationIds);
+
+			// Create a map of read states for quick lookup
+			const readStatesMap = new Map<string, { is_read: boolean; read_at?: string }>(
+				readStates?.map(rs => [rs.notification_id, { is_read: rs.is_read, read_at: rs.read_at }]) || []
+			);
+
 			// Transform data to match UserNotificationItem interface
-			const userNotifications = data?.map(notification => ({
-				id: notification.id,
-				notification_id: notification.id,
-				title: notification.title,
-				message: notification.message,
-				type: notification.type,
-				priority: notification.priority,
-				is_read: notification.notification_read_states?.[0]?.is_read || false,
-				read_at: notification.notification_read_states?.[0]?.read_at,
-				created_at: notification.created_at
-			})) || [];
+			const userNotifications = data?.map(recipient => {
+				const notification = recipient.notifications;
+				const readState = readStatesMap.get(recipient.notification_id);
+				
+				return {
+					id: notification.id,
+					notification_id: recipient.notification_id,
+					title: notification.title,
+					message: notification.message,
+					type: notification.type,
+					priority: notification.priority,
+					is_read: readState?.is_read || false,
+					read_at: readState?.read_at,
+					created_at: notification.created_at,
+					created_by_name: notification.created_by_name,
+					recipient_id: recipient.user_id
+				};
+			}) || [];
 
 			return userNotifications;
 		} catch (error) {
