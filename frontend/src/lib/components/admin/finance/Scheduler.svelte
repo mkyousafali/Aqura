@@ -1,21 +1,67 @@
 <script>
 	// Scheduler Component
+	import SingleBillScheduling from './SingleBillScheduling.svelte';
+	import MultipleBillScheduling from './MultipleBillScheduling.svelte';
+	
+	let activeView = 'home'; // 'home', 'single', 'multiple', 'recurring'
+	
+	function handleSingleBillScheduling() {
+		activeView = 'single';
+	}
+	
+	function handleMultipleBillScheduling() {
+		activeView = 'multiple';
+	}
+	
+	function handleRecurringBillScheduling() {
+		console.log('Recurring Bill Scheduling clicked');
+		// TODO: Implement recurring bill scheduling
+	}
+	
+	function backToHome() {
+		activeView = 'home';
+	}
 </script>
 
+{#if activeView === 'home'}
 <div class="scheduler">
-	<div class="header">
-		<h1 class="title">📅 Scheduler</h1>
-		<p class="subtitle">Schedule and track expense payments</p>
-	</div>
-
 	<div class="content">
-		<div class="placeholder">
-			<div class="placeholder-icon">🚧</div>
-			<h2>Coming Soon</h2>
-			<p>Scheduling features are under development</p>
+		<div class="scheduling-options">
+			<!-- Single Bill Scheduling -->
+			<button class="schedule-card" on:click={handleSingleBillScheduling}>
+				<div class="card-icon">📄</div>
+				<h3 class="card-title">Single Bill Scheduling</h3>
+				<p class="card-description">Schedule a one-time payment for a single bill</p>
+			</button>
+
+			<!-- Multiple Bill Scheduling -->
+			<button class="schedule-card" on:click={handleMultipleBillScheduling}>
+				<div class="card-icon">📋</div>
+				<h3 class="card-title">Multiple Bill Scheduling</h3>
+				<p class="card-description">Schedule payments for multiple bills at once</p>
+			</button>
+
+			<!-- Recurring Bill Scheduling -->
+			<button class="schedule-card" on:click={handleRecurringBillScheduling}>
+				<div class="card-icon">🔄</div>
+				<h3 class="card-title">Recurring Bill Scheduling</h3>
+				<p class="card-description">Set up automatic recurring payment schedules</p>
+				<div class="card-badge">Coming Soon</div>
+			</button>
 		</div>
 	</div>
 </div>
+{:else if activeView === 'single'}
+	<div class="view-container">
+		<button class="btn-back" on:click={backToHome}>← Back to Scheduler</button>
+		<SingleBillScheduling />
+	</div>
+{:else if activeView === 'multiple'}
+	<div class="view-container">
+		<button class="btn-back" on:click={backToHome}>← Back to Scheduler</button>
+		<MultipleBillScheduling />
+	</div>
+{/if}
 
 <style>
 	.scheduler {
@@ -28,22 +74,30 @@
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 	}
 
-	.header {
-		margin-bottom: 2rem;
-		text-align: center;
+	.view-container {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
 	}
 
-	.title {
-		font-size: 2rem;
-		font-weight: 700;
-		color: #1e293b;
-		margin-bottom: 0.5rem;
+	.btn-back {
+		margin: 1rem 1rem 0 1rem;
+		padding: 0.75rem 1.5rem;
+		background: white;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #475569;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		align-self: flex-start;
 	}
 
-	.subtitle {
-		color: #64748b;
-		font-size: 1rem;
-		margin: 0;
+	.btn-back:hover {
+		background: #f8fafc;
+		border-color: #cbd5e1;
+		transform: translateX(-4px);
 	}
 
 	.content {
@@ -51,30 +105,84 @@
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-		padding: 2rem;
+		padding: 1.5rem;
+	}
+
+	.scheduling-options {
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		margin-bottom: 2rem;
 	}
 
-	.placeholder {
+	.schedule-card {
+		background: white;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		min-width: 90px;
 		text-align: center;
-		color: #64748b;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+		flex: 0 0 auto;
 	}
 
-	.placeholder-icon {
-		font-size: 4rem;
-		margin-bottom: 1rem;
+	.schedule-card:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+		border-color: #667eea;
 	}
 
-	.placeholder h2 {
-		font-size: 1.5rem;
-		color: #1e293b;
-		margin-bottom: 0.5rem;
+	.schedule-card:active {
+		transform: translateY(0);
 	}
 
-	.placeholder p {
+	.schedule-card:nth-child(1):hover {
+		border-color: #667eea;
+		background: linear-gradient(135deg, rgba(102, 126, 234, 0.02) 0%, rgba(118, 75, 162, 0.02) 100%);
+	}
+
+	.schedule-card:nth-child(2):hover {
+		border-color: #f093fb;
+		background: linear-gradient(135deg, rgba(240, 147, 251, 0.02) 0%, rgba(245, 87, 108, 0.02) 100%);
+	}
+
+	.schedule-card:nth-child(3):hover {
+		border-color: #4facfe;
+		background: linear-gradient(135deg, rgba(79, 172, 254, 0.02) 0%, rgba(0, 242, 254, 0.02) 100%);
+	}
+
+	.card-icon {
 		font-size: 1rem;
-		margin: 0;
+		margin-bottom: 0.25rem;
+		opacity: 0.9;
+	}
+
+	.card-title {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #1e293b;
+		margin-bottom: 0.25rem;
+	}
+
+	.card-description {
+		font-size: 0.6rem;
+		color: #64748b;
+		margin: 0 0 0.5rem 0;
+		line-height: 1.3;
+	}
+
+	.card-badge {
+		display: inline-block;
+		background: #f1f5f9;
+		border: 1px solid #e2e8f0;
+		color: #64748b;
+		padding: 0.15rem 0.4rem;
+		border-radius: 6px;
+		font-size: 0.55rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
 	}
 </style>

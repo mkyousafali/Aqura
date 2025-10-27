@@ -103,7 +103,7 @@
 				try {
 					const { data, error: scheduleError } = await supabase
 						.from('vendor_payment_schedule')
-						.select('id, is_paid')
+						.select('id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
 						.eq('receiving_record_id', record.id)
 						.maybeSingle(); // Use maybeSingle instead of single to avoid errors when no record exists
 
@@ -128,7 +128,10 @@
 					...record,
 					vendors: vendorData,
 					schedule_status: scheduleData,
-					is_scheduled: !!scheduleData
+					is_scheduled: !!scheduleData,
+					pr_excel_verified: scheduleData?.pr_excel_verified || false,
+					pr_excel_verified_by: scheduleData?.pr_excel_verified_by,
+					pr_excel_verified_date: scheduleData?.pr_excel_verified_date
 				};
 			}));
 
@@ -452,6 +455,41 @@
 		fileInput.click();
 	}
 
+	// Handle PR Excel verification
+	async function handlePRExcelVerification(recordId, isVerified) {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			console.log('Updating PR Excel verification:', { recordId, isVerified, userId: $currentUser?.id });
+			
+			const updateData = {
+				pr_excel_verified: isVerified,
+				pr_excel_verified_by: isVerified ? $currentUser?.id : null,
+				pr_excel_verified_date: isVerified ? new Date().toISOString() : null
+			};
+
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.update(updateData)
+				.eq('receiving_record_id', recordId)
+				.select();
+
+			if (error) {
+				console.error('Supabase error details:', error);
+				throw error;
+			}
+
+			console.log('Update successful:', data);
+
+			// Refresh the records to show updated verification status
+			await loadReceivingRecords();
+			
+		} catch (error) {
+			console.error('Error updating PR Excel verification:', error);
+			alert(`Error updating verification status: ${error.message}`);
+		}
+	}
+
 	// Helper function to format dates as dd/mm/yyyy
 	function formatDate(dateString) {
 		if (!dateString) return 'N/A';
@@ -487,6 +525,79 @@
 			}
 		} catch (error) {
 			return 'Invalid Date';
+		}
+	}
+
+	// Helper function to format date and time as dd/mm/yyyy HH:mm
+	function formatDateTime(dateTimeString) {
+		if (!dateTimeString) return 'N/A';
+		try {
+			const date = new Date(dateTimeString);
+			const day = date.getDate().toString().padStart(2, '0');
+			const month = (date.getMonth() + 1).toString().padStart(2, '0');
+			const year = date.getFullYear();
+			const hours = date.getHours().toString().padStart(2, '0');
+			const minutes = date.getMinutes().toString().padStart(2, '0');
+			return `${day}/${month}/${year} ${hours}:${minutes}`;
+		} catch (error) {
+			return 'Invalid Date';
+		}
+	}
+
+	// Generate PR Excel filename with vendor name, bill date, and amount
+	function getPRExcelFileName(record) {
+		try {
+			const vendorName = (record.vendors?.vendor_name || 'Unknown_Vendor')
+				.replace(/[^a-zA-Z0-9\u0600-\u06FF\s]/g, '') // Remove special characters but keep Arabic
+				.replace(/\s+/g, '_') // Replace spaces with underscores
+				.substring(0, 50); // Limit length
+			
+			const billDate = record.bill_date 
+				? formatDate(record.bill_date).replace(/\//g, '-') 
+				: 'No_Date';
+			
+			const amount = record.final_bill_amount || record.bill_amount || 0;
+			const amountFormatted = parseFloat(amount).toFixed(2);
+			
+			// Get file extension from URL
+			const url = record.pr_excel_file_url;
+			const urlParts = url.split('.');
+			const extension = urlParts[urlParts.length - 1].split('?')[0] || 'xlsx';
+			
+			return `${vendorName}_${billDate}_${amountFormatted}_SAR.${extension}`;
+		} catch (error) {
+			console.error('Error generating PR Excel filename:', error);
+			return 'PR_Excel.xlsx';
+		}
+	}
+
+	// Download PR Excel with custom filename
+	async function downloadPRExcel(record) {
+		try {
+			const fileName = getPRExcelFileName(record);
+			
+			// Fetch the file
+			const response = await fetch(record.pr_excel_file_url);
+			if (!response.ok) throw new Error('Failed to fetch file');
+			
+			// Get the blob
+			const blob = await response.blob();
+			
+			// Create download link
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = fileName;
+			document.body.appendChild(link);
+			link.click();
+			
+			// Cleanup
+			document.body.removeChild(link);
+			window.URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error('Error downloading PR Excel:', error);
+			// Fallback to opening in new tab
+			window.open(record.pr_excel_file_url, '_blank');
 		}
 	}
 
@@ -839,10 +950,30 @@
 						<div class="cell certificate-cell">
 							{#if record.pr_excel_file_url}
 								<div class="excel-file-container">
-									<a href={record.pr_excel_file_url} target="_blank" class="excel-file-link">
+									<button 
+										class="excel-file-link"
+										on:click={() => downloadPRExcel(record)}
+									>
 										<div class="excel-icon">📊</div>
 										<small>PR Excel</small>
-									</a>
+									</button>
+									<div class="pr-excel-verification">
+										<label class="verification-checkbox">
+											<input
+												type="checkbox"
+												checked={record.pr_excel_verified || false}
+												on:change={(e) => handlePRExcelVerification(record.id, e.target.checked)}
+											/>
+											<span class="checkbox-label">
+												{record.pr_excel_verified ? '✓ Verified' : 'Verify'}
+											</span>
+										</label>
+										{#if record.pr_excel_verified && record.pr_excel_verified_date}
+											<small class="verification-date">
+												{formatDateTime(record.pr_excel_verified_date)}
+											</small>
+										{/if}
+									</div>
 								</div>
 							{:else}
 								<div class="upload-excel-container">
@@ -1882,11 +2013,62 @@
 
 	.excel-file-container {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		width: 100%;
 		height: 100%;
 		min-height: 50px;
+		gap: 0.5rem;
+	}
+
+	.pr-excel-verification {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		width: 100%;
+		margin-top: 0.5rem;
+	}
+
+	.verification-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		padding: 0.25rem 0.5rem;
+		background: #f8fafc;
+		border: 1px solid #cbd5e1;
+		border-radius: 4px;
+		transition: all 0.2s ease;
+	}
+
+	.verification-checkbox:hover {
+		background: #f1f5f9;
+		border-color: #94a3b8;
+	}
+
+	.verification-checkbox input[type="checkbox"] {
+		cursor: pointer;
+		width: 16px;
+		height: 16px;
+	}
+
+	.verification-checkbox input[type="checkbox"]:checked + .checkbox-label {
+		color: #16a34a;
+		font-weight: 600;
+	}
+
+	.checkbox-label {
+		font-size: 0.75rem;
+		color: #475569;
+		user-select: none;
+	}
+
+	.verification-date {
+		font-size: 0.625rem;
+		color: #64748b;
+		font-style: italic;
 	}
 
 	.excel-file-link {
@@ -1905,6 +2087,7 @@
 		font-size: 8px;
 		padding: 4px;
 		min-height: 50px;
+		cursor: pointer;
 	}
 
 	.excel-file-link:hover {
