@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS public.vendor_payment_schedule (
   transaction_date TIMESTAMPTZ,
   original_bill_url TEXT,
   created_by UUID,
+  pr_excel_verified BOOLEAN DEFAULT false,
+  pr_excel_verified_by UUID REFERENCES public.users(id),
+  pr_excel_verified_date TIMESTAMPTZ,
   PRIMARY KEY (id)
 );
 
@@ -51,3 +54,41 @@ CREATE INDEX IF NOT EXISTS idx_vendor_payment_schedule_created_at ON public.vend
 
 -- Enable Row Level Security
 ALTER TABLE public.vendor_payment_schedule ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Allow authenticated users to read vendor payment schedule" ON public.vendor_payment_schedule;
+DROP POLICY IF EXISTS "Allow authenticated users to insert vendor payment schedule" ON public.vendor_payment_schedule;
+DROP POLICY IF EXISTS "Allow authenticated users to update vendor payment schedule" ON public.vendor_payment_schedule;
+DROP POLICY IF EXISTS "Service role has full access to vendor payment schedule" ON public.vendor_payment_schedule;
+
+-- Create RLS Policies for vendor_payment_schedule
+
+-- Policy: Allow authenticated users to read all payment schedule entries
+CREATE POLICY "Allow authenticated users to read vendor payment schedule"
+ON public.vendor_payment_schedule
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Policy: Allow authenticated users to insert payment schedule entries
+CREATE POLICY "Allow authenticated users to insert vendor payment schedule"
+ON public.vendor_payment_schedule
+FOR INSERT
+TO authenticated
+WITH CHECK (true);
+
+-- Policy: Allow authenticated users to update payment schedule entries
+CREATE POLICY "Allow authenticated users to update vendor payment schedule"
+ON public.vendor_payment_schedule
+FOR UPDATE
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Policy: Allow service role full access
+CREATE POLICY "Service role has full access to vendor payment schedule"
+ON public.vendor_payment_schedule
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);

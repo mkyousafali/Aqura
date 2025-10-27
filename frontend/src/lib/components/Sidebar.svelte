@@ -584,7 +584,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.3.1
+				v1.4.0
 			</button>
 		</div>
 	</div>
@@ -678,56 +678,56 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.3.1</h3>
+				<h3>What's New in v1.4.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>✅ Approval Center Implementation</h4>
+					<h4>💰 Bill Scheduling System</h4>
 					<ul>
-						<li><strong>Full Approval Center:</strong> Implemented complete approval center for expense requisitions with statistics dashboard</li>
-						<li><strong>Desktop Integration:</strong> Added approval center button to desktop sidebar with custom green theme styling</li>
-						<li><strong>Mobile Integration:</strong> Added approval center to mobile bottom navigation bar for on-the-go approvals</li>
-						<li><strong>Clickable Stats Cards:</strong> Interactive statistics cards that filter requisitions by status when clicked</li>
-						<li><strong>Permission-Based UI:</strong> Visible to all users with action buttons disabled for non-permitted users</li>
-						<li><strong>Permission Notices:</strong> Clear yellow warning notices for users without approval permissions</li>
+						<li><strong>Single Bill Scheduling:</strong> Complete 3-step wizard for scheduling individual bill payments with branch, category, and request linking</li>
+						<li><strong>Multiple Bill Scheduling:</strong> New feature to schedule multiple bills at once with dynamic template generation and live total tracking</li>
+						<li><strong>Request Balance Tracking:</strong> Real-time balance calculation showing remaining budget when linked to expense requisitions</li>
+						<li><strong>Payment Method Sync:</strong> 12 payment methods synchronized with Request Generator (advance cash/bank, credit options, stock purchase)</li>
+						<li><strong>Auto-calculated Due Dates:</strong> Automatic due date calculation based on payment method and credit period (0 or 30 days)</li>
+						<li><strong>50MB File Upload:</strong> Updated storage limit from 10MB to 50MB for bill attachments (images and PDFs)</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 Database & Technical Fixes</h4>
+					<h4>� Multiple Bill Features</h4>
 					<ul>
-						<li><strong>UUID Type Migration:</strong> Fixed approver_id and created_by columns from BIGINT to UUID for proper authentication</li>
-						<li><strong>RLS Policy Bypass:</strong> Implemented service role queries to bypass restrictive row-level security policies</li>
-						<li><strong>Query Optimization:</strong> Separated user and requisition queries to avoid foreign key JOIN failures</li>
-						<li><strong>Username Resolution:</strong> Added created_by_username field by merging user data with requisitions</li>
-						<li><strong>Type Safety:</strong> Fixed type mismatches across approval center components</li>
+						<li><strong>Dynamic Bill Templates:</strong> Generate 1-50 bill templates based on user input with visual card grid display</li>
+						<li><strong>Individual Bill Editor:</strong> Click-to-edit modal for each bill with complete Step 3 fields and validation</li>
+						<li><strong>Separate Saving:</strong> Each bill saves independently with success confirmation and saved status badge</li>
+						<li><strong>Live Total Summary:</strong> Real-time calculation of total amount across all bills with color-coded balance indicators</li>
+						<li><strong>Bill Status Tracking:</strong> Visual indicators for saved vs unsaved bills with saved bill detail previews</li>
+						<li><strong>Sequential Workflow:</strong> After saving, view details and select next bill for editing with smooth navigation</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎨 UI/UX Enhancements</h4>
+					<h4>📦 Receiving Records Enhancement</h4>
 					<ul>
-						<li><strong>Sidebar Label Fix:</strong> Changed "Approval Center" to "Approvals" to prevent text overlap in narrow sidebar</li>
-						<li><strong>Green Theme Styling:</strong> Custom approval button styling with green background and borders</li>
-						<li><strong>Disabled State Handling:</strong> Proper disabled states for approve/reject buttons with visual feedback</li>
-						<li><strong>Responsive Design:</strong> Mobile-optimized approval center page with touch-friendly interactions</li>
-						<li><strong>Status Filtering:</strong> Instant filtering of requisitions when clicking on status statistics cards</li>
+						<li><strong>PR Excel Verification:</strong> Added checkbox feature for marking PR Excel as verified in vendor payment schedule</li>
+						<li><strong>Custom Download Filenames:</strong> PR Excel downloads now use format "VendorName_DD-MM-YYYY_Amount_SAR.xlsx"</li>
+						<li><strong>Verification Tracking:</strong> Tracks who verified PR Excel and when with timestamp display</li>
+						<li><strong>Enhanced RLS Policies:</strong> Added missing policies for vendor_payment_schedule table operations</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔐 Permission Model Improvements</h4>
+					<h4>� Database & Technical Updates</h4>
 					<ul>
-						<li><strong>Universal Visibility:</strong> Approval center visible to all users for transparency</li>
-						<li><strong>Action Restrictions:</strong> Approve/reject actions only enabled for users with can_approve_payments permission</li>
-						<li><strong>Permission Checking:</strong> Real-time permission validation against user profile data</li>
-						<li><strong>Visual Indicators:</strong> Clear UI indicators showing when user lacks approval permissions</li>
-						<li><strong>Consistent Behavior:</strong> Identical permission model across desktop and mobile interfaces</li>
+						<li><strong>Expense Scheduler Table:</strong> New table with complete tracking for bill type, payment method, due dates, and bank details</li>
+						<li><strong>Storage Bucket Creation:</strong> Created expense-scheduler-bills bucket with 50MB limit and multi-format support</li>
+						<li><strong>Foreign Key Fixes:</strong> Corrected all FK constraints to point to public.users instead of auth.users</li>
+						<li><strong>Missing Column Migrations:</strong> Added ALTER TABLE migrations for credit_period, bank_name, and iban fields</li>
+						<li><strong>8 New Migrations:</strong> Complete migration set (050-058) for bill scheduling and PR Excel verification features</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 27, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.3.1 - Approval Center & Permission Management</p>
-					<p><strong>Focus:</strong> Expense Approval Workflow, Database Type Fixes & User Permission Model</p>
+					<p><strong>Version:</strong> 1.4.0 - Bill Scheduling System & Receiving Enhancements</p>
+					<p><strong>Focus:</strong> Single & Multiple Bill Scheduling, PR Excel Verification, Storage Optimization</p>
 				</div>
 			</div>
 		</div>
