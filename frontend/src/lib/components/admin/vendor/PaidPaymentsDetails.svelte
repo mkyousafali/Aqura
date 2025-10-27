@@ -144,7 +144,7 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 		<div class="summary">
 			Showing: {filteredPayments.length} of {payments.length} records | 
 			Filtered Total: {formatCurrency(filteredTotal)} | 
-			Grand Total: {formatCurrency(payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0))}
+			Grand Total: {formatCurrency(payments.reduce((sum, p) => sum + (parseFloat(p.final_bill_amount || p.bill_amount) || 0), 0))}
 		</div>
 	</div>
 
@@ -222,6 +222,7 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 						<th>Vendor</th>
 						<th>Branch</th>
 						<th>Payment Method</th>
+						<th>Payment Status</th>
 						<th>Bank Info</th>
 						<th>Reference</th>
 						<th>Bill</th>
@@ -255,6 +256,11 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 							<td class="method-cell">
 								<div class="payment-method">
 									{payment.payment_method || 'N/A'}
+								</div>
+							</td>
+							<td class="status-cell">
+								<div class="payment-status-badge paid">
+									✓ Paid
 								</div>
 							</td>
 							<td class="bank-cell">
@@ -601,6 +607,26 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 		font-weight: 600;
 		text-align: center;
 		border: 1px solid #a78bfa;
+	}
+
+	.status-cell {
+		min-width: 100px;
+	}
+
+	.payment-status-badge {
+		display: inline-block;
+		padding: 6px 12px;
+		border-radius: 20px;
+		font-size: 12px;
+		font-weight: 600;
+		text-align: center;
+		white-space: nowrap;
+	}
+
+	.payment-status-badge.paid {
+		background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+		color: #065f46;
+		border: 1px solid #6ee7b7;
 	}
 
 	.bank-cell {

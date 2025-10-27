@@ -10,6 +10,13 @@
 	export let initialDateFilter = 'all'; // Receive date filter from parent
 	export let initialDateFrom = ''; // Receive date from from parent
 	export let initialDateTo = ''; // Receive date to from parent
+	export let bind = undefined; // Optional callback to bind component instance
+	
+	// Expose refresh function that window manager can call
+	export function onRefresh() {
+		console.log('🔄 Refreshing data from database...');
+		return loadData();
+	}
 
 	let data = [];
 	let filteredData = [];
@@ -727,6 +734,11 @@
 	onMount(() => {
 		loadBranches();
 		loadData();
+		
+		// Call bind callback if provided
+		if (bind) {
+			bind({ onRefresh });
+		}
 	});
 	
 	// Function to handle filter changes
@@ -849,6 +861,19 @@
 			/>
 			<span class="search-icon">🔍</span>
 		</div>
+		<button 
+			class="refresh-btn"
+			on:click={loadData}
+			disabled={loading}
+			title="Refresh data from database"
+		>
+			{#if loading}
+				<span class="refresh-icon spinning">🔄</span>
+			{:else}
+				<span class="refresh-icon">🔄</span>
+			{/if}
+			Refresh
+		</button>
 		<div class="record-count">
 			{filteredData.length} of {data.length} records
 		</div>
@@ -1200,6 +1225,51 @@
 	.record-count {
 		font-size: 14px;
 		color: #64748b;
+	}
+
+	.refresh-btn {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 16px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #2563eb;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.refresh-icon {
+		display: inline-block;
+		font-size: 16px;
+		transition: transform 0.3s ease;
+	}
+
+	.refresh-icon.spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.table-container {

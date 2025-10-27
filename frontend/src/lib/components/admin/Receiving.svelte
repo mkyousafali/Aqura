@@ -332,6 +332,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const windowId = generateWindowId('receiving-data');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
+		// Create a component ref to call its refresh method
+		let componentInstance;
+		
 		openWindow({
 			id: windowId,
 			title: `${card.title} - Details #${instanceNumber}`,
@@ -344,7 +347,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				initialSelectedBranch: selectedBranch,
 				initialDateFilter: dateFilterMode,
 				initialDateFrom: dateFrom,
-				initialDateTo: dateTo
+				initialDateTo: dateTo,
+				// Bind component instance
+				bind: (instance) => {
+					componentInstance = instance;
+				},
+				// Refresh handler that calls component's onRefresh
+				onRefresh: () => {
+					console.log('🔄 Refresh button clicked in window manager');
+					if (componentInstance && componentInstance.onRefresh) {
+						return componentInstance.onRefresh();
+					}
+				}
 			},
 			icon: card.icon,
 			size: { width: 1200, height: 800 },
@@ -355,7 +369,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
-			closable: true
+			closable: true,
+			refreshable: true
 		});
 	}
 </script>

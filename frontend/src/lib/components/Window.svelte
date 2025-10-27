@@ -186,6 +186,16 @@
 			windowManager.popInWindow(window.id);
 		}
 	}
+
+	function refresh() {
+		// Trigger a refresh event that can be handled by the component
+		if (window.props?.onRefresh) {
+			window.props.onRefresh();
+		} else {
+			// Reload the component by remounting
+			windowManager.refreshWindow(window.id);
+		}
+	}
 </script>
 
 <div
@@ -222,6 +232,24 @@
 		</div>
 		
 		<div class="title-bar-controls">
+			{#if window.refreshable !== false}
+				<button
+					class="control-button refresh"
+					on:click|stopPropagation={refresh}
+					title="Refresh"
+					aria-label="Refresh window content"
+				>
+					<svg viewBox="0 0 16 16" width="14" height="14">
+						<path d="M13.5 3.5 C13.5 3.5, 13.5 1.5, 13.5 1.5 M13.5 3.5 C13.5 3.5, 15.5 3.5, 15.5 3.5 M13.5 3.5 C12.5 2.5, 11 2, 8 2 C4 2, 1 4.5, 1 8 C1 11.5, 4 14, 8 14 C11.5 14, 14 11.5, 14 8.5" 
+							stroke="currentColor" 
+							stroke-width="1.5" 
+							fill="none" 
+							stroke-linecap="round"
+						/>
+					</svg>
+				</button>
+			{/if}
+			
 			{#if window.popOutEnabled && !window.modal && !isInPopout}
 				<button
 					class="control-button popout"
@@ -479,6 +507,11 @@
 
 	.control-button.close:hover {
 		background: #ef4444;
+		color: white;
+	}
+
+	.control-button.refresh:hover {
+		background: #10b981;
 		color: white;
 	}
 
