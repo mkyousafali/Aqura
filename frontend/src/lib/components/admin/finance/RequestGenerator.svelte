@@ -320,7 +320,7 @@
 					requisition_number: requisitionNumber,
 					branch_id: parseInt(selectedBranchId),
 					branch_name: getBranchName(),
-					approver_id: selectedApproverId ? parseInt(selectedApproverId) : null,
+					approver_id: selectedApproverId || null,
 					approver_name: selectedApproverName,
 					expense_category_id: parseInt(selectedCategoryId),
 					expense_category_name_en: selectedCategoryName.en,
@@ -337,10 +337,8 @@
 					description: description,
 					status: 'pending',
 					image_url: savedImageUrl,
-					created_by: $currentUser?.employee_id || requesterId
-				});
-
-			if (dbError) throw dbError;
+					created_by: $currentUser?.id || requesterId
+				});			if (dbError) throw dbError;
 			
 			savingProgress = 100;
 			savingStatus = 'Completed!';
