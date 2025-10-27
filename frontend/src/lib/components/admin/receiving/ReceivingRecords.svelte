@@ -89,7 +89,7 @@
 				throw recordsError;
 			}
 
-			// Then, for each record, get the vendor info manually
+			// Then, for each record, get the vendor info and payment schedule status
 			const recordsWithVendors = await Promise.all((records || []).map(async (record) => {
 				const { data: vendorData, error: vendorError } = await supabase
 					.from('vendors')
@@ -98,17 +98,37 @@
 					.eq('branch_id', record.branch_id)
 					.single();
 
+				// Check if payment schedule exists - handle errors gracefully
+				let scheduleData = null;
+				try {
+					const { data, error: scheduleError } = await supabase
+						.from('vendor_payment_schedule')
+						.select('id, is_paid')
+						.eq('receiving_record_id', record.id)
+						.maybeSingle(); // Use maybeSingle instead of single to avoid errors when no record exists
+
+					if (!scheduleError) {
+						scheduleData = data;
+					}
+				} catch (err) {
+					console.warn(`Could not check payment schedule for record ${record.id}:`, err);
+				}
+
 				if (vendorError) {
 					console.warn(`Could not find vendor ${record.vendor_id} for branch ${record.branch_id}:`, vendorError);
 					return {
 						...record,
-						vendors: null
+						vendors: null,
+						schedule_status: null,
+						is_scheduled: false
 					};
 				}
 
 				return {
 					...record,
-					vendors: vendorData
+					vendors: vendorData,
+					schedule_status: scheduleData,
+					is_scheduled: !!scheduleData
 				};
 			}));
 
@@ -732,6 +752,7 @@
 					<div class="header-cell">Branch</div>
 					<div class="header-cell">Received By</div>
 					<div class="header-cell">Payment Info</div>
+					<div class="header-cell">Schedule Status</div>
 					<div class="header-cell">Days to Due</div>
 					<div class="header-cell">Amounts</div>
 					<div class="header-cell">ERP Invoice Ref</div>
@@ -872,6 +893,20 @@
 								<small>Due: {formatDate(record.due_date)}</small>
 								{#if record.credit_period}
 									<small>{record.credit_period} days</small>
+								{/if}
+							</div>
+						</div>
+						
+						<div class="cell">
+							<div class="schedule-status">
+								{#if record.is_scheduled}
+									{#if record.schedule_status?.is_paid}
+										<span class="status-badge paid">✓ Paid</span>
+									{:else}
+										<span class="status-badge scheduled">📅 Scheduled</span>
+									{/if}
+								{:else}
+									<span class="status-badge not-scheduled">⏳ Not Scheduled</span>
 								{/if}
 							</div>
 						</div>
@@ -1235,7 +1270,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px 80px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -1251,7 +1286,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 1fr 140px 100px 80px;
+		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -1398,6 +1433,41 @@
 	.bill-info small, .vendor-info small, .payment-info small, .reviewed-by-info small {
 		color: #6b7280;
 		font-size: 12px;
+	}
+
+	.schedule-status {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.status-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 6px 12px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.status-badge.scheduled {
+		background: #eff6ff;
+		color: #2563eb;
+		border: 1px solid #bfdbfe;
+	}
+
+	.status-badge.paid {
+		background: #f0fdf4;
+		color: #16a34a;
+		border: 1px solid #bbf7d0;
+	}
+
+	.status-badge.not-scheduled {
+		background: #fef3c7;
+		color: #d97706;
+		border: 1px solid #fde68a;
 	}
 
 	.amounts div {
