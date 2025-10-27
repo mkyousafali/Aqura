@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
@@ -20,6 +20,7 @@
 	let taskCount = 0;
 	let notificationCount = 0;
 	let assignmentCount = 0;
+	let approvalCount = 0;
 	
 	// Global header notification count (separate from bottom nav)
 	let headerNotificationCount = 0;
@@ -165,6 +166,32 @@
 
 			if (!userError && userData) {
 				hasApprovalPermission = userData.can_approve_payments || false;
+				
+				// If user has approval permission, load pending approvals count
+				if (hasApprovalPermission) {
+					try {
+						const { count, error: approvalError } = await supabaseAdmin
+							.from('expense_requisitions')
+							.select('*', { count: 'exact', head: true })
+							.eq('status', 'pending');
+
+						if (!approvalError && count !== null) {
+							approvalCount = count;
+						} else {
+							approvalCount = 0;
+							if (!silent && approvalError) {
+								console.error('Error loading approval count:', approvalError);
+							}
+						}
+					} catch (error) {
+						if (!silent) {
+							console.error('Error loading approval count:', error);
+						}
+						approvalCount = 0;
+					}
+				} else {
+					approvalCount = 0;
+				}
 			}
 		} catch (error) {
 			if (!silent) {
@@ -574,6 +601,9 @@
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
 					</svg>
+					{#if approvalCount > 0}
+						<span class="nav-badge approval-badge">{approvalCount > 99 ? '99+' : approvalCount}</span>
+					{/if}
 				</div>
 				<span class="nav-label">Approvals</span>
 			</a>
@@ -966,6 +996,11 @@
 		line-height: 1;
 		box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
 		z-index: 1;
+	}
+
+	.nav-badge.approval-badge {
+		background: #10B981;
+		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 	}
 
 	.nav-label {
