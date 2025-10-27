@@ -14,6 +14,7 @@
 	// Mobile-specific layout state
 	let currentUserData = null;
 	let isLoading = true;
+	let hasApprovalPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -151,6 +152,23 @@
 		} catch (error) {
 			if (!silent) {
 				console.error('Error loading task counts:', error);
+			}
+		}
+
+		// Check if user has approval permissions
+		try {
+			const { data: userData, error: userError } = await supabase
+				.from('users')
+				.select('can_approve_payments')
+				.eq('id', currentUserData.id)
+				.single();
+
+			if (!userError && userData) {
+				hasApprovalPermission = userData.can_approve_payments || false;
+			}
+		} catch (error) {
+			if (!silent) {
+				console.error('Error checking approval permissions:', error);
 			}
 		}
 
@@ -548,6 +566,16 @@
 					{/if}
 				</div>
 				<span class="nav-label">{getTranslation('mobile.bottomNav.assignments')}</span>
+			</a>
+			
+			<!-- Approval Center - Visible to all users -->
+			<a href="/mobile/approval-center" class="nav-item approval-btn" class:active={$page.url.pathname.startsWith('/mobile/approval-center')}>
+				<div class="nav-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+					</svg>
+				</div>
+				<span class="nav-label">Approvals</span>
 			</a>
 		</nav>
 	</div>
@@ -975,6 +1003,30 @@
 
 	.nav-item.quick-task-btn .nav-label {
 		color: #F59E0B;
+		font-weight: 600;
+	}
+
+	/* Special styling for approval button */
+	.nav-item.approval-btn {
+		color: #6B7280;
+		text-decoration: none;
+	}
+
+	.nav-item.approval-btn:hover {
+		color: #10B981;
+		background: rgba(16, 185, 129, 0.05);
+	}
+
+	.nav-item.approval-btn.active {
+		color: #10B981;
+	}
+
+	.nav-item.approval-btn.active .nav-icon {
+		background: rgba(16, 185, 129, 0.1);
+		color: #10B981;
+	}
+
+	.nav-item.approval-btn .nav-label {
 		font-weight: 600;
 	}
 

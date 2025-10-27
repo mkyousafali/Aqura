@@ -19,6 +19,7 @@
 	import Settings from '$lib/components/admin/Settings.svelte';
 	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
+	import ApprovalCenter from '$lib/components/admin/finance/ApprovalCenter.svelte';
 
 	let showMasterSubmenu = false;
 	let showSettingsSubmenu = false;
@@ -29,6 +30,7 @@
 	let workButtonElement: HTMLButtonElement;
 	let submenuTop = 0;
 	let workSubmenuTop = 0;
+	let hasApprovalPermission = false;
 	
 	// Version popup state
 	let showVersionPopup = false;
@@ -37,9 +39,39 @@
 	$: locale = $currentLocale;
 
 	// Initialize PWA install detection
-	onMount(() => {
+	onMount(async () => {
 		initPWAInstall();
+		await checkApprovalPermission();
 	});
+
+	// Check if current user has approval permissions
+	async function checkApprovalPermission() {
+		if (!$currentUser?.id) {
+			hasApprovalPermission = false;
+			return;
+		}
+
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('users')
+				.select('can_approve_payments')
+				.eq('id', $currentUser.id)
+				.single();
+
+			if (!error && data) {
+				hasApprovalPermission = data.can_approve_payments || false;
+			}
+		} catch (err) {
+			console.error('Error checking approval permission:', err);
+			hasApprovalPermission = false;
+		}
+	}
+
+	// Re-check approval permission when user changes
+	$: if ($currentUser) {
+		checkApprovalPermission();
+	}
 
 	// Switch to mobile interface
 	function switchToMobileInterface() {
@@ -202,6 +234,27 @@
 			closable: true
 		});
 		showMasterSubmenu = false;
+	}
+
+	function openApprovalCenter() {
+		const windowId = generateWindowId('approval-center');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Approval Center #${instanceNumber}`,
+			component: ApprovalCenter,
+			icon: '✅',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	function showComingSoon(section: string) {
@@ -475,6 +528,17 @@
 			</button>
 		</div>
 
+
+	<!-- Approval Center Section (Visible to all users) -->
+	<div class="menu-section">
+		<button 
+			class="section-button approval-button"
+			on:click={openApprovalCenter}
+		>
+			<span class="section-icon">✅</span>
+			<span class="section-text">Approvals</span>
+		</button>
+	</div>
 		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
@@ -520,7 +584,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.3.0
+				v1.3.1
 			</button>
 		</div>
 	</div>
@@ -614,58 +678,56 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.3.0</h3>
+				<h3>What's New in v1.3.1</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Advanced Vendor Search</h4>
+					<h4>✅ Approval Center Implementation</h4>
 					<ul>
-						<li><strong>Comprehensive Search System:</strong> Added vendor search functionality with text input and dropdown filters</li>
-						<li><strong>Multi-Filter Support:</strong> Combined branch, payment method, and vendor filtering with real-time results</li>
-						<li><strong>Search Results Table:</strong> Detailed table view showing all filtered payments with vendor details</li>
-						<li><strong>Smart Status Indicators:</strong> Color-coded status badges for overdue, due soon, and scheduled payments</li>
-						<li><strong>Filter Summary:</strong> Real-time display of filtered results count and active search terms</li>
-						<li><strong>Clear Filters:</strong> One-click reset button to clear all active filters and searches</li>
+						<li><strong>Full Approval Center:</strong> Implemented complete approval center for expense requisitions with statistics dashboard</li>
+						<li><strong>Desktop Integration:</strong> Added approval center button to desktop sidebar with custom green theme styling</li>
+						<li><strong>Mobile Integration:</strong> Added approval center to mobile bottom navigation bar for on-the-go approvals</li>
+						<li><strong>Clickable Stats Cards:</strong> Interactive statistics cards that filter requisitions by status when clicked</li>
+						<li><strong>Permission-Based UI:</strong> Visible to all users with action buttons disabled for non-permitted users</li>
+						<li><strong>Permission Notices:</strong> Clear yellow warning notices for users without approval permissions</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Payment Management Enhancements</h4>
+					<h4>🔧 Database & Technical Fixes</h4>
 					<ul>
-						<li><strong>Individual Reschedule Buttons:</strong> Added reschedule buttons to each payment row in MonthDetails</li>
-						<li><strong>Enhanced Reschedule Modal:</strong> Date picker integration for button-triggered reschedule actions</li>
-						<li><strong>Grid Layout Updates:</strong> Updated payment table layout to accommodate new Actions column</li>
-						<li><strong>Paid Payment Filtering:</strong> Automatically exclude paid payments from all views and search results</li>
-						<li><strong>Null Safety:</strong> Added proper null checks to prevent date formatting errors</li>
-						<li><strong>Responsive Actions:</strong> Payment action buttons with proper styling and hover effects</li>
+						<li><strong>UUID Type Migration:</strong> Fixed approver_id and created_by columns from BIGINT to UUID for proper authentication</li>
+						<li><strong>RLS Policy Bypass:</strong> Implemented service role queries to bypass restrictive row-level security policies</li>
+						<li><strong>Query Optimization:</strong> Separated user and requisition queries to avoid foreign key JOIN failures</li>
+						<li><strong>Username Resolution:</strong> Added created_by_username field by merging user data with requisitions</li>
+						<li><strong>Type Safety:</strong> Fixed type mismatches across approval center components</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Technical Improvements</h4>
+					<h4>🎨 UI/UX Enhancements</h4>
 					<ul>
-						<li><strong>Database Query Optimization:</strong> Updated task assignment queries for better performance</li>
-						<li><strong>Status Mapping:</strong> Unified status handling across mobile and desktop interfaces</li>
-						<li><strong>Component Architecture:</strong> Enhanced ManualScheduling component with proper state management</li>
-						<li><strong>Error Handling:</strong> Improved validation and error feedback in manual scheduling</li>
-						<li><strong>Data Consistency:</strong> Ensured consistent task counting logic across all interfaces</li>
+						<li><strong>Sidebar Label Fix:</strong> Changed "Approval Center" to "Approvals" to prevent text overlap in narrow sidebar</li>
+						<li><strong>Green Theme Styling:</strong> Custom approval button styling with green background and borders</li>
+						<li><strong>Disabled State Handling:</strong> Proper disabled states for approve/reject buttons with visual feedback</li>
+						<li><strong>Responsive Design:</strong> Mobile-optimized approval center page with touch-friendly interactions</li>
+						<li><strong>Status Filtering:</strong> Instant filtering of requisitions when clicking on status statistics cards</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� UI/UX Improvements</h4>
+					<h4>🔐 Permission Model Improvements</h4>
 					<ul>
-						<li><strong>Professional Search Interface:</strong> Clean, modern search controls in main page header</li>
-						<li><strong>Responsive Table Design:</strong> Mobile-friendly search results with horizontal scrolling</li>
-						<li><strong>Visual Feedback:</strong> Hover effects, focus states, and interactive button styling</li>
-						<li><strong>Contextual Information:</strong> Smart display of search context and filtered result counts</li>
-						<li><strong>Action Column Integration:</strong> Seamless addition of action buttons without layout disruption</li>
-						<li><strong>Status Badge Consistency:</strong> Unified status display across all payment views</li>
+						<li><strong>Universal Visibility:</strong> Approval center visible to all users for transparency</li>
+						<li><strong>Action Restrictions:</strong> Approve/reject actions only enabled for users with can_approve_payments permission</li>
+						<li><strong>Permission Checking:</strong> Real-time permission validation against user profile data</li>
+						<li><strong>Visual Indicators:</strong> Clear UI indicators showing when user lacks approval permissions</li>
+						<li><strong>Consistent Behavior:</strong> Identical permission model across desktop and mobile interfaces</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 25, 2025</p>
+					<p><strong>Release Date:</strong> October 27, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.3.0 - Advanced Search & Payment Management</p>
-					<p><strong>Focus:</strong> Vendor Search Functionality, Payment Reschedule Enhancements & Data Accuracy</p>
+					<p><strong>Version:</strong> 1.3.1 - Approval Center & Permission Management</p>
+					<p><strong>Focus:</strong> Expense Approval Workflow, Database Type Fixes & User Permission Model</p>
 				</div>
 			</div>
 		</div>
@@ -777,6 +839,22 @@
 
 	.section-button:active {
 		transform: translateX(2px) scale(0.98);
+	}
+
+	/* Special styling for Approval Center button */
+	.approval-button {
+		background: rgba(16, 185, 129, 0.1);
+		border: 1px solid rgba(16, 185, 129, 0.3);
+	}
+
+	.approval-button:hover {
+		background: rgba(16, 185, 129, 0.2);
+		border-color: rgba(16, 185, 129, 0.5);
+		color: #10B981;
+	}
+
+	.approval-button .section-icon {
+		filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.5));
 	}
 
 	.section-icon {
