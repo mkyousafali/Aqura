@@ -144,3 +144,33 @@ Files changed:
 Notes:
 - Adjust `CHUNK_SIZE` in the helper if you need fewer/more IDs per request for your deployment.
 - After this change, the client no longer attempts to fetch attachments for hundreds of notifications in a single GET URL.
+
+## Additional fix: getAllNotifications() was also querying wrong table
+
+**Problem discovered**: While `getUserNotifications()` was fixed, `getAllNotifications()` was still querying the `notifications` table directly, returning ALL notifications in the system. This caused:
+- ❌ Badge count in taskbar showing ALL users' notifications (not just current user's)
+- ❌ Sound playing for ALL users' notifications (not just current user's)
+
+**Root cause**: The `getAllNotifications(userId)` function in `notificationManagement.ts` was doing:
+```typescript
+// OLD CODE (WRONG)
+await supabase.from('notifications').select('*').order(...);
+// Returns ALL notifications, then filters read states by user
+```
+
+**Fix applied**: Changed `getAllNotifications()` to query `notification_recipients` table:
+```typescript
+// NEW CODE (CORRECT)
+await supabase
+  .from('notification_recipients')
+  .select('notification_id, notifications!inner(...)')
+  .eq('user_id', userId)
+  .eq('notifications.status', 'published')
+```
+
+**Impact**:
+- ✅ Badge count now shows ONLY current user's notifications
+- ✅ Sound now plays ONLY for current user's notifications
+- ✅ Security improved: no userId = empty array (doesn't expose all notifications)
+
+**Commit**: 9f12183 — Fix(notification): getAllNotifications now queries notification_recipients for user-specific data
