@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => ({
 			// Enable automatic registration for proper SW lifecycle
 			injectRegister: 'auto',
 			selfDestroying: false,
+			injectManifest: {
+				// Increase the file size limit to 5MB (default is 2MB)
+				maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
+			},
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 				navigateFallback: '/',
