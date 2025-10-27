@@ -134,20 +134,17 @@
 
 		try {
 			isProcessing = true;
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+		const { supabaseAdmin } = await import('$lib/utils/supabase');
 
-			const { error } = await supabaseAdmin
-				.from('expense_requisitions')
-				.update({
-					status: 'approved',
-					approved_at: new Date().toISOString(),
-					approved_by: $currentUser.id
-				})
-				.eq('id', selectedRequisition.id);
+		const { error } = await supabaseAdmin
+			.from('expense_requisitions')
+			.update({
+				status: 'approved',
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', selectedRequisition.id);
 
-			if (error) throw error;
-
-			alert('✅ Requisition approved successfully!');
+		if (error) throw error;			alert('✅ Requisition approved successfully!');
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
@@ -166,21 +163,20 @@
 
 		try {
 			isProcessing = true;
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+		const { supabaseAdmin } = await import('$lib/utils/supabase');
 
-			const { error } = await supabaseAdmin
-				.from('expense_requisitions')
-				.update({
-					status: 'rejected',
-					rejected_at: new Date().toISOString(),
-					rejected_by: $currentUser.id,
-					rejection_reason: reason
-				})
-				.eq('id', selectedRequisition.id);
+		const { error } = await supabaseAdmin
+			.from('expense_requisitions')
+			.update({
+				status: 'rejected',
+				updated_at: new Date().toISOString(),
+				description: selectedRequisition.description 
+					? `${selectedRequisition.description}\n\nRejection Reason: ${reason}`
+					: `Rejection Reason: ${reason}`
+			})
+			.eq('id', selectedRequisition.id);
 
-			if (error) throw error;
-
-			alert('❌ Requisition rejected.');
+		if (error) throw error;			alert('❌ Requisition rejected.');
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
