@@ -120,6 +120,10 @@ export const taskCountService = {
 			// Update the store
 			taskCounts.set(counts);
 
+			// NOTE: PWA badge is managed by notification system (notifications.ts)
+			// Task badge is disabled to avoid conflicts
+			// Keeping this code commented for reference:
+			/*
 			// Update PWA badge if supported and count changed
 			if (browser && totalCount !== previousTotalCount) {
 				try {
@@ -143,6 +147,7 @@ export const taskCountService = {
 					console.warn('Failed to update app badge:', error);
 				}
 			}
+			*/
 
 			// Play notification sound if count increased (new tasks)
 			if (!isInitialLoad && totalCount > previousTotalCount && browser) {

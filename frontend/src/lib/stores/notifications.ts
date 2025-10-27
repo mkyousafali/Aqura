@@ -84,30 +84,43 @@ export async function fetchNotificationCounts(userId?: string) {
 	notificationCounts.update(counts => ({ ...counts, loading: true }));
 	
 	try {
-		// Get notifications for user
-		const { data: notifications, error } = await supabase
-			.from('notifications')
+		// Get notifications for user from notification_recipients table
+		const { data: recipients, error } = await supabase
+			.from('notification_recipients')
 			.select(`
-				*,
-				notification_read_states(
-					read_at,
-					user_id
+				notification_id,
+				notifications!inner(
+					id,
+					title,
+					message,
+					type,
+					priority,
+					status,
+					created_at
 				)
 			`)
-			.eq('status', 'published');
+			.eq('user_id', targetUserId)
+			.eq('notifications.status', 'published');
 
 		if (error) {
 			throw error;
 		}
 
-		const totalCount = notifications?.length || 0;
-		const unreadCount = notifications?.filter((notification: any) => {
-			// Check if current user has read this notification
-			const userReadState = notification.notification_read_states?.find(
-				(readState: any) => readState.user_id === targetUserId
-			);
-			return !userReadState?.read_at; // Unread if no read state or no read_at timestamp
-		}).length || 0;
+		// Get read states for these notifications
+		const notificationIds = recipients?.map(r => r.notification_id) || [];
+		const { data: readStates } = await supabase
+			.from('notification_read_states')
+			.select('notification_id, read_at')
+			.eq('user_id', targetUserId)
+			.in('notification_id', notificationIds);
+
+		// Create a set of read notification IDs
+		const readNotificationIds = new Set(
+			readStates?.filter(rs => rs.read_at).map(rs => rs.notification_id) || []
+		);
+
+		const totalCount = recipients?.length || 0;
+		const unreadCount = recipients?.filter(r => !readNotificationIds.has(r.notification_id)).length || 0;
 		
 		// Update store
 		notificationCounts.set({
@@ -115,6 +128,21 @@ export async function fetchNotificationCounts(userId?: string) {
 			total: totalCount,
 			loading: false
 		});
+
+		// Update PWA badge with unread notification count
+		if (typeof navigator !== 'undefined' && 'setAppBadge' in navigator) {
+			try {
+				if (unreadCount > 0) {
+					await (navigator as any).setAppBadge(unreadCount);
+					console.log(`🔔 PWA badge updated: ${unreadCount} unread notifications`);
+				} else {
+					await (navigator as any).clearAppBadge();
+					console.log('🔔 PWA badge cleared - no unread notifications');
+				}
+			} catch (error) {
+				console.warn('Failed to update notification badge:', error);
+			}
+		}
 
 		// Check for new notifications and play sound (only after initial load)
 		if (!isInitialLoad && unreadCount > previousUnreadCount) {
