@@ -2,6 +2,10 @@
 // Provides offline functionality, background sync, data caching, and cache clearing
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
+// SERVICE WORKER VERSION - Increment to force updates
+const SW_VERSION = '2.1.0'; // Updated: Fixed notification count caching
+console.log(`[ServiceWorker] Version ${SW_VERSION} initializing`);
+
 // Import workbox from CDN for service worker
 importScripts('https://storage.googleapis.com/workbox-cdn/releases/7.0.0/workbox-sw.js');
 
@@ -50,6 +54,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('message', (event) => {
 	if (event.data && event.data.type === 'SKIP_WAITING') {
 		self.skipWaiting();
+	}
+	// Send version info when requested
+	if (event.data && event.data.type === 'GET_VERSION') {
+		event.ports[0].postMessage({ version: SW_VERSION });
 	}
 });
 
