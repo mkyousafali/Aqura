@@ -53,9 +53,9 @@ self.addEventListener('message', (event) => {
 	}
 });
 
-const CACHE_NAME = 'aqura-v1';
-const DATA_CACHE_NAME = 'aqura-data-v1';
-const PRECACHE_NAME = 'precache-v1';
+const CACHE_NAME = 'aqura-v2';
+const DATA_CACHE_NAME = 'aqura-data-v2';
+const PRECACHE_NAME = 'precache-v2';
 
 // Authentication-related storage keys that should NEVER be cleared
 const PRESERVE_AUTH_KEYS = [
@@ -229,6 +229,19 @@ self.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
 			try {
+				// Delete old caches when cache version changes
+				const cacheNames = await caches.keys();
+				const currentCaches = [CACHE_NAME, DATA_CACHE_NAME, PRECACHE_NAME];
+				
+				await Promise.all(
+					cacheNames.map(cacheName => {
+						if (!currentCaches.includes(cacheName)) {
+							console.log('[ServiceWorker] 🗑️ Deleting old cache:', cacheName);
+							return caches.delete(cacheName);
+						}
+					})
+				);
+				
 				// Standard client claiming
 				await self.clients.claim();
 				console.log('[ServiceWorker] Clients claimed successfully');
@@ -254,6 +267,15 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
 	const { request } = event;
 	const url = new URL(request.url);
+
+	// NEVER cache notification-related API calls - they must always be fresh
+	if (url.hostname.includes('supabase.co') && 
+	    (url.pathname.includes('notification') || 
+	     url.search.includes('notification'))) {
+		// Network-only for notifications - no caching
+		event.respondWith(fetch(request));
+		return;
+	}
 
 	// Handle API requests with network-first strategy
 	if (isApiRequest(url)) {
