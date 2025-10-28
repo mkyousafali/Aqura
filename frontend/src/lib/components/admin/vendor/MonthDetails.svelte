@@ -580,22 +580,13 @@
 			const payment = paymentData;
 			const receivingRecord = payment.receiving_records;
 
-			// Generate payment reference number
-			const generatePaymentReference = () => {
-				const timestamp = Date.now();
-				const random = Math.floor(Math.random() * 10000);
-				return `CP#${random}`;
-			};
-
-			const paymentReference = generatePaymentReference();
-
 			// Update payment status in vendor_payment_schedule
 			const { error: updateError } = await supabase
 				.from('vendor_payment_schedule')
 				.update({ 
 					is_paid: true, 
 					paid_date: new Date().toISOString(),
-					payment_reference: paymentReference,
+					payment_reference: null,
 					transaction_date: new Date().toISOString(),
 					receiver_user_id: receivingRecord?.user_id,
 					accountant_user_id: receivingRecord?.accountant_user_id,
