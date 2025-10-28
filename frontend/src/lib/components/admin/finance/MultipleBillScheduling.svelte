@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { notificationService } from '$lib/utils/notificationManagement';
 
 	// Step management
 	let currentStep = 1;
@@ -113,7 +114,14 @@
 				.order('created_at', { ascending: false });
 
 			if (error) throw error;
-			approvedRequests = data || [];
+			
+			// Filter out requests with zero remaining balance
+			const allRequests = data || [];
+			approvedRequests = allRequests.filter(request => {
+				const remainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
+				return remainingBalance > 0;
+			});
+			
 			filteredRequests = approvedRequests;
 		} catch (error) {
 			console.error('Error loading approved requests:', error);
@@ -465,6 +473,7 @@
 				iban: bill.iban || null,
 				status: 'pending',
 				is_paid: false,
+				schedule_type: 'multiple_bill', // Identifies this as a multiple bill schedule
 				created_by: $currentUser?.id
 			};
 

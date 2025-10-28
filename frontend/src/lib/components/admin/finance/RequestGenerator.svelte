@@ -3,6 +3,7 @@
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import html2canvas from 'html2canvas';
+	import { notificationService } from '$lib/utils/notificationManagement';
 
 	// Step management
 	let currentStep = 1;
@@ -470,6 +471,28 @@
 					image_url: savedImageUrl,
 					created_by: $currentUser?.id || requesterId
 				});			if (dbError) throw dbError;
+			
+			savingProgress = 95;
+			savingStatus = 'Sending notification to approver...';
+			
+			// Send notification to the selected approver
+			try {
+				if (selectedApproverId && selectedApproverName) {
+					await notificationService.createNotification({
+						title: 'New Expense Requisition for Approval',
+						message: `A new expense requisition (${requisitionNumber}) has been submitted for your approval by ${$currentUser?.username || requesterName}. Branch: ${getBranchName()}, Amount: ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR, Category: ${selectedCategoryName.en}`,
+						type: 'info',
+						priority: parseFloat(amount) > 10000 ? 'high' : 'medium',
+						target_type: 'specific_users',
+						target_users: [selectedApproverId]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					
+					console.log('✅ Notification sent to approver:', selectedApproverName);
+				}
+			} catch (notifError) {
+				console.error('❌ Failed to send notification to approver:', notifError);
+				// Don't throw error - notification failure shouldn't stop requisition creation
+			}
 			
 			savingProgress = 100;
 			savingStatus = 'Completed!';

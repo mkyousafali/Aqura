@@ -2,6 +2,8 @@
 	// Scheduler Component
 	import SingleBillScheduling from './SingleBillScheduling.svelte';
 	import MultipleBillScheduling from './MultipleBillScheduling.svelte';
+	import RecurringExpenseScheduler from './RecurringExpenseScheduler.svelte';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	let activeView = 'home'; // 'home', 'single', 'multiple', 'recurring'
 	
@@ -13,9 +15,18 @@
 		activeView = 'multiple';
 	}
 	
-	function handleRecurringBillScheduling() {
-		console.log('Recurring Bill Scheduling clicked');
-		// TODO: Implement recurring bill scheduling
+	function handleRecurringExpenseScheduler() {
+		console.log('Recurring Expense Scheduler clicked');
+		// Open new window for Recurring Expense Scheduler
+		openWindow({
+			id: `recurring-expense-scheduler-${Date.now()}`,
+			title: 'Recurring Expense Scheduler',
+			component: RecurringExpenseScheduler,
+			icon: '�',
+			size: { width: 1000, height: 700 },
+			minSize: { width: 600, height: 400 },
+			position: { x: 160, y: 160 }
+		});
 	}
 	
 	function backToHome() {
@@ -41,13 +52,12 @@
 				<p class="card-description">Schedule payments for multiple bills at once</p>
 			</button>
 
-			<!-- Recurring Bill Scheduling -->
-			<button class="schedule-card" on:click={handleRecurringBillScheduling}>
-				<div class="card-icon">🔄</div>
-				<h3 class="card-title">Recurring Bill Scheduling</h3>
-				<p class="card-description">Set up automatic recurring payment schedules</p>
-				<div class="card-badge">Coming Soon</div>
-			</button>
+		<!-- Recurring Expense Scheduler -->
+		<button class="schedule-card" on:click={handleRecurringExpenseScheduler}>
+			<div class="card-icon">�</div>
+			<h3 class="card-title">Recurring Expense Scheduler</h3>
+			<p class="card-description">Schedule recurring expense payments</p>
+		</button>
 		</div>
 	</div>
 </div>

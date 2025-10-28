@@ -47,14 +47,15 @@
 	let newDeliveryModeName = '';
 
 	// Payment method management
-	let selectedPaymentMethods = [];
-	// Initialize selected payment methods from editData
+	let selectedPaymentMethod = '';
+	// Initialize selected payment method from editData
 	if (editData.payment_method) {
-		// Handle legacy single payment method or comma-separated string
+		// Handle legacy multiple payment methods or comma-separated string
 		if (Array.isArray(editData.payment_method)) {
-			selectedPaymentMethods = editData.payment_method;
+			selectedPaymentMethod = editData.payment_method[0] || '';
 		} else {
-			selectedPaymentMethods = editData.payment_method.split(',').map(m => m.trim()).filter(m => m);
+			// Take the first method if multiple were stored
+			selectedPaymentMethod = editData.payment_method.split(',')[0].trim();
 		}
 	}
 
@@ -217,53 +218,18 @@
 	}
 
 	// Handle payment method selection change
-	function handlePaymentMethodToggle(event) {
-		const method = event.target.dataset.paymentMethod;
-		if (event.target.checked) {
-			if (!selectedPaymentMethods.includes(method)) {
-				selectedPaymentMethods = [...selectedPaymentMethods, method];
-			}
-		} else {
-			selectedPaymentMethods = selectedPaymentMethods.filter(pm => pm !== method);
-		}
-		// Update editData with comma-separated string for database compatibility
-		editData.payment_method = selectedPaymentMethods.join(', ');
+	function handlePaymentMethodChange(event) {
+		selectedPaymentMethod = event.target.value;
+		editData.payment_method = selectedPaymentMethod;
 		
 		// Clear credit period if no credit methods are selected
-		const hasCredit = selectedPaymentMethods.some(method => 
-			['Cash Credit', 'Bank Credit'].includes(method)
-		);
+		const hasCredit = ['Cash Credit', 'Bank Credit'].includes(selectedPaymentMethod);
 		if (!hasCredit) {
 			editData.credit_period = null;
 		}
 		
 		// Clear bank fields if no bank methods are selected
-		const hasBank = selectedPaymentMethods.some(method => 
-			['Bank on Delivery', 'Bank Credit'].includes(method)
-		);
-		if (!hasBank) {
-			editData.bank_name = null;
-			editData.iban = null;
-		}
-	}
-
-	// Remove payment method
-	function removePaymentMethod(method) {
-		selectedPaymentMethods = selectedPaymentMethods.filter(pm => pm !== method);
-		editData.payment_method = selectedPaymentMethods.join(', ');
-		
-		// Clear credit period if no credit methods are selected
-		const hasCredit = selectedPaymentMethods.some(m => 
-			['Cash Credit', 'Bank Credit'].includes(m)
-		);
-		if (!hasCredit) {
-			editData.credit_period = null;
-		}
-		
-		// Clear bank fields if no bank methods are selected
-		const hasBank = selectedPaymentMethods.some(m => 
-			['Bank on Delivery', 'Bank Credit'].includes(m)
-		);
+		const hasBank = ['Bank on Delivery', 'Bank Credit'].includes(selectedPaymentMethod);
 		if (!hasBank) {
 			editData.bank_name = null;
 			editData.iban = null;
@@ -271,27 +237,10 @@
 	}
 
 	// Check if credit period should be shown
-	$: showCreditPeriod = selectedPaymentMethods.some(method => 
-		['Cash Credit', 'Bank Credit'].includes(method)
-	);
+	$: showCreditPeriod = ['Cash Credit', 'Bank Credit'].includes(selectedPaymentMethod);
 
 	// Check if bank fields should be shown
-	$: showBankFields = selectedPaymentMethods.some(method => 
-		['Bank on Delivery', 'Bank Credit'].includes(method)
-	);
-
-	// Handle payment method change
-	function handlePaymentMethodChange() {
-		// Clear credit period if not a credit method
-		if (!['Cash Credit', 'Bank Credit'].includes(editData.payment_method)) {
-			editData.credit_period = null;
-		}
-		// Clear bank fields if not a bank method
-		if (!['Bank on Delivery', 'Bank Credit'].includes(editData.payment_method)) {
-			editData.bank_name = null;
-			editData.iban = null;
-		}
-	}
+	$: showBankFields = ['Bank on Delivery', 'Bank Credit'].includes(selectedPaymentMethod);
 
 	// Share location function
 	async function shareLocationFromEdit(locationLink, vendorName) {
@@ -646,18 +595,19 @@
 			<div class="form-grid">
 				<div class="form-field">
 					<fieldset>
-						<legend>Payment Methods</legend>
-						<div class="checkbox-group">
+						<legend>Payment Method</legend>
+						<div class="radio-group">
 							{#each paymentMethods as method}
-								<label class="checkbox-label">
+								<label class="radio-label">
 									<input 
-										type="checkbox"
-										data-payment-method={method}
-										checked={selectedPaymentMethods.includes(method)}
-										on:change={handlePaymentMethodToggle}
-										class="checkbox-input"
+										type="radio"
+										name="payment-method"
+										value={method}
+										checked={selectedPaymentMethod === method}
+										on:change={handlePaymentMethodChange}
+										class="radio-input"
 									/>
-									<span class="checkbox-text">
+									<span class="radio-text">
 										{method}
 										{#if ['Cash Credit', 'Bank Credit'].includes(method)}
 											<span class="credit-indicator" title="Requires credit period">💳</span>
@@ -670,26 +620,6 @@
 							{/each}
 						</div>
 					</fieldset>
-					{#if selectedPaymentMethods.length > 0}
-						<div class="selected-methods">
-							<small class="field-hint">Selected methods:</small>
-							<div class="method-tags">
-								{#each selectedPaymentMethods as method}
-									<span class="method-tag">
-										{method}
-										<button 
-											type="button"
-											class="remove-tag-btn"
-											on:click={() => removePaymentMethod(method)}
-											title="Remove {method}"
-										>
-											×
-										</button>
-									</span>
-								{/each}
-							</div>
-						</div>
-					{/if}
 				</div>
 				
 				<div class="form-field">
