@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import MonthDetails from './MonthDetails.svelte';
@@ -8,11 +8,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Helper function to format date as dd/mm/yyyy
 	function formatDate(dateString) {
 		if (!dateString) return 'N/A';
-		const date = new Date(dateString);
-		const day = String(date.getDate()).padStart(2, '0');
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const year = date.getFullYear();
-		return `${day}/${month}/${year}`;
+		try {
+			const date = new Date(dateString);
+			// Check if date is valid
+			if (isNaN(date.getTime())) return 'N/A';
+			const day = String(date.getDate()).padStart(2, '0');
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const year = date.getFullYear();
+			return `${day}/${month}/${year}`;
+		} catch (error) {
+			return 'N/A';
+		}
 	}
 
 	// Current date and navigation
@@ -21,8 +27,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	// Payment data
 	let scheduledPayments = [];
+	let expenseSchedulerPayments = [];
 	let weekDays = [];
 	let totalScheduledAmount = 0;
+	let totalExpensesScheduled = 0;
 	
 	// Selected day details
 	let selectedDay = null;
@@ -59,6 +67,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		await loadPaymentMethods();
 		await loadVendors();
 		await loadScheduledPayments();
+		await loadExpenseSchedulerPayments();
 	});
 
 	// Generate week view (7 days starting from current week)
@@ -111,6 +120,39 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			weekDays = weekDays;
 		} catch (err) {
 			console.error('Error loading scheduled payments:', err);
+		}
+	}
+
+	// Load expense scheduler payments from database
+	async function loadExpenseSchedulerPayments() {
+		try {
+			console.log('Loading expense scheduler payments...');
+			const { data, error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select(`
+					*,
+					creator:users!created_by(username)
+				`)
+				.order('due_date', { ascending: true });
+
+			if (error) {
+				console.error('Error loading expense scheduler payments:', error);
+				return;
+			}
+
+			console.log('Loaded expense scheduler payments:', data);
+			expenseSchedulerPayments = data || [];
+			
+			// Group payments by day after loading data
+			groupPaymentsByDay();
+			
+			// Calculate monthly totals after loading data
+			calculateMonthlyTotals();
+			
+			// Force reactivity update
+			weekDays = weekDays;
+		} catch (err) {
+			console.error('Error loading expense scheduler payments:', err);
 		}
 	}
 
@@ -278,6 +320,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Calculate total from filtered payments
 	$: totalScheduledAmount = filteredPayments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
+	$: totalExpensesScheduled = expenseSchedulerPayments.reduce((sum, expense) => sum + (expense.amount || 0), 0);
 
 	// Re-group payments when filters change
 	$: if (filteredPayments && weekDays.length > 0) {
@@ -302,18 +345,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Group payments by day
 	function groupPaymentsByDay() {
-		console.log('Grouping payments by day...', filteredPayments.length, 'payments');
+		console.log('Grouping payments by day...', filteredPayments.length, 'vendor payments', expenseSchedulerPayments.length, 'expense payments');
 		weekDays.forEach(day => {
+			// Filter vendor payments for this day
 			day.payments = filteredPayments.filter(payment => {
 				const paymentDate = new Date(payment.due_date);
 				const matches = paymentDate.toDateString() === day.fullDate.toDateString();
 				if (matches) {
-					console.log(`Payment matched for ${day.fullDate.toDateString()}:`, payment);
+					console.log(`Vendor payment matched for ${day.fullDate.toDateString()}:`, payment);
 				}
 				return matches;
 			});
+			
+			// Filter expense scheduler payments for this day
+			day.expensePayments = expenseSchedulerPayments.filter(expense => {
+				if (!expense.due_date) return false;
+				const expenseDate = new Date(expense.due_date);
+				const matches = expenseDate.toDateString() === day.fullDate.toDateString();
+				if (matches) {
+					console.log(`Expense payment matched for ${day.fullDate.toDateString()}:`, expense);
+				}
+				return matches;
+			});
+			
+			// Calculate totals
 			day.totalAmount = day.payments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
-			console.log(`Day ${day.dayName} ${day.date}: ${day.payments.length} payments, total: ${day.totalAmount}`);
+			day.expenseTotalAmount = day.expensePayments.reduce((sum, expense) => sum + (expense.amount || 0), 0);
+			day.combinedTotalAmount = day.totalAmount + day.expenseTotalAmount;
+			
+			console.log(`Day ${day.dayName} ${day.date}: ${day.payments.length} vendor payments (${day.totalAmount}), ${day.expensePayments.length} expense payments (${day.expenseTotalAmount}), combined total: ${day.combinedTotalAmount}`);
 		});
 	}
 
@@ -479,7 +539,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Generate visible months
 		monthlyData = generateMonthsData(currentMonthIndex, visibleMonthsCount);
 		
-		// Calculate totals from ALL scheduled payments (ignore filters for monthly totals)
+		// Calculate totals from ALL vendor scheduled payments (ignore filters for monthly totals)
 		scheduledPayments.forEach(payment => {
 			const paymentDate = new Date(payment.due_date);
 			const paymentMonth = paymentDate.getMonth();
@@ -490,6 +550,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			if (monthData) {
 				monthData.total += (payment.final_bill_amount || payment.bill_amount || 0);
 				monthData.paymentCount++;
+			}
+		});
+		
+		// Calculate totals from ALL expense scheduler payments
+		expenseSchedulerPayments.forEach(expense => {
+			if (!expense.due_date) return;
+			const expenseDate = new Date(expense.due_date);
+			const expenseMonth = expenseDate.getMonth();
+			const expenseYear = expenseDate.getFullYear();
+			
+			// Find matching month in visible data
+			const monthData = monthlyData.find(m => m.month === expenseMonth && m.year === expenseYear);
+			if (monthData) {
+				monthData.expenseTotal = (monthData.expenseTotal || 0) + (expense.amount || 0);
+				monthData.expenseCount = (monthData.expenseCount || 0) + 1;
 			}
 		});
 	}
@@ -514,7 +589,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		<div class="header-top">
 			<div class="title-section">
 				<h1>💰 Scheduled Payments</h1>
-				<p>Total Scheduled: <strong>{formatCurrency(totalScheduledAmount)}</strong></p>
+				<p>Total Vendor Scheduled: <strong>{formatCurrency(totalScheduledAmount)}</strong> | Total Expenses Scheduled: <strong style="color: #dc2626;">{formatCurrency(totalExpensesScheduled)}</strong></p>
 			</div>
 			
 			<div class="week-navigation">
@@ -643,17 +718,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	<div class="week-view">
 		{#each weekDays as day}
-			<div class="day-card" class:today={isToday(day.fullDate)} class:has-payments={hasPayments(day)} class:clickable={hasPayments(day)} on:click={() => handleDayClick(day)}>
+			<div class="day-card" class:today={isToday(day.fullDate)} class:has-payments={hasPayments(day) || (day.expensePayments && day.expensePayments.length > 0)} class:clickable={hasPayments(day) || (day.expensePayments && day.expensePayments.length > 0)} on:click={() => handleDayClick(day)}>
 				<div class="day-header">
 					<div class="day-name">{day.dayShort}</div>
 					<div class="day-date">{day.date} {day.month}</div>
 				</div>
 				
 				<div class="day-content">
-					{#if hasPayments(day)}
+					{#if hasPayments(day) || (day.expensePayments && day.expensePayments.length > 0)}
 						<div class="payment-summary">
-							<div class="payment-count">{day.payments.length} payment{day.payments.length > 1 ? 's' : ''}</div>
-							<div class="payment-amount">{formatCurrency(day.totalAmount)}</div>
+							<div class="payment-count">{day.payments.length + (day.expensePayments?.length || 0)} payment{(day.payments.length + (day.expensePayments?.length || 0)) > 1 ? 's' : ''}</div>
+							<div class="payment-amount">{formatCurrency(day.combinedTotalAmount || day.totalAmount)}</div>
 						</div>
 						
 						<div class="payment-categories">
@@ -663,6 +738,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<span class="category-amount">{formatCurrency(method.amount)}</span>
 								</div>
 							{/each}
+							{#if day.expensePayments && day.expensePayments.length > 0}
+								<div class="category-item" style="border-top: 1px solid #fee2e2; padding-top: 4px; margin-top: 4px;">
+									<span class="category-name" style="color: #dc2626; font-weight: 600;">Expenses</span>
+									<span class="category-amount" style="color: #dc2626;">{formatCurrency(day.expenseTotalAmount)}</span>
+								</div>
+							{/if}
 						</div>
 					{:else}
 						<div class="no-payments">
@@ -735,9 +816,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					</div>
 					
 					<div class="month-amount">{formatCurrency(monthData.total)}</div>
+					{#if monthData.expenseTotal}
+						<div class="month-expense-amount" style="color: #dc2626; font-size: 14px; font-weight: 600; margin-top: 4px;">
+							+ {formatCurrency(monthData.expenseTotal)} Expenses
+						</div>
+					{/if}
 					
 					<div class="month-details">
-						<span class="payment-count">{monthData.paymentCount} payment{monthData.paymentCount !== 1 ? 's' : ''}</span>
+						<span class="payment-count">{monthData.paymentCount} vendor{monthData.paymentCount !== 1 ? 's' : ''}</span>
+						{#if monthData.expenseCount}
+							<span class="payment-count" style="color: #dc2626; margin-left: 8px;">{monthData.expenseCount} expense{monthData.expenseCount !== 1 ? 's' : ''}</span>
+						{/if}
 					</div>
 					
 					<div class="month-status">
@@ -824,9 +913,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<table>
 					<thead>
 						<tr>
-							<th>Vendor Name</th>
+							<th>Type</th>
+							<th>Vendor/C.O. Name</th>
 							<th>Branch</th>
-							<th>Bill Number</th>
+							<th>Bill/Req Number</th>
 							<th>Payment Method</th>
 							<th>Amount</th>
 							<th>Original Bill Amount</th>
@@ -839,6 +929,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<tbody>
 						{#each filteredSelectedDayPayments as payment}
 							<tr>
+								<td>
+									<span class="type-badge vendor-type">Vendor</span>
+								</td>
 								<td class="vendor-cell">
 									<div class="vendor-name">{payment.vendor_name || 'Unknown Vendor'}</div>
 									<div class="vendor-id">ID: {payment.vendor_id || 'N/A'}</div>
@@ -860,6 +953,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								</td>
 							</tr>
 						{/each}
+						{#if selectedDay?.expensePayments}
+							{#each selectedDay.expensePayments as expense}
+								<tr style="background: #fef2f2;">
+									<td>
+										<span class="type-badge expense-type">Expense</span>
+									</td>
+									<td class="vendor-cell">
+										<div class="vendor-name">{expense.co_user_name || 'N/A'}</div>
+										<div class="vendor-id">Category: {expense.expense_category_name_en || 'N/A'}</div>
+									</td>
+									<td>{expense.branch_name || 'N/A'}</td>
+									<td>{expense.requisition_number || 'N/A'}</td>
+									<td>
+										<span class="payment-method-badge" style="background: #fee2e2; color: #991b1b;">Expense</span>
+									</td>
+									<td class="amount-cell" style="color: #dc2626;">{formatCurrency(expense.amount || 0)}</td>
+									<td class="amount-cell">-</td>
+									<td class="amount-cell">-</td>
+									<td>{formatDate(expense.due_date)}</td>
+									<td>{formatDate(expense.original_due_date)}</td>
+									<td>
+										<span class="status-badge {expense.is_paid ? 'status-paid' : 'status-scheduled'}">
+										{expense.is_paid ? 'Paid' : 'Scheduled'}
+									</span>
+									</td>
+								</tr>
+							{/each}
+						{/if}
 					</tbody>
 				</table>
 			</div>
@@ -1798,6 +1919,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.status-overdue {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.type-badge {
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+
+	.vendor-type {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+
+	.expense-type {
 		background: #fee2e2;
 		color: #991b1b;
 	}

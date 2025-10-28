@@ -124,7 +124,14 @@
 				.order('created_at', { ascending: false });
 
 			if (error) throw error;
-			approvedRequests = data || [];
+			
+			// Filter out requests with zero remaining balance
+			const allRequests = data || [];
+			approvedRequests = allRequests.filter(request => {
+				const remainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
+				return remainingBalance > 0;
+			});
+			
 			filteredRequests = approvedRequests;
 		} catch (error) {
 			console.error('Error loading approved requests:', error);
@@ -371,18 +378,25 @@
 	}
 
 	function calculateDueDate() {
-		if (!billDate || !paymentMethod) return;
+		if (!paymentMethod) return;
 
 		const selectedMethod = paymentMethods.find((m) => m.value === paymentMethod);
 		if (!selectedMethod) return;
 
 		const creditDays = selectedMethod.creditDays;
-		const baseDate = new Date(billDate);
+		// Use billDate if available, otherwise use current date
+		const baseDate = billDate ? new Date(billDate) : new Date();
 		baseDate.setDate(baseDate.getDate() + creditDays);
 
 		dueDate = baseDate.toISOString().split('T')[0];
 	}
 
+	// Recalculate due date when payment method changes or bill date changes
+	$: if (paymentMethod) {
+		calculateDueDate();
+	}
+	
+	// Also recalculate when billDate changes (for bills with dates)
 	$: if (billDate && paymentMethod) {
 		calculateDueDate();
 	}

@@ -1,16 +1,47 @@
 <script>
-	import { supabase } from '$lib/utils/supabase';
+	import { onMount } from 'svelte';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 
 	// Props
 	export let payments = [];
+
+	// Expense scheduler payments
+	let expenseSchedulerPayments = [];
 
 	// Filter and search state
 	let searchQuery = '';
 	let selectedBranch = '';
 	let selectedPaymentMethod = '';
+	let selectedType = ''; // 'vendor', 'expense', or '' for all
 	let dateFrom = '';
 	let dateTo = '';
 	let filteredPayments = [];
+	let filteredExpenses = [];
+
+	// Load expense scheduler payments
+	onMount(async () => {
+		await loadExpenseSchedulerPayments();
+	});
+
+	async function loadExpenseSchedulerPayments() {
+		try {
+			const { data, error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select('*')
+				.eq('is_paid', false)
+				.order('due_date', { ascending: true });
+
+			if (error) {
+				console.error('Error loading expense scheduler payments:', error);
+				return;
+			}
+
+			console.log('Loaded unpaid expense scheduler payments:', data);
+			expenseSchedulerPayments = data || [];
+		} catch (err) {
+			console.error('Error loading expense scheduler payments:', err);
+		}
+	}
 
 
 
@@ -70,12 +101,66 @@
 			}
 
 			// If same priority, sort by due date (earliest first)
-			return new Date(a.due_date) - new Date(b.due_date);
+			return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+		});
+
+		// Filter expense scheduler payments
+		filteredExpenses = expenseSchedulerPayments.filter(expense => {
+			// Search filter
+			if (searchQuery) {
+				const query = searchQuery.toLowerCase();
+				const matchesSearch = 
+					expense.co_user_name?.toLowerCase().includes(query) ||
+					expense.branch_name?.toLowerCase().includes(query) ||
+					expense.requisition_number?.toLowerCase().includes(query) ||
+					expense.expense_category_name_en?.toLowerCase().includes(query) ||
+					expense.amount?.toString().includes(query);
+				if (!matchesSearch) return false;
+			}
+
+			// Branch filter
+			if (selectedBranch && expense.branch_name !== selectedBranch) {
+				return false;
+			}
+
+			// Date range filter
+			if (dateFrom || dateTo) {
+				const expenseDate = new Date(expense.due_date);
+				if (dateFrom && expenseDate < new Date(dateFrom)) return false;
+				if (dateTo && expenseDate > new Date(dateTo)) return false;
+			}
+
+			return true;
+		}).sort((a, b) => {
+			// Sort by due_date ascending (earliest first)
+			const dateA = new Date(a.due_date);
+			const dateB = new Date(b.due_date);
+			return dateA.getTime() - dateB.getTime();
 		});
 	}
 
 	// Calculate filtered totals
 	$: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final_bill_amount || p.bill_amount) || 0), 0);
+	$: filteredExpenseTotal = filteredExpenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+	$: combinedTotal = filteredTotal + filteredExpenseTotal;
+
+	// Combine and sort vendor and expense payments by date, then filter by type
+	$: combinedPayments = [
+		...filteredPayments.map(p => ({ ...p, type: 'vendor', sortDate: new Date(p.due_date) })),
+		...filteredExpenses.map(e => ({ ...e, type: 'expense', sortDate: new Date(e.due_date) }))
+	]
+		.filter(item => !selectedType || item.type === selectedType) // Filter by type if selected
+		.sort((a, b) => {
+			if (a.type === 'vendor' && b.type === 'vendor') {
+				// For vendors, sort by priority first
+				const priorityRank = { 'Most': 1, 'Medium': 2, 'Normal': 3, 'Low': 4 };
+				const aPriority = priorityRank[a.vendor_priority] || 3;
+				const bPriority = priorityRank[b.vendor_priority] || 3;
+				if (aPriority !== bPriority) return aPriority - bPriority;
+			}
+			// Then sort by date (earliest first)
+			return a.sortDate.getTime() - b.sortDate.getTime();
+		});
 
 	// Format currency
 	function formatCurrency(amount) {
@@ -95,6 +180,7 @@
 		searchQuery = '';
 		selectedBranch = '';
 		selectedPaymentMethod = '';
+		selectedType = '';
 		dateFrom = '';
 		dateTo = '';
 	}
@@ -103,7 +189,21 @@
 
 	// Calculate days overdue
 	function calculateDaysOverdue(dueDate) {
-		return Math.floor((new Date() - new Date(dueDate)) / (1000 * 60 * 60 * 24));
+		if (!dueDate) return 0;
+		return Math.floor((new Date().getTime() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24));
+	}
+
+	// Format date safely - handle null/invalid dates
+	function formatDueDate(dateString) {
+		if (!dateString) return 'N/A';
+		try {
+			const date = new Date(dateString);
+			// Check if date is valid
+			if (isNaN(date.getTime())) return 'N/A';
+			return date.toLocaleDateString('en-GB');
+		} catch (error) {
+			return 'N/A';
+		}
 	}
 </script>
 
@@ -111,9 +211,10 @@
 	<div class="window-header">
 		<h2>Unpaid Scheduled Payments Details</h2>
 		<div class="summary">
-			Showing: {filteredPayments.length} of {payments.length} records | 
-			Filtered Total: {formatCurrency(filteredTotal)} | 
-			Grand Total: {formatCurrency(payments.reduce((sum, p) => sum + (parseFloat(p.final_bill_amount || p.bill_amount) || 0), 0))}
+			Showing: {filteredPayments.length} vendor + {filteredExpenses.length} expense records | 
+			Vendor Total: {formatCurrency(filteredTotal)} | 
+			<span style="color: #dc2626;">Expense Total: {formatCurrency(filteredExpenseTotal)}</span> |
+			<strong>Combined Total: {formatCurrency(combinedTotal)}</strong>
 		</div>
 	</div>
 
@@ -124,13 +225,13 @@
 				<input 
 					type="text" 
 					bind:value={searchQuery}
-					placeholder="Search by vendor name, ID, branch, bill number, ERP invoice number, receiving date, amount..."
+					placeholder="Search by vendor name, ID, branch, bill number, CO name, requisition, category..."
 					class="search-input"
 				/>
 				<span class="search-icon">🔍</span>
 			</div>
 			
-			{#if searchQuery || selectedBranch || selectedPaymentMethod || dateFrom || dateTo}
+			{#if searchQuery || selectedBranch || selectedPaymentMethod || selectedType || dateFrom || dateTo}
 				<button class="clear-filters-btn" on:click={clearFilters}>
 					Clear Filters
 				</button>
@@ -138,6 +239,15 @@
 		</div>
 
 		<div class="filter-row">
+			<div class="filter-group">
+				<label for="type-filter">Type:</label>
+				<select id="type-filter" bind:value={selectedType} class="filter-select">
+					<option value="">All Types</option>
+					<option value="vendor">Vendor</option>
+					<option value="expense">Expense</option>
+				</select>
+			</div>
+
 			<div class="filter-group">
 				<label for="branch-filter">Branch:</label>
 				<select id="branch-filter" bind:value={selectedBranch} class="filter-select">
@@ -181,14 +291,16 @@
 	</div>
 	
 	<div class="table-container">
-		{#if filteredPayments.length > 0}
+		{#if filteredPayments.length > 0 || filteredExpenses.length > 0}
 			<table class="payments-table">
 				<thead>
 					<tr>
+						<th>Type</th>
 						<th>Due Date</th>
 						<th>Amount</th>
-						<th>Bill Number</th>
-						<th>Vendor</th>
+						<th>Bill Number / Requisition</th>
+						<th>Vendor / CO Name</th>
+						<th>Category</th>
 						<th>Branch</th>
 						<th>Payment Method</th>
 						<th>Payment Priority</th>
@@ -200,87 +312,139 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each filteredPayments as payment}
-						<tr class:overdue={calculateDaysOverdue(payment.due_date) > 0}>
+					{#each combinedPayments as item}
+						<tr class:overdue={item.type === 'vendor' && calculateDaysOverdue(item.due_date) > 0} class:expense-row={item.type === 'expense'}>
+							<td>
+								<span class="type-badge {item.type === 'vendor' ? 'vendor-badge' : 'expense-badge'}">
+									{item.type === 'vendor' ? 'Vendor' : 'Expense'}
+								</span>
+							</td>
 							<td class="date-cell">
-								{new Date(payment.due_date).toLocaleDateString('en-GB')}
+								{formatDueDate(item.due_date)}
 							</td>
 							<td class="amount-cell">
-								{formatCurrency(payment.final_bill_amount || payment.bill_amount)}
+								{formatCurrency(item.type === 'vendor' ? (item.final_bill_amount || item.bill_amount) : item.amount)}
 							</td>
-							<td class="bill-number-cell">
-								{payment.bill_number || 'N/A'}
+							<td class="{item.type === 'vendor' ? 'bill-number-cell' : 'requisition-cell'}">
+								{item.type === 'vendor' ? (item.bill_number || 'N/A') : (item.requisition_number || 'N/A')}
 							</td>
-							<td class="vendor-cell">
-								<div class="vendor-info">
-									<div class="vendor-name">
-										{payment.vendor_name || 'N/A'}
+							<td class="{item.type === 'vendor' ? 'vendor-cell' : 'co-cell'}">
+								{#if item.type === 'vendor'}
+									<div class="vendor-info">
+										<div class="vendor-name">
+											{item.vendor_name || 'N/A'}
+										</div>
+										<div class="vendor-id">
+											ID: {item.vendor_id || 'N/A'}
+										</div>
 									</div>
-									<div class="vendor-id">
-										ID: {payment.vendor_id || 'N/A'}
-									</div>
-								</div>
+								{:else}
+									{item.co_user_name || 'N/A'}
+								{/if}
+							</td>
+							<td class="category-cell">
+								{#if item.type === 'vendor'}
+									<span class="category-na">N/A</span>
+								{:else}
+									{item.expense_category_name_en || 'N/A'}
+								{/if}
 							</td>
 							<td class="branch-cell">
-								{payment.branches?.name_en || 'N/A'}
+								{item.type === 'vendor' ? (item.branches?.name_en || 'N/A') : (item.branch_name || 'N/A')}
 							</td>
 							<td class="method-cell">
 								<div class="payment-method">
-									{payment.payment_method || 'N/A'}
+									{item.payment_method || 'N/A'}
 								</div>
 							</td>
 							<td class="priority-cell">
-								{#if payment.vendor_priority}
-									<span class="priority-badge priority-{payment.vendor_priority.toLowerCase()}">
-										{payment.vendor_priority}
-									</span>
+								{#if item.type === 'vendor'}
+									{#if item.vendor_priority}
+										<span class="priority-badge priority-{item.vendor_priority.toLowerCase()}">
+											{item.vendor_priority}
+										</span>
+									{:else}
+										<span class="priority-badge priority-normal">Normal</span>
+									{/if}
 								{:else}
-									<span class="priority-badge priority-normal">Normal</span>
+									<span class="priority-badge priority-normal">N/A</span>
 								{/if}
 							</td>
 							<td class="bank-cell">
-								<div class="bank-info">
-									{#if payment.bank_name}
-										<div class="bank-name">Bank: {payment.bank_name}</div>
-									{/if}
-									{#if payment.iban}
-										<div class="iban">IBAN: {payment.iban}</div>
-									{/if}
-									{#if !payment.bank_name && !payment.iban}
-										<span class="no-info">N/A</span>
-									{/if}
-								</div>
+								{#if item.type === 'vendor'}
+									<div class="bank-info">
+										{#if item.bank_name}
+											<div class="bank-name">Bank: {item.bank_name}</div>
+										{/if}
+										{#if item.iban}
+											<div class="iban">IBAN: {item.iban}</div>
+										{/if}
+										{#if !item.bank_name && !item.iban}
+											<span class="no-info">N/A</span>
+										{/if}
+									</div>
+								{:else}
+									<span class="no-info">N/A</span>
+								{/if}
 							</td>
 							<td class="erp-invoice-cell">
-								{payment.receiving_records?.erp_purchase_invoice_reference || 'N/A'}
+								{item.type === 'vendor' ? (item.receiving_records?.erp_purchase_invoice_reference || 'N/A') : 'N/A'}
 							</td>
 							<td class="receiving-date-cell">
-								{payment.receiving_records?.created_at ? new Date(payment.receiving_records.created_at).toLocaleDateString('en-GB') : 'N/A'}
+								{item.type === 'vendor' && item.receiving_records?.created_at ? new Date(item.receiving_records.created_at).toLocaleDateString('en-GB') : 'N/A'}
 							</td>
 							<td class="overdue-cell">
-								{#if calculateDaysOverdue(payment.due_date) > 0}
-									<span class="overdue-days">{calculateDaysOverdue(payment.due_date)} days</span>
-								{:else if calculateDaysOverdue(payment.due_date) === 0}
-									<span class="due-today">Due Today</span>
+								{#if item.due_date}
+									{#if item.type === 'vendor'}
+										{#if calculateDaysOverdue(item.due_date) > 0}
+											<span class="overdue-days">{calculateDaysOverdue(item.due_date)} days</span>
+										{:else if calculateDaysOverdue(item.due_date) === 0}
+											<span class="due-today">Due Today</span>
+										{:else}
+											<span class="future-due">{Math.abs(calculateDaysOverdue(item.due_date))} days left</span>
+										{/if}
+									{:else}
+										{#if calculateDaysOverdue(item.due_date) > 0}
+											<span class="overdue-days">{calculateDaysOverdue(item.due_date)} days</span>
+										{:else if calculateDaysOverdue(item.due_date) === 0}
+											<span class="due-today">Due Today</span>
+										{:else}
+											<span class="future-due">{Math.abs(calculateDaysOverdue(item.due_date))} days left</span>
+										{/if}
+									{/if}
 								{:else}
-									<span class="future-due">{Math.abs(calculateDaysOverdue(payment.due_date))} days left</span>
+									<span class="no-info">N/A</span>
 								{/if}
 							</td>
 							<td class="bill-cell">
-								{#if payment.receiving_records?.original_bill_url}
-									<button 
-										class="view-bill-btn" 
-										on:click={() => viewOriginalBill(payment.receiving_records.original_bill_url)}
-										title="View Original Bill"
-									>
-										{#if payment.receiving_records.original_bill_url.toLowerCase().includes('.pdf')}
-											📄 PDF
-										{:else}
-											🖼️ Image
-										{/if}
-									</button>
+								{#if item.type === 'vendor'}
+									{#if item.receiving_records?.original_bill_url}
+										<button 
+											class="view-bill-btn" 
+											on:click={() => viewOriginalBill(item.receiving_records.original_bill_url)}
+											title="View Original Bill"
+										>
+											{#if item.receiving_records.original_bill_url.toLowerCase().includes('.pdf')}
+												📄 PDF
+											{:else}
+												🖼️ Image
+											{/if}
+										</button>
+									{:else}
+										<span class="no-bill">No Bill</span>
+									{/if}
 								{:else}
-									<span class="no-bill">No Bill</span>
+									{#if item.receipt_url}
+										<button 
+											class="view-bill-btn"
+											on:click={() => window.open(item.receipt_url, '_blank')}
+											title="View Receipt"
+										>
+											🧾 Receipt
+										</button>
+									{:else}
+										<span class="no-bill">No Receipt</span>
+									{/if}
 								{/if}
 							</td>
 						</tr>
@@ -292,7 +456,7 @@
 				<div class="no-data-icon">📅</div>
 				<h3>No Matching Scheduled Payments Found</h3>
 				<p>
-					{#if payments.length === 0}
+					{#if payments.length === 0 && expenseSchedulerPayments.length === 0}
 						There are currently no unpaid scheduled payments to display.
 					{:else}
 						No payments match your current filter criteria. Try adjusting your search or filters.
@@ -494,6 +658,64 @@
 
 	.payments-table tbody tr.overdue:hover {
 		background: #fee2e2;
+	}
+
+	/* Type Badges */
+	.type-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 4px 10px;
+		border-radius: 12px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.vendor-badge {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+
+	.expense-badge {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+
+	/* Expense Row Styling */
+	.expense-row {
+		background: #fef2f2 !important;
+		border-left: 4px solid #f97316;
+	}
+
+	.expense-row:hover {
+		background: #fee2e2 !important;
+	}
+
+	.requisition-cell {
+		font-family: 'JetBrains Mono', monospace;
+		color: #475569;
+		font-weight: 600;
+		min-width: 120px;
+		background: #fef3c7;
+		font-size: 13px;
+	}
+
+	.co-cell {
+		color: #475569;
+		font-weight: 500;
+		min-width: 150px;
+	}
+
+	.category-cell {
+		color: #475569;
+		font-weight: 500;
+		min-width: 150px;
+	}
+
+	.category-na {
+		color: #94a3b8;
+		font-style: italic;
 	}
 
 	.date-cell {
