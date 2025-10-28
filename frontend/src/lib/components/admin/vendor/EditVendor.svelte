@@ -377,6 +377,7 @@
 				supervisor_contact: editData.supervisor_contact || null,
 				vendor_contact_number: editData.vendor_contact_number || null,
 				payment_method: editData.payment_method || null,
+				payment_priority: editData.payment_priority || 'Normal',
 				credit_period: showCreditPeriod ? editData.credit_period : null,
 				bank_name: showBankFields ? editData.bank_name : null,
 				iban: showBankFields ? editData.iban : null,
@@ -690,6 +691,22 @@
 						</div>
 					{/if}
 				</div>
+				
+				<div class="form-field">
+					<label for="payment-priority">Payment Priority</label>
+					<select 
+						id="payment-priority"
+						bind:value={editData.payment_priority}
+						class="form-select"
+					>
+						<option value="Most">Most</option>
+						<option value="Medium">Medium</option>
+						<option value="Normal" selected>Normal</option>
+						<option value="Low">Low</option>
+					</select>
+					<small class="field-hint">Priority level for payment processing (optional)</small>
+				</div>
+
 				{#if showCreditPeriod}
 					<div class="form-field credit-field">
 						<label for="credit-period">Credit Period (Days)</label>

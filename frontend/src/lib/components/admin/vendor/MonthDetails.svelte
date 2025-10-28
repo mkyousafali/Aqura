@@ -206,7 +206,7 @@
 	// Load scheduled payments from database
 	async function loadScheduledPayments() {
 		try {
-			const { data, error } = await supabase
+			const { data: scheduleData, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select(`
 					*,
@@ -228,7 +228,28 @@
 				return;
 			}
 
-			scheduledPayments = data || [];
+			// Get unique vendor IDs and branch IDs to fetch priorities
+			const vendorKeys = [...new Set(scheduleData.map(p => `${p.vendor_id}-${p.branch_id}`))].filter(k => k !== 'undefined-undefined');
+			
+			// Fetch vendor priorities
+			const vendorPriorities = {};
+			if (vendorKeys.length > 0) {
+				const { data: vendors } = await supabase
+					.from('vendors')
+					.select('erp_vendor_id, branch_id, payment_priority');
+				
+				if (vendors) {
+					vendors.forEach(v => {
+						vendorPriorities[`${v.erp_vendor_id}-${v.branch_id}`] = v.payment_priority;
+					});
+				}
+			}
+
+			// Attach vendor priority to each payment
+			scheduledPayments = scheduleData.map(payment => ({
+				...payment,
+				vendor_priority: vendorPriorities[`${payment.vendor_id}-${payment.branch_id}`] || 'Normal'
+			}));
 		} catch (error) {
 			console.error('Error loading scheduled payments:', error);
 		}
@@ -977,115 +998,114 @@
 								</div>
 							</div>
 
-								<!-- Common Table Header (separate from vendor cards) -->
-								<div class="payments-table-wrapper">
-								<div class="payments-table-header">
-									<div class="table-header-row">
-										<div class="header-column" title="Drag to reschedule">⋮⋮</div>
-										<div class="header-column" title="Bill Number">Bill #</div>
-										<div class="header-column" title="Vendor Name">Vendor</div>
-										<div class="header-column" title="Final Bill Amount">Amount</div>
-										<div class="header-column" title="Original Bill Amount">Orig. Bill</div>
-										<div class="header-column" title="Original Final Amount">Orig. Final</div>
-										<div class="header-column" title="Bill Date">Bill Date</div>
-										<div class="header-column" title="Due Date">Due Date</div>
-										<div class="header-column" title="Original Due Date">Orig. Due</div>
-										<div class="header-column" title="Branch Name">Branch</div>
-										<div class="header-column" title="Payment Method">Payment</div>
-										<div class="header-column" title="Bank Name">Bank</div>
-										<div class="header-column" title="IBAN">IBAN</div>
-										<div class="header-column payment-status-header" title="Mark as Paid">Mark Paid</div>
-										<div class="header-column status-header" title="Payment Status">Status</div>
-										<div class="header-column actions-header" title="Reschedule Actions">Actions</div>
-									</div>
-								</div>
-
-								<!-- Vendors Container with Payment Rows -->
-								<div class="vendors-container">
-									<div class="vendors-scroll-container">
-									{#if dayData.paymentCount > 0}
-										{#each Object.entries(dayData.paymentsByVendor) as [vendorKey, vendorGroup], vendorIndex}
-											<!-- Payment Rows (matching table header) -->
-											<div class="vendor-payments-rows">
+								<!-- Clean Simple Table -->
+								<div class="simple-table-container">
+									<table class="simple-payments-table">
+										<thead>
+											<tr>
+												<th>Bill #</th>
+												<th>Vendor</th>
+												<th>Amount</th>
+												<th>Orig. Bill</th>
+												<th>Orig. Final</th>
+												<th>Bill Date</th>
+												<th>Due Date</th>
+												<th>Orig. Due</th>
+												<th>Branch</th>
+												<th>Payment</th>
+												<th>Priority</th>
+												<th>Bank</th>
+												<th>IBAN</th>
+												<th>Mark Paid</th>
+												<th>Status</th>
+												<th>Actions</th>
+											</tr>
+										</thead>
+										<tbody>
+										{#if dayData.paymentCount > 0}
+											{#each Object.entries(dayData.paymentsByVendor) as [vendorKey, vendorGroup], vendorIndex}
 												{#each vendorGroup.payments as payment}
-													<div 
-														class="payment-row"
-														draggable="true"
-														class:dragging={draggedPayment && draggedPayment.id === payment.id}
-														on:dragstart={(e) => handleDragStart(e, payment)}
-														title="Drag to reschedule payment - {vendorGroup.vendor_name}"
-														style="border-left: 4px solid {getVendorColor(vendorIndex)};"
-													>
-														<div class="payment-data-row">
-															<div class="data-cell drag-handle" style="color: {getVendorColor(vendorIndex)};">⋮⋮</div>
-															<div class="data-cell bill-cell">
-																<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
-															</div>
-															<div class="data-cell vendor-cell" style="color: {getVendorColor(vendorIndex)};">
-																{vendorGroup.vendor_name}
-															</div>
-															<div class="data-cell amount">{formatCurrency(payment.final_bill_amount)}</div>
-															<div class="data-cell amount original-amount">{formatCurrency(payment.original_bill_amount || 0)}</div>
-															<div class="data-cell amount original-amount">{formatCurrency(payment.original_final_amount || 0)}</div>
-															<div class="data-cell">{formatDate(payment.bill_date)}</div>
-															<div class="data-cell">{formatDate(payment.due_date)}</div>
-															<div class="data-cell">{formatDate(payment.original_due_date)}</div>
-															<div class="data-cell">{payment.branch_name || 'N/A'}</div>
-															<div class="data-cell payment-method-cell">
-																<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
-																{#if !payment.is_paid}
-																	<button 
-																		class="edit-payment-method-btn"
-																		on:click={() => openPaymentMethodEdit(payment)}
-																		title="Edit payment method"
-																	>
-																		✏️
-																	</button>
-																{/if}
-															</div>
-															<div class="data-cell">{payment.bank_name || 'N/A'}</div>
-															<div class="data-cell">{payment.iban || 'N/A'}</div>
-															<div class="data-cell"></div>
-															<div class="data-cell payment-status-cell">
-																<input 
-																	type="checkbox" 
-																	class="payment-checkbox"
-																	data-payment-id="{payment.id}"
-																	checked={payment.is_paid || false}
-																	on:change={(e) => handlePaymentStatusChange(payment.id, e.currentTarget.checked)}
-																/>
-															</div>
-															<div class="data-cell status-cell">
-																<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
-																	{payment.is_paid ? 'Paid' : 'Scheduled'}
+													<tr style="border-left: 4px solid {getVendorColor(vendorIndex)};">
+														<td>
+															<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
+														</td>
+														<td style="color: {getVendorColor(vendorIndex)}; text-align: left; font-weight: 500;">
+															{vendorGroup.vendor_name}
+														</td>
+														<td style="text-align: right; font-weight: 600; color: #059669;">{formatCurrency(payment.final_bill_amount)}</td>
+														<td style="text-align: right;">{formatCurrency(payment.original_bill_amount || 0)}</td>
+														<td style="text-align: right;">{formatCurrency(payment.original_final_amount || 0)}</td>
+														<td>{formatDate(payment.bill_date)}</td>
+														<td>{formatDate(payment.due_date)}</td>
+														<td>{formatDate(payment.original_due_date)}</td>
+														<td>{payment.branch_name || 'N/A'}</td>
+														<td>
+															<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
+															{#if !payment.is_paid}
+																<button 
+																	class="edit-payment-method-btn"
+																	on:click={() => openPaymentMethodEdit(payment)}
+																	title="Edit payment method"
+																>
+																	✏️
+																</button>
+															{/if}
+														</td>
+														<td>
+															{#if payment.vendor_priority}
+																<span class="priority-badge priority-{payment.vendor_priority.toLowerCase()}">
+																	{payment.vendor_priority}
 																</span>
-															</div>
-															<div class="data-cell actions-cell">
-																{#if !payment.is_paid}
-																	<button 
-																		class="reschedule-btn"
-																		on:click|stopPropagation={() => openRescheduleModal(payment)}
-																		title="Reschedule Payment"
-																	>
-																		📅
-																	</button>
-																{:else}
-																	<span class="paid-label">✓</span>
-																{/if}
-															</div>
-														</div>
-													</div>
+															{:else}
+																<span class="priority-badge priority-normal">Normal</span>
+															{/if}
+														</td>
+														<td>{payment.bank_name || 'N/A'}</td>
+														<td>{payment.iban || 'N/A'}</td>
+														<td>
+															<input 
+																type="checkbox" 
+																class="payment-checkbox"
+																data-payment-id="{payment.id}"
+																checked={payment.is_paid || false}
+																on:change={(e) => handlePaymentStatusChange(payment.id, e.currentTarget.checked)}
+															/>
+														</td>
+														<td>
+															<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+																{payment.is_paid ? 'Paid' : 'Scheduled'}
+															</span>
+														</td>
+														<td>
+															{#if !payment.is_paid}
+																<button 
+																	class="reschedule-btn"
+																	on:click|stopPropagation={() => openRescheduleModal(payment)}
+																	title="Reschedule Payment"
+																>
+																	📅
+																</button>
+																<button 
+																	class="split-btn"
+																	on:click|stopPropagation={() => openSplitModal(payment)}
+																	title="Split Payment"
+																>
+																	✂️
+																</button>
+															{/if}
+														</td>
+													</tr>
 												{/each}
-											</div>
-						{/each}
-									{:else}
-										<!-- Empty state for vendor payments -->
-										<div class="empty-payments-row">
-											<div class="empty-message">No vendor payments scheduled for this date</div>
-										</div>
-									{/if}
-									</div>
-								</div>
+											{/each}
+										{:else}
+											<tr>
+												<td colspan="16" class="empty-payments-row">
+													<div class="empty-message">No vendor payments scheduled for this date</div>
+												</td>
+											</tr>
+										{/if}
+										</tbody>
+									</table>
 								</div>
 							</div>
 
@@ -1098,23 +1118,24 @@
 									</div>
 								</div>
 								
-								<!-- Other Payments Table Header (always visible) -->
-								<div class="payments-table-header">
-									<div class="table-header-row">
-										<div class="header-column">Description</div>
-										<div class="header-column">Amount</div>
-										<div class="header-column">Due Date</div>
-										<div class="header-column">Category</div>
-										<div class="header-column">Department</div>
-										<div class="header-column">Payment Method</div>
-										<div class="header-column">Account</div>
-										<div class="header-column">Status</div>
-									</div>
-								</div>
-								
+								<!-- Other Payments Placeholder -->
 								<div class="section-placeholder">
-									<p>Other payment types will be implemented here</p>
-									<small>(Employee payments, utilities, rent, etc.)</small>
+									<div class="placeholder-content">
+										<p>Other payment types will be implemented here</p>
+										<small>(Employee payments, utilities, rent, etc.)</small>
+										
+										<div class="future-features">
+											<h4>Coming Features:</h4>
+											<ul>
+												<li>Employee salary payments</li>
+												<li>Utility bill payments</li>
+												<li>Rent and lease payments</li>
+												<li>Tax and government fees</li>
+												<li>Insurance payments</li>
+												<li>Loan and financing payments</li>
+											</ul>
+										</div>
+									</div>
 								</div>
 							</div>
 
@@ -2000,6 +2021,39 @@
 		color: #6b7280;
 	}
 
+	/* Enhanced Other Payments Placeholder */
+	.placeholder-content {
+		max-width: 600px;
+		margin: 0 auto;
+	}
+
+	.future-features {
+		margin-top: 20px;
+		text-align: left;
+		background: white;
+		padding: 20px;
+		border-radius: 8px;
+		border: 1px solid #e2e8f0;
+	}
+
+	.future-features h4 {
+		margin: 0 0 12px 0;
+		color: #374151;
+		font-size: 14px;
+		font-weight: 600;
+	}
+
+	.future-features ul {
+		margin: 0;
+		padding-left: 20px;
+		color: #6b7280;
+	}
+
+	.future-features li {
+		margin-bottom: 4px;
+		font-size: 13px;
+	}
+
 	.day-payments-table {
 		overflow-x: auto;
 	}
@@ -2177,18 +2231,24 @@
 
 	/* Vendor Grouping Styles */
 	.vendors-scroll-container {
-		min-width: 1527px;
+		min-width: 1400px;
 	}
 
 	.vendors-container {
 		display: flex;
 		flex-direction: column;
 		gap: 0;
+		border-left: 2px solid #e2e8f0;
+		border-right: 2px solid #e2e8f0;
+		border-bottom: 2px solid #e2e8f0;
+		border-top: none;
+		border-radius: 0 0 8px 8px;
+		overflow: hidden;
+		background: white;
 	}
 
 	.vendor-group {
-		border: 1px solid #e5e7eb;
-		border-top: none;
+		border: none;
 		border-radius: 0;
 		overflow: hidden;
 		background: white;
@@ -2205,59 +2265,258 @@
 	}
 
 	/* Table Wrapper */
+	/* Clean Table Structure */
 	.payments-table-wrapper {
 		overflow-x: auto;
-		margin: 0 -20px;
-		padding: 0 20px;
+		margin: 0;
+		padding: 0;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		background: white;
+		width: 100%;
 	}
 
-	/* Table Header Structure */
-	.payments-table-header {
-		background: #f1f5f9;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px 8px 0 0;
-		margin-bottom: 0;
-		min-width: 1527px;
+	.payments-table {
+		width: 100%;
+		border-collapse: collapse;
+		min-width: 1600px;
+		font-size: 11px;
 	}
 
 	.table-header-row {
-		display: grid;
-		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 100px 140px 120px;
-		gap: 12px;
-		padding: 14px 18px;
-		margin-left: 0px;
-		box-sizing: border-box;
-		width: 100%;
-		font-weight: 700;
-		color: #475569;
-		text-transform: uppercase;
+		background: #f8fafc;
+	}
+
+	.header-cell {
+		padding: 12px 8px;
+		border-right: 1px solid #e5e7eb;
+		background: #f8fafc;
+		text-align: center;
+		font-weight: 600;
 		font-size: 10px;
 		letter-spacing: 0.3px;
+		text-transform: uppercase;
+		color: #475569;
+		border-bottom: 2px solid #e2e8f0;
 		white-space: nowrap;
-		overflow: hidden;
 	}
 
-	.header-column {
+	.header-cell:first-child,
+	.header-cell:nth-child(2) {
 		text-align: left;
-		display: flex;
-		align-items: center;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		padding: 8px 4px;
+		padding-left: 16px;
 	}
 
-	.header-column:nth-child(4),
-	.header-column:nth-child(5),
-	.header-column:nth-child(6) {
+	.header-cell:nth-child(3),
+	.header-cell:nth-child(4),
+	.header-cell:nth-child(5) {
 		text-align: right;
-		justify-content: flex-end;
+		padding-right: 12px;
+	}
+
+	.header-cell:last-child {
+		border-right: none;
+	}
+
+	.payment-row {
+		border-bottom: 1px solid #e5e7eb;
+		transition: background-color 0.2s ease;
+	}
+
+	.payment-row:hover {
+		background: #f9fafb;
+	}
+
+	.data-cell {
+		padding: 12px 8px;
+		border-right: 1px solid #e5e7eb;
+		text-align: center;
+		vertical-align: middle;
+		color: #374151;
+		white-space: nowrap;
+	}
+
+	.data-cell:first-child {
+		text-align: left;
+		padding-left: 16px;
+	}
+
+	.data-cell.vendor-cell {
+		text-align: left;
+		padding-left: 16px;
+		font-weight: 500;
+	}
+
+	.data-cell.amount {
+		text-align: right;
+		padding-right: 12px;
+		font-weight: 800;
+		color: #059669;
+		font-family: monospace;
+	}
+
+	.data-cell:last-child {
+		border-right: none;
+	}
+
+	/* NEW SIMPLE TABLE STYLES */
+	.simple-table-container {
+		overflow-x: auto;
+		margin: 0;
+		padding: 0;
+		border: 2px solid #e2e8f0;
+		border-radius: 8px;
+		background: white;
+		width: 100%;
+	}
+
+	.simple-payments-table {
+		width: 100%;
+		border-collapse: collapse;
+		min-width: 1600px;
+		font-size: 11px;
+	}
+
+	.simple-payments-table th {
+		padding: 12px 8px;
+		border-right: 1px solid #e5e7eb;
+		background: #f8fafc;
+		text-align: center;
+		font-weight: 600;
+		font-size: 10px;
+		letter-spacing: 0.3px;
+		text-transform: uppercase;
+		color: #475569;
+		border-bottom: 2px solid #e2e8f0;
+		white-space: nowrap;
+	}
+
+	.simple-payments-table th:first-child,
+	.simple-payments-table th:nth-child(2) {
+		text-align: left;
+	}
+
+	.simple-payments-table th:nth-child(3),
+	.simple-payments-table th:nth-child(4),
+	.simple-payments-table th:nth-child(5) {
+		text-align: right;
+	}
+
+	.simple-payments-table td {
+		padding: 12px 8px;
+		border-right: 1px solid #e5e7eb;
+		border-bottom: 1px solid #e5e7eb;
+		text-align: center;
+		vertical-align: middle;
+		color: #374151;
+		font-size: 11px;
+	}
+
+	.simple-payments-table td:first-child {
+		text-align: left;
+	}
+
+	.simple-payments-table tr:hover {
+		background: #f9fafb;
+	}
+
+	/* Distinct light colors for each column - subtle but distinguishable */
+	.simple-payments-table th:nth-child(1),
+	.simple-payments-table td:nth-child(1) {
+		background-color: #fef7f7; /* Light red - Bill # */
+	}
+
+	.simple-payments-table th:nth-child(2),
+	.simple-payments-table td:nth-child(2) {
+		background-color: #f0f9ff; /* Light blue - Vendor */
+	}
+
+	.simple-payments-table th:nth-child(3),
+	.simple-payments-table td:nth-child(3) {
+		background-color: #f0fdf4; /* Light green - Amount */
+	}
+
+	.simple-payments-table th:nth-child(4),
+	.simple-payments-table td:nth-child(4) {
+		background-color: #fffbeb; /* Light yellow - Orig. Bill */
+	}
+
+	.simple-payments-table th:nth-child(5),
+	.simple-payments-table td:nth-child(5) {
+		background-color: #fdf4ff; /* Light purple - Orig. Final */
+	}
+
+	.simple-payments-table th:nth-child(6),
+	.simple-payments-table td:nth-child(6) {
+		background-color: #f0fdfa; /* Light teal - Bill Date */
+	}
+
+	.simple-payments-table th:nth-child(7),
+	.simple-payments-table td:nth-child(7) {
+		background-color: #fef3f2; /* Light orange - Due Date */
+	}
+
+	.simple-payments-table th:nth-child(8),
+	.simple-payments-table td:nth-child(8) {
+		background-color: #f8fafc; /* Light gray - Orig. Due */
+	}
+
+	.simple-payments-table th:nth-child(9),
+	.simple-payments-table td:nth-child(9) {
+		background-color: #f0f4ff; /* Light indigo - Branch */
+	}
+
+	.simple-payments-table th:nth-child(10),
+	.simple-payments-table td:nth-child(10) {
+		background-color: #fdf2f8; /* Light pink - Payment */
+	}
+
+	.simple-payments-table th:nth-child(11),
+	.simple-payments-table td:nth-child(11) {
+		background-color: #f7fee7; /* Light lime - Priority */
+	}
+
+	.simple-payments-table th:nth-child(12),
+	.simple-payments-table td:nth-child(12) {
+		background-color: #fefce8; /* Light amber - Bank */
+	}
+
+	.simple-payments-table th:nth-child(13),
+	.simple-payments-table td:nth-child(13) {
+		background-color: #ecfdf5; /* Light emerald - IBAN */
+	}
+
+	.simple-payments-table th:nth-child(14),
+	.simple-payments-table td:nth-child(14) {
+		background-color: #f1f5f9; /* Light slate - Mark Paid */
+	}
+
+	.simple-payments-table th:nth-child(15),
+	.simple-payments-table td:nth-child(15) {
+		background-color: #f0f8ff; /* Light sky - Status */
+	}
+
+	.simple-payments-table th:nth-child(16),
+	.simple-payments-table td:nth-child(16) {
+		background-color: #fafafa; /* Light neutral - Actions */
+	}
+
+	/* Light row striping overlay */
+	.simple-payments-table tbody tr:nth-child(even) td {
+		filter: brightness(0.98);
+	}
+
+	/* Hover effect that overrides column coloring */
+	.simple-payments-table tbody tr:hover td {
+		background-color: #dbeafe !important;
+		transform: translateY(-1px);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
 	.vendors-scroll-container {
 		overflow-x: auto;
-		min-width: 100%;
-		width: 1200px;
+		min-width: 1700px;
+		width: 100%;
 	}
 
 	/* Vendor Structure */
@@ -2320,13 +2579,12 @@
 		margin: 0;
 		background: white;
 		padding: 0;
-		cursor: grab;
 		transition: all 0.2s ease;
 		position: relative;
 		display: flex;
 		align-items: flex-start;
 		gap: 0;
-		min-width: 1527px;
+		min-width: 1450px;
 		min-height: 50px;
 	}
 
@@ -2339,117 +2597,60 @@
 		transform: translateX(2px);
 	}
 
-	.payment-row.dragging {
-		opacity: 0.5;
-		cursor: grabbing;
-		background: #fef3c7;
-	}
-
-	.payment-data-row {
-		display: grid;
-		grid-template-columns: 40px 140px 180px 100px 110px 110px 95px 95px 105px 130px 100px 150px 140px 80px 5px 140px 120px;
-		gap: 12px;
-		flex: 1;
-		align-items: center;
-		grid-auto-rows: minmax(50px, auto);
-		padding: 8px 18px;
-		margin-left: 0px;
-		width: 100%;
-		box-sizing: border-box;
-	}
-
 	.data-cell {
-		font-size: 11px;
-		color: #374151;
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		padding: 8px 4px;
-		word-wrap: break-word;
-		word-break: break-word;
-		hyphens: auto;
-		line-height: 1.2;
-		min-height: 40px;
+		padding: 12px 8px;
+		border-right: 1px solid #e5e7eb;
+		text-align: center;
 		vertical-align: middle;
+		color: #374151;
+		font-size: 11px;
 	}
 
-	.data-cell:nth-child(13) {
-		padding-left: 80px;
-		min-width: 300px;
-		max-width: 300px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+	/* Specific alignments for different cell types */
+	.data-cell.bill-cell {
+		text-align: left;
+		padding-left: 16px;
 	}
 
-	.data-cell:nth-child(12) {
-		padding-left: 120px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		min-width: 200px;
-		max-width: 200px;
-	}
-
-	.data-cell:nth-child(11) {
-		padding-left: 140px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		min-width: 300px;
-		max-width: 300px;
-	}
-
-	.data-cell:nth-child(10) {
-		padding-left: 100px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		min-width: 250px;
-		max-width: 250px;
-	}
-
-	.data-cell:nth-child(9) {
-		padding-left: 110px;
-		white-space: nowrap;
-	}
-
-	.data-cell:nth-child(8) {
-		padding-left: 110px;
-		white-space: nowrap;
-	}
-
-	.data-cell:nth-child(7) {
-		padding-left: 120px;
-		white-space: nowrap;
-	}
-
-	.data-cell:nth-child(6) {
-		padding-left: 200px;
-	}
-
-	.data-cell:nth-child(5) {
-		padding-left: 200px;
-	}
-
-	.data-cell:nth-child(4) {
-		padding-left: 280px;
-	}
-
-	.data-cell:nth-child(3) {
-		padding-left: 100px;
+	.data-cell.vendor-cell {
+		text-align: left;
+		padding-left: 16px;
+		font-weight: 500;
 	}
 
 	.data-cell.amount {
-		font-weight: 800; /* same as original amounts */
+		text-align: right;
+		padding-right: 12px;
+		font-weight: 600;
 		color: #059669;
-		font-size: 12px; /* same as original amounts */
+		font-family: monospace;
+	}
+
+	.data-cell.status-cell {
+		text-align: center;
+	}
+
+	.data-cell.actions-cell {
+		text-align: center;
+	}
+
+	.data-cell:last-child {
+		border-right: none;
+	}
+
+	.data-cell:first-child {
+		border-left: 2px solid #e2e8f0;
+	}
+
+	/* Specific cell styling */
+	.data-cell.amount {
+		font-weight: 800;
+		color: #059669;
+		font-size: 12px;
 		text-align: right;
 		justify-content: flex-end;
 		font-family: monospace;
-		align-items: flex-start;
 		white-space: nowrap;
-		padding-right: 6px; /* small breathing room from edge */
 	}
 
 	.data-cell.amount.original-amount {
@@ -3123,6 +3324,46 @@
 		background: #d97706;
 		opacity: 1;
 		transform: scale(1.1);
+	}
+
+	/* Priority Badge Styles */
+	.priority-cell {
+		text-align: center;
+	}
+
+	.priority-badge {
+		display: inline-block;
+		padding: 4px 10px;
+		border-radius: 10px;
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+
+	.priority-most {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+	}
+
+	.priority-medium {
+		background: #fed7aa;
+		color: #c2410c;
+		border: 1px solid #fdba74;
+	}
+
+	.priority-normal {
+		background: #dbeafe;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+	}
+
+	.priority-low {
+		background: #f3f4f6;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
 	}
 
 	/* Edit Modal Styles - Matching PaymentManager */

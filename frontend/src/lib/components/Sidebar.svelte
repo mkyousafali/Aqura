@@ -584,7 +584,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.4.0
+				v1.4.1
 			</button>
 		</div>
 	</div>
@@ -678,56 +678,55 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.4.0</h3>
+				<h3>What's New in v1.4.1</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>💰 Bill Scheduling System</h4>
+					<h4>🎯 Payment Priority System</h4>
 					<ul>
-						<li><strong>Single Bill Scheduling:</strong> Complete 3-step wizard for scheduling individual bill payments with branch, category, and request linking</li>
-						<li><strong>Multiple Bill Scheduling:</strong> New feature to schedule multiple bills at once with dynamic template generation and live total tracking</li>
-						<li><strong>Request Balance Tracking:</strong> Real-time balance calculation showing remaining budget when linked to expense requisitions</li>
-						<li><strong>Payment Method Sync:</strong> 12 payment methods synchronized with Request Generator (advance cash/bank, credit options, stock purchase)</li>
-						<li><strong>Auto-calculated Due Dates:</strong> Automatic due date calculation based on payment method and credit period (0 or 30 days)</li>
-						<li><strong>50MB File Upload:</strong> Updated storage limit from 10MB to 50MB for bill attachments (images and PDFs)</li>
+						<li><strong>4-Level Priority System:</strong> Implemented comprehensive priority levels (Most, Medium, Normal, Low) for vendor payments</li>
+						<li><strong>Color-Coded Priorities:</strong> Visual priority badges with distinct colors (Red for Most, Orange for Medium, Blue for Normal, Gray for Low)</li>
+						<li><strong>Priority-Based Sorting:</strong> Overdue payments now sort by priority first, then due date for better payment planning</li>
+						<li><strong>Database Integration:</strong> Added payment_priority column to vendors table with proper constraints and indexing</li>
+						<li><strong>Cross-Component Support:</strong> Priority system integrated across all 5 vendor management components</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Multiple Bill Features</h4>
+					<h4>📊 Table Display Enhancements</h4>
 					<ul>
-						<li><strong>Dynamic Bill Templates:</strong> Generate 1-50 bill templates based on user input with visual card grid display</li>
-						<li><strong>Individual Bill Editor:</strong> Click-to-edit modal for each bill with complete Step 3 fields and validation</li>
-						<li><strong>Separate Saving:</strong> Each bill saves independently with success confirmation and saved status badge</li>
-						<li><strong>Live Total Summary:</strong> Real-time calculation of total amount across all bills with color-coded balance indicators</li>
-						<li><strong>Bill Status Tracking:</strong> Visual indicators for saved vs unsaved bills with saved bill detail previews</li>
-						<li><strong>Sequential Workflow:</strong> After saving, view details and select next bill for editing with smooth navigation</li>
+						<li><strong>HTML Table Structure:</strong> Converted from CSS Grid to native HTML tables for guaranteed column alignment</li>
+						<li><strong>16-Column Support:</strong> Perfect alignment for all payment data columns including new priority column</li>
+						<li><strong>Distinct Column Colors:</strong> Each of the 16 columns has unique light background color for easy data tracking</li>
+						<li><strong>Enhanced Readability:</strong> Light color scheme with subtle row alternation and hover effects</li>
+						<li><strong>Professional Appearance:</strong> Clean, modern table design with proper borders and spacing</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📦 Receiving Records Enhancement</h4>
+					<h4>� Technical Improvements</h4>
 					<ul>
-						<li><strong>PR Excel Verification:</strong> Added checkbox feature for marking PR Excel as verified in vendor payment schedule</li>
-						<li><strong>Custom Download Filenames:</strong> PR Excel downloads now use format "VendorName_DD-MM-YYYY_Amount_SAR.xlsx"</li>
-						<li><strong>Verification Tracking:</strong> Tracks who verified PR Excel and when with timestamp display</li>
-						<li><strong>Enhanced RLS Policies:</strong> Added missing policies for vendor_payment_schedule table operations</li>
+						<li><strong>Migration Ready:</strong> Database migration file (065) created for payment priority deployment</li>
+						<li><strong>CSS Optimization:</strong> Removed complex CSS Grid rules and replaced with simplified table styling</li>
+						<li><strong>Manual Vendor Lookup:</strong> Separate queries for vendor priority to avoid foreign key complexity</li>
+						<li><strong>Cross-Browser Compatibility:</strong> HTML table structure ensures consistent display across all browsers</li>
+						<li><strong>Performance Optimized:</strong> Simplified CSS reduces rendering complexity</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Database & Technical Updates</h4>
+					<h4>🎨 UI/UX Improvements</h4>
 					<ul>
-						<li><strong>Expense Scheduler Table:</strong> New table with complete tracking for bill type, payment method, due dates, and bank details</li>
-						<li><strong>Storage Bucket Creation:</strong> Created expense-scheduler-bills bucket with 50MB limit and multi-format support</li>
-						<li><strong>Foreign Key Fixes:</strong> Corrected all FK constraints to point to public.users instead of auth.users</li>
-						<li><strong>Missing Column Migrations:</strong> Added ALTER TABLE migrations for credit_period, bank_name, and iban fields</li>
-						<li><strong>8 New Migrations:</strong> Complete migration set (050-058) for bill scheduling and PR Excel verification features</li>
+						<li><strong>Visual Data Tracking:</strong> Color-coded columns make it easy to follow data vertically</li>
+						<li><strong>Interactive Hover Effects:</strong> Blue highlight with subtle shadow for better user feedback</li>
+						<li><strong>Semantic Color Coding:</strong> Colors match content type (green for money, blue for vendors, etc.)</li>
+						<li><strong>Drag-Drop Removal:</strong> Simplified interface by removing drag-drop while keeping reschedule buttons</li>
+						<li><strong>Clean Other Payments Section:</strong> Improved placeholder with feature preview list</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 27, 2025</p>
+					<p><strong>Release Date:</strong> October 28, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.4.0 - Bill Scheduling System & Receiving Enhancements</p>
-					<p><strong>Focus:</strong> Single & Multiple Bill Scheduling, PR Excel Verification, Storage Optimization</p>
+					<p><strong>Version:</strong> 1.4.1 - Payment Priority System & Table Enhancements</p>
+					<p><strong>Focus:</strong> Payment Prioritization, Visual Data Organization, Table Alignment</p>
 				</div>
 			</div>
 		</div>
