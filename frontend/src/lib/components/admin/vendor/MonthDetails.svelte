@@ -249,14 +249,23 @@
 		const daysInMonth = new Date(monthData.year, monthData.month + 1, 0).getDate();
 		monthDetailData = [];
 
+		// Get today's date for comparison
+		const today = new Date();
+		const todayDate = today.getDate();
+		const todayMonth = today.getMonth();
+		const todayYear = today.getFullYear();
+
 		// Create data for each day of the month
 		for (let day = 1; day <= daysInMonth; day++) {
 			const dayDate = new Date(monthData.year, monthData.month, day);
+			const isToday = day === todayDate && monthData.month === todayMonth && monthData.year === todayYear;
+			
 			const dayInfo = {
 				date: day,
 				dayName: dayDate.toLocaleDateString('en-US', { weekday: 'short' }),
 				fullDate: dayDate,
 				dateString: dayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
+				isToday: isToday,
 				payments: [],
 				paymentsByVendor: {},
 				totalAmount: 0,
@@ -882,7 +891,7 @@
 					<div class="compact-calendar-grid">
 						{#each monthDetailData as dayData}
 							<div 
-								class="mini-calendar-day {dayData.paymentCount > 0 ? (dayData.isFullyPaid ? 'has-payments fully-paid' : 'has-payments has-unpaid') : 'no-payments'}"
+								class="mini-calendar-day {dayData.isToday ? 'is-today' : ''} {dayData.paymentCount > 0 ? (dayData.isFullyPaid ? 'has-payments fully-paid' : 'has-payments has-unpaid') : 'no-payments'}"
 								on:click={() => scrollToDate(dayData.date)}
 								title="Click to jump to {dayData.dayName}, {monthData.month} {dayData.date} - {dayData.paymentCount} payments, Total: {formatCurrency(dayData.totalAmount)}, Unpaid: {formatCurrency(dayData.unpaidAmount)}"
 							>
@@ -1619,6 +1628,34 @@
 		border-color: #e2e8f0;
 		background: #f9fafb;
 		opacity: 0.7;
+	}
+
+	/* Today's date - light blue background */
+	.mini-calendar-day.is-today {
+		border-color: #3b82f6;
+		background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+		border-width: 2px;
+	}
+
+	.mini-calendar-day.is-today:hover {
+		border-color: #2563eb;
+		background: linear-gradient(135deg, #bfdbfe 0%, #dbeafe 100%);
+	}
+
+	.mini-calendar-day.is-today .mini-day-number {
+		color: #1d4ed8;
+		font-weight: 800;
+	}
+
+	/* Today with payments - combine both styles */
+	.mini-calendar-day.is-today.has-payments.fully-paid {
+		border-color: #3b82f6;
+		background: linear-gradient(135deg, #bfdbfe 0%, #d1fae5 100%);
+	}
+
+	.mini-calendar-day.is-today.has-payments.has-unpaid {
+		border-color: #3b82f6;
+		background: linear-gradient(135deg, #bfdbfe 0%, #fed7aa 100%);
 	}
 
 	.mini-day-info {

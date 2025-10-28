@@ -65,6 +65,22 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 		return `SAR ${parseFloat(amount).toFixed(2)}`;
 	}
 
+	// Format date to dd/mm/yyyy
+	function formatDate(dateString) {
+		if (!dateString) return 'N/A';
+		try {
+			const date = new Date(dateString);
+			// Check if date is valid
+			if (isNaN(date.getTime())) return 'N/A';
+			const day = String(date.getDate()).padStart(2, '0');
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const year = date.getFullYear();
+			return `${day}/${month}/${year}`;
+		} catch (error) {
+			return 'N/A';
+		}
+	}
+
 	// View original bill in new tab
 	function viewOriginalBill(url) {
 		if (url) {
@@ -232,7 +248,7 @@ $: filteredTotal = filteredPayments.reduce((sum, p) => sum + (parseFloat(p.final
 					{#each filteredPayments as payment}
 						<tr>
 							<td class="date-cell">
-								{new Date(payment.paid_date || payment.transaction_date).toLocaleDateString('en-GB')}
+								{formatDate(payment.paid_date || payment.transaction_date)}
 							</td>
 							<td class="amount-cell">
 								{formatCurrency(payment.final_bill_amount || payment.bill_amount)}
