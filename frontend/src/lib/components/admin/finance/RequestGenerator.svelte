@@ -15,6 +15,8 @@
 	let subCategories = [];
 	let filteredUsers = [];
 	let filteredCategories = [];
+	let requesters = [];
+	let filteredRequesters = [];
 
 	// Step 1 data
 	let selectedBranchId = '';
@@ -31,6 +33,10 @@
 	let requesterId = '';
 	let requesterName = '';
 	let requesterContact = '';
+	let selectedRequesterId = '';
+	let requesterSearchQuery = '';
+	let showNewRequesterFields = false;
+	let isNewRequester = false;
 	let vatApplicable = false;
 	let paymentCategory = 'advance_cash';
 	let description = '';
@@ -119,6 +125,14 @@
 			subCategories = subData || [];
 			filteredCategories = subCategories;
 
+			// Load requesters
+			const { data: requesterData } = await supabaseAdmin
+				.from('requesters')
+				.select('*')
+				.order('requester_name');
+			requesters = requesterData || [];
+			filteredRequesters = requesters;
+
 		} catch (err) {
 			console.error('Error loading data:', err);
 			alert('Error loading data: ' + err.message);
@@ -179,6 +193,125 @@
 		};
 	}
 
+	// Requester management functions
+	function handleRequesterSearch() {
+		const query = requesterSearchQuery.toLowerCase();
+		if (query) {
+			filteredRequesters = requesters.filter(req =>
+				req.requester_id.toLowerCase().includes(query) ||
+				req.requester_name.toLowerCase().includes(query) ||
+				(req.contact_number && req.contact_number.includes(query))
+			);
+		} else {
+			filteredRequesters = requesters;
+		}
+		
+		// Show new requester fields if there's a search query but no exact matches
+		const hasExactMatch = requesters.some(req => 
+			req.requester_id.toLowerCase() === query ||
+			req.requester_name.toLowerCase() === query
+		);
+		
+		showNewRequesterFields = query.length > 0 && filteredRequesters.length === 0;
+		isNewRequester = showNewRequesterFields;
+		
+		// If user is typing a new requester, pre-fill the fields
+		if (showNewRequesterFields) {
+			// Don't auto-fill if it looks like an ID or name
+			if (query.length > 2) {
+				if (query.includes(' ')) {
+					// Looks like a name
+					requesterName = requesterSearchQuery;
+					requesterId = '';
+				} else {
+					// Looks like an ID
+					requesterId = requesterSearchQuery;
+					requesterName = '';
+				}
+			}
+		}
+	}
+
+	function selectRequester(requester) {
+		selectedRequesterId = requester.id;
+		requesterId = requester.requester_id;
+		requesterName = requester.requester_name;
+		requesterContact = requester.contact_number || '';
+		requesterSearchQuery = requester.requester_name;
+		showNewRequesterFields = false;
+		isNewRequester = false;
+	}
+
+	function clearRequesterSelection() {
+		selectedRequesterId = '';
+		requesterId = '';
+		requesterName = '';
+		requesterContact = '';
+		requesterSearchQuery = '';
+		showNewRequesterFields = false;
+		isNewRequester = false;
+	}
+
+	async function saveNewRequester() {
+		if (!requesterId.trim() || !requesterName.trim()) {
+			alert('Please fill in Requester ID and Name');
+			return;
+		}
+
+		try {
+			// Check if current user exists in users table
+			let createdByUserId = null;
+			if ($currentUser?.id) {
+				try {
+					const { data: userExists } = await supabaseAdmin
+						.from('users')
+						.select('id')
+						.eq('id', $currentUser.id)
+						.single();
+					
+					if (userExists) {
+						createdByUserId = $currentUser.id;
+					}
+				} catch (userCheckError) {
+					console.warn('User not found in users table, saving requester without created_by reference');
+				}
+			}
+
+			const { data, error } = await supabaseAdmin
+				.from('requesters')
+				.insert([{
+					requester_id: requesterId.trim(),
+					requester_name: requesterName.trim(),
+					contact_number: requesterContact.trim() || null,
+					created_by: createdByUserId // Will be null if user not found in users table
+				}])
+				.select()
+				.single();
+
+			if (error) {
+				if (error.code === '23505') { // Unique constraint violation
+					alert('A requester with this ID already exists');
+				} else {
+					throw error;
+				}
+				return;
+			}
+
+			// Add to local array and update filtered list
+			requesters = [...requesters, data];
+			filteredRequesters = requesters;
+			
+			// Select the new requester
+			selectRequester(data);
+			
+			alert('Requester saved successfully!');
+			
+		} catch (err) {
+			console.error('Error saving requester:', err);
+			alert('Error saving requester: ' + err.message);
+		}
+	}
+
 	function validateStep1() {
 		if (!selectedBranchId) {
 			alert('Please select a branch');
@@ -201,17 +334,14 @@
 
 	function validateStep2() {
 		if (!requesterId.trim()) {
-			alert('Please enter requester ID');
+			alert('Please select a requester or enter requester ID');
 			return false;
 		}
 		if (!requesterName.trim()) {
-			alert('Please enter requester name');
+			alert('Please select a requester or enter requester name');
 			return false;
 		}
-		if (!requesterContact.trim()) {
-			alert('Please enter contact number');
-			return false;
-		}
+		// Contact number is optional now
 		// Validate credit period for credit payment methods
 		if ((paymentCategory === 'advance_cash_credit' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'cash_credit' || paymentCategory === 'bank_credit') && (!creditPeriod || parseInt(creditPeriod) <= 0)) {
 			alert('Please enter a valid credit period');
@@ -328,6 +458,7 @@
 					requester_id: requesterId, // This is employee ID as text
 					requester_name: requesterName,
 					requester_contact: requesterContact,
+					requester_ref_id: selectedRequesterId || null, // Reference to requesters table
 					vat_applicable: vatApplicable,
 					amount: parseFloat(amount),
 					payment_category: paymentCategory,
@@ -935,22 +1066,89 @@
 			<div class="step-content">
 				<h2 class="step-title">Step 2: Expense Details</h2>
 
-				<div class="form-row">
-					<div class="form-group">
-						<label>Requester ID *</label>
-						<input type="text" bind:value={requesterId} placeholder="Enter requester ID" class="form-input" />
-					</div>
+				<!-- Requester Selection -->
+				<div class="form-group requester-dropdown-container">
+					<label>Select or Add Requester *</label>
+					<input 
+						type="text" 
+						bind:value={requesterSearchQuery} 
+						on:input={handleRequesterSearch}
+						placeholder="Search by ID, name, or contact..." 
+						class="form-input search-input" 
+					/>
+					
+					{#if requesterSearchQuery && filteredRequesters.length > 0}
+						<div class="dropdown-list">
+							{#each filteredRequesters as requester}
+								<div class="dropdown-item" on:click={() => selectRequester(requester)}>
+									<div class="requester-info">
+										<strong>{requester.requester_name}</strong>
+										<span class="requester-id">ID: {requester.requester_id}</span>
+										{#if requester.contact_number}
+											<span class="requester-contact">📞 {requester.contact_number}</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 
-					<div class="form-group">
-						<label>Requester Name *</label>
-						<input type="text" bind:value={requesterName} placeholder="Enter requester name" class="form-input" />
-					</div>
+					{#if requesterSearchQuery && filteredRequesters.length === 0}
+						<div class="no-results">
+							No matching requesters found. Fill in the details below to add a new requester.
+						</div>
+					{/if}
+
+					{#if selectedRequesterId}
+						<div class="selected-requester">
+							✓ Selected: <strong>{requesterName}</strong> (ID: {requesterId})
+							<button type="button" class="btn-clear" on:click={clearRequesterSelection}>Clear</button>
+						</div>
+					{/if}
 				</div>
 
-				<div class="form-group">
-					<label>Contact Number *</label>
-					<input type="tel" bind:value={requesterContact} placeholder="Enter contact number" class="form-input" />
-				</div>
+				<!-- New Requester Fields (shown when no match found) -->
+				{#if showNewRequesterFields || (requesterSearchQuery && filteredRequesters.length === 0)}
+					<div class="new-requester-section">
+						<h3>Add New Requester</h3>
+						<div class="form-row">
+							<div class="form-group">
+								<label>Requester ID *</label>
+								<input 
+									type="text" 
+									bind:value={requesterId} 
+									placeholder="Enter requester ID" 
+									class="form-input" 
+								/>
+								{#if requesterId && requesterName}
+									<button type="button" class="save-field-btn" on:click={saveNewRequester}>
+										💾 Save Requester
+									</button>
+								{/if}
+							</div>
+
+							<div class="form-group">
+								<label>Requester Name *</label>
+								<input 
+									type="text" 
+									bind:value={requesterName} 
+									placeholder="Enter requester name" 
+									class="form-input" 
+								/>
+							</div>
+						</div>
+
+						<div class="form-group">
+							<label>Contact Number</label>
+							<input 
+								type="tel" 
+								bind:value={requesterContact} 
+								placeholder="Enter contact number" 
+								class="form-input" 
+							/>
+						</div>
+					</div>
+				{/if}
 
 				<div class="form-group">
 					<label>Payment Category *</label>
@@ -2453,5 +2651,124 @@
 		body {
 			background: white;
 		}
+	}
+
+	/* Requester Dropdown Styles */
+	.requester-dropdown-container {
+		position: relative;
+	}
+
+	.search-input {
+		position: relative;
+		width: 100%;
+	}
+
+	.dropdown-list {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		background: white;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+		max-height: 200px;
+		overflow-y: auto;
+		z-index: 1000;
+		margin-top: 4px;
+	}
+
+	.dropdown-item {
+		padding: 12px;
+		cursor: pointer;
+		border-bottom: 1px solid #f1f5f9;
+		transition: background-color 0.2s;
+	}
+
+	.dropdown-item:hover {
+		background-color: #f8fafc;
+	}
+
+	.dropdown-item:last-child {
+		border-bottom: none;
+	}
+
+	.requester-info {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.requester-id, .requester-contact {
+		font-size: 0.875rem;
+		color: #64748b;
+	}
+
+	.no-results {
+		padding: 12px;
+		color: #64748b;
+		font-style: italic;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		margin-top: 4px;
+		text-align: center;
+	}
+
+	.selected-requester {
+		background: #f0f9ff;
+		border: 1px solid #0ea5e9;
+		border-radius: 6px;
+		padding: 12px;
+		margin-top: 8px;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.btn-clear {
+		background: #ef4444;
+		color: white;
+		border: none;
+		padding: 4px 8px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+	}
+
+	.btn-clear:hover {
+		background: #dc2626;
+	}
+
+	.new-requester-section {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		padding: 20px;
+		margin-top: 16px;
+	}
+
+	.new-requester-section h3 {
+		margin: 0 0 16px 0;
+		color: #334155;
+		font-size: 1.125rem;
+	}
+
+	.save-field-btn {
+		background: #10b981;
+		color: white;
+		border: none;
+		padding: 6px 12px;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		margin-top: 8px;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.save-field-btn:hover {
+		background: #059669;
 	}
 </style>
