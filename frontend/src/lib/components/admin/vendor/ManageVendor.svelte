@@ -31,6 +31,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		supervisor_contact: false,
 		vendor_contact: true,
 		payment_method: true,
+		payment_priority: true,
 		credit_period: false,
 		bank_name: false,
 		iban: false,
@@ -61,6 +62,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		{ key: 'supervisor_contact', label: 'Supervisor Contact' },
 		{ key: 'vendor_contact', label: 'Vendor Contact' },
 		{ key: 'payment_method', label: 'Payment Method' },
+		{ key: 'payment_priority', label: 'Payment Priority' },
 		{ key: 'credit_period', label: 'Credit Period' },
 		{ key: 'bank_name', label: 'Bank Name' },
 		{ key: 'iban', label: 'IBAN' },
@@ -646,6 +648,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							{#if visibleColumns.supervisor_contact}<th>Supervisor Contact</th>{/if}
 							{#if visibleColumns.vendor_contact}<th>Vendor Contact</th>{/if}
 							{#if visibleColumns.payment_method}<th>Payment Method</th>{/if}
+							{#if visibleColumns.payment_priority}<th>Payment Priority</th>{/if}
 							{#if visibleColumns.credit_period}<th>Credit Period</th>{/if}
 							{#if visibleColumns.bank_name}<th>Bank Name</th>{/if}
 							{#if visibleColumns.iban}<th>IBAN</th>{/if}
@@ -737,6 +740,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 											{/if}
 										{:else}
 											<span class="no-data">No method</span>
+										{/if}
+									</td>
+								{/if}
+								{#if visibleColumns.payment_priority}
+									<td class="payment-priority">
+										{#if vendor.payment_priority}
+											<span class="priority-badge priority-{vendor.payment_priority.toLowerCase()}">
+												{vendor.payment_priority}
+											</span>
+										{:else}
+											<span class="priority-badge priority-normal">Normal</span>
 										{/if}
 									</td>
 								{/if}
@@ -1441,6 +1455,44 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.payment-method {
 		font-weight: 500;
 		font-size: 0.9rem;
+	}
+
+	.payment-priority {
+		text-align: center;
+	}
+
+	.priority-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.priority-most {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+	}
+
+	.priority-medium {
+		background: #fed7aa;
+		color: #c2410c;
+		border: 1px solid #fdba74;
+	}
+
+	.priority-normal {
+		background: #dbeafe;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+	}
+
+	.priority-low {
+		background: #f3f4f6;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
 	}
 
 	.credit-period {

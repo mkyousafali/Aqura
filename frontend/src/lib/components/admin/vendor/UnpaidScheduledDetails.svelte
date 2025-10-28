@@ -56,6 +56,22 @@
 
 			return true;
 		});
+
+		// Sort by priority first, then by due date
+		filteredPayments.sort((a, b) => {
+			// Priority ranking: Most=1, Medium=2, Normal=3, Low=4
+			const priorityRank = { 'Most': 1, 'Medium': 2, 'Normal': 3, 'Low': 4 };
+			const aPriority = priorityRank[a.vendor_priority] || 3;
+			const bPriority = priorityRank[b.vendor_priority] || 3;
+
+			// First sort by priority
+			if (aPriority !== bPriority) {
+				return aPriority - bPriority;
+			}
+
+			// If same priority, sort by due date (earliest first)
+			return new Date(a.due_date) - new Date(b.due_date);
+		});
 	}
 
 	// Calculate filtered totals
@@ -175,6 +191,7 @@
 						<th>Vendor</th>
 						<th>Branch</th>
 						<th>Payment Method</th>
+						<th>Payment Priority</th>
 						<th>Bank Info</th>
 						<th>ERP Invoice Number</th>
 						<th>Receiving Date</th>
@@ -211,6 +228,15 @@
 								<div class="payment-method">
 									{payment.payment_method || 'N/A'}
 								</div>
+							</td>
+							<td class="priority-cell">
+								{#if payment.vendor_priority}
+									<span class="priority-badge priority-{payment.vendor_priority.toLowerCase()}">
+										{payment.vendor_priority}
+									</span>
+								{:else}
+									<span class="priority-badge priority-normal">Normal</span>
+								{/if}
 							</td>
 							<td class="bank-cell">
 								<div class="bank-info">
@@ -535,6 +561,45 @@
 		font-weight: 600;
 		text-align: center;
 		border: 1px solid #fb923c;
+	}
+
+	.priority-cell {
+		text-align: center;
+		min-width: 100px;
+	}
+
+	.priority-badge {
+		display: inline-block;
+		padding: 6px 12px;
+		border-radius: 12px;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.priority-most {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+	}
+
+	.priority-medium {
+		background: #fed7aa;
+		color: #c2410c;
+		border: 1px solid #fdba74;
+	}
+
+	.priority-normal {
+		background: #dbeafe;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+	}
+
+	.priority-low {
+		background: #f3f4f6;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
 	}
 
 	.bank-cell {
