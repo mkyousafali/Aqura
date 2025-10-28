@@ -5,6 +5,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let requisitions = [];
+	let paymentSchedules = []; // New: payment schedules requiring approval
 	let filteredRequisitions = [];
 	let loading = true;
 	let selectedStatus = 'pending';
@@ -70,6 +71,7 @@
 			const { data, error } = await supabaseAdmin
 				.from('expense_requisitions')
 				.select('*')
+				.eq('approver_id', $currentUser.id)
 				.order('created_at', { ascending: false });
 
 			console.log('📊 Query result:', { data, error, count: data?.length });
@@ -107,10 +109,47 @@
 				}
 			}
 			
-			console.log('✅ Loaded requisitions:', requisitions.length);		// Calculate stats
-		stats.total = requisitions.length;
-		stats.pending = requisitions.filter(r => r.status === 'pending').length;
-		stats.approved = requisitions.filter(r => r.status === 'approved').length;
+			console.log('✅ Loaded requisitions:', requisitions.length);
+
+			// Also load payment schedules requiring approval
+			// Only show single_bill (not recurring parent) and only within 2 days
+			const twoDaysFromNow = new Date();
+			twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+			const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+			
+			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select('*')
+				.eq('approval_status', 'pending')
+				.eq('approver_id', $currentUser.id)
+				.eq('schedule_type', 'single_bill') // Exclude recurring parent schedules
+				.lte('due_date', twoDaysDate) // Only show occurrences within 2 days
+				.order('due_date', { ascending: true });
+
+			if (schedulesError) {
+				console.error('❌ Error loading payment schedules:', schedulesError);
+			} else {
+				paymentSchedules = schedulesData || [];
+				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+			}
+
+			// Load approved payment schedules from expense_scheduler for stats
+			const { data: approvedSchedulesData, error: approvedSchedulesError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select('id')
+				.or(`approver_id.eq.${$currentUser.id},created_by.eq.${$currentUser.id}`)
+				.not('schedule_type', 'eq', 'recurring'); // Exclude parent recurring schedules
+
+			let approvedSchedulesCount = 0;
+			if (!approvedSchedulesError && approvedSchedulesData) {
+				approvedSchedulesCount = approvedSchedulesData.length;
+				console.log('✅ Approved payment schedules count:', approvedSchedulesCount);
+			}
+
+		// Calculate stats (include both requisitions and payment schedules)
+		stats.total = requisitions.length + paymentSchedules.length;
+		stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length; // All payment schedules are pending
+		stats.approved = requisitions.filter(r => r.status === 'approved').length + approvedSchedulesCount;
 		stats.rejected = requisitions.filter(r => r.status === 'rejected').length;
 
 		console.log('📈 Stats:', stats);
@@ -126,14 +165,16 @@
 
 	function filterRequisitions() {
 		let filtered = requisitions;
+		let filteredSchedules = [];
 
 		console.log('🔍 Filtering requisitions:', {
 			total: requisitions.length,
+			paymentSchedules: paymentSchedules.length,
 			selectedStatus,
 			searchQuery
 		});
 
-		// Filter by status
+		// Filter requisitions by status
 		if (selectedStatus !== 'all') {
 			filtered = filtered.filter(r => r.status === selectedStatus);
 			console.log(`  ↳ After status filter (${selectedStatus}):`, filtered.length);
@@ -152,8 +193,35 @@
 			console.log(`  ↳ After search filter (${query}):`, filtered.length);
 		}
 
-		filteredRequisitions = filtered;
-		console.log('✅ Final filtered requisitions:', filteredRequisitions.length);
+		// Filter payment schedules - they should show up in "pending" status
+		if (selectedStatus === 'pending' || selectedStatus === 'all') {
+			filteredSchedules = paymentSchedules;
+			
+			// Apply search to payment schedules too
+			if (searchQuery.trim()) {
+				const query = searchQuery.toLowerCase();
+				filteredSchedules = filteredSchedules.filter(s =>
+					s.branch_name.toLowerCase().includes(query) ||
+					s.expense_category_name_en?.toLowerCase().includes(query) ||
+					s.co_user_name?.toLowerCase().includes(query) ||
+					s.schedule_type?.toLowerCase().includes(query) ||
+					s.description?.toLowerCase().includes(query)
+				);
+			}
+		}
+
+		// Combine filtered requisitions and payment schedules
+		// Mark each item with its type for display purposes
+		filteredRequisitions = [
+			...filtered.map(r => ({ ...r, item_type: 'requisition' })),
+			...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+		];
+
+		console.log('✅ Final filtered items:', {
+			requisitions: filtered.length,
+			schedules: filteredSchedules.length,
+			total: filteredRequisitions.length
+		});
 	}
 
 	function filterByStatus(status) {
@@ -172,7 +240,7 @@
 	}
 
 	async function approveRequisition(requisitionId) {
-		if (!confirm('Are you sure you want to approve this requisition?')) return;
+		if (!confirm('Are you sure you want to approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition') + '?')) return;
 
 		try {
 			isProcessing = true;
@@ -180,22 +248,73 @@
 			// Use supabaseAdmin for update operations
 			const { supabaseAdmin } = await import('$lib/utils/supabase');
 			
-			const { error } = await supabaseAdmin
-				.from('expense_requisitions')
-				.update({
-					status: 'approved',
-					updated_at: new Date().toISOString()
-				})
-				.eq('id', requisitionId);
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Get the full payment schedule data
+				const { data: scheduleData, error: fetchError } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
 
-			if (error) throw error;
+				if (fetchError) throw fetchError;
 
-			alert('✅ Requisition approved successfully!');
+				// Move to expense_scheduler
+				const { error: insertError } = await supabaseAdmin
+					.from('expense_scheduler')
+					.insert([{
+						schedule_type: scheduleData.schedule_type,
+						branch_id: scheduleData.branch_id,
+						branch_name: scheduleData.branch_name,
+						expense_category_id: scheduleData.expense_category_id,
+						expense_category_name_en: scheduleData.expense_category_name_en,
+						expense_category_name_ar: scheduleData.expense_category_name_ar,
+						requisition_id: null,
+						requisition_number: null,
+						co_user_id: scheduleData.co_user_id,
+						co_user_name: scheduleData.co_user_name,
+						payment_method: scheduleData.payment_method,
+						amount: scheduleData.amount,
+						description: scheduleData.description,
+						bill_type: scheduleData.bill_type,
+						due_date: scheduleData.due_date,
+						status: 'pending',
+						is_paid: false,
+						recurring_type: scheduleData.recurring_type,
+						recurring_metadata: scheduleData.recurring_metadata,
+						created_by: scheduleData.created_by
+					}]);
+
+				if (insertError) throw insertError;
+
+				// Delete from non_approved_payment_scheduler
+				const { error: deleteError } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.delete()
+					.eq('id', requisitionId);
+
+				if (deleteError) throw deleteError;
+
+				alert('✅ Payment schedule approved and moved to expense scheduler!');
+			} else {
+				// Update regular requisition
+				const { error } = await supabaseAdmin
+					.from('expense_requisitions')
+					.update({
+						status: 'approved',
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', requisitionId);
+
+				if (error) throw error;
+				alert('✅ Requisition approved successfully!');
+			}
+
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
-			console.error('Error approving requisition:', err);
-			alert('Error approving requisition: ' + err.message);
+			console.error('Error approving:', err);
+			alert('Error approving: ' + err.message);
 		} finally {
 			isProcessing = false;
 		}
@@ -211,22 +330,38 @@
 			// Use supabaseAdmin for update operations
 			const { supabaseAdmin } = await import('$lib/utils/supabase');
 			
-			const { error } = await supabaseAdmin
-				.from('expense_requisitions')
-				.update({
-					status: 'rejected',
-					updated_at: new Date().toISOString()
-				})
-				.eq('id', requisitionId);
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Update payment schedule
+				const { error } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.update({
+						approval_status: 'rejected',
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', requisitionId);
 
-			if (error) throw error;
+				if (error) throw error;
+				alert('❌ Payment schedule rejected successfully!');
+			} else {
+				// Update regular requisition
+				const { error } = await supabaseAdmin
+					.from('expense_requisitions')
+					.update({
+						status: 'rejected',
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', requisitionId);
 
-			alert('❌ Requisition rejected successfully!');
+				if (error) throw error;
+				alert('❌ Requisition rejected successfully!');
+			}
+
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
-			console.error('Error rejecting requisition:', err);
-			alert('Error rejecting requisition: ' + err.message);
+			console.error('Error rejecting:', err);
+			alert('Error rejecting: ' + err.message);
 		} finally {
 			isProcessing = false;
 		}
@@ -345,6 +480,7 @@
 							<th>Amount</th>
 							<th>Payment Type</th>
 							<th>Status</th>
+							<th>Due Date</th>
 							<th>Date</th>
 							<th>Actions</th>
 						</tr>
@@ -352,38 +488,80 @@
 					<tbody>
 						{#each filteredRequisitions as req}
 							<tr>
-								<td class="req-number">{req.requisition_number}</td>
-								<td>{req.branch_name}</td>
-								<td>
-									<div class="generated-by-info">
-										<div class="generated-by-name">👤 {req.created_by_username || 'Unknown'}</div>
-									</div>
-								</td>
-								<td>
-									<div class="requester-info">
-										<div class="requester-name">{req.requester_name}</div>
-										<div class="requester-id">ID: {req.requester_id}</div>
-									</div>
-								</td>
-								<td>
-									<div class="category-info">
-										<div>{req.expense_category_name_en}</div>
-										<div class="category-ar">{req.expense_category_name_ar}</div>
-									</div>
-								</td>
-								<td class="amount">{formatCurrency(req.amount)}</td>
-								<td class="payment-type">{req.payment_category.replace(/_/g, ' ')}</td>
-								<td>
-									<span class="status-badge {getStatusClass(req.status)}">
-										{req.status.toUpperCase()}
-									</span>
-								</td>
-								<td class="date">{formatDate(req.created_at)}</td>
-								<td>
-									<button class="btn-view" on:click={() => openDetail(req)}>
-										👁️ View
-									</button>
-								</td>
+								{#if req.item_type === 'requisition'}
+									<!-- Expense Requisition Row -->
+									<td class="req-number">{req.requisition_number}</td>
+									<td>{req.branch_name}</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">👤 {req.created_by_username || 'Unknown'}</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">{req.requester_name}</div>
+											<div class="requester-id">ID: {req.requester_id}</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>{req.expense_category_name_en}</div>
+											<div class="category-ar">{req.expense_category_name_ar}</div>
+										</div>
+									</td>
+									<td class="amount">{formatCurrency(req.amount)}</td>
+									<td class="payment-type">{req.payment_category.replace(/_/g, ' ')}</td>
+									<td>
+										<span class="status-badge {getStatusClass(req.status)}">
+											{req.status.toUpperCase()}
+										</span>
+									</td>
+									<td class="date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
+									<td class="date">{formatDate(req.created_at)}</td>
+									<td>
+										<button class="btn-view" on:click={() => openDetail(req)}>
+											👁️ View
+										</button>
+									</td>
+								{:else if req.item_type === 'payment_schedule'}
+									<!-- Payment Schedule Row -->
+									<td class="req-number">
+										<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
+										<div class="schedule-id">ID: {req.id}</div>
+									</td>
+									<td>{req.branch_name}</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">👤 {req.co_user_name || 'System'}</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">-</div>
+											<div class="requester-id">Payment Schedule</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>{req.expense_category_name_en}</div>
+											<div class="category-ar">{req.expense_category_name_ar || ''}</div>
+										</div>
+									</td>
+									<td class="amount">{formatCurrency(req.amount)}</td>
+									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || 'N/A'}</td>
+									<td>
+										<span class="status-badge pending">
+											PENDING APPROVAL
+										</span>
+									</td>
+									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
+									<td class="date">{formatDate(req.created_at)}</td>
+									<td>
+										<button class="btn-view" on:click={() => openDetail(req)}>
+											👁️ View
+										</button>
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
@@ -403,104 +581,233 @@
 			</div>
 
 			<div class="modal-body">
-				<div class="detail-grid">
-					<div class="detail-item">
-						<label>Requisition Number</label>
-						<div class="detail-value">{selectedRequisition.requisition_number}</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Status</label>
-						<span class="status-badge {getStatusClass(selectedRequisition.status)}">
-							{selectedRequisition.status.toUpperCase()}
-						</span>
-					</div>
-
-					<div class="detail-item">
-						<label>Branch</label>
-						<div class="detail-value">{selectedRequisition.branch_name}</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Approver</label>
-						<div class="detail-value">{selectedRequisition.approver_name || 'Not Assigned'}</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Category</label>
-						<div class="detail-value">
-							{selectedRequisition.expense_category_name_en}
-							<br>
-							<span class="category-ar">{selectedRequisition.expense_category_name_ar}</span>
-						</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Requester</label>
-						<div class="detail-value">
-							{selectedRequisition.requester_name}
-							<br>
-							<small>ID: {selectedRequisition.requester_id}</small>
-							<br>
-							<small>Contact: {selectedRequisition.requester_contact}</small>
-						</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Amount</label>
-						<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
-					</div>
-
-					<div class="detail-item">
-						<label>VAT Applicable</label>
-						<div class="detail-value">{selectedRequisition.vat_applicable ? 'Yes' : 'No'}</div>
-					</div>
-
-					<div class="detail-item">
-						<label>Payment Category</label>
-						<div class="detail-value">{selectedRequisition.payment_category.replace(/_/g, ' ')}</div>
-					</div>
-
-					{#if selectedRequisition.credit_period}
+				{#if selectedRequisition.item_type === 'requisition'}
+					<!-- Requisition Details -->
+					<div class="detail-grid">
 						<div class="detail-item">
-							<label>Credit Period</label>
-							<div class="detail-value">{selectedRequisition.credit_period} days</div>
+							<label>Requisition Number</label>
+							<div class="detail-value">{selectedRequisition.requisition_number}</div>
 						</div>
-					{/if}
 
-					{#if selectedRequisition.bank_name}
 						<div class="detail-item">
-							<label>Bank Name</label>
-							<div class="detail-value">{selectedRequisition.bank_name}</div>
+							<label>Status</label>
+							<span class="status-badge {getStatusClass(selectedRequisition.status)}">
+								{selectedRequisition.status.toUpperCase()}
+							</span>
 						</div>
-					{/if}
 
-					{#if selectedRequisition.iban}
 						<div class="detail-item">
-							<label>IBAN</label>
-							<div class="detail-value">{selectedRequisition.iban}</div>
+							<label>Branch</label>
+							<div class="detail-value">{selectedRequisition.branch_name}</div>
 						</div>
-					{/if}
 
-					{#if selectedRequisition.description}
-						<div class="detail-item full-width">
-							<label>Description</label>
-							<div class="detail-value description">{selectedRequisition.description}</div>
+						<div class="detail-item">
+							<label>Approver</label>
+							<div class="detail-value">{selectedRequisition.approver_name || 'Not Assigned'}</div>
 						</div>
-					{/if}
 
-					{#if selectedRequisition.image_url}
-						<div class="detail-item full-width">
-							<label>Attachment</label>
+						<div class="detail-item">
+							<label>Category</label>
 							<div class="detail-value">
-								<img src={selectedRequisition.image_url} alt="Requisition" class="attachment-image" />
+								{selectedRequisition.expense_category_name_en}
+								<br>
+								<span class="category-ar">{selectedRequisition.expense_category_name_ar}</span>
 							</div>
 						</div>
-					{/if}
 
-					<div class="detail-item">
-						<label>Created Date</label>
-						<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
+						<div class="detail-item">
+							<label>Requester</label>
+							<div class="detail-value">
+								{selectedRequisition.requester_name}
+								<br>
+								<small>ID: {selectedRequisition.requester_id}</small>
+								<br>
+								<small>Contact: {selectedRequisition.requester_contact}</small>
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Amount</label>
+							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>VAT Applicable</label>
+							<div class="detail-value">{selectedRequisition.vat_applicable ? 'Yes' : 'No'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Payment Category</label>
+							<div class="detail-value">{selectedRequisition.payment_category.replace(/_/g, ' ')}</div>
+						</div>
+
+						{#if selectedRequisition.credit_period}
+							<div class="detail-item">
+								<label>Credit Period</label>
+								<div class="detail-value">{selectedRequisition.credit_period} days</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bank_name}
+							<div class="detail-item">
+								<label>Bank Name</label>
+								<div class="detail-value">{selectedRequisition.bank_name}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.iban}
+							<div class="detail-item">
+								<label>IBAN</label>
+								<div class="detail-value">{selectedRequisition.iban}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.description}
+							<div class="detail-item full-width">
+								<label>Description</label>
+								<div class="detail-value description">{selectedRequisition.description}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.image_url}
+							<div class="detail-item full-width">
+								<label>Attachment</label>
+								<div class="detail-value">
+									<img src={selectedRequisition.image_url} alt="Requisition" class="attachment-image" />
+								</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Created Date</label>
+							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
+						</div>
+					</div>
+				{:else if selectedRequisition.item_type === 'payment_schedule'}
+					<!-- Payment Schedule Details -->
+					<div class="detail-grid">
+						<div class="detail-item">
+							<label>Schedule Type</label>
+							<div class="detail-value">
+								<span class="schedule-badge">{selectedRequisition.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Status</label>
+							<span class="status-badge status-pending">
+								PENDING APPROVAL
+							</span>
+						</div>
+
+						<div class="detail-item">
+							<label>Branch</label>
+							<div class="detail-value">{selectedRequisition.branch_name}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Category</label>
+							<div class="detail-value">
+								{selectedRequisition.expense_category_name_en}
+								{#if selectedRequisition.expense_category_name_ar}
+									<br>
+									<span class="category-ar">{selectedRequisition.expense_category_name_ar}</span>
+								{/if}
+							</div>
+						</div>
+
+						{#if selectedRequisition.co_user_name}
+							<div class="detail-item">
+								<label>C/O User</label>
+								<div class="detail-value">{selectedRequisition.co_user_name}</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Approver</label>
+							<div class="detail-value">{selectedRequisition.approver_name}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Amount</label>
+							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Payment Method</label>
+							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</div>
+						</div>
+
+						{#if selectedRequisition.bill_type}
+							<div class="detail-item">
+								<label>Bill Type</label>
+								<div class="detail-value">{selectedRequisition.bill_type.replace(/_/g, ' ')}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bill_number}
+							<div class="detail-item">
+								<label>Bill Number</label>
+								<div class="detail-value">{selectedRequisition.bill_number}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bill_date}
+							<div class="detail-item">
+								<label>Bill Date</label>
+								<div class="detail-value">{formatDate(selectedRequisition.bill_date)}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.due_date}
+							<div class="detail-item">
+								<label>Due Date</label>
+								<div class="detail-value">{formatDate(selectedRequisition.due_date)}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.credit_period}
+							<div class="detail-item">
+								<label>Credit Period</label>
+								<div class="detail-value">{selectedRequisition.credit_period} days</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bank_name}
+							<div class="detail-item">
+								<label>Bank Name</label>
+								<div class="detail-value">{selectedRequisition.bank_name}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.iban}
+							<div class="detail-item">
+								<label>IBAN</label>
+								<div class="detail-value">{selectedRequisition.iban}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.description}
+							<div class="detail-item full-width">
+								<label>Description</label>
+								<div class="detail-value description">{selectedRequisition.description}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bill_file_url}
+							<div class="detail-item full-width">
+								<label>Bill Attachment</label>
+								<div class="detail-value">
+									<a href={selectedRequisition.bill_file_url} target="_blank" class="btn-view-file">
+										📄 View Bill File
+									</a>
+								</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Created Date</label>
+							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
 					</div>
 
 					<div class="detail-item">
@@ -508,10 +815,11 @@
 						<div class="detail-value">{selectedRequisition.created_by_username || 'Unknown'}</div>
 					</div>
 				</div>
-			</div>
+			{/if}
+		</div>
 
-			<div class="modal-footer">
-				{#if selectedRequisition.status === 'pending'}
+		<div class="modal-footer">
+			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
 					{#if !userCanApprove}
 						<div class="permission-notice">
 							ℹ️ You do not have permission to approve or reject requisitions.
@@ -536,7 +844,7 @@
 					</button>
 				{:else}
 					<div class="status-info">
-						This requisition has been {selectedRequisition.status}
+						This {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
 				{/if}
 				<button class="btn-close" on:click={closeDetail}>Close</button>
@@ -839,6 +1147,24 @@
 		font-size: 0.75rem;
 		font-weight: 700;
 		text-transform: uppercase;
+	}
+
+	.schedule-badge {
+		display: inline-block;
+		padding: 0.4rem 0.8rem;
+		background: #ede9fe;
+		color: #5b21b6;
+		border-radius: 8px;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		margin-bottom: 0.25rem;
+	}
+
+	.schedule-id {
+		font-size: 0.7rem;
+		color: #64748b;
+		margin-top: 0.25rem;
 	}
 
 	.status-pending {

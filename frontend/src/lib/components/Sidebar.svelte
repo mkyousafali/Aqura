@@ -584,7 +584,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.5.0
+				v2.0.0
 			</button>
 		</div>
 	</div>
@@ -678,18 +678,18 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.5.0</h3>
+				<h3>What's New in v2.0.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>👥 Requester Management System</h4>
+					<h4>� Recurring Expense Scheduler</h4>
 					<ul>
-						<li><strong>Smart Dropdown Search:</strong> Real-time search for requesters by ID, name, or contact number with autocomplete</li>
-						<li><strong>Instant Save Functionality:</strong> Add new requesters on-the-fly with one-click save during requisition creation</li>
-						<li><strong>Database Integration:</strong> New requesters table with UUID primary keys and proper indexing for fast searches</li>
-						<li><strong>Auto-Detection:</strong> System detects if entered text is ID or name and pre-fills appropriate fields</li>
-						<li><strong>Visual Feedback:</strong> Clear dropdown interface with contact info display and selection confirmation</li>
+						<li><strong>Automated Occurrence Generation:</strong> System creates all future occurrences immediately for daily, weekly, monthly, and custom schedules</li>
+						<li><strong>Individual Approval Workflow:</strong> Each occurrence requires separate approval before payment with 2-day advance notifications</li>
+						<li><strong>Smart Date Filtering:</strong> Approval center shows only occurrences within 2-day window for timely decision-making</li>
+						<li><strong>Database Functions:</strong> generate_recurring_occurrences() creates all future payments and auto-deletes parent template</li>
+						<li><strong>CO User Auto-Populate:</strong> Automatically assigns creator as CO user for single bill schedules using public.users table</li>
 					</ul>
 				</div>
 				<div class="update-section">
@@ -725,8 +725,8 @@
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 28, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.5.0 - Requester Management & Balance Tracking</p>
-					<p><strong>Focus:</strong> Data Management, Financial Control, User Experience</p>
+					<p><strong>Version:</strong> 2.0.0 - Recurring Expense Scheduler & Approval System</p>
+					<p><strong>Focus:</strong> Automated Scheduling, Smart Notifications, Enhanced Approvals, Mobile Experience</p>
 				</div>
 			</div>
 		</div>

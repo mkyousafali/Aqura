@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { notificationService } from '$lib/utils/notificationManagement';
 
 	// Step management
 	let currentStep = 1;
@@ -37,6 +38,13 @@
 	let dateFilter = 'all'; // 'all', 'today', 'yesterday', 'range'
 	let dateRangeStart = '';
 	let dateRangeEnd = '';
+
+	// Approver data (needed when no approved request is selected)
+	let approvers = [];
+	let filteredApprovers = [];
+	let selectedApproverId = '';
+	let selectedApproverName = '';
+	let approverSearchQuery = '';
 
 	// Reactive balance calculation - use actual remaining balance from database
 	$: balance = selectedRequestRemainingBalance > 0 && amount ? selectedRequestRemainingBalance - parseFloat(amount || 0) : 0;
@@ -107,8 +115,33 @@
 			if (categoriesError) throw categoriesError;
 			categories = categoriesData || [];
 			filteredCategories = categories;
+
+			// Load approvers
+			await loadApprovers();
 		} catch (error) {
 			console.error('Error loading initial data:', error);
+		}
+	}
+
+	async function loadApprovers() {
+		try {
+			const { data, error } = await supabaseAdmin
+				.from('users')
+				.select(`
+					*,
+					hr_employees (
+						name
+					)
+				`)
+				.eq('status', 'active')
+				.eq('can_approve_payments', true)
+				.order('username');
+
+			if (error) throw error;
+			approvers = data || [];
+			filteredApprovers = approvers;
+		} catch (error) {
+			console.error('Error loading approvers:', error);
 		}
 	}
 
@@ -242,6 +275,16 @@
 		filteredUsers = users.filter((user) => user.username?.toLowerCase().includes(query));
 	}
 
+	function handleApproverSearch() {
+		if (!approverSearchQuery.trim()) {
+			filteredApprovers = approvers;
+			return;
+		}
+
+		const query = approverSearchQuery.toLowerCase();
+		filteredApprovers = approvers.filter((user) => user.username?.toLowerCase().includes(query));
+	}
+
 	function selectCategory(category) {
 		selectedCategoryId = category.id;
 		selectedCategoryNameEn = category.name_en;
@@ -270,6 +313,11 @@
 		selectedCoUserName = user.username;
 	}
 
+	function selectApprover(user) {
+		selectedApproverId = user.id;
+		selectedApproverName = user.username;
+	}
+
 	function validateStep1() {
 		if (!selectedBranchId) {
 			alert('Please select a branch');
@@ -293,6 +341,12 @@
 	function validateStep3() {
 		if (!amount || parseFloat(amount) <= 0) {
 			alert('Please enter a valid amount');
+			return false;
+		}
+
+		// Require approver if no approved request is selected
+		if (!selectedRequestId && !selectedApproverId) {
+			alert('Please select an approver (required when no approved request is linked)');
 			return false;
 		}
 
@@ -434,6 +488,24 @@
 		if (!validateStep3()) return;
 
 		try {
+			// Check if a pre-approved requisition is selected
+			const hasApprovedRequisition = !!selectedRequestId;
+
+			if (hasApprovedRequisition) {
+				// Save directly to expense_scheduler
+				await saveToExpenseScheduler();
+			} else {
+				// Save to non_approved_payment_scheduler and send notification
+				await saveToNonApprovedScheduler();
+			}
+		} catch (error) {
+			console.error('Error saving scheduler:', error);
+			alert('Error saving bill schedule. Please try again.');
+		}
+	}
+
+	async function saveToExpenseScheduler() {
+		try {
 			saving = true;
 			successMessage = '';
 
@@ -454,8 +526,8 @@
 				expense_category_id: selectedCategoryId,
 				expense_category_name_en: selectedCategoryNameEn,
 				expense_category_name_ar: selectedCategoryNameAr,
-				requisition_id: selectedRequestId || null,
-				requisition_number: selectedRequestNumber || null,
+				requisition_id: selectedRequestId,
+				requisition_number: selectedRequestNumber,
 				co_user_id: selectedCoUserId,
 				co_user_name: selectedCoUserName,
 				bill_type: billType,
@@ -471,6 +543,7 @@
 				iban: iban || null,
 				status: 'pending',
 				is_paid: false,
+				schedule_type: 'single_bill',
 				created_by: $currentUser.id
 			};
 
@@ -482,15 +555,95 @@
 
 			if (error) throw error;
 
-			successMessage = `Bill scheduled successfully! ID: ${data.id}`;
+			successMessage = `✅ Bill scheduled successfully!\n\nSchedule ID: ${data.id}\nLinked to approved requisition: ${selectedRequestNumber}`;
 			
 			// Reset form after 2 seconds
 			setTimeout(() => {
 				resetForm();
 			}, 2000);
 		} catch (error) {
-			console.error('Error saving scheduler:', error);
-			alert('Error saving bill schedule. Please try again.');
+			console.error('Error saving to expense scheduler:', error);
+			throw error;
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveToNonApprovedScheduler() {
+		try {
+			saving = true;
+			successMessage = '';
+
+			// Upload bill file if applicable
+			let billFileUrl = null;
+			if (billType === 'vat_applicable' || billType === 'no_vat') {
+				billFileUrl = await uploadBillFile();
+			}
+
+			// Get selected method credit days
+			const selectedMethod = paymentMethods.find((m) => m.value === paymentMethod);
+			const creditPeriod = selectedMethod?.creditDays || 0;
+
+			// Prepare data for non-approved scheduler
+			const schedulerData = {
+				schedule_type: 'single_bill',
+				branch_id: parseInt(selectedBranchId),
+				branch_name: selectedBranchName,
+				expense_category_id: selectedCategoryId,
+				expense_category_name_en: selectedCategoryNameEn,
+				expense_category_name_ar: selectedCategoryNameAr,
+				co_user_id: selectedCoUserId,
+				co_user_name: selectedCoUserName,
+				bill_type: billType,
+				bill_number: billNumber || null,
+				bill_date: billDate || null,
+				payment_method: paymentMethod,
+				due_date: dueDate || null,
+				credit_period: creditPeriod ? parseInt(creditPeriod) : creditPeriod,
+				amount: parseFloat(amount),
+				bill_file_url: billFileUrl,
+				description: description || null,
+				bank_name: bankName || null,
+				iban: iban || null,
+				approver_id: selectedApproverId,
+				approver_name: selectedApproverName,
+				approval_status: 'pending',
+				created_by: $currentUser.id
+			};
+
+			const { data, error } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.insert([schedulerData])
+				.select()
+				.single();
+
+			if (error) throw error;
+
+			// Send notification to approver
+			try {
+				await notificationService.createNotification({
+					title: 'Payment Schedule Approval Required',
+					message: `A new single bill payment schedule requires your approval.\n\nBranch: ${selectedBranchName}\nCategory: ${selectedCategoryNameEn}\nC/O User: ${selectedCoUserName}\nAmount: ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nBill Type: ${billType}\nSubmitted by: ${$currentUser?.username}`,
+					type: 'approval_request',
+					priority: 'high',
+					target_type: 'specific_users',
+					target_users: [selectedApproverId]
+				}, $currentUser?.id || $currentUser?.username || 'System');
+				console.log('✅ Notification sent to approver:', selectedApproverName);
+			} catch (notifError) {
+				console.error('⚠️ Failed to send notification:', notifError);
+				// Don't fail the whole operation if notification fails
+			}
+
+			successMessage = `✅ Bill schedule submitted for approval!\n\nSchedule ID: ${data.id}\nApprover: ${selectedApproverName}\n\nThe schedule will be posted to the expense scheduler after approval.`;
+			
+			// Reset form after 2 seconds
+			setTimeout(() => {
+				resetForm();
+			}, 2000);
+		} catch (error) {
+			console.error('Error saving to non-approved scheduler:', error);
+			throw error;
 		} finally {
 			saving = false;
 		}
@@ -510,6 +663,9 @@
 		selectedRequestUsedAmount = 0;
 		selectedCoUserId = '';
 		selectedCoUserName = '';
+		selectedApproverId = '';
+		selectedApproverName = '';
+		approverSearchQuery = '';
 		billType = 'no_bill';
 		billNumber = '';
 		billDate = '';
@@ -1043,6 +1199,76 @@
 					></textarea>
 				</div>
 
+				<!-- Approver Selection (only show if no approved request is selected) -->
+				{#if !selectedRequestId}
+					<div class="form-group approver-section">
+						<label for="approverSearch">Select Approver * (Required for non-approved schedules)</label>
+						<p class="field-hint approval-hint">⚠️ Since no approved request is selected, this schedule will require approval before posting to the expense scheduler.</p>
+						
+						<input
+							id="approverSearch"
+							type="text"
+							class="form-input"
+							placeholder="Search approvers by username..."
+							bind:value={approverSearchQuery}
+							on:input={handleApproverSearch}
+						/>
+
+						{#if selectedApproverId}
+							<div class="selected-info">
+								✓ Selected Approver: <strong>{selectedApproverName}</strong>
+							</div>
+						{/if}
+
+						<div class="selection-table">
+							<table>
+								<thead>
+									<tr>
+										<th>Select</th>
+										<th>Username</th>
+										<th>User Type</th>
+										<th>Branch</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#if filteredApprovers.length > 0}
+										{#each filteredApprovers as approver}
+											<tr
+												class:selected={selectedApproverId === approver.id}
+												on:click={() => selectApprover(approver)}
+											>
+												<td>
+													<input
+														type="radio"
+														name="approver"
+														checked={selectedApproverId === approver.id}
+														on:change={() => selectApprover(approver)}
+													/>
+												</td>
+												<td>{approver.username}</td>
+												<td>
+													<span class="badge">{approver.user_type}</span>
+												</td>
+												<td>
+													{#if approver.user_type === 'global'}
+														<span class="badge-global">Global</span>
+													{:else}
+														{branches.find((b) => b.id === approver.branch_id)?.name_en || '-'}
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									{:else}
+										<tr>
+											<td colspan="4" class="no-data-message">No approvers found</td>
+										</tr>
+									{/if}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Success Message -->
 				{#if successMessage}
 					<div class="success-message">
@@ -1253,6 +1479,25 @@
 		color: #64748b;
 		margin-top: 0.25rem;
 		font-style: italic;
+	}
+
+	.approval-hint {
+		background: #fef3c7;
+		border: 1px solid #f59e0b;
+		color: #92400e;
+		padding: 0.75rem;
+		border-radius: 6px;
+		font-weight: 600;
+		margin-bottom: 0.75rem;
+		font-style: normal;
+	}
+
+	.approver-section {
+		background: #fffbeb;
+		border: 2px solid #fbbf24;
+		padding: 1.5rem;
+		border-radius: 12px;
+		margin-top: 2rem;
 	}
 
 	.file-info {

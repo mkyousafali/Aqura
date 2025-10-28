@@ -170,17 +170,33 @@
 				// If user has approval permission, load pending approvals count
 				if (hasApprovalPermission) {
 					try {
-						const { count, error: approvalError } = await supabaseAdmin
+						// Count pending expense requisitions for this approver
+						const { count: reqCount, error: reqError } = await supabaseAdmin
 							.from('expense_requisitions')
 							.select('*', { count: 'exact', head: true })
+							.eq('approver_id', currentUserData.id)
 							.eq('status', 'pending');
 
-						if (!approvalError && count !== null) {
-							approvalCount = count;
+						// Count pending payment schedules for this approver (within 2 days)
+						const twoDaysFromNow = new Date();
+						twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+						const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+
+						const { count: scheduleCount, error: scheduleError } = await supabaseAdmin
+							.from('non_approved_payment_scheduler')
+							.select('*', { count: 'exact', head: true })
+							.eq('approver_id', currentUserData.id)
+							.eq('approval_status', 'pending')
+							.eq('schedule_type', 'single_bill')
+							.lte('due_date', twoDaysDate);
+
+						if (!reqError && !scheduleError) {
+							approvalCount = (reqCount || 0) + (scheduleCount || 0);
 						} else {
 							approvalCount = 0;
-							if (!silent && approvalError) {
-								console.error('Error loading approval count:', approvalError);
+							if (!silent) {
+								if (reqError) console.error('Error loading requisition count:', reqError);
+								if (scheduleError) console.error('Error loading schedule count:', scheduleError);
 							}
 						}
 					} catch (error) {

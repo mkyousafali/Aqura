@@ -5,6 +5,7 @@
 
 	let loading = true;
 	let requisitions = [];
+	let paymentSchedules = []; // New: payment schedules requiring approval
 	let filteredRequisitions = [];
 	let selectedStatus = 'pending';
 	let selectedRequisition = null;
@@ -56,7 +57,8 @@
 			const { data, error } = await supabaseAdmin
 				.from('expense_requisitions')
 				.select('*')
-				.order('created_at', { ascending: false });
+				.eq('approver_id', $currentUser.id)
+				.order('created_at', { ascending: false});
 
 			if (error) {
 				console.error('❌ Supabase query error:', error);
@@ -91,10 +93,45 @@
 				}
 			}
 
-			// Calculate stats
-			stats.total = requisitions.length;
-			stats.pending = requisitions.filter(r => r.status === 'pending').length;
-			stats.approved = requisitions.filter(r => r.status === 'approved').length;
+			// Also load payment schedules requiring approval
+			// Only show single_bill (not recurring parent) and only within 2 days
+			const twoDaysFromNow = new Date();
+			twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+			const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+			
+			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select('*')
+				.eq('approval_status', 'pending')
+				.eq('approver_id', $currentUser.id)
+				.eq('schedule_type', 'single_bill') // Exclude recurring parent schedules
+				.lte('due_date', twoDaysDate) // Only show occurrences within 2 days
+				.order('due_date', { ascending: true });
+
+			if (schedulesError) {
+				console.error('❌ Error loading payment schedules:', schedulesError);
+			} else {
+				paymentSchedules = schedulesData || [];
+				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+			}
+
+			// Load approved payment schedules from expense_scheduler for stats
+			const { data: approvedSchedulesData, error: approvedSchedulesError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select('id')
+				.or(`approver_id.eq.${$currentUser.id},created_by.eq.${$currentUser.id}`)
+				.not('schedule_type', 'eq', 'recurring'); // Exclude parent recurring schedules
+
+			let approvedSchedulesCount = 0;
+			if (!approvedSchedulesError && approvedSchedulesData) {
+				approvedSchedulesCount = approvedSchedulesData.length;
+				console.log('✅ Approved payment schedules count:', approvedSchedulesCount);
+			}
+
+			// Calculate stats (include both requisitions and payment schedules)
+			stats.total = requisitions.length + paymentSchedules.length;
+			stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length; // All payment schedules are pending
+			stats.approved = requisitions.filter(r => r.status === 'approved').length + approvedSchedulesCount;
 			stats.rejected = requisitions.filter(r => r.status === 'rejected').length;
 
 			filterRequisitions();
@@ -107,11 +144,25 @@
 	}
 
 	function filterRequisitions() {
-		if (selectedStatus === 'all') {
-			filteredRequisitions = requisitions;
-		} else {
-			filteredRequisitions = requisitions.filter(r => r.status === selectedStatus);
+		let filtered = requisitions;
+		let filteredSchedules = [];
+
+		// Filter requisitions by status
+		if (selectedStatus !== 'all') {
+			filtered = filtered.filter(r => r.status === selectedStatus);
 		}
+
+		// Filter payment schedules - they should show up in "pending" status
+		if (selectedStatus === 'pending' || selectedStatus === 'all') {
+			filteredSchedules = paymentSchedules;
+		}
+
+		// Combine filtered requisitions and payment schedules
+		// Mark each item with its type for display purposes
+		filteredRequisitions = [
+			...filtered.map(r => ({ ...r, item_type: 'requisition' })),
+			...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+		];
 	}
 
 	function filterByStatus(status) {
@@ -132,24 +183,79 @@
 	async function approveRequisition() {
 		if (!selectedRequisition || isProcessing) return;
 
+		if (!confirm('Are you sure you want to approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition') + '?')) return;
+
 		try {
 			isProcessing = true;
-		const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabaseAdmin } = await import('$lib/utils/supabase');
 
-		const { error } = await supabaseAdmin
-			.from('expense_requisitions')
-			.update({
-				status: 'approved',
-				updated_at: new Date().toISOString()
-			})
-			.eq('id', selectedRequisition.id);
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Get the full payment schedule data
+				const { data: scheduleData, error: fetchError } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.select('*')
+					.eq('id', selectedRequisition.id)
+					.single();
 
-		if (error) throw error;			alert('✅ Requisition approved successfully!');
+				if (fetchError) throw fetchError;
+
+				// Move to expense_scheduler
+				const { error: insertError } = await supabaseAdmin
+					.from('expense_scheduler')
+					.insert([{
+						schedule_type: scheduleData.schedule_type,
+						branch_id: scheduleData.branch_id,
+						branch_name: scheduleData.branch_name,
+						expense_category_id: scheduleData.expense_category_id,
+						expense_category_name_en: scheduleData.expense_category_name_en,
+						expense_category_name_ar: scheduleData.expense_category_name_ar,
+						requisition_id: null,
+						requisition_number: null,
+						co_user_id: scheduleData.co_user_id,
+						co_user_name: scheduleData.co_user_name,
+						payment_method: scheduleData.payment_method,
+						amount: scheduleData.amount,
+						description: scheduleData.description,
+						bill_type: scheduleData.bill_type,
+						due_date: scheduleData.due_date,
+						status: 'pending',
+						is_paid: false,
+						recurring_type: scheduleData.recurring_type,
+						recurring_metadata: scheduleData.recurring_metadata,
+						created_by: scheduleData.created_by
+					}]);
+
+				if (insertError) throw insertError;
+
+				// Delete from non_approved_payment_scheduler
+				const { error: deleteError } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.delete()
+					.eq('id', selectedRequisition.id);
+
+				if (deleteError) throw deleteError;
+
+				alert('✅ Payment schedule approved and moved to expense scheduler!');
+			} else {
+				// Update regular requisition
+				const { error } = await supabaseAdmin
+					.from('expense_requisitions')
+					.update({
+						status: 'approved',
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', selectedRequisition.id);
+
+				if (error) throw error;
+				alert('✅ Requisition approved successfully!');
+			}
+
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
-			console.error('Error approving requisition:', err);
-			alert('Error approving requisition: ' + err.message);
+			console.error('Error approving:', err);
+			alert('Error approving: ' + err.message);
 		} finally {
 			isProcessing = false;
 		}
@@ -163,25 +269,43 @@
 
 		try {
 			isProcessing = true;
-		const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabaseAdmin } = await import('$lib/utils/supabase');
 
-		const { error } = await supabaseAdmin
-			.from('expense_requisitions')
-			.update({
-				status: 'rejected',
-				updated_at: new Date().toISOString(),
-				description: selectedRequisition.description 
-					? `${selectedRequisition.description}\n\nRejection Reason: ${reason}`
-					: `Rejection Reason: ${reason}`
-			})
-			.eq('id', selectedRequisition.id);
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Update payment schedule
+				const { error } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.update({
+						approval_status: 'rejected',
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', selectedRequisition.id);
 
-		if (error) throw error;			alert('❌ Requisition rejected.');
+				if (error) throw error;
+				alert('❌ Payment schedule rejected.');
+			} else {
+				// Update regular requisition
+				const { error } = await supabaseAdmin
+					.from('expense_requisitions')
+					.update({
+						status: 'rejected',
+						updated_at: new Date().toISOString(),
+						description: selectedRequisition.description 
+							? `${selectedRequisition.description}\n\nRejection Reason: ${reason}`
+							: `Rejection Reason: ${reason}`
+					})
+					.eq('id', selectedRequisition.id);
+
+				if (error) throw error;
+				alert('❌ Requisition rejected.');
+			}
+
 			closeDetail();
 			await loadRequisitions();
 		} catch (err) {
-			console.error('Error rejecting requisition:', err);
-			alert('Error rejecting requisition: ' + err.message);
+			console.error('Error rejecting:', err);
+			alert('Error rejecting: ' + err.message);
 		} finally {
 			isProcessing = false;
 		}
@@ -278,28 +402,69 @@
 			{:else}
 				{#each filteredRequisitions as req}
 					<div class="req-card" on:click={() => openDetail(req)}>
-						<div class="req-header">
-							<div class="req-number">{req.requisition_number}</div>
-							<div class="status-badge status-{req.status}">{req.status}</div>
-						</div>
-						<div class="req-info">
-							<div class="info-row">
-								<span class="label">Branch:</span>
-								<span class="value">{req.branch_name}</span>
+						{#if req.item_type === 'requisition'}
+							<!-- Expense Requisition Card -->
+							<div class="req-header">
+								<div class="req-number">{req.requisition_number}</div>
+								<div class="status-badge status-{req.status}">{req.status}</div>
 							</div>
-							<div class="info-row">
-								<span class="label">Generated by:</span>
-								<span class="value">👤 {req.created_by_username}</span>
+							<div class="req-info">
+								<div class="info-row">
+									<span class="label">Branch:</span>
+									<span class="value">{req.branch_name}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Generated by:</span>
+									<span class="value">👤 {req.created_by_username}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Amount:</span>
+									<span class="value amount">SAR {formatAmount(req.amount)}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Due Date:</span>
+									<span class="value">{req.due_date ? formatDate(req.due_date) : '-'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Date:</span>
+									<span class="value">{formatDate(req.created_at)}</span>
+								</div>
 							</div>
-							<div class="info-row">
-								<span class="label">Amount:</span>
-								<span class="value amount">SAR {formatAmount(req.requisition_amount)}</span>
+						{:else if req.item_type === 'payment_schedule'}
+							<!-- Payment Schedule Card -->
+							<div class="req-header">
+								<div class="req-number">
+									<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
+								</div>
+								<div class="status-badge status-pending">PENDING APPROVAL</div>
 							</div>
-							<div class="info-row">
-								<span class="label">Date:</span>
-								<span class="value">{formatDate(req.created_at)}</span>
+							<div class="req-info">
+								<div class="info-row">
+									<span class="label">Branch:</span>
+									<span class="value">{req.branch_name}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Category:</span>
+									<span class="value">{req.expense_category_name_en}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">C/O User:</span>
+									<span class="value">👤 {req.co_user_name || 'System'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Amount:</span>
+									<span class="value amount">SAR {formatAmount(req.amount)}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Due Date:</span>
+									<span class="value due-date">{req.due_date ? formatDate(req.due_date) : '-'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Date:</span>
+									<span class="value">{formatDate(req.created_at)}</span>
+								</div>
 							</div>
-						</div>
+						{/if}
 					</div>
 				{/each}
 			{/if}
@@ -317,52 +482,123 @@
 			</div>
 
 			<div class="modal-body">
-				<div class="detail-section">
-					<div class="detail-item">
-						<span class="label">Requisition #:</span>
-						<span class="value">{selectedRequisition.requisition_number}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Branch:</span>
-						<span class="value">{selectedRequisition.branch_name}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Generated by:</span>
-						<span class="value">{selectedRequisition.created_by_username}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Requester:</span>
-						<span class="value">{selectedRequisition.requester_name}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Category:</span>
-						<span class="value">{selectedRequisition.expense_category_name_en}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Amount:</span>
-						<span class="value amount-large">SAR {formatAmount(selectedRequisition.requisition_amount)}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Payment Type:</span>
-						<span class="value">{selectedRequisition.payment_type}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Status:</span>
-						<span class="status-badge status-{selectedRequisition.status}">{selectedRequisition.status}</span>
-					</div>
-					<div class="detail-item">
-						<span class="label">Date:</span>
-						<span class="value">{formatDate(selectedRequisition.created_at)}</span>
-					</div>
-					{#if selectedRequisition.description}
-						<div class="detail-item full-width">
-							<span class="label">Description:</span>
-							<span class="value">{selectedRequisition.description}</span>
+				{#if selectedRequisition.item_type === 'requisition'}
+					<!-- Requisition Details -->
+					<div class="detail-section">
+						<div class="detail-item">
+							<span class="label">Requisition #:</span>
+							<span class="value">{selectedRequisition.requisition_number}</span>
 						</div>
-					{/if}
-				</div>
+						<div class="detail-item">
+							<span class="label">Branch:</span>
+							<span class="value">{selectedRequisition.branch_name}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Generated by:</span>
+							<span class="value">{selectedRequisition.created_by_username}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Requester:</span>
+							<span class="value">{selectedRequisition.requester_name}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Category:</span>
+							<span class="value">{selectedRequisition.expense_category_name_en}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Amount:</span>
+							<span class="value amount-large">SAR {formatAmount(selectedRequisition.amount)}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Payment Type:</span>
+							<span class="value">{selectedRequisition.payment_type}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Status:</span>
+							<span class="status-badge status-{selectedRequisition.status}">{selectedRequisition.status}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Date:</span>
+							<span class="value">{formatDate(selectedRequisition.created_at)}</span>
+						</div>
+						{#if selectedRequisition.description}
+							<div class="detail-item full-width">
+								<span class="label">Description:</span>
+								<span class="value">{selectedRequisition.description}</span>
+							</div>
+						{/if}
+					</div>
+				{:else if selectedRequisition.item_type === 'payment_schedule'}
+					<!-- Payment Schedule Details -->
+					<div class="detail-section">
+						<div class="detail-item">
+							<span class="label">Schedule Type:</span>
+							<span class="value">
+								<span class="schedule-badge">📅 {selectedRequisition.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
+							</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Branch:</span>
+							<span class="value">{selectedRequisition.branch_name}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Category:</span>
+							<span class="value">{selectedRequisition.expense_category_name_en}</span>
+						</div>
+						{#if selectedRequisition.co_user_name}
+							<div class="detail-item">
+								<span class="label">C/O User:</span>
+								<span class="value">👤 {selectedRequisition.co_user_name}</span>
+							</div>
+						{/if}
+						<div class="detail-item">
+							<span class="label">Approver:</span>
+							<span class="value">{selectedRequisition.approver_name}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Amount:</span>
+							<span class="value amount-large">SAR {formatAmount(selectedRequisition.amount)}</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Payment Method:</span>
+							<span class="value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</span>
+						</div>
+						{#if selectedRequisition.bill_type}
+							<div class="detail-item">
+								<span class="label">Bill Type:</span>
+								<span class="value">{selectedRequisition.bill_type.replace(/_/g, ' ')}</span>
+							</div>
+						{/if}
+						{#if selectedRequisition.bill_number}
+							<div class="detail-item">
+								<span class="label">Bill Number:</span>
+								<span class="value">{selectedRequisition.bill_number}</span>
+							</div>
+						{/if}
+						{#if selectedRequisition.due_date}
+							<div class="detail-item">
+								<span class="label">Due Date:</span>
+								<span class="value">{formatDate(selectedRequisition.due_date)}</span>
+							</div>
+						{/if}
+						<div class="detail-item">
+							<span class="label">Status:</span>
+							<span class="status-badge status-pending">PENDING APPROVAL</span>
+						</div>
+						<div class="detail-item">
+							<span class="label">Date:</span>
+							<span class="value">{formatDate(selectedRequisition.created_at)}</span>
+						</div>
+						{#if selectedRequisition.description}
+							<div class="detail-item full-width">
+								<span class="label">Description:</span>
+								<span class="value">{selectedRequisition.description}</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
-				{#if selectedRequisition.status === 'pending'}
+				{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
 					{#if !userCanApprove}
 						<div class="permission-notice">
 							ℹ️ You do not have permission to approve or reject requisitions.
@@ -374,7 +610,7 @@
 							class="btn-approve" 
 							on:click={approveRequisition} 
 							disabled={isProcessing || !userCanApprove}
-							title={!userCanApprove ? 'You need approval permissions' : 'Approve this requisition'}
+							title={!userCanApprove ? 'You need approval permissions' : 'Approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
 						>
 							✅ Approve
 						</button>
@@ -382,10 +618,14 @@
 							class="btn-reject" 
 							on:click={rejectRequisition} 
 							disabled={isProcessing || !userCanApprove}
-							title={!userCanApprove ? 'You need approval permissions' : 'Reject this requisition'}
+							title={!userCanApprove ? 'You need approval permissions' : 'Reject this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
 						>
 							❌ Reject
 						</button>
+					</div>
+				{:else}
+					<div class="status-info">
+						This {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
 				{/if}
 			</div>
@@ -543,6 +783,17 @@
 		border-radius: 12px;
 		font-size: 0.75rem;
 		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.schedule-badge {
+		display: inline-block;
+		padding: 0.35rem 0.75rem;
+		background: #ede9fe;
+		color: #5b21b6;
+		border-radius: 8px;
+		font-size: 0.65rem;
+		font-weight: 700;
 		text-transform: uppercase;
 	}
 
@@ -769,5 +1020,16 @@
 	.btn-reject:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.status-info {
+		padding: 1rem;
+		background: #F3F4F6;
+		border-radius: 12px;
+		text-align: center;
+		color: #6B7280;
+		font-weight: 600;
+		margin-top: 1rem;
+		border-top: 1px solid #E5E7EB;
 	}
 </style>
