@@ -28,6 +28,8 @@
 	let selectedRequestId = '';
 	let selectedRequestNumber = '';
 	let selectedRequestAmount = 0;
+	let selectedRequestRemainingBalance = 0;
+	let selectedRequestUsedAmount = 0;
 	let selectedCoUserId = '';
 	let selectedCoUserName = '';
 	let requestSearchQuery = '';
@@ -59,9 +61,9 @@
 		{ value: 'stock_purchase_bank', label: 'Stock Purchase Bank - شراء مخزون بنكي', creditDays: 0 }
 	];
 
-	// Reactive total calculation
+	// Reactive total calculation - use actual remaining balance from database
 	$: totalAmount = bills.reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
-	$: remainingBalance = selectedRequestAmount > 0 ? selectedRequestAmount - totalAmount : 0;
+	$: remainingBalance = selectedRequestRemainingBalance > 0 ? selectedRequestRemainingBalance - totalAmount : 0;
 
 	onMount(async () => {
 		await loadInitialData();
@@ -105,7 +107,7 @@
 		try {
 			const { data, error } = await supabaseAdmin
 				.from('expense_requisitions')
-				.select('*')
+				.select('*, used_amount, remaining_balance')
 				.eq('branch_id', selectedBranchId)
 				.eq('status', 'approved')
 				.order('created_at', { ascending: false });
@@ -218,12 +220,17 @@
 		selectedRequestId = request.id;
 		selectedRequestNumber = request.requisition_number;
 		selectedRequestAmount = parseFloat(request.amount || 0);
+		// Also track actual remaining balance from database
+		selectedRequestRemainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
+		selectedRequestUsedAmount = parseFloat(request.used_amount || 0);
 	}
 
 	function clearRequestSelection() {
 		selectedRequestId = '';
 		selectedRequestNumber = '';
 		selectedRequestAmount = 0;
+		selectedRequestRemainingBalance = 0;
+		selectedRequestUsedAmount = 0;
 	}
 
 	function selectUser(user) {
@@ -249,6 +256,38 @@
 			return false;
 		}
 		return true;
+	}
+
+	function validateBillAmount(billAmount) {
+		if (!billAmount || parseFloat(billAmount) <= 0) {
+			return { valid: false, message: 'Please enter a valid amount' };
+		}
+
+		// Validate against remaining balance if request is selected
+		if (selectedRequestId && selectedRequestRemainingBalance > 0) {
+			const currentTotalWithoutThisBill = bills.reduce((sum, bill, index) => {
+				// Exclude the current bill from total calculation
+				if (bill.amount && index !== activeBillIndex) {
+					return sum + parseFloat(bill.amount);
+				}
+				return sum;
+			}, 0);
+
+			const newTotal = currentTotalWithoutThisBill + parseFloat(billAmount);
+			const wouldExceedBalance = newTotal > selectedRequestRemainingBalance;
+
+			if (wouldExceedBalance) {
+				const overspend = newTotal - selectedRequestRemainingBalance;
+				const confirmed = window.confirm(
+					`⚠️ Warning: Total bill amount (${newTotal.toFixed(2)} SAR) exceeds remaining balance (${selectedRequestRemainingBalance.toFixed(2)} SAR).\n\n` +
+					`This will result in overspending by ${overspend.toFixed(2)} SAR.\n\n` +
+					`Do you want to proceed anyway?`
+				);
+				return { valid: confirmed, message: confirmed ? '' : 'Operation cancelled by user' };
+			}
+		}
+
+		return { valid: true, message: '' };
 	}
 
 	function nextStep() {
@@ -364,8 +403,10 @@
 	async function saveBill(billIndex) {
 		const bill = bills[billIndex];
 
-		if (!bill.amount || parseFloat(bill.amount) <= 0) {
-			alert('Please enter a valid amount');
+		// Validate bill amount including overspending check
+		const validation = validateBillAmount(bill.amount);
+		if (!validation.valid) {
+			if (validation.message) alert(validation.message);
 			return;
 		}
 
@@ -631,7 +672,8 @@
 								<th>Request Number</th>
 								<th>Requester</th>
 								<th>Approver</th>
-								<th>Amount</th>
+								<th>Original Amount</th>
+								<th>Remaining Balance</th>
 								<th>Generated Date</th>
 							</tr>
 						</thead>
@@ -653,6 +695,13 @@
 									<td>{request.requester_name || 'N/A'}</td>
 									<td>{request.approver_name || 'N/A'}</td>
 									<td>{request.amount} SAR</td>
+									<td>
+										<span class:text-success={parseFloat(request.remaining_balance || request.amount) > 0}
+											  class:text-warning={parseFloat(request.remaining_balance || request.amount) === 0}
+											  class:text-danger={parseFloat(request.remaining_balance || request.amount) < 0}>
+											{parseFloat(request.remaining_balance || request.amount).toFixed(2)} SAR
+										</span>
+									</td>
 									<td>{formatDate(request.generated_date)}</td>
 								</tr>
 							{/each}
@@ -1580,5 +1629,21 @@
 		background: white;
 		border-radius: 8px;
 		border: 1px solid #e2e8f0;
+	}
+
+	/* Balance status colors */
+	.text-success {
+		color: #16a34a;
+		font-weight: 600;
+	}
+
+	.text-warning {
+		color: #d97706;
+		font-weight: 600;
+	}
+
+	.text-danger {
+		color: #dc2626;
+		font-weight: 600;
 	}
 </style>

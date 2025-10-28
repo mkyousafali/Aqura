@@ -584,7 +584,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v1.4.1
+				v1.5.0
 			</button>
 		</div>
 	</div>
@@ -678,28 +678,28 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v1.4.1</h3>
+				<h3>What's New in v1.5.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🎯 Payment Priority System</h4>
+					<h4>👥 Requester Management System</h4>
 					<ul>
-						<li><strong>4-Level Priority System:</strong> Implemented comprehensive priority levels (Most, Medium, Normal, Low) for vendor payments</li>
-						<li><strong>Color-Coded Priorities:</strong> Visual priority badges with distinct colors (Red for Most, Orange for Medium, Blue for Normal, Gray for Low)</li>
-						<li><strong>Priority-Based Sorting:</strong> Overdue payments now sort by priority first, then due date for better payment planning</li>
-						<li><strong>Database Integration:</strong> Added payment_priority column to vendors table with proper constraints and indexing</li>
-						<li><strong>Cross-Component Support:</strong> Priority system integrated across all 5 vendor management components</li>
+						<li><strong>Smart Dropdown Search:</strong> Real-time search for requesters by ID, name, or contact number with autocomplete</li>
+						<li><strong>Instant Save Functionality:</strong> Add new requesters on-the-fly with one-click save during requisition creation</li>
+						<li><strong>Database Integration:</strong> New requesters table with UUID primary keys and proper indexing for fast searches</li>
+						<li><strong>Auto-Detection:</strong> System detects if entered text is ID or name and pre-fills appropriate fields</li>
+						<li><strong>Visual Feedback:</strong> Clear dropdown interface with contact info display and selection confirmation</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📊 Table Display Enhancements</h4>
+					<h4>� Balance Tracking System</h4>
 					<ul>
-						<li><strong>HTML Table Structure:</strong> Converted from CSS Grid to native HTML tables for guaranteed column alignment</li>
-						<li><strong>16-Column Support:</strong> Perfect alignment for all payment data columns including new priority column</li>
-						<li><strong>Distinct Column Colors:</strong> Each of the 16 columns has unique light background color for easy data tracking</li>
-						<li><strong>Enhanced Readability:</strong> Light color scheme with subtle row alternation and hover effects</li>
-						<li><strong>Professional Appearance:</strong> Clean, modern table design with proper borders and spacing</li>
+						<li><strong>Real-Time Balance Updates:</strong> Database triggers automatically track used amounts and remaining balances</li>
+						<li><strong>Overspend Protection:</strong> Validation prevents bills from exceeding available request balance with user confirmation</li>
+						<li><strong>Balance Display:</strong> Request tables now show both original amount and remaining balance with color coding</li>
+						<li><strong>Multi-Bill Validation:</strong> Complex validation for multiple bill scheduling with aggregate amount checking</li>
+						<li><strong>Enhanced UI Feedback:</strong> Color-coded balance indicators (green for available, orange for zero, red for overspent)</li>
 					</ul>
 				</div>
 				<div class="update-section">
@@ -713,20 +713,20 @@
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎨 UI/UX Improvements</h4>
+					<h4>� User Experience Improvements</h4>
 					<ul>
-						<li><strong>Visual Data Tracking:</strong> Color-coded columns make it easy to follow data vertically</li>
-						<li><strong>Interactive Hover Effects:</strong> Blue highlight with subtle shadow for better user feedback</li>
-						<li><strong>Semantic Color Coding:</strong> Colors match content type (green for money, blue for vendors, etc.)</li>
-						<li><strong>Drag-Drop Removal:</strong> Simplified interface by removing drag-drop while keeping reschedule buttons</li>
-						<li><strong>Clean Other Payments Section:</strong> Improved placeholder with feature preview list</li>
+						<li><strong>Intelligent Form Flow:</strong> Request Generator now guides users through requester selection seamlessly</li>
+						<li><strong>Error Prevention:</strong> Comprehensive validation prevents duplicate requesters and constraint violations</li>
+						<li><strong>Financial Transparency:</strong> Users can see exactly how much budget remains for each request</li>
+						<li><strong>One-Click Operations:</strong> Save new requesters and select them in a single action</li>
+						<li><strong>Professional Interface:</strong> Clean dropdown design with proper hover effects and visual hierarchy</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> October 28, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 1.4.1 - Payment Priority System & Table Enhancements</p>
-					<p><strong>Focus:</strong> Payment Prioritization, Visual Data Organization, Table Alignment</p>
+					<p><strong>Version:</strong> 1.5.0 - Requester Management & Balance Tracking</p>
+					<p><strong>Focus:</strong> Data Management, Financial Control, User Experience</p>
 				</div>
 			</div>
 		</div>

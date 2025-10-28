@@ -28,6 +28,8 @@
 	let selectedRequestId = '';
 	let selectedRequestNumber = '';
 	let selectedRequestAmount = 0;
+	let selectedRequestRemainingBalance = 0;
+	let selectedRequestUsedAmount = 0;
 	let selectedCoUserId = '';
 	let selectedCoUserName = '';
 	let requestSearchQuery = '';
@@ -36,8 +38,8 @@
 	let dateRangeStart = '';
 	let dateRangeEnd = '';
 
-	// Reactive balance calculation
-	$: balance = selectedRequestAmount > 0 && amount ? selectedRequestAmount - parseFloat(amount || 0) : 0;
+	// Reactive balance calculation - use actual remaining balance from database
+	$: balance = selectedRequestRemainingBalance > 0 && amount ? selectedRequestRemainingBalance - parseFloat(amount || 0) : 0;
 
 	// Step 3 data
 	let billType = 'no_bill'; // 'vat_applicable', 'no_vat', 'no_bill'
@@ -116,7 +118,7 @@
 		try {
 			const { data, error } = await supabaseAdmin
 				.from('expense_requisitions')
-				.select('*')
+				.select('*, used_amount, remaining_balance')
 				.eq('branch_id', selectedBranchId)
 				.eq('status', 'approved')
 				.order('created_at', { ascending: false });
@@ -243,12 +245,17 @@
 		selectedRequestId = request.id;
 		selectedRequestNumber = request.requisition_number;
 		selectedRequestAmount = parseFloat(request.amount || 0);
+		// Also track actual remaining balance from database
+		selectedRequestRemainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
+		selectedRequestUsedAmount = parseFloat(request.used_amount || 0);
 	}
 
 	function clearRequestSelection() {
 		selectedRequestId = '';
 		selectedRequestNumber = '';
 		selectedRequestAmount = 0;
+		selectedRequestRemainingBalance = 0;
+		selectedRequestUsedAmount = 0;
 	}
 
 	function selectUser(user) {
@@ -280,6 +287,21 @@
 		if (!amount || parseFloat(amount) <= 0) {
 			alert('Please enter a valid amount');
 			return false;
+		}
+
+		// Validate against remaining balance if request is selected
+		if (selectedRequestId && selectedRequestRemainingBalance > 0) {
+			const billAmount = parseFloat(amount);
+			if (billAmount > selectedRequestRemainingBalance) {
+				const confirm = window.confirm(
+					`⚠️ Warning: Bill amount (${billAmount.toFixed(2)} SAR) exceeds remaining balance (${selectedRequestRemainingBalance.toFixed(2)} SAR).\n\n` +
+					`This will result in overspending by ${(billAmount - selectedRequestRemainingBalance).toFixed(2)} SAR.\n\n` +
+					`Do you want to proceed anyway?`
+				);
+				if (!confirm) {
+					return false;
+				}
+			}
 		}
 
 		if (billType === 'vat_applicable' || billType === 'no_vat') {
@@ -470,6 +492,8 @@
 		selectedRequestId = '';
 		selectedRequestNumber = '';
 		selectedRequestAmount = 0;
+		selectedRequestRemainingBalance = 0;
+		selectedRequestUsedAmount = 0;
 		selectedCoUserId = '';
 		selectedCoUserName = '';
 		billType = 'no_bill';
@@ -707,7 +731,8 @@
 									<th>Request Number</th>
 									<th>Requester</th>
 									<th>Approver</th>
-									<th>Amount</th>
+									<th>Original Amount</th>
+									<th>Remaining Balance</th>
 									<th>Category</th>
 									<th>Generated Date</th>
 								</tr>
@@ -731,13 +756,20 @@
 											<td>{request.requester_name}</td>
 											<td>{request.approver_name || '-'}</td>
 											<td>{request.amount} SAR</td>
+											<td>
+												<span class:text-success={parseFloat(request.remaining_balance || request.amount) > 0}
+													  class:text-warning={parseFloat(request.remaining_balance || request.amount) === 0}
+													  class:text-danger={parseFloat(request.remaining_balance || request.amount) < 0}>
+													{parseFloat(request.remaining_balance || request.amount).toFixed(2)} SAR
+												</span>
+											</td>
 											<td>{request.expense_category_name_en}</td>
 											<td class="date-cell">{formatDateTime(request.created_at)}</td>
 										</tr>
 									{/each}
 								{:else}
 									<tr>
-										<td colspan="7" class="no-data-message">
+										<td colspan="8" class="no-data-message">
 											{#if dateFilter !== 'all'}
 												No approved requests found for the selected date filter
 											{:else}
@@ -951,21 +983,37 @@
 					<div class="request-amount-info">
 						<div class="info-card">
 							<div class="info-row">
-								<span class="info-label">Request Amount:</span>
+								<span class="info-label">Original Request Amount:</span>
 								<span class="info-value">{selectedRequestAmount.toFixed(2)} SAR</span>
 							</div>
 							<div class="info-row">
-								<span class="info-label">Entering Amount:</span>
+								<span class="info-label">Already Used:</span>
+								<span class="info-value used-amount">{selectedRequestUsedAmount.toFixed(2)} SAR</span>
+							</div>
+							<div class="info-row">
+								<span class="info-label">Available Balance:</span>
+								<span class="info-value available-balance">{selectedRequestRemainingBalance.toFixed(2)} SAR</span>
+							</div>
+							<div class="info-row">
+								<span class="info-label">This Bill Amount:</span>
 								<span class="info-value">{amount ? parseFloat(amount).toFixed(2) : '0.00'} SAR</span>
 							</div>
 							<div class="info-row balance-row">
-								<span class="info-label">Balance:</span>
-								<span class="info-value" class:negative={balance < 0} class:positive={balance > 0}>
+								<span class="info-label">Balance After This Bill:</span>
+								<span class="info-value" class:negative={balance < 0} class:positive={balance >= 0} class:warning={balance < 0}>
 									{balance.toFixed(2)} SAR
+									{#if balance < 0}
+										<span class="overspend-warning">⚠️ Overspending</span>
+									{/if}
 								</span>
 							</div>
 						</div>
-						<p class="info-note">* This information is for reference purposes only</p>
+						<p class="info-note">
+							* Balance tracking is now connected to the database and updates automatically
+							{#if balance < 0}
+								<br><strong>⚠️ Warning:</strong> This bill will exceed the approved request amount
+							{/if}
+						</p>
 					</div>
 				{/if}
 
@@ -1480,6 +1528,33 @@
 		font-size: 1.1rem;
 	}
 
+	.info-row.balance-row .info-value.warning {
+		background: linear-gradient(135deg, #fecaca 0%, #f87171 100%);
+		border: 2px solid #ef4444;
+		color: #dc2626;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.info-value.used-amount {
+		color: #dc2626;
+		font-weight: 600;
+	}
+
+	.info-value.available-balance {
+		color: #059669;
+		font-weight: 600;
+	}
+
+	.overspend-warning {
+		font-size: 0.8rem;
+		background: #fee2e2;
+		color: #dc2626;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		margin-left: 0.5rem;
+	}
+
 	.info-label {
 		color: #475569;
 		font-weight: 600;
@@ -1505,5 +1580,21 @@
 		font-size: 0.875rem;
 		font-style: italic;
 		text-align: center;
+	}
+
+	/* Balance status colors */
+	.text-success {
+		color: #16a34a;
+		font-weight: 600;
+	}
+
+	.text-warning {
+		color: #d97706;
+		font-weight: 600;
+	}
+
+	.text-danger {
+		color: #dc2626;
+		font-weight: 600;
 	}
 </style>
