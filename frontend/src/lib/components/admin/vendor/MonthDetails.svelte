@@ -1,16 +1,22 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// Helper function to format date as dd/mm/yyyy
 	function formatDate(dateInput) {
 		if (!dateInput) return 'N/A';
-		const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-		const day = String(date.getDate()).padStart(2, '0');
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const year = date.getFullYear();
-		return `${day}/${month}/${year}`;
+		try {
+			const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+			// Check if date is valid
+			if (isNaN(date.getTime())) return 'N/A';
+			const day = String(date.getDate()).padStart(2, '0');
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const year = date.getFullYear();
+			return `${day}/${month}/${year}`;
+		} catch (error) {
+			return 'N/A';
+		}
 	}
 
 	// Props passed from parent
@@ -19,6 +25,7 @@
 	// Component state
 	let monthDetailData = [];
 	let scheduledPayments = [];
+	let expenseSchedulerPayments = []; // For expense scheduler payments
 	
 	// Filter state
 	let filterBranch = '';
@@ -39,12 +46,19 @@
 	let showPaymentMethodModal = false;
 	let editingPayment = null;
 
+	// Expense scheduler state
+	let showExpenseRescheduleModal = false;
+	let reschedulingExpensePayment = null;
+	let expenseNewDateInput = '';
+	let expenseSplitAmount = 0;
+
 	// Initialize component
 	onMount(async () => {
 		if (monthData) {
 			await loadBranches();
 			await loadPaymentMethods();
 			await loadScheduledPayments();
+			await loadExpenseSchedulerPayments();
 			generateAllDaysOfMonth(monthData);
 		}
 	});
@@ -52,6 +66,16 @@
 	// Reactive statement to regenerate data when scheduledPayments change
 	$: if (scheduledPayments.length >= 0 && monthData) {
 		generateAllDaysOfMonth(monthData);
+	}
+
+	// Reactive statement to regenerate data when expense scheduler payments change
+	$: if (expenseSchedulerPayments.length >= 0 && monthData) {
+		generateAllDaysOfMonth(monthData);
+	}
+
+	// Reload expense scheduler when month changes
+	$: if (monthData && (monthData.month !== undefined || monthData.year !== undefined)) {
+		loadExpenseSchedulerPayments();
 	}
 
 	// Reactive statement to filter payments when filter changes
@@ -129,8 +153,52 @@
 		console.log('Month totals:', { totalScheduled, totalPaid, totalUnpaid, monthTotal: monthData?.total });
 	}
 
+	// Calculate expense scheduler totals for the current month
+	$: {
+		let expenseScheduled = 0;
+		let expensePaid = 0;
+		let expenseUnpaid = 0;
+
+		console.log('Calculating expense totals from:', expenseSchedulerPayments);
+
+		if (expenseSchedulerPayments && expenseSchedulerPayments.length > 0) {
+			expenseSchedulerPayments.forEach(payment => {
+				const amount = payment.amount || 0;
+				console.log('Processing expense payment:', { 
+					id: payment.id, 
+					amount, 
+					is_paid: payment.is_paid,
+					due_date: payment.due_date 
+				});
+				
+				expenseScheduled += amount;
+				
+				if (payment.is_paid === true) {
+					expensePaid += amount;
+				} else {
+					expenseUnpaid += amount;
+				}
+			});
+		}
+
+		totalExpensesScheduled = expenseScheduled;
+		totalExpensesPaid = expensePaid;
+		totalExpensesUnpaid = expenseUnpaid;
+		
+		console.log('Expense totals calculated:', { 
+			totalExpensesScheduled, 
+			totalExpensesPaid, 
+			totalExpensesUnpaid 
+		});
+	}
+
 	let totalPaidAmount = 0;
 	let totalUnpaidAmount = 0;
+	
+	// Expense scheduler totals
+	let totalExpensesScheduled = 0;
+	let totalExpensesPaid = 0;
+	let totalExpensesUnpaid = 0;
 
 	// Load all branches from database
 	async function loadBranches() {
@@ -255,6 +323,228 @@
 		}
 	}
 
+	// Load expense scheduler payments for the current month
+	async function loadExpenseSchedulerPayments() {
+		try {
+			// First, let's test if we can get ANY data from expense_scheduler using ADMIN
+			const { data: testData, error: testError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select('*')
+				.limit(10);
+			
+			console.log('🧪 TEST WITH ADMIN: All expense_scheduler data (first 10):', testData, 'Error:', testError);
+			
+			if (!monthData || monthData.month === undefined || monthData.year === undefined) {
+				console.warn('⚠️ monthData not ready:', monthData);
+				return;
+			}
+			
+			const startDate = new Date(monthData.year, monthData.month, 1);
+			const endDate = new Date(monthData.year, monthData.month + 1, 0);
+			
+			console.log('Loading expense scheduler for:', { 
+				startDate: startDate.toISOString().split('T')[0], 
+				endDate: endDate.toISOString().split('T')[0],
+				month: monthData.month,
+				year: monthData.year
+			});
+			
+			const { data, error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select(`
+					*,
+					creator:users!created_by (
+						username
+					)
+				`)
+				.gte('due_date', startDate.toISOString().split('T')[0])
+				.lte('due_date', endDate.toISOString().split('T')[0])
+				.order('due_date', { ascending: true });
+
+			if (error) {
+				console.error('❌ Error loading expense scheduler payments:', error);
+				return;
+			}
+
+			console.log('✅ Loaded expense scheduler payments WITH ADMIN:', data);
+			expenseSchedulerPayments = data || [];
+		} catch (error) {
+			console.error('❌ Exception loading expense scheduler payments:', error);
+		}
+	}
+
+	// Mark expense scheduler payment as paid
+	async function markExpenseAsPaid(paymentId) {
+		if (!confirm('Mark this expense payment as paid?')) return;
+
+		try {
+			const { error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.update({ 
+					is_paid: true, 
+					paid_date: new Date().toISOString(),
+					status: 'paid',
+					updated_by: $currentUser?.id,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', paymentId);
+
+			if (error) throw error;
+
+			alert('Payment marked as paid successfully');
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error marking expense as paid:', error);
+			alert('Failed to mark payment as paid');
+		}
+	}
+
+	// Unmark expense scheduler payment as paid
+	async function unmarkExpenseAsPaid(paymentId) {
+		if (!confirm('Unmark this expense payment as paid?')) return;
+
+		try {
+			const { error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.update({ 
+					is_paid: false, 
+					paid_date: null,
+					status: 'pending',
+					updated_by: $currentUser?.id,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', paymentId);
+
+			if (error) throw error;
+
+			alert('Payment unmarked as paid successfully');
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error unmarking expense as paid:', error);
+			alert('Failed to unmark payment');
+		}
+	}
+
+	// Open reschedule modal for expense payment
+	function openExpenseRescheduleModal(payment) {
+		reschedulingExpensePayment = payment;
+		expenseNewDateInput = payment.due_date || '';
+		expenseSplitAmount = 0;
+		showExpenseRescheduleModal = true;
+	}
+
+	// Cancel expense reschedule
+	function cancelExpenseReschedule() {
+		showExpenseRescheduleModal = false;
+		reschedulingExpensePayment = null;
+		expenseNewDateInput = '';
+		expenseSplitAmount = 0;
+	}
+
+	// Handle full expense payment move
+	async function handleExpenseFullMove() {
+		if (!expenseNewDateInput) {
+			alert('Please select a new date');
+			return;
+		}
+
+		if (!confirm('Move the entire payment to the new date?')) return;
+
+		try {
+			const { error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.update({ 
+					due_date: expenseNewDateInput,
+					updated_by: $currentUser?.id,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', reschedulingExpensePayment.id);
+
+			if (error) throw error;
+
+			alert('Payment moved successfully');
+			cancelExpenseReschedule();
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error moving expense payment:', error);
+			alert('Failed to move payment');
+		}
+	}
+
+	// Handle expense payment split and move
+	async function handleExpenseSplitMove() {
+		if (!expenseNewDateInput) {
+			alert('Please select a new date');
+			return;
+		}
+
+		if (expenseSplitAmount <= 0 || expenseSplitAmount >= parseFloat(reschedulingExpensePayment.amount)) {
+			alert('Please enter a valid split amount');
+			return;
+		}
+
+		if (!confirm(`Split payment:\n- Move ${formatCurrency(expenseSplitAmount)} to ${expenseNewDateInput}\n- Keep ${formatCurrency(parseFloat(reschedulingExpensePayment.amount) - expenseSplitAmount)} on ${reschedulingExpensePayment.due_date}`)) {
+			return;
+		}
+
+		try {
+			// Update existing payment with reduced amount
+			const { error: updateError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.update({ 
+					amount: parseFloat(reschedulingExpensePayment.amount) - expenseSplitAmount,
+					updated_by: $currentUser?.id,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', reschedulingExpensePayment.id);
+
+			if (updateError) throw updateError;
+
+			// Create new payment entry for split amount
+			const { error: insertError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.insert({
+					branch_id: reschedulingExpensePayment.branch_id,
+					branch_name: reschedulingExpensePayment.branch_name,
+					expense_category_id: reschedulingExpensePayment.expense_category_id,
+					expense_category_name_en: reschedulingExpensePayment.expense_category_name_en,
+					expense_category_name_ar: reschedulingExpensePayment.expense_category_name_ar,
+					requisition_id: reschedulingExpensePayment.requisition_id,
+					requisition_number: reschedulingExpensePayment.requisition_number,
+					co_user_id: reschedulingExpensePayment.co_user_id,
+					co_user_name: reschedulingExpensePayment.co_user_name,
+					bill_type: reschedulingExpensePayment.bill_type,
+					bill_number: reschedulingExpensePayment.bill_number,
+					bill_date: reschedulingExpensePayment.bill_date,
+					payment_method: reschedulingExpensePayment.payment_method,
+					due_date: expenseNewDateInput,
+					credit_period: reschedulingExpensePayment.credit_period,
+					amount: expenseSplitAmount,
+					bill_file_url: reschedulingExpensePayment.bill_file_url,
+					bank_name: reschedulingExpensePayment.bank_name,
+					iban: reschedulingExpensePayment.iban,
+					description: `Split from payment #${reschedulingExpensePayment.id} - ${reschedulingExpensePayment.description || ''}`,
+					notes: reschedulingExpensePayment.notes,
+					is_paid: false,
+					status: 'pending',
+					created_by: $currentUser?.id
+				});
+
+			if (insertError) throw insertError;
+
+			alert('Payment split successfully');
+			cancelExpenseReschedule();
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error splitting expense payment:', error);
+			alert('Failed to split payment');
+		}
+	}
+
 	// Auto-process Cash on Delivery payments
 	// REMOVED: Database trigger now handles everything automatically on INSERT
 	// This function is kept for backward compatibility but does nothing
@@ -292,7 +582,13 @@
 				totalAmount: 0,
 				unpaidAmount: 0,
 				paymentCount: 0,
-				isFullyPaid: true
+				isFullyPaid: true,
+				expenseCount: 0,
+				expenseScheduledAmount: 0,
+				expenseUnpaidAmount: 0,
+				vendorCount: 0,
+				vendorScheduledAmount: 0,
+				vendorUnpaidAmount: 0
 			};
 
 			// Find payments for this specific day (use filteredPayments)
@@ -303,9 +599,14 @@
 					dayInfo.payments.push(payment);
 					dayInfo.totalAmount += (payment.final_bill_amount || 0);
 					dayInfo.paymentCount++;
+					
+					// Track vendor-specific counts
+					dayInfo.vendorCount++;
+					dayInfo.vendorScheduledAmount += (payment.final_bill_amount || 0);
 
 					// Calculate unpaid amount
 					if (!payment.is_paid) {
+						dayInfo.vendorUnpaidAmount += (payment.final_bill_amount || 0);
 						dayInfo.unpaidAmount += (payment.final_bill_amount || 0);
 						dayInfo.isFullyPaid = false;
 					}
@@ -322,6 +623,29 @@
 					}
 					dayInfo.paymentsByVendor[vendorKey].payments.push(payment);
 					dayInfo.paymentsByVendor[vendorKey].totalAmount += (payment.final_bill_amount || 0);
+				}
+			});
+
+			// Also check expense scheduler payments for this day
+			expenseSchedulerPayments.forEach(expense => {
+				if (expense.due_date) {
+					const expenseDate = new Date(expense.due_date);
+					if (expenseDate.toDateString() === dayDate.toDateString()) {
+						// Track expense-specific counts
+						dayInfo.expenseCount++;
+						dayInfo.expenseScheduledAmount += (expense.amount || 0);
+						
+						// Add to overall count and totals
+						dayInfo.paymentCount++;
+						dayInfo.totalAmount += (expense.amount || 0);
+
+						// Calculate unpaid expense amount
+						if (!expense.is_paid) {
+							dayInfo.expenseUnpaidAmount += (expense.amount || 0);
+							dayInfo.unpaidAmount += (expense.amount || 0);
+							dayInfo.isFullyPaid = false;
+						}
+					}
 				}
 			});
 
@@ -882,19 +1206,35 @@
 							</div>
 							<div class="stat-item">
 								<span class="stat-value">{monthData.paymentCount}</span>
-								<span class="stat-label">Payments</span>
+								<span class="stat-label">Vendor Payments</span>
+							</div>
+							<div class="stat-item">
+								<span class="stat-value">{expenseSchedulerPayments.length}</span>
+								<span class="stat-label">Expense Payments</span>
 							</div>
 							<div class="stat-item total-stat">
 								<span class="stat-value total">{formatCurrency(monthData.total)}</span>
-								<span class="stat-label">Total Scheduled Amount</span>
+								<span class="stat-label">Total Vendor Scheduled</span>
+							</div>
+							<div class="stat-item total-stat">
+								<span class="stat-value total" style="color: #dc2626;">{formatCurrency(totalExpensesScheduled)}</span>
+								<span class="stat-label">Total Expenses Scheduled</span>
 							</div>
 							<div class="stat-item paid-stat">
 								<span class="stat-value paid">{formatCurrency(totalPaidAmount)}</span>
-								<span class="stat-label">Total Paid</span>
+								<span class="stat-label">Total Vendor Paid</span>
+							</div>
+							<div class="stat-item paid-stat">
+								<span class="stat-value paid" style="color: #059669;">{formatCurrency(totalExpensesPaid)}</span>
+								<span class="stat-label">Total Expenses Paid</span>
 							</div>
 							<div class="stat-item unpaid-stat">
 								<span class="stat-value unpaid">{formatCurrency(totalUnpaidAmount)}</span>
-								<span class="stat-label">Total Unpaid</span>
+								<span class="stat-label">Total Vendor Unpaid</span>
+							</div>
+							<div class="stat-item unpaid-stat">
+								<span class="stat-value unpaid" style="color: #dc2626;">{formatCurrency(totalExpensesUnpaid)}</span>
+								<span class="stat-label">Total Expenses Unpaid</span>
 							</div>
 						</div>
 						
@@ -924,8 +1264,25 @@
 									<div class="mini-payment-info">
 										<div class="mini-count">{dayData.paymentCount} bills</div>
 										<div class="mini-amount">{formatCurrency(dayData.totalAmount)}</div>
-										{#if dayData.unpaidAmount > 0}
-											<div class="mini-unpaid">Unpaid: {formatCurrency(dayData.unpaidAmount)}</div>
+										{#if dayData.vendorCount > 0}
+											<div class="mini-vendor-count" style="color: #1e40af; font-size: 9px; font-weight: 600;">
+												{dayData.vendorCount} Vendor: {formatCurrency(dayData.vendorScheduledAmount)}
+											</div>
+											{#if dayData.vendorUnpaidAmount > 0}
+												<div class="mini-vendor-unpaid" style="color: #f59e0b; font-size: 8px; font-weight: 600;">
+													V.Unpaid: {formatCurrency(dayData.vendorUnpaidAmount)}
+												</div>
+											{/if}
+										{/if}
+										{#if dayData.expenseCount > 0}
+											<div class="mini-expense-count" style="color: #dc2626; font-size: 9px; font-weight: 600;">
+												{dayData.expenseCount} Exp: {formatCurrency(dayData.expenseScheduledAmount)}
+											</div>
+											{#if dayData.expenseUnpaidAmount > 0}
+												<div class="mini-expense-unpaid" style="color: #dc2626; font-size: 8px; font-weight: 600;">
+													E.Unpaid: {formatCurrency(dayData.expenseUnpaidAmount)}
+												</div>
+											{/if}
 										{/if}
 									</div>
 								{/if}
@@ -1109,33 +1466,115 @@
 								</div>
 							</div>
 
-							<!-- OTHER PAYMENTS SECTION (always visible) -->
+							<!-- OTHER PAYMENTS SECTION (Expense Scheduler) -->
 							<div class="payment-section">
 								<div class="section-header">
-									<h3 class="section-title">💳 Other Payments</h3>
+									<h3 class="section-title">💳 Other Payments (Expense Scheduler)</h3>
 									<div class="section-summary">
-										<span class="coming-soon">Coming Soon</span>
+										{#if true}
+											{@const dayDateString = `${dayData.fullDate.getFullYear()}-${String(dayData.fullDate.getMonth() + 1).padStart(2, '0')}-${String(dayData.fullDate.getDate()).padStart(2, '0')}`}
+											{@const dayExpenses = expenseSchedulerPayments.filter(p => p.due_date === dayDateString)}
+											{@const totalExpenses = dayExpenses.reduce((sum, p) => sum + (p.amount || 0), 0)}
+											{@const paidExpenses = dayExpenses.filter(p => p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
+											{@const scheduledExpenses = dayExpenses.filter(p => !p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
+											<span>{dayExpenses.length} payment{dayExpenses.length !== 1 ? 's' : ''}</span>
+											<span>Total: {formatCurrency(totalExpenses)}</span>
+											<span style="color: #059669;">Paid: {formatCurrency(paidExpenses)}</span>
+											<span style="color: #dc2626;">Scheduled: {formatCurrency(scheduledExpenses)}</span>
+										{/if}
 									</div>
 								</div>
 								
-								<!-- Other Payments Placeholder -->
-								<div class="section-placeholder">
-									<div class="placeholder-content">
-										<p>Other payment types will be implemented here</p>
-										<small>(Employee payments, utilities, rent, etc.)</small>
-										
-										<div class="future-features">
-											<h4>Coming Features:</h4>
-											<ul>
-												<li>Employee salary payments</li>
-												<li>Utility bill payments</li>
-												<li>Rent and lease payments</li>
-												<li>Tax and government fees</li>
-												<li>Insurance payments</li>
-												<li>Loan and financing payments</li>
-											</ul>
-										</div>
-									</div>
+								<!-- Expense Scheduler Payments Table -->
+								<div class="simple-table-container">
+									<table class="simple-payments-table">
+										<thead>
+											<tr>
+												<th>Requester</th>
+												<th>Request #</th>
+												<th>Sub-Category</th>
+												<th>Branch</th>
+												<th>Payment Method</th>
+												<th>Amount</th>
+												<th>Due Date</th>
+												<th>Paid Date</th>
+												<th>Created By</th>
+												<th>Description</th>
+												<th>Status</th>
+												<th>Mark Paid</th>
+												<th>Actions</th>
+											</tr>
+										</thead>
+										<tbody>
+										{#if true}
+											{@const dayDateString = `${dayData.fullDate.getFullYear()}-${String(dayData.fullDate.getMonth() + 1).padStart(2, '0')}-${String(dayData.fullDate.getDate()).padStart(2, '0')}`}
+											{#if expenseSchedulerPayments.filter(p => p.due_date === dayDateString).length > 0}
+												{#each expenseSchedulerPayments.filter(p => p.due_date === dayDateString) as payment}
+													<tr class={payment.is_paid ? 'paid-row' : ''}>
+														<td style="text-align: left; font-weight: 500;">{payment.co_user_name || 'N/A'}</td>
+													<td>
+														<span class="bill-number-badge">#{payment.requisition_number || 'N/A'}</span>
+													</td>
+													<td style="text-align: left;">{payment.expense_category_name_en || payment.expense_category_name_ar || 'N/A'}</td>
+													<td style="text-align: left;">{payment.branch_name || 'N/A'}</td>
+													<td>
+														<span class="payment-method-badge" style="background: #fee2e2; color: #991b1b; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 500;">
+															{payment.payment_method || 'Expense'}
+														</span>
+													</td>
+													<td style="text-align: right; font-weight: 600; color: {payment.is_paid ? '#059669' : '#dc2626'};">{formatCurrency(payment.amount || 0)}</td>
+													<td>{formatDate(payment.due_date)}</td>
+													<td>
+														{#if payment.is_paid && payment.paid_date}
+															<span style="color: #059669; font-weight: 500;">{formatDate(payment.paid_date)}</span>
+														{:else}
+															<span style="color: #94a3b8;">—</span>
+														{/if}
+													</td>
+													<td>{payment.creator?.username || 'Unknown'}</td>
+													<td style="text-align: left; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{payment.description || ''}">{payment.description || 'N/A'}</td>
+													<td>
+														<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
+															{payment.is_paid ? 'Paid' : payment.status || 'Pending'}
+														</span>
+													</td>
+													<td>
+														<input 
+															type="checkbox" 
+															class="payment-checkbox"
+															checked={payment.is_paid || false}
+															on:change={(e) => {
+																if (e.currentTarget.checked) {
+																	markExpenseAsPaid(payment.id);
+																} else {
+																	unmarkExpenseAsPaid(payment.id);
+																}
+															}}
+														/>
+													</td>
+													<td>
+														{#if !payment.is_paid}
+															<button 
+																class="reschedule-btn"
+																on:click|stopPropagation={() => openExpenseRescheduleModal(payment)}
+																title="Reschedule Payment"
+															>
+																📅
+															</button>
+														{/if}
+													</td>
+												</tr>
+											{/each}
+										{:else}
+											<tr>
+												<td colspan="11" class="empty-payments-row">
+													<div class="empty-message">No expense payments scheduled for this date</div>
+												</td>
+											</tr>
+										{/if}
+										{/if}
+										</tbody>
+									</table>
 								</div>
 							</div>
 
@@ -1393,6 +1832,129 @@
 	</div>
 {/if}
 
+<!-- Expense Scheduler Reschedule Modal -->
+{#if showExpenseRescheduleModal && reschedulingExpensePayment}
+	<div class="modal-overlay" on:click={cancelExpenseReschedule}>
+		<div class="modal-container" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>Reschedule Expense Payment</h3>
+				<button class="close-btn" on:click={cancelExpenseReschedule}>×</button>
+			</div>
+			
+			<div class="modal-content">
+				<div class="payment-info">
+					<h4>Payment Split & Reschedule:</h4>
+					<div class="payment-details-grid">
+						<div class="detail-row">
+							<span class="label">Requester:</span>
+							<span class="value">{reschedulingExpensePayment.co_user_name || 'N/A'}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Request #:</span>
+							<span class="value">{reschedulingExpensePayment.requisition_number || 'N/A'}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Sub-Category:</span>
+							<span class="value">{reschedulingExpensePayment.expense_category_name_en || reschedulingExpensePayment.expense_category_name_ar || 'N/A'}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Current Amount:</span>
+							<span class="value amount-current">{formatCurrency(reschedulingExpensePayment.amount || 0)}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Current Due Date:</span>
+							<span class="value">{formatDate(reschedulingExpensePayment.due_date)}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Description:</span>
+							<span class="value">{reschedulingExpensePayment.description || 'N/A'}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">Select New Date:</span>
+							<input 
+								type="date" 
+								bind:value={expenseNewDateInput}
+								class="date-input"
+								min={new Date().toISOString().split('T')[0]}
+							/>
+						</div>
+					</div>
+				</div>
+				
+				<div class="reschedule-options">
+					<h4>Reschedule Options:</h4>
+					
+					<div class="option-group">
+						<button class="option-btn full-move" on:click={handleExpenseFullMove}>
+							<div class="option-icon">📦</div>
+							<div class="option-text">
+								<div class="option-title">Move Full Payment</div>
+								<div class="option-desc">Move entire payment to new date</div>
+							</div>
+						</button>
+					</div>
+					
+					<div class="option-group">
+						<div class="split-option">
+							<div class="split-header">
+								<div class="option-icon">✂️</div>
+								<div class="option-text">
+									<div class="option-title">Split Payment</div>
+									<div class="option-desc">Move partial amount to new date</div>
+								</div>
+							</div>
+							
+							<div class="split-inputs">
+								<div class="input-group">
+									<label>Amount to move to new date:</label>
+									<input 
+										type="number" 
+										bind:value={expenseSplitAmount}
+										max={parseFloat(reschedulingExpensePayment.amount)}
+										min="0.01"
+										step="0.01"
+										placeholder="Enter amount to split"
+									/>
+								</div>
+								
+								<!-- Amount Breakdown Display -->
+								{#if expenseSplitAmount > 0 && expenseSplitAmount < parseFloat(reschedulingExpensePayment.amount)}
+									<div class="amount-breakdown">
+										<div class="breakdown-header">
+											<h5>Payment Split Breakdown:</h5>
+										</div>
+										<div class="breakdown-row">
+											<span class="breakdown-label">Amount moving to {expenseNewDateInput ? formatDate(expenseNewDateInput) : 'New Date'}:</span>
+											<span class="breakdown-value move-amount">+ {formatCurrency(expenseSplitAmount)}</span>
+										</div>
+										<div class="breakdown-row">
+											<span class="breakdown-label">Amount remaining on {formatDate(reschedulingExpensePayment.due_date)}:</span>
+											<span class="breakdown-value remain-amount">= {formatCurrency(parseFloat(reschedulingExpensePayment.amount) - expenseSplitAmount)}</span>
+										</div>
+										<div class="breakdown-divider"></div>
+										<div class="breakdown-row total">
+											<span class="breakdown-label">Original Total:</span>
+											<span class="breakdown-value">{formatCurrency(reschedulingExpensePayment.amount)}</span>
+										</div>
+									</div>
+								{/if}
+								
+								<div class="remaining-info">
+									<p>Remaining: {formatCurrency(parseFloat(reschedulingExpensePayment.amount) - expenseSplitAmount)}</p>
+								</div>
+								
+								<button class="option-btn split-move" on:click={handleExpenseSplitMove}>
+									Split & Move
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.month-details-container {
 		display: flex;
@@ -1495,9 +2057,11 @@
 
 	.compact-stats {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 12px;
 		margin-bottom: 0;
 		align-items: center;
+		justify-content: flex-start;
 	}
 
 	.stat-item {
@@ -1505,27 +2069,30 @@
 		flex-direction: row;
 		align-items: center;
 		gap: 6px;
-		padding: 4px 10px;
+		padding: 6px 12px;
 		background: #f8fafc;
 		border-radius: 6px;
 		min-width: auto;
 		flex: 0 0 auto;
+		white-space: nowrap;
 	}
 
 	.stat-item.total-stat {
 		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
 		border: 1px solid #10b981;
-		margin-left: auto;
+		margin-left: 0;
 	}
 
 	.stat-item.paid-stat {
 		background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
 		border: 1px solid #3b82f6;
+		margin-left: 0;
 	}
 
 	.stat-item.unpaid-stat {
 		background: linear-gradient(135deg, #ffedd5 0%, #fff7ed 100%);
 		border: 1px solid #fb923c;
+		margin-left: 0;
 	}
 
 	.stat-value {
