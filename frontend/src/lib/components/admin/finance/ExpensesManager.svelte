@@ -6,6 +6,7 @@
 	import CategoryManager from './CategoryManager.svelte';
 	import Scheduler from './Scheduler.svelte';
 	import ApprovalCenter from './ApprovalCenter.svelte';
+	import RequestsManager from './RequestsManager.svelte';
 
 	function openRequestGenerator() {
 		openWindow({
@@ -58,6 +59,19 @@
 			position: { x: 160, y: 160 }
 		});
 	}
+
+	function openRequestsManager() {
+		openWindow({
+			id: `requests-manager-${Date.now()}`,
+			title: 'Requests',
+			component: RequestsManager,
+			props: {},
+			icon: '📋',
+			size: { width: 1200, height: 800 },
+			minSize: { width: 800, height: 600 },
+			position: { x: 180, y: 180 }
+		});
+	}
 </script>
 
 <div class="expenses-manager">
@@ -102,8 +116,12 @@
 					</div>
 				</div>
 				
-				<div class="status-card">
-					<p class="status-value">5</p>
+				<div class="status-card clickable" on:click={openRequestsManager}>
+					<div class="card-icon">📋</div>
+					<div class="card-content">
+						<h3>Requests</h3>
+						<p class="click-hint">Click to open</p>
+					</div>
 				</div>
 				
 				<div class="status-card">

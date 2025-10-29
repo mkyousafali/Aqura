@@ -52,6 +52,20 @@
 	let expenseNewDateInput = '';
 	let expenseSplitAmount = 0;
 
+	// Edit amount state
+	let showEditAmountModal = false;
+	let editingAmountPayment = null;
+	let editAmountForm = {
+		discountAmount: 0,
+		discountNotes: '',
+		grrAmount: 0,
+		grrReferenceNumber: '',
+		grrNotes: '',
+		priAmount: 0,
+		priReferenceNumber: '',
+		priNotes: ''
+	};
+
 	// Initialize component
 	onMount(async () => {
 		if (monthData) {
@@ -887,26 +901,27 @@
 			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.insert({
-					receiving_record_id: originalPayment.receiving_record_id,
+					receiving_record_id: originalPayment.receiving_record_id, // Keep same receiving_record_id for traceability
 					bill_number: originalPayment.bill_number + '-SPLIT',
 					vendor_id: originalPayment.vendor_id,
 					vendor_name: originalPayment.vendor_name,
 					branch_id: originalPayment.branch_id,
 					branch_name: originalPayment.branch_name,
 					bill_date: originalPayment.bill_date,
-					bill_amount: amount,
-					final_bill_amount: amount,
+					bill_amount: originalPayment.bill_amount, // Keep original bill amount for reference
+					final_bill_amount: amount, // But the actual payment amount is the split amount
 					payment_method: originalPayment.payment_method,
 					bank_name: originalPayment.bank_name,
 					iban: originalPayment.iban,
 					due_date: formatDateForDB(newDate),
 				original_due_date: originalPayment.original_due_date, // Preserve original due date
 				original_bill_amount: originalPayment.original_bill_amount, // Preserve original bill amount
-				original_final_amount: originalPayment.original_final_amount, // Preserve original final amount
+				original_final_amount: amount, // The split portion becomes the "original final" for this split
 				credit_period: originalPayment.credit_period,
 				vat_number: originalPayment.vat_number,
 				is_paid: false,
-				notes: (originalPayment.notes || '') + ' [Split from original payment]'
+				notes: (originalPayment.notes || '') + ' [Split from original payment]',
+				created_by: $currentUser?.id
 			});			if (error) {
 				console.error('Error creating split payment:', error);
 				alert('Failed to create split payment');
@@ -1194,13 +1209,142 @@
 				return;
 			}
 
-			// Reload data to reflect changes
-			await loadScheduledPayments();
 			alert('Payment method updated successfully');
 			closePaymentMethodEdit();
+			await loadScheduledPayments();
 		} catch (error) {
-			console.error('Error updating payment method:', error);
-			alert('Failed to update payment method');
+			console.error('Error:', error);
+			alert('An error occurred while updating payment method');
+		}
+	}
+
+	// Edit amount functions
+	function openEditAmountModal(payment) {
+		editingAmountPayment = payment;
+		editAmountForm = {
+			discountAmount: payment.discount_amount || 0,
+			discountNotes: payment.discount_notes || '',
+			grrAmount: payment.grr_amount || 0,
+			grrReferenceNumber: payment.grr_reference_number || '',
+			grrNotes: payment.grr_notes || '',
+			priAmount: payment.pri_amount || 0,
+			priReferenceNumber: payment.pri_reference_number || '',
+			priNotes: payment.pri_notes || ''
+		};
+		showEditAmountModal = true;
+	}
+
+	function closeEditAmountModal() {
+		showEditAmountModal = false;
+		editingAmountPayment = null;
+		editAmountForm = {
+			discountAmount: 0,
+			discountNotes: '',
+			grrAmount: 0,
+			grrReferenceNumber: '',
+			grrNotes: '',
+			priAmount: 0,
+			priReferenceNumber: '',
+			priNotes: ''
+		};
+	}
+
+	// Reactive calculations for real-time updates
+	$: baseAmount = editingAmountPayment ? (editingAmountPayment.original_final_amount || editingAmountPayment.bill_amount || 0) : 0;
+	$: discountAmount = parseFloat(editAmountForm.discountAmount) || 0;
+	$: grrAmount = parseFloat(editAmountForm.grrAmount) || 0;
+	$: priAmount = parseFloat(editAmountForm.priAmount) || 0;
+	$: totalDeductions = discountAmount + grrAmount + priAmount;
+	$: newFinalAmount = baseAmount - totalDeductions;
+	$: isValidAmount = newFinalAmount >= 0;
+
+	function calculateNewFinalAmount() {
+		return newFinalAmount;
+	}
+
+	async function saveAmountAdjustment() {
+		if (!editingAmountPayment) return;
+
+		// Validate using reactive values
+		if (!isValidAmount) {
+			alert('Total deductions cannot exceed the original final amount');
+			return;
+		}
+
+		// Validate GRR reference number if GRR amount is provided
+		if (grrAmount > 0 && !editAmountForm.grrReferenceNumber.trim()) {
+			alert('Please provide a GRR reference number');
+			return;
+		}
+
+		// Validate PRI reference number if PRI amount is provided
+		if (priAmount > 0 && !editAmountForm.priReferenceNumber.trim()) {
+			alert('Please provide a GRR reference number');
+			return;
+		}
+
+		// Validate PRI reference number if PRI amount is provided
+		if (priAmount > 0 && !editAmountForm.priReferenceNumber.trim()) {
+			alert('Please provide a PRI reference number');
+			return;
+		}
+
+		try {
+			// Create adjustment history entry
+			const historyEntry = {
+				date: new Date().toISOString(),
+				user_id: $currentUser?.id,
+				user_name: $currentUser?.full_name || $currentUser?.email,
+				previous_final_amount: editingAmountPayment.final_bill_amount,
+				new_final_amount: newFinalAmount,
+				discount_amount: discountAmount,
+				grr_amount: grrAmount,
+				grr_reference: editAmountForm.grrReferenceNumber,
+				pri_amount: priAmount,
+				pri_reference: editAmountForm.priReferenceNumber
+			};
+
+			// Get existing history
+			const { data: currentData } = await supabase
+				.from('vendor_payment_schedule')
+				.select('adjustment_history')
+				.eq('id', editingAmountPayment.id)
+				.single();
+
+			const existingHistory = currentData?.adjustment_history || [];
+			const newHistory = [...existingHistory, historyEntry];
+
+			// Update the payment record
+			const { error } = await supabase
+				.from('vendor_payment_schedule')
+				.update({
+					discount_amount: discountAmount,
+					discount_notes: editAmountForm.discountNotes.trim() || null,
+					grr_amount: grrAmount,
+					grr_reference_number: editAmountForm.grrReferenceNumber.trim() || null,
+					grr_notes: editAmountForm.grrNotes.trim() || null,
+					pri_amount: priAmount,
+					pri_reference_number: editAmountForm.priReferenceNumber.trim() || null,
+					pri_notes: editAmountForm.priNotes.trim() || null,
+					last_adjustment_date: new Date().toISOString(),
+					last_adjusted_by: $currentUser?.id,
+					adjustment_history: newHistory,
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', editingAmountPayment.id);
+
+			if (error) {
+				console.error('Error updating amount:', error);
+				alert('Failed to update amount: ' + error.message);
+				return;
+			}
+
+			alert('Amount adjusted successfully');
+			closeEditAmountModal();
+			await loadScheduledPayments();
+		} catch (error) {
+			console.error('Error:', error);
+			alert('An error occurred while updating amount');
 		}
 	}
 </script>
@@ -1468,6 +1612,13 @@
 																	title="Split Payment"
 																>
 																	✂️
+																</button>
+																<button 
+																	class="edit-amount-btn"
+																	on:click|stopPropagation={() => openEditAmountModal(payment)}
+																	title="Edit Amount (Discount/GRR/PRI)"
+																>
+																	💰
 																</button>
 															{/if}
 														</td>
@@ -1973,6 +2124,173 @@
 						</div>
 					</div>
 				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Amount Modal -->
+{#if showEditAmountModal && editingAmountPayment}
+	<div class="modal-overlay" on:click={closeEditAmountModal}>
+		<div class="modal-container edit-amount-modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>💰 Edit Amount - Bill #{editingAmountPayment.bill_number}</h3>
+				<button class="close-btn" on:click={closeEditAmountModal}>✕</button>
+			</div>
+			
+			<div class="modal-body">
+				<div class="payment-info-section">
+					<h4>Payment Information</h4>
+					<div class="info-grid">
+						<div class="info-item">
+							<span class="info-label">Vendor:</span>
+							<span class="info-value">{editingAmountPayment.vendor_name}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Bill Date:</span>
+							<span class="info-value">{formatDate(editingAmountPayment.bill_date)}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Original Bill Amount:</span>
+							<span class="info-value amount-highlight">{formatCurrency(editingAmountPayment.bill_amount)}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Current Final Amount:</span>
+							<span class="info-value amount-highlight">{formatCurrency(editingAmountPayment.final_bill_amount)}</span>
+						</div>
+					</div>
+				</div>
+
+				<div class="adjustment-section">
+					<h4>Adjustments</h4>
+					
+					<!-- Discount Section -->
+					<div class="adjustment-group">
+						<label class="adjustment-label">
+							<span class="adjustment-icon">🏷️</span>
+							<span>Discount Amount</span>
+						</label>
+						<input 
+							type="number" 
+							step="0.01"
+							min="0"
+							bind:value={editAmountForm.discountAmount}
+							placeholder="0.00"
+							class="adjustment-input"
+						/>
+						<textarea 
+							bind:value={editAmountForm.discountNotes}
+							placeholder="Discount notes (optional)"
+							class="adjustment-notes"
+							rows="2"
+						></textarea>
+					</div>
+
+					<!-- GRR Section -->
+					<div class="adjustment-group">
+						<label class="adjustment-label">
+							<span class="adjustment-icon">📦</span>
+							<span>GRR (Goods Receipt Return)</span>
+						</label>
+						<input 
+							type="number" 
+							step="0.01"
+							min="0"
+							bind:value={editAmountForm.grrAmount}
+							placeholder="0.00"
+							class="adjustment-input"
+						/>
+						<input 
+							type="text" 
+							bind:value={editAmountForm.grrReferenceNumber}
+							placeholder="GRR Reference Number {editAmountForm.grrAmount > 0 ? '(Required)' : ''}"
+							class="adjustment-input"
+							required={editAmountForm.grrAmount > 0}
+						/>
+						<textarea 
+							bind:value={editAmountForm.grrNotes}
+							placeholder="GRR notes (optional)"
+							class="adjustment-notes"
+							rows="2"
+						></textarea>
+					</div>
+
+					<!-- PRI Section -->
+					<div class="adjustment-group">
+						<label class="adjustment-label">
+							<span class="adjustment-icon">📄</span>
+							<span>PRI (Purchase Return Invoice)</span>
+						</label>
+						<input 
+							type="number" 
+							step="0.01"
+							min="0"
+							bind:value={editAmountForm.priAmount}
+							placeholder="0.00"
+							class="adjustment-input"
+						/>
+						<input 
+							type="text" 
+							bind:value={editAmountForm.priReferenceNumber}
+							placeholder="PRI Reference Number {editAmountForm.priAmount > 0 ? '(Required)' : ''}"
+							class="adjustment-input"
+							required={editAmountForm.priAmount > 0}
+						/>
+						<textarea 
+							bind:value={editAmountForm.priNotes}
+							placeholder="PRI notes (optional)"
+							class="adjustment-notes"
+							rows="2"
+						></textarea>
+					</div>
+				</div>
+
+				<!-- Summary Section -->
+				<div class="calculation-summary">
+					<h4>Calculation Summary</h4>
+					<div class="calculation-breakdown">
+						<div class="calc-row">
+							<span>Base Amount (Original Final):</span>
+							<span class="calc-amount">{formatCurrency(baseAmount)}</span>
+						</div>
+						<div class="calc-row deduction">
+							<span>- Discount:</span>
+							<span class="calc-amount">{formatCurrency(discountAmount)}</span>
+						</div>
+						<div class="calc-row deduction">
+							<span>- GRR Amount:</span>
+							<span class="calc-amount">{formatCurrency(grrAmount)}</span>
+						</div>
+						<div class="calc-row deduction">
+							<span>- PRI Amount:</span>
+							<span class="calc-amount">{formatCurrency(priAmount)}</span>
+						</div>
+						<div class="calc-divider"></div>
+						<div class="calc-row total">
+							<span>New Final Amount:</span>
+							<span class="calc-amount final" class:negative={!isValidAmount}>
+								{formatCurrency(newFinalAmount)}
+							</span>
+						</div>
+					</div>
+					
+					{#if !isValidAmount}
+						<div class="error-message">
+							⚠️ Total deductions cannot exceed the base amount
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<div class="modal-footer">
+				<button class="btn-cancel" on:click={closeEditAmountModal}>Cancel</button>
+				<button 
+					class="btn-save" 
+					on:click={saveAmountAdjustment}
+					disabled={!isValidAmount}
+				>
+					Save Adjustment
+				</button>
 			</div>
 		</div>
 	</div>
@@ -4156,5 +4474,419 @@
 			width: 95%;
 			margin: 20px;
 		}
+	}
+
+	/* Edit Amount Button */
+	.edit-amount-btn {
+		padding: 6px 10px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 16px;
+		transition: all 0.2s ease;
+		margin-left: 4px;
+	}
+
+	.edit-amount-btn:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	/* Edit Amount Modal */
+	.edit-amount-modal {
+		width: 650px;
+		max-width: 95vw;
+		max-height: 85vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.edit-amount-modal .modal-header {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		padding: 20px 24px;
+		border-radius: 12px 12px 0 0;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.edit-amount-modal .modal-header h3 {
+		margin: 0;
+		font-size: 20px;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.edit-amount-modal .close-btn {
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border: none;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		cursor: pointer;
+		font-size: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.edit-amount-modal .close-btn:hover {
+		background: rgba(255, 255, 255, 0.3);
+		transform: rotate(90deg);
+	}
+
+	.edit-amount-modal .modal-body {
+		overflow-y: auto;
+		padding: 24px;
+		flex: 1;
+	}
+
+	.payment-info-section {
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		padding: 20px;
+		border-radius: 12px;
+		margin-bottom: 24px;
+		border: 1px solid #86efac;
+	}
+
+	.payment-info-section h4 {
+		margin: 0 0 16px 0;
+		font-size: 14px;
+		font-weight: 700;
+		color: #059669;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.payment-info-section h4::before {
+		content: '📋';
+		font-size: 18px;
+	}
+
+	.info-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 16px;
+	}
+
+	.info-item {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.info-label {
+		font-size: 11px;
+		color: #059669;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	.info-value {
+		font-size: 15px;
+		color: #1f2937;
+		font-weight: 600;
+	}
+
+	.info-value.amount-highlight {
+		color: #059669;
+		font-weight: 700;
+		font-size: 18px;
+	}
+
+	.adjustment-section {
+		margin-bottom: 24px;
+	}
+
+	.adjustment-section h4 {
+		margin: 0 0 20px 0;
+		font-size: 14px;
+		font-weight: 700;
+		color: #374151;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.adjustment-section h4::before {
+		content: '⚙️';
+		font-size: 18px;
+	}
+
+	.adjustment-group {
+		background: #ffffff;
+		border: 2px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 20px;
+		margin-bottom: 16px;
+		transition: all 0.3s ease;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+	}
+
+	.adjustment-group:hover {
+		border-color: #d1d5db;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+	}
+
+	.adjustment-group:focus-within {
+		border-color: #10b981;
+		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+	}
+
+	.adjustment-label {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-size: 15px;
+		font-weight: 700;
+		color: #1f2937;
+		margin-bottom: 16px;
+		padding-bottom: 12px;
+		border-bottom: 2px solid #f3f4f6;
+	}
+
+	.adjustment-icon {
+		font-size: 22px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.adjustment-input {
+		width: 100%;
+		padding: 12px 16px;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		font-size: 15px;
+		font-weight: 500;
+		margin-bottom: 12px;
+		transition: all 0.2s;
+		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	}
+
+	.adjustment-input:hover {
+		border-color: #d1d5db;
+	}
+
+	.adjustment-input:focus {
+		outline: none;
+		border-color: #10b981;
+		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+	}
+
+	.adjustment-input[type="number"] {
+		font-family: 'Courier New', monospace;
+		font-weight: 600;
+	}
+
+	.adjustment-input::placeholder {
+		color: #9ca3af;
+		font-weight: 400;
+	}
+
+	.adjustment-input[required]:invalid {
+		border-color: #ef4444;
+	}
+
+	.adjustment-notes {
+		width: 100%;
+		padding: 12px 16px;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		font-size: 14px;
+		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		resize: vertical;
+		min-height: 70px;
+		transition: all 0.2s;
+		line-height: 1.5;
+	}
+
+	.adjustment-notes:hover {
+		border-color: #d1d5db;
+	}
+
+	.adjustment-notes:focus {
+		outline: none;
+		border-color: #10b981;
+		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+	}
+
+	.adjustment-notes::placeholder {
+		color: #9ca3af;
+	}
+
+	.calculation-summary {
+		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+		padding: 20px;
+		border-radius: 12px;
+		border: 2px solid #93c5fd;
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+	}
+
+	.calculation-summary h4 {
+		margin: 0 0 16px 0;
+		font-size: 14px;
+		font-weight: 700;
+		color: #1e40af;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.calculation-summary h4::before {
+		content: '🧮';
+		font-size: 18px;
+	}
+
+	.calculation-breakdown {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.calc-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 8px 12px;
+		border-radius: 6px;
+		font-size: 14px;
+		background: rgba(255, 255, 255, 0.5);
+	}
+
+	.calc-row.deduction {
+		color: #dc2626;
+		padding-left: 24px;
+		background: rgba(220, 38, 38, 0.05);
+	}
+
+	.calc-row.total {
+		font-weight: 700;
+		font-size: 17px;
+		color: #1f2937;
+		padding: 12px;
+		background: white;
+		border: 2px solid #10b981;
+		margin-top: 8px;
+	}
+
+	.calc-amount {
+		font-weight: 700;
+		font-family: 'Courier New', monospace;
+		letter-spacing: 0.5px;
+	}
+
+	.calc-amount.final {
+		color: #059669;
+		font-size: 20px;
+		transition: color 0.3s ease;
+	}
+
+	.calc-amount.final.negative {
+		color: #dc2626;
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.7; }
+	}
+
+	.calc-divider {
+		height: 2px;
+		background: linear-gradient(to right, transparent, #3b82f6, transparent);
+		margin: 12px 0;
+		opacity: 0.5;
+	}
+
+	.error-message {
+		margin-top: 16px;
+		padding: 12px 16px;
+		background: #fee2e2;
+		color: #dc2626;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		border-left: 4px solid #dc2626;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 12px;
+		justify-content: flex-end;
+		padding: 20px 24px;
+		border-top: 2px solid #f3f4f6;
+		background: #fafafa;
+		border-radius: 0 0 12px 12px;
+		flex-shrink: 0;
+	}
+
+	.btn-cancel,
+	.btn-save {
+		padding: 12px 28px;
+		border-radius: 8px;
+		font-size: 15px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		border: none;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.btn-cancel {
+		background: white;
+		color: #374151;
+		border: 2px solid #e5e7eb;
+	}
+
+	.btn-cancel:hover {
+		background: #f9fafb;
+		border-color: #d1d5db;
+	}
+
+	.btn-save {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.btn-save::before {
+		content: '✓';
+		font-size: 18px;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+		transform: translateY(-2px);
+	}
+
+	.btn-save:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		transform: none;
 	}
 </style>
