@@ -340,11 +340,16 @@
 			}
 			
 			const startDate = new Date(monthData.year, monthData.month, 1);
-			const endDate = new Date(monthData.year, monthData.month + 1, 0);
+			const endDate = new Date(monthData.year, monthData.month + 1, 0); // Last day of current month
+			
+			// Format dates for query (YYYY-MM-DD)
+			const startDateStr = `${monthData.year}-${String(monthData.month + 1).padStart(2, '0')}-01`;
+			const endDateStr = `${monthData.year}-${String(monthData.month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 			
 			console.log('Loading expense scheduler for:', { 
-				startDate: startDate.toISOString().split('T')[0], 
-				endDate: endDate.toISOString().split('T')[0],
+				startDate: startDateStr, 
+				endDate: endDateStr,
+				endDateDay: endDate.getDate(),
 				month: monthData.month,
 				year: monthData.year
 			});
@@ -357,8 +362,8 @@
 						username
 					)
 				`)
-				.gte('due_date', startDate.toISOString().split('T')[0])
-				.lte('due_date', endDate.toISOString().split('T')[0])
+				.gte('due_date', startDateStr)
+				.lte('due_date', endDateStr)
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -367,6 +372,21 @@
 			}
 
 			console.log('✅ Loaded expense scheduler payments WITH ADMIN:', data);
+			console.log('📊 Expense Scheduler Summary:', {
+				totalRecords: data?.length || 0,
+				byScheduleType: data?.reduce((acc, r) => {
+					const type = r.schedule_type || 'null';
+					acc[type] = (acc[type] || 0) + 1;
+					return acc;
+				}, {}),
+				records: data?.map(r => ({
+					id: r.id,
+					schedule_type: r.schedule_type,
+					due_date: r.due_date,
+					amount: r.amount,
+					branch: r.branch_name
+				}))
+			});
 			expenseSchedulerPayments = data || [];
 		} catch (error) {
 			console.error('❌ Exception loading expense scheduler payments:', error);
@@ -1474,6 +1494,9 @@
 										{#if true}
 											{@const dayDateString = `${dayData.fullDate.getFullYear()}-${String(dayData.fullDate.getMonth() + 1).padStart(2, '0')}-${String(dayData.fullDate.getDate()).padStart(2, '0')}`}
 											{@const dayExpenses = expenseSchedulerPayments.filter(p => p.due_date === dayDateString)}
+											{#if dayExpenses.length > 0}
+												{console.log('📅 Expense scheduler payments for', dayDateString, ':', dayExpenses.map(p => ({ id: p.id, type: p.schedule_type, amount: p.amount, due_date: p.due_date })))}
+											{/if}
 											{@const totalExpenses = dayExpenses.reduce((sum, p) => sum + (p.amount || 0), 0)}
 											{@const paidExpenses = dayExpenses.filter(p => p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
 											{@const scheduledExpenses = dayExpenses.filter(p => !p.is_paid).reduce((sum, p) => sum + (p.amount || 0), 0)}
