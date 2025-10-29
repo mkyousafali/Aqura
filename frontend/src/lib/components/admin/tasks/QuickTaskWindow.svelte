@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// State management
@@ -149,7 +149,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabase
+			const { data: preferences, error } = await supabaseAdmin
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -359,35 +359,33 @@
 				updates.default_priority = priority;
 			}
 
-			updates.updated_at = new Date().toISOString();
+		updates.updated_at = new Date().toISOString();
 
-			// First, try to check if user preferences exist
-			const { data: existingPrefs } = await supabase
+		// First, try to check if user preferences exist
+		const { data: existingPrefs } = await supabaseAdmin
+			.from('quick_task_user_preferences')
+			.select('user_id')
+			.eq('user_id', $currentUser?.id)
+			.single();
+
+		let error;
+		if (existingPrefs) {
+			// Update existing preferences
+			const updateResult = await supabaseAdmin
 				.from('quick_task_user_preferences')
-				.select('user_id')
-				.eq('user_id', $currentUser?.id)
-				.single();
-
-			let error;
-			if (existingPrefs) {
-				// Update existing preferences
-				const updateResult = await supabase
-					.from('quick_task_user_preferences')
-					.update(updates)
-					.eq('user_id', $currentUser?.id);
-				error = updateResult.error;
-			} else {
-				// Insert new preferences
-				const insertResult = await supabase
-					.from('quick_task_user_preferences')
-					.insert({
-						user_id: $currentUser?.id,
-						...updates
-					});
-				error = insertResult.error;
-			}
-
-			if (error) {
+				.update(updates)
+				.eq('user_id', $currentUser?.id);
+			error = updateResult.error;
+		} else {
+			// Insert new preferences
+			const insertResult = await supabaseAdmin
+				.from('quick_task_user_preferences')
+				.insert({
+					user_id: $currentUser?.id,
+					...updates
+				});
+			error = insertResult.error;
+		}			if (error) {
 				console.error('Error saving preferences:', error);
 			}
 		} catch (error) {

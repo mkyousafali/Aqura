@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { locale, getTranslation } from '$lib/i18n';
 
@@ -21,6 +21,8 @@
 	let isSubmitting = false;
 	let showSuccessMessage = false;
 	let successMessage = '';
+	let showSuccessPopup = false;
+	let successTaskData = null;
 
 	// Form data
 	let taskTitle = ''; // Auto-generated from issue type
@@ -211,7 +213,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabase
+			const { data: preferences, error } = await supabaseAdmin
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -387,16 +389,14 @@
 				...(setAsDefaultUsers && { selected_user_ids: selectedUsers }),
 				...(setAsDefaultSettings && {
 					default_price_tag: priceTag,
-					default_issue_type: issueType,
-					default_priority: priority
-				})
-			};
+			default_issue_type: issueType,
+			default_priority: priority
+		})
+	};
 
-			const { error } = await supabase
-				.from('quick_task_user_preferences')
-				.upsert(defaultsData, { onConflict: 'user_id' });
-
-			if (error) {
+	const { error } = await supabaseAdmin
+		.from('quick_task_user_preferences')
+		.upsert(defaultsData, { onConflict: 'user_id' });			if (error) {
 				console.error('Error saving defaults:', error);
 			} else {
 				console.log('Defaults saved successfully');
@@ -530,12 +530,24 @@
 			// Success - show message and reset form
 			const fileText = uploadedFiles.length > 0 ? ` ${uploadedFiles.length} file(s) uploaded.` : '';
 			successMessage = getTranslation('mobile.quickTaskContent.success.taskCreated') + fileText;
+			
+			// Show success popup with task details
+			successTaskData = {
+				id: taskData.id,
+				title: taskData.title || taskTitle,
+				assignedUsers: selectedUsers.length,
+				filesUploaded: uploadedFiles.length,
+				branch: selectedBranchName
+			};
+			showSuccessPopup = true;
+			
+			// Also show banner message
 			showSuccessMessage = true;
 			
 			// Reset form but keep defaults
 			resetForm();
 			
-			// Hide success message after 5 seconds
+			// Hide banner message after 5 seconds
 			setTimeout(() => {
 				showSuccessMessage = false;
 			}, 5000);
@@ -582,6 +594,11 @@
 		
 		// Keep the checkbox states for saving defaults
 		// setAsDefaultBranch, setAsDefaultUsers, setAsDefaultSettings remain as they are
+	}
+
+	function closeSuccessPopup() {
+		showSuccessPopup = false;
+		successTaskData = null;
 	}
 
 	// File Upload Functions
@@ -683,6 +700,53 @@
 						<line x1="6" y1="6" x2="18" y2="18"></line>
 					</svg>
 				</button>
+			</div>
+		{/if}
+
+		<!-- Success Popup Modal -->
+		{#if showSuccessPopup && successTaskData}
+			<div class="popup-overlay" on:click={closeSuccessPopup}>
+				<div class="popup-modal" on:click|stopPropagation>
+					<div class="popup-header">
+						<div class="success-icon">
+							<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+								<polyline points="22,4 12,14.01 9,11.01"></polyline>
+							</svg>
+						</div>
+						<h2>✅ {getTranslation('mobile.quickTaskContent.success.taskCreated')}</h2>
+					</div>
+					
+					<div class="popup-content">
+						<div class="task-detail">
+							<span class="detail-label">📋 {getTranslation('mobile.quickTaskContent.issueTypeLabel')}</span>
+							<span class="detail-value">{successTaskData.title}</span>
+						</div>
+						
+						<div class="task-detail">
+							<span class="detail-label">🏢 {getTranslation('mobile.quickTaskContent.step1.branchLabel')}</span>
+							<span class="detail-value">{successTaskData.branch}</span>
+						</div>
+						
+						<div class="task-detail">
+							<span class="detail-label">👥 {getTranslation('mobile.quickTaskContent.step2.usersLabel')}</span>
+							<span class="detail-value">{successTaskData.assignedUsers} {getTranslation('mobile.quickTaskContent.step2.selected')}</span>
+						</div>
+						
+						{#if successTaskData.filesUploaded > 0}
+							<div class="task-detail">
+								<span class="detail-label">📎 {getTranslation('mobile.quickTaskContent.filesLabel')}</span>
+								<span class="detail-value">{successTaskData.filesUploaded} file(s)</span>
+							</div>
+						{/if}
+					</div>
+					
+					<div class="popup-actions">
+						<button class="popup-btn primary" on:click={closeSuccessPopup}>
+							{getTranslation('mobile.quickTaskContent.success.gotIt')}
+						</button>
+					</div>
+				</div>
 			</div>
 		{/if}
 
@@ -1425,5 +1489,152 @@
 		font-style: italic;
 		text-align: center;
 		padding: 2rem;
+	}
+
+	/* Success Popup Modal */
+	.popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 9999;
+		padding: 1rem;
+		backdrop-filter: blur(4px);
+		animation: fadeIn 0.3s ease-out;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.popup-modal {
+		background: white;
+		border-radius: 16px;
+		max-width: 400px;
+		width: 100%;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+		animation: slideUp 0.3s ease-out;
+		overflow: hidden;
+	}
+
+	@keyframes slideUp {
+		from {
+			transform: translateY(50px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+
+	.popup-header {
+		text-align: center;
+		padding: 2rem 1.5rem 1rem;
+		background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+		color: white;
+	}
+
+	.success-icon {
+		margin-bottom: 1rem;
+	}
+
+	.success-icon svg {
+		width: 64px;
+		height: 64px;
+		stroke: white;
+		animation: checkmark 0.5s ease-out 0.2s;
+		animation-fill-mode: both;
+	}
+
+	@keyframes checkmark {
+		0% {
+			transform: scale(0) rotate(-45deg);
+		}
+		50% {
+			transform: scale(1.2) rotate(5deg);
+		}
+		100% {
+			transform: scale(1) rotate(0deg);
+		}
+	}
+
+	.popup-header h2 {
+		margin: 0;
+		font-size: 1.3rem;
+		font-weight: 600;
+		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.popup-content {
+		padding: 1.5rem;
+	}
+
+	.task-detail {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 12px;
+		background: #f8f9fa;
+		border-radius: 8px;
+		margin-bottom: 12px;
+	}
+
+	.task-detail:last-child {
+		margin-bottom: 0;
+	}
+
+	.detail-label {
+		font-size: 0.85rem;
+		color: #666;
+		font-weight: 500;
+	}
+
+	.detail-value {
+		font-size: 1rem;
+		color: #333;
+		font-weight: 600;
+	}
+
+	.popup-actions {
+		padding: 1.5rem;
+		background: #f8f9fa;
+		border-top: 1px solid #e9ecef;
+	}
+
+	.popup-btn {
+		width: 100%;
+		padding: 14px 24px;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.popup-btn.primary {
+		background: #28a745;
+		color: white;
+	}
+
+	.popup-btn.primary:hover {
+		background: #218838;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+	}
+
+	.popup-btn.primary:active {
+		transform: translateY(0);
 	}
 </style>

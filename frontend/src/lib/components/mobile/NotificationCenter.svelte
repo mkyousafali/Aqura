@@ -391,44 +391,58 @@
 			if (userIds.size > 0) {
 				const userIdArray = Array.from(userIds);
 				
-				// Get comprehensive user data including employee information
-				const { data: users } = await supabase
-					.from('users')
-					.select(`
-						id, 
-						username, 
-						full_name,
-						employee:hr_employees (
-							name,
-							employee_id
-						)
-					`)
-					.in('id', userIdArray);
+			// Get comprehensive user data including employee information
+			const { data: users, error: usersError } = await supabase
+				.from('users')
+				.select(`
+					id, 
+					username,
+					employee_id
+				`)
+				.in('id', userIdArray);
+			
+			if (usersError) {
+				console.error('❌ [User Cache] Error fetching users:', usersError);
+			}
+			
+			// Collect employee IDs to fetch from hr_employees
+			const employeeIds = users?.filter(u => u.employee_id).map(u => u.employee_id) || [];
+			let employeeMap = {};
+			
+			if (employeeIds.length > 0) {
+				const { data: employees } = await supabase
+					.from('hr_employees')
+					.select('id, name, employee_id')
+					.in('id', employeeIds);
 				
-				if (users) {
-					// Populate the cache with the best available name
-					for (const user of users) {
-						let displayName = 'Unknown User';
-						
-						// Priority: employee name > full name > username > employee ID > user ID
-						if (user.employee?.name) {
-							displayName = user.employee.name;
-						} else if (user.full_name) {
-							displayName = user.full_name;
-						} else if (user.username) {
-							displayName = user.username;
-						} else if (user.employee?.employee_id) {
-							displayName = `Employee ${user.employee.employee_id}`;
-						} else {
-							displayName = `User ${user.id.substring(0, 8)}`;
-						}
-						
-						userCache[user.id] = displayName;
-						console.log(`👤 [User Cache] Cached user ${user.id}: ${displayName}`);
-					}
+				if (employees) {
+					employeeMap = Object.fromEntries(
+						employees.map(emp => [emp.id, emp])
+					);
 				}
-				
-				// For any remaining missing users, try to get from hr_employees table directly
+			}
+			
+			if (users) {
+				// Populate the cache with the best available name
+				for (const user of users) {
+					let displayName = 'Unknown User';
+					const employee = employeeMap[user.employee_id];
+					
+					// Priority: employee name > username > employee ID > user ID
+					if (employee?.name) {
+						displayName = employee.name;
+					} else if (user.username) {
+						displayName = user.username;
+					} else if (employee?.employee_id) {
+						displayName = `Employee ${employee.employee_id}`;
+					} else {
+						displayName = `User ${user.id.substring(0, 8)}`;
+					}
+					
+					userCache[user.id] = displayName;
+					console.log(`👤 [User Cache] Cached user ${user.id}: ${displayName}`);
+				}
+			}				// For any remaining missing users, try to get from hr_employees table directly
 				const missingUserIds = userIdArray.filter(id => !userCache[id]);
 				if (missingUserIds.length > 0) {
 					console.log(`🔍 [User Cache] Looking up ${missingUserIds.length} missing users in hr_employees`);

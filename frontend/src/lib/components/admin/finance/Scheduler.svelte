@@ -22,7 +22,7 @@
 			id: `recurring-expense-scheduler-${Date.now()}`,
 			title: 'Recurring Expense Scheduler',
 			component: RecurringExpenseScheduler,
-			icon: '�',
+			icon: '🔄',
 			size: { width: 1000, height: 700 },
 			minSize: { width: 600, height: 400 },
 			position: { x: 160, y: 160 }
@@ -54,7 +54,7 @@
 
 		<!-- Recurring Expense Scheduler -->
 		<button class="schedule-card" on:click={handleRecurringExpenseScheduler}>
-			<div class="card-icon">�</div>
+			<div class="card-icon">🔄</div>
 			<h3 class="card-title">Recurring Expense Scheduler</h3>
 			<p class="card-description">Schedule recurring expense payments</p>
 		</button>

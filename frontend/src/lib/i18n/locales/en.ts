@@ -54,13 +54,14 @@ export const englishLocale: LocaleData = {
 		},
 
 		// Mobile page titles
-		mobile: {
-			dashboard: 'Dashboard',
-			tasks: 'Tasks',
-			notifications: 'Notifications',
-			assignments: 'Assignments',
-			quickTask: 'Quick Task',
-			assignTasks: 'Assign Tasks',
+	mobile: {
+		dashboard: 'Dashboard',
+		tasks: 'Tasks',
+		notifications: 'Notifications',
+		assignments: 'Assignments',
+		approvals: 'Approvals',
+		quickTask: 'Quick Task',
+		assignTasks: 'Assign Tasks',
 			createTask: 'Create Task',
 			completeTask: 'Complete Task',
 			taskDetails: 'Task Details',
@@ -386,8 +387,12 @@ export const englishLocale: LocaleData = {
 				},
 				// Success Messages
 				success: {
-					taskCreated: 'Task created successfully!'
-				}
+					taskCreated: 'Task created successfully!',
+					gotIt: 'Got it!'
+				},
+				// Labels
+				issueTypeLabel: 'Task',
+				filesLabel: 'Files'
 			},
 
 			// Assignments Content
@@ -832,6 +837,15 @@ export const englishLocale: LocaleData = {
 			noHistory: 'No history available',
 			tryAgain: 'Try again',
 			getStarted: 'Get started by adding your first item'
+		},
+
+		// Approvals
+		approvals: {
+			pending: 'Pending',
+			approved: 'Approved',
+			rejected: 'Rejected',
+			total: 'Total',
+			noRequisitions: 'No requisitions found'
 		}
 	}
 };

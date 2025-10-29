@@ -28,6 +28,7 @@
 	let searchTerm = '';
 	let statusFilter = '';
 	let priorityFilter = '';
+	let showCompleted = false; // Toggle for showing/hiding completed assignments
 
 	// UI state
 	let showFilters = false;
@@ -36,45 +37,76 @@
 		await loadMyAssignments();
 	});
 
-	// Load attachments for assignments
+	// Load attachments for assignments - optimized batch loading
 	async function loadAssignmentAttachments() {
-		for (let assignment of assignments) {
-			if (assignment.task_type === 'quick_task') {
-				// Load quick task files - use the quick_task_id from the assignment
-				try {
-					const { data: files } = await supabase
-						.from('quick_task_files')
-						.select('*')
-						.eq('quick_task_id', assignment.quick_task_id);
-					
-					if (files && files.length > 0) {
-						assignment.attachments = files.map(file => ({
+		// Separate assignments by type
+		const quickTaskAssignments = assignments.filter(a => a.task_type === 'quick_task');
+		const regularTaskAssignments = assignments.filter(a => a.task_type === 'regular');
+
+		// Batch load quick task files
+		if (quickTaskAssignments.length > 0) {
+			const quickTaskIds = quickTaskAssignments.map(a => a.quick_task_id || a.task_id);
+			try {
+				const { data: files } = await supabase
+					.from('quick_task_files')
+					.select('*')
+					.in('quick_task_id', quickTaskIds);
+				
+				if (files && files.length > 0) {
+					// Create a map of quick_task_id to files
+					const filesMap = new Map();
+					files.forEach(file => {
+						if (!filesMap.has(file.quick_task_id)) {
+							filesMap.set(file.quick_task_id, []);
+						}
+						filesMap.get(file.quick_task_id).push({
 							...file,
 							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/quick-task-files/${file.storage_path}`,
 							source: 'quick_task'
-						}));
-					}
-				} catch (error) {
-					console.error('Error loading quick task files:', error);
+						});
+					});
+
+					// Assign files to respective assignments
+					quickTaskAssignments.forEach(assignment => {
+						const taskId = assignment.quick_task_id || assignment.task_id;
+						assignment.attachments = filesMap.get(taskId) || [];
+					});
 				}
-			} else {
-				// Load task images for regular tasks
-				try {
-					const { data: images } = await supabase
-						.from('task_images')
-						.select('*')
-						.eq('task_id', assignment.task_id);
-					
-					if (images && images.length > 0) {
-						assignment.attachments = images.map(image => ({
+			} catch (error) {
+				console.error('Error loading quick task files:', error);
+			}
+		}
+
+		// Batch load regular task images
+		if (regularTaskAssignments.length > 0) {
+			const taskIds = regularTaskAssignments.map(a => a.task_id);
+			try {
+				const { data: images } = await supabase
+					.from('task_images')
+					.select('*')
+					.in('task_id', taskIds);
+				
+				if (images && images.length > 0) {
+					// Create a map of task_id to images
+					const imagesMap = new Map();
+					images.forEach(image => {
+						if (!imagesMap.has(image.task_id)) {
+							imagesMap.set(image.task_id, []);
+						}
+						imagesMap.get(image.task_id).push({
 							...image,
 							file_url: `${supabase.supabaseUrl}/storage/v1/object/public/task-images/${image.file_path}`,
 							source: 'task'
-						}));
-					}
-				} catch (error) {
-					console.error('Error loading task images:', error);
+						});
+					});
+
+					// Assign images to respective assignments
+					regularTaskAssignments.forEach(assignment => {
+						assignment.attachments = imagesMap.get(assignment.task_id) || [];
+					});
 				}
+			} catch (error) {
+				console.error('Error loading task images:', error);
 			}
 		}
 	}
@@ -119,25 +151,34 @@
 
 		try {
 			isLoading = true;
-			console.log('ASSIGNMENTS: Loading assignments for user:', $currentUser?.id);
 
-			// Get regular task assignments where current user is the assigner
-			const { data: regularAssignmentData, error: regularAssignmentError } = await supabase
+			// Build queries based on showCompleted toggle
+			const regularQuery = supabase
 				.from('task_assignments')
-				.select('*')
+				.select(`
+					*,
+					task:tasks!task_assignments_task_id_fkey (
+						id,
+						title,
+						description,
+						priority,
+						due_date,
+						status,
+						created_at
+					),
+					assigned_user:users!task_assignments_assigned_to_user_id_fkey (
+						id,
+						username
+					)
+				`)
 				.eq('assigned_by', $currentUser.id)
 				.order('assigned_at', { ascending: false });
 
-			if (regularAssignmentError) {
-				throw new Error(regularAssignmentError.message);
-			}
-
-			// Get quick task assignments where current user is the assigner
-			const { data: quickAssignmentData, error: quickAssignmentError } = await supabase
+			const quickQuery = supabase
 				.from('quick_task_assignments')
 				.select(`
 					*,
-					quick_task:quick_tasks!inner(
+					quick_task:quick_tasks!inner (
 						id,
 						title,
 						description,
@@ -148,106 +189,46 @@
 						created_at,
 						deadline_datetime,
 						assigned_by
+					),
+					assigned_user:users!quick_task_assignments_assigned_to_user_id_fkey (
+						id,
+						username
 					)
 				`)
 				.eq('quick_task.assigned_by', $currentUser.id)
 				.order('created_at', { ascending: false });
 
-			console.log('ASSIGNMENTS: Quick assignments loaded:', quickAssignmentData);
-
-			if (quickAssignmentError) {
-				console.warn('Quick tasks might not be available:', quickAssignmentError);
+			// Only exclude completed if showCompleted is false
+			if (!showCompleted) {
+				regularQuery.neq('status', 'completed');
+				quickQuery.neq('status', 'completed');
 			}
+
+			// Parallel loading for better performance
+			const [regularResult, quickResult] = await Promise.all([
+				regularQuery,
+				quickQuery
+			]);
 
 			// Process regular assignments
 			let regularAssignments = [];
-			if (regularAssignmentData && regularAssignmentData.length > 0) {
-				// Get unique task IDs and user IDs
-				const taskIds = [...new Set(regularAssignmentData.map(a => a.task_id))];
-				const userIds = [...new Set(regularAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
-
-				// Fetch tasks
-				const { data: tasksData, error: tasksError } = await supabase
-					.from('tasks')
-					.select('id, title, description, priority, due_date, status, created_at')
-					.in('id', taskIds);
-
-				if (tasksError) {
-					throw new Error(tasksError.message);
-				}
-
-				// Fetch users - handle both ID and username approaches
-				let usersData = [];
-				if (userIds.length > 0) {
-					// Try as IDs first
-					const { data: userData1, error: userError1 } = await supabase
-						.from('users')
-						.select('id, username')
-						.in('id', userIds);
-
-					if (userError1) {
-						// If that fails, try as usernames
-						const { data: userData2, error: userError2 } = await supabase
-							.from('users')
-							.select('id, username')
-							.in('username', userIds);
-
-						if (userError2) {
-							throw new Error(userError2.message);
-						}
-						usersData = userData2 || [];
-					} else {
-						usersData = userData1 || [];
-					}
-				}
-
-				// Create lookup maps
-				const tasksMap = new Map(tasksData?.map(task => [task.id, task]) || []);
-				
-				const usersMap = new Map();
-				usersData?.forEach(user => {
-					usersMap.set(user.id, user);
-					usersMap.set(user.username, user);
-				});
-
-				// Combine the regular assignment data
-				regularAssignments = regularAssignmentData.map(assignment => ({
+			if (regularResult.data && regularResult.data.length > 0) {
+				console.log('Regular assignments data:', regularResult.data);
+				regularAssignments = regularResult.data.map(assignment => ({
 					...assignment,
-					task: tasksMap.get(assignment.task_id),
-					assigned_user: usersMap.get(assignment.assigned_to_user_id),
 					task_type: 'regular'
 				}));
 			}
 
+			if (regularResult.error) {
+				console.error('Error loading regular assignments:', regularResult.error);
+			}
+
 			// Process quick task assignments
 			let quickAssignments = [];
-			if (quickAssignmentData && quickAssignmentData.length > 0) {
-				// Get unique user IDs for quick task assignments
-				const quickUserIds = [...new Set(quickAssignmentData.map(a => a.assigned_to_user_id).filter(Boolean))];
-
-				// Fetch users for quick task assignments
-				let quickUsersData = [];
-				if (quickUserIds.length > 0) {
-					const { data: userData, error: userError } = await supabase
-						.from('users')
-						.select('id, username')
-						.in('id', quickUserIds);
-
-					if (userError) {
-						console.error('Error fetching quick task users:', userError);
-					} else {
-						quickUsersData = userData || [];
-					}
-				}
-
-				// Create user lookup map for quick tasks
-				const quickUsersMap = new Map();
-				quickUsersData?.forEach(user => {
-					quickUsersMap.set(user.id, user);
-				});
-
-				// Transform quick assignments to match regular assignment structure
-				quickAssignments = quickAssignmentData.map(assignment => ({
+			if (quickResult.data && quickResult.data.length > 0) {
+				console.log('Quick task assignments data:', quickResult.data);
+				quickAssignments = quickResult.data.map(assignment => ({
 					...assignment,
 					task_id: assignment.quick_task.id,
 					task: {
@@ -255,40 +236,45 @@
 						title: assignment.quick_task.title,
 						description: assignment.quick_task.description,
 						priority: assignment.quick_task.priority,
-						due_date: null, // Quick tasks use deadline_datetime
+						due_date: null,
 						status: assignment.quick_task.status,
 						created_at: assignment.quick_task.created_at,
 						price_tag: assignment.quick_task.price_tag,
 						issue_type: assignment.quick_task.issue_type,
 						deadline_datetime: assignment.quick_task.deadline_datetime
 					},
-					assigned_user: quickUsersMap.get(assignment.assigned_to_user_id),
 					assigned_at: assignment.created_at,
-					deadline_date: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toISOString().split('T')[0] : null,
-					deadline_time: assignment.quick_task.deadline_datetime ? new Date(assignment.quick_task.deadline_datetime).toTimeString().split(' ')[0].slice(0, 5) : null,
+					deadline_date: assignment.quick_task.deadline_datetime 
+						? new Date(assignment.quick_task.deadline_datetime).toISOString().split('T')[0] 
+						: null,
+					deadline_time: assignment.quick_task.deadline_datetime 
+						? new Date(assignment.quick_task.deadline_datetime).toTimeString().split(' ')[0].slice(0, 5) 
+						: null,
 					task_type: 'quick_task'
 				}));
 			}
 
+			if (quickResult.error) {
+				console.warn('Quick tasks might not be available:', quickResult.error);
+			}
+
 			// Combine both types of assignments
-			assignments = [...regularAssignments, ...quickAssignments];
-			
-			console.log('ASSIGNMENTS: Final assignments:', assignments);
-			console.log('ASSIGNMENTS: Quick assignments count:', quickAssignments.length);
-			assignments.forEach((assignment, index) => {
-				console.log(`ASSIGNMENTS Task ${index + 1}:`, {
-					title: assignment.title,
-					type: assignment.type,
-					assigned_to_name: assignment.assigned_to_name,
-					status: assignment.status,
-					id: assignment.id
-				});
+			// Only include assignments where current user is the assigner
+			assignments = [...regularAssignments, ...quickAssignments].filter(assignment => {
+				const assignedBy = assignment.assigned_by || assignment.quick_task?.assigned_by;
+				
+				// Must be assigned BY current user (includes self-assigned)
+				return assignedBy === $currentUser.id;
 			});
+			
+			console.log('Total assignments loaded:', assignments.length);
+			console.log('Logged user ID:', $currentUser.id);
+			console.log('Sample assignment:', assignments[0]);
 			
 			// Sort by creation date (newest first)
 			assignments.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
 			
-			// Load attachments for all assignments
+			// Load attachments for all assignments (in parallel)
 			await loadAssignmentAttachments();
 			
 			// Calculate statistics
@@ -454,6 +440,11 @@
 		searchTerm, statusFilter, priorityFilter;
 		applyFilters();
 	}
+
+	// Reload data when showCompleted changes
+	$: if (showCompleted !== undefined) {
+		loadMyAssignments();
+	}
 </script>
 
 <svelte:head>
@@ -488,6 +479,16 @@
 		</div>
 	</section>
 
+	<!-- Floating Filter Button -->
+	{#if !isLoading && assignments.length > 0}
+		<button class="floating-filter-btn" on:click={toggleFilters} class:active={showFilters}>
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M3 4h18M7 8h10M10 12h4"/>
+			</svg>
+			{showFilters ? 'Hide' : 'Filter'}
+		</button>
+	{/if}
+
 	<!-- Filters (collapsible) -->
 	{#if showFilters}
 		<section class="filters-section">
@@ -519,6 +520,14 @@
 					</select>
 				</div>
 
+				<!-- Show Completed Toggle -->
+				<div class="toggle-section">
+					<label class="toggle-label">
+						<input type="checkbox" bind:checked={showCompleted} class="toggle-checkbox" />
+						<span class="toggle-text">Show completed assignments</span>
+					</label>
+				</div>
+
 				<button class="clear-filters-btn" on:click={clearFilters}>
 					{getTranslation('mobile.assignmentsContent.search.clearFilters')}
 				</button>
@@ -529,9 +538,21 @@
 	<!-- Content -->
 	<main class="assignments-content">
 		{#if isLoading}
-			<div class="loading-state">
-				<div class="loading-spinner"></div>
-				<p>{getTranslation('mobile.assignmentsContent.loading')}</p>
+			<div class="loading-skeleton">
+				{#each Array(5) as _, i}
+					<div class="skeleton-card">
+						<div class="skeleton-header">
+							<div class="skeleton-title"></div>
+							<div class="skeleton-badge"></div>
+						</div>
+						<div class="skeleton-text"></div>
+						<div class="skeleton-text short"></div>
+						<div class="skeleton-details">
+							<div class="skeleton-detail"></div>
+							<div class="skeleton-detail"></div>
+						</div>
+					</div>
+				{/each}
 			</div>
 		{:else if filteredAssignments.length === 0}
 			<div class="empty-state">
@@ -745,6 +766,40 @@
 	}
 
 	/* Filters */
+	.floating-filter-btn {
+		position: fixed;
+		bottom: 6rem;
+		right: 1.5rem;
+		background: #4F46E5;
+		color: white;
+		border: none;
+		border-radius: 24px;
+		padding: 0.75rem 1.25rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+		cursor: pointer;
+		z-index: 50;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		transition: all 0.3s ease;
+	}
+
+	.floating-filter-btn:hover {
+		background: #4338CA;
+		box-shadow: 0 6px 16px rgba(79, 70, 229, 0.5);
+		transform: translateY(-2px);
+	}
+
+	.floating-filter-btn.active {
+		background: #DC2626;
+	}
+
+	.floating-filter-btn.active:hover {
+		background: #B91C1C;
+	}
+
 	.filters-section {
 		background: white;
 		border-bottom: 1px solid #E5E7EB;
@@ -785,6 +840,35 @@
 		background-position: left 0.75rem center;
 	}
 
+	/* Show Completed Toggle */
+	.toggle-section {
+		margin: 0.8rem 0;
+		padding: 0.6rem 0.8rem;
+		background: #F9FAFB;
+		border-radius: 8px;
+	}
+
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.toggle-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #3B82F6;
+	}
+
+	.toggle-text {
+		font-size: 0.8rem;
+		color: #374151;
+		font-weight: 500;
+	}
+
 	.clear-filters-btn {
 		width: 100%;
 		padding: 0.75rem;
@@ -813,14 +897,75 @@
 		color: #6B7280;
 	}
 
-	.loading-spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #E5E7EB;
-		border-top: 3px solid #4F46E5;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
+	/* Skeleton Loading */
+	.loading-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.skeleton-card {
+		background: white;
+		border: 1px solid #E5E7EB;
+		border-radius: 12px;
+		padding: 1rem;
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	.skeleton-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+		gap: 1rem;
+	}
+
+	.skeleton-title {
+		height: 1.25rem;
+		width: 60%;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-badge {
+		height: 1.5rem;
+		width: 4rem;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-text {
+		height: 0.875rem;
+		width: 100%;
+		background: #E5E7EB;
+		border-radius: 4px;
+		margin-bottom: 0.5rem;
+	}
+
+	.skeleton-text.short {
+		width: 70%;
+	}
+
+	.skeleton-details {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.skeleton-detail {
+		height: 2rem;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.5;
+		}
 	}
 
 	.empty-state svg {
