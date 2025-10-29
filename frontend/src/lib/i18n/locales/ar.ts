@@ -52,13 +52,14 @@ export const arabicLocale: LocaleData = {
 		},
 
 		// Mobile page titles
-		mobile: {
-			dashboard: 'لوحة التحكم',
-			tasks: 'المهام',
-			notifications: 'الإشعارات',
-			assignments: 'التكليفات',
-			quickTask: 'مهمة سريعة',
-			assignTasks: 'تعيين المهام',
+	mobile: {
+		dashboard: 'لوحة التحكم',
+		tasks: 'المهام',
+		notifications: 'الإشعارات',
+		assignments: 'التكليفات',
+		approvals: 'الموافقات',
+		quickTask: 'مهمة سريعة',
+		assignTasks: 'تعيين المهام',
 			createTask: 'إنشاء مهمة',
 			completeTask: 'إكمال المهمة',
 			taskDetails: 'تفاصيل المهمة',
@@ -384,8 +385,12 @@ export const arabicLocale: LocaleData = {
 				},
 				// Success Messages
 				success: {
-					taskCreated: 'تم إنشاء المهمة بنجاح!'
-				}
+					taskCreated: 'تم إنشاء المهمة بنجاح!',
+					gotIt: 'حسناً!'
+				},
+				// Labels
+				issueTypeLabel: 'المهمة',
+				filesLabel: 'الملفات'
 			},
 
 			// Assignments Content
@@ -795,6 +800,15 @@ export const arabicLocale: LocaleData = {
 			noHistory: 'لا يوجد تاريخ متوفر',
 			tryAgain: 'حاول مرة أخرى',
 			getStarted: 'ابدأ بإضافة العنصر الأول'
+		},
+
+		// Approvals
+		approvals: {
+			pending: 'قيد الانتظار',
+			approved: 'موافق عليه',
+			rejected: 'مرفوض',
+			total: 'الإجمالي',
+			noRequisitions: 'لم يتم العثور على طلبات'
 		}
 	}
 };

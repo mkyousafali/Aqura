@@ -10,8 +10,9 @@
 	let filteredTasks = [];
 	let isLoading = true;
 	let searchTerm = '';
-	let filterStatus = 'all';
+	let filterStatus = 'active'; // Changed from 'all' to 'active' to hide completed by default
 	let filterPriority = 'all';
+	let showCompleted = false; // Toggle for showing/hiding completed tasks
 
 	// User cache for displaying usernames and employee names
 	let userCache = {};
@@ -181,61 +182,101 @@
 
 	async function loadTasks() {
 		try {
-			// Load regular task assignments - include tasks assigned TO user OR assigned BY user to themselves
-			const { data: taskAssignments, error } = await supabase
-				.from('task_assignments')
-				.select(`
-					*,
-					task:tasks!inner(
-						id,
-						title,
-						description,
-						priority,
-						due_date,
-						due_time,
-						status,
-						created_at,
-						created_by,
-						created_by_name,
-						require_task_finished,
-						require_photo_upload,
-						require_erp_reference
-					)
-				`)
-				.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
-				.order('assigned_at', { ascending: false });
+			// Parallel loading for better performance
+			const [taskAssignmentsResult, quickTaskAssignmentsResult] = await Promise.all([
+				// Load regular task assignments with joins
+				supabase
+					.from('task_assignments')
+					.select(`
+						*,
+						task:tasks!inner(
+							id,
+							title,
+							description,
+							priority,
+							due_date,
+							due_time,
+							status,
+							created_at,
+							created_by,
+							created_by_name,
+							require_task_finished,
+							require_photo_upload,
+							require_erp_reference
+						)
+					`)
+					.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
+					.order('assigned_at', { ascending: false }),
 
-			if (error) throw error;
+				// Load quick task assignments with joins
+				supabase
+					.from('quick_task_assignments')
+					.select(`
+						*,
+						quick_task:quick_tasks!inner(
+							id,
+							title,
+							description,
+							priority,
+							deadline_datetime,
+							status,
+							created_at,
+							assigned_by
+						)
+					`)
+					.eq('assigned_to_user_id', currentUserData.id)
+					.order('created_at', { ascending: false })
+			]);
 
-			// Load quick task assignments - ALL tasks assigned TO user (including self-assigned)
-			const { data: quickTaskAssignments, error: quickError } = await supabase
-				.from('quick_task_assignments')
-				.select(`
-					*,
-					quick_task:quick_tasks!inner(
-						id,
-						title,
-						description,
-						priority,
-						deadline_datetime,
-						status,
-						created_at,
-						assigned_by
-					)
-				`)
-				.eq('assigned_to_user_id', currentUserData.id)
-				.order('created_at', { ascending: false });
+			if (taskAssignmentsResult.error) throw taskAssignmentsResult.error;
+			if (quickTaskAssignmentsResult.error) throw quickTaskAssignmentsResult.error;
 
-			if (quickError) throw quickError;
+			const taskAssignments = taskAssignmentsResult.data || [];
+			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
 
-			// Process regular tasks and load attachments
-			const processedTasks = [];
-			for (const assignment of taskAssignments) {
-				// Load task attachments
-				const attachmentResult = await db.taskAttachments.getByTaskId(assignment.task.id);
-				const hasAttachments = attachmentResult.data && attachmentResult.data.length > 0;
-				
-				const processedTask = {
+			// Get all task IDs for batch loading attachments
+			const regularTaskIds = taskAssignments.map(a => a.task.id);
+			const quickTaskIds = quickTaskAssignments.map(a => a.quick_task.id);
+
+			// Batch load all attachments in parallel
+			const [regularAttachments, quickAttachments] = await Promise.all([
+				regularTaskIds.length > 0 
+					? supabase
+						.from('task_images')
+						.select('*')
+						.in('task_id', regularTaskIds)
+					: Promise.resolve({ data: [] }),
+				quickTaskIds.length > 0
+					? supabase
+						.from('quick_task_files')
+						.select('*')
+						.in('quick_task_id', quickTaskIds)
+					: Promise.resolve({ data: [] })
+			]);
+
+			// Create attachment maps for quick lookup
+			const regularAttachmentsMap = new Map();
+			(regularAttachments.data || []).forEach(att => {
+				if (!regularAttachmentsMap.has(att.task_id)) {
+					regularAttachmentsMap.set(att.task_id, []);
+				}
+				regularAttachmentsMap.get(att.task_id).push(att);
+			});
+
+			const quickAttachmentsMap = new Map();
+			(quickAttachments.data || []).forEach(att => {
+				if (att.is_deleted !== true) { // Filter out deleted files
+					if (!quickAttachmentsMap.has(att.quick_task_id)) {
+						quickAttachmentsMap.set(att.quick_task_id, []);
+					}
+					quickAttachmentsMap.get(att.quick_task_id).push(att);
+				}
+			});
+
+			// Process regular tasks
+			const processedTasks = taskAssignments.map(assignment => {
+				const attachments = regularAttachmentsMap.get(assignment.task.id) || [];
+				return {
 					...assignment.task,
 					assignment_id: assignment.id,
 					assignment_status: assignment.status,
@@ -244,63 +285,45 @@
 					deadline_time: assignment.deadline_time,
 					assigned_by: assignment.assigned_by,
 					assigned_by_name: assignment.assigned_by_name,
-					// Include requirement flags from assignment
 					require_task_finished: assignment.require_task_finished ?? true,
 					require_photo_upload: assignment.require_photo_upload ?? false,
 					require_erp_reference: assignment.require_erp_reference ?? false,
-					// Add attachment information
-					hasAttachments: hasAttachments,
-					attachments: attachmentResult.data || [],
-					// Mark as regular task
+					hasAttachments: attachments.length > 0,
+					attachments: attachments,
 					task_type: 'regular'
 				};
-				
-				processedTasks.push(processedTask);
-			}
+			});
 
-			// Process quick tasks (load attachments for quick tasks)
-			for (const assignment of quickTaskAssignments) {
-				// Load quick task attachments
-				const { data: quickTaskFiles, error: filesError } = await supabase
-					.from('quick_task_files')
-					.select('*')
-					.eq('quick_task_id', assignment.quick_task.id);
-
-				if (filesError) {
-					console.warn('Error loading quick task files:', filesError);
-				}
-
-				// Filter out deleted files in JavaScript if the column exists
-				const activeFiles = quickTaskFiles?.filter(file => file.is_deleted !== true) || [];
-				const hasAttachments = activeFiles && activeFiles.length > 0;
-				
-				const processedQuickTask = {
+			// Process quick tasks
+			const processedQuickTasks = quickTaskAssignments.map(assignment => {
+				const attachments = quickAttachmentsMap.get(assignment.quick_task.id) || [];
+				return {
 					...assignment.quick_task,
 					assignment_id: assignment.id,
 					assignment_status: assignment.status,
-					assigned_at: assignment.created_at, // Use created_at from quick_task_assignments
-					deadline_date: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[0] : null,
-					deadline_time: assignment.quick_task.deadline_datetime ? assignment.quick_task.deadline_datetime.split('T')[1]?.substring(0, 5) : null,
-					assigned_by: assignment.quick_task.assigned_by, // Get from quick_task
-					assigned_by_name: 'Quick Task Creator', // Default since we don't have this info
-					created_by: assignment.quick_task.assigned_by, // Use assigned_by as created_by for quick tasks
-					created_by_name: 'Quick Task Creator', // Default since we don't have this info
-					// Quick tasks have simplified requirements
+					assigned_at: assignment.created_at,
+					deadline_date: assignment.quick_task.deadline_datetime 
+						? assignment.quick_task.deadline_datetime.split('T')[0] 
+						: null,
+					deadline_time: assignment.quick_task.deadline_datetime 
+						? assignment.quick_task.deadline_datetime.split('T')[1]?.substring(0, 5) 
+						: null,
+					assigned_by: assignment.quick_task.assigned_by,
+					assigned_by_name: 'Quick Task Creator',
+					created_by: assignment.quick_task.assigned_by,
+					created_by_name: 'Quick Task Creator',
 					require_task_finished: true,
 					require_photo_upload: false,
 					require_erp_reference: false,
-					// Add attachment information
-					hasAttachments: hasAttachments,
-					attachments: activeFiles || [],
-					// Mark as quick task
+					hasAttachments: attachments.length > 0,
+					attachments: attachments,
 					task_type: 'quick'
 				};
-				
-				processedTasks.push(processedQuickTask);
-			}
+			});
 
-			// Sort all tasks by assigned_at date (most recent first)
-			tasks = processedTasks.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+			// Combine and sort all tasks
+			tasks = [...processedTasks, ...processedQuickTasks]
+				.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
 			
 			// Load user cache after loading tasks
 			await loadUserCache();
@@ -313,6 +336,11 @@
 
 	function filterTasks() {
 		filteredTasks = tasks.filter(task => {
+			// Hide completed tasks unless showCompleted is true
+			if (!showCompleted && task.assignment_status === 'completed') {
+				return false;
+			}
+
 			// Safe search - handle null/undefined values
 			const title = task.title || '';
 			const description = task.description || '';
@@ -320,7 +348,14 @@
 				title.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				description.toLowerCase().includes(searchTerm.toLowerCase());
 			
-			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
+			// Update status filter to handle 'active' option
+			let matchesStatus = true;
+			if (filterStatus === 'active') {
+				matchesStatus = task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled';
+			} else if (filterStatus !== 'all') {
+				matchesStatus = task.assignment_status === filterStatus;
+			}
+			
 			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
 			
 			return matchesSearch && matchesStatus && matchesPriority;
@@ -518,7 +553,7 @@
 	}
 
 	// Reactive filtering - trigger when search term or filters change
-	$: searchTerm, filterStatus, filterPriority, filterTasks();
+	$: searchTerm, filterStatus, filterPriority, showCompleted, filterTasks();
 </script>
 
 <svelte:head>
@@ -556,6 +591,7 @@
 
 		<div class="filter-chips">
 			<select bind:value={filterStatus} class="filter-select">
+				<option value="active">Active Tasks</option>
 				<option value="all">{getTranslation('mobile.tasksContent.filters.allStatus')}</option>
 				<option value="pending">{getTranslation('mobile.tasksContent.filters.pending')}</option>
 				<option value="in_progress">{getTranslation('mobile.tasksContent.filters.inProgress')}</option>
@@ -571,6 +607,14 @@
 			</select>
 		</div>
 
+		<!-- Show Completed Toggle -->
+		<div class="toggle-section">
+			<label class="toggle-label">
+				<input type="checkbox" bind:checked={showCompleted} class="toggle-checkbox" />
+				<span class="toggle-text">Show completed tasks</span>
+			</label>
+		</div>
+
 		<div class="results-count">
 			{filteredTasks.length} {filteredTasks.length !== 1 ? getTranslation('mobile.tasksContent.results.tasksFound') : getTranslation('mobile.tasksContent.results.taskFound')}
 		</div>
@@ -579,9 +623,28 @@
 	<!-- Content -->
 	<div class="content-section">
 		{#if isLoading}
-			<div class="loading-state">
-				<div class="loading-spinner"></div>
-				<p>{getTranslation('mobile.tasksContent.loading')}</p>
+			<div class="loading-skeleton">
+				{#each Array(4) as _, i}
+					<div class="skeleton-card">
+						<div class="skeleton-header">
+							<div class="skeleton-title"></div>
+							<div class="skeleton-badges">
+								<div class="skeleton-badge"></div>
+								<div class="skeleton-badge"></div>
+							</div>
+						</div>
+						<div class="skeleton-text"></div>
+						<div class="skeleton-text short"></div>
+						<div class="skeleton-details">
+							<div class="skeleton-detail"></div>
+							<div class="skeleton-detail"></div>
+						</div>
+						<div class="skeleton-actions">
+							<div class="skeleton-button"></div>
+							<div class="skeleton-button"></div>
+						</div>
+					</div>
+				{/each}
 			</div>
 		{:else if filteredTasks.length === 0}
 			<div class="empty-state">
@@ -910,6 +973,35 @@
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
+	/* Show Completed Toggle */
+	.toggle-section {
+		margin: 0.8rem 0;
+		padding: 0.6rem 0.8rem;
+		background: #F9FAFB;
+		border-radius: 8px;
+	}
+
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.toggle-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #3B82F6;
+	}
+
+	.toggle-text {
+		font-size: 0.8rem;
+		color: #374151;
+		font-weight: 500;
+	}
+
 	.results-count {
 		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
@@ -923,6 +1015,94 @@
 	}
 
 	/* Loading State */
+	.loading-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.skeleton-card {
+		background: white;
+		border-radius: 16px;
+		padding: 1rem;
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	.skeleton-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
+	.skeleton-title {
+		height: 1.25rem;
+		width: 60%;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-badges {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.skeleton-badge {
+		height: 1.5rem;
+		width: 4rem;
+		background: #E5E7EB;
+		border-radius: 6px;
+	}
+
+	.skeleton-text {
+		height: 0.875rem;
+		width: 100%;
+		background: #E5E7EB;
+		border-radius: 4px;
+		margin-bottom: 0.5rem;
+	}
+
+	.skeleton-text.short {
+		width: 75%;
+	}
+
+	.skeleton-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin: 1rem 0;
+	}
+
+	.skeleton-detail {
+		height: 1rem;
+		width: 50%;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-actions {
+		display: flex;
+		gap: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #F3F4F6;
+	}
+
+	.skeleton-button {
+		flex: 1;
+		height: 2.5rem;
+		background: #E5E7EB;
+		border-radius: 10px;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.5;
+		}
+	}
+
 	.loading-state {
 		display: flex;
 		flex-direction: column;
@@ -931,22 +1111,6 @@
 		padding: 4rem 2rem;
 		text-align: center;
 		color: #6B7280;
-	}
-
-	.loading-spinner {
-		width: 32px;
-		height: 32px;
-		border: 3px solid #E5E7EB;
-		border-top: 3px solid #3B82F6;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 1rem;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 
 	/* Empty State */

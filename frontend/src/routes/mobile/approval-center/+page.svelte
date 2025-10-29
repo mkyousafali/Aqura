@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { goto } from '$app/navigation';
+	import { getTranslation } from '$lib/i18n';
 
 	let loading = true;
 	let requisitions = [];
@@ -329,11 +330,6 @@
 </script>
 
 <div class="mobile-approval-center">
-	<div class="page-header">
-		<h1>✅ Approval Center</h1>
-		<p>Review and approve expense requests</p>
-	</div>
-
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>
@@ -344,61 +340,29 @@
 		<div class="stats-grid">
 			<div class="stat-card pending" on:click={() => filterByStatus('pending')}>
 				<div class="stat-value">{stats.pending}</div>
-				<div class="stat-label">⏳ Pending</div>
+				<div class="stat-label">⏳ {getTranslation('approvals.pending')}</div>
 			</div>
 			<div class="stat-card approved" on:click={() => filterByStatus('approved')}>
 				<div class="stat-value">{stats.approved}</div>
-				<div class="stat-label">✅ Approved</div>
+				<div class="stat-label">✅ {getTranslation('approvals.approved')}</div>
 			</div>
 			<div class="stat-card rejected" on:click={() => filterByStatus('rejected')}>
 				<div class="stat-value">{stats.rejected}</div>
-				<div class="stat-label">❌ Rejected</div>
+				<div class="stat-label">❌ {getTranslation('approvals.rejected')}</div>
 			</div>
 			<div class="stat-card total" on:click={() => filterByStatus('all')}>
 				<div class="stat-value">{stats.total}</div>
-				<div class="stat-label">📊 Total</div>
+				<div class="stat-label">📊 {getTranslation('approvals.total')}</div>
 			</div>
-		</div>
-
-		<!-- Filter Tabs -->
-		<div class="filter-tabs">
-			<button 
-				class="tab" 
-				class:active={selectedStatus === 'pending'} 
-				on:click={() => filterByStatus('pending')}
-			>
-				Pending ({stats.pending})
-			</button>
-			<button 
-				class="tab" 
-				class:active={selectedStatus === 'approved'} 
-				on:click={() => filterByStatus('approved')}
-			>
-				Approved ({stats.approved})
-			</button>
-			<button 
-				class="tab" 
-				class:active={selectedStatus === 'rejected'} 
-				on:click={() => filterByStatus('rejected')}
-			>
-				Rejected ({stats.rejected})
-			</button>
-			<button 
-				class="tab" 
-				class:active={selectedStatus === 'all'} 
-				on:click={() => filterByStatus('all')}
-			>
-				All ({stats.total})
-			</button>
 		</div>
 
 		<!-- Requisitions List -->
 		<div class="requisitions-list">
-			{#if filteredRequisitions.length === 0}
-				<div class="empty-state">
-					<div class="empty-icon">📋</div>
-					<p>No requisitions found</p>
-				</div>
+		{#if filteredRequisitions.length === 0}
+			<div class="empty-state">
+				<div class="empty-icon">📋</div>
+				<p>{getTranslation('approvals.noRequisitions')}</p>
+			</div>
 			{:else}
 				{#each filteredRequisitions as req}
 					<div class="req-card" on:click={() => openDetail(req)}>
@@ -639,22 +603,6 @@
 		padding-bottom: 5rem;
 	}
 
-	.page-header {
-		margin-bottom: 1.5rem;
-	}
-
-	.page-header h1 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #1F2937;
-		margin-bottom: 0.25rem;
-	}
-
-	.page-header p {
-		color: #6B7280;
-		font-size: 0.875rem;
-	}
-
 	.loading {
 		display: flex;
 		flex-direction: column;
@@ -716,33 +664,6 @@
 	.stat-card.approved .stat-value { color: #10B981; }
 	.stat-card.rejected .stat-value { color: #EF4444; }
 	.stat-card.total .stat-value { color: #3B82F6; }
-
-	.filter-tabs {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
-		overflow-x: auto;
-		padding-bottom: 0.5rem;
-	}
-
-	.tab {
-		padding: 0.5rem 1rem;
-		border-radius: 20px;
-		border: 1px solid #E5E7EB;
-		background: white;
-		color: #6B7280;
-		font-size: 0.875rem;
-		font-weight: 500;
-		white-space: nowrap;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.tab.active {
-		background: #3B82F6;
-		color: white;
-		border-color: #3B82F6;
-	}
 
 	.requisitions-list {
 		display: flex;

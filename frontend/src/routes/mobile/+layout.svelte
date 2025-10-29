@@ -120,35 +120,66 @@
 		if (!currentUserData) return;
 
 		try {
-			// Load incomplete task count (tasks assigned TO the user)
-			// Include both regular tasks and quick tasks
-			const { data: myTasks, error: taskError } = await supabase
-				.from('task_assignments')
-				.select('id, status')
-				.eq('assigned_to_user_id', currentUserData.id);
+			// Parallel loading for better performance
+			const [tasksResult, quickTasksResult, userDataResult] = await Promise.all([
+				// Load incomplete regular task count
+				supabase
+					.from('task_assignments')
+					.select('id, status', { count: 'exact', head: true })
+					.eq('assigned_to_user_id', currentUserData.id)
+					.neq('status', 'completed')
+					.neq('status', 'cancelled'),
 
-			const { data: myQuickTasks, error: quickTaskError } = await supabase
-				.from('quick_task_assignments')
-				.select('id, status')
-				.eq('assigned_to_user_id', currentUserData.id);
+				// Load incomplete quick task count
+				supabase
+					.from('quick_task_assignments')
+					.select('id, status', { count: 'exact', head: true })
+					.eq('assigned_to_user_id', currentUserData.id)
+					.neq('status', 'completed')
+					.neq('status', 'cancelled'),
 
-			let taskCounter = 0;
-			
-			// Count non-completed regular tasks
-			if (!taskError && myTasks) {
-				taskCounter += myTasks.filter(t => 
-					t.status !== 'completed' && t.status !== 'cancelled'
-				).length;
+				// Load user data with permissions
+				supabase
+					.from('users')
+					.select('can_approve_payments')
+					.eq('id', currentUserData.id)
+					.single()
+			]);
+
+			// Set task count
+			taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0);
+
+			// Handle approval permissions and counts
+			if (!userDataResult.error && userDataResult.data) {
+				hasApprovalPermission = userDataResult.data.can_approve_payments || false;
+				
+				if (hasApprovalPermission) {
+					// Parallel load approval counts
+					const twoDaysFromNow = new Date();
+					twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+					const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+
+					const [reqResult, scheduleResult] = await Promise.all([
+						supabaseAdmin
+							.from('expense_requisitions')
+							.select('*', { count: 'exact', head: true })
+							.eq('approver_id', currentUserData.id)
+							.eq('status', 'pending'),
+
+						supabaseAdmin
+							.from('non_approved_payment_scheduler')
+							.select('*', { count: 'exact', head: true })
+							.eq('approver_id', currentUserData.id)
+							.eq('approval_status', 'pending')
+							.eq('schedule_type', 'single_bill')
+							.lte('due_date', twoDaysDate)
+					]);
+
+					approvalCount = (reqResult.count || 0) + (scheduleResult.count || 0);
+				} else {
+					approvalCount = 0;
+				}
 			}
-			
-			// Count non-completed quick tasks  
-			if (!quickTaskError && myQuickTasks) {
-				taskCounter += myQuickTasks.filter(t => 
-					t.status !== 'completed' && t.status !== 'cancelled'
-				).length;
-			}
-			
-			taskCount = taskCounter;
 
 		} catch (error) {
 			if (!silent) {
@@ -156,70 +187,36 @@
 			}
 		}
 
-		// Check if user has approval permissions
+		// Load unread notification count and assignment counts in parallel
 		try {
-			const { data: userData, error: userError } = await supabase
-				.from('users')
-				.select('can_approve_payments')
-				.eq('id', currentUserData.id)
-				.single();
-
-			if (!userError && userData) {
-				hasApprovalPermission = userData.can_approve_payments || false;
+			const [notificationsResult, assignmentsResult, quickAssignmentsResult] = await Promise.all([
+				notificationManagement.getUserNotifications(currentUserData.id),
 				
-				// If user has approval permission, load pending approvals count
-				if (hasApprovalPermission) {
-					try {
-						// Count pending expense requisitions for this approver
-						const { count: reqCount, error: reqError } = await supabaseAdmin
-							.from('expense_requisitions')
-							.select('*', { count: 'exact', head: true })
-							.eq('approver_id', currentUserData.id)
-							.eq('status', 'pending');
+				// Load incomplete assignment count (tasks assigned BY the user)
+				supabase
+					.from('task_assignments')
+					.select('id', { count: 'exact', head: true })
+					.eq('assigned_by', currentUserData.id)
+					.in('status', ['assigned', 'in_progress', 'pending'])
+					.neq('status', 'completed')
+					.neq('status', 'cancelled'),
+				
+				// Quick task assignments
+				supabase
+					.from('quick_task_assignments')
+					.select(`
+						id,
+						quick_task:quick_tasks!inner(assigned_by)
+					`, { count: 'exact', head: true })
+					.eq('quick_task.assigned_by', currentUserData.id)
+					.in('status', ['assigned', 'in_progress', 'pending'])
+					.neq('status', 'completed')
+					.neq('status', 'cancelled')
+			]);
 
-						// Count pending payment schedules for this approver (within 2 days)
-						const twoDaysFromNow = new Date();
-						twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
-						const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
-
-						const { count: scheduleCount, error: scheduleError } = await supabaseAdmin
-							.from('non_approved_payment_scheduler')
-							.select('*', { count: 'exact', head: true })
-							.eq('approver_id', currentUserData.id)
-							.eq('approval_status', 'pending')
-							.eq('schedule_type', 'single_bill')
-							.lte('due_date', twoDaysDate);
-
-						if (!reqError && !scheduleError) {
-							approvalCount = (reqCount || 0) + (scheduleCount || 0);
-						} else {
-							approvalCount = 0;
-							if (!silent) {
-								if (reqError) console.error('Error loading requisition count:', reqError);
-								if (scheduleError) console.error('Error loading schedule count:', scheduleError);
-							}
-						}
-					} catch (error) {
-						if (!silent) {
-							console.error('Error loading approval count:', error);
-						}
-						approvalCount = 0;
-					}
-				} else {
-					approvalCount = 0;
-				}
-			}
-		} catch (error) {
-			if (!silent) {
-				console.error('Error checking approval permissions:', error);
-			}
-		}
-
-		// Load unread notification count
-		try {
-			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
-			if (userNotifications && userNotifications.length > 0) {
-				const newNotificationCount = userNotifications.filter(n => !n.is_read).length;
+			// Handle notifications
+			if (notificationsResult && notificationsResult.length > 0) {
+				const newNotificationCount = notificationsResult.filter(n => !n.is_read).length;
 				
 				// Check if notification count increased (new notifications)
 				if (newNotificationCount > previousNotificationCount && previousNotificationCount > 0) {
@@ -245,55 +242,25 @@
 				}
 				
 				// Update counts
-				previousNotificationCount = notificationCount; // Store current as previous before updating
+				previousNotificationCount = notificationCount;
 				notificationCount = newNotificationCount;
-				headerNotificationCount = newNotificationCount; // Sync header count
+				headerNotificationCount = newNotificationCount;
 			} else {
-				previousNotificationCount = notificationCount; // Store current as previous
+				previousNotificationCount = notificationCount;
 				notificationCount = 0;
 				headerNotificationCount = 0;
 			}
+
+			// Handle assignment counts
+			assignmentCount = (assignmentsResult.count || 0) + (quickAssignmentsResult.count || 0);
+
 		} catch (error) {
 			if (!silent) {
-				console.error('Error loading notification count:', error);
+				console.error('Error loading notification and assignment counts:', error);
 			}
-			previousNotificationCount = notificationCount; // Store current as previous
+			previousNotificationCount = notificationCount;
 			notificationCount = 0;
 			headerNotificationCount = 0;
-		}
-		
-		// Load incomplete assignment count (tasks assigned BY the user)
-		try {
-			// Include both regular task assignments and quick task assignments
-			const { data: myAssignments, error: assignmentError } = await supabase
-				.from('task_assignments')
-				.select('id')
-				.eq('assigned_by', currentUserData.id)
-				.in('status', ['assigned', 'in_progress']);
-
-			// For quick tasks, we need to check via the quick_tasks table since 
-			// quick_task_assignments doesn't have assigned_by field
-			const { data: myQuickTaskAssignments, error: quickAssignmentError } = await supabase
-				.from('quick_task_assignments')
-				.select(`
-					id,
-					quick_task:quick_tasks!inner(assigned_by)
-				`)
-				.eq('quick_task.assigned_by', currentUserData.id)
-				.in('status', ['assigned', 'in_progress', 'pending']);
-
-			if (!assignmentError && myAssignments && !quickAssignmentError && myQuickTaskAssignments) {
-				assignmentCount = myAssignments.length + myQuickTaskAssignments.length;
-			} else if (!assignmentError && myAssignments) {
-				assignmentCount = myAssignments.length;
-			} else if (!quickAssignmentError && myQuickTaskAssignments) {
-				assignmentCount = myQuickTaskAssignments.length;
-			}
-
-		} catch (error) {
-			if (!silent) {
-				console.error('Error loading badge counts:', error);
-			}
 		}
 		
 		// After the first load, allow sound notifications for future changes
@@ -376,6 +343,7 @@
 		if (path === '/mobile/tasks' || path === '/mobile/tasks/') return getTranslation('mobile.tasks');
 		if (path === '/mobile/notifications' || path === '/mobile/notifications/') return getTranslation('mobile.notifications');
 		if (path === '/mobile/assignments' || path === '/mobile/assignments/') return getTranslation('mobile.assignments');
+		if (path === '/mobile/approval-center' || path === '/mobile/approval-center/') return getTranslation('mobile.approvals');
 		if (path === '/mobile/quick-task' || path === '/mobile/quick-task/') return getTranslation('mobile.quickTask');
 		
 		// Sub-pages
@@ -528,6 +496,10 @@
 						<h1>{pageTitle}</h1>
 						<p>{currentUserData?.name || currentUserData?.username || 'User'}</p>
 					</div>
+				</div>
+				<!-- Version Number -->
+				<div class="version-badge">
+					<span class="version-text">v2.0.0</span>
 				</div>
 				<div class="header-actions">
 					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label={getTranslation('nav.goToDashboard')}>
@@ -778,6 +750,26 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+	}
+
+	/* Version Badge */
+	.version-badge {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		pointer-events: none;
+	}
+
+	.version-text {
+		font-size: 0.7rem;
+		font-weight: 500;
+		opacity: 0.7;
+		color: white;
+		background: rgba(255, 255, 255, 0.1);
+		padding: 0.15rem 0.5rem;
+		border-radius: 12px;
+		backdrop-filter: blur(10px);
+		white-space: nowrap;
 	}
 
 	.user-info {

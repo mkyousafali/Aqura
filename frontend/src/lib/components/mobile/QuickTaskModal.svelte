@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
-	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	const dispatch = createEventDispatcher();
@@ -162,7 +162,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabase
+			const { data: preferences, error } = await supabaseAdmin
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -337,17 +337,15 @@
 				...(setAsDefaultBranch && { default_branch_id: selectedBranch }),
 				...(setAsDefaultUsers && { selected_user_ids: selectedUsers }),
 				...(setAsDefaultSettings && {
-					default_price_tag: priceTag,
-					default_issue_type: issueType,
-					default_priority: priority
-				})
-			};
+			default_price_tag: priceTag,
+			default_issue_type: issueType,
+			default_priority: priority
+		})
+	};
 
-			const { error } = await supabase
-				.from('quick_task_user_preferences')
-				.upsert(defaultsData, { onConflict: 'user_id' });
-
-			if (error) {
+	const { error } = await supabaseAdmin
+		.from('quick_task_user_preferences')
+		.upsert(defaultsData, { onConflict: 'user_id' });			if (error) {
 				console.error('Error saving defaults:', error);
 			} else {
 				console.log('Defaults saved successfully');

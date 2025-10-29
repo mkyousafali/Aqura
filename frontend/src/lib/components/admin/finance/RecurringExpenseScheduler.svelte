@@ -99,6 +99,28 @@
 		{ value: '12', label: 'December - ديسمبر' }
 	];
 
+	// Reactive variable to check if all mandatory fields are filled
+	$: isFormValid = (() => {
+		// Check basic required fields
+		if (!amount || parseFloat(amount) <= 0) return false;
+		if (!description || description.trim() === '') return false;
+		if (!recurringType) return false;
+		
+		// Require approver only if no approved request is selected
+		if (!selectedRequestId && !selectedApproverId) return false;
+		
+		// Validate based on recurring type
+		if (recurringType === 'daily' && !untilDate) return false;
+		if (recurringType === 'weekly' && (!untilDate || !weekday)) return false;
+		if (recurringType === 'monthly_date' && (!monthPosition || !untilMonth)) return false;
+		if (recurringType === 'monthly_day' && (!dayOfMonth || !untilMonth)) return false;
+		if ((recurringType === 'yearly' || recurringType === 'half_yearly' || recurringType === 'quarterly') && 
+			(!recurringMonth || !recurringDay || !untilYear)) return false;
+		if (recurringType === 'custom' && customDates.length === 0) return false;
+		
+		return true;
+	})();
+
 	onMount(async () => {
 		await loadInitialData();
 	});
@@ -319,6 +341,11 @@
 	function validateStep3() {
 		if (!amount || parseFloat(amount) <= 0) {
 			alert('Please enter a valid amount');
+			return false;
+		}
+		
+		if (!description || description.trim() === '') {
+			alert('Please enter a description');
 			return false;
 		}
 		
@@ -902,13 +929,14 @@
 
 			<!-- Description -->
 			<div class="form-group">
-				<label for="description">Description</label>
+				<label for="description">Description *</label>
 				<textarea
 					id="description"
 					class="form-textarea"
 					placeholder="Enter description..."
 					bind:value={description}
 					rows="3"
+					required
 				></textarea>
 			</div>
 
@@ -1214,7 +1242,13 @@
 		{#if currentStep < totalSteps}
 			<button class="btn btn-primary" on:click={nextStep}>Next →</button>
 		{:else}
-			<button class="btn btn-save" on:click={saveRecurringSchedule}>💾 Save Recurring Schedule</button>
+			<button 
+				class="btn btn-save" 
+				on:click={saveRecurringSchedule}
+				disabled={!isFormValid}
+			>
+				💾 Save Recurring Schedule
+			</button>
 		{/if}
 	</div>
 </div>
@@ -1590,9 +1624,15 @@
 		margin-left: auto;
 	}
 
-	.btn-save:hover {
+	.btn-save:hover:not(:disabled) {
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.btn-save:disabled {
+		background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	/* Recurring Options */

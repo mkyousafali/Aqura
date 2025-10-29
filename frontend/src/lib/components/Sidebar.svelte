@@ -1,35 +1,37 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { sidebar } from '$lib/stores/sidebar';
-	import { t, currentLocale } from '$lib/i18n';
-	import { showInstallPrompt, isInstalled, installPWA, initPWAInstall } from '$lib/stores/pwaInstall';
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { currentLocale, t } from '$lib/i18n';
+	import {
+		showInstallPrompt,
+		isInstalled,
+		initPWAInstall,
+		installPWA
+	} from '$lib/stores/pwaInstall';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	
+	// Component imports
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/admin/TaskMaster.svelte';
 	import HRMaster from '$lib/components/admin/HRMaster.svelte';
 	import OperationsMaster from '$lib/components/admin/OperationsMaster.svelte';
 	import VendorMaster from '$lib/components/admin/VendorMaster.svelte';
 	import FinanceMaster from '$lib/components/admin/FinanceMaster.svelte';
+	import ApprovalCenter from '$lib/components/admin/finance/ApprovalCenter.svelte';
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
-	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import Settings from '$lib/components/admin/Settings.svelte';
+	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
-	import ApprovalCenter from '$lib/components/admin/finance/ApprovalCenter.svelte';
+	import ExpensesManager from '$lib/components/admin/finance/ExpensesManager.svelte';
 
-	let showMasterSubmenu = false;
 	let showSettingsSubmenu = false;
+	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
-	let submenuTimeout: ReturnType<typeof setTimeout> | null = null;
-	let masterButtonElement: HTMLButtonElement;
-	let settingsButtonElement: HTMLButtonElement;
-	let workButtonElement: HTMLButtonElement;
-	let submenuTop = 0;
-	let workSubmenuTop = 0;
 	let hasApprovalPermission = false;
 	
 	// Version popup state
@@ -328,103 +330,6 @@
 		showMasterSubmenu = false;
 	}
 
-	function handleMasterMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-		// Calculate the position of the submenu
-		if (masterButtonElement) {
-			const rect = masterButtonElement.getBoundingClientRect();
-			submenuTop = rect.top;
-		}
-		showMasterSubmenu = true;
-	}
-
-	function handleMasterMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showMasterSubmenu = false;
-		}, 300);
-	}
-
-	function handleSubmenuMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-	}
-
-	function handleSubmenuMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showMasterSubmenu = false;
-		}, 300);
-	}
-
-	function handleSettingsMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-		// Calculate the position of the submenu
-		if (settingsButtonElement) {
-			const rect = settingsButtonElement.getBoundingClientRect();
-			submenuTop = rect.top;
-		}
-		showSettingsSubmenu = true;
-	}
-
-	function handleSettingsMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showSettingsSubmenu = false;
-		}, 300);
-	}
-
-	function handleSettingsSubmenuMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-	}
-
-	function handleSettingsSubmenuMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showSettingsSubmenu = false;
-		}, 300);
-	}
-
-	// Work submenu functions
-	function handleWorkMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-		// Calculate the position of the submenu
-		if (workButtonElement) {
-			const rect = workButtonElement.getBoundingClientRect();
-			workSubmenuTop = rect.top;
-		}
-		showWorkSubmenu = true;
-	}
-
-	function handleWorkMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showWorkSubmenu = false;
-		}, 300);
-	}
-
-	function handleWorkSubmenuMouseEnter() {
-		if (submenuTimeout) {
-			clearTimeout(submenuTimeout);
-			submenuTimeout = null;
-		}
-	}
-
-	function handleWorkSubmenuMouseLeave() {
-		submenuTimeout = setTimeout(() => {
-			showWorkSubmenu = false;
-		}, 300);
-	}
-
 	// Open Start Receiving window
 	function openStartReceiving() {
 		const windowId = generateWindowId('start-receiving');
@@ -465,6 +370,26 @@
 		});
 	}
 
+	// Open Expense Manager window
+	function openExpenseManager() {
+		const windowId = generateWindowId('expense-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Expenses Manager #${instanceNumber}`,
+			component: ExpensesManager,
+			icon: '�',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 140 + (Math.random() * 100),
+				y: 140 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Show version popup with update information
 	function showVersionInfo() {
 		showVersionPopup = true;
@@ -492,30 +417,98 @@
 		<!-- Master Section -->
 		<div class="menu-section">
 			<button 
-				bind:this={masterButtonElement}
-				class="section-button master-button"
-				on:mouseenter={handleMasterMouseEnter}
-				on:mouseleave={handleMasterMouseLeave}
+				class="section-button"
+				on:click={() => showMasterSubmenu = !showMasterSubmenu}
 			>
 				<span class="section-icon">📁</span>
 				<span class="section-text">{t('nav.master') || 'Master'}</span>
-				<span class="arrow">▶</span>
+				<span class="arrow" class:expanded={showMasterSubmenu}>▼</span>
 			</button>
 		</div>
+
+		<!-- Master Submenu - Inline below Master button -->
+		{#if showMasterSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openBranches}>
+						<span class="menu-icon">🏢</span>
+						<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openVendorMaster}>
+						<span class="menu-icon">🏪</span>
+						<span class="menu-text">Vendor Master</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openFinanceMaster}>
+						<span class="menu-icon">💰</span>
+						<span class="menu-text">Finance Master</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openHRMaster}>
+						<span class="menu-icon">👥</span>
+						<span class="menu-text">HR Master</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openOperationsMaster}>
+						<span class="menu-icon">⚙️</span>
+						<span class="menu-text">Operations Master</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openTaskMaster}>
+						<span class="menu-icon">✅</span>
+						<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCommunicationCenter}>
+						<span class="menu-icon">📞</span>
+						<span class="menu-text">Com Center</span>
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		<!-- Work Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
-				bind:this={workButtonElement}
-				on:mouseenter={handleWorkMouseEnter}
-				on:mouseleave={handleWorkMouseLeave}
+				on:click={() => showWorkSubmenu = !showWorkSubmenu}
 			>
 				<span class="section-icon">💼</span>
 				<span class="section-text">{t('nav.work') || 'Work'}</span>
-				<span class="submenu-arrow">▶</span>
+				<span class="arrow" class:expanded={showWorkSubmenu}>▼</span>
 			</button>
 		</div>
+
+		<!-- Work Submenu - Inline below Work button -->
+		{#if showWorkSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openStartReceiving}>
+						<span class="menu-icon">📦</span>
+						<span class="menu-text">Start Receiving</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openScheduledPayments}>
+						<span class="menu-icon">💰</span>
+						<span class="menu-text">Scheduled Payments</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openExpenseManager}>
+						<span class="menu-icon">💸</span>
+						<span class="menu-text">Expense Manager</span>
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		<!-- Reports Section -->
 		<div class="menu-section">
@@ -542,16 +535,32 @@
 		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
-				bind:this={settingsButtonElement}
-				class="section-button master-button"
-				on:mouseenter={handleSettingsMouseEnter}
-				on:mouseleave={handleSettingsMouseLeave}
+				class="section-button"
+				on:click={() => showSettingsSubmenu = !showSettingsSubmenu}
 			>
 				<span class="section-icon">⚙️</span>
 				<span class="section-text">{t('nav.settings') || 'Settings'}</span>
-				<span class="arrow">▶</span>
+				<span class="arrow" class:expanded={showSettingsSubmenu}>▼</span>
 			</button>
 		</div>
+
+		<!-- Settings Submenu - Inline below Settings button -->
+		{#if showSettingsSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openSettings}>
+						<span class="menu-icon">🔊</span>
+						<span class="menu-text">Sound Settings</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openUserManagement}>
+						<span class="menu-icon">👤</span>
+						<span class="menu-text">Users</span>
+					</button>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Sidebar Footer with PWA Install Button -->
@@ -590,89 +599,6 @@
 	</div>
 </div>
 
-<!-- Master Submenu - positioned outside sidebar to overlay on top -->
-{#if showMasterSubmenu}
-	<div 
-		role="menu"
-		tabindex="-1"
-		class="submenu"
-		style="top: {submenuTop}px;"
-		on:mouseenter={handleSubmenuMouseEnter}
-		on:mouseleave={handleSubmenuMouseLeave}
-	>
-		<button class="submenu-item" on:click={openBranches}>
-			<span class="menu-icon">🏢</span>
-			<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-		</button>
-		<button class="submenu-item" on:click={openVendorMaster}>
-			<span class="menu-icon">🏪</span>
-			<span class="menu-text">Vendor Master</span>
-		</button>
-		<button class="submenu-item" on:click={openFinanceMaster}>
-			<span class="menu-icon">💰</span>
-			<span class="menu-text">Finance Master</span>
-		</button>
-		<button class="submenu-item" on:click={openHRMaster}>
-			<span class="menu-icon">👥</span>
-			<span class="menu-text">HR Master</span>
-		</button>
-		<button class="submenu-item" on:click={openOperationsMaster}>
-			<span class="menu-icon">⚙️</span>
-			<span class="menu-text">Operations Master</span>
-		</button>
-		<button class="submenu-item" on:click={openTaskMaster}>
-			<span class="menu-icon">📋</span>
-			<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
-		</button>
-		<button class="submenu-item" on:click={openCommunicationCenter}>
-			<span class="menu-icon">📞</span>
-			<span class="menu-text">Communication Center</span>
-		</button>
-	</div>
-{/if}
-
-<!-- Settings Submenu - positioned outside sidebar to overlay on top -->
-{#if showSettingsSubmenu}
-	<div 
-		role="menu"
-		tabindex="-1"
-		class="submenu"
-		style="top: {submenuTop}px;"
-		on:mouseenter={handleSettingsSubmenuMouseEnter}
-		on:mouseleave={handleSettingsSubmenuMouseLeave}
-	>
-		<button class="submenu-item" on:click={openSettings}>
-			<span class="menu-icon">🔊</span>
-			<span class="menu-text">Sound Settings</span>
-		</button>
-		<button class="submenu-item" on:click={openUserManagement}>
-			<span class="menu-icon">👤</span>
-			<span class="menu-text">User Management</span>
-		</button>
-	</div>
-{/if}
-
-<!-- Work Submenu - positioned outside sidebar to overlay on top -->
-{#if showWorkSubmenu}
-	<div 
-		role="menu"
-		tabindex="-1"
-		class="submenu"
-		style="top: {workSubmenuTop}px;"
-		on:mouseenter={handleWorkSubmenuMouseEnter}
-		on:mouseleave={handleWorkSubmenuMouseLeave}
-	>
-		<button class="submenu-item" on:click={openStartReceiving}>
-			<span class="menu-icon">📦</span>
-			<span class="menu-text">Start Receiving</span>
-		</button>
-		<button class="submenu-item" on:click={openScheduledPayments}>
-			<span class="menu-icon">💰</span>
-			<span class="menu-text">Scheduled Payments</span>
-		</button>
-	</div>
-{/if}
-
 <!-- Version Information Popup -->
 {#if showVersionPopup}
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
@@ -683,7 +609,7 @@
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Recurring Expense Scheduler</h4>
+					<h4>🔄 Recurring Expense Scheduler</h4>
 					<ul>
 						<li><strong>Automated Occurrence Generation:</strong> System creates all future occurrences immediately for daily, weekly, monthly, and custom schedules</li>
 						<li><strong>Individual Approval Workflow:</strong> Each occurrence requires separate approval before payment with 2-day advance notifications</li>
@@ -882,33 +808,8 @@
 		flex-shrink: 0;
 	}
 
-	.master-button:hover .arrow {
-		transform: rotate(90deg);
-	}
-
-	.submenu {
-		position: fixed;
-		left: 140px;
-		top: 0;
-		min-width: 200px;
-		background: linear-gradient(180deg, #374151 0%, #1f2937 100%);
-		border: 1px solid #4b5563;
-		border-radius: 8px;
-		box-shadow: 4px 0 20px rgba(0, 0, 0, 0.4);
-		padding: 8px;
-		z-index: 9999;
-		animation: slideIn 0.2s ease;
-	}
-
-	@keyframes slideIn {
-		from {
-			opacity: 0;
-			transform: translateX(-10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(0);
-		}
+	.arrow.expanded {
+		transform: rotate(180deg);
 	}
 
 	.submenu-item {
@@ -939,11 +840,77 @@
 		margin-bottom: 0;
 	}
 
+	/* Inline submenu below Work button */
+	.submenu-inline {
+		padding: 8px 0 8px 4px;
+		margin-bottom: 8px;
+		background: transparent; /* Changed from rgba(0, 0, 0, 0.2) to transparent */
+		border-radius: 8px;
+		animation: slideDown 0.2s ease;
+	}
+
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			max-height: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			max-height: 200px;
+			transform: translateY(0);
+		}
+	}
+
+	/* Individual container for each submenu button */
+	.submenu-item-container {
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+		margin-bottom: 6px;
+		padding: 2px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	.submenu-item-container:last-child {
+		margin-bottom: 0;
+	}
+
+	.submenu-item-container:hover {
+		background: rgba(255, 255, 255, 0.1);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.submenu-inline .submenu-item {
+		font-size: 12px;
+		padding: 8px 8px 8px 6px; /* Reduced left padding from 10px to 6px */
+		height: auto; /* Changed from 36px to auto to allow wrapping */
+		min-height: 36px; /* Minimum height */
+		width: 100%;
+		background: transparent;
+	}
+
+	.submenu-inline .submenu-item:hover {
+		background: transparent;
+		transform: none;
+	}
+
+	.menu-icon {
+		font-size: 14px;
+		flex-shrink: 0;
+		width: 18px;
+		text-align: center;
+		align-self: flex-start; /* Align icon to top when text wraps */
+		margin-top: 2px;
+	}
+
 	.menu-text {
 		flex: 1;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		white-space: normal; /* Changed from nowrap to normal to allow wrapping */
+		overflow: visible;
+		text-overflow: clip;
+		font-weight: 500;
+		word-wrap: break-word;
+		line-height: 1.3;
 	}
 
 	/* Scrollbar styling */
@@ -1200,3 +1167,6 @@
 		font-weight: 600;
 	}
 </style>
+
+
+
