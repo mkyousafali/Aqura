@@ -13,6 +13,13 @@
 	let showDetailModal = false;
 	let isProcessing = false;
 	let userCanApprove = false; // Track if current user has approval permissions
+	
+	// Reactive: Check if user can approve SELECTED item
+	$: canApproveSelected = selectedRequisition 
+		? (selectedRequisition.item_type === 'payment_schedule' 
+			? selectedRequisition.approver_id === $currentUser?.id 
+			: userCanApprove)
+		: false;
 
 	// Stats
 	let stats = {
@@ -562,26 +569,26 @@
 				{/if}
 
 				{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
-					{#if !userCanApprove}
+					{#if !canApproveSelected}
 						<div class="permission-notice">
-							ℹ️ You do not have permission to approve or reject requisitions.
-							<br><small>Please contact your administrator for approval permissions.</small>
+							ℹ️ You do not have permission to approve or reject this {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'}.
+							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'Only the assigned approver can approve this payment.' : 'Please contact your administrator for approval permissions.'}</small>
 						</div>
 					{/if}
 					<div class="action-buttons">
 						<button 
 							class="btn-approve" 
 							on:click={approveRequisition} 
-							disabled={isProcessing || !userCanApprove}
-							title={!userCanApprove ? 'You need approval permissions' : 'Approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
+							disabled={isProcessing || !canApproveSelected}
+							title={!canApproveSelected ? 'You need approval permissions' : 'Approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
 						>
 							✅ Approve
 						</button>
 						<button 
 							class="btn-reject" 
 							on:click={rejectRequisition} 
-							disabled={isProcessing || !userCanApprove}
-							title={!userCanApprove ? 'You need approval permissions' : 'Reject this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
+							disabled={isProcessing || !canApproveSelected}
+							title={!canApproveSelected ? 'You need approval permissions' : 'Reject this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition')}
 						>
 							❌ Reject
 						</button>

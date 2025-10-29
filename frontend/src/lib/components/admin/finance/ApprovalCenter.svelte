@@ -117,6 +117,8 @@
 			twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
 			const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
 			
+			console.log('🔍 Querying payment schedules for approver:', $currentUser.id);
+			
 			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
 				.from('non_approved_payment_scheduler')
 				.select('*')
@@ -128,6 +130,7 @@
 			if (schedulesError) {
 				console.error('❌ Error loading payment schedules:', schedulesError);
 			} else {
+				console.log('📦 Raw schedules data:', schedulesData);
 				// Filter single_bill by due date, show all multiple_bill
 				paymentSchedules = (schedulesData || []).filter(schedule => {
 					if (schedule.schedule_type === 'multiple_bill') {
@@ -137,6 +140,7 @@
 					return schedule.due_date && schedule.due_date <= twoDaysDate;
 				});
 				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+				console.log('📋 Payment schedules detail:', paymentSchedules);
 			}
 
 			// Load approved payment schedules from expense_scheduler for stats
@@ -826,25 +830,28 @@
 
 		<div class="modal-footer">
 			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
-					{#if !userCanApprove}
+					{@const canApproveThis = selectedRequisition.item_type === 'payment_schedule' 
+						? selectedRequisition.approver_id === $currentUser?.id 
+						: userCanApprove}
+					{#if !canApproveThis}
 						<div class="permission-notice">
-							ℹ️ You do not have permission to approve or reject requisitions.
-							<br><small>Please contact your administrator for approval permissions.</small>
+							ℹ️ You do not have permission to approve or reject this {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'}.
+							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'This schedule is assigned to a different approver.' : 'Please contact your administrator for approval permissions.'}</small>
 						</div>
 					{/if}
 					<button
 						class="btn-approve"
 						on:click={() => approveRequisition(selectedRequisition.id)}
-						disabled={isProcessing || !userCanApprove}
-						title={!userCanApprove ? 'You need approval permissions to approve requisitions' : 'Approve this requisition'}
+						disabled={isProcessing || !canApproveThis}
+						title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
 					>
 						{isProcessing ? '⏳ Processing...' : '✅ Approve'}
 					</button>
 					<button
 						class="btn-reject"
 						on:click={() => rejectRequisition(selectedRequisition.id)}
-						disabled={isProcessing || !userCanApprove}
-						title={!userCanApprove ? 'You need approval permissions to reject requisitions' : 'Reject this requisition'}
+						disabled={isProcessing || !canApproveThis}
+						title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
 					>
 						{isProcessing ? '⏳ Processing...' : '❌ Reject'}
 					</button>
