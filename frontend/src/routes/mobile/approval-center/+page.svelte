@@ -105,8 +105,7 @@
 				.select('*')
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
-				.eq('schedule_type', 'single_bill') // Exclude recurring parent schedules
-				.lte('due_date', twoDaysDate) // Only show occurrences within 2 days
+				.or('schedule_type.eq.multiple_bill,and(schedule_type.eq.single_bill,due_date.lte.' + twoDaysDate + ')') // Include all multiple_bill + single_bill within 2 days
 				.order('due_date', { ascending: true });
 
 			if (schedulesError) {

@@ -39,12 +39,21 @@
 	let dateRangeStart = '';
 	let dateRangeEnd = '';
 
+	// Approver data
+	let approvers = [];
+	let filteredApprovers = [];
+	let selectedApproverId = '';
+	let selectedApproverName = '';
+	let approverSearchQuery = '';
+
 	// Step 3 data - Multiple Bills
 	let numberOfBills = 1;
 	let bills = [];
 	let activeBillIndex = null;
 	let saving = false;
 	let successMessage = '';
+	let allBillsSaved = false;
+	let showWhatsAppButton = false;
 
 	// Payment methods
 	const paymentMethods = [
@@ -97,8 +106,33 @@
 			if (categoriesError) throw categoriesError;
 			categories = categoriesData || [];
 			filteredCategories = categories;
+
+			// Load approvers
+			await loadApprovers();
 		} catch (error) {
 			console.error('Error loading initial data:', error);
+		}
+	}
+
+	async function loadApprovers() {
+		try {
+			const { data, error } = await supabaseAdmin
+				.from('users')
+				.select(`
+					*,
+					hr_employees (
+						name
+					)
+				`)
+				.eq('status', 'active')
+				.eq('can_approve_payments', true)
+				.order('username');
+
+			if (error) throw error;
+			approvers = data || [];
+			filteredApprovers = approvers;
+		} catch (error) {
+			console.error('Error loading approvers:', error);
 		}
 	}
 
@@ -317,7 +351,7 @@
 	}
 
 	function handleNumberOfBillsChange() {
-		const num = parseInt(numberOfBills) || 1;
+		const num = parseInt(String(numberOfBills)) || 1;
 		if (num < 1) {
 			numberOfBills = 1;
 			return;
@@ -331,7 +365,7 @@
 	}
 
 	function initializeBills() {
-		const num = parseInt(numberOfBills) || 1;
+		const num = parseInt(String(numberOfBills)) || 1;
 		const currentBills = [...bills];
 		
 		bills = Array.from({ length: num }, (_, index) => {
@@ -361,7 +395,10 @@
 			iban: '',
 			description: '',
 			saved: false,
-			saving: false
+			saving: false,
+			savedRecordId: null,  // Store DB record ID for later updates
+			approverId: null,  // Each bill has its own approver
+			approverName: ''
 		};
 	}
 
@@ -410,6 +447,12 @@
 
 	async function saveBill(billIndex) {
 		const bill = bills[billIndex];
+
+		// Validate approver if no request selected - use bill's own approver
+		if (!selectedRequestId && !bill.approverId) {
+			alert('Please select an approver for this bill');
+			return;
+		}
 
 		// Validate bill amount including overspending check
 		const validation = validateBillAmount(bill.amount);
@@ -471,16 +514,60 @@
 				description: bill.description || null,
 				bank_name: bill.bankName || null,
 				iban: bill.iban || null,
-				status: 'pending',
-				is_paid: false,
-				schedule_type: 'multiple_bill', // Identifies this as a multiple bill schedule
+				schedule_type: 'multiple_bill',
 				created_by: $currentUser?.id
 			};
 
-			const { data, error } = await supabaseAdmin
-				.from('expense_scheduler')
-				.insert([schedulerData])
-				.select();
+			let data, error;
+
+			// Save to appropriate table based on whether request is selected
+			if (selectedRequestId) {
+				// Has approved request - save directly to expense_scheduler
+				const expenseSchedulerData = {
+					...schedulerData,
+					status: 'pending',
+					is_paid: false
+				};
+				
+				({ data, error } = await supabaseAdmin
+					.from('expense_scheduler')
+					.insert([expenseSchedulerData])
+					.select());
+			} else {
+				// No request - save to non_approved_payment_scheduler WITH this bill's approver
+				// Note: non_approved table doesn't have requisition_id/requisition_number fields
+				const { requisition_id, requisition_number, ...baseData } = schedulerData;
+				
+				const nonApprovedData = {
+					...baseData,
+					approver_id: bill.approverId,
+					approver_name: bill.approverName,
+					approval_status: 'pending'
+				};
+
+				({ data, error} = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.insert([nonApprovedData])
+					.select());
+				
+				// Send individual notification for this bill
+				if (!error && data && data[0]) {
+					try {
+						await notificationService.createNotification({
+							title: 'Payment Schedule Approval Required',
+							message: `A new bill payment schedule requires your approval.\n\nBill ${bill.number} (${bill.billType})\nBranch: ${selectedBranchName}\nCategory: ${selectedCategoryNameEn}\nAmount: ${parseFloat(bill.amount).toFixed(2)} SAR\nC/O User: ${selectedCoUserName}\nSubmitted by: ${$currentUser?.username}`,
+							type: 'approval_request',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [bill.approverId]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log(`✅ Notification sent for Bill ${bill.number} to ${bill.approverName}`);
+					} catch (notifError) {
+						console.error(`⚠️ Failed to send notification for Bill ${bill.number}:`, notifError);
+						// Don't fail the whole operation if notification fails
+					}
+				}
+			}
 
 			if (error) throw error;
 
@@ -490,9 +577,20 @@
 			bills = [...bills];
 
 			successMessage = `Bill ${bill.number} saved successfully!`;
+			
+			// Check if all bills are saved
+			const allSaved = bills.every(b => b.saved);
+			if (allSaved) {
+				// All bills saved - show WhatsApp button
+				allBillsSaved = true;
+				showWhatsAppButton = true;
+			}
+			
 			setTimeout(() => {
 				successMessage = '';
-				closeBillEditor();
+				if (!allBillsSaved) {
+					closeBillEditor();
+				}
 			}, 2000);
 
 		} catch (error) {
@@ -501,6 +599,115 @@
 			bills = [...bills];
 			alert(`Error saving bill ${bill.number}: ${error.message}`);
 		}
+	}
+
+	async function shareToWhatsApp() {
+		try {
+			// Format date
+			const formattedDate = new Date().toLocaleDateString('en-US', { 
+				year: 'numeric', 
+				month: 'long', 
+				day: 'numeric' 
+			});
+			
+			// Get unique approvers from saved bills
+			const uniqueApprovers = [...new Set(bills.filter(b => b.saved && b.approverName).map(b => b.approverName))];
+			const approversList = uniqueApprovers.join(', ');
+			
+			// Build bilingual message - Arabic First
+			let message = `*━━━━━━━━━━━━━━━━*\n`;
+			message += `*جدولة فواتير متعددة | MULTIPLE BILLS SCHEDULE*\n`;
+			message += `*━━━━━━━━━━━━━━━━*\n\n`;
+			
+			message += `⚠️ *تم الإنشاء تلقائياً - يرجى الموافقة من مركز الموافقات*\n`;
+			message += `⚠️ *Auto-generated - Please approve from Approval Center*\n\n`;
+			
+			// Approver(s)
+			message += `*✅ المعتمد | Approver${uniqueApprovers.length > 1 ? 's' : ''}:*\n`;
+			message += `${approversList}\n\n`;
+			
+			message += `*━━━━━━━━━━━━━━━━*\n\n`;
+			
+			// Date
+			message += `*📅 التاريخ | Date:*\n`;
+			message += `${formattedDate}\n\n`;
+			
+			// Branch
+			message += `*🏢 الفرع | Branch:*\n`;
+			message += `${selectedBranchName}\n\n`;
+			
+			// Total Amount
+			message += `*💰 المبلغ الإجمالي | Total Amount:*\n`;
+			message += `${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\n\n`;
+			
+			// Number of Bills
+			message += `*📋 عدد الفواتير | Number of Bills:*\n`;
+			message += `${numberOfBills}\n\n`;
+			
+			// Category
+			message += `*📂 الفئة | Category:*\n`;
+			message += `${selectedCategoryNameAr} | ${selectedCategoryNameEn}\n\n`;
+			
+			// Bill Details with Descriptions
+			message += `*━━━━━━━━━━━━━━━━*\n`;
+			message += `*📋 تفاصيل الفواتير | Bill Details:*\n\n`;
+			
+			bills.filter(b => b.saved).forEach((bill, index) => {
+				message += `*Bill ${index + 1}:*\n`;
+				message += `• Amount | المبلغ: ${parseFloat(bill.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\n`;
+				if (bill.billType !== 'no_bill') {
+					message += `• Bill Number | رقم الفاتورة: ${bill.billNumber || 'N/A'}\n`;
+				}
+				message += `• Type | النوع: ${bill.billType}\n`;
+				message += `• Payment | الدفع: ${bill.paymentMethod}\n`;
+				if (bill.approverName) {
+					message += `• Approver | المعتمد: ${bill.approverName}\n`;
+				}
+				if (bill.description && bill.description.trim()) {
+					message += `• Description | الوصف: ${bill.description}\n`;
+				}
+				message += `\n`;
+			});
+			
+			message += `*━━━━━━━━━━━━━━━━*\n\n`;
+			
+			// Generated By
+			message += `*👤 تم الإنشاء بواسطة | Generated By:*\n`;
+			message += `${$currentUser?.username || 'System'}`;
+			
+			// Open WhatsApp Web with the message
+			const whatsappWebUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+			window.open(whatsappWebUrl, '_blank');
+			
+		} catch (error) {
+			console.error('Error sharing:', error);
+			alert('Error opening WhatsApp: ' + error.message);
+		}
+	}
+
+	function resetForm() {
+		currentStep = 1;
+		selectedBranchId = '';
+		selectedBranchName = '';
+		selectedCategoryId = '';
+		selectedCategoryNameEn = '';
+		selectedCategoryNameAr = '';
+		selectedRequestId = '';
+		selectedRequestNumber = '';
+		selectedRequestAmount = 0;
+		selectedRequestRemainingBalance = 0;
+		selectedRequestUsedAmount = 0;
+		selectedCoUserId = '';
+		selectedCoUserName = '';
+		selectedApproverId = '';
+		selectedApproverName = '';
+		approverSearchQuery = '';
+		numberOfBills = 1;
+		bills = [];
+		activeBillIndex = null;
+		successMessage = '';
+		allBillsSaved = false;
+		showWhatsAppButton = false;
 	}
 
 	function formatDate(dateString) {
@@ -998,6 +1205,37 @@
 								</div>
 							{/if}
 
+							<!-- Approver Selection (only if no approved request) -->
+							{#if !selectedRequestId}
+								<div class="form-group approver-field">
+									<label for="approver">Select Approver *</label>
+									<select
+										id="approver"
+										class="form-select"
+										bind:value={bills[activeBillIndex].approverId}
+										disabled={bills[activeBillIndex].saved}
+										on:change={() => {
+											const approver = approvers.find(a => a.id === bills[activeBillIndex].approverId);
+											bills[activeBillIndex].approverName = approver?.username || '';
+										}}
+									>
+										<option value={null}>-- Select Approver --</option>
+										{#each approvers as approver}
+											<option value={approver.id}>
+												{approver.username} - 
+												{#if approver.approval_amount_limit === 0}
+													♾️ Unlimited
+												{:else}
+													{approver.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
+												{/if}
+												({approver.user_type === 'global' ? 'Global' : branches.find(b => b.id === approver.branch_id)?.name_en || 'Branch'})
+											</option>
+										{/each}
+									</select>
+									<p class="field-hint">⚠️ This bill will require approval before posting to expense scheduler</p>
+								</div>
+							{/if}
+
 							<!-- Amount -->
 							<div class="form-group">
 								<label for="amount">Amount (SAR) *</label>
@@ -1044,6 +1282,45 @@
 							{/if}
 						</div>
 					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- All Bills Saved Success Message and Actions -->
+	{#if allBillsSaved && currentStep === 3}
+		<div class="all-saved-container">
+			<div class="all-saved-message">
+				✅ All {numberOfBills} bills saved successfully{!selectedRequestId ? ' and submitted for approval' : ''}!
+			</div>
+
+			<div class="total-summary">
+				<div class="summary-row">
+					<span class="summary-label">Total Bills:</span>
+					<span class="summary-value">{bills.length}</span>
+				</div>
+				<div class="summary-row">
+					<span class="summary-label">Total Amount:</span>
+					<span class="summary-value amount">{totalAmount.toFixed(2)} SAR</span>
+				</div>
+				{#if !selectedRequestId}
+					<div class="summary-row">
+						<span class="summary-label">Approver:</span>
+						<span class="summary-value"><strong>{selectedApproverName}</strong></span>
+					</div>
+				{/if}
+			</div>
+			
+			{#if showWhatsAppButton}
+				<div class="action-buttons">
+					<button class="btn-whatsapp" on:click={shareToWhatsApp}>
+						<span class="whatsapp-icon">📱</span>
+						Share via WhatsApp
+					</button>
+					<button class="btn-new-schedule" on:click={resetForm}>
+						<span>➕</span>
+						New Schedule
+					</button>
 				</div>
 			{/if}
 		</div>
@@ -1654,5 +1931,231 @@
 	.text-danger {
 		color: #dc2626;
 		font-weight: 600;
+	}
+
+	/* Approver Selection Section */
+	.approver-section {
+		margin-top: 1.5rem;
+		padding: 1.5rem;
+		background: #f8fafc;
+		border-radius: 8px;
+		border: 1px solid #e2e8f0;
+	}
+
+	.approval-hint {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #fef3c7;
+		border-left: 3px solid #f59e0b;
+		border-radius: 4px;
+		margin-bottom: 1rem;
+		font-size: 0.9rem;
+	}
+
+	.approver-table-container {
+		margin-top: 1rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.approver-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: white;
+	}
+
+	.approver-table thead {
+		background: #f1f5f9;
+		border-bottom: 2px solid #e2e8f0;
+	}
+
+	.approver-table th {
+		padding: 0.75rem;
+		text-align: right;
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: #475569;
+	}
+
+	.approver-table tbody tr {
+		border-bottom: 1px solid #e2e8f0;
+		transition: background-color 0.2s;
+		cursor: pointer;
+	}
+
+	.approver-table tbody tr:hover {
+		background: #f8fafc;
+	}
+
+	.approver-table tbody tr.selected {
+		background: #dbeafe;
+	}
+
+	.approver-table td {
+		padding: 0.75rem;
+		text-align: right;
+		font-size: 0.9rem;
+	}
+
+	.approver-table .approver-radio {
+		text-align: center;
+	}
+
+	.approver-table .approver-radio input[type="radio"] {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+	}
+
+	.approver-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		border-radius: 9999px;
+		font-size: 0.75rem;
+		font-weight: 500;
+	}
+
+	.badge-admin {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+
+	.badge-manager {
+		background: #e0e7ff;
+		color: #4338ca;
+	}
+
+	/* All Saved Success Container */
+	.all-saved-container {
+		margin: 2rem 0;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border-radius: 12px;
+		border: 2px solid #22c55e;
+		box-shadow: 0 4px 6px rgba(34, 197, 94, 0.1);
+	}
+
+	.all-saved-message {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: #15803d;
+		text-align: center;
+		margin-bottom: 1rem;
+	}
+
+	/* Action Buttons */
+	.action-buttons {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		margin-top: 1rem;
+	}
+
+	.btn-whatsapp,
+	.btn-new-schedule {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.btn-whatsapp {
+		background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+		color: white;
+	}
+
+	.btn-whatsapp:hover {
+		background: linear-gradient(135deg, #20bd5a 0%, #0f7a6e 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(37, 211, 102, 0.3);
+	}
+
+	.whatsapp-icon {
+		font-size: 1.2rem;
+	}
+
+	.btn-new-schedule {
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+	}
+
+	.btn-new-schedule:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	/* Approval Success */
+	.approval-success {
+		margin: 1rem 0;
+		padding: 1rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border-radius: 8px;
+		border: 1px solid #86efac;
+	}
+
+	.approval-success .success-text {
+		text-align: center;
+		color: #15803d;
+		font-size: 1rem;
+		font-weight: 500;
+		margin: 0;
+	}
+
+	.btn-submit {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 2rem;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		margin: 0 auto;
+	}
+
+	.btn-submit:hover:not(:disabled) {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Approver Field Styling */
+	.approver-field {
+		background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+		padding: 1rem;
+		border-radius: 8px;
+		border: 2px solid #f59e0b;
+	}
+
+	.approver-field label {
+		color: #92400e;
+		font-weight: 600;
+	}
+
+	.approver-field .field-hint {
+		color: #b45309;
+		font-weight: 500;
+		margin-top: 0.5rem;
 	}
 </style>
