@@ -122,7 +122,13 @@
 			
 			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
 				.from('non_approved_payment_scheduler')
-				.select('*')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
 				.in('schedule_type', ['single_bill', 'multiple_bill']) // Include both types
@@ -637,13 +643,13 @@
 									<td>{req.branch_name}</td>
 									<td>
 										<div class="generated-by-info">
-											<div class="generated-by-name">👤 {req.co_user_name || 'System'}</div>
+											<div class="generated-by-name">👤 {req.creator?.username || 'Unknown'}</div>
 										</div>
 									</td>
 									<td>
 										<div class="requester-info">
-											<div class="requester-name">-</div>
-											<div class="requester-id">Payment Schedule</div>
+											<div class="requester-name">{req.co_user_name || '-'}</div>
+											<div class="requester-id">C/O User</div>
 										</div>
 									</td>
 									<td>
