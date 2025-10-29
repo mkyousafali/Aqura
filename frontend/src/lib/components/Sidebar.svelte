@@ -593,7 +593,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v2.0.0
+				v2.0.1
 			</button>
 		</div>
 	</div>
@@ -604,7 +604,7 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v2.0.0</h3>
+				<h3>What's New in v2.0.1</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
@@ -649,10 +649,10 @@
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 28, 2025</p>
+					<p><strong>Release Date:</strong> October 29, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 2.0.0 - Recurring Expense Scheduler & Approval System</p>
-					<p><strong>Focus:</strong> Automated Scheduling, Smart Notifications, Enhanced Approvals, Mobile Experience</p>
+					<p><strong>Version:</strong> 2.0.1 - Approval Center Dual-Section & Data Integrity</p>
+					<p><strong>Focus:</strong> Enhanced Workflow Management, Mobile Parity, Notification System, Data Accuracy</p>
 				</div>
 			</div>
 		</div>

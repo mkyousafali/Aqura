@@ -3,16 +3,21 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { goto } from '$app/navigation';
 	import { getTranslation } from '$lib/i18n';
+	import { notificationService } from '$lib/utils/notificationManagement';
 
 	let loading = true;
 	let requisitions = [];
-	let paymentSchedules = []; // New: payment schedules requiring approval
+	let paymentSchedules = []; // Payment schedules where user is approver
+	let myCreatedRequisitions = []; // Requisitions created by current user
+	let myCreatedSchedules = []; // Payment schedules created by current user
 	let filteredRequisitions = [];
+	let filteredMyRequests = [];
 	let selectedStatus = 'pending';
 	let selectedRequisition = null;
 	let showDetailModal = false;
 	let isProcessing = false;
 	let userCanApprove = false; // Track if current user has approval permissions
+	let activeSection = 'approvals'; // 'approvals' or 'my_requests'
 	
 	// Reactive: Check if user can approve SELECTED item
 	$: canApproveSelected = selectedRequisition 
@@ -21,8 +26,16 @@
 			: userCanApprove)
 		: false;
 
-	// Stats
+	// Stats for approvals assigned to me
 	let stats = {
+		pending: 0,
+		approved: 0,
+		rejected: 0,
+		total: 0
+	};
+
+	// Stats for my created requests
+	let myStats = {
 		pending: 0,
 		approved: 0,
 		rejected: 0,
@@ -109,37 +122,118 @@
 			
 			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
 				.from('non_approved_payment_scheduler')
-				.select('*')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
-				.or('schedule_type.eq.multiple_bill,and(schedule_type.eq.single_bill,due_date.lte.' + twoDaysDate + ')') // Include all multiple_bill + single_bill within 2 days
+				.in('schedule_type', ['single_bill', 'multiple_bill'])
 				.order('due_date', { ascending: true });
 
 			if (schedulesError) {
 				console.error('❌ Error loading payment schedules:', schedulesError);
 			} else {
-				paymentSchedules = schedulesData || [];
+				// Filter single_bill by due date, show all multiple_bill
+				paymentSchedules = (schedulesData || []).filter(schedule => {
+					if (schedule.schedule_type === 'multiple_bill') {
+						return true; // Show all multiple bills
+					}
+					// For single_bill, only show within 2 days
+					return schedule.due_date && schedule.due_date <= twoDaysDate;
+				});
 				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
 			}
 
-			// Load approved payment schedules from expense_scheduler for stats
+			// Load MY CREATED requisitions (where I'm the creator)
+			const { data: myReqData, error: myReqError } = await supabaseAdmin
+				.from('expense_requisitions')
+				.select('*')
+				.eq('created_by', $currentUser.id)
+				.order('created_at', { ascending: false });
+
+			if (!myReqError && myReqData) {
+				myCreatedRequisitions = myReqData || [];
+				console.log('✅ My created requisitions:', myCreatedRequisitions.length);
+			}
+
+			// Load MY CREATED payment schedules
+			const { data: mySchedulesData, error: mySchedulesError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select(`
+					*,
+					approver:users!approver_id (
+						id,
+						username
+					)
+				`)
+				.eq('created_by', $currentUser.id)
+				.in('schedule_type', ['single_bill', 'multiple_bill'])
+				.order('created_at', { ascending: false });
+
+			if (!mySchedulesError && mySchedulesData) {
+				myCreatedSchedules = mySchedulesData || [];
+				console.log('✅ My created payment schedules:', myCreatedSchedules.length);
+			}
+
+			// Also load my approved/rejected schedules from expense_scheduler
+			const { data: myApprovedSchedulesData, error: myApprovedSchedulesError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select('*')
+				.eq('created_by', $currentUser.id)
+				.not('schedule_type', 'eq', 'recurring');
+
+			let myApprovedSchedulesCount = 0;
+			if (!myApprovedSchedulesError && myApprovedSchedulesData) {
+				myApprovedSchedulesCount = myApprovedSchedulesData.length;
+				console.log('✅ My approved schedules count:', myApprovedSchedulesCount);
+			}
+
+			// Load approved payment schedules from expense_scheduler for stats (where I'm approver)
 			const { data: approvedSchedulesData, error: approvedSchedulesError } = await supabaseAdmin
 				.from('expense_scheduler')
 				.select('id')
-				.or(`approver_id.eq.${$currentUser.id},created_by.eq.${$currentUser.id}`)
+				.eq('approver_id', $currentUser.id)
 				.not('schedule_type', 'eq', 'recurring'); // Exclude parent recurring schedules
 
 			let approvedSchedulesCount = 0;
 			if (!approvedSchedulesError && approvedSchedulesData) {
 				approvedSchedulesCount = approvedSchedulesData.length;
-				console.log('✅ Approved payment schedules count:', approvedSchedulesCount);
+				console.log('✅ Approved payment schedules count (where user is approver):', approvedSchedulesCount);
 			}
 
-			// Calculate stats (include both requisitions and payment schedules)
-			stats.total = requisitions.length + paymentSchedules.length;
-			stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length; // All payment schedules are pending
+			// Also load rejected schedules from non_approved_payment_scheduler
+			const { data: rejectedSchedulesData, error: rejectedSchedulesError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select('id')
+				.eq('approver_id', $currentUser.id)
+				.eq('approval_status', 'rejected');
+			
+			let rejectedSchedulesCount = 0;
+			if (!rejectedSchedulesError && rejectedSchedulesData) {
+				rejectedSchedulesCount = rejectedSchedulesData.length;
+				console.log('✅ Rejected payment schedules count:', rejectedSchedulesCount);
+			}
+
+			// Calculate stats for approvals assigned to me
+			stats.total = requisitions.length + paymentSchedules.length + approvedSchedulesCount + rejectedSchedulesCount;
+			stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length;
 			stats.approved = requisitions.filter(r => r.status === 'approved').length + approvedSchedulesCount;
-			stats.rejected = requisitions.filter(r => r.status === 'rejected').length;
+			stats.rejected = requisitions.filter(r => r.status === 'rejected').length + rejectedSchedulesCount;
+
+			// Calculate stats for my created requests
+			myStats.pending = myCreatedRequisitions.filter(r => r.status === 'pending').length + 
+			                  myCreatedSchedules.filter(s => s.approval_status === 'pending').length;
+			myStats.approved = myCreatedRequisitions.filter(r => r.status === 'approved').length + myApprovedSchedulesCount;
+			myStats.rejected = myCreatedRequisitions.filter(r => r.status === 'rejected').length +
+			                   myCreatedSchedules.filter(s => s.approval_status === 'rejected').length;
+			myStats.total = myCreatedRequisitions.length + myCreatedSchedules.length + myApprovedSchedulesCount;
+
+			console.log('📈 Approval Stats:', stats);
+			console.log('📈 My Requests Stats:', myStats);
 
 			filterRequisitions();
 		} catch (err) {
@@ -151,25 +245,50 @@
 	}
 
 	function filterRequisitions() {
-		let filtered = requisitions;
-		let filteredSchedules = [];
+		if (activeSection === 'approvals') {
+			// Filter approvals assigned to me
+			let filtered = requisitions;
+			let filteredSchedules = [];
 
-		// Filter requisitions by status
-		if (selectedStatus !== 'all') {
-			filtered = filtered.filter(r => r.status === selectedStatus);
+			// Filter requisitions by status
+			if (selectedStatus !== 'all') {
+				filtered = filtered.filter(r => r.status === selectedStatus);
+			}
+
+			// Filter payment schedules - they should show up in "pending" status
+			if (selectedStatus === 'pending' || selectedStatus === 'all') {
+				filteredSchedules = paymentSchedules;
+			}
+
+			// Combine filtered requisitions and payment schedules
+			filteredRequisitions = [
+				...filtered.map(r => ({ ...r, item_type: 'requisition' })),
+				...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+			];
+		} else {
+			// Filter my created requests
+			let filtered = myCreatedRequisitions;
+			let filteredSchedules = [];
+
+			// Filter by status
+			if (selectedStatus !== 'all') {
+				filtered = filtered.filter(r => r.status === selectedStatus);
+				filteredSchedules = myCreatedSchedules.filter(s => {
+					if (selectedStatus === 'pending') return s.approval_status === 'pending';
+					if (selectedStatus === 'approved') return false; // Approved ones moved to expense_scheduler
+					if (selectedStatus === 'rejected') return s.approval_status === 'rejected';
+					return true;
+				});
+			} else {
+				filteredSchedules = myCreatedSchedules;
+			}
+
+			// Combine filtered requests
+			filteredMyRequests = [
+				...filtered.map(r => ({ ...r, item_type: 'requisition' })),
+				...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+			];
 		}
-
-		// Filter payment schedules - they should show up in "pending" status
-		if (selectedStatus === 'pending' || selectedStatus === 'all') {
-			filteredSchedules = paymentSchedules;
-		}
-
-		// Combine filtered requisitions and payment schedules
-		// Mark each item with its type for display purposes
-		filteredRequisitions = [
-			...filtered.map(r => ({ ...r, item_type: 'requisition' })),
-			...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
-		];
 	}
 
 	function filterByStatus(status) {
@@ -225,11 +344,19 @@
 						amount: scheduleData.amount,
 						description: scheduleData.description,
 						bill_type: scheduleData.bill_type,
+						bill_number: scheduleData.bill_number,
+						bill_date: scheduleData.bill_date,
+						bill_file_url: scheduleData.bill_file_url,
 						due_date: scheduleData.due_date,
+						credit_period: scheduleData.credit_period,
+						bank_name: scheduleData.bank_name,
+						iban: scheduleData.iban,
 						status: 'pending',
 						is_paid: false,
 						recurring_type: scheduleData.recurring_type,
 						recurring_metadata: scheduleData.recurring_metadata,
+						approver_id: scheduleData.approver_id,
+						approver_name: scheduleData.approver_name,
 						created_by: scheduleData.created_by
 					}]);
 
@@ -242,6 +369,21 @@
 					.eq('id', selectedRequisition.id);
 
 				if (deleteError) throw deleteError;
+
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Payment Schedule Approved',
+						message: `Your ${scheduleData.schedule_type.replace('_', ' ')} payment schedule has been approved!\n\nBranch: ${scheduleData.branch_name}\nCategory: ${scheduleData.expense_category_name_en}\nAmount: ${parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nDue Date: ${scheduleData.due_date}\nApproved by: ${$currentUser?.username}`,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [scheduleData.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Approval notification sent to creator:', scheduleData.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
 
 				alert('✅ Payment schedule approved and moved to expense scheduler!');
 			} else {
@@ -342,35 +484,81 @@
 			<p>Loading requisitions...</p>
 		</div>
 	{:else}
+		<!-- Section Tabs -->
+		<div class="section-tabs">
+			<button 
+				class="tab-button {activeSection === 'approvals' ? 'active' : ''}"
+				on:click={() => { activeSection = 'approvals'; filterRequisitions(); }}
+			>
+				📋 Approvals for Me
+				{#if stats.pending > 0}
+					<span class="badge">{stats.pending}</span>
+				{/if}
+			</button>
+			<button 
+				class="tab-button {activeSection === 'my_requests' ? 'active' : ''}"
+				on:click={() => { activeSection = 'my_requests'; filterRequisitions(); }}
+			>
+				📝 My Requests
+				{#if myStats.pending > 0}
+					<span class="badge">{myStats.pending}</span>
+				{/if}
+			</button>
+		</div>
+
 		<!-- Stats Cards -->
 		<div class="stats-grid">
-			<div class="stat-card pending" on:click={() => filterByStatus('pending')}>
-				<div class="stat-value">{stats.pending}</div>
-				<div class="stat-label">⏳ {getTranslation('approvals.pending')}</div>
-			</div>
-			<div class="stat-card approved" on:click={() => filterByStatus('approved')}>
-				<div class="stat-value">{stats.approved}</div>
-				<div class="stat-label">✅ {getTranslation('approvals.approved')}</div>
-			</div>
-			<div class="stat-card rejected" on:click={() => filterByStatus('rejected')}>
-				<div class="stat-value">{stats.rejected}</div>
-				<div class="stat-label">❌ {getTranslation('approvals.rejected')}</div>
-			</div>
-			<div class="stat-card total" on:click={() => filterByStatus('all')}>
-				<div class="stat-value">{stats.total}</div>
-				<div class="stat-label">📊 {getTranslation('approvals.total')}</div>
-			</div>
+			{#if activeSection === 'approvals'}
+				<div class="stat-card pending" on:click={() => filterByStatus('pending')}>
+					<div class="stat-value">{stats.pending}</div>
+					<div class="stat-label">⏳ {getTranslation('approvals.pending')}</div>
+				</div>
+				<div class="stat-card approved" on:click={() => filterByStatus('approved')}>
+					<div class="stat-value">{stats.approved}</div>
+					<div class="stat-label">✅ {getTranslation('approvals.approved')}</div>
+				</div>
+				<div class="stat-card rejected" on:click={() => filterByStatus('rejected')}>
+					<div class="stat-value">{stats.rejected}</div>
+					<div class="stat-label">❌ {getTranslation('approvals.rejected')}</div>
+				</div>
+				<div class="stat-card total" on:click={() => filterByStatus('all')}>
+					<div class="stat-value">{stats.total}</div>
+					<div class="stat-label">📊 {getTranslation('approvals.total')}</div>
+				</div>
+			{:else}
+				<div class="stat-card pending" on:click={() => filterByStatus('pending')}>
+					<div class="stat-value">{myStats.pending}</div>
+					<div class="stat-label">⏳ {getTranslation('approvals.pending')}</div>
+				</div>
+				<div class="stat-card approved" on:click={() => filterByStatus('approved')}>
+					<div class="stat-value">{myStats.approved}</div>
+					<div class="stat-label">✅ {getTranslation('approvals.approved')}</div>
+				</div>
+				<div class="stat-card rejected" on:click={() => filterByStatus('rejected')}>
+					<div class="stat-value">{myStats.rejected}</div>
+					<div class="stat-label">❌ {getTranslation('approvals.rejected')}</div>
+				</div>
+				<div class="stat-card total" on:click={() => filterByStatus('all')}>
+					<div class="stat-value">{myStats.total}</div>
+					<div class="stat-label">📊 {getTranslation('approvals.total')}</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Requisitions List -->
 		<div class="requisitions-list">
-		{#if filteredRequisitions.length === 0}
+		{#if activeSection === 'approvals' && filteredRequisitions.length === 0}
 			<div class="empty-state">
 				<div class="empty-icon">📋</div>
-				<p>{getTranslation('approvals.noRequisitions')}</p>
+				<p>No approvals assigned to you</p>
+			</div>
+		{:else if activeSection === 'my_requests' && filteredMyRequests.length === 0}
+			<div class="empty-state">
+				<div class="empty-icon">📋</div>
+				<p>You haven't created any requests yet</p>
 			</div>
 			{:else}
-				{#each filteredRequisitions as req}
+				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req}
 					<div class="req-card" on:click={() => openDetail(req)}>
 						{#if req.item_type === 'requisition'}
 							<!-- Expense Requisition Card -->
@@ -384,8 +572,8 @@
 									<span class="value">{req.branch_name}</span>
 								</div>
 								<div class="info-row">
-									<span class="label">Generated by:</span>
-									<span class="value">👤 {req.created_by_username}</span>
+									<span class="label">{activeSection === 'approvals' ? 'Generated by:' : 'Approver:'}</span>
+									<span class="value">👤 {activeSection === 'approvals' ? req.created_by_username : (req.approver_name || 'Not Assigned')}</span>
 								</div>
 								<div class="info-row">
 									<span class="label">Amount:</span>
@@ -406,12 +594,16 @@
 								<div class="req-number">
 									<span class="schedule-badge">📅 {req.schedule_type.replace(/_/g, ' ').toUpperCase()}</span>
 								</div>
-								<div class="status-badge status-pending">PENDING APPROVAL</div>
+								<div class="status-badge status-{req.approval_status || 'pending'}">{(req.approval_status || 'pending').toUpperCase()}</div>
 							</div>
 							<div class="req-info">
 								<div class="info-row">
 									<span class="label">Branch:</span>
 									<span class="value">{req.branch_name}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">{activeSection === 'approvals' ? 'Generated by:' : 'Approver:'}</span>
+									<span class="value">👤 {activeSection === 'approvals' ? (req.creator?.username || 'Unknown') : (req.approver?.username || 'Not Assigned')}</span>
 								</div>
 								<div class="info-row">
 									<span class="label">Category:</span>
@@ -630,6 +822,55 @@
 
 	@keyframes spin {
 		to { transform: rotate(360deg); }
+	}
+
+	/* Section Tabs */
+	.section-tabs {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		background: #F3F4F6;
+		padding: 0.25rem;
+		border-radius: 12px;
+	}
+
+	.tab-button {
+		flex: 1;
+		padding: 0.75rem 1rem;
+		border: none;
+		background: transparent;
+		border-radius: 10px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #6B7280;
+		cursor: pointer;
+		transition: all 0.2s;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+	}
+
+	.tab-button.active {
+		background: white;
+		color: #3B82F6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+	}
+
+	.tab-button .badge {
+		background: #EF4444;
+		color: white;
+		font-size: 0.625rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 10px;
+		font-weight: 700;
+		min-width: 18px;
+		text-align: center;
+	}
+
+	.tab-button.active .badge {
+		background: #3B82F6;
 	}
 
 	.stats-grid {
