@@ -112,7 +112,7 @@
 			console.log('✅ Loaded requisitions:', requisitions.length);
 
 			// Also load payment schedules requiring approval
-			// Only show single_bill (not recurring parent) and only within 2 days
+			// Show single_bill and multiple_bill schedules
 			const twoDaysFromNow = new Date();
 			twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
 			const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
@@ -122,14 +122,20 @@
 				.select('*')
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
-				.eq('schedule_type', 'single_bill') // Exclude recurring parent schedules
-				.lte('due_date', twoDaysDate) // Only show occurrences within 2 days
-				.order('due_date', { ascending: true });
+				.in('schedule_type', ['single_bill', 'multiple_bill']) // Include both types
+				.order('created_at', { ascending: false });
 
 			if (schedulesError) {
 				console.error('❌ Error loading payment schedules:', schedulesError);
 			} else {
-				paymentSchedules = schedulesData || [];
+				// Filter single_bill by due date, show all multiple_bill
+				paymentSchedules = (schedulesData || []).filter(schedule => {
+					if (schedule.schedule_type === 'multiple_bill') {
+						return true; // Show all multiple bills
+					}
+					// For single_bill, only show within 2 days
+					return schedule.due_date && schedule.due_date <= twoDaysDate;
+				});
 				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
 			}
 

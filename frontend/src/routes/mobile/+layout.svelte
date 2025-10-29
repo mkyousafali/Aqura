@@ -171,8 +171,7 @@
 							.select('*', { count: 'exact', head: true })
 							.eq('approver_id', currentUserData.id)
 							.eq('approval_status', 'pending')
-							.eq('schedule_type', 'single_bill')
-							.lte('due_date', twoDaysDate)
+							.or('schedule_type.eq.multiple_bill,and(schedule_type.eq.single_bill,due_date.lte.' + twoDaysDate + ')')
 					]);
 
 					approvalCount = (reqResult.count || 0) + (scheduleResult.count || 0);
