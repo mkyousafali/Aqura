@@ -8,7 +8,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { goto } from '$app/navigation';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
 	import { taskCounts, taskCountService } from '$lib/stores/taskCount';
+	import { approvalCounts, initApprovalCountMonitoring, refreshApprovalCounts } from '$lib/stores/approvalCounts';
 	import NotificationCenter from './admin/communication/NotificationCenter.svelte';
+	import ApprovalCenter from './admin/finance/ApprovalCenter.svelte';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { supabase } from '$lib/utils/supabase';
@@ -28,6 +30,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	// Subscribe to task counts store
 	$: taskCountData = $taskCounts;
+
+	// Subscribe to approval counts store
+	$: approvalCountData = $approvalCounts;
 
 	// Language data
 	$: availableLocales = getAvailableLocales();
@@ -54,6 +59,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		// Initialize task count monitoring
 		taskCountService.initTaskCountMonitoring();
+		
+		// Initialize approval count monitoring
+		initApprovalCountMonitoring();
 		
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
@@ -271,6 +279,27 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		setTimeout(() => taskCountService.refreshTaskCounts(), 1000);
 	}
 
+	function openApprovalCenterWindow() {
+		// Open the Approval Center window
+		const windowId = generateWindowId('approval-center');
+		
+		openWindow({
+			id: windowId,
+			title: `Approval Center ${approvalCountData.pending > 0 ? `(${approvalCountData.pending} pending)` : ''}`,
+			component: ApprovalCenter,
+			icon: '✅',
+			size: { width: 1200, height: 700 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+
+		// Refresh approval counts after opening
+		setTimeout(refreshApprovalCounts, 1000);
+	}
+
 	function openQuickAnnouncements() {
 		const windowId = generateWindowId('quick-announcements');
 		
@@ -367,6 +396,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="quick-icon">📋</div>
 			{#if taskCountData.total > 0}
 				<div class="quick-badge {taskCountData.overdue > 0 ? 'overdue' : ''}">{taskCountData.total > 99 ? '99+' : taskCountData.total}</div>
+			{/if}
+		</button>
+
+		<!-- Approval Center -->
+		<button 
+			class="quick-btn approvals-btn"
+			on:click={openApprovalCenterWindow}
+			title="Approval Center ({approvalCountData.pending} pending)"
+		>
+			<div class="quick-icon">✅</div>
+			{#if approvalCountData.pending > 0}
+				<div class="quick-badge pending">{approvalCountData.pending > 99 ? '99+' : approvalCountData.pending}</div>
 			{/if}
 		</button>
 		
@@ -651,6 +692,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		50% {
 			opacity: 0.7;
 		}
+	}
+
+	.approvals-btn .quick-badge {
+		background: #f59e0b;
+	}
+
+	.approvals-btn .quick-badge.pending {
+		background: #f59e0b;
+		animation: pulse 2s infinite;
 	}
 
 	.notifications-btn .quick-badge {
