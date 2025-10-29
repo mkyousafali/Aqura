@@ -22,7 +22,7 @@
 		message: '',
 		priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
 		type: 'info' as 'info' | 'success' | 'warning' | 'error' | 'announcement',
-		target_type: 'all_users' as 'all_users' | 'specific_users',
+		target_type: 'specific_users' as 'all_users' | 'specific_users',
 		target_users: [] as string[]
 	};
 
@@ -308,7 +308,7 @@
 			message: '',
 			priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
 			type: 'info' as 'info' | 'success' | 'warning' | 'error' | 'announcement',
-			target_type: 'all_users' as 'all_users' | 'specific_users',
+			target_type: 'specific_users' as 'all_users' | 'specific_users',
 			target_users: [] as string[]
 		};
 		if (fileUploadComponent) {
@@ -317,8 +317,10 @@
 		updateFilteredUsers();
 	}
 
-	// Reactive statements
-	$: updateFilteredUsers();
+	// Reactive statements - react to specific variable changes
+	$: if (userSearchTerm !== undefined || notificationData.target_users) {
+		updateFilteredUsers();
+	}
 </script>
 
 <div class="mobile-create-notification">
@@ -397,7 +399,7 @@
 			
 			<div class="form-group">
 				<label class="form-label">{getTranslation('mobile.createNotificationContent.sendTo')}</label>
-				<div class="radio-group">
+				<div class="radio-group" style="display: none;">
 					<label class="radio-option">
 						<input type="radio" bind:group={notificationData.target_type} value="all_users" />
 						<span class="radio-label">{getTranslation('mobile.createNotificationContent.allUsers')}</span>
@@ -415,6 +417,7 @@
 						<input 
 							type="text" 
 							bind:value={userSearchTerm}
+							on:input={updateFilteredUsers}
 							placeholder={getTranslation('mobile.createNotificationContent.searchPlaceholder')}
 							class="search-input"
 						/>
