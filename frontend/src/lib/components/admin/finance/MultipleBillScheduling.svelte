@@ -374,8 +374,26 @@
 				return currentBills[index];
 			}
 			// Create new bill template
-			return createEmptyBill(index + 1);
+			const newBill = createEmptyBill(index + 1);
+			// Calculate due date immediately for new bills
+			calculateDueDateForBill(newBill);
+			return newBill;
 		});
+	}
+	
+	// Helper function to calculate due date for a bill object (not by index)
+	function calculateDueDateForBill(bill) {
+		if (!bill.paymentMethod) return;
+
+		const method = paymentMethods.find(m => m.value === bill.paymentMethod);
+		if (!method) return;
+
+		// Use user-entered creditPeriod if available, otherwise use default from payment method
+		const creditDays = bill.creditPeriod && parseInt(bill.creditPeriod) > 0 ? parseInt(bill.creditPeriod) : method.creditDays;
+		// Use billDate if available, otherwise use current date
+		const baseDate = bill.billDate ? new Date(bill.billDate) : new Date();
+		baseDate.setDate(baseDate.getDate() + creditDays);
+		bill.dueDate = baseDate.toISOString().split('T')[0];
 	}
 
 	function createEmptyBill(number) {
@@ -434,14 +452,7 @@
 
 	function calculateDueDate(billIndex) {
 		const bill = bills[billIndex];
-		if (!bill.billDate || !bill.paymentMethod) return;
-
-		const method = paymentMethods.find(m => m.value === bill.paymentMethod);
-		if (!method) return;
-
-		const baseDate = new Date(bill.billDate);
-		baseDate.setDate(baseDate.getDate() + method.creditDays);
-		bill.dueDate = baseDate.toISOString().split('T')[0];
+		calculateDueDateForBill(bill);
 		bills = [...bills]; // Trigger reactivity
 	}
 
@@ -1161,6 +1172,7 @@
 										bind:value={bills[activeBillIndex].creditPeriod}
 										disabled={bills[activeBillIndex].saved}
 										placeholder="Enter credit period in days"
+										on:input={() => calculateDueDate(activeBillIndex)}
 									/>
 								</div>
 							{/if}

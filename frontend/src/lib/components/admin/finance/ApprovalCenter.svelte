@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { notificationService } from '$lib/utils/notificationManagement';
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
@@ -305,6 +306,22 @@
 
 				if (deleteError) throw deleteError;
 
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Payment Schedule Approved',
+						message: `Your ${scheduleData.schedule_type.replace('_', ' ')} payment schedule has been approved!\n\nBranch: ${scheduleData.branch_name}\nCategory: ${scheduleData.expense_category_name_en}\nAmount: ${parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [scheduleData.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Approval notification sent to creator:', scheduleData.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+					// Don't fail the whole operation if notification fails
+				}
+
 				alert('✅ Payment schedule approved and moved to expense scheduler!');
 			} else {
 				// Update regular requisition
@@ -317,6 +334,32 @@
 					.eq('id', requisitionId);
 
 				if (error) throw error;
+				
+				// Send notification to the creator
+				try {
+					// Get the requisition data to find the creator
+					const { data: reqData, error: reqError } = await supabaseAdmin
+						.from('expense_requisitions')
+						.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, branch_name')
+						.eq('id', requisitionId)
+						.single();
+					
+					if (!reqError && reqData) {
+						await notificationService.createNotification({
+							title: 'Expense Requisition Approved',
+							message: `Your expense requisition has been approved!\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+							type: 'assignment_approved',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [reqData.created_by]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Approval notification sent to creator:', reqData.created_by);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+					// Don't fail the whole operation if notification fails
+				}
+				
 				alert('✅ Requisition approved successfully!');
 			}
 
@@ -342,6 +385,15 @@
 			
 			// Check if it's a payment schedule or regular requisition
 			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Get the schedule data first
+				const { data: scheduleData, error: fetchError } = await supabaseAdmin
+					.from('non_approved_payment_scheduler')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
+
 				// Update payment schedule
 				const { error } = await supabaseAdmin
 					.from('non_approved_payment_scheduler')
@@ -352,8 +404,34 @@
 					.eq('id', requisitionId);
 
 				if (error) throw error;
+				
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Payment Schedule Rejected',
+						message: `Your ${scheduleData.schedule_type.replace('_', ' ')} payment schedule has been rejected.\n\nReason: ${reason}\n\nBranch: ${scheduleData.branch_name}\nCategory: ${scheduleData.expense_category_name_en}\nAmount: ${parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [scheduleData.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Rejection notification sent to creator:', scheduleData.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+					// Don't fail the whole operation if notification fails
+				}
+				
 				alert('❌ Payment schedule rejected successfully!');
 			} else {
+				// Get requisition data first
+				const { data: reqData, error: fetchError } = await supabaseAdmin
+					.from('expense_requisitions')
+					.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, branch_name')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
+
 				// Update regular requisition
 				const { error } = await supabaseAdmin
 					.from('expense_requisitions')
@@ -364,6 +442,23 @@
 					.eq('id', requisitionId);
 
 				if (error) throw error;
+				
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Expense Requisition Rejected',
+						message: `Your expense requisition has been rejected.\n\nReason: ${reason}\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [reqData.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Rejection notification sent to creator:', reqData.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+					// Don't fail the whole operation if notification fails
+				}
+				
 				alert('❌ Requisition rejected successfully!');
 			}
 

@@ -31,16 +31,42 @@ async function checkExpenseSchedulerData() {
       
       data.slice(0, 5).forEach((record, index) => {
         console.log(`\n${index + 1}. ID: ${record.id}`);
+        console.log(`   Schedule Type: ${record.schedule_type || 'NOT SET'}`);
         console.log(`   Branch: ${record.branch_name}`);
         console.log(`   Category: ${record.expense_category_name_en || 'N/A'}`);
         console.log(`   Amount: ${record.amount}`);
-        console.log(`   Due Date: ${record.due_date}`);
+        console.log(`   Due Date: ${record.due_date || 'NOT SET'}`);
         console.log(`   Is Paid: ${record.is_paid}`);
         console.log(`   Status: ${record.status}`);
         console.log(`   Created By: ${record.co_user_name}`);
         console.log(`   Created At: ${record.created_at}`);
       });
 
+      console.log('\n' + '='.repeat(80));
+      
+      // Group by schedule_type
+      const byScheduleType = {};
+      data.forEach(record => {
+        const type = record.schedule_type || 'NOT_SET';
+        if (!byScheduleType[type]) {
+          byScheduleType[type] = { count: 0, withDueDate: 0, withoutDueDate: 0 };
+        }
+        byScheduleType[type].count++;
+        if (record.due_date) {
+          byScheduleType[type].withDueDate++;
+        } else {
+          byScheduleType[type].withoutDueDate++;
+        }
+      });
+
+      console.log('\n📊 Summary by Schedule Type:');
+      console.log('='.repeat(80));
+      Object.entries(byScheduleType).forEach(([type, stats]) => {
+        console.log(`\n${type}:`);
+        console.log(`  Total Records: ${stats.count}`);
+        console.log(`  With Due Date: ${stats.withDueDate}`);
+        console.log(`  Without Due Date: ${stats.withoutDueDate}`);
+      });
       console.log('\n' + '='.repeat(80));
       
       // Group by month
@@ -76,7 +102,7 @@ async function checkExpenseSchedulerData() {
         // Show details of records in this month
         console.log(`\n  Details:`);
         recordsByMonth[month].forEach((rec, idx) => {
-          console.log(`    ${idx + 1}. ID: ${rec.id}, Amount: ${rec.amount}, Due: ${rec.due_date}, Paid: ${rec.is_paid}`);
+          console.log(`    ${idx + 1}. ID: ${rec.id}, Type: ${rec.schedule_type || 'N/A'}, Amount: ${rec.amount}, Due: ${rec.due_date}, Paid: ${rec.is_paid}`);
         });
       });
       console.log('\n' + '='.repeat(80));

@@ -440,7 +440,8 @@
 		const selectedMethod = paymentMethods.find((m) => m.value === paymentMethod);
 		if (!selectedMethod) return;
 
-		const creditDays = selectedMethod.creditDays;
+		// Use user-entered creditPeriod if available, otherwise use default from payment method
+		const creditDays = creditPeriod && parseInt(creditPeriod) > 0 ? parseInt(creditPeriod) : selectedMethod.creditDays;
 		// Use billDate if available, otherwise use current date
 		const baseDate = billDate ? new Date(billDate) : new Date();
 		baseDate.setDate(baseDate.getDate() + creditDays);
@@ -455,6 +456,11 @@
 	
 	// Also recalculate when billDate changes (for bills with dates)
 	$: if (billDate && paymentMethod) {
+		calculateDueDate();
+	}
+	
+	// Recalculate when creditPeriod changes
+	$: if (creditPeriod && paymentMethod) {
 		calculateDueDate();
 	}
 
