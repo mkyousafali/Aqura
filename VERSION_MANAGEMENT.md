@@ -31,14 +31,17 @@ The version update script modifies:
 
 1. **`/package.json`** - Root project version
 2. **`/frontend/package.json`** - Frontend project version
-3. **`/frontend/src/lib/components/Sidebar.svelte`** - User-visible version display
+3. **`/frontend/src/lib/components/Sidebar.svelte`** - Desktop interface version display
+4. **`/frontend/src/routes/mobile/+layout.svelte`** - Mobile interface version display (top bar badge)
 
 ## 📝 Version Popup Content Update
 
 **Important**: After running the version update script, you MUST manually update the version popup content to reflect the changes made in the new version.
 
 ### Location
-File: `/frontend/src/lib/components/Sidebar.svelte` (lines ~615-675)
+File: `/frontend/src/lib/components/Sidebar.svelte` (lines ~610-650)
+
+**Note**: The version number in the mobile interface top bar (`/frontend/src/routes/mobile/+layout.svelte`) is automatically updated by the script and does not require manual editing.
 
 ### Required Updates
 1. **Update Section Headers**: Change feature categories to match your changes
@@ -91,6 +94,19 @@ File: `/frontend/src/lib/components/Sidebar.svelte` (lines ~615-675)
 - **Include Context**: Mention specific components, features, or user benefits
 - **Group Related Changes**: Organize features by category for better readability
 - **Update Dates**: Always use the current release date
+
+## 📱 Mobile Version Display
+
+The mobile interface displays the version number in the top header bar as a badge. This is automatically updated by the version script and requires no manual intervention.
+
+**Location**: `/frontend/src/routes/mobile/+layout.svelte` (line ~501)
+
+The script automatically finds and updates:
+```svelte
+<span class="version-text">v2.0.1</span>
+```
+
+This ensures version consistency across both desktop and mobile interfaces.
 
 ## 🔧 Manual Script Usage
 

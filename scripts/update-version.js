@@ -114,6 +114,32 @@ function updateSidebarVersion(newVersion) {
 }
 
 /**
+ * Update version in Mobile Layout
+ */
+function updateMobileLayoutVersion(newVersion) {
+  const mobileLayoutPath = path.join(__dirname, '../frontend/src/routes/mobile/+layout.svelte');
+  
+  try {
+    let content = fs.readFileSync(mobileLayoutPath, 'utf8');
+    
+    // Find and replace version in the mobile version badge
+    const versionRegex = /(<span class="version-text">)v[\d.]+(<\/span>)/g;
+    if (content.match(versionRegex)) {
+      content = content.replace(versionRegex, `$1v${newVersion}$2`);
+      fs.writeFileSync(mobileLayoutPath, content);
+      console.log(`✅ Updated Mobile Layout version display to v${newVersion}`);
+      return true;
+    } else {
+      console.error('❌ Could not find version display in Mobile Layout');
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Failed to update Mobile Layout:', error.message);
+    return false;
+  }
+}
+
+/**
  * Main execution
  */
 async function main() {
@@ -139,6 +165,9 @@ async function main() {
   
   // Update Sidebar.svelte version display
   success = updateSidebarVersion(newVersion) && success;
+  
+  // Update Mobile Layout version display
+  success = updateMobileLayoutVersion(newVersion) && success;
   
   if (success) {
     console.log(`\n🎉 Successfully updated all files to version ${newVersion}`);
