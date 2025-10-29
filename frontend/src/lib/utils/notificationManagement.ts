@@ -326,7 +326,8 @@ export class NotificationManagementService {
 				expires_at: notification.expires_at ? new Date(notification.expires_at).toISOString() : null,
 				has_attachments: false,
 				read_count: 0,
-				total_recipients: notification.target_users?.length || 0
+				// Set total_recipients to 0 initially, will be updated by queue_push_notification
+				total_recipients: 0
 			};
 
 			console.log('📝 [NotificationManagement] Creating notification with username:', notificationPayload);
