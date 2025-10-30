@@ -27,6 +27,7 @@
 	let priorityFilter = '';
 	let selectedUser = '';
 	let selectedTask = '';
+	let showCompleted = false; // Toggle to show/hide completed assignments
 
 	// Get unique users and tasks for filters
 	let uniqueUsers = [];
@@ -286,6 +287,11 @@
 
 	function applyFilters() {
 		filteredAssignments = assignments.filter(assignment => {
+			// Hide completed if toggle is off
+			if (!showCompleted && assignment.status === 'completed') {
+				return false;
+			}
+			
 			// Search filter
 			if (searchTerm) {
 				const searchLower = searchTerm.toLowerCase();
@@ -327,6 +333,12 @@
 		priorityFilter = '';
 		selectedUser = '';
 		selectedTask = '';
+		showCompleted = false;
+		applyFilters();
+	}
+
+	// Reactive statement to reapply filters when showCompleted changes
+	$: if (showCompleted !== undefined) {
 		applyFilters();
 	}
 
@@ -533,6 +545,18 @@
 					Clear Filters
 				</button>
 			</div>
+		</div>
+		
+		<!-- Show Completed Toggle -->
+		<div class="mt-4 px-6">
+			<label class="flex items-center space-x-2 cursor-pointer">
+				<input 
+					type="checkbox" 
+					bind:checked={showCompleted}
+					class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+				/>
+				<span class="text-sm font-medium text-gray-700">Show completed assignments</span>
+			</label>
 		</div>
 	</div>
 

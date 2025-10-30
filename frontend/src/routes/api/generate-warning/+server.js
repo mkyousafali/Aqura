@@ -67,6 +67,13 @@ export async function POST({ request }) {
 		const fineAmount = assignment.fineAmount;
 		const fineCurrency = assignment.fineCurrency || 'SAR';
 		const taskId = assignment.task_id || assignment.id;
+		
+		// Extract performance statistics
+		const totalAssigned = assignment.total_assigned || assignment.totalAssigned || 0;
+		const totalCompleted = assignment.total_completed || assignment.totalCompleted || 0;
+		const totalOverdue = assignment.total_overdue || assignment.totalOverdue || 0;
+		const completionRate = assignment.completion_rate || assignment.completionRate || 
+								(totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0);
 
 		console.log('Extracted warning type:', warningType);
 		console.log('Extracted fine amount:', fineAmount);
@@ -281,16 +288,18 @@ ${fineText[fineType]?.english || ''}
 
 Please generate a formal, professional warning letter content that:
 1. Addresses the specific task issue mentioned above (Task: "${taskTitle}")
-2. References the task details including priority (${taskPriority}), status (${taskStatus}), and deadline${overdueText}
-3. ${isOverdue ? 'Emphasizes that the task is OVERDUE and requires immediate action' : isDueSoon ? 'Notes that the deadline is approaching soon' : 'Highlights the importance of timely task completion'}
-4. Explains the impact of ${isOverdue ? 'this delay' : 'not completing this task on time'} on team productivity and workflow
-5. Sets clear expectations for immediate action and task completion
-6. Mentions potential consequences if the task is not completed promptly
-7. Maintains a professional but firm tone appropriate to the ${taskPriority} priority level
-8. Requests a response with action plan and completion timeline
-${fineType !== 'no_fine' ? '9. CRITICAL: MUST include the exact fine information provided above - mention the specific amount and currency prominently' : ''}
+2. **MUST include specific details from the task description**: "${taskDescription}" - Reference what needs to be done based on this description
+3. References the task details including priority (${taskPriority}), status (${taskStatus}), and deadline${overdueText}
+4. ${isOverdue ? 'Emphasizes that the task is OVERDUE and requires immediate action' : isDueSoon ? 'Notes that the deadline is approaching soon' : 'Highlights the importance of timely task completion'}
+5. Explains the impact of ${isOverdue ? 'this delay' : 'not completing this task on time'} on team productivity and workflow
+6. Sets clear expectations for immediate action and task completion, referencing the specific requirements from the task description
+7. Mentions potential consequences if the task is not completed promptly
+8. Maintains a professional but firm tone appropriate to the ${taskPriority} priority level
+9. Requests a response with action plan and completion timeline
+${fineType !== 'no_fine' ? '10. CRITICAL: MUST include the exact fine information provided above - mention the specific amount and currency prominently' : ''}
 
 CRITICAL REQUIREMENTS - MUST FOLLOW:
+- **MUST include details from the task description** "${taskDescription}" in the warning text to provide context about what needs to be done
 - Do NOT include any dates, sender names, recipient names, or company names
 - Do NOT include ANY placeholders like [Your Name], [Your Title], [Company Name], [Date], [HR Assistant], etc.
 - Do NOT include signature lines or closing salutations like "Sincerely, [Your Name]"
@@ -306,16 +315,18 @@ ${fineText[fineType]?.arabic || ''}
 
 يرجى إنشاء محتوى خطاب تحذير رسمي ومهني يتضمن:
 1. معالجة مشكلة المهمة المحددة المذكورة أعلاه (المهمة: "${taskTitle}")
-2. الإشارة إلى تفاصيل المهمة بما في ذلك الأولوية (${taskPriority})، والحالة (${taskStatus})، والموعد النهائي${overdueText}
-3. ${isOverdue ? 'التأكيد على أن المهمة متأخرة وتتطلب إجراءً فورياً' : isDueSoon ? 'ملاحظة أن الموعد النهائي يقترب قريباً' : 'تسليط الضوء على أهمية إكمال المهمة في الوقت المحدد'}
-4. شرح تأثير ${isOverdue ? 'هذا التأخير' : 'عدم إكمال هذه المهمة في الوقت المحدد'} على إنتاجية الفريق وسير العمل
-5. وضع توقعات واضحة للإجراء الفوري وإكمال المهمة
-6. ذكر العواقب المحتملة إذا لم يتم إكمال المهمة بسرعة
-7. الحفاظ على نبرة مهنية لكن حازمة مناسبة لمستوى الأولوية ${taskPriority}
-8. طلب رد مع خطة العمل والجدول الزمني للإكمال
-${fineType !== 'no_fine' ? '9. حاسم: يجب تضمين معلومات الغرامة المحددة أعلاه - ذكر المبلغ والعملة المحددة بوضوح' : ''}
+2. **يجب تضمين تفاصيل محددة من وصف المهمة**: "${taskDescription}" - الإشارة إلى ما يجب القيام به بناءً على هذا الوصف
+3. الإشارة إلى تفاصيل المهمة بما في ذلك الأولوية (${taskPriority})، والحالة (${taskStatus})، والموعد النهائي${overdueText}
+4. ${isOverdue ? 'التأكيد على أن المهمة متأخرة وتتطلب إجراءً فورياً' : isDueSoon ? 'ملاحظة أن الموعد النهائي يقترب قريباً' : 'تسليط الضوء على أهمية إكمال المهمة في الوقت المحدد'}
+5. شرح تأثير ${isOverdue ? 'هذا التأخير' : 'عدم إكمال هذه المهمة في الوقت المحدد'} على إنتاجية الفريق وسير العمل
+6. وضع توقعات واضحة للإجراء الفوري وإكمال المهمة، مع الإشارة إلى المتطلبات المحددة من وصف المهمة
+7. ذكر العواقب المحتملة إذا لم يتم إكمال المهمة بسرعة
+8. الحفاظ على نبرة مهنية لكن حازمة مناسبة لمستوى الأولوية ${taskPriority}
+9. طلب رد مع خطة العمل والجدول الزمني للإكمال
+${fineType !== 'no_fine' ? '10. حاسم: يجب تضمين معلومات الغرامة المحددة أعلاه - ذكر المبلغ والعملة المحددة بوضوح' : ''}
 
 متطلبات حاسمة - يجب اتباعها:
+- **يجب تضمين تفاصيل من وصف المهمة** "${taskDescription}" في نص التحذير لتوفير السياق حول ما يجب القيام به
 - لا تضع أي تواريخ أو أسماء مرسلين أو أسماء مستقبلين أو أسماء شركات
 - لا تضع أي متغيرات وهمية مثل [اسمك]، [منصبك]، [اسم الشركة]، [التاريخ]، [مساعد الموارد البشرية]، إلخ
 - لا تضع خطوط توقيع أو تحيات ختامية مثل "مع التقدير، [اسمك]"
@@ -331,16 +342,18 @@ ${fineText[fineType]?.urdu || ''}
 
 براہ کرم ایک رسمی، پیشہ ورانہ تنبیہی خط کا مواد تیار کریں جس میں:
 1. اوپر بیان کردہ مخصوص کام کے مسئلے کو حل کریں (کام: "${taskTitle}")
-2. کام کی تفصیلات کا حوالہ دیں بشمول ترجیح (${taskPriority})، حالت (${taskStatus})، اور آخری تاریخ${overdueText}
-3. ${isOverdue ? 'اس بات پر زور دیں کہ کام تاخیر سے ہے اور فوری کارروائی کی ضرورت ہے' : isDueSoon ? 'نوٹ کریں کہ آخری تاریخ جلد آ رہی ہے' : 'بروقت کام مکمل کرنے کی اہمیت کو اجاگر کریں'}
-4. ${isOverdue ? 'اس تاخیر' : 'وقت پر اس کام کو مکمل نہ کرنے'} کے ٹیم کی پیداوار اور کام کے بہاؤ پر اثرات کی وضاحت کریں
-5. فوری کارروائی اور کام کی تکمیل کے لیے واضح توقعات مقرر کریں
-6. اگر کام فوری طور پر مکمل نہیں ہوتا تو ممکنہ نتائج کا ذکر کریں
-7. ${taskPriority} ترجیح کی سطح کے مطابق پیشہ ورانہ لیکن سخت لہجہ برقرار رکھیں
-8. عمل کے منصوبے اور تکمیل کی ٹائم لائن کے ساتھ جواب کی درخواست کریں
-${fineType !== 'no_fine' ? '9. اہم: لازمی طور پر اوپر فراہم کردہ جرمانے کی معلومات - مخصوص رقم اور کرنسی کا واضح ذکر کریں' : ''}
+2. **کام کی تفصیل سے مخصوص تفصیلات شامل کریں**: "${taskDescription}" - اس تفصیل کی بنیاد پر کیا کرنے کی ضرورت ہے اس کا حوالہ دیں
+3. کام کی تفصیلات کا حوالہ دیں بشمول ترجیح (${taskPriority})، حالت (${taskStatus})، اور آخری تاریخ${overdueText}
+4. ${isOverdue ? 'اس بات پر زور دیں کہ کام تاخیر سے ہے اور فوری کارروائی کی ضرورت ہے' : isDueSoon ? 'نوٹ کریں کہ آخری تاریخ جلد آ رہی ہے' : 'بروقت کام مکمل کرنے کی اہمیت کو اجاگر کریں'}
+5. ${isOverdue ? 'اس تاخیر' : 'وقت پر اس کام کو مکمل نہ کرنے'} کے ٹیم کی پیداوار اور کام کے بہاؤ پر اثرات کی وضاحت کریں
+6. فوری کارروائی اور کام کی تکمیل کے لیے واضح توقعات مقرر کریں، کام کی تفصیل سے مخصوص ضروریات کا حوالہ دیتے ہوئے
+7. اگر کام فوری طور پر مکمل نہیں ہوتا تو ممکنہ نتائج کا ذکر کریں
+8. ${taskPriority} ترجیح کی سطح کے مطابق پیشہ ورانہ لیکن سخت لہجہ برقرار رکھیں
+9. عمل کے منصوبے اور تکمیل کی ٹائم لائن کے ساتھ جواب کی درخواست کریں
+${fineType !== 'no_fine' ? '10. اہم: لازمی طور پر اوپر فراہم کردہ جرمانے کی معلومات - مخصوص رقم اور کرنسی کا واضح ذکر کریں' : ''}
 
 اہم ضروریات - لازمی پیروی کریں:
+- **کام کی تفصیل سے تفصیلات شامل کریں** "${taskDescription}" تنبیہ کے متن میں تاکہ کیا کرنے کی ضرورت ہے اس کا سیاق و سباق فراہم کیا جا سکے
 - کوئی تاریخ، بھیجنے والے کا نام، وصول کنندہ کا نام، یا کمپنی کا نام شامل نہ کریں
 - [آپ کا نام]، [آپ کا عہدہ]، [کمپنی کا نام]، [تاریخ]، [HR اسسٹنٹ] وغیرہ جیسے کوئی placeholder شامل نہ کریں
 - دستخط کی لائنیں یا اختتامی سلام جیسے "خلوص کے ساتھ، [آپ کا نام]" شامل نہ کریں
