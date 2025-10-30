@@ -362,17 +362,43 @@ export class NotificationManagementService {
 				console.error('❌ [NotificationManagement] Queue function failed:', error);
 			}
 			
-			// Automatically trigger push notification processing
+			// ⚡ INSTANT PUSH: Call Edge Function directly for immediate delivery
 			try {
-				console.log('🔄 [NotificationManagement] Triggering automatic push notification processing...');
-				// Wait a moment for the queueing to complete, then process
-				setTimeout(() => {
-					pushNotificationProcessor.processOnce().catch(error => {
-						console.error('❌ [NotificationManagement] Auto push processing failed:', error);
-					});
-				}, 1500); // Increased delay to allow queueing to complete
+				console.log('⚡ [NotificationManagement] Triggering INSTANT push notification delivery...');
+				
+				// Call Edge Function directly (no waiting)
+				const edgeFunctionUrl = `${supabase.supabaseUrl.replace('https://', 'https://').replace('.co', '.co')}/functions/v1/process-push-queue`;
+				
+				fetch(edgeFunctionUrl, {
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${supabase.supabaseKey}`,
+						'Content-Type': 'application/json'
+					}
+				}).then(response => {
+					if (response.ok) {
+						console.log('✅ [NotificationManagement] Instant push delivery triggered successfully');
+					} else {
+						console.warn('⚠️ [NotificationManagement] Edge Function call failed, falling back to client processing');
+						// Fallback to client-side processing
+						setTimeout(() => {
+							pushNotificationProcessor.processOnce().catch(error => {
+								console.error('❌ [NotificationManagement] Fallback processing failed:', error);
+							});
+						}, 1000);
+					}
+				}).catch(error => {
+					console.error('❌ [NotificationManagement] Edge Function call error, using fallback:', error);
+					// Fallback to client-side processing
+					setTimeout(() => {
+						pushNotificationProcessor.processOnce().catch(error => {
+							console.error('❌ [NotificationManagement] Fallback processing failed:', error);
+						});
+					}, 1000);
+				});
+				
 			} catch (error) {
-				console.error('❌ [NotificationManagement] Failed to trigger automatic push processing:', error);
+				console.error('❌ [NotificationManagement] Failed to trigger instant push:', error);
 			}
 			
 			return data;

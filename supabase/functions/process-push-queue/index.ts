@@ -112,14 +112,21 @@ serve(async (req) => {
         const urgency = priority === 'urgent' || priority === 'high' ? 'high' : 'normal'
         const ttl = 24 * 60 * 60 // 24 hours
 
+        // Prepare topic (max 32 chars for Web Push API)
+        let topic = item.payload?.tag || 'aqura-notification'
+        if (topic.length > 32) {
+          // Take first 32 characters only
+          topic = topic.substring(0, 32)
+        }
+
         // Send options for push notification
         const sendOptions = {
           urgency: urgency, // 'very-low' | 'low' | 'normal' | 'high'
           TTL: ttl, // Time to live in seconds
-          topic: item.payload?.tag || 'aqura-notification' // For notification grouping/replacement
+          topic: topic // For notification grouping/replacement (max 32 chars)
         }
 
-        console.log(`📤 Sending with urgency: ${urgency}, TTL: ${ttl}s`)
+        console.log(`📤 Sending with urgency: ${urgency}, TTL: ${ttl}s, topic: ${topic}`)
 
         // Send the push notification with options
         await webpush.sendNotification(
