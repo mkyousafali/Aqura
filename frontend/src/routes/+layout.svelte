@@ -759,6 +759,12 @@
 			console.log('🚀 Starting push notification processor...');
 			pushNotificationProcessor.start();
 			
+			// Start push queue poller (processes pending push notifications)
+			// This is needed when pg_cron is not available (free tier)
+			console.log('🔄 Starting push queue poller...');
+			const { pushQueuePoller } = await import('$lib/utils/pushQueuePoller');
+			pushQueuePoller.start();
+			
 		} catch (error) {
 			console.error('Error initializing notification services:', error);
 		}
