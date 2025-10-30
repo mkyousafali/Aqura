@@ -328,7 +328,15 @@ export class PushNotificationService {
 			return;
 		}
 
-		const deviceId = this.generateDeviceId();
+		// Check for existing device ID in localStorage first
+		// Only generate new one if none exists
+		let deviceId = localStorage.getItem('aqura-device-id');
+		if (!deviceId) {
+			deviceId = this.generateDeviceId();
+			console.log('🆕 Generated new device ID:', deviceId);
+		} else {
+			console.log('♻️ Reusing existing device ID:', deviceId);
+		}
 
 		// Use the actual user ID since it should already be a valid UUID in the database
 		const userUUID = user.id;
