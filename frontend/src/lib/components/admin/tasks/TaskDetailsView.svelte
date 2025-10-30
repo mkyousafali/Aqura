@@ -262,27 +262,63 @@
 	}
 
 	async function loadIncompleteTasks() {
-		// Load all tasks (like loadTotalTasks) but filter out completed ones
-		// First, get all completed task IDs for filtering
+		// Load tasks that DON'T have completion records at all
+		// This matches the count calculation: total_tasks - completed_tasks
+		// where completed_tasks = count of task_completions + quick_task_completions
+		
+		// Get ALL completion assignment IDs (tasks that have ANY completion record)
+		let allTaskCompletionIds: any[] = [];
+		let from = 0;
+		const chunkSize = 1000;
+		
+		while (true) {
+			const { data: completions, error } = await supabase
+				.from('task_completions')
+				.select('assignment_id')
+				.range(from, from + chunkSize - 1);
+			
+			if (error) {
+				console.error('Error loading task completions:', error);
+				break;
+			}
+			
+			if (!completions || completions.length === 0) break;
+			allTaskCompletionIds = allTaskCompletionIds.concat(completions.map(c => c.assignment_id));
+			if (completions.length < chunkSize) break;
+			from += chunkSize;
+		}
+		
+		// Get ALL quick_task_completion assignment IDs
+		let allQuickCompletionIds: any[] = [];
+		from = 0;
+		
+		while (true) {
+			const { data: completions, error } = await supabase
+				.from('quick_task_completions')
+				.select('assignment_id')
+				.range(from, from + chunkSize - 1);
+			
+			if (error) {
+				console.error('Error loading quick task completions:', error);
+				break;
+			}
+			
+			if (!completions || completions.length === 0) break;
+			allQuickCompletionIds = allQuickCompletionIds.concat(completions.map(c => c.assignment_id));
+			if (completions.length < chunkSize) break;
+			from += chunkSize;
+		}
 
-		// Get completed task_assignment IDs
-		const { data: completedTaskIds, error: ctError } = await supabase
-			.from('task_completions')
-			.select('assignment_id');
+		// Create sets for fast lookup
+		const hasCompletionRecord = new Set(allTaskCompletionIds);
+		const hasQuickCompletionRecord = new Set(allQuickCompletionIds);
 
-		// Get completed quick_task_assignment IDs  
-		const { data: completedQuickIds, error: cqError } = await supabase
-			.from('quick_task_completions')
-			.select('assignment_id');
+		console.log('📊 Incomplete tasks analysis:');
+		console.log('  - Task assignments with completion records:', hasCompletionRecord.size);
+		console.log('  - Quick assignments with completion records:', hasQuickCompletionRecord.size);
 
-		if (ctError) console.error('Error loading completed task IDs:', ctError);
-		if (cqError) console.error('Error loading completed quick task IDs:', cqError);
-
-		const completedTaskAssignmentIds = completedTaskIds?.map(c => c.assignment_id) || [];
-		const completedQuickAssignmentIds = completedQuickIds?.map(c => c.assignment_id) || [];
-
-		// Load from task_assignments with branches relation
-		let taskAssignmentsQuery = supabase
+		// Load ALL task_assignments
+		const { data: taskAssignments, error: taError } = await supabase
 			.from('task_assignments')
 			.select(`
 				*,
@@ -292,17 +328,10 @@
 				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
 			`);
 
-		// Only apply filter if there are completed tasks to exclude
-		if (completedTaskAssignmentIds.length > 0) {
-			taskAssignmentsQuery = taskAssignmentsQuery.not('id', 'in', `(${completedTaskAssignmentIds.join(',')})`);
-		}
+		if (taError) console.error('Error loading task_assignments:', taError);
 
-		const { data: taskAssignments, error: taError } = await taskAssignmentsQuery;
-
-		if (taError) console.error('Error loading incomplete task_assignments:', taError);
-
-		// Load from quick_task_assignments with quick_tasks.branches relation
-		let quickAssignmentsQuery = supabase
+		// Load ALL quick_task_assignments
+		const { data: quickAssignments, error: qaError } = await supabase
 			.from('quick_task_assignments')
 			.select(`
 				*,
@@ -314,17 +343,17 @@
 				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
 			`);
 
-		// Only apply filter if there are completed quick tasks to exclude
-		if (completedQuickAssignmentIds.length > 0) {
-			quickAssignmentsQuery = quickAssignmentsQuery.not('id', 'in', `(${completedQuickAssignmentIds.join(',')})`);
-		}
+		if (qaError) console.error('Error loading quick_task_assignments:', qaError);
 
-		const { data: quickAssignments, error: qaError } = await quickAssignmentsQuery;
-
-		if (qaError) console.error('Error loading incomplete quick_task_assignments:', qaError);
-
+		// Filter: assignments that DON'T have any completion record
 		if (taskAssignments) {
-			tasks = [...tasks, ...taskAssignments.map(ta => ({
+			const incompleteTasks = taskAssignments.filter(ta => 
+				!hasCompletionRecord.has(ta.id) && ta.status !== 'completed'
+			);
+			console.log('  - Total task_assignments:', taskAssignments.length);
+			console.log('  - Incomplete regular tasks (no completion record):', incompleteTasks.length);
+			
+			tasks = [...tasks, ...incompleteTasks.map(ta => ({
 				...ta,
 				task_title: ta.tasks?.title || 'N/A',
 				task_description: ta.tasks?.description || '',
@@ -339,7 +368,13 @@
 		}
 
 		if (quickAssignments) {
-			tasks = [...tasks, ...quickAssignments.map(qa => ({
+			const incompleteQuick = quickAssignments.filter(qa => 
+				!hasQuickCompletionRecord.has(qa.id) && qa.status !== 'completed'
+			);
+			console.log('  - Total quick_task_assignments:', quickAssignments.length);
+			console.log('  - Incomplete quick tasks (no completion record):', incompleteQuick.length);
+			
+			tasks = [...tasks, ...incompleteQuick.map(qa => ({
 				...qa,
 				task_title: qa.quick_tasks?.title || 'N/A',
 				task_description: qa.quick_tasks?.description || '',
@@ -354,6 +389,8 @@
 				issue_type: qa.quick_tasks?.issue_type
 			}))];
 		}
+		
+		console.log('  ✅ Total incomplete tasks loaded:', tasks.length);
 	}
 
 	async function loadMyAssignedTasks(user: any) {
