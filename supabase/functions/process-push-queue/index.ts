@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import webpush from 'npm:web-push@3.6.6'
 
 const VAPID_PUBLIC_KEY = "BExwv7hh64Fkg6RRzkzueFm8MQn0NkdtImUf5q2X1UUwLKyGw3RtLqgj-MixTecmRaePJSxNva9J0Y5CMZIqzS8"
 const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY') || "hCYjM5B0-NDNyZB7AjB--fe3G2SShDY4LClmhFCZry8"
@@ -36,16 +37,9 @@ serve(async (req) => {
         push_subscription_id,
         payload,
         status,
-        retry_count,
-        push_subscriptions!inner(
-          endpoint,
-          p256dh,
-          auth,
-          is_active
-        )
+        retry_count
       `)
       .or(`status.eq.pending,and(status.eq.retry,next_retry_at.lte.${now})`)
-      .eq('push_subscriptions.is_active', true)
       .order('created_at', { ascending: true })
       .limit(50) // Process 50 at a time
 
@@ -53,6 +47,8 @@ serve(async (req) => {
       console.error('❌ Error fetching queue:', fetchError)
       throw fetchError
     }
+
+    console.log('📊 Fetched queue items:', queueItems?.length || 0)
 
     if (!queueItems || queueItems.length === 0) {
       console.log('📭 No pending notifications in queue')
@@ -67,8 +63,7 @@ serve(async (req) => {
 
     console.log(`📬 Processing ${queueItems.length} queued notifications...`)
 
-    // Import web-push
-    const webpush = await import('https://esm.sh/web-push@3.6.6')
+    // Configure VAPID with the imported webpush module
     webpush.setVapidDetails(
       'mailto:support@aqura.com',
       VAPID_PUBLIC_KEY,
@@ -92,18 +87,29 @@ serve(async (req) => {
           })
           .eq('id', item.id)
 
-        // Prepare subscription object
-        const subscription = {
-          endpoint: item.push_subscriptions.endpoint,
+        // Fetch the push subscription separately
+        const { data: subscription, error: subError } = await supabase
+          .from('push_subscriptions')
+          .select('endpoint, p256dh, auth, is_active')
+          .eq('id', item.push_subscription_id)
+          .single()
+
+        if (subError || !subscription || !subscription.is_active) {
+          throw new Error('No active push subscription found for this queue item')
+        }
+
+        // Prepare subscription object for web-push
+        const pushSubscription = {
+          endpoint: subscription.endpoint,
           keys: {
-            p256dh: item.push_subscriptions.p256dh,
-            auth: item.push_subscriptions.auth
+            p256dh: subscription.p256dh,
+            auth: subscription.auth
           }
         }
 
         // Send the push notification
         await webpush.sendNotification(
-          subscription,
+          pushSubscription,
           JSON.stringify(item.payload)
         )
 
