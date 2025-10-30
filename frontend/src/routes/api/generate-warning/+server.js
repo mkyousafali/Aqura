@@ -50,28 +50,30 @@ export async function POST({ request }) {
 			return json({ error: 'Assignment data is required' }, { status: 400 });
 		}
 
-		// Extract data from assignment with enhanced warning types
-		const recipientName = assignment.assignedToEmployee || assignment.assignedTo || assignment.username || 'Employee';
-		const assignedBy = assignment.assignedBy || 'Manager';
-		const taskType = assignment.assignmentType || 'Task';
-		const totalTasks = assignment.totalAssigned || 0;
-		const completedTasks = assignment.totalCompleted || 0;
-		const overdueTasks = assignment.totalOverdue || 0;
-		const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-		const performanceStatus = completionRate >= 80 ? 'satisfactory' : completionRate >= 60 ? 'needs improvement' : 'poor';
-		const branchName = assignment.branch || 'Not specified';
-		const warningType = assignment.warningType || 'overall_performance_no_fine';
+		// Extract data from assignment - TASK-SPECIFIC VERSION
+		const recipientName = assignment.assigned_to || assignment.assignedTo || assignment.username || 'Employee';
+		const assignedBy = assignment.assigned_by || assignment.assignedBy || 'Manager';
+		const taskTitle = assignment.task_title || assignment.taskTitle || 'Untitled Task';
+		const taskDescription = assignment.task_description || assignment.taskDescription || '';
+		const taskType = assignment.type || assignment.assignment_type || 'regular';
+		const taskPriority = assignment.priority || 'medium';
+		const taskStatus = assignment.status || 'pending';
+		const taskDeadline = assignment.deadline;
+		const branchName = assignment.assigned_to_branch || assignment.branch || 'Not specified';
+		const warningLevel = assignment.warning_level || 'normal';
+		const isOverdue = assignment.warning_level === 'critical';
+		const isDueSoon = assignment.warning_level === 'warning';
+		const warningType = assignment.warningType || 'task_delay_no_fine';
 		const fineAmount = assignment.fineAmount;
-		const fineCurrency = assignment.fineCurrency || 'USD';
-		const taskId = assignment.taskId;
-		const taskTitle = assignment.taskTitle;
-		const taskDescription = assignment.taskDescription;
+		const fineCurrency = assignment.fineCurrency || 'SAR';
+		const taskId = assignment.task_id || assignment.id;
 
 		console.log('Extracted warning type:', warningType);
 		console.log('Extracted fine amount:', fineAmount);
-		console.log('Extracted task details:', { taskId, taskTitle, taskDescription });
+		console.log('Extracted task details:', { taskId, taskTitle, taskDescription, taskPriority, taskStatus });
 		console.log('Extracted recipient name:', recipientName);
 		console.log('Extracted language:', language);
+		console.log('Task warning level:', warningLevel, '| Overdue:', isOverdue, '| Due Soon:', isDueSoon);
 
 		// More lenient validation - only check for language since we provide defaults for other fields
 		if (!language) {
@@ -84,7 +86,7 @@ export async function POST({ request }) {
 		console.log('Final recipient name for warning:', recipientName);
 
 		// Parse warning type to get specific components
-		const isTaskSpecific = false; // Removed task-specific warnings
+		const isTaskSpecific = true; // Now using task-specific warnings
 		let fineType = 'no_fine';
 		
 		if (warningType.includes('with_fine')) {
@@ -94,6 +96,7 @@ export async function POST({ request }) {
 		}
 
 		console.log('Parsed warning type - fineType:', fineType);
+		console.log('Is task-specific warning:', isTaskSpecific);
 
 		// Map language codes to full names
 		const languageMapping = {
@@ -143,55 +146,126 @@ export async function POST({ request }) {
 			}
 		};
 
-		// Create comprehensive prompt system
+		// Format deadline and status text for use in prompts (before function definition)
+		const deadlineText = taskDeadline ? new Date(taskDeadline).toLocaleString() : 'Not specified';
+		const overdueText = isOverdue ? ' (OVERDUE)' : isDueSoon ? ' (DUE SOON)' : '';
+
+		// Create comprehensive prompt system for TASK-SPECIFIC warnings
 		function createWarningPrompt(lang, warningType, taskDetails, fineInfo) {
 			const { fineAmount, fineCurrency, fineType } = fineInfo;
 			
 			const basePrompts = {
-				english: `Generate a professional performance warning notice for an employee with poor task completion performance.
+				english: `Generate a professional warning notice for an employee regarding a specific task issue.
 
 Employee Details:
 - Name: ${recipientName}
 - Assigned By: ${assignedBy}
-- Assignment Type: ${taskType}
 - Branch: ${branchName}
 
-Performance Statistics:
-- Total Tasks Assigned: ${totalTasks}
-- Tasks Completed: ${completedTasks}
-- Overdue Tasks: ${overdueTasks}
-- Completion Rate: ${completionRate}%
-- Performance Status: ${performanceStatus}`,
+Task Details:
+- Task Title: ${taskTitle}
+- Task Description: ${taskDescription}
+- Task Type: ${taskType}
+- Priority: ${taskPriority}
+- Current Status: ${taskStatus}
+- Deadline: ${deadlineText}${overdueText}
+- Warning Level: ${warningLevel}`,
 
-				arabic: `أنشئ محتوى إشعار تحذير مهني لموظف لديه أداء ضعيف في إنجاز المهام.
+				arabic: `أنشئ إشعار تحذير مهني لموظف بخصوص مشكلة في مهمة محددة.
 
 تفاصيل الموظف:
 - الاسم: ${recipientName}
 - مكلف من قبل: ${assignedBy}
-- نوع التكليف: ${taskType}
 - الفرع: ${branchName}
 
-إحصائيات الأداء:
-- إجمالي المهام المكلفة: ${totalTasks}
-- المهام المكتملة: ${completedTasks}
-- المهام المتأخرة: ${overdueTasks}
-- معدل الإنجاز: ${completionRate}%
-- حالة الأداء: ${performanceStatus}`,
+تفاصيل المهمة:
+- عنوان المهمة: ${taskTitle}
+- وصف المهمة: ${taskDescription}
+- نوع المهمة: ${taskType}
+- الأولوية: ${taskPriority}
+- الحالة الحالية: ${taskStatus}
+- الموعد النهائي: ${deadlineText}${overdueText}
+- مستوى التحذير: ${warningLevel}`,
 
-				urdu: `ایک ملازم کے لیے جو کاموں کی تکمیل میں کمزور کارکردگی رکھتا ہے، پیشہ ورانہ کارکردگی کی تنبیہی نوٹس تیار کریں۔
+				urdu: `ایک مخصوص کام کے مسئلے کے بارے میں ملازم کے لیے پیشہ ورانہ تنبیہی نوٹس تیار کریں۔
 
 ملازم کی تفصیلات:
 - نام: ${recipientName}
 - تفویض کنندہ: ${assignedBy}
-- تفویض کی قسم: ${taskType}
 - شاخ: ${branchName}
 
-کارکردگی کے اعداد و شمار:
-- کل تفویض شدہ کام: ${totalTasks}
-- مکمل شدہ کام: ${completedTasks}
-- تاخیر شدہ کام: ${overdueTasks}
-- تکمیل کی شرح: ${completionRate}%
-- کارکردگی کی حالت: ${performanceStatus}`
+کام کی تفصیلات:
+- کام کا عنوان: ${taskTitle}
+- کام کی تفصیل: ${taskDescription}
+- کام کی قسم: ${taskType}
+- ترجیح: ${taskPriority}
+- موجودہ حالت: ${taskStatus}
+- آخری تاریخ: ${deadlineText}${overdueText}
+- تنبیہ کی سطح: ${warningLevel}`,
+
+				hindi: `एक विशिष्ट कार्य मुद्दे के संबंध में कर्मचारी के लिए पेशेवर चेतावनी नोटिस तैयार करें।
+
+कर्मचारी विवरण:
+- नाम: ${recipientName}
+- द्वारा सौंपा गया: ${assignedBy}
+- शाखा: ${branchName}
+
+कार्य विवरण:
+- कार्य शीर्षक: ${taskTitle}
+- कार्य विवरण: ${taskDescription}
+- कार्य प्रकार: ${taskType}
+- प्राथमिकता: ${taskPriority}
+- वर्तमान स्थिति: ${taskStatus}
+- समय सीमा: ${deadlineText}${overdueText}
+- चेतावनी स्तर: ${warningLevel}`,
+
+				tamil: `ஒரு குறிப்பிட்ட பணி பிரச்சினை தொடர்பாக ஊழியருக்கான தொழில்முறை எச்சரிக்கை அறிவிப்பை உருவாக்கவும்.
+
+ஊழியர் விவரங்கள்:
+- பெயர்: ${recipientName}
+- ஒதுக்கியவர்: ${assignedBy}
+- கிளை: ${branchName}
+
+பணி விவரங்கள்:
+- பணி தலைப்பு: ${taskTitle}
+- பணி விவரணை: ${taskDescription}
+- பணி வகை: ${taskType}
+- முன்னுரிமை: ${taskPriority}
+- தற்போதைய நிலை: ${taskStatus}
+- காலக்கெடு: ${deadlineText}${overdueText}
+- எச்சரிக்கை நிலை: ${warningLevel}`,
+
+				malayalam: `ഒരു നിർദ്ദിഷ്ട ടാസ്ക് പ്രശ്നവുമായി ബന്ധപ്പെട്ട് ഒരു ജീവനക്കാരനുള്ള പ്രൊഫഷണൽ മുന്നറിയിപ്പ് നോട്ടീസ് സൃഷ്ടിക്കുക.
+
+ജീവനക്കാരുടെ വിശദാംശങ്ങൾ:
+- പേര്: ${recipientName}
+- നൽകിയത്: ${assignedBy}
+- ബ്രാഞ്ച്: ${branchName}
+
+ടാസ്ക് വിശദാംശങ്ങൾ:
+- ടാസ്ക് ശീർഷകം: ${taskTitle}
+- ടാസ്ക് വിവരണം: ${taskDescription}
+- ടാസ്ക് തരം: ${taskType}
+- മുൻഗണന: ${taskPriority}
+- നിലവിലെ നില: ${taskStatus}
+- അവസാന തീയതി: ${deadlineText}${overdueText}
+- മുന്നറിയിപ്പ് നില: ${warningLevel}`,
+
+				bengali: `একটি নির্দিষ্ট টাস্ক সমস্যা সম্পর্কে কর্মচারীর জন্য পেশাদার সতর্কতা নোটিশ তৈরি করুন।
+
+কর্মচারীর বিবরণ:
+- নাম: ${recipientName}
+- দ্বারা নিয়োগ: ${assignedBy}
+- শাখা: ${branchName}
+
+টাস্ক বিবরণ:
+- টাস্ক শিরোনাম: ${taskTitle}
+- টাস্ক বর্ণনা: ${taskDescription}
+- টাস্ক ধরন: ${taskType}
+- অগ্রাধিকার: ${taskPriority}
+- বর্তমান অবস্থা: ${taskStatus}
+- সময়সীমা: ${deadlineText}${overdueText}
+- সতর্কতা স্তর: ${warningLevel}`
 			};
 
 			return basePrompts[lang] || basePrompts.english;
@@ -206,14 +280,14 @@ Performance Statistics:
 ${fineText[fineType]?.english || ''}
 
 Please generate a formal, professional warning letter content that:
-1. States the performance concerns clearly about the overall task completion performance
-2. References the specific performance statistics provided above (Total: ${totalTasks}, Completed: ${completedTasks}, Overdue: ${overdueTasks}, Rate: ${completionRate}%)
-3. Addresses the overall performance patterns
-4. Explains the impact on productivity and team performance
-5. Sets clear expectations for immediate improvement
-6. Mentions potential consequences if performance doesn't improve promptly
-7. Maintains a professional but firm tone
-8. Requests a response with improvement plan and timeline
+1. Addresses the specific task issue mentioned above (Task: "${taskTitle}")
+2. References the task details including priority (${taskPriority}), status (${taskStatus}), and deadline${overdueText}
+3. ${isOverdue ? 'Emphasizes that the task is OVERDUE and requires immediate action' : isDueSoon ? 'Notes that the deadline is approaching soon' : 'Highlights the importance of timely task completion'}
+4. Explains the impact of ${isOverdue ? 'this delay' : 'not completing this task on time'} on team productivity and workflow
+5. Sets clear expectations for immediate action and task completion
+6. Mentions potential consequences if the task is not completed promptly
+7. Maintains a professional but firm tone appropriate to the ${taskPriority} priority level
+8. Requests a response with action plan and completion timeline
 ${fineType !== 'no_fine' ? '9. CRITICAL: MUST include the exact fine information provided above - mention the specific amount and currency prominently' : ''}
 
 CRITICAL REQUIREMENTS - MUST FOLLOW:
@@ -231,14 +305,14 @@ ${fineType !== 'no_fine' ? '- MUST include the exact fine text provided above wo
 ${fineText[fineType]?.arabic || ''}
 
 يرجى إنشاء محتوى خطاب تحذير رسمي ومهني يتضمن:
-1. ذكر مخاوف الأداء بوضوح حول أداء إنجاز المهام بشكل عام
-2. الإشارة إلى إحصائيات الأداء المحددة (المجموع: ${totalTasks}، المكتمل: ${completedTasks}، المتأخر: ${overdueTasks}، المعدل: ${completionRate}%)
-3. معالجة أنماط الأداء العامة
-4. شرح التأثير على الإنتاجية وأداء الفريق
-5. وضع توقعات واضحة للتحسن الفوري
-6. ذكر العواقب المحتملة إذا لم يتحسن الأداء بسرعة
-7. الحفاظ على نبرة مهنية لكن حازمة
-8. طلب رد مع خطة التحسن والجدول الزمني
+1. معالجة مشكلة المهمة المحددة المذكورة أعلاه (المهمة: "${taskTitle}")
+2. الإشارة إلى تفاصيل المهمة بما في ذلك الأولوية (${taskPriority})، والحالة (${taskStatus})، والموعد النهائي${overdueText}
+3. ${isOverdue ? 'التأكيد على أن المهمة متأخرة وتتطلب إجراءً فورياً' : isDueSoon ? 'ملاحظة أن الموعد النهائي يقترب قريباً' : 'تسليط الضوء على أهمية إكمال المهمة في الوقت المحدد'}
+4. شرح تأثير ${isOverdue ? 'هذا التأخير' : 'عدم إكمال هذه المهمة في الوقت المحدد'} على إنتاجية الفريق وسير العمل
+5. وضع توقعات واضحة للإجراء الفوري وإكمال المهمة
+6. ذكر العواقب المحتملة إذا لم يتم إكمال المهمة بسرعة
+7. الحفاظ على نبرة مهنية لكن حازمة مناسبة لمستوى الأولوية ${taskPriority}
+8. طلب رد مع خطة العمل والجدول الزمني للإكمال
 ${fineType !== 'no_fine' ? '9. حاسم: يجب تضمين معلومات الغرامة المحددة أعلاه - ذكر المبلغ والعملة المحددة بوضوح' : ''}
 
 متطلبات حاسمة - يجب اتباعها:
@@ -256,14 +330,14 @@ ${fineType !== 'no_fine' ? '- يجب تضمين نص الغرامة المقدم
 ${fineText[fineType]?.urdu || ''}
 
 براہ کرم ایک رسمی، پیشہ ورانہ تنبیہی خط کا مواد تیار کریں جس میں:
-1. مجموعی کام کی تکمیل کی کارکردگی کے بارے میں واضح طور پر کارکردگی کے خدشات بیان کریں
-2. اوپر فراہم کردہ مخصوص کارکردگی کے اعداد و شمار کا حوالہ دیں (کل: ${totalTasks}، مکمل: ${completedTasks}، تاخیر: ${overdueTasks}، شرح: ${completionRate}%)
-3. مجموعی کارکردگی کے نمونوں سے نمٹیں
-4. پیداوار اور ٹیم کی کارکردگی پر اثرات کی وضاحت کریں
-5. فوری بہتری کے لیے واضح توقعات مقرر کریں
-6. اگر کارکردگی فوری طور پر بہتر نہیں ہوتی تو ممکنہ نتائج کا ذکر کریں
-7. پیشہ ورانہ لیکن سخت لہجہ برقرار رکھیں
-8. بہتری کے منصوبے اور ٹائم لائن کے ساتھ جواب کی درخواست کریں
+1. اوپر بیان کردہ مخصوص کام کے مسئلے کو حل کریں (کام: "${taskTitle}")
+2. کام کی تفصیلات کا حوالہ دیں بشمول ترجیح (${taskPriority})، حالت (${taskStatus})، اور آخری تاریخ${overdueText}
+3. ${isOverdue ? 'اس بات پر زور دیں کہ کام تاخیر سے ہے اور فوری کارروائی کی ضرورت ہے' : isDueSoon ? 'نوٹ کریں کہ آخری تاریخ جلد آ رہی ہے' : 'بروقت کام مکمل کرنے کی اہمیت کو اجاگر کریں'}
+4. ${isOverdue ? 'اس تاخیر' : 'وقت پر اس کام کو مکمل نہ کرنے'} کے ٹیم کی پیداوار اور کام کے بہاؤ پر اثرات کی وضاحت کریں
+5. فوری کارروائی اور کام کی تکمیل کے لیے واضح توقعات مقرر کریں
+6. اگر کام فوری طور پر مکمل نہیں ہوتا تو ممکنہ نتائج کا ذکر کریں
+7. ${taskPriority} ترجیح کی سطح کے مطابق پیشہ ورانہ لیکن سخت لہجہ برقرار رکھیں
+8. عمل کے منصوبے اور تکمیل کی ٹائم لائن کے ساتھ جواب کی درخواست کریں
 ${fineType !== 'no_fine' ? '9. اہم: لازمی طور پر اوپر فراہم کردہ جرمانے کی معلومات - مخصوص رقم اور کرنسی کا واضح ذکر کریں' : ''}
 
 اہم ضروریات - لازمی پیروی کریں:

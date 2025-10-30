@@ -748,6 +748,12 @@
 			message += `*📂 الفئة | Category:*\n`;
 			message += `${selectedCategoryNameAr} | ${selectedCategoryNameEn}\n\n`;
 			
+			// Description / Notes (if available)
+			if (description && description.trim()) {
+				message += `*📝 الوصف / الملاحظات | Description / Notes:*\n`;
+				message += `${description}\n\n`;
+			}
+			
 			// Schedule Number
 			message += `*📋 رقم الجدولة | Schedule No:*\n`;
 			message += `${savedScheduleId}\n\n`;

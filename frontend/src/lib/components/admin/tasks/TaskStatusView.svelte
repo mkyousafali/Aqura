@@ -151,7 +151,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					reassigned_from,
 					assigned_at,
 					tasks(id, title, description, priority)
-				`);
+				`)
+				.eq('status', 'pending'); // Only show pending tasks
 
 			if (regularError) throw regularError;
 
@@ -177,7 +178,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						assigned_to_branch_id,
 						created_at
 					)
-				`);
+				`)
+				.eq('status', 'pending'); // Only show pending quick tasks
 
 			if (quickError) throw quickError;
 
@@ -208,6 +210,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				usersData = users || [];
 			}
 
+			// Fetch completions for assignments (so we can compute status from actual completions)
+			let completionsMap = {};
+			try {
+				const allAssignmentIds = [
+					...new Set([
+						...regularAssignments.map(a => a.id),
+						...quickAssignments.map(a => a.id)
+					])
+				].filter(Boolean);
+
+				if (allAssignmentIds.length > 0) {
+					const { data: completions, error: completionsError } = await supabase
+						.from('task_completions')
+						.select('assignment_id, completed_at')
+						.in('assignment_id', allAssignmentIds);
+
+					if (completionsError) {
+						console.warn('Failed to load task completions for status computation:', completionsError);
+					} else {
+						completionsMap = (completions || []).reduce((acc, c) => {
+							if (c && c.assignment_id) acc[c.assignment_id] = c;
+							return acc;
+						}, {});
+					}
+				}
+			} catch (err) {
+				console.warn('Error while fetching completions map:', err);
+			}
+
 			// Transform regular assignments
 			const processedRegularAssignments = regularAssignments.map(assignment => {
 				const assignedByUser = usersData.find(u => u.id === assignment.assigned_by);
@@ -215,7 +246,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				
 				const now = new Date();
 				const deadline = assignment.deadline_datetime ? new Date(assignment.deadline_datetime) : null;
-				const isOverdue = deadline && deadline < now && assignment.status !== 'completed';
+				// Determine if assignment has a completion record (prefer completions table)
+				const completionRecord = completionsMap[assignment.id];
+				const isCompleted = !!completionRecord;
+				const isOverdue = deadline && deadline < now && !isCompleted;
 				const isNearDeadline = deadline && !isOverdue && 
 					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
 
@@ -231,7 +265,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					assigned_to_id: assignment.assigned_to_user_id,
 					assigned_to_username: assignedToUser?.username || 'Unknown',
 					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
-					status: assignment.status,
+					status: assignment.status, // ✅ FIXED: Use actual status from task_assignments table
+					completed_at: completionRecord?.completed_at || null,
 					deadline: assignment.deadline_datetime,
 					assigned_at: assignment.assigned_at,
 					is_overdue: isOverdue,
@@ -247,7 +282,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				
 				const now = new Date();
 				const deadline = assignment.quick_tasks?.deadline_datetime ? new Date(assignment.quick_tasks.deadline_datetime) : null;
-				const isOverdue = deadline && deadline < now && assignment.status !== 'completed';
+				// Check for completion record in completions map, or existing completed_at on quick assignment
+				const completionRecord = completionsMap[assignment.id];
+				const isCompleted = !!completionRecord || !!assignment.completed_at;
+				const isOverdue = deadline && deadline < now && !isCompleted;
 				const isNearDeadline = deadline && !isOverdue && 
 					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
 
@@ -264,12 +302,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					assigned_to_id: assignment.assigned_to_user_id,
 					assigned_to_username: assignedToUser?.username || 'Unknown',
 					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
-					status: assignment.status,
+					status: assignment.status, // ✅ FIXED: Use actual status from quick_task_assignments table
+					completed_at: completionRecord?.completed_at || assignment.completed_at || null,
 					deadline: assignment.quick_tasks?.deadline_datetime,
 					assigned_at: assignment.created_at,
 					accepted_at: assignment.accepted_at,
 					started_at: assignment.started_at,
-					completed_at: assignment.completed_at,
 					is_overdue: isOverdue,
 					is_near_deadline: isNearDeadline,
 					warning_level: isOverdue ? 'critical' : isNearDeadline ? 'warning' : 'normal'

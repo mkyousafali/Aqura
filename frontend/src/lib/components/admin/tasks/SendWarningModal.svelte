@@ -28,25 +28,39 @@
 
 	const warningTypes = [
 		{
-			code: 'overall_performance_no_fine',
-			name: 'Overall Performance Warning (No Fine)',
-			description: 'General performance warning without financial penalty',
+			code: 'task_delay_no_fine',
+			name: 'Task Delay Warning (No Fine)',
+			description: 'Warning for delayed or overdue task without financial penalty',
 			requiresFine: false,
 			fineType: 'none'
 		},
 		{
-			code: 'overall_performance_fine_threat',
-			name: 'Overall Performance Warning (Fine Threat)',
-			description: 'Performance warning with threat of future fine if repeated',
+			code: 'task_delay_fine_threat',
+			name: 'Task Delay Warning (Fine Threat)',
+			description: 'Warning for task delay with threat of future fine if not completed',
 			requiresFine: true,
 			fineType: 'threat'
 		},
 		{
-			code: 'overall_performance_with_fine',
-			name: 'Overall Performance Warning (With Fine)',
-			description: 'Performance warning with immediate financial penalty',
+			code: 'task_delay_with_fine',
+			name: 'Task Delay Warning (With Fine)',
+			description: 'Warning for task delay with immediate financial penalty',
 			requiresFine: true,
 			fineType: 'immediate'
+		},
+		{
+			code: 'task_incomplete_no_fine',
+			name: 'Incomplete Task Warning (No Fine)',
+			description: 'Warning for incomplete task requirements without penalty',
+			requiresFine: false,
+			fineType: 'none'
+		},
+		{
+			code: 'task_quality_issue',
+			name: 'Task Quality Issue Warning',
+			description: 'Warning for poor quality task completion',
+			requiresFine: false,
+			fineType: 'none'
 		}
 	];
 
@@ -116,17 +130,32 @@
 
 			// Prepare warning data for template
 			warningData = {
-				recipientName: assignment.assigned_to || assignment.assignedToEmployee || 'Unknown Employee',
-				recipientUsername: assignment.assigned_to_username || assignment.assignedTo || assignment.assigned_to || 'Unknown',
-				recipientUserId: assignment.assigned_to_user_id || assignment.assignedToId || assignment.user_id || assignment.userId,
+				// Task-specific information
+				taskTitle: assignment.task_title || 'Untitled Task',
+				taskDescription: assignment.task_description || '',
+				taskType: assignment.type || assignment.assignment_type || 'regular',
+				taskPriority: assignment.priority || 'medium',
+				taskStatus: assignment.status || 'pending',
+				taskDeadline: assignment.deadline,
+				taskId: assignment.task_id || assignment.id,
+				assignmentId: assignment.id || assignment.assignment_id,
+				
+				// User information
+				recipientName: assignment.assigned_to || assignment.assignedTo || 'Unknown Employee',
+				recipientUsername: assignment.assigned_to_username || assignment.assigned_to || 'Unknown',
+				recipientUserId: assignment.assigned_to_user_id || assignment.assignedToId || assignment.user_id,
 				assignedBy: assignment.assigned_by || assignment.assignedBy || 'Unknown',
-				totalAssigned: assignment.total_assigned || assignment.totalAssigned || 0,
-				totalCompleted: assignment.total_completed || assignment.totalCompleted || 0,
-				totalOverdue: assignment.total_overdue || assignment.totalOverdue || 0,
-				completionRate: (assignment.total_assigned || assignment.totalAssigned) > 0 ? 
-					Math.round(((assignment.total_completed || assignment.totalCompleted) / (assignment.total_assigned || assignment.totalAssigned)) * 100) : 0,
-				overdueRate: (assignment.total_assigned || assignment.totalAssigned) > 0 ? 
-					Math.round(((assignment.total_overdue || assignment.totalOverdue) / (assignment.total_assigned || assignment.totalAssigned)) * 100) : 0,
+				assignedByName: assignment.assigned_by_name || assignment.assigned_by || 'Unknown',
+				
+				// Branch and location
+				branch: assignment.assigned_to_branch || assignment.branch || 'Not specified',
+				
+				// Warning level indicators
+				warningLevel: assignment.warning_level || 'normal',
+				isOverdue: assignment.warning_level === 'critical',
+				isDueSoon: assignment.warning_level === 'warning',
+				
+				// Warning content and metadata
 				warningText: generatedWarning,
 				language: selectedLanguage,
 				warningType: selectedWarningType,
@@ -136,6 +165,8 @@
 				hasFine: showFineFields && selectedWarningTypeData?.fineType !== 'none',
 				fineType: selectedWarningTypeData?.fineType || 'none',
 				generatedAt: new Date().toISOString(),
+				
+				// Full assignment data for reference
 				assignmentData: enhancedAssignment
 			};
 
@@ -208,42 +239,57 @@ Please generate only the warning text content, without salutation or signature s
 		</div>
 
 		<div class="window-body">
-				<!-- Assignment Summary -->
+				<!-- Task Details Summary -->
 				<div class="assignment-summary">
-					<h3 class="summary-title">Assignment Summary</h3>
+					<h3 class="summary-title">Task Details</h3>
 					<div class="summary-grid">
+						<div class="summary-item full-width">
+							<span class="summary-label">Task Title:</span>
+							<span class="summary-value">{assignment.task_title || 'No title'}</span>
+						</div>
+						{#if assignment.task_description}
+						<div class="summary-item full-width">
+							<span class="summary-label">Description:</span>
+							<span class="summary-value">{assignment.task_description}</span>
+						</div>
+						{/if}
 						<div class="summary-item">
 							<span class="summary-label">Assigned To:</span>
-							<span class="summary-value">{assignment.assignedToEmployee || assignment.assignedTo}</span>
+							<span class="summary-value">{assignment.assigned_to || assignment.assignedTo || 'Unknown'}</span>
 						</div>
 						<div class="summary-item">
 							<span class="summary-label">Assigned By:</span>
-							<span class="summary-value">{assignment.assignedBy}</span>
+							<span class="summary-value">{assignment.assigned_by || assignment.assignedBy || 'Unknown'}</span>
 						</div>
 						<div class="summary-item">
-							<span class="summary-label">Assignment Type:</span>
-							<span class="summary-value">{assignment.assignmentType || 'Individual'}</span>
+							<span class="summary-label">Task Type:</span>
+							<span class="summary-value">{assignment.type || assignment.assignment_type || 'Regular'}</span>
 						</div>
 						<div class="summary-item">
 							<span class="summary-label">Branch:</span>
-							<span class="summary-value">{assignment.branch || 'Not specified'}</span>
+							<span class="summary-value">{assignment.assigned_to_branch || assignment.branch || 'Not specified'}</span>
 						</div>
 						<div class="summary-item">
-							<span class="summary-label">Total Tasks:</span>
-							<span class="summary-value">{assignment.totalAssigned}</span>
+							<span class="summary-label">Priority:</span>
+							<span class="summary-value priority-{assignment.priority}">{assignment.priority || 'Medium'}</span>
 						</div>
 						<div class="summary-item">
-							<span class="summary-label">Completed:</span>
-							<span class="summary-value text-green-600">{assignment.totalCompleted}</span>
+							<span class="summary-label">Status:</span>
+							<span class="summary-value status-{assignment.status}">{assignment.status?.charAt(0).toUpperCase() + assignment.status?.slice(1) || 'Pending'}</span>
 						</div>
 						<div class="summary-item">
-							<span class="summary-label">Overdue:</span>
-							<span class="summary-value text-red-600">{assignment.totalOverdue}</span>
-						</div>
-						<div class="summary-item">
-							<span class="summary-label">Completion Rate:</span>
-							<span class="summary-value">
-								{assignment.totalAssigned > 0 ? Math.round((assignment.totalCompleted / assignment.totalAssigned) * 100) : 0}%
+							<span class="summary-label">Deadline:</span>
+							<span class="summary-value {assignment.warning_level === 'critical' ? 'text-red-600' : ''}">
+								{#if assignment.deadline}
+									{new Date(assignment.deadline).toLocaleDateString()} {new Date(assignment.deadline).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+									{#if assignment.warning_level === 'critical'}
+										<span class="overdue-badge">⚠️ OVERDUE</span>
+									{:else if assignment.warning_level === 'warning'}
+										<span class="due-soon-badge">⏰ Due Soon</span>
+									{/if}
+								{:else}
+									No deadline
+								{/if}
 							</span>
 						</div>
 					</div>
@@ -437,6 +483,13 @@ Please generate only the warning text content, without salutation or signature s
 		align-items: center;
 	}
 
+	.summary-item.full-width {
+		grid-column: 1 / -1;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+	}
+
 	.summary-label {
 		font-size: 14px;
 		color: #6b7280;
@@ -447,6 +500,61 @@ Please generate only the warning text content, without salutation or signature s
 		font-size: 14px;
 		color: #111827;
 		font-weight: 600;
+	}
+
+	.summary-item.full-width .summary-value {
+		font-weight: 400;
+		line-height: 1.5;
+	}
+
+	.priority-high {
+		color: #dc2626;
+	}
+
+	.priority-medium {
+		color: #f59e0b;
+	}
+
+	.priority-low {
+		color: #10b981;
+	}
+
+	.status-pending {
+		color: #f59e0b;
+	}
+
+	.status-in_progress, .status-in-progress {
+		color: #3b82f6;
+	}
+
+	.status-completed {
+		color: #10b981;
+	}
+
+	.status-overdue {
+		color: #dc2626;
+	}
+
+	.overdue-badge {
+		display: inline-block;
+		padding: 2px 8px;
+		background: #fee2e2;
+		color: #dc2626;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		margin-left: 8px;
+	}
+
+	.due-soon-badge {
+		display: inline-block;
+		padding: 2px 8px;
+		background: #fef3c7;
+		color: #d97706;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		margin-left: 8px;
 	}
 
 	.language-section {
