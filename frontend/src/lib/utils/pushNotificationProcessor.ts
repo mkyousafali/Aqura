@@ -24,10 +24,19 @@ class PushNotificationProcessor {
 
     /**
      * Start the background processor
+     * NOTE: Server-side processing is now handled by Supabase Edge Function + pg_cron
+     * This client-side processor is DISABLED to prevent duplicate processing
      */
     start() {
+        console.log(`ℹ️ Push notification processor v${PushNotificationProcessor.VERSION} - Client-side processing DISABLED`);
+        console.log(`✅ Push notifications are now processed server-side via Edge Functions`);
+        console.log(`📡 Notifications will arrive even when your device is locked or app is closed`);
+        
+        // Client-side processing disabled - server handles it now
+        return;
+        
+        /* LEGACY CODE - KEPT FOR REFERENCE BUT DISABLED
         if (this.isProcessing) {
-            
             return;
         }
 
@@ -49,6 +58,7 @@ class PushNotificationProcessor {
                 }
             }
         }, 30000); // Process every 30 seconds
+        */
 
         // Daily cleanup disabled to prevent notification deletion
         // setInterval(async () => {
@@ -94,7 +104,15 @@ class PushNotificationProcessor {
             // [v3.0] Preventive cleanup disabled to prevent notification deletion
             // await this.cleanupExcessiveFailedNotifications();
 
-            // Get pending notifications and those ready for retry
+            // CRITICAL FIX: Get current user to only process their notifications
+            const currentUser = await supabaseAdmin.auth.getUser();
+            if (!currentUser.data.user) {
+                console.warn('⚠️ No authenticated user - skipping queue processing');
+                return;
+            }
+            const currentUserId = currentUser.data.user.id;
+
+            // Get pending notifications and those ready for retry FOR CURRENT USER ONLY
             const now = new Date().toISOString();
             const { data: queuedNotifications, error } = await supabaseAdmin
                 .from('notification_queue')
@@ -117,6 +135,7 @@ class PushNotificationProcessor {
                         is_active
                     )
                 `)
+                .eq('user_id', currentUserId) // CRITICAL: Only process current user's notifications
                 .or(`status.eq.pending,and(status.eq.retry,next_retry_at.lte.${now})`)
                 .eq('push_subscriptions.is_active', true)
                 .order('created_at', { ascending: true }) // Process oldest first (FIFO)
@@ -136,14 +155,14 @@ class PushNotificationProcessor {
             const pendingCount = queuedNotifications?.filter(n => n.status === 'pending').length || 0;
             const retryCount = queuedNotifications?.filter(n => n.status === 'retry').length || 0;
             
-            console.log(`📊 Found ${totalNotifications} notifications in queue (${pendingCount} pending, ${retryCount} ready for retry)`);
+            console.log(`📊 Found ${totalNotifications} notifications in queue FOR USER ${currentUserId} (${pendingCount} pending, ${retryCount} ready for retry)`);
             
 
             if (!queuedNotifications || queuedNotifications.length === 0) {
                 return; // Don't log if no notifications (too verbose)
             }
 
-            console.log(`📬 Processing ${queuedNotifications.length} notifications...`);
+            console.log(`📬 Processing ${queuedNotifications.length} notifications FOR CURRENT USER...`);
             
 
             // Process each notification individually with retry logic
