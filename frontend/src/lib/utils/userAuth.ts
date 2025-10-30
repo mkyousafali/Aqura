@@ -390,6 +390,8 @@ export class UserAuthService {
 			avatar: dbUser.avatar,
 			employeeName: dbUser.employee_name,
 			branchName: dbUser.branch_name,
+			employee_id: dbUser.employee_id,
+			branch_id: dbUser.branch_id?.toString(),
 			lastLogin: dbUser.last_login,
 			permissions
 		};

@@ -106,6 +106,8 @@ export class PersistentAuthService {
 				avatar: user.avatar,
 				employeeName: user.employeeName,
 				branchName: user.branchName,
+				employee_id: user.employee_id,
+				branch_id: user.branch_id,
 				loginTime: new Date().toISOString(),
 				deviceId: this.getDeviceId(),
 				loginMethod: 'quickAccess',
