@@ -46,12 +46,14 @@
 	// Get warning type badge
 	function getWarningTypeBadge(type) {
 		const typeMap = {
-			overall_performance_no_fine: { class: 'bg-blue-100 text-blue-800', label: 'Performance' },
-			overall_performance_fine_threat: { class: 'bg-orange-100 text-orange-800', label: 'Performance + Threat' },
+			overall_performance_no_fine: { class: 'bg-blue-100 text-blue-800', label: 'Performance Warning' },
+			overall_performance_fine_threat: { class: 'bg-orange-100 text-orange-800', label: 'Performance + Fine Threat' },
 			overall_performance_with_fine: { class: 'bg-red-100 text-red-800', label: 'Performance + Fine' },
-			task_specific_no_fine: { class: 'bg-purple-100 text-purple-800', label: 'Task Specific' },
-			task_specific_fine_threat: { class: 'bg-pink-100 text-pink-800', label: 'Task + Threat' },
-			task_specific_with_fine: { class: 'bg-red-100 text-red-800', label: 'Task + Fine' }
+			task_delay_no_fine: { class: 'bg-purple-100 text-purple-800', label: 'Task Delay Warning' },
+			task_delay_fine_threat: { class: 'bg-yellow-100 text-yellow-800', label: 'Task Delay + Fine Threat' },
+			task_delay_with_fine: { class: 'bg-red-100 text-red-800', label: 'Task Delay + Fine' },
+			task_incomplete_no_fine: { class: 'bg-indigo-100 text-indigo-800', label: 'Task Incomplete Warning' },
+			task_quality_issue: { class: 'bg-pink-100 text-pink-800', label: 'Task Quality Issue' }
 		};
 		return typeMap[type] || { class: 'bg-gray-100 text-gray-800', label: type };
 	}
