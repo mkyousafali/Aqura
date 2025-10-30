@@ -107,10 +107,25 @@ serve(async (req) => {
           }
         }
 
-        // Send the push notification
+        // Determine urgency and TTL based on priority
+        const priority = item.payload?.data?.priority || 'normal'
+        const urgency = priority === 'urgent' || priority === 'high' ? 'high' : 'normal'
+        const ttl = 24 * 60 * 60 // 24 hours
+
+        // Send options for push notification
+        const sendOptions = {
+          urgency: urgency, // 'very-low' | 'low' | 'normal' | 'high'
+          TTL: ttl, // Time to live in seconds
+          topic: item.payload?.tag || 'aqura-notification' // For notification grouping/replacement
+        }
+
+        console.log(`📤 Sending with urgency: ${urgency}, TTL: ${ttl}s`)
+
+        // Send the push notification with options
         await webpush.sendNotification(
           pushSubscription,
-          JSON.stringify(item.payload)
+          JSON.stringify(item.payload),
+          sendOptions
         )
 
         // Mark as sent
@@ -127,6 +142,7 @@ serve(async (req) => {
 
       } catch (error) {
         failCount++
+        const errorMessage = error instanceof Error ? error.message : String(error)
         console.error(`❌ Failed to send notification ${item.id}:`, error)
 
         const retryCount = (item.retry_count || 0) + 1
@@ -144,7 +160,7 @@ serve(async (req) => {
               status: 'retry',
               retry_count: retryCount,
               next_retry_at: nextRetryAt.toISOString(),
-              error_message: error.message
+              error_message: errorMessage
             })
             .eq('id', item.id)
 
@@ -155,7 +171,7 @@ serve(async (req) => {
             .from('notification_queue')
             .update({ 
               status: 'failed',
-              error_message: `Failed after ${maxRetries} attempts: ${error.message}`,
+              error_message: `Failed after ${maxRetries} attempts: ${errorMessage}`,
               failed_at: new Date().toISOString()
             })
             .eq('id', item.id)
@@ -185,10 +201,11 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('❌ Queue processor error:', error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
     return new Response(
       JSON.stringify({ 
         error: 'Queue processing failed', 
-        details: error.message 
+        details: errorMessage
       }),
       {
         status: 500,

@@ -4,6 +4,12 @@
 -- Copy and paste this entire script into Supabase SQL Editor
 -- This will set up automatic push notification processing
 
+-- Step 0: Fix duplicate triggers (IMPORTANT!)
+-- Drop duplicate triggers that cause 3x queue entries
+DROP TRIGGER IF EXISTS trigger_queue_push_notifications ON notifications;
+DROP TRIGGER IF EXISTS trigger_queue_quick_task_push_notifications ON notifications;
+-- Keep only trigger_queue_push_notification (the main one)
+
 -- Step 1: Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS http;
@@ -34,7 +40,7 @@ AS $$
 DECLARE
     v_response http_response;
     v_supabase_url text := 'https://vmypotfsyrvuublyddyt.supabase.co';
-    v_anon_key text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.YkxK0zqLFkuS62t1SHY23Z9tAQqLuPJHoxPvvxKLTGQ';
+    v_anon_key text := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
 BEGIN
     -- Call the Edge Function
     SELECT * INTO v_response
