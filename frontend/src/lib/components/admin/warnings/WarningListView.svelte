@@ -3,7 +3,7 @@
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
-	import WarningDetailsModal from './WarningDetailsModal.svelte';
+	import WarningTemplateImageModal from './WarningTemplateImageModal.svelte';
 
 	let warnings = [];
 	let loading = true;
@@ -152,9 +152,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	function getWarningTypeBadge(type) {
 		const typeMap = {
-			overall_performance_no_fine: { class: 'bg-blue-100 text-blue-800', label: 'Performance' },
-			overall_performance_fine_threat: { class: 'bg-orange-100 text-orange-800', label: 'Performance + Threat' },
-			overall_performance_with_fine: { class: 'bg-red-100 text-red-800', label: 'Performance + Fine' }
+			overall_performance_no_fine: { class: 'bg-blue-100 text-blue-800', label: 'Performance Warning' },
+			overall_performance_fine_threat: { class: 'bg-orange-100 text-orange-800', label: 'Performance + Fine Threat' },
+			overall_performance_with_fine: { class: 'bg-red-100 text-red-800', label: 'Performance + Fine' },
+			task_delay_no_fine: { class: 'bg-purple-100 text-purple-800', label: 'Task Delay Warning' },
+			task_delay_fine_threat: { class: 'bg-yellow-100 text-yellow-800', label: 'Task Delay + Fine Threat' },
+			task_delay_with_fine: { class: 'bg-red-100 text-red-800', label: 'Task Delay + Fine' },
+			task_incomplete_no_fine: { class: 'bg-indigo-100 text-indigo-800', label: 'Task Incomplete Warning' },
+			task_quality_issue: { class: 'bg-pink-100 text-pink-800', label: 'Task Quality Issue' }
 		};
 		return typeMap[type] || { class: 'bg-gray-100 text-gray-800', label: 'Unknown' };
 	}
@@ -169,19 +174,27 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		return new Date(dateString).toLocaleDateString('en-GB');
 	}
 
-	function viewWarningDetails(warning) {
-		const windowId = `warning-details-${warning.id}`;
+	function viewWarningTemplate(warning) {
+		if (!warning.warning_document_url) {
+			alert('No warning template image available for this record.');
+			return;
+		}
+
+		const windowId = `warning-template-${warning.id}`;
 		
 		openWindow({
 			id: windowId,
-			title: `Warning Details - ${warning.hr_employees?.name || warning.username}`,
-			component: WarningDetailsModal,
-			props: { warning },
-			icon: '⚠️',
-			size: { width: 800, height: 700 },
+			title: `Warning Template - ${warning.hr_employees?.name || warning.username}`,
+			component: WarningTemplateImageModal,
+			props: { 
+				imageUrl: warning.warning_document_url,
+				warning: warning
+			},
+			icon: '📄',
+			size: { width: 900, height: 700 },
 			position: { 
-				x: 100 + (Math.random() * 200), 
-				y: 50 + (Math.random() * 100) 
+				x: 150 + (Math.random() * 200), 
+				y: 100 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -331,15 +344,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							<td>{warning.hr_employees?.branches?.name_en || 'No Branch'}</td>
 							<td>
 								<button 
-									class="view-btn"
-									on:click={() => viewWarningDetails(warning)}
-									title="View Details"
+									class="template-btn"
+									on:click={() => viewWarningTemplate(warning)}
+									title="View Warning Template"
+									disabled={!warning.warning_document_url}
 								>
 									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
 									</svg>
-									View
+									Template
 								</button>
 							</td>
 						</tr>
@@ -615,25 +628,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		font-style: italic;
 	}
 
-	.view-btn {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		padding: 6px 12px;
-		font-size: 12px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.view-btn:hover {
-		background: #2563eb;
-	}
-
-	.pagination {
+	.template-btn {
 		display: flex;
 		justify-content: center;
 		gap: 8px;
@@ -666,6 +661,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-color: #3b82f6;
 	}
 
+	.template-btn {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 6px 12px;
+		font-size: 12px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.template-btn:hover:not(:disabled) {
+		background: #059669;
+	}
+
+	.template-btn:disabled {
+		background: #d1d5db;
+		color: #9ca3af;
+		cursor: not-allowed;
+	}
+
 	@media (max-width: 768px) {
 		.filters {
 			flex-direction: column;
@@ -677,6 +696,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		.filter-select {
 			min-width: auto;
+		}
+
+		.template-btn {
+			font-size: 11px;
+			padding: 4px 8px;
 		}
 	}
 </style>

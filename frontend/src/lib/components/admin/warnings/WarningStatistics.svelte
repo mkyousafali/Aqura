@@ -179,7 +179,12 @@
 		const typeMap = {
 			'overall_performance_no_fine': 'Performance Warning',
 			'overall_performance_fine_threat': 'Performance + Fine Threat',
-			'overall_performance_with_fine': 'Performance + Fine'
+			'overall_performance_with_fine': 'Performance + Fine',
+			'task_delay_no_fine': 'Task Delay Warning',
+			'task_delay_fine_threat': 'Task Delay + Fine Threat',
+			'task_delay_with_fine': 'Task Delay + Fine',
+			'task_incomplete_no_fine': 'Task Incomplete Warning',
+			'task_quality_issue': 'Task Quality Issue'
 		};
 		return typeMap[type] || type;
 	}
