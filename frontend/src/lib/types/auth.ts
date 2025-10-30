@@ -8,6 +8,8 @@ export interface User {
 	avatar?: string;
 	employeeName?: string;
 	branchName?: string;
+	employee_id?: string;
+	branch_id?: string;
 	lastLogin?: string;
 	permissions?: UserPermissions;
 }
