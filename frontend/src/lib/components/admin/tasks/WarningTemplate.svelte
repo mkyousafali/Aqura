@@ -556,12 +556,6 @@
 
 ${t.to} ${data.recipientName},
 
-*${t.performanceSummary}:*
-• ${t.totalTasksAssigned} ${data.totalAssigned}
-• ${t.tasksCompleted} ${data.totalCompleted}
-• ${t.overdueTasks} ${data.totalOverdue}
-• ${t.completionRate} ${data.completionRate}%
-
 *${t.warningDetails}:*
 ${editableWarning}
 
@@ -746,25 +740,6 @@ ${t.companyName}`;
 				<p><strong>${t.from}</strong> ${data.assignedBy}</p>
 				<p><strong>${t.subject}</strong> ${t.subjectText}</p>
 				
-				<div class="statistics">
-					<div class="stat-item">
-						<span>${t.totalTasksAssigned}</span>
-						<span><strong>${data.totalAssigned}</strong></span>
-					</div>
-					<div class="stat-item">
-						<span>${t.tasksCompleted}</span>
-						<span><strong>${data.totalCompleted}</strong></span>
-					</div>
-					<div class="stat-item">
-						<span>${t.overdueTasks}</span>
-						<span><strong style="color: #d32f2f">${data.totalOverdue}</strong></span>
-					</div>
-					<div class="stat-item">
-						<span>${t.completionRate}</span>
-						<span><strong>${data.completionRate}%</strong></span>
-					</div>
-				</div>
-				
 				<div class="warning-content">
 					${editableWarning.split('\n').slice(0, 10).map(line => `<p style="margin: 5px 0;">${line}</p>`).join('')}
 				</div>
@@ -865,29 +840,6 @@ ${t.companyName}`;
 				<div class="detail-row">
 					<span class="detail-label">{t.subject}</span>
 					<span class="detail-value">{t.subjectText}</span>
-				</div>
-			</div>
-
-			<!-- Performance Statistics -->
-			<div class="statistics-section">
-				<h4 class="section-title">{t.performanceSummary}</h4>
-				<div class="stats-grid">
-					<div class="stat-item">
-						<span class="stat-label">{t.totalTasksAssigned}</span>
-						<span class="stat-value">{data.totalAssigned}</span>
-					</div>
-					<div class="stat-item">
-						<span class="stat-label">{t.tasksCompleted}</span>
-						<span class="stat-value stat-completed">{data.totalCompleted}</span>
-					</div>
-					<div class="stat-item">
-						<span class="stat-label">{t.overdueTasks}</span>
-						<span class="stat-value stat-overdue">{data.totalOverdue}</span>
-					</div>
-					<div class="stat-item">
-						<span class="stat-label">{t.completionRate}</span>
-						<span class="stat-value">{data.completionRate}%</span>
-					</div>
 				</div>
 			</div>
 

@@ -15,6 +15,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
 	let filterTaskType = 'all';
+	let showCompleted = false;
 	
 	// Live countdown state
 	let countdownInterval = null;
@@ -28,6 +29,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: if (authenticated && currentUserData?.id) {
 		loadMyTasks();
 	}
+
+	// Reactive filtering when any filter changes
+	$: searchTerm, filterStatus, filterPriority, filterTaskType, showCompleted, filterTasks();
 
 	onMount(() => {
 		// Try to load tasks on mount if user is available
@@ -293,6 +297,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	function filterTasks() {
 		filteredTasks = tasks.filter(task => {
+			// Hide completed tasks unless showCompleted is true
+			if (!showCompleted && task.assignment_status === 'completed') {
+				return false;
+			}
+
 			const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				task.description.toLowerCase().includes(searchTerm.toLowerCase());
 			
@@ -666,6 +675,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<option value="quick">Quick Tasks</option>
 				</select>
 			</div>
+		</div>
+		
+		<!-- Show Completed Toggle -->
+		<div class="mt-4 px-6">
+			<label class="flex items-center space-x-2 cursor-pointer">
+				<input 
+					type="checkbox" 
+					bind:checked={showCompleted}
+					class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+				/>
+				<span class="text-sm font-medium text-gray-700">Show completed tasks</span>
+			</label>
 		</div>
 	</div>
 

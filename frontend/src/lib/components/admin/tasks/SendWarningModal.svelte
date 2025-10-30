@@ -149,11 +149,20 @@
 				
 				// Branch and location
 				branch: assignment.assigned_to_branch || assignment.branch || 'Not specified',
+				branchId: assignment.branch_id || null,
 				
 				// Warning level indicators
 				warningLevel: assignment.warning_level || 'normal',
 				isOverdue: assignment.warning_level === 'critical',
 				isDueSoon: assignment.warning_level === 'warning',
+				
+				// Task performance statistics
+				totalAssigned: assignment.total_assigned || assignment.totalAssigned || 0,
+				totalCompleted: assignment.total_completed || assignment.totalCompleted || 0,
+				totalOverdue: assignment.total_overdue || assignment.totalOverdue || 0,
+				completionRate: assignment.completion_rate || assignment.completionRate || 
+								(assignment.total_assigned ? 
+									Math.round((assignment.total_completed / assignment.total_assigned) * 100) : 0),
 				
 				// Warning content and metadata
 				warningText: generatedWarning,
