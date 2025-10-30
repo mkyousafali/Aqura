@@ -85,9 +85,10 @@ class PushQueuePoller {
 export const pushQueuePoller = new PushQueuePoller();
 
 // Auto-start for admin users
+// Kept as fallback in case pg_cron has issues
 if (browser) {
     // Start polling when the module loads (will be active on all pages)
-    // You can add logic here to only start for admin users
+    // This provides redundancy with pg_cron
     pushQueuePoller.start();
     
     // Clean up on page unload
