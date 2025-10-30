@@ -695,8 +695,18 @@ async function determineTargetRoute(notificationData) {
 	try {
 		// Check notification data for specific route
 		if (notificationData?.data?.url) {
-			console.log('[ServiceWorker] 🎯 Using notification-specific URL:', notificationData.data.url);
-			return notificationData.data.url;
+			const url = notificationData.data.url;
+			console.log('[ServiceWorker] 🎯 Using notification-specific URL:', url);
+			
+			// Ensure mobile routes are properly formed
+			if (url.startsWith('/mobile')) {
+				return url;
+			} else if (url === '/') {
+				// Redirect root to mobile dashboard for mobile users
+				return '/mobile';
+			}
+			
+			return url;
 		}
 		
 		// Check for specific notification types
@@ -706,6 +716,8 @@ async function determineTargetRoute(notificationData) {
 			
 			switch (notificationType) {
 				case 'task':
+				case 'task_assigned':
+				case 'task_completed':
 					return '/mobile/tasks';
 				case 'employee':
 					return '/mobile/employees';
@@ -713,28 +725,31 @@ async function determineTargetRoute(notificationData) {
 					return '/mobile/branches';
 				case 'vendor':
 					return '/mobile/vendors';
+				case 'info':
+				case 'success':
+				case 'warning':
+				case 'error':
+				case 'announcement':
+					return '/mobile/notifications';
 				case 'system':
-					return '/mobile/dashboard';
 				default:
-					console.log('[ServiceWorker] � Unknown notification type, using mobile dashboard');
-					return '/mobile/dashboard';
+					console.log('[ServiceWorker] ℹ️ Default notification, using mobile dashboard');
+					return '/mobile';
 			}
 		}
 		
-		// Get user's preferred interface from stored data
-		const preferredInterface = await getStoredInterfacePreference();
-		console.log('[ServiceWorker] 📱 User interface preference:', preferredInterface);
-		
-		// Default routes based on interface preference
-		if (preferredInterface === 'mobile') {
-			return '/mobile/dashboard';
-		} else {
-			return '/dashboard';
+		// Check for notification ID - open notifications page
+		if (notificationData?.data?.notificationId) {
+			console.log('[ServiceWorker] 📬 Has notification ID, opening notifications page');
+			return '/mobile/notifications';
 		}
 		
+		// Default fallback - mobile dashboard
+		console.log('[ServiceWorker] 🏠 No specific route found, using mobile dashboard');
+		return '/mobile';
 	} catch (error) {
-		console.warn('[ServiceWorker] ⚠️ Error determining target route, using fallback:', error);
-		return '/mobile/dashboard'; // Safe fallback
+		console.error('[ServiceWorker] ❌ Error determining target route:', error);
+		return '/mobile';
 	}
 }
 
