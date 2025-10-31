@@ -43,7 +43,7 @@ class PushQueuePoller {
     }
     
     /**
-     * Manually trigger queue processing
+     * Manually trigger queue processing via Edge Function
      */
     async processQueue(): Promise<void> {
         if (this.isProcessing) {
@@ -87,11 +87,10 @@ class PushQueuePoller {
 // Singleton instance
 export const pushQueuePoller = new PushQueuePoller();
 
-// Auto-start for admin users
-// Kept as fallback in case pg_cron has issues
+// Auto-start for admin users - enabled by default
+// The Edge Function now works properly
 if (browser) {
     // Start polling when the module loads (will be active on all pages)
-    // This provides redundancy with pg_cron
     pushQueuePoller.start();
     
     // Clean up on page unload
