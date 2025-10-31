@@ -735,6 +735,13 @@
 
 			return true;
 		});
+
+		// Sort by deadline - most overdue first (earliest deadline on top)
+		filteredTasks.sort((a, b) => {
+			const deadlineA = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+			const deadlineB = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+			return deadlineA - deadlineB; // Ascending order - earliest (most overdue) first
+		});
 	}
 
 	function handleSearch() {
@@ -755,6 +762,56 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		});
+	}
+
+	function getDueStatus(deadline: string) {
+		if (!deadline) return { text: 'No Deadline', days: null, class: 'status-no-deadline' };
+		
+		const now = new Date();
+		const dueDate = new Date(deadline);
+		
+		// Calculate difference in milliseconds
+		const diffTime = dueDate.getTime() - now.getTime();
+		const diffHours = diffTime / (1000 * 60 * 60);
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		
+		// If already past deadline (negative time difference)
+		if (diffTime < 0) {
+			const overdueDays = Math.abs(diffDays);
+			const overdueHours = Math.abs(Math.floor(diffHours));
+			
+			if (overdueDays === 0 || overdueHours < 24) {
+				return { 
+					text: `${overdueHours} ${overdueHours === 1 ? 'hour' : 'hours'} overdue`, 
+					days: diffDays, 
+					class: 'status-overdue' 
+				};
+			} else {
+				return { 
+					text: `${overdueDays} ${overdueDays === 1 ? 'day' : 'days'} overdue`, 
+					days: diffDays, 
+					class: 'status-overdue' 
+				};
+			}
+		} 
+		// Due within next 24 hours
+		else if (diffHours <= 24) {
+			const hoursRemaining = Math.floor(diffHours);
+			if (hoursRemaining < 1) {
+				const minutesRemaining = Math.floor((diffTime / (1000 * 60)));
+				return { text: `${minutesRemaining} min remaining`, days: 0, class: 'status-safe' };
+			} else {
+				return { text: `${hoursRemaining} ${hoursRemaining === 1 ? 'hour' : 'hours'} remaining`, days: 0, class: 'status-safe' };
+			}
+		} 
+		// Due tomorrow (24-48 hours)
+		else if (diffDays === 1) {
+			return { text: 'Due Tomorrow', days: diffDays, class: 'status-safe' };
+		} 
+		// All other remaining time - green
+		else {
+			return { text: `${diffDays} days remaining`, days: diffDays, class: 'status-safe' };
+		}
 	}
 
 	function viewTaskDetails(task: any) {
@@ -853,6 +910,7 @@
 						<th>Assigned To</th>
 						<th>Assigned Date</th>
 						<th>Deadline</th>
+						<th>Due Status</th>
 						<th>Status</th>
 						{#if cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed'}
 							<th>Completed Date</th>
@@ -880,6 +938,16 @@
 							<td>{task.assigned_to_name || task.assigned_to || 'N/A'}</td>
 							<td>{formatDate(task.assigned_date)}</td>
 							<td>{formatDate(task.deadline)}</td>
+							<td>
+								{#if task.deadline}
+									{@const dueStatus = getDueStatus(task.deadline)}
+									<span class="due-status-badge {dueStatus.class}">
+										{dueStatus.text}
+									</span>
+								{:else}
+									<span class="due-status-badge status-no-deadline">No Deadline</span>
+								{/if}
+							</td>
 							<td>
 								<span class="badge badge-{task.status || 'pending'}">
 									{task.status || 'N/A'}
@@ -1206,6 +1274,69 @@
 	.badge-warning {
 		background: #fed7aa;
 		color: #92400e;
+	}
+
+	/* Due Status Badges */
+	.due-status-badge {
+		display: inline-block;
+		padding: 6px 12px;
+		border-radius: 12px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.status-overdue {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.7;
+		}
+	}
+
+	.status-due-today {
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #fcd34d;
+		font-weight: 700;
+	}
+
+	.status-due-tomorrow {
+		background: #fed7aa;
+		color: #c2410c;
+		border: 1px solid #fb923c;
+	}
+
+	.status-urgent {
+		background: #fecaca;
+		color: #b91c1c;
+		border: 1px solid #f87171;
+	}
+
+	.status-warning {
+		background: #fef3c7;
+		color: #a16207;
+		border: 1px solid #fbbf24;
+	}
+
+	.status-safe {
+		background: #d1fae5;
+		color: #065f46;
+		border: 1px solid #6ee7b7;
+	}
+
+	.status-no-deadline {
+		background: #e5e7eb;
+		color: #4b5563;
+		border: 1px solid #d1d5db;
 	}
 
 	/* Task Detail Modal */
