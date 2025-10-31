@@ -455,7 +455,7 @@ self.addEventListener('push', (event) => {
 		console.log('[ServiceWorker] 🔍 Extracted notification_id:', notifId);
 		
 		const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
-		const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
+		const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
 		
 		if (notifId) {
 			console.log('[ServiceWorker] 📡 Fetching specific notification by ID...');
