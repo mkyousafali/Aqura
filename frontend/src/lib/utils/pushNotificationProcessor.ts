@@ -1,5 +1,5 @@
 // Import shared supabase client instead of creating a new one
-import { supabaseAdmin } from './supabase';
+import { supabase } from './supabase'; // Changed from supabase to supabase for user auth
 
 interface QueuedNotification {
     id: string;
@@ -24,18 +24,16 @@ class PushNotificationProcessor {
 
     /**
      * Start the background processor
-     * NOTE: Server-side processing is now handled by Supabase Edge Function + pg_cron
-     * This client-side processor is DISABLED to prevent duplicate processing
+     * NOTE: Server-side processing via Edge Functions is temporarily disabled due to Web Push Protocol complexity
+     * Client-side processor is RE-ENABLED to handle notifications when app is open
      */
     start() {
-        console.log(`ℹ️ Push notification processor v${PushNotificationProcessor.VERSION} - Client-side processing DISABLED`);
-        console.log(`✅ Push notifications are now processed server-side via Edge Functions`);
-        console.log(`📡 Notifications will arrive even when your device is locked or app is closed`);
+        console.log(`ℹ️ Push notification processor v${PushNotificationProcessor.VERSION} - Client-side processing ENABLED`);
+        console.log(`📱 Notifications will appear when app is open (browser notifications)`);
+        console.log(`⚠️ Note: Notifications require app to be open. Edge Function approach needs more work.`);
         
-        // Client-side processing disabled - server handles it now
-        return;
+        // Client-side processing RE-ENABLED
         
-        /* LEGACY CODE - KEPT FOR REFERENCE BUT DISABLED
         if (this.isProcessing) {
             return;
         }
@@ -58,7 +56,6 @@ class PushNotificationProcessor {
                 }
             }
         }, 30000); // Process every 30 seconds
-        */
 
         // Daily cleanup disabled to prevent notification deletion
         // setInterval(async () => {
@@ -105,7 +102,7 @@ class PushNotificationProcessor {
             // await this.cleanupExcessiveFailedNotifications();
 
             // CRITICAL FIX: Get current user to only process their notifications
-            const currentUser = await supabaseAdmin.auth.getUser();
+            const currentUser = await supabase.auth.getUser();
             if (!currentUser.data.user) {
                 console.warn('⚠️ No authenticated user - skipping queue processing');
                 return;
@@ -114,7 +111,7 @@ class PushNotificationProcessor {
 
             // Get pending notifications and those ready for retry FOR CURRENT USER ONLY
             const now = new Date().toISOString();
-            const { data: queuedNotifications, error } = await supabaseAdmin
+            const { data: queuedNotifications, error } = await supabase
                 .from('notification_queue')
                 .select(`
                     id,
@@ -178,7 +175,7 @@ class PushNotificationProcessor {
                     
                     // Additional check: verify subscription ID exists in subscription table
                     if (!needsFallback && queueItem.push_subscription_id) {
-                        const { data: subscriptionCheck, error: checkError } = await supabaseAdmin
+                        const { data: subscriptionCheck, error: checkError } = await supabase
                             .from('push_subscriptions')
                             .select('id, is_active')
                             .eq('id', queueItem.push_subscription_id)
@@ -195,7 +192,7 @@ class PushNotificationProcessor {
                         const fallbackSuccess = await this.processFallbackSubscription(queueItem);
                         if (!fallbackSuccess) {
                             // Mark as failed if no fallback available
-                            await supabaseAdmin
+                            await supabase
                                 .from('notification_queue')
                                 .update({ 
                                     status: 'failed',
@@ -224,7 +221,7 @@ class PushNotificationProcessor {
             console.log(`   Current queue item - Device: ${queueItem.device_id}, Subscription: ${queueItem.push_subscription_id}`);
             
             // Find latest active subscription for this user
-            const { data: latestSubscription, error } = await supabaseAdmin
+            const { data: latestSubscription, error } = await supabase
                 .from('push_subscriptions')
                 .select('id, device_id, endpoint, p256dh, auth, device_type, last_seen, created_at')
                 .eq('user_id', queueItem.user_id)
@@ -257,7 +254,7 @@ class PushNotificationProcessor {
                 }
 
                 // Update the queue item with new subscription details
-                const { error: updateError } = await supabaseAdmin
+                const { error: updateError } = await supabase
                     .from('notification_queue')
                     .update({
                         push_subscription_id: latestSubscription.id,
@@ -309,7 +306,7 @@ class PushNotificationProcessor {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
 
-            const { data: recentNotifications, error } = await supabaseAdmin
+            const { data: recentNotifications, error } = await supabase
                 .from('notifications')
                 .select('id, title, created_at, target_type, target_users')
                 .gte('created_at', yesterday.toISOString())
@@ -322,7 +319,7 @@ class PushNotificationProcessor {
 
             for (const notification of recentNotifications) {
                 // Check if this notification has any queue entries
-                const { data: existingQueue, error: queueError } = await supabaseAdmin
+                const { data: existingQueue, error: queueError } = await supabase
                     .from('notification_queue')
                     .select('id')
                     .eq('notification_id', notification.id)
@@ -334,7 +331,7 @@ class PushNotificationProcessor {
                     console.log(`🔄 Creating fallback queue for notification ${notification.id}: ${notification.title}`);
                     
                     // Create queue entries for this notification
-                    const { error: createError } = await supabaseAdmin
+                    const { error: createError } = await supabase
                         .rpc('queue_push_notification', {
                             p_notification_id: notification.id
                         });
@@ -364,7 +361,7 @@ class PushNotificationProcessor {
             console.log(`🎯 Processing notification ${queueItem.id} (attempt ${currentRetryCount + 1}/${maxRetries})`);
             
             // Update status to indicate we're processing
-            await supabaseAdmin
+            await supabase
                 .from('notification_queue')
                 .update({ 
                     status: 'processing',
@@ -379,7 +376,7 @@ class PushNotificationProcessor {
                 return;
             }
 
-            const { data: subscription, error: subError } = await supabaseAdmin
+            const { data: subscription, error: subError } = await supabase
                 .from('push_subscriptions')
                 .select('endpoint, p256dh, auth')
                 .eq('id', queueItem.push_subscription_id)
@@ -399,7 +396,7 @@ class PushNotificationProcessor {
                 await this.sendPushNotification(queueItem);
                 
                 // If successful, mark as sent and clean up other pending notifications for this user
-                await supabaseAdmin
+                await supabase
                     .from('notification_queue')
                     .update({ 
                         status: 'sent',
@@ -422,7 +419,7 @@ class PushNotificationProcessor {
                     nextRetryAt.setSeconds(nextRetryAt.getSeconds() + retryIntervalSeconds);
                     
                     // Update to retry status with incremented retry count
-                    await supabaseAdmin
+                    await supabase
                         .from('notification_queue')
                         .update({ 
                             status: 'retry',
@@ -1137,7 +1134,7 @@ class PushNotificationProcessor {
             }
 
             // Mark as sent
-            await supabaseAdmin
+            await supabase
                 .from('notification_queue')
                 .update({ 
                     status: 'sent',
@@ -1159,7 +1156,7 @@ class PushNotificationProcessor {
             console.error(`❌ Failed to send push notification ${queueItem.id}:`, error);
 
             // Mark as failed
-            await supabaseAdmin
+            await supabase
                 .from('notification_queue')
                 .update({ 
                     status: 'failed',
@@ -1174,7 +1171,7 @@ class PushNotificationProcessor {
      */
     private async markNotificationFailed(notificationId: string, errorMessage: string) {
         try {
-            await supabaseAdmin
+            await supabase
                 .from('notification_queue')
                 .update({ 
                     status: 'failed',
@@ -1597,7 +1594,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
     (window as any).findNotificationIds = async () => {
         
         try {
-            const { data: queueItems, error } = await supabaseAdmin
+            const { data: queueItems, error } = await supabase
                 .from('notification_queue')
                 .select('id, notification_id, user_id, status')
                 .limit(10);
@@ -1628,7 +1625,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
         
         try {
             // Call the queue_push_notification function directly with the notification ID from your console
-            const { data, error } = await supabaseAdmin.rpc('queue_push_notification', {
+            const { data, error } = await supabase.rpc('queue_push_notification', {
                 p_notification_id: '0d1dc630-c253-4269-b30b-f416a747e69e'
             });
 
@@ -1675,7 +1672,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 }
             };
 
-            const { data, error } = await supabaseAdmin
+            const { data, error } = await supabase
                 .from('notification_queue')
                 .insert([testEntry])
                 .select();
@@ -1703,7 +1700,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             
             console.log(`🔍 Calling queue_push_notification function for notification: ${notificationId}`);
             
-            const { data, error } = await supabaseAdmin.rpc('queue_push_notification', {
+            const { data, error } = await supabase.rpc('queue_push_notification', {
                 p_notification_id: notificationId
             });
 
@@ -1785,7 +1782,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
         
         try {
             // Get the most recent notification
-            const { data: latestNotification, error } = await supabaseAdmin
+            const { data: latestNotification, error } = await supabase
                 .from('notifications')
                 .select('id, title, created_at')
                 .order('created_at', { ascending: false })
@@ -1800,7 +1797,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             
 
             // Queue it using the database function
-            const { data: queueResult, error: queueError } = await supabaseAdmin.rpc('queue_push_notification', {
+            const { data: queueResult, error: queueError } = await supabase.rpc('queue_push_notification', {
                 p_notification_id: latestNotification.id
             });
 
@@ -1824,7 +1821,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
     (window as any).autoQueueNewNotification = async (notificationId: string) => {
         
         try {
-            const { data: queueResult, error: queueError } = await supabaseAdmin.rpc('queue_push_notification', {
+            const { data: queueResult, error: queueError } = await supabase.rpc('queue_push_notification', {
                 p_notification_id: notificationId
             });
 
@@ -1862,7 +1859,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
         }
 
         try {
-            const { data: subscriptions, error } = await supabaseAdmin
+            const { data: subscriptions, error } = await supabase
                 .from('push_subscriptions')
                 .select('id, device_type, device_id, last_seen, is_active')
                 .eq('user_id', user)
@@ -1903,7 +1900,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             // If no queue item specified, get the first pending one
             let queueItem;
             if (queueItemId) {
-                const { data, error } = await supabaseAdmin
+                const { data, error } = await supabase
                     .from('notification_queue')
                     .select('*')
                     .eq('id', queueItemId)
@@ -1915,7 +1912,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
                 }
                 queueItem = data;
             } else {
-                const { data, error } = await supabaseAdmin
+                const { data, error } = await supabase
                     .from('notification_queue')
                     .select('*')
                     .eq('status', 'pending')
@@ -1955,7 +1952,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
         console.log('🔍 Looking for orphaned queue items...');
         
         try {
-            const { data: queueItems, error } = await supabaseAdmin
+            const { data: queueItems, error } = await supabase
                 .from('notification_queue')
                 .select(`
                     id,
@@ -1984,7 +1981,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
             const orphaned = [];
             
             for (const item of queueItems) {
-                const { data: subscription, error: subError } = await supabaseAdmin
+                const { data: subscription, error: subError } = await supabase
                     .from('push_subscriptions')
                     .select('id, is_active')
                     .eq('id', item.push_subscription_id)
