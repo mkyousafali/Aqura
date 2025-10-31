@@ -13,10 +13,12 @@ interface PushSubscription {
 }
 
 interface NotificationPayload {
+  notification_id?: string;
   title: string;
   body: string;
   icon?: string;
   badge?: string;
+  type?: string;
   data?: any;
 }
 
@@ -90,7 +92,7 @@ async function generateVAPIDToken(audience: string): Promise<string> {
   return `${unsignedToken}.${encodedSignature}`;
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
@@ -128,24 +130,40 @@ serve(async (req) => {
     // Generate VAPID JWT token
     const vapidToken = await generateVAPIDToken(audience);
 
-    // For FCM endpoints, we can send data as URL parameter to avoid encryption complexity
-    // The Service Worker will receive this and can parse it
-    let finalEndpoint = subscription.endpoint;
+    // Extract notification_id from payload data
+    const notificationId = payload.data?.notification_id || payload.data?.notificationId || payload.notification_id;
+    const finalEndpoint = subscription.endpoint;
     
-    // Add payload data as URL parameter for the Service Worker to read
-    const payloadData = JSON.stringify(payload);
-    const encodedPayload = encodeURIComponent(payloadData);
+    // Send FULL payload to Service Worker so it can display immediately without fetching
+    const triggerData = JSON.stringify({
+      notification_id: notificationId,
+      notificationId: notificationId, // Include both formats
+      title: payload.title,
+      body: payload.body,
+      message: payload.body, // Include as 'message' too for compatibility
+      icon: payload.icon || '/icons/icon-192x192.png',
+      badge: payload.badge || '/icons/icon-96x96.png',
+      type: payload.type || payload.data?.type,
+      data: {
+        notification_id: notificationId,
+        notificationId: notificationId,
+        type: payload.type || payload.data?.type,
+        url: payload.data?.url || '/notifications'
+      },
+      timestamp: new Date().toISOString()
+    });
     
-    // Add data as custom header (FCM supports this)
+    console.log('📦 Sending FULL notification data:', triggerData);
+    
     const pushResponse = await fetch(finalEndpoint, {
       method: 'POST',
       headers: {
         'TTL': '86400', // 24 hours
         'Authorization': `vapid t=${vapidToken}, k=${VAPID_PUBLIC_KEY}`,
-        'Content-Type': 'application/json',
+        'Content-Length': triggerData.length.toString(),
         'Urgency': 'high'
       },
-      body: payloadData
+      body: triggerData
     });
 
     if (!pushResponse.ok) {
