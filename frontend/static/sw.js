@@ -504,11 +504,11 @@ self.addEventListener('push', (event) => {
 			}
 		}
 		
-		// If no notification_id or fetch failed, get the latest notification that was just queued
-		console.warn('[ServiceWorker] 📡 No notification_id, fetching latest published notification...');
+		// If no notification_id or fetch failed, get from notification_queue (has full payload)
+		console.warn('[ServiceWorker] 📡 Fetching latest from notification_queue...');
 		try {
-			const url = `${supabaseUrl}/rest/v1/notifications?select=id,title,message,type&status=eq.published&order=created_at.desc&limit=1`;
-			console.log('[ServiceWorker] 🌐 Fetching latest:', url);
+			const url = `${supabaseUrl}/rest/v1/notification_queue?select=notification_id,payload&status=eq.sent&order=sent_at.desc&limit=1`;
+			console.log('[ServiceWorker] 🌐 Fetching from queue:', url);
 			
 			const response = await fetch(url, {
 				headers: {
@@ -517,29 +517,38 @@ self.addEventListener('push', (event) => {
 				}
 			});
 			
+			console.log('[ServiceWorker] 📡 Queue response status:', response.status);
+			
 			if (response.ok) {
-				const notifications = await response.json();
-				if (notifications && notifications.length > 0) {
-					const notif = notifications[0];
-					console.log('[ServiceWorker] ✅ Found latest notification:', notif.title);
+				const queueItems = await response.json();
+				console.log('[ServiceWorker] 📥 Queue data:', JSON.stringify(queueItems));
+				
+				if (queueItems && queueItems.length > 0) {
+					const item = queueItems[0];
+					const payload = item.payload;
+					console.log('[ServiceWorker] ✅ Found queue payload');
 					
 					const result = {
-						title: notif.title,
-						body: notif.message,
-						icon: '/icons/icon-192x192.png',
-						badge: '/icons/icon-96x96.png',
+						title: payload.title,
+						body: payload.body,
+						icon: payload.icon || '/icons/icon-192x192.png',
+						badge: payload.badge || '/icons/icon-96x96.png',
 						data: {
-							notificationId: notif.id,
-							url: '/notifications',
-							type: notif.type || 'info'
+							notificationId: item.notification_id,
+							url: payload.data?.url || '/notifications',
+							type: payload.data?.type || 'info'
 						}
 					};
-					console.log('[ServiceWorker] 🎯 Returning latest:', JSON.stringify(result));
+					console.log('[ServiceWorker] 🎯 Returning:', result.title);
 					return result;
+				} else {
+					console.warn('[ServiceWorker] ⚠️ No items in queue');
 				}
+			} else {
+				console.error('[ServiceWorker] ❌ Queue fetch failed:', response.status);
 			}
 		} catch (error) {
-			console.error('[ServiceWorker] ❌ Failed to fetch latest:', error);
+			console.error('[ServiceWorker] ❌ Queue error:', error);
 		}
 		
 		// Fallback
