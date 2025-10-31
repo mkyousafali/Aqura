@@ -20,6 +20,13 @@
 
 	let users: any[] = [];
 	let branches: any[] = [];
+	
+	// Reminder functionality
+	let selectedTaskIds: Set<string> = new Set();
+	let isSendingReminders = false;
+	let reminderStats = { sent: 0, failed: 0 };
+	let showReminderStats = false;
+	let autoReminderCount = 0;
 
 	// Card type titles
 	const cardTitles = {
@@ -36,6 +43,7 @@
 	onMount(async () => {
 		await loadFilters();
 		await loadTasks();
+		await loadAutoReminderCount();
 	});
 
 	async function loadFilters() {
@@ -823,17 +831,215 @@
 		showTaskDetail = false;
 		selectedTask = null;
 	}
+
+	// Reminder Functions
+	async function loadAutoReminderCount() {
+		try {
+			const { count } = await supabase
+				.from('notifications')
+				.select('*', { count: 'exact', head: true })
+				.eq('type', 'task_overdue_reminder');
+			
+			autoReminderCount = count || 0;
+		} catch (error) {
+			console.error('Error loading auto reminder count:', error);
+		}
+	}
+
+	function toggleTaskSelection(taskId: string) {
+		if (selectedTaskIds.has(taskId)) {
+			selectedTaskIds.delete(taskId);
+		} else {
+			selectedTaskIds.add(taskId);
+		}
+		selectedTaskIds = selectedTaskIds; // Trigger reactivity
+	}
+
+	function selectAllTasks() {
+		filteredTasks.forEach(task => {
+			const taskId = task.assignment_id || task.quick_assignment_id;
+			if (taskId) selectedTaskIds.add(taskId);
+		});
+		selectedTaskIds = selectedTaskIds;
+	}
+
+	function deselectAllTasks() {
+		selectedTaskIds.clear();
+		selectedTaskIds = selectedTaskIds;
+	}
+
+	async function sendRemindersToSelected() {
+		if (selectedTaskIds.size === 0) {
+			alert('Please select at least one task');
+			return;
+		}
+
+		if (!confirm(`Send reminder for ${selectedTaskIds.size} selected task(s)?`)) {
+			return;
+		}
+
+		await sendReminders(Array.from(selectedTaskIds));
+	}
+
+	async function sendRemindersToAll() {
+		const overdueTaskIds = filteredTasks
+			.filter(task => {
+				if (!task.deadline) return false;
+				const deadline = new Date(task.deadline);
+				return deadline < new Date();
+			})
+			.map(task => task.assignment_id || task.quick_assignment_id)
+			.filter(Boolean);
+
+		if (overdueTaskIds.length === 0) {
+			alert('No overdue tasks found');
+			return;
+		}
+
+		if (!confirm(`Send reminder for ${overdueTaskIds.length} overdue task(s)?`)) {
+			return;
+		}
+
+		await sendReminders(overdueTaskIds);
+	}
+
+	async function sendReminders(taskIds: string[]) {
+		isSendingReminders = true;
+		reminderStats = { sent: 0, failed: 0 };
+		showReminderStats = true;
+
+		try {
+			for (const taskId of taskIds) {
+				try {
+					const task = tasks.find(t => 
+						(t.assignment_id === taskId || t.quick_assignment_id === taskId)
+					);
+
+					if (!task) continue;
+
+					// Create notification
+					const { error } = await supabase
+						.from('notifications')
+						.insert({
+							user_id: task.assigned_to_user_id,
+							type: 'task_reminder',
+							title: 'Task Reminder',
+							message: `Reminder: "${task.task_title}" is overdue. Please complete it as soon as possible.`,
+							data: {
+								task_id: task.task_id,
+								assignment_id: taskId,
+								task_type: task.task_type,
+								deadline: task.deadline
+							},
+							created_at: new Date().toISOString()
+						});
+
+					if (error) {
+						console.error('Error sending reminder:', error);
+						reminderStats.failed++;
+					} else {
+						reminderStats.sent++;
+					}
+				} catch (error) {
+					console.error('Error processing task:', error);
+					reminderStats.failed++;
+				}
+			}
+
+			// Refresh reminder count
+			await loadAutoReminderCount();
+
+			// Clear selection
+			selectedTaskIds.clear();
+			selectedTaskIds = selectedTaskIds;
+
+		} catch (error) {
+			console.error('Error sending reminders:', error);
+		} finally {
+			isSendingReminders = false;
+		}
+	}
+
+	function closeReminderStats() {
+		showReminderStats = false;
+		reminderStats = { sent: 0, failed: 0 };
+	}
+
 </script>
 
 <div class="task-details-view">
 	<div class="header">
-		<h2 class="title">{cardTitles[cardType] || 'Task Details'}</h2>
+		<div class="header-left">
+			<h2 class="title">{cardTitles[cardType] || 'Task Details'}</h2>
+			{#if cardType === 'incomplete_tasks' && autoReminderCount > 0}
+				<span class="reminder-counter">
+					<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+						<path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+					</svg>
+					{autoReminderCount} Auto Reminders Sent
+				</span>
+			{/if}
+		</div>
 		<button class="close-btn" on:click={onClose} aria-label="Close window">
 			<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
 			</svg>
 		</button>
 	</div>
+
+	{#if cardType === 'incomplete_tasks'}
+		<div class="reminder-controls">
+			<div class="selection-controls">
+				<button class="btn-select" on:click={selectAllTasks} disabled={isSendingReminders}>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+					</svg>
+					Select All
+				</button>
+				<button class="btn-deselect" on:click={deselectAllTasks} disabled={isSendingReminders || selectedTaskIds.size === 0}>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+					</svg>
+					Deselect All
+				</button>
+				{#if selectedTaskIds.size > 0}
+					<span class="selected-count">{selectedTaskIds.size} selected</span>
+				{/if}
+			</div>
+			
+			<div class="reminder-buttons">
+				<button 
+					class="btn-remind-selected" 
+					on:click={sendRemindersToSelected}
+					disabled={isSendingReminders || selectedTaskIds.size === 0}
+				>
+					{#if isSendingReminders}
+						<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						Sending...
+					{:else}
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+						</svg>
+						Send to Selected ({selectedTaskIds.size})
+					{/if}
+				</button>
+
+				<button 
+					class="btn-remind-all" 
+					on:click={sendRemindersToAll}
+					disabled={isSendingReminders}
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+					</svg>
+					Send to All Overdue
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="filters-section">
 		<div class="search-box">
@@ -903,6 +1109,9 @@
 			<table class="tasks-table">
 				<thead>
 					<tr>
+						{#if cardType === 'incomplete_tasks'}
+							<th class="checkbox-col">Select</th>
+						{/if}
 						<th>Task Title</th>
 						<th>Type</th>
 						<th>Branch</th>
@@ -919,8 +1128,19 @@
 				</thead>
 				<tbody>
 					{#each filteredTasks as task}
-						<tr class="clickable-row" on:click={() => viewTaskDetails(task)}>
-							<td>
+						{@const taskId = task.assignment_id || task.quick_assignment_id}
+						<tr class="clickable-row">
+							{#if cardType === 'incomplete_tasks'}
+								<td class="checkbox-col" on:click|stopPropagation>
+									<input 
+										type="checkbox" 
+										class="task-checkbox"
+										checked={selectedTaskIds.has(taskId)}
+										on:change={() => toggleTaskSelection(taskId)}
+									/>
+								</td>
+							{/if}
+							<td on:click={() => viewTaskDetails(task)}>
 								<div class="task-title-cell">
 									<strong>{task.task_title}</strong>
 									{#if task.task_description}
@@ -928,17 +1148,17 @@
 									{/if}
 								</div>
 							</td>
-							<td>
+							<td on:click={() => viewTaskDetails(task)}>
 								<span class="badge {task.task_type === 'quick' ? 'badge-quick' : 'badge-regular'}">
 									{task.task_type === 'quick' ? 'Quick' : 'Regular'}
 								</span>
 							</td>
-							<td>{task.branch_name}</td>
-							<td>{task.assigned_by_name || task.assigned_by || 'N/A'}</td>
-							<td>{task.assigned_to_name || task.assigned_to || 'N/A'}</td>
-							<td>{formatDate(task.assigned_date)}</td>
-							<td>{formatDate(task.deadline)}</td>
-							<td>
+							<td on:click={() => viewTaskDetails(task)}>{task.branch_name}</td>
+							<td on:click={() => viewTaskDetails(task)}>{task.assigned_by_name || task.assigned_by || 'N/A'}</td>
+							<td on:click={() => viewTaskDetails(task)}>{task.assigned_to_name || task.assigned_to || 'N/A'}</td>
+							<td on:click={() => viewTaskDetails(task)}>{formatDate(task.assigned_date)}</td>
+							<td on:click={() => viewTaskDetails(task)}>{formatDate(task.deadline)}</td>
+							<td on:click={() => viewTaskDetails(task)}>
 								{#if task.deadline}
 									{@const dueStatus = getDueStatus(task.deadline)}
 									<span class="due-status-badge {dueStatus.class}">
@@ -948,13 +1168,13 @@
 									<span class="due-status-badge status-no-deadline">No Deadline</span>
 								{/if}
 							</td>
-							<td>
+							<td on:click={() => viewTaskDetails(task)}>
 								<span class="badge badge-{task.status || 'pending'}">
 									{task.status || 'N/A'}
 								</span>
 							</td>
 							{#if cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed'}
-								<td>{formatDate(task.completed_date)}</td>
+								<td on:click={() => viewTaskDetails(task)}>{formatDate(task.completed_date)}</td>
 							{/if}
 						</tr>
 					{/each}
@@ -1043,6 +1263,40 @@
 					{/if}
 				</div>
 			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showReminderStats}
+	<div class="reminder-stats-modal" on:click={closeReminderStats}>
+		<div class="reminder-stats-content" on:click|stopPropagation>
+			<div class="stats-header">
+				<h3>Reminder Results</h3>
+				<button class="close-btn" on:click={closeReminderStats}>
+					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+					</svg>
+				</button>
+			</div>
+			<div class="stats-body">
+				<div class="stat-card success">
+					<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+					</svg>
+					<h4>{reminderStats.sent}</h4>
+					<p>Reminders Sent</p>
+				</div>
+				{#if reminderStats.failed > 0}
+					<div class="stat-card error">
+						<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+						</svg>
+						<h4>{reminderStats.failed}</h4>
+						<p>Failed</p>
+					</div>
+				{/if}
+			</div>
+			<button class="btn-close-stats" on:click={closeReminderStats}>Close</button>
 		</div>
 	</div>
 {/if}
@@ -1425,6 +1679,252 @@
 		margin: 0;
 		color: #1f2937;
 		font-size: 15px;
+	}
+
+	/* Header with Counter */
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+	}
+
+	.reminder-counter {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: rgba(255, 255, 255, 0.2);
+		padding: 6px 12px;
+		border-radius: 20px;
+		font-size: 13px;
+		font-weight: 600;
+		color: white;
+	}
+
+	/* Reminder Controls */
+	.reminder-controls {
+		padding: 16px 24px;
+		background: #f9fafb;
+		border-bottom: 1px solid #e5e7eb;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	.selection-controls {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.reminder-buttons {
+		display: flex;
+		gap: 12px;
+	}
+
+	.btn-select,
+	.btn-deselect {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 16px;
+		border: 1px solid #d1d5db;
+		background: white;
+		color: #374151;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-select:hover:not(:disabled),
+	.btn-deselect:hover:not(:disabled) {
+		background: #f3f4f6;
+		border-color: #9ca3af;
+	}
+
+	.btn-select:disabled,
+	.btn-deselect:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.selected-count {
+		padding: 4px 12px;
+		background: #dbeafe;
+		color: #1e40af;
+		border-radius: 12px;
+		font-size: 13px;
+		font-weight: 600;
+	}
+
+	.btn-remind-selected,
+	.btn-remind-all {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 20px;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-remind-selected {
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+	}
+
+	.btn-remind-selected:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+	}
+
+	.btn-remind-all {
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		color: white;
+	}
+
+	.btn-remind-all:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.btn-remind-selected:disabled,
+	.btn-remind-all:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.animate-spin {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/* Checkbox Column */
+	.checkbox-col {
+		width: 60px;
+		text-align: center;
+	}
+
+	.task-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #667eea;
+	}
+
+	/* Reminder Stats Modal */
+	.reminder-stats-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1100;
+		padding: 20px;
+		backdrop-filter: blur(4px);
+	}
+
+	.reminder-stats-content {
+		background: white;
+		border-radius: 16px;
+		max-width: 500px;
+		width: 100%;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.stats-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 24px;
+		border-bottom: 2px solid #e5e7eb;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 16px 16px 0 0;
+	}
+
+	.stats-header h3 {
+		margin: 0;
+		font-size: 20px;
+		font-weight: 700;
+	}
+
+	.stats-body {
+		padding: 32px;
+		display: flex;
+		gap: 20px;
+		justify-content: center;
+	}
+
+	.stat-card {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 24px;
+		border-radius: 12px;
+		text-align: center;
+	}
+
+	.stat-card.success {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	.stat-card.error {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.stat-card h4 {
+		margin: 12px 0 4px;
+		font-size: 32px;
+		font-weight: 700;
+	}
+
+	.stat-card p {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		opacity: 0.8;
+	}
+
+	.btn-close-stats {
+		margin: 0 24px 24px;
+		width: calc(100% - 48px);
+		padding: 12px;
+		background: #667eea;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 15px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-close-stats:hover {
+		background: #5568d3;
+		transform: translateY(-1px);
 	}
 </style>
 
