@@ -134,36 +134,22 @@ serve(async (req: Request) => {
     const notificationId = payload.data?.notification_id || payload.data?.notificationId || payload.notification_id;
     const finalEndpoint = subscription.endpoint;
     
-    // Send FULL payload to Service Worker so it can display immediately without fetching
-    const triggerData = JSON.stringify({
-      notification_id: notificationId,
-      notificationId: notificationId, // Include both formats
-      title: payload.title,
-      body: payload.body,
-      message: payload.body, // Include as 'message' too for compatibility
-      icon: payload.icon || '/icons/icon-192x192.png',
-      badge: payload.badge || '/icons/icon-96x96.png',
-      type: payload.type || payload.data?.type,
-      data: {
-        notification_id: notificationId,
-        notificationId: notificationId,
-        type: payload.type || payload.data?.type,
-        url: payload.data?.url || '/notifications'
-      },
-      timestamp: new Date().toISOString()
-    });
+    // FCM requires specific format - send as URL parameter since FCM strips unencrypted body
+    // Add notification_id as a query parameter that FCM will preserve
+    const urlWithId = new URL(finalEndpoint);
+    urlWithId.searchParams.set('nid', notificationId || '');
     
-    console.log('📦 Sending FULL notification data:', triggerData);
+    console.log('📦 Sending push with notification_id in URL:', notificationId);
+    console.log('� Final endpoint:', urlWithId.toString());
     
-    const pushResponse = await fetch(finalEndpoint, {
+    const pushResponse = await fetch(urlWithId.toString(), {
       method: 'POST',
       headers: {
         'TTL': '86400', // 24 hours
         'Authorization': `vapid t=${vapidToken}, k=${VAPID_PUBLIC_KEY}`,
-        'Content-Length': triggerData.length.toString(),
         'Urgency': 'high'
-      },
-      body: triggerData
+      }
+      // No body - FCM strips it anyway without encryption
     });
 
     if (!pushResponse.ok) {

@@ -454,12 +454,12 @@ self.addEventListener('push', (event) => {
 		
 		console.log('[ServiceWorker] 🔍 Extracted notification_id:', notifId);
 		
+		const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
+		const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
+		
 		if (notifId) {
-			console.log('[ServiceWorker] 📡 Fetching from notifications table...');
+			console.log('[ServiceWorker] 📡 Fetching specific notification by ID...');
 			try {
-				const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
-				const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
-				
 				const url = `${supabaseUrl}/rest/v1/notifications?select=id,title,message,type&id=eq.${notifId}`;
 				console.log('[ServiceWorker] 🌐 Fetching URL:', url);
 				
@@ -494,7 +494,7 @@ self.addEventListener('push', (event) => {
 						console.log('[ServiceWorker] 🎯 Returning:', JSON.stringify(result));
 						return result;
 					} else {
-						console.warn('[ServiceWorker] ⚠️ No notification found in database');
+						console.warn('[ServiceWorker] ⚠️ No notification found with that ID');
 					}
 				} else {
 					console.error('[ServiceWorker] ❌ Fetch failed:', response.status, await response.text());
@@ -502,8 +502,44 @@ self.addEventListener('push', (event) => {
 			} catch (error) {
 				console.error('[ServiceWorker] ❌ Exception during fetch:', error);
 			}
-		} else {
-			console.warn('[ServiceWorker] ⚠️ No notification_id found in push data');
+		}
+		
+		// If no notification_id or fetch failed, get the latest notification that was just queued
+		console.warn('[ServiceWorker] 📡 No notification_id, fetching latest published notification...');
+		try {
+			const url = `${supabaseUrl}/rest/v1/notifications?select=id,title,message,type&status=eq.published&order=created_at.desc&limit=1`;
+			console.log('[ServiceWorker] 🌐 Fetching latest:', url);
+			
+			const response = await fetch(url, {
+				headers: {
+					'apikey': supabaseKey,
+					'Authorization': `Bearer ${supabaseKey}`
+				}
+			});
+			
+			if (response.ok) {
+				const notifications = await response.json();
+				if (notifications && notifications.length > 0) {
+					const notif = notifications[0];
+					console.log('[ServiceWorker] ✅ Found latest notification:', notif.title);
+					
+					const result = {
+						title: notif.title,
+						body: notif.message,
+						icon: '/icons/icon-192x192.png',
+						badge: '/icons/icon-96x96.png',
+						data: {
+							notificationId: notif.id,
+							url: '/notifications',
+							type: notif.type || 'info'
+						}
+					};
+					console.log('[ServiceWorker] 🎯 Returning latest:', JSON.stringify(result));
+					return result;
+				}
+			}
+		} catch (error) {
+			console.error('[ServiceWorker] ❌ Failed to fetch latest:', error);
 		}
 		
 		// Fallback
