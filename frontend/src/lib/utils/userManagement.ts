@@ -45,17 +45,45 @@ export class UserManagementService {
 	 * Get all users with their details
 	 */
 	async getAllUsers(): Promise<UserListItem[]> {
-		const { data, error } = await supabase
+		// Get all user details from view
+		const { data: viewData, error: viewError } = await supabase
 			.from('user_management_view')
 			.select('*')
 			.order('created_at', { ascending: false });
 
-		if (error) {
-			console.error('Error fetching users:', error);
+		if (viewError) {
+			console.error('Error fetching users from view:', viewError);
 			throw new Error('Failed to fetch users');
 		}
 
-		return data || [];
+		if (!viewData || viewData.length === 0) {
+			return [];
+		}
+
+		// Get approval permissions from users table
+		const { data: approvalData, error: approvalError } = await supabase
+			.from('users')
+			.select('id, can_approve_payments, approval_amount_limit')
+			.in('id', viewData.map(u => u.id));
+
+		if (approvalError) {
+			console.error('Error fetching approval data:', approvalError);
+			// Continue without approval data rather than failing completely
+		}
+
+		// Merge the data
+		const approvalMap = new Map(
+			(approvalData || []).map((a: any) => [a.id, { 
+				can_approve_payments: a.can_approve_payments, 
+				approval_amount_limit: a.approval_amount_limit 
+			}])
+		);
+
+		return viewData.map((user: any) => ({
+			...user,
+			can_approve_payments: approvalMap.get(user.id)?.can_approve_payments || false,
+			approval_amount_limit: approvalMap.get(user.id)?.approval_amount_limit || 0
+		}));
 	}
 
 	/**
