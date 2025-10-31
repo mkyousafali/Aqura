@@ -593,7 +593,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v2.0.3
+				v2.0.4
 			</button>
 		</div>
 	</div>
@@ -604,51 +604,51 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v2.0.3</h3>
+				<h3>What's New in v2.0.4</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🎯 Task Management Enhancements</h4>
+					<h4>🔔 Push Notification System - Major Fix</h4>
 					<ul>
-						<li><strong>Task Details View:</strong> Enhanced task details component with improved UI and functionality</li>
-						<li><strong>Assignment Tracking:</strong> Better visibility and management of task assignments</li>
-						<li><strong>Status Updates:</strong> Improved task status handling and display</li>
-						<li><strong>User Interface:</strong> Refined task viewing experience with cleaner layout</li>
+						<li><strong>Content Display Fixed:</strong> Push notifications now show actual title and message instead of generic "You have a new notification"</li>
+						<li><strong>Service Worker Updated:</strong> Fixed expired Supabase API key preventing notification content from loading</li>
+						<li><strong>Database Access:</strong> Added RLS policy allowing Service Worker to fetch notification content from queue</li>
+						<li><strong>Duplicate Prevention:</strong> Implemented tag-based deduplication to prevent multiple notifications per device</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔔 Reminder System Updates</h4>
+					<h4>� System Documentation</h4>
 					<ul>
-						<li><strong>Overdue Reminders:</strong> Enhanced check-overdue-reminders edge function</li>
-						<li><strong>Notification Processing:</strong> Improved reminder notification handling</li>
-						<li><strong>Timing Accuracy:</strong> Better scheduling and timing for task reminders</li>
-						<li><strong>System Reliability:</strong> Optimized edge function performance</li>
+						<li><strong>Push Notification Reference:</strong> Created comprehensive PUSH_NOTIFICATION_SYSTEM.md guide</li>
+						<li><strong>Technical Details:</strong> Documented FCM integration, Service Worker flow, and troubleshooting</li>
+						<li><strong>Configuration Guide:</strong> Complete API keys, VAPID keys, and RLS policy reference</li>
+						<li><strong>Common Issues:</strong> Solutions for generic messages, duplicates, and delivery failures</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🧹 Code Cleanup & Organization</h4>
+					<h4>🧹 Development Cleanup</h4>
 					<ul>
-						<li><strong>Documentation Cleanup:</strong> Removed obsolete documentation files</li>
-						<li><strong>Migration Files:</strong> Consolidated and cleaned up migration scripts</li>
-						<li><strong>Script Optimization:</strong> Removed deprecated utility scripts</li>
-						<li><strong>Project Structure:</strong> Streamlined project organization for better maintainability</li>
+						<li><strong>Test Files Removed:</strong> Deleted 14 development-only batch files (test and debug scripts)</li>
+						<li><strong>Cleaner Repository:</strong> Removed create-test-notification and debugging helper scripts</li>
+						<li><strong>Production Ready:</strong> Repository now contains only production-necessary files</li>
+						<li><strong>Better Organization:</strong> Streamlined project structure for deployment</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 Technical Improvements</h4>
+					<h4>🔧 Technical Implementation</h4>
 					<ul>
-						<li><strong>Edge Functions:</strong> Updated Supabase edge functions for better performance</li>
-						<li><strong>Component Updates:</strong> Refined admin task components</li>
-						<li><strong>Code Quality:</strong> Improved code organization and structure</li>
-						<li><strong>Maintenance:</strong> General system maintenance and optimization</li>
+						<li><strong>FCM Workaround:</strong> Service Worker fetches from notification_queue instead of relying on FCM payload</li>
+						<li><strong>RLS Policy:</strong> Anonymous role can now read sent notifications from queue table</li>
+						<li><strong>API Authentication:</strong> Updated Service Worker with current Supabase anon key</li>
+						<li><strong>Notification Tags:</strong> Using notificationId as unique tag prevents browser duplicates</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 31, 2025</p>
+					<p><strong>Release Date:</strong> November 1, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 2.0.3 - Task Management & System Optimization</p>
-					<p><strong>Focus:</strong> Task Details, Reminder System, Code Cleanup, Performance</p>
+					<p><strong>Version:</strong> 2.0.4 - Push Notification System Fix</p>
+					<p><strong>Focus:</strong> Notification Content Display, Duplicate Prevention, Documentation, Cleanup</p>
 				</div>
 			</div>
 		</div>
