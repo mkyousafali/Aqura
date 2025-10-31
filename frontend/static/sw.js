@@ -443,9 +443,63 @@ self.addEventListener('push', (event) => {
 		notificationData = event.data ? { body: event.data.text() } : null;
 	}
 	
+	// If no notification data in push event, fetch from Supabase
+	const getNotificationData = async () => {
+		if (notificationData) {
+			return notificationData;
+		}
+		
+		console.log('[ServiceWorker] 📡 No payload in push event, fetching from Supabase...');
+		
+		try {
+			// Get Supabase credentials from IndexedDB or use environment
+			const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
+			const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
+			
+			// Fetch the latest published notification
+			const response = await fetch(`${supabaseUrl}/rest/v1/notifications?select=*&status=eq.published&order=created_at.desc&limit=1`, {
+				headers: {
+					'apikey': supabaseKey,
+					'Authorization': `Bearer ${supabaseKey}`
+				}
+			});
+			
+			if (response.ok) {
+				const notifications = await response.json();
+				if (notifications && notifications.length > 0) {
+					const notif = notifications[0];
+					console.log('[ServiceWorker] ✅ Fetched notification from Supabase:', notif);
+					return {
+						title: notif.title,
+						body: notif.message || notif.body,
+						icon: '/icons/icon-192x192.png',
+						badge: '/icons/icon-96x96.png',
+						data: {
+							notificationId: notif.id,
+							url: '/notifications',
+							type: notif.type || 'info'
+						}
+					};
+				}
+			}
+		} catch (error) {
+			console.error('[ServiceWorker] ❌ Failed to fetch notification:', error);
+		}
+		
+		// Final fallback
+		return {
+			title: 'Aqura Management',
+			body: 'You have a new notification',
+			icon: '/icons/icon-192x192.png'
+		};
+	};
+	
 	// Check if user is still authenticated (even if app is closed)
 	const checkAuthAndShowNotification = async () => {
 		try {
+			// Get notification data (from push or fetch)
+			notificationData = await getNotificationData();
+			
 			// Check for authentication data in storage
 			const hasAuthData = await checkStoredAuth();
 			console.log('[ServiceWorker] 🔐 Authentication check result:', hasAuthData);
