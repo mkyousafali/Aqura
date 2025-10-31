@@ -159,10 +159,20 @@
 				.eq('task_id', taskId)
 				.eq('assigned_to_user_id', currentUserData.id)
 				.order('assigned_at', { ascending: false })
-				.limit(1);            if (assignmentError) {
+				.limit(1);
+
+            console.log('🔍 Assignment query result:', { 
+                taskId, 
+                userId: currentUserData.id,
+                assignments, 
+                error: assignmentError 
+            });
+
+            if (assignmentError) {
                 console.error('Error loading assignment:', assignmentError);
             } else if (assignments && assignments.length > 0) {
                 assignmentDetails = assignments[0];
+                console.log('✅ Assignment loaded:', assignmentDetails);
                 
                 // Fetch assigned by user name
                 if (assignmentDetails.assigned_by) {
@@ -469,12 +479,25 @@
                 }
             }
             
+            // Validate assignment_id is a valid UUID
+            const assignmentId = assignmentDetails?.id;
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            
+            if (!assignmentId || !uuidRegex.test(assignmentId)) {
+                console.error('Invalid assignment ID:', {
+                    assignmentId,
+                    assignmentDetails,
+                    isValidUUID: assignmentId ? uuidRegex.test(assignmentId) : false
+                });
+                throw new Error('Invalid assignment ID. Please contact support.');
+            }
+            
             const completionRecord = {
                 task_id: taskId,
-                assignment_id: assignmentDetails?.id,
+                assignment_id: assignmentId,
                 completed_by: currentUserData.id,
                 completed_by_name: currentUserData.username,
-                completed_by_branch_id: currentUserData.branch_id,
+                // Skip completed_by_branch_id for now - column type mismatch issue
                 task_finished_completed: resolvedRequireTaskFinished ? completionData.task_finished_completed : null,
                 photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrl ? true : false) : null,
                 completion_photo_url: photoUrl,
@@ -483,6 +506,8 @@
                 completion_notes: completionData.completion_notes || null,
                 completed_at: new Date().toISOString()
             };
+            
+            console.log('📋 Submitting completion record:', completionRecord);
             
             const { data, error } = await supabase
                 .from('task_completions')
@@ -1206,10 +1231,12 @@
     }
 
     .requirement-checkbox {
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         accent-color: #10B981;
         cursor: pointer;
+        border: 2px solid #10B981;
+        border-radius: 4px;
     }
 
     .upload-section {
