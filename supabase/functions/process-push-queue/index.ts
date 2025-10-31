@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
-import webpush from 'npm:web-push@3.6.6'
 
 const VAPID_PUBLIC_KEY = "BExwv7hh64Fkg6RRzkzueFm8MQn0NkdtImUf5q2X1UUwLKyGw3RtLqgj-MixTecmRaePJSxNva9J0Y5CMZIqzS8"
 const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY') || "hCYjM5B0-NDNyZB7AjB--fe3G2SShDY4LClmhFCZry8"
@@ -62,6 +61,9 @@ serve(async (req) => {
     }
 
     console.log(`📬 Processing ${queueItems.length} queued notifications...`)
+
+    // Import web-push dynamically (compatible with Supabase Edge Functions)
+    const webpush = await import('https://esm.sh/web-push@3.6.6')
 
     // Configure VAPID with the imported webpush module
     webpush.setVapidDetails(

@@ -760,7 +760,7 @@
 				assignment_id: resolvedAssignmentId,
 				completed_by: currentUserData.id,
 				completed_by_name: currentUserData.employeeName || currentUserData.name || currentUserData.username,
-				completed_by_branch_id: currentUserData.branch_id,
+				// Note: completed_by_branch_id removed - branch_id is bigint, not uuid. Branch info can be retrieved from users table via completed_by.
 				task_finished_completed: resolvedRequireTaskFinished ? completionData.task_finished_completed : null,
 				photo_uploaded_completed: resolvedRequirePhotoUpload ? (photoUrl ? true : false) : null, // Only true if we have a URL
 				completion_photo_url: photoUrl, // Store the photo URL in completion record
