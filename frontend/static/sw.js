@@ -580,12 +580,12 @@ self.addEventListener('push', (event) => {
 				body: notificationData?.body || notificationData?.message || 'New update available',
 				icon: notificationData?.icon || '/icons/icon-192x192.png',
 				badge: notificationData?.badge || '/icons/icon-96x96.png',
-				tag: notificationData?.tag || `aqura-notification-${Date.now()}`,
+				tag: notificationData?.data?.notificationId || notificationData?.tag || `aqura-notification-${Date.now()}`, // Use notificationId as tag to prevent duplicates
 				// Critical settings for locked phone notifications
 				vibrate: [300, 100, 300, 100, 300, 100, 300], // Stronger vibration pattern for locked phones
 				requireInteraction: true, // REQUIRED: Forces notification to persist until user interacts
 				silent: false, // Ensure sound plays even when phone is locked
-				renotify: true, // Allow renotifying with same tag for important updates
+				renotify: false, // CHANGED: Don't renotify with same tag to prevent duplicates
 				persistent: true, // Keep notification visible until user dismisses
 				// Wake screen on locked devices
 				timestamp: Date.now(),
