@@ -23,10 +23,17 @@
 	
 	// Reminder functionality
 	let selectedTaskIds: Set<string> = new Set();
+	let selectedTaskIdsArray: string[] = [];
 	let isSendingReminders = false;
 	let reminderStats = { sent: 0, failed: 0 };
 	let showReminderStats = false;
 	let autoReminderCount = 0;
+	let autoReminderStats = {
+		totalReminders: 0,
+		totalTriggers: 0,
+		lastTrigger: null as string | null,
+		avgPerTrigger: 0
+	};
 
 	// Card type titles
 	const cardTitles = {
@@ -321,10 +328,6 @@
 		const hasCompletionRecord = new Set(allTaskCompletionIds);
 		const hasQuickCompletionRecord = new Set(allQuickCompletionIds);
 
-		console.log('📊 Incomplete tasks analysis:');
-		console.log('  - Task assignments with completion records:', hasCompletionRecord.size);
-		console.log('  - Quick assignments with completion records:', hasQuickCompletionRecord.size);
-
 		// Load ALL task_assignments
 		const { data: taskAssignments, error: taError } = await supabase
 			.from('task_assignments')
@@ -358,11 +361,10 @@
 			const incompleteTasks = taskAssignments.filter(ta => 
 				!hasCompletionRecord.has(ta.id) && ta.status !== 'completed'
 			);
-			console.log('  - Total task_assignments:', taskAssignments.length);
-			console.log('  - Incomplete regular tasks (no completion record):', incompleteTasks.length);
 			
 			tasks = [...tasks, ...incompleteTasks.map(ta => ({
 				...ta,
+				assignment_id: ta.id,  // Preserve the assignment ID
 				task_title: ta.tasks?.title || 'N/A',
 				task_description: ta.tasks?.description || '',
 				task_type: 'regular',
@@ -379,11 +381,10 @@
 			const incompleteQuick = quickAssignments.filter(qa => 
 				!hasQuickCompletionRecord.has(qa.id) && qa.status !== 'completed'
 			);
-			console.log('  - Total quick_task_assignments:', quickAssignments.length);
-			console.log('  - Incomplete quick tasks (no completion record):', incompleteQuick.length);
 			
 			tasks = [...tasks, ...incompleteQuick.map(qa => ({
 				...qa,
+				quick_assignment_id: qa.id,  // Preserve the quick assignment ID
 				task_title: qa.quick_tasks?.title || 'N/A',
 				task_description: qa.quick_tasks?.description || '',
 				task_type: 'quick',
@@ -397,8 +398,6 @@
 				issue_type: qa.quick_tasks?.issue_type
 			}))];
 		}
-		
-		console.log('  ✅ Total incomplete tasks loaded:', tasks.length);
 	}
 
 	async function loadMyAssignedTasks(user: any) {
@@ -835,12 +834,36 @@
 	// Reminder Functions
 	async function loadAutoReminderCount() {
 		try {
+			// Get total reminders count (both automatic and manual)
 			const { count } = await supabase
 				.from('notifications')
 				.select('*', { count: 'exact', head: true })
-				.eq('type', 'task_overdue_reminder');
+				.eq('type', 'task_overdue');
 			
 			autoReminderCount = count || 0;
+			autoReminderStats.totalReminders = count || 0;
+
+			// Get trigger statistics from task_reminder_logs
+			const { data: triggerData } = await supabase
+				.from('task_reminder_logs')
+				.select('created_at')
+				.order('created_at', { ascending: false });
+
+			if (triggerData && triggerData.length > 0) {
+				// Group by hour to count distinct triggers
+				const triggerHours = new Set<string>();
+				triggerData.forEach(log => {
+					const date = new Date(log.created_at);
+					const hourKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+					triggerHours.add(hourKey);
+				});
+
+				autoReminderStats.totalTriggers = triggerHours.size;
+				autoReminderStats.lastTrigger = triggerData[0].created_at;
+				autoReminderStats.avgPerTrigger = autoReminderStats.totalTriggers > 0 
+					? Math.round(autoReminderStats.totalReminders / autoReminderStats.totalTriggers) 
+					: 0;
+			}
 		} catch (error) {
 			console.error('Error loading auto reminder count:', error);
 		}
@@ -853,6 +876,7 @@
 			selectedTaskIds.add(taskId);
 		}
 		selectedTaskIds = selectedTaskIds; // Trigger reactivity
+		selectedTaskIdsArray = Array.from(selectedTaskIds); // Update array for reactivity
 	}
 
 	function selectAllTasks() {
@@ -861,11 +885,13 @@
 			if (taskId) selectedTaskIds.add(taskId);
 		});
 		selectedTaskIds = selectedTaskIds;
+		selectedTaskIdsArray = Array.from(selectedTaskIds);
 	}
 
 	function deselectAllTasks() {
 		selectedTaskIds.clear();
 		selectedTaskIds = selectedTaskIds;
+		selectedTaskIdsArray = [];
 	}
 
 	async function sendRemindersToSelected() {
@@ -882,25 +908,53 @@
 	}
 
 	async function sendRemindersToAll() {
-		const overdueTaskIds = filteredTasks
-			.filter(task => {
-				if (!task.deadline) return false;
-				const deadline = new Date(task.deadline);
-				return deadline < new Date();
-			})
-			.map(task => task.assignment_id || task.quick_assignment_id)
-			.filter(Boolean);
-
-		if (overdueTaskIds.length === 0) {
-			alert('No overdue tasks found');
+		if (!confirm('Send automatic reminders for all overdue tasks?')) {
 			return;
 		}
 
-		if (!confirm(`Send reminder for ${overdueTaskIds.length} overdue task(s)?`)) {
-			return;
-		}
+		isSendingReminders = true;
+		reminderStats = { sent: 0, failed: 0 };
+		showReminderStats = true;
 
-		await sendReminders(overdueTaskIds);
+		try {
+			// Call the Edge Function
+			const response = await fetch(
+				'https://vmypotfsyrvuublyddyt.supabase.co/functions/v1/check-overdue-reminders',
+				{
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+						'Content-Type': 'application/json'
+					}
+				}
+			);
+
+			if (!response.ok) {
+				throw new Error(`Failed to send reminders: ${response.statusText}`);
+			}
+
+			const result = await response.json();
+			
+			if (result.success) {
+				reminderStats.sent = result.reminders_sent || 0;
+				alert(`✅ ${result.message || `Successfully sent ${result.reminders_sent} reminders`}`);
+			} else {
+				throw new Error(result.error || 'Failed to send reminders');
+			}
+
+			// Refresh reminder count
+			await loadAutoReminderCount();
+
+			// Reload tasks to update the reminder status
+			await loadTasks();
+
+		} catch (error) {
+			console.error('Error sending reminders:', error);
+			reminderStats.failed = 1;
+			alert(`❌ Error sending reminders: ${error.message}`);
+		} finally {
+			isSendingReminders = false;
+		}
 	}
 
 	async function sendReminders(taskIds: string[]) {
@@ -921,17 +975,27 @@
 					const { error } = await supabase
 						.from('notifications')
 						.insert({
-							user_id: task.assigned_to_user_id,
-							type: 'task_reminder',
-							title: 'Task Reminder',
+							title: '⚠️ Task Reminder',
 							message: `Reminder: "${task.task_title}" is overdue. Please complete it as soon as possible.`,
-							data: {
+							type: 'task_overdue',
+							target_users: [task.assigned_to_user_id],
+							target_type: 'specific_users',
+							status: 'published',
+							sent_at: new Date().toISOString(),
+							created_by: currentUser?.id || 'system',
+							created_by_name: currentUser?.username || 'System',
+							created_by_role: currentUser?.role || 'system',
+							task_id: task.task_id,
+							priority: 'medium',
+							read_count: 0,
+							total_recipients: 1,
+							metadata: {
 								task_id: task.task_id,
 								assignment_id: taskId,
 								task_type: task.task_type,
-								deadline: task.deadline
-							},
-							created_at: new Date().toISOString()
+								deadline: task.deadline,
+								reminder_type: 'manual'
+							}
 						});
 
 					if (error) {
@@ -968,24 +1032,65 @@
 </script>
 
 <div class="task-details-view">
-	<div class="header">
-		<div class="header-left">
-			<h2 class="title">{cardTitles[cardType] || 'Task Details'}</h2>
-			{#if cardType === 'incomplete_tasks' && autoReminderCount > 0}
-				<span class="reminder-counter">
-					<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-						<path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
-					</svg>
-					{autoReminderCount} Auto Reminders Sent
-				</span>
-			{/if}
+	{#if cardType === 'incomplete_tasks'}
+		<div class="auto-reminder-stats">
+			<div class="stats-grid">
+				<div class="stat-card">
+					<div class="stat-icon">
+						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+						</svg>
+					</div>
+					<div class="stat-content">
+						<div class="stat-value">{autoReminderStats.totalReminders}</div>
+						<div class="stat-label">Total Reminders</div>
+					</div>
+				</div>
+
+				<div class="stat-card">
+					<div class="stat-icon">
+						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+						</svg>
+					</div>
+					<div class="stat-content">
+						<div class="stat-value">{autoReminderStats.totalTriggers}</div>
+						<div class="stat-label">Auto Triggers</div>
+					</div>
+				</div>
+
+				<div class="stat-card">
+					<div class="stat-icon">
+						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+						</svg>
+					</div>
+					<div class="stat-content">
+						<div class="stat-value">
+							{#if autoReminderStats.lastTrigger}
+								{new Date(autoReminderStats.lastTrigger).toLocaleString()}
+							{:else}
+								-
+							{/if}
+						</div>
+						<div class="stat-label">Last Trigger</div>
+					</div>
+				</div>
+
+				<div class="stat-card">
+					<div class="stat-icon">
+						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+						</svg>
+					</div>
+					<div class="stat-content">
+						<div class="stat-value">{autoReminderStats.avgPerTrigger}</div>
+						<div class="stat-label">Avg per Trigger</div>
+					</div>
+				</div>
+			</div>
 		</div>
-		<button class="close-btn" on:click={onClose} aria-label="Close window">
-			<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-			</svg>
-		</button>
-	</div>
+	{/if}
 
 	{#if cardType === 'incomplete_tasks'}
 		<div class="reminder-controls">
@@ -1127,7 +1232,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each filteredTasks as task}
+					{#each filteredTasks as task, index (`${task.assignment_id || task.quick_assignment_id || index}-${task.task_type}-${index}`)}
 						{@const taskId = task.assignment_id || task.quick_assignment_id}
 						<tr class="clickable-row">
 							{#if cardType === 'incomplete_tasks'}
@@ -1135,7 +1240,10 @@
 									<input 
 										type="checkbox" 
 										class="task-checkbox"
-										checked={selectedTaskIds.has(taskId)}
+										id="checkbox-{taskId}"
+										value={taskId}
+										checked={selectedTaskIdsArray.includes(taskId)}
+										on:click|stopPropagation
 										on:change={() => toggleTaskSelection(taskId)}
 									/>
 								</td>
@@ -1698,6 +1806,70 @@
 		font-size: 13px;
 		font-weight: 600;
 		color: white;
+	}
+
+	/* Auto Reminder Statistics Dashboard */
+	.auto-reminder-stats {
+		padding: 16px 24px;
+		background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+		border-bottom: 1px solid #bae6fd;
+	}
+
+	.stats-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 16px;
+	}
+
+	.stat-card {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		background: white;
+		padding: 16px;
+		border-radius: 12px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+		transition: all 0.3s ease;
+	}
+
+	.stat-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+	}
+
+	.stat-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		border-radius: 10px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		flex-shrink: 0;
+	}
+
+	.stat-content {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.stat-value {
+		font-size: 20px;
+		font-weight: 700;
+		color: #1f2937;
+		margin-bottom: 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.stat-label {
+		font-size: 12px;
+		font-weight: 500;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	/* Reminder Controls */

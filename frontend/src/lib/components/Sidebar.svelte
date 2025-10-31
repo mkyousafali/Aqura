@@ -593,7 +593,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v2.0.2
+				v2.0.3
 			</button>
 		</div>
 	</div>
@@ -604,55 +604,51 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v2.0.2</h3>
+				<h3>What's New in v2.0.3</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🔄 Recurring Expense Scheduler</h4>
+					<h4>🎯 Task Management Enhancements</h4>
 					<ul>
-						<li><strong>Automated Occurrence Generation:</strong> System creates all future occurrences immediately for daily, weekly, monthly, and custom schedules</li>
-						<li><strong>Individual Approval Workflow:</strong> Each occurrence requires separate approval before payment with 2-day advance notifications</li>
-						<li><strong>Smart Date Filtering:</strong> Approval center shows only occurrences within 2-day window for timely decision-making</li>
-						<li><strong>Database Functions:</strong> generate_recurring_occurrences() creates all future payments and auto-deletes parent template</li>
-						<li><strong>CO User Auto-Populate:</strong> Automatically assigns creator as CO user for single bill schedules using public.users table</li>
+						<li><strong>Task Details View:</strong> Enhanced task details component with improved UI and functionality</li>
+						<li><strong>Assignment Tracking:</strong> Better visibility and management of task assignments</li>
+						<li><strong>Status Updates:</strong> Improved task status handling and display</li>
+						<li><strong>User Interface:</strong> Refined task viewing experience with cleaner layout</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Balance Tracking System</h4>
+					<h4>🔔 Reminder System Updates</h4>
 					<ul>
-						<li><strong>Real-Time Balance Updates:</strong> Database triggers automatically track used amounts and remaining balances</li>
-						<li><strong>Overspend Protection:</strong> Validation prevents bills from exceeding available request balance with user confirmation</li>
-						<li><strong>Balance Display:</strong> Request tables now show both original amount and remaining balance with color coding</li>
-						<li><strong>Multi-Bill Validation:</strong> Complex validation for multiple bill scheduling with aggregate amount checking</li>
-						<li><strong>Enhanced UI Feedback:</strong> Color-coded balance indicators (green for available, orange for zero, red for overspent)</li>
+						<li><strong>Overdue Reminders:</strong> Enhanced check-overdue-reminders edge function</li>
+						<li><strong>Notification Processing:</strong> Improved reminder notification handling</li>
+						<li><strong>Timing Accuracy:</strong> Better scheduling and timing for task reminders</li>
+						<li><strong>System Reliability:</strong> Optimized edge function performance</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Technical Improvements</h4>
+					<h4>🧹 Code Cleanup & Organization</h4>
 					<ul>
-						<li><strong>Migration Ready:</strong> Database migration file (065) created for payment priority deployment</li>
-						<li><strong>CSS Optimization:</strong> Removed complex CSS Grid rules and replaced with simplified table styling</li>
-						<li><strong>Manual Vendor Lookup:</strong> Separate queries for vendor priority to avoid foreign key complexity</li>
-						<li><strong>Cross-Browser Compatibility:</strong> HTML table structure ensures consistent display across all browsers</li>
-						<li><strong>Performance Optimized:</strong> Simplified CSS reduces rendering complexity</li>
+						<li><strong>Documentation Cleanup:</strong> Removed obsolete documentation files</li>
+						<li><strong>Migration Files:</strong> Consolidated and cleaned up migration scripts</li>
+						<li><strong>Script Optimization:</strong> Removed deprecated utility scripts</li>
+						<li><strong>Project Structure:</strong> Streamlined project organization for better maintainability</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� User Experience Improvements</h4>
+					<h4>🔧 Technical Improvements</h4>
 					<ul>
-						<li><strong>Intelligent Form Flow:</strong> Request Generator now guides users through requester selection seamlessly</li>
-						<li><strong>Error Prevention:</strong> Comprehensive validation prevents duplicate requesters and constraint violations</li>
-						<li><strong>Financial Transparency:</strong> Users can see exactly how much budget remains for each request</li>
-						<li><strong>One-Click Operations:</strong> Save new requesters and select them in a single action</li>
-						<li><strong>Professional Interface:</strong> Clean dropdown design with proper hover effects and visual hierarchy</li>
+						<li><strong>Edge Functions:</strong> Updated Supabase edge functions for better performance</li>
+						<li><strong>Component Updates:</strong> Refined admin task components</li>
+						<li><strong>Code Quality:</strong> Improved code organization and structure</li>
+						<li><strong>Maintenance:</strong> General system maintenance and optimization</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> October 29, 2025</p>
+					<p><strong>Release Date:</strong> October 31, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 2.0.1 - Approval Center Dual-Section & Data Integrity</p>
-					<p><strong>Focus:</strong> Enhanced Workflow Management, Mobile Parity, Notification System, Data Accuracy</p>
+					<p><strong>Version:</strong> 2.0.3 - Task Management & System Optimization</p>
+					<p><strong>Focus:</strong> Task Details, Reminder System, Code Cleanup, Performance</p>
 				</div>
 			</div>
 		</div>
