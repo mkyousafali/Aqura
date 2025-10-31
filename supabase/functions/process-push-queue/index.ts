@@ -62,16 +62,6 @@ serve(async (req) => {
 
     console.log(`📬 Processing ${queueItems.length} queued notifications...`)
 
-    // Import web-push dynamically (compatible with Supabase Edge Functions)
-    const webpush = await import('https://esm.sh/web-push@3.6.6')
-
-    // Configure VAPID with the imported webpush module
-    webpush.setVapidDetails(
-      'mailto:support@aqura.com',
-      VAPID_PUBLIC_KEY,
-      VAPID_PRIVATE_KEY
-    )
-
     let successCount = 0
     let failCount = 0
 
@@ -100,7 +90,7 @@ serve(async (req) => {
           throw new Error('No active push subscription found for this queue item')
         }
 
-        // Prepare subscription object for web-push
+        // Prepare subscription object for send-push-notification function
         const pushSubscription = {
           endpoint: subscription.endpoint,
           keys: {
@@ -109,33 +99,26 @@ serve(async (req) => {
           }
         }
 
-        // Determine urgency and TTL based on priority
-        const priority = item.payload?.data?.priority || 'normal'
-        const urgency = priority === 'urgent' || priority === 'high' ? 'high' : 'normal'
-        const ttl = 24 * 60 * 60 // 24 hours
+        console.log(`📤 Calling send-push-notification function...`)
 
-        // Prepare topic (max 32 chars for Web Push API)
-        let topic = item.payload?.tag || 'aqura-notification'
-        if (topic.length > 32) {
-          // Take first 32 characters only
-          topic = topic.substring(0, 32)
+        // Call the send-push-notification Edge Function (which has working web-push)
+        const pushResponse = await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'apikey': supabaseServiceKey
+          },
+          body: JSON.stringify({
+            subscription: pushSubscription,
+            payload: item.payload
+          })
+        })
+
+        if (!pushResponse.ok) {
+          const errorText = await pushResponse.text()
+          throw new Error(`send-push-notification failed: ${pushResponse.status} - ${errorText}`)
         }
-
-        // Send options for push notification
-        const sendOptions = {
-          urgency: urgency, // 'very-low' | 'low' | 'normal' | 'high'
-          TTL: ttl, // Time to live in seconds
-          topic: topic // For notification grouping/replacement (max 32 chars)
-        }
-
-        console.log(`📤 Sending with urgency: ${urgency}, TTL: ${ttl}s, topic: ${topic}`)
-
-        // Send the push notification with options
-        await webpush.sendNotification(
-          pushSubscription,
-          JSON.stringify(item.payload),
-          sendOptions
-        )
 
         // Mark as sent
         await supabase
