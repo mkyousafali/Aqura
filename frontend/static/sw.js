@@ -430,44 +430,59 @@ self.addEventListener('sync', (event) => {
 // Push notification handling - handles both push events and direct showNotification calls
 // CRITICAL: This works even when main app is completely closed but user is still logged in
 self.addEventListener('push', (event) => {
-	console.log('[ServiceWorker] 🔔 Push received - App may be completely closed', event);
+	console.log('[ServiceWorker] 🔔 Push received!', event);
+	console.log('[ServiceWorker] 📦 Push data available:', event.data ? 'YES' : 'NO');
 	
 	let notificationData;
 	try {
 		// Try to parse JSON data from push event
 		notificationData = event.data ? event.data.json() : null;
-		console.log('[ServiceWorker] 📨 Parsed notification data:', notificationData);
+		console.log('[ServiceWorker] 📨 Parsed push data:', JSON.stringify(notificationData));
 	} catch (error) {
-		console.warn('[ServiceWorker] ⚠️ JSON parsing failed, using fallback:', error);
+		console.warn('[ServiceWorker] ⚠️ JSON parsing failed:', error);
 		// Fallback to text if JSON parsing fails
 		notificationData = event.data ? { body: event.data.text() } : null;
 	}
 	
-	// If no notification data in push event, fetch from Supabase
+	// ALWAYS fetch from notifications table using notification_id
 	const getNotificationData = async () => {
-		// ALWAYS fetch from database if we have notification_id to ensure correct content
-		if (notificationData?.notification_id || notificationData?.data?.notification_id || notificationData?.data?.notificationId) {
-			const notifId = notificationData.notification_id || notificationData.data?.notification_id || notificationData.data?.notificationId;
-			console.log('[ServiceWorker] 📡 Fetching notification by ID:', notifId);
+		// Extract notification_id from push data
+		const notifId = notificationData?.notification_id 
+			|| notificationData?.notificationId
+			|| notificationData?.data?.notification_id 
+			|| notificationData?.data?.notificationId;
+		
+		console.log('[ServiceWorker] 🔍 Extracted notification_id:', notifId);
+		
+		if (notifId) {
+			console.log('[ServiceWorker] 📡 Fetching from notifications table...');
 			try {
 				const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
 				const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
 				
-				const response = await fetch(`${supabaseUrl}/rest/v1/notifications?select=*&id=eq.${notifId}`, {
+				const url = `${supabaseUrl}/rest/v1/notifications?select=id,title,message,type&id=eq.${notifId}`;
+				console.log('[ServiceWorker] 🌐 Fetching URL:', url);
+				
+				const response = await fetch(url, {
 					headers: {
 						'apikey': supabaseKey,
 						'Authorization': `Bearer ${supabaseKey}`
 					}
 				});
 				
+				console.log('[ServiceWorker] 📡 Response status:', response.status);
+				
 				if (response.ok) {
 					const notifications = await response.json();
+					console.log('[ServiceWorker] 📥 Fetched data:', JSON.stringify(notifications));
+					
 					if (notifications && notifications.length > 0) {
 						const notif = notifications[0];
-						console.log('[ServiceWorker] ✅ Fetched notification:', notif.title);
+						console.log('[ServiceWorker] ✅ Found notification:', notif.title);
+						
 						const result = {
 							title: notif.title,
-							body: notif.message || notif.body,
+							body: notif.message,
 							icon: '/icons/icon-192x192.png',
 							badge: '/icons/icon-96x96.png',
 							data: {
@@ -476,58 +491,23 @@ self.addEventListener('push', (event) => {
 								type: notif.type || 'info'
 							}
 						};
-						console.log('[ServiceWorker] 📤 Returning:', result);
+						console.log('[ServiceWorker] 🎯 Returning:', JSON.stringify(result));
 						return result;
+					} else {
+						console.warn('[ServiceWorker] ⚠️ No notification found in database');
 					}
+				} else {
+					console.error('[ServiceWorker] ❌ Fetch failed:', response.status, await response.text());
 				}
 			} catch (error) {
-				console.error('[ServiceWorker] ❌ Fetch failed:', error);
+				console.error('[ServiceWorker] ❌ Exception during fetch:', error);
 			}
+		} else {
+			console.warn('[ServiceWorker] ⚠️ No notification_id found in push data');
 		}
 		
-		if (notificationData) {
-			console.log('[ServiceWorker] 📤 Using direct push data:', JSON.stringify(notificationData));
-			return notificationData;
-		}
-		
-		console.log('[ServiceWorker] 📡 No payload in push event, fetching from Supabase...');
-		
-		try {
-			// Get Supabase credentials from IndexedDB or use environment
-			const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
-			const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAxMTgwMjgsImV4cCI6MjA0NTY5NDAyOH0.JF7bqluxaPVTuRBrp85aTNqTp3n7MUGVgqfEpJ6VE2s';
-			
-			// Fetch the latest published notification
-			const response = await fetch(`${supabaseUrl}/rest/v1/notifications?select=*&status=eq.published&order=created_at.desc&limit=1`, {
-				headers: {
-					'apikey': supabaseKey,
-					'Authorization': `Bearer ${supabaseKey}`
-				}
-			});
-			
-			if (response.ok) {
-				const notifications = await response.json();
-				if (notifications && notifications.length > 0) {
-					const notif = notifications[0];
-					console.log('[ServiceWorker] ✅ Fetched notification from Supabase:', notif);
-					return {
-						title: notif.title,
-						body: notif.message || notif.body,
-						icon: '/icons/icon-192x192.png',
-						badge: '/icons/icon-96x96.png',
-						data: {
-							notificationId: notif.id,
-							url: '/notifications',
-							type: notif.type || 'info'
-						}
-					};
-				}
-			}
-		} catch (error) {
-			console.error('[ServiceWorker] ❌ Failed to fetch notification:', error);
-		}
-		
-		// Final fallback
+		// Fallback
+		console.warn('[ServiceWorker] ⚠️ Using fallback message');
 		return {
 			title: 'Aqura Management',
 			body: 'You have a new notification',
