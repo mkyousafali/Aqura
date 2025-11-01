@@ -111,12 +111,10 @@
 		// Check basic required fields
 		if (!amount || parseFloat(amount) <= 0) return false;
 		if (!description || description.trim() === '') return false;
-		if (!recurringType) return false;
-		
-		// Require approver only if no approved request is selected
-		if (!selectedRequestId && !selectedApproverId) return false;
-		
-		// Validate based on recurring type
+	if (!recurringType) return false;
+	
+	// Approver is always required
+	if (!selectedApproverId) return false;		// Validate based on recurring type
 		if (recurringType === 'daily' && !untilDate) return false;
 		if (recurringType === 'weekly' && (!untilDate || !weekday)) return false;
 		if (recurringType === 'monthly_date' && (!monthPosition || !untilMonth)) return false;
@@ -357,9 +355,9 @@
 			return false;
 		}
 		
-		// Require approver only if no approved request is selected
-		if (!selectedRequestId && !selectedApproverId) {
-			alert('Please select an approver (required when no approved request is linked)');
+		// Require approver (now always required)
+		if (!selectedApproverId) {
+			alert('Please select an approver');
 			return false;
 		}
 		
@@ -460,16 +458,8 @@
 			successMessage = '';
 			showWhatsAppButton = false;
 			
-			// Check if a pre-approved requisition is selected
-			const hasApprovedRequisition = !!selectedRequestId;
-
-			if (hasApprovedRequisition) {
-				// Save directly to expense_scheduler
-				await saveToExpenseScheduler();
-			} else {
-				// Save to non_approved_payment_scheduler and send notification
-				await saveToNonApprovedScheduler();
-			}
+			// Always save to non_approved_payment_scheduler and send notification
+			await saveToNonApprovedScheduler();
 			
 		} catch (error) {
 			console.error('Error saving recurring schedule:', error);
@@ -477,76 +467,6 @@
 		} finally {
 			saving = false;
 		}
-	}
-
-	async function saveToExpenseScheduler() {
-		const scheduleData = {
-			branch_id: parseInt(selectedBranchId),
-			branch_name: selectedBranchName,
-			expense_category_id: selectedCategoryId,
-			expense_category_name_en: selectedCategoryNameEn,
-			expense_category_name_ar: selectedCategoryNameAr,
-			requisition_id: selectedRequestId,
-			requisition_number: selectedRequestNumber,
-			co_user_id: null,
-			co_user_name: null,
-			payment_method: paymentMethod,
-			amount: parseFloat(amount),
-			description: description || null,
-			bill_type: 'no_bill',
-			status: 'pending',
-			is_paid: false,
-			schedule_type: 'recurring',
-			recurring_type: recurringType,
-			approver_id: selectedApproverId,
-			approver_name: selectedApproverName,
-			recurring_metadata: {
-				until_date: untilDate || null,
-				weekday: weekday ? parseInt(weekday) : null,
-				month_position: monthPosition || null,
-				until_month: untilMonth || null,
-				day_of_month: dayOfMonth ? parseInt(dayOfMonth) : null,
-				recurring_month: recurringMonth ? parseInt(recurringMonth) : null,
-				recurring_day: recurringDay ? parseInt(recurringDay) : null,
-				until_year: untilYear ? parseInt(untilYear) : null,
-				custom_dates: customDates.length > 0 ? customDates : null
-			},
-			created_by: $currentUser.id
-		};
-
-		console.log('Saving to expense_scheduler (with approved requisition):', scheduleData);
-
-		const { data, error } = await supabaseAdmin
-			.from('expense_scheduler')
-			.insert([scheduleData])
-			.select()
-			.single();
-
-		if (error) throw error;
-
-		console.log('Recurring schedule saved to expense_scheduler:', data);
-		
-		// Generate all future occurrences immediately
-		try {
-			const { data: occurrencesData, error: occurrencesError } = await supabaseAdmin
-				.rpc('generate_recurring_occurrences', {
-					p_parent_id: data.id,
-					p_source_table: 'expense_scheduler'
-				});
-			
-			if (occurrencesError) throw occurrencesError;
-		
-		console.log('✅ Generated occurrences:', occurrencesData);
-			successMessage = `✅ Recurring schedule saved successfully!\n\nSchedule ID: ${data.id}\nLinked to approved requisition: ${selectedRequestNumber}\n\nGenerated ${occurrencesData[0]?.occurrence_count || 0} occurrences`;
-		} catch (occError) {
-			console.error('⚠️ Error generating occurrences:', occError);
-			successMessage = `✅ Recurring schedule saved but failed to generate occurrences.\n\nSchedule ID: ${data.id}\nError: ${occError.message}`;
-		}
-		
-		// Don't auto-reset - allow user to see the message
-		setTimeout(() => {
-			resetForm();
-		}, 3000);
 	}
 
 	async function saveToNonApprovedScheduler() {
@@ -863,121 +783,6 @@
 		<div class="step-content">
 			<h3 class="step-title">Select Approved Request</h3>
 
-			<!-- Request Selection (Optional) -->
-			<div class="form-group">
-				<label for="requestSearch">Link to Approved Request (Optional)</label>
-				
-				<!-- Search and Date Filter Row -->
-				<div class="filter-controls">
-					<input
-						id="requestSearch"
-						type="text"
-						class="form-input"
-						placeholder="Search by request number, requester, approver, or amount..."
-						bind:value={requestSearchQuery}
-						on:input={handleRequestSearch}
-						style="flex: 1;"
-					/>
-					
-					<select 
-						class="form-select date-filter-select" 
-						bind:value={dateFilter}
-						on:change={handleDateFilterChange}
-					>
-						<option value="all">All Dates</option>
-						<option value="today">Today</option>
-						<option value="yesterday">Yesterday</option>
-						<option value="range">Date Range</option>
-					</select>
-				</div>
-
-				<!-- Date Range Inputs -->
-				{#if dateFilter === 'range'}
-					<div class="date-range-inputs">
-						<input
-							type="date"
-							class="form-input"
-							placeholder="Start Date"
-							bind:value={dateRangeStart}
-							on:change={handleDateFilterChange}
-						/>
-						<span class="date-range-separator">to</span>
-						<input
-							type="date"
-							class="form-input"
-							placeholder="End Date"
-							bind:value={dateRangeEnd}
-							on:change={handleDateFilterChange}
-						/>
-					</div>
-				{/if}
-
-				{#if selectedRequestId}
-					<div class="selected-info">
-						✓ Selected: <strong>{selectedRequestNumber}</strong>
-						<button class="btn-clear" on:click={clearRequestSelection}>Clear</button>
-					</div>
-				{/if}
-
-				<div class="selection-table">
-					<table>
-						<thead>
-							<tr>
-								<th>Select</th>
-								<th>Request Number</th>
-								<th>Requester</th>
-								<th>Approver</th>
-								<th>Original Amount</th>
-								<th>Remaining Balance</th>
-								<th>Category</th>
-								<th>Generated Date</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#if filteredRequests.length > 0}
-								{#each filteredRequests as request}
-									<tr
-										class:selected={selectedRequestId === request.id}
-										on:click={() => selectRequest(request)}
-									>
-										<td>
-											<input
-												type="radio"
-												name="request"
-												checked={selectedRequestId === request.id}
-												on:change={() => selectRequest(request)}
-											/>
-										</td>
-										<td>{request.requisition_number}</td>
-										<td>{request.requester_name}</td>
-										<td>{request.approver_name || '-'}</td>
-										<td>{request.amount} SAR</td>
-										<td>
-											<span class:text-success={parseFloat(request.remaining_balance || request.amount) > 0}
-												  class:text-warning={parseFloat(request.remaining_balance || request.amount) === 0}
-												  class:text-danger={parseFloat(request.remaining_balance || request.amount) < 0}>
-												{parseFloat(request.remaining_balance || request.amount).toFixed(2)} SAR
-											</span>
-										</td>
-										<td>{request.expense_category_name_en}</td>
-										<td class="date-cell">{formatDateTime(request.created_at)}</td>
-									</tr>
-								{/each}
-							{:else}
-								<tr>
-									<td colspan="8" class="no-data-message">
-										{#if dateFilter !== 'all'}
-											No approved requests found for the selected date filter
-										{:else}
-											No approved requests found for this branch
-										{/if}
-									</td>
-								</tr>
-							{/if}
-						</tbody>
-					</table>
-				</div>
-			</div>
 		</div>
 	{/if}
 
@@ -1023,11 +828,10 @@
 				></textarea>
 			</div>
 
-			<!-- Approver Selection (only show if no approved request is selected) -->
-			{#if !selectedRequestId}
-				<div class="form-group approver-section">
-					<label for="approverSearch">Select Approver * (Required for non-approved schedules)</label>
-					<p class="field-hint approval-hint">⚠️ Since no approved request is selected, this schedule will require approval before posting to the expense scheduler.</p>
+			<!-- Approver Selection (Required) -->
+			<div class="form-group approver-section">
+				<label for="approverSearch">Select Approver * (Required)</label>
+				<p class="field-hint approval-hint">⚠️ This schedule will require approval before posting to the expense scheduler.</p>
 					
 					<input
 						id="approverSearch"
@@ -1095,7 +899,6 @@
 						Notifications will be sent 2 days before the occurrence date.
 					</p>
 				</div>
-			{/if}
 
 			<!-- Recurring Type Selection -->
 			<div class="form-group">
@@ -1355,8 +1158,6 @@
 			>
 				{#if saving}
 					Submitting...
-				{:else if selectedRequestId}
-					✅ Post to Expense Scheduler
 				{:else}
 					📤 Submit for Approval
 				{/if}

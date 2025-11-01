@@ -398,6 +398,40 @@
 
 				if (error) throw error;
 
+				// Create entry in expense_scheduler
+				const schedulerEntry = {
+					branch_id: selectedRequisition.branch_id,
+					branch_name: selectedRequisition.branch_name,
+					expense_category_id: selectedRequisition.expense_category_id || null,
+					expense_category_name_en: selectedRequisition.expense_category_name_en || null,
+					expense_category_name_ar: selectedRequisition.expense_category_name_ar || null,
+					requisition_id: selectedRequisition.id,
+					requisition_number: selectedRequisition.requisition_number,
+					co_user_id: null,
+					co_user_name: null,
+					bill_type: 'no_bill',
+					payment_method: selectedRequisition.payment_category || 'cash',
+					due_date: selectedRequisition.due_date,
+					amount: parseFloat(selectedRequisition.amount),
+					description: selectedRequisition.description,
+					schedule_type: 'expense_requisition',
+					status: 'pending',
+					is_paid: false,
+					approver_id: selectedRequisition.approver_id,
+					approver_name: selectedRequisition.approver_name,
+					created_by: selectedRequisition.created_by
+				};
+
+				const { error: schedulerError } = await supabaseAdmin
+					.from('expense_scheduler')
+					.insert([schedulerEntry]);
+
+				if (schedulerError) {
+					console.error('⚠️ Failed to create expense scheduler entry:', schedulerError);
+				} else {
+					console.log('✅ Created expense scheduler entry for approved requisition');
+				}
+
 				// Send notification to the creator
 				try {
 					await notificationService.createNotification({

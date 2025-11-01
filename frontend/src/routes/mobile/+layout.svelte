@@ -498,7 +498,7 @@
 				</div>
 				<!-- Version Number -->
 				<div class="version-badge">
-					<span class="version-text">v2.0.4</span>
+					<span class="version-text">v3.0.0</span>
 				</div>
 				<div class="header-actions">
 					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label={getTranslation('nav.goToDashboard')}>

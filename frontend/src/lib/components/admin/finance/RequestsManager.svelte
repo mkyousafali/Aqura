@@ -4,6 +4,8 @@
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import RequestClosureManager from './RequestClosureManager.svelte';
 
 	let allRequests = [];
 	let filteredRequests = [];
@@ -21,7 +23,8 @@
 		deactivated: 0,
 		pending: 0,
 		approved: 0,
-		rejected: 0
+		rejected: 0,
+		closed: 0
 	};
 
 	onMount(() => {
@@ -94,17 +97,16 @@
 				return a.is_active ? -1 : 1;
 			});
 			
-			// Calculate stats
-			stats.total = allRequests.length;
-			stats.active = allRequests.filter(r => r.is_active).length;
-			stats.deactivated = allRequests.filter(r => !r.is_active).length;
-			stats.pending = allRequests.filter(r => r.status === 'pending' && r.is_active).length;
-			stats.approved = allRequests.filter(r => r.status === 'approved' && r.is_active).length;
-			stats.rejected = allRequests.filter(r => r.status === 'rejected' && r.is_active).length;
+		// Calculate stats
+		stats.total = allRequests.length;
+		stats.active = allRequests.filter(r => r.is_active).length;
+		stats.deactivated = allRequests.filter(r => !r.is_active).length;
+		stats.pending = allRequests.filter(r => r.status === 'pending').length;
+		stats.approved = allRequests.filter(r => r.status === 'approved').length;
+		stats.rejected = allRequests.filter(r => r.status === 'rejected').length;
+		stats.closed = allRequests.filter(r => r.status === 'closed').length;
 
-			console.log('✅ Loaded requisitions:', stats);
-			
-			// Initial filter
+		console.log('✅ Loaded requisitions:', stats);			// Initial filter
 			filterRequests();
 
 		} catch (err) {
@@ -388,7 +390,8 @@
 							<th>Category</th>
 							<th>Requester</th>
 							<th>Amount</th>
-							<th>Status</th>
+							<th>Remaining Balance</th>
+							<th>Approval Status</th>
 							<th>Date</th>
 							<th>Actions</th>
 						</tr>
@@ -413,9 +416,22 @@
 								</td>
 								<td>{req.requester_name}</td>
 								<td class="amount">{formatCurrency(req.amount)}</td>
+								<td class="amount remaining-balance" class:zero-balance={req.remaining_balance === 0}>
+									{formatCurrency(req.remaining_balance || 0)}
+								</td>
 								<td>
-									<span class="status-badge {getStatusClass(req.status)}">
-										{req.status?.toUpperCase()}
+									<span class="approval-badge" class:approved={req.status === 'approved'} class:pending={req.status === 'pending'} class:rejected={req.status === 'rejected'}>
+										{#if req.status === 'approved'}
+											✅ Approved
+										{:else if req.status === 'pending'}
+											⏳ Pending
+										{:else if req.status === 'rejected'}
+											❌ Rejected
+										{:else if req.status === 'closed'}
+											🔒 Closed
+										{:else}
+											{req.status?.toUpperCase()}
+										{/if}
 									</span>
 								</td>
 								<td>{formatDate(req.request_date)}</td>
@@ -423,13 +439,42 @@
 									<button class="btn-view" on:click|stopPropagation={() => openDetail(req)}>
 										👁️ View
 									</button>
-									<button 
-										class="btn-toggle {req.is_active ? 'btn-deactivate' : 'btn-activate'}" 
-										on:click|stopPropagation={() => toggleActiveStatus(req)}
-										disabled={isProcessing}
-									>
-										{req.is_active ? '🚫 Deactivate' : '✔️ Activate'}
-									</button>
+									{#if req.status === 'closed' || !req.is_active}
+										<button
+											class="btn-closed"
+											disabled
+										>
+											🔒 Closed
+										</button>
+									{:else if req.status === 'approved' && req.is_active}
+										{#if req.remaining_balance !== null && req.remaining_balance !== undefined && req.remaining_balance <= 0}
+											<button
+												class="btn-closed"
+												disabled
+											>
+												🔒 Closed
+											</button>
+										{:else}
+											<button
+												class="btn-close-request"
+												on:click|stopPropagation={() => openWindow({
+													id: `request-closure-${req.id}`,
+													title: `🔒 Close Request: ${req.requisition_number}`,
+													component: RequestClosureManager,
+													props: {
+														preSelectedRequestId: req.id,
+														windowId: `request-closure-${req.id}`
+													},
+													icon: '🔒',
+													size: { width: 1400, height: 800 },
+													resizable: true,
+													maximizable: true
+												})}
+											>
+												✅ Close Request
+											</button>
+										{/if}
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -815,6 +860,57 @@
 		color: #059669;
 	}
 
+	.remaining-balance {
+		font-weight: 700;
+		color: #0891b2;
+		background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+		padding: 8px 12px;
+		border-radius: 6px;
+		text-align: center;
+	}
+
+	.remaining-balance.zero-balance {
+		color: #64748b;
+		background: #f1f5f9;
+		text-decoration: line-through;
+		opacity: 0.7;
+	}
+
+	.approval-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 14px;
+		border-radius: 16px;
+		font-size: 13px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.approval-badge.approved {
+		background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+		color: #065f46;
+		border: 2px solid #10b981;
+	}
+
+	.approval-badge.pending {
+		background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+		color: #92400e;
+		border: 2px solid #f59e0b;
+		animation: pulse 2s infinite;
+	}
+
+	.approval-badge.rejected {
+		background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+		color: #991b1b;
+		border: 2px solid #ef4444;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.7; }
+	}
+
 	.status-badge {
 		display: inline-block;
 		padding: 4px 12px;
@@ -892,6 +988,39 @@
 	.btn-toggle:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.btn-close-request {
+		padding: 8px 16px;
+		border: 2px solid #10b981;
+		background: #d1fae5;
+		color: #065f46;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: 600;
+		transition: all 0.2s;
+		white-space: nowrap;
+		font-size: 14px;
+	}
+
+	.btn-close-request:hover {
+		background: #10b981;
+		color: white;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+	}
+
+	.btn-closed {
+		padding: 8px 16px;
+		border: 2px solid #6b7280;
+		background: #e5e7eb;
+		color: #374151;
+		border-radius: 8px;
+		cursor: not-allowed;
+		font-weight: 600;
+		white-space: nowrap;
+		font-size: 14px;
+		opacity: 0.7;
 	}
 
 	.empty-state {
@@ -1016,5 +1145,54 @@
 		font-size: 20px !important;
 		font-weight: 700 !important;
 		color: #059669 !important;
+	}
+
+	/* Fullscreen Modal for Request Closure */
+	.modal-overlay-fullscreen {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+		padding: 20px;
+	}
+
+	.modal-content-fullscreen {
+		background: white;
+		border-radius: 12px;
+		width: 95vw;
+		max-width: 1600px;
+		height: 90vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+	}
+
+	.modal-header-fullscreen {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem 2rem;
+		border-bottom: 2px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.modal-header-fullscreen h2 {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1e293b;
+		margin: 0;
+	}
+
+	.modal-body-fullscreen {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0;
 	}
 </style>

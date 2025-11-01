@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import RequestClosureManager from '../finance/RequestClosureManager.svelte';
 
 	// Helper function to format date as dd/mm/yyyy
 	function formatDate(dateInput) {
@@ -374,6 +376,9 @@
 					*,
 					creator:users!created_by (
 						username
+					),
+					requisition:expense_requisitions (
+						requester_name
 					)
 				`)
 				.gte('due_date', startDateStr)
@@ -401,7 +406,20 @@
 					branch: r.branch_name
 				}))
 			});
-			expenseSchedulerPayments = data || [];
+			
+			// Flatten the data and filter out completed/written-off requisitions
+			expenseSchedulerPayments = (data || [])
+				.map(payment => ({
+					...payment,
+					requester_name: payment.requisition?.requester_name || null
+				}))
+				.filter(payment => {
+					// Hide expense_requisition entries that are fully paid/written-off (amount = 0 or is_paid = true)
+					if (payment.schedule_type === 'expense_requisition' && (payment.amount === 0 || payment.is_paid === true)) {
+						return false;
+					}
+					return true;
+				});
 		} catch (error) {
 			console.error('❌ Exception loading expense scheduler payments:', error);
 		}
@@ -475,6 +493,25 @@
 		reschedulingExpensePayment = null;
 		expenseNewDateInput = '';
 		expenseSplitAmount = 0;
+	}
+
+	// Open request closure modal
+	function openRequestClosureModal(payment) {
+		// Open as a window using the window manager
+		const windowId = `request-closure-${payment.requisition_id}`;
+		openWindow({
+			id: windowId,
+			title: `Close Request: #${payment.requisition_number}`,
+			component: RequestClosureManager,
+			props: {
+				preSelectedRequestId: payment.requisition_id,
+				windowId: windowId
+			},
+			icon: '✅',
+			size: { width: 1400, height: 800 },
+			resizable: true,
+			maximizable: true
+		});
 	}
 
 	// Handle full expense payment move
@@ -1685,11 +1722,19 @@
 											{#if expenseSchedulerPayments.filter(p => p.due_date === dayDateString).length > 0}
 												{#each expenseSchedulerPayments.filter(p => p.due_date === dayDateString) as payment}
 													<tr class={payment.is_paid ? 'paid-row' : ''}>
-														<td style="text-align: left; font-weight: 500;">{payment.co_user_name || 'N/A'}</td>
+														<td style="text-align: left; font-weight: 500;">
+															{payment.requester_name || payment.co_user_name || 'N/A'}
+														</td>
 													<td>
 														<span class="bill-number-badge">#{payment.requisition_number || 'N/A'}</span>
 													</td>
-													<td style="text-align: left;">{payment.expense_category_name_en || payment.expense_category_name_ar || 'N/A'}</td>
+													<td style="text-align: left;">
+														{#if payment.expense_category_name_en || payment.expense_category_name_ar}
+															{payment.expense_category_name_en || payment.expense_category_name_ar}
+														{:else}
+															<span style="color: #f59e0b; font-style: italic;">Unknown - To Be Assigned</span>
+														{/if}
+													</td>
 													<td style="text-align: left;">{payment.branch_name || 'N/A'}</td>
 													<td>
 														<span class="payment-method-badge" style="background: #fee2e2; color: #991b1b; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 500;">
@@ -1713,18 +1758,22 @@
 														</span>
 													</td>
 													<td>
-														<input 
-															type="checkbox" 
-															class="payment-checkbox"
-															checked={payment.is_paid || false}
-															on:change={(e) => {
-																if (e.currentTarget.checked) {
-																	markExpenseAsPaid(payment.id);
-																} else {
-																	unmarkExpenseAsPaid(payment.id);
-																}
-															}}
-														/>
+														{#if payment.schedule_type === 'expense_requisition'}
+															<span style="color: #64748b; font-size: 12px;">Use Close Request →</span>
+														{:else}
+															<input 
+																type="checkbox" 
+																class="payment-checkbox"
+																checked={payment.is_paid || false}
+																on:change={(e) => {
+																	if (e.currentTarget.checked) {
+																		markExpenseAsPaid(payment.id);
+																	} else {
+																		unmarkExpenseAsPaid(payment.id);
+																	}
+																}}
+															/>
+														{/if}
 													</td>
 													<td>
 														{#if !payment.is_paid}
@@ -1735,6 +1784,15 @@
 															>
 																📅
 															</button>
+															{#if payment.requisition_id}
+																<button 
+																	class="close-request-btn"
+																	on:click|stopPropagation={() => openRequestClosureModal(payment)}
+																	title="Close Request"
+																>
+																	🔒
+																</button>
+															{/if}
 														{/if}
 													</td>
 												</tr>
@@ -4432,6 +4490,34 @@
 		box-shadow: none;
 	}
 
+	.close-request-btn {
+		padding: 6px 12px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: 4px;
+	}
+
+	.close-request-btn:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.close-request-btn:active {
+		transform: translateY(0);
+	}
+
 	.paid-label {
 		color: #10b981;
 		font-weight: 600;
@@ -4888,5 +4974,54 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 		transform: none;
+	}
+
+	/* Fullscreen Modal Styles for Request Closure */
+	.modal-overlay-fullscreen {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 9999;
+		padding: 20px;
+	}
+
+	.modal-container-fullscreen {
+		background: white;
+		border-radius: 12px;
+		width: 95vw;
+		max-width: 1600px;
+		height: 90vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+	}
+
+	.modal-header-fullscreen {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem 2rem;
+		border-bottom: 2px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.modal-header-fullscreen h3 {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1e293b;
+		margin: 0;
+	}
+
+	.modal-body-fullscreen {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0;
 	}
 </style>

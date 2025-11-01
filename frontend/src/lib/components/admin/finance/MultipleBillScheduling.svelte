@@ -306,30 +306,6 @@
 			return { valid: false, message: 'Please enter a valid amount' };
 		}
 
-		// Validate against remaining balance if request is selected
-		if (selectedRequestId && selectedRequestRemainingBalance > 0) {
-			const currentTotalWithoutThisBill = bills.reduce((sum, bill, index) => {
-				// Exclude the current bill from total calculation
-				if (bill.amount && index !== activeBillIndex) {
-					return sum + parseFloat(bill.amount);
-				}
-				return sum;
-			}, 0);
-
-			const newTotal = currentTotalWithoutThisBill + parseFloat(billAmount);
-			const wouldExceedBalance = newTotal > selectedRequestRemainingBalance;
-
-			if (wouldExceedBalance) {
-				const overspend = newTotal - selectedRequestRemainingBalance;
-				const confirmed = window.confirm(
-					`⚠️ Warning: Total bill amount (${newTotal.toFixed(2)} SAR) exceeds remaining balance (${selectedRequestRemainingBalance.toFixed(2)} SAR).\n\n` +
-					`This will result in overspending by ${overspend.toFixed(2)} SAR.\n\n` +
-					`Do you want to proceed anyway?`
-				);
-				return { valid: confirmed, message: confirmed ? '' : 'Operation cancelled by user' };
-			}
-		}
-
 		return { valid: true, message: '' };
 	}
 
@@ -460,8 +436,8 @@
 	async function saveBill(billIndex) {
 		const bill = bills[billIndex];
 
-		// Validate approver if no request selected - use bill's own approver
-		if (!selectedRequestId && !bill.approverId) {
+		// Validate approver - now always required
+		if (!bill.approverId) {
 			alert('Please select an approver for this bill');
 			return;
 		}
@@ -530,54 +506,36 @@
 				created_by: $currentUser?.id
 			};
 
-			let data, error;
+			// Always save to non_approved_payment_scheduler with bill's approver
+			const { requisition_id, requisition_number, ...baseData } = schedulerData;
+			
+			const nonApprovedData = {
+				...baseData,
+				approver_id: bill.approverId,
+				approver_name: bill.approverName,
+				approval_status: 'pending'
+			};
 
-			// Save to appropriate table based on whether request is selected
-			if (selectedRequestId) {
-				// Has approved request - save directly to expense_scheduler
-				const expenseSchedulerData = {
-					...schedulerData,
-					status: 'pending',
-					is_paid: false
-				};
-				
-				({ data, error } = await supabaseAdmin
-					.from('expense_scheduler')
-					.insert([expenseSchedulerData])
-					.select());
-			} else {
-				// No request - save to non_approved_payment_scheduler WITH this bill's approver
-				// Note: non_approved table doesn't have requisition_id/requisition_number fields
-				const { requisition_id, requisition_number, ...baseData } = schedulerData;
-				
-				const nonApprovedData = {
-					...baseData,
-					approver_id: bill.approverId,
-					approver_name: bill.approverName,
-					approval_status: 'pending'
-				};
-
-				({ data, error} = await supabaseAdmin
-					.from('non_approved_payment_scheduler')
-					.insert([nonApprovedData])
-					.select());
-				
-				// Send individual notification for this bill
-				if (!error && data && data[0]) {
-					try {
-						await notificationService.createNotification({
-							title: 'Payment Schedule Approval Required',
-							message: `A new bill payment schedule requires your approval.\n\nBill ${bill.number} (${bill.billType})\nBranch: ${selectedBranchName}\nCategory: ${selectedCategoryNameEn}\nAmount: ${parseFloat(bill.amount).toFixed(2)} SAR\nC/O User: ${selectedCoUserName}\nSubmitted by: ${$currentUser?.username}`,
-							type: 'approval_request',
-							priority: 'high',
-							target_type: 'specific_users',
-							target_users: [bill.approverId]
-						}, $currentUser?.id || $currentUser?.username || 'System');
-						console.log(`✅ Notification sent for Bill ${bill.number} to ${bill.approverName}`);
-					} catch (notifError) {
-						console.error(`⚠️ Failed to send notification for Bill ${bill.number}:`, notifError);
-						// Don't fail the whole operation if notification fails
-					}
+			const { data, error } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.insert([nonApprovedData])
+				.select();
+			
+			// Send notification for this bill
+			if (!error && data && data[0]) {
+				try {
+					await notificationService.createNotification({
+						title: 'Payment Schedule Approval Required',
+						message: `A new bill payment schedule requires your approval.\n\nBill ${bill.number} (${bill.billType})\nBranch: ${selectedBranchName}\nCategory: ${selectedCategoryNameEn}\nAmount: ${parseFloat(bill.amount).toFixed(2)} SAR\nC/O User: ${selectedCoUserName}\nSubmitted by: ${$currentUser?.username}`,
+						type: 'approval_request',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [bill.approverId]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log(`✅ Notification sent for Bill ${bill.number} to ${bill.approverName}`);
+				} catch (notifError) {
+					console.error(`⚠️ Failed to send notification for Bill ${bill.number}:`, notifError);
+					// Don't fail the whole operation if notification fails
 				}
 			}
 
@@ -839,104 +797,10 @@
 		</div>
 	{/if}
 
-	<!-- Step 2: Request and User (Same as Single Bill) -->
+	<!-- Step 2: User Selection -->
 	{#if currentStep === 2}
 		<div class="step-content">
-			<h2>Step 2: Select Approved Request and C/O User</h2>
-
-			<!-- Request Selection (Optional) -->
-			<div class="section">
-				<h3>Select Approved Request (Optional)</h3>
-				
-				<div class="search-filters">
-					<input
-						type="text"
-						class="form-input"
-						bind:value={requestSearchQuery}
-						on:input={handleRequestSearch}
-						placeholder="Search by request number, requester, approver, or amount..."
-					/>
-
-					<div class="date-filters">
-						<label>
-							<input type="radio" name="dateFilter" value="all" bind:group={dateFilter} on:change={handleRequestSearch} />
-							All
-						</label>
-						<label>
-							<input type="radio" name="dateFilter" value="today" bind:group={dateFilter} on:change={handleRequestSearch} />
-							Today
-						</label>
-						<label>
-							<input type="radio" name="dateFilter" value="yesterday" bind:group={dateFilter} on:change={handleRequestSearch} />
-							Yesterday
-						</label>
-						<label>
-							<input type="radio" name="dateFilter" value="range" bind:group={dateFilter} on:change={handleRequestSearch} />
-							Date Range
-						</label>
-					</div>
-
-					{#if dateFilter === 'range'}
-						<div class="date-range-inputs">
-							<input type="date" bind:value={dateRangeStart} on:change={handleRequestSearch} />
-							<span>to</span>
-							<input type="date" bind:value={dateRangeEnd} on:change={handleRequestSearch} />
-						</div>
-					{/if}
-				</div>
-
-				{#if selectedRequestId}
-					<div class="selected-item">
-						Selected: {selectedRequestNumber}
-						<button class="btn-clear" on:click={clearRequestSelection}>Clear</button>
-					</div>
-				{/if}
-
-				<div class="table-container">
-					<table class="data-table">
-						<thead>
-							<tr>
-								<th>Select</th>
-								<th>Request Number</th>
-								<th>Requester</th>
-								<th>Approver</th>
-								<th>Original Amount</th>
-								<th>Remaining Balance</th>
-								<th>Generated Date</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each filteredRequests as request}
-								<tr
-									class:selected={selectedRequestId === request.id}
-									on:click={() => selectRequest(request)}
-								>
-									<td>
-										<input
-											type="radio"
-											name="request"
-											checked={selectedRequestId === request.id}
-											on:change={() => selectRequest(request)}
-										/>
-									</td>
-									<td>{request.requisition_number}</td>
-									<td>{request.requester_name || 'N/A'}</td>
-									<td>{request.approver_name || 'N/A'}</td>
-									<td>{request.amount} SAR</td>
-									<td>
-										<span class:text-success={parseFloat(request.remaining_balance || request.amount) > 0}
-											  class:text-warning={parseFloat(request.remaining_balance || request.amount) === 0}
-											  class:text-danger={parseFloat(request.remaining_balance || request.amount) < 0}>
-											{parseFloat(request.remaining_balance || request.amount).toFixed(2)} SAR
-										</span>
-									</td>
-									<td>{formatDate(request.generated_date)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</div>
+			<h2>Step 2: Select C/O User</h2>
 
 			<!-- User Selection (Mandatory) -->
 			<div class="section">
@@ -1218,36 +1082,34 @@
 								</div>
 							{/if}
 
-							<!-- Approver Selection (only if no approved request) -->
-							{#if !selectedRequestId}
-								<div class="form-group approver-field">
-									<label for="approver">Select Approver *</label>
-									<select
-										id="approver"
-										class="form-select"
-										bind:value={bills[activeBillIndex].approverId}
-										disabled={bills[activeBillIndex].saved}
-										on:change={() => {
-											const approver = approvers.find(a => a.id === bills[activeBillIndex].approverId);
-											bills[activeBillIndex].approverName = approver?.username || '';
-										}}
-									>
-										<option value={null}>-- Select Approver --</option>
-										{#each approvers as approver}
-											<option value={approver.id}>
-												{approver.username} - 
-												{#if approver.approval_amount_limit === 0}
-													♾️ Unlimited
-												{:else}
-													{approver.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
-												{/if}
-												({approver.user_type === 'global' ? 'Global' : branches.find(b => b.id === approver.branch_id)?.name_en || 'Branch'})
-											</option>
-										{/each}
-									</select>
-									<p class="field-hint">⚠️ This bill will require approval before posting to expense scheduler</p>
-								</div>
-							{/if}
+							<!-- Approver Selection (Required for all bills) -->
+							<div class="form-group approver-field">
+								<label for="approver">Select Approver *</label>
+								<select
+									id="approver"
+									class="form-select"
+									bind:value={bills[activeBillIndex].approverId}
+									disabled={bills[activeBillIndex].saved}
+									on:change={() => {
+										const approver = approvers.find(a => a.id === bills[activeBillIndex].approverId);
+										bills[activeBillIndex].approverName = approver?.username || '';
+									}}
+								>
+									<option value={null}>-- Select Approver --</option>
+									{#each approvers as approver}
+										<option value={approver.id}>
+											{approver.username} - 
+											{#if approver.approval_amount_limit === 0}
+												♾️ Unlimited
+											{:else}
+												{approver.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
+											{/if}
+											({approver.user_type === 'global' ? 'Global' : branches.find(b => b.id === approver.branch_id)?.name_en || 'Branch'})
+										</option>
+									{/each}
+								</select>
+								<p class="field-hint">⚠️ This bill will require approval before posting to expense scheduler</p>
+							</div>
 
 							<!-- Amount -->
 							<div class="form-group">
@@ -1304,7 +1166,7 @@
 	{#if allBillsSaved && currentStep === 3}
 		<div class="all-saved-container">
 			<div class="all-saved-message">
-				✅ All {numberOfBills} bills saved successfully{!selectedRequestId ? ' and submitted for approval' : ''}!
+				✅ All {numberOfBills} bills saved successfully and submitted for approval!
 			</div>
 
 			<div class="total-summary">
