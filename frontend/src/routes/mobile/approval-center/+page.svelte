@@ -397,6 +397,22 @@
 					.eq('id', selectedRequisition.id);
 
 				if (error) throw error;
+
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Expense Requisition Approved',
+						message: `Your expense requisition has been approved!\n\nRequisition: ${selectedRequisition.requisition_number}\nRequester: ${selectedRequisition.requester_name}\nBranch: ${selectedRequisition.branch_name}\nCategory: ${selectedRequisition.expense_category_name_en}\nAmount: ${parseFloat(selectedRequisition.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [selectedRequisition.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Approval notification sent to creator:', selectedRequisition.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+
 				alert('✅ Requisition approved successfully!');
 			}
 
@@ -432,6 +448,22 @@
 					.eq('id', selectedRequisition.id);
 
 				if (error) throw error;
+
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Payment Schedule Rejected',
+						message: `Your ${selectedRequisition.schedule_type?.replace('_', ' ') || 'payment schedule'} has been rejected.\n\nReason: ${reason}\n\nBranch: ${selectedRequisition.branch_name}\nCategory: ${selectedRequisition.expense_category_name_en}\nAmount: ${parseFloat(selectedRequisition.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [selectedRequisition.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Rejection notification sent to creator:', selectedRequisition.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
 				alert('❌ Payment schedule rejected.');
 			} else {
 				// Update regular requisition
@@ -447,6 +479,22 @@
 					.eq('id', selectedRequisition.id);
 
 				if (error) throw error;
+
+				// Send notification to the creator
+				try {
+					await notificationService.createNotification({
+						title: 'Expense Requisition Rejected',
+						message: `Your expense requisition has been rejected.\n\nReason: ${reason}\n\nRequisition: ${selectedRequisition.requisition_number}\nRequester: ${selectedRequisition.requester_name}\nBranch: ${selectedRequisition.branch_name}\nCategory: ${selectedRequisition.expense_category_name_en}\nAmount: ${parseFloat(selectedRequisition.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [selectedRequisition.created_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Rejection notification sent to creator:', selectedRequisition.created_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
 				alert('❌ Requisition rejected.');
 			}
 
