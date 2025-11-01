@@ -538,7 +538,19 @@ $: combinedPayments = [
 										<span class="no-bill">No Bill</span>
 									{/if}
 								{:else}
-									{#if item.receipt_url}
+									{#if item.bill_file_url}
+										<button 
+											class="view-bill-btn"
+											on:click={() => viewOriginalBill(item.bill_file_url)}
+											title="View Bill"
+										>
+											{#if item.bill_file_url.toLowerCase().includes('.pdf')}
+												📄 PDF
+											{:else}
+												🖼️ Image
+											{/if}
+										</button>
+									{:else if item.receipt_url}
 										<button 
 											class="view-bill-btn"
 											on:click={() => window.open(item.receipt_url, '_blank')}
@@ -547,7 +559,7 @@ $: combinedPayments = [
 											🧾 Receipt
 										</button>
 									{:else}
-										<span class="no-bill">No Receipt</span>
+										<span class="no-bill">No Bill</span>
 									{/if}
 								{/if}
 							</td>

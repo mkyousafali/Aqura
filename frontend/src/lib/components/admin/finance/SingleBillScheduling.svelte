@@ -348,25 +348,10 @@
 			return false;
 		}
 
-		// Require approver if no approved request is selected
-		if (!selectedRequestId && !selectedApproverId) {
-			alert('Please select an approver (required when no approved request is linked)');
+		// Require approver (now always required)
+		if (!selectedApproverId) {
+			alert('Please select an approver');
 			return false;
-		}
-
-		// Validate against remaining balance if request is selected
-		if (selectedRequestId && selectedRequestRemainingBalance > 0) {
-			const billAmount = parseFloat(amount);
-			if (billAmount > selectedRequestRemainingBalance) {
-				const confirm = window.confirm(
-					`⚠️ Warning: Bill amount (${billAmount.toFixed(2)} SAR) exceeds remaining balance (${selectedRequestRemainingBalance.toFixed(2)} SAR).\n\n` +
-					`This will result in overspending by ${(billAmount - selectedRequestRemainingBalance).toFixed(2)} SAR.\n\n` +
-					`Do you want to proceed anyway?`
-				);
-				if (!confirm) {
-					return false;
-				}
-			}
 		}
 
 		if (billType === 'vat_applicable' || billType === 'no_vat') {
@@ -498,84 +483,11 @@
 		if (!validateStep3()) return;
 
 		try {
-			// Check if a pre-approved requisition is selected
-			const hasApprovedRequisition = !!selectedRequestId;
-
-			if (hasApprovedRequisition) {
-				// Save directly to expense_scheduler
-				await saveToExpenseScheduler();
-			} else {
-				// Save to non_approved_payment_scheduler and send notification
-				await saveToNonApprovedScheduler();
-			}
+			// Always save to non_approved_payment_scheduler and send notification
+			await saveToNonApprovedScheduler();
 		} catch (error) {
 			console.error('Error saving scheduler:', error);
 			alert('Error saving bill schedule. Please try again.');
-		}
-	}
-
-	async function saveToExpenseScheduler() {
-		try {
-			saving = true;
-			successMessage = '';
-
-			// Upload bill file if applicable
-			let billFileUrl = null;
-			if (billType === 'vat_applicable' || billType === 'no_vat') {
-				billFileUrl = await uploadBillFile();
-			}
-
-			// Get selected method credit days
-			const selectedMethod = paymentMethods.find((m) => m.value === paymentMethod);
-			const creditPeriod = selectedMethod?.creditDays || 0;
-
-			// Prepare data
-			const schedulerData = {
-				branch_id: parseInt(selectedBranchId),
-				branch_name: selectedBranchName,
-				expense_category_id: selectedCategoryId,
-				expense_category_name_en: selectedCategoryNameEn,
-				expense_category_name_ar: selectedCategoryNameAr,
-				requisition_id: selectedRequestId,
-				requisition_number: selectedRequestNumber,
-				co_user_id: selectedCoUserId,
-				co_user_name: selectedCoUserName,
-				bill_type: billType,
-				bill_number: billNumber || null,
-				bill_date: billDate || null,
-				payment_method: paymentMethod,
-				due_date: dueDate || null,
-				credit_period: creditPeriod ? parseInt(creditPeriod) : creditPeriod,
-				amount: parseFloat(amount),
-				bill_file_url: billFileUrl,
-				description: description || null,
-				bank_name: bankName || null,
-				iban: iban || null,
-				status: 'pending',
-				is_paid: false,
-				schedule_type: 'single_bill',
-				created_by: $currentUser.id
-			};
-
-			const { data, error } = await supabaseAdmin
-				.from('expense_scheduler')
-				.insert([schedulerData])
-				.select()
-				.single();
-
-			if (error) throw error;
-
-			successMessage = `✅ Bill scheduled successfully!\n\nSchedule ID: ${data.id}\nLinked to approved requisition: ${selectedRequestNumber}`;
-			
-			// Reset form after 2 seconds
-			setTimeout(() => {
-				resetForm();
-			}, 2000);
-		} catch (error) {
-			console.error('Error saving to expense scheduler:', error);
-			throw error;
-		} finally {
-			saving = false;
 		}
 	}
 
@@ -629,12 +541,10 @@
 
 			if (error) throw error;
 
-			// Store schedule data for WhatsApp sharing (only if no request selected)
-			if (!selectedRequestId) {
-				savedScheduleId = data.id;
-				savedScheduleData = data;
-				showWhatsAppButton = true;
-			}
+			// Store schedule data for WhatsApp sharing
+			savedScheduleId = data.id;
+			savedScheduleData = data;
+			showWhatsAppButton = true;
 
 			// Send notification to approver
 			try {
@@ -926,123 +836,7 @@
 		<!-- Step 2: Request & User -->
 		{#if currentStep === 2}
 			<div class="step-content">
-				<h3 class="step-title">Select Approved Request and C/O User</h3>
-
-				<!-- Request Selection (Optional) -->
-				<div class="form-group">
-					<label for="requestSearch">Link to Approved Request (Optional)</label>
-					
-					<!-- Search and Date Filter Row -->
-					<div class="filter-controls">
-						<input
-							id="requestSearch"
-							type="text"
-							class="form-input"
-							placeholder="Search by request number, requester, approver, or amount..."
-							bind:value={requestSearchQuery}
-							on:input={handleRequestSearch}
-							style="flex: 1;"
-						/>
-						
-						<select 
-							class="form-select date-filter-select" 
-							bind:value={dateFilter}
-							on:change={handleDateFilterChange}
-						>
-							<option value="all">All Dates</option>
-							<option value="today">Today</option>
-							<option value="yesterday">Yesterday</option>
-							<option value="range">Date Range</option>
-						</select>
-					</div>
-
-					<!-- Date Range Inputs -->
-					{#if dateFilter === 'range'}
-						<div class="date-range-inputs">
-							<input
-								type="date"
-								class="form-input"
-								placeholder="Start Date"
-								bind:value={dateRangeStart}
-								on:change={handleDateFilterChange}
-							/>
-							<span class="date-range-separator">to</span>
-							<input
-								type="date"
-								class="form-input"
-								placeholder="End Date"
-								bind:value={dateRangeEnd}
-								on:change={handleDateFilterChange}
-							/>
-						</div>
-					{/if}
-
-					{#if selectedRequestId}
-						<div class="selected-info">
-							✓ Selected: <strong>{selectedRequestNumber}</strong>
-							<button class="btn-clear" on:click={clearRequestSelection}>Clear</button>
-						</div>
-					{/if}
-
-					<div class="selection-table">
-						<table>
-							<thead>
-								<tr>
-									<th>Select</th>
-									<th>Request Number</th>
-									<th>Requester</th>
-									<th>Approver</th>
-									<th>Original Amount</th>
-									<th>Remaining Balance</th>
-									<th>Category</th>
-									<th>Generated Date</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#if filteredRequests.length > 0}
-									{#each filteredRequests as request}
-										<tr
-											class:selected={selectedRequestId === request.id}
-											on:click={() => selectRequest(request)}
-										>
-											<td>
-												<input
-													type="radio"
-													name="request"
-													checked={selectedRequestId === request.id}
-													on:change={() => selectRequest(request)}
-												/>
-											</td>
-											<td>{request.requisition_number}</td>
-											<td>{request.requester_name}</td>
-											<td>{request.approver_name || '-'}</td>
-											<td>{request.amount} SAR</td>
-											<td>
-												<span class:text-success={parseFloat(request.remaining_balance || request.amount) > 0}
-													  class:text-warning={parseFloat(request.remaining_balance || request.amount) === 0}
-													  class:text-danger={parseFloat(request.remaining_balance || request.amount) < 0}>
-													{parseFloat(request.remaining_balance || request.amount).toFixed(2)} SAR
-												</span>
-											</td>
-											<td>{request.expense_category_name_en}</td>
-											<td class="date-cell">{formatDateTime(request.created_at)}</td>
-										</tr>
-									{/each}
-								{:else}
-									<tr>
-										<td colspan="8" class="no-data-message">
-											{#if dateFilter !== 'all'}
-												No approved requests found for the selected date filter
-											{:else}
-												No approved requests found for this branch
-											{/if}
-										</td>
-									</tr>
-								{/if}
-							</tbody>
-						</table>
-					</div>
-				</div>
+				<h3 class="step-title">Select C/O User</h3>
 
 				<!-- C/O User Selection (Mandatory) -->
 				<div class="form-group">
@@ -1239,45 +1033,6 @@
 					/>
 				</div>
 
-				<!-- Request Amount & Balance Info (if request is selected) -->
-				{#if selectedRequestId && selectedRequestAmount > 0}
-					<div class="request-amount-info">
-						<div class="info-card">
-							<div class="info-row">
-								<span class="info-label">Original Request Amount:</span>
-								<span class="info-value">{selectedRequestAmount.toFixed(2)} SAR</span>
-							</div>
-							<div class="info-row">
-								<span class="info-label">Already Used:</span>
-								<span class="info-value used-amount">{selectedRequestUsedAmount.toFixed(2)} SAR</span>
-							</div>
-							<div class="info-row">
-								<span class="info-label">Available Balance:</span>
-								<span class="info-value available-balance">{selectedRequestRemainingBalance.toFixed(2)} SAR</span>
-							</div>
-							<div class="info-row">
-								<span class="info-label">This Bill Amount:</span>
-								<span class="info-value">{amount ? parseFloat(amount).toFixed(2) : '0.00'} SAR</span>
-							</div>
-							<div class="info-row balance-row">
-								<span class="info-label">Balance After This Bill:</span>
-								<span class="info-value" class:negative={balance < 0} class:positive={balance >= 0} class:warning={balance < 0}>
-									{balance.toFixed(2)} SAR
-									{#if balance < 0}
-										<span class="overspend-warning">⚠️ Overspending</span>
-									{/if}
-								</span>
-							</div>
-						</div>
-						<p class="info-note">
-							* Balance tracking is now connected to the database and updates automatically
-							{#if balance < 0}
-								<br><strong>⚠️ Warning:</strong> This bill will exceed the approved request amount
-							{/if}
-						</p>
-					</div>
-				{/if}
-
 				<!-- Description -->
 				<div class="form-group">
 					<label for="description">Description / Notes</label>
@@ -1290,13 +1045,10 @@
 					></textarea>
 				</div>
 
-				<!-- Approver Selection (only show if no approved request is selected) -->
-				{#if !selectedRequestId}
-					<div class="form-group approver-section">
-						<label for="approverSearch">Select Approver * (Required for non-approved schedules)</label>
-						<p class="field-hint approval-hint">⚠️ Since no approved request is selected, this schedule will require approval before posting to the expense scheduler.</p>
-						
-						<input
+				<!-- Approver Selection (Required for all schedules) -->
+				<div class="form-group approver-section">
+					<label for="approverSearch">Select Approver * (Required)</label>
+					<p class="field-hint approval-hint">⚠️ This schedule will require approval before posting to the expense scheduler.</p>						<input
 							id="approverSearch"
 							type="text"
 							class="form-input"
@@ -1358,7 +1110,6 @@
 							</table>
 						</div>
 					</div>
-				{/if}
 
 				<!-- Success Message -->
 				{#if successMessage}
@@ -1366,7 +1117,7 @@
 						✓ {successMessage}
 					</div>
 					
-					<!-- WhatsApp Share Button (only if no request selected) -->
+					<!-- WhatsApp Share Button -->
 					{#if showWhatsAppButton}
 						<div class="action-buttons">
 							<button class="btn-whatsapp" on:click={shareToWhatsApp}>

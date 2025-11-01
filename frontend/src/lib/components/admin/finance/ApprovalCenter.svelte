@@ -237,10 +237,14 @@
 
 		// Calculate stats (include both requisitions and payment schedules)
 		// Stats for approvals assigned to me
-		stats.total = requisitions.length + paymentSchedules.length + approvedSchedulesCount + rejectedSchedulesCount;
+		// Only count items where current user is the approver
+		const myApprovedRequisitions = requisitions.filter(r => r.status === 'approved' && r.approver_id === $currentUser.id);
+		const myRejectedRequisitions = requisitions.filter(r => r.status === 'rejected' && r.approver_id === $currentUser.id);
+		
 		stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length;
-		stats.approved = requisitions.filter(r => r.status === 'approved').length + approvedSchedulesCount;
-		stats.rejected = requisitions.filter(r => r.status === 'rejected').length + rejectedSchedulesCount;
+		stats.approved = myApprovedRequisitions.length + approvedSchedulesCount;
+		stats.rejected = myRejectedRequisitions.length + rejectedSchedulesCount;
+		stats.total = stats.pending + stats.approved + stats.rejected;
 
 		// Stats for my created requests
 		myStats.pending = myCreatedRequisitions.filter(r => r.status === 'pending').length + 
@@ -248,7 +252,7 @@
 		myStats.approved = myCreatedRequisitions.filter(r => r.status === 'approved').length + myApprovedSchedulesCount;
 		myStats.rejected = myCreatedRequisitions.filter(r => r.status === 'rejected').length +
 		                   myCreatedSchedules.filter(s => s.approval_status === 'rejected').length;
-		myStats.total = myCreatedRequisitions.length + myCreatedSchedules.length + myApprovedSchedulesCount;
+		myStats.total = myStats.pending + myStats.approved + myStats.rejected;
 
 		console.log('📈 Approval Stats:', stats);
 		console.log('� My Requests Stats:', myStats);
@@ -488,7 +492,16 @@
 
 				alert('✅ Payment schedule approved and moved to expense scheduler!');
 			} else {
-				// Update regular requisition
+				// Get the requisition data first
+				const { data: reqData, error: reqError } = await supabaseAdmin
+					.from('expense_requisitions')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (reqError) throw reqError;
+
+				// Update regular requisition status to approved
 				const { error } = await supabaseAdmin
 					.from('expense_requisitions')
 					.update({
@@ -498,20 +511,50 @@
 					.eq('id', requisitionId);
 
 				if (error) throw error;
+
+				// Create entry in expense_scheduler so it appears in Other Payments section
+				// Category can be NULL - will show as "Unknown" until request is closed with bills
+				// co_user_id and co_user_name are NULL for expense_requisition (uses requester_ref_id instead)
+				const schedulerEntry = {
+					branch_id: reqData.branch_id,
+					branch_name: reqData.branch_name,
+					expense_category_id: reqData.expense_category_id || null,
+					expense_category_name_en: reqData.expense_category_name_en || null,
+					expense_category_name_ar: reqData.expense_category_name_ar || null,
+					requisition_id: reqData.id,
+					requisition_number: reqData.requisition_number,
+					co_user_id: null,
+					co_user_name: null,
+					bill_type: 'no_bill',
+					payment_method: reqData.payment_category || 'cash',
+					due_date: reqData.due_date,
+					amount: parseFloat(reqData.amount),
+					description: reqData.description,
+					schedule_type: 'expense_requisition',
+					status: 'pending',
+					is_paid: false,
+					approver_id: reqData.approver_id,
+					approver_name: reqData.approver_name,
+					created_by: reqData.created_by
+				};
+
+				const { error: schedulerError } = await supabaseAdmin
+					.from('expense_scheduler')
+					.insert([schedulerEntry]);
+
+				if (schedulerError) {
+					console.error('⚠️ Failed to create expense scheduler entry:', schedulerError);
+					// Don't fail the whole approval if this fails
+				} else {
+					console.log('✅ Created expense scheduler entry for approved requisition');
+				}
 				
 				// Send notification to the creator
 				try {
-					// Get the requisition data to find the creator
-					const { data: reqData, error: reqError } = await supabaseAdmin
-						.from('expense_requisitions')
-						.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, branch_name')
-						.eq('id', requisitionId)
-						.single();
-					
-					if (!reqError && reqData) {
+					if (reqData) {
 						await notificationService.createNotification({
 							title: 'Expense Requisition Approved',
-							message: `Your expense requisition has been approved!\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
+							message: `Your expense requisition has been approved!\n\nRequisition: ${reqData.requisition_number}\nRequester: ${reqData.requester_name}\nBranch: ${reqData.branch_name}\nCategory: ${reqData.expense_category_name_en || 'N/A'}\nAmount: ${parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nApproved by: ${$currentUser?.username}`,
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -524,7 +567,7 @@
 					// Don't fail the whole operation if notification fails
 				}
 				
-				alert('✅ Requisition approved successfully!');
+				alert('✅ Requisition approved and added to expense scheduler!');
 			}
 
 			closeDetail();

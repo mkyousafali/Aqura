@@ -593,7 +593,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v2.0.4
+				v3.0.0
 			</button>
 		</div>
 	</div>
@@ -604,51 +604,61 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v2.0.4</h3>
+				<h3>What's New in v3.0.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🔔 Push Notification System - Major Fix</h4>
+					<h4>� Request Closure Manager - Complete System</h4>
 					<ul>
-						<li><strong>Content Display Fixed:</strong> Push notifications now show actual title and message instead of generic "You have a new notification"</li>
-						<li><strong>Service Worker Updated:</strong> Fixed expired Supabase API key preventing notification content from loading</li>
-						<li><strong>Database Access:</strong> Added RLS policy allowing Service Worker to fetch notification content from queue</li>
-						<li><strong>Duplicate Prevention:</strong> Implemented tag-based deduplication to prevent multiple notifications per device</li>
+						<li><strong>Bill Management:</strong> Unified interface for closing expense requests with single/multiple bills</li>
+						<li><strong>Write-Off Support:</strong> Close requests without bills (written-off) with proper balance updates</li>
+						<li><strong>Automatic Sync:</strong> Database trigger automatically syncs remaining_balance to requisitions table</li>
+						<li><strong>C/O Notifications:</strong> Automatic notifications to C/O users when requests are closed</li>
+						<li><strong>Smart UI:</strong> "No Bill" option hides bill fields, live calculation updates</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� System Documentation</h4>
+					<h4>📊 Request Manager Enhancements</h4>
 					<ul>
-						<li><strong>Push Notification Reference:</strong> Created comprehensive PUSH_NOTIFICATION_SYSTEM.md guide</li>
-						<li><strong>Technical Details:</strong> Documented FCM integration, Service Worker flow, and troubleshooting</li>
-						<li><strong>Configuration Guide:</strong> Complete API keys, VAPID keys, and RLS policy reference</li>
-						<li><strong>Common Issues:</strong> Solutions for generic messages, duplicates, and delivery failures</li>
+						<li><strong>Remaining Balance Column:</strong> Visual display with cyan gradient, strikethrough for zero balance</li>
+						<li><strong>Approval Status Badges:</strong> Colored badges with icons (✅ Approved, ⏳ Pending, ❌ Rejected, 🔒 Closed)</li>
+						<li><strong>Window Integration:</strong> Close Request button opens RequestClosureManager as window</li>
+						<li><strong>Smart Button Logic:</strong> Shows "🔒 Closed" for closed/zero-balance requests</li>
+						<li><strong>Fixed Stats Calculation:</strong> All stats now count correctly (pending + approved + rejected + closed = total)</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🧹 Development Cleanup</h4>
+					<h4>✅ Approval Center Fixes</h4>
 					<ul>
-						<li><strong>Test Files Removed:</strong> Deleted 14 development-only batch files (test and debug scripts)</li>
-						<li><strong>Cleaner Repository:</strong> Removed create-test-notification and debugging helper scripts</li>
-						<li><strong>Production Ready:</strong> Repository now contains only production-necessary files</li>
-						<li><strong>Better Organization:</strong> Streamlined project structure for deployment</li>
+						<li><strong>User-Specific Stats:</strong> Fixed total count to only show logged-in user's requests</li>
+						<li><strong>Accurate Calculations:</strong> Stats now properly filter by approver_id for current user</li>
+						<li><strong>No More Duplicates:</strong> Removed double-counting of approved/rejected items</li>
+						<li><strong>Proper Totals:</strong> Total = Pending + Approved + Rejected (no overlaps)</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🔧 Technical Implementation</h4>
+					<h4>�️ Database Improvements</h4>
 					<ul>
-						<li><strong>FCM Workaround:</strong> Service Worker fetches from notification_queue instead of relying on FCM payload</li>
-						<li><strong>RLS Policy:</strong> Anonymous role can now read sent notifications from queue table</li>
-						<li><strong>API Authentication:</strong> Updated Service Worker with current Supabase anon key</li>
-						<li><strong>Notification Tags:</strong> Using notificationId as unique tag prevents browser duplicates</li>
+						<li><strong>Auto-Sync Trigger:</strong> sync_requisition_balance_trigger on expense_scheduler</li>
+						<li><strong>Balance Updates:</strong> Automatic remaining_balance sync to expense_requisitions</li>
+						<li><strong>Write-Off Logic:</strong> Sets remaining_balance=0, used_amount=full amount, status=closed</li>
+						<li><strong>Migration Scripts:</strong> SQL scripts for initial data sync and trigger creation</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🎨 Scheduler Refactoring</h4>
+					<ul>
+						<li><strong>Removed Request Selection:</strong> All schedulers (Single/Multiple/Recurring) now require approval first</li>
+						<li><strong>Approval Flow:</strong> Requests must go through non_approved_payment_scheduler</li>
+						<li><strong>Consistent Workflow:</strong> Standardized approval process across all scheduler types</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
 					<p><strong>Release Date:</strong> November 1, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 2.0.4 - Push Notification System Fix</p>
-					<p><strong>Focus:</strong> Notification Content Display, Duplicate Prevention, Documentation, Cleanup</p>
+					<p><strong>Version:</strong> 3.0.0 - Major Request & Approval System Overhaul</p>
+					<p><strong>Focus:</strong> Request Closure, Balance Sync, Approval Stats, Database Automation</p>
 				</div>
 			</div>
 		</div>

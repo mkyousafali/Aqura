@@ -27,10 +27,12 @@ create table public.expense_requisitions (
   remaining_balance numeric null default 0,
   requester_ref_id uuid null,
   is_active boolean not null default true,
+  due_date date null,
   constraint expense_requisitions_pkey primary key (id),
   constraint expense_requisitions_requisition_number_key unique (requisition_number),
   constraint expense_requisitions_expense_category_id_fkey foreign KEY (expense_category_id) references expense_sub_categories (id),
-  constraint expense_requisitions_requester_ref_id_fkey foreign KEY (requester_ref_id) references requesters (id)
+  constraint expense_requisitions_requester_ref_id_fkey foreign KEY (requester_ref_id) references requesters (id),
+  constraint fk_expense_requisitions_branch foreign KEY (branch_id) references branches (id) on delete RESTRICT
 ) TABLESPACE pg_default;
 
 create index IF not exists idx_expense_requisitions_is_active on public.expense_requisitions using btree (is_active) TABLESPACE pg_default
@@ -50,3 +52,5 @@ create index IF not exists idx_requisitions_status on public.expense_requisition
 create index IF not exists idx_requisitions_created_at on public.expense_requisitions using btree (created_at desc) TABLESPACE pg_default;
 
 create index IF not exists idx_requisitions_number on public.expense_requisitions using btree (requisition_number) TABLESPACE pg_default;
+
+create index IF not exists idx_expense_requisitions_due_date on public.expense_requisitions using btree (due_date) TABLESPACE pg_default;

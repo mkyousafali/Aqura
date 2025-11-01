@@ -2,7 +2,7 @@ create table public.expense_scheduler (
   id bigserial not null,
   branch_id bigint not null,
   branch_name text not null,
-  expense_category_id bigint not null,
+  expense_category_id bigint null,
   expense_category_name_en text null,
   expense_category_name_ar text null,
   requisition_id bigint null,
@@ -37,7 +37,7 @@ create table public.expense_scheduler (
   constraint expense_scheduler_pkey primary key (id),
   constraint fk_expense_scheduler_requisition foreign KEY (requisition_id) references expense_requisitions (id) on delete set null,
   constraint fk_expense_scheduler_branch foreign KEY (branch_id) references branches (id) on delete RESTRICT,
-  constraint fk_expense_scheduler_category foreign KEY (expense_category_id) references expense_sub_categories (id) on delete RESTRICT,
+  constraint fk_expense_scheduler_category foreign KEY (expense_category_id) references expense_sub_categories (id) on delete set null,
   constraint fk_expense_scheduler_co_user foreign KEY (co_user_id) references users (id) on delete RESTRICT,
   constraint fk_expense_scheduler_created_by foreign KEY (created_by) references users (id) on delete RESTRICT,
   constraint fk_expense_scheduler_approver foreign KEY (approver_id) references users (id) on delete set null,
@@ -72,7 +72,9 @@ create table public.expense_scheduler (
         array[
           'single_bill'::text,
           'multiple_bill'::text,
-          'recurring'::text
+          'recurring'::text,
+          'expense_requisition'::text,
+          'closed_requisition_bill'::text
         ]
       )
     )
@@ -80,6 +82,8 @@ create table public.expense_scheduler (
   constraint check_co_user_for_non_recurring check (
     (
       (schedule_type = 'recurring'::text)
+      or (schedule_type = 'expense_requisition'::text)
+      or (schedule_type = 'closed_requisition_bill'::text)
       or (
         (
           schedule_type = any (array['single_bill'::text, 'multiple_bill'::text])
@@ -138,6 +142,12 @@ where
 create trigger expense_scheduler_updated_at BEFORE
 update on expense_scheduler for EACH row
 execute FUNCTION update_expense_scheduler_updated_at ();
+
+create trigger sync_requisition_balance_trigger
+after INSERT
+or
+update on expense_scheduler for EACH row
+execute FUNCTION sync_requisition_balance ();
 
 create trigger trigger_update_requisition_balance
 after INSERT

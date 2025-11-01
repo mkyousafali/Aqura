@@ -12,10 +12,7 @@
 	// Data arrays
 	let branches = [];
 	let users = [];
-	let parentCategories = [];
-	let subCategories = [];
 	let filteredUsers = [];
-	let filteredCategories = [];
 	let requesters = [];
 	let filteredRequesters = [];
 
@@ -23,11 +20,7 @@
 	let selectedBranchId = '';
 	let selectedApproverId = '';
 	let selectedApproverName = '';
-	let selectedCategoryId = '';
-	let selectedCategoryName = { en: '', ar: '' };
 	let userSearchQuery = '';
-	let categorySearchQuery = '';
-	let categoryParentFilter = '';
 	let amount = ''; // Moved to Step 1
 
 	// Step 2 data
@@ -44,6 +37,7 @@
 	let creditPeriod = '';
 	let bankName = '';
 	let iban = '';
+	let dueDate = ''; // Calculated automatically based on payment method
 
 	// Step 3 data
 	let requisitionNumber = '';
@@ -55,20 +49,20 @@
 	let savedImageUrl = '';
 	let showTemplateModal = false;
 
-	// Payment categories
+	// Payment categories with credit days
 	const paymentCategories = [
-		{ value: 'advance_cash', label: 'Advance Cash - سلفة نقدية' },
-		{ value: 'advance_bank', label: 'Advance Bank - سلفة بنكية' },
-		{ value: 'advance_cash_credit', label: 'Advance Cash Credit - سلفة ائتمان نقدي' },
-		{ value: 'advance_bank_credit', label: 'Advance Bank Credit - سلفة ائتمان بنكي' },
-		{ value: 'cash', label: 'Cash - نقدي' },
-		{ value: 'bank', label: 'Bank - بنكي' },
-		{ value: 'cash_credit', label: 'Cash Credit - ائتمان نقدي' },
-		{ value: 'bank_credit', label: 'Bank Credit - ائتمان بنكي' },
-		{ value: 'stock_purchase_advance_cash', label: 'Stock Purchase Advance Cash - شراء مخزون سلفة نقدية' },
-		{ value: 'stock_purchase_advance_bank', label: 'Stock Purchase Advance Bank - شراء مخزون سلفة بنكية' },
-		{ value: 'stock_purchase_cash', label: 'Stock Purchase Cash - شراء مخزون نقدي' },
-		{ value: 'stock_purchase_bank', label: 'Stock Purchase Bank - شراء مخزون بنكي' }
+		{ value: 'advance_cash', label: 'Advance Cash - سلفة نقدية', creditDays: 0 },
+		{ value: 'advance_bank', label: 'Advance Bank - سلفة بنكية', creditDays: 0 },
+		{ value: 'advance_cash_credit', label: 'Advance Cash Credit - سلفة ائتمان نقدي', creditDays: 30 },
+		{ value: 'advance_bank_credit', label: 'Advance Bank Credit - سلفة ائتمان بنكي', creditDays: 30 },
+		{ value: 'cash', label: 'Cash - نقدي', creditDays: 0 },
+		{ value: 'bank', label: 'Bank - بنكي', creditDays: 0 },
+		{ value: 'cash_credit', label: 'Cash Credit - ائتمان نقدي', creditDays: 30 },
+		{ value: 'bank_credit', label: 'Bank Credit - ائتمان بنكي', creditDays: 30 },
+		{ value: 'stock_purchase_advance_cash', label: 'Stock Purchase Advance Cash - شراء مخزون سلفة نقدية', creditDays: 0 },
+		{ value: 'stock_purchase_advance_bank', label: 'Stock Purchase Advance Bank - شراء مخزون سلفة بنكية', creditDays: 0 },
+		{ value: 'stock_purchase_cash', label: 'Stock Purchase Cash - شراء مخزون نقدي', creditDays: 0 },
+		{ value: 'stock_purchase_bank', label: 'Stock Purchase Bank - شراء مخزون بنكي', creditDays: 0 }
 	];
 
 	onMount(async () => {
@@ -105,26 +99,7 @@
 			.eq('can_approve_payments', true)
 			.order('username');
 		users = userData || [];
-		filteredUsers = users;			// Load categories
-			const { data: parentData } = await supabaseAdmin
-				.from('expense_parent_categories')
-				.select('*')
-				.order('name_en');
-			parentCategories = parentData || [];
-
-			const { data: subData } = await supabaseAdmin
-				.from('expense_sub_categories')
-				.select(`
-					*,
-					expense_parent_categories (
-						id,
-						name_en,
-						name_ar
-					)
-				`)
-				.order('name_en');
-			subCategories = subData || [];
-			filteredCategories = subCategories;
+		filteredUsers = users;
 
 			// Load requesters
 			const { data: requesterData } = await supabaseAdmin
@@ -158,40 +133,9 @@
 		filteredUsers = filtered;
 	}
 
-	function handleCategorySearch() {
-		const query = categorySearchQuery.toLowerCase();
-		let baseCategories = subCategories;
-
-		// Apply parent filter first
-		if (categoryParentFilter) {
-			const parentId = parseInt(categoryParentFilter);
-			baseCategories = subCategories.filter(cat => cat.parent_category_id === parentId);
-		}
-
-		// Apply search
-		if (query) {
-			filteredCategories = baseCategories.filter(cat =>
-				cat.name_en.toLowerCase().includes(query) ||
-				cat.name_ar.toLowerCase().includes(query) ||
-				cat.expense_parent_categories?.name_en.toLowerCase().includes(query) ||
-				cat.expense_parent_categories?.name_ar.toLowerCase().includes(query)
-			);
-		} else {
-			filteredCategories = baseCategories;
-		}
-	}
-
 	function selectApprover(user) {
 		selectedApproverId = user.id;
 		selectedApproverName = user.username;
-	}
-
-	function selectCategory(category) {
-		selectedCategoryId = category.id;
-		selectedCategoryName = {
-			en: category.name_en,
-			ar: category.name_ar
-		};
 	}
 
 	// Requester management functions
@@ -238,7 +182,7 @@
 		requesterId = requester.requester_id;
 		requesterName = requester.requester_name;
 		requesterContact = requester.contact_number || '';
-		requesterSearchQuery = requester.requester_name;
+		requesterSearchQuery = ''; // Clear search to hide dropdown
 		showNewRequesterFields = false;
 		isNewRequester = false;
 	}
@@ -326,10 +270,7 @@
 			alert('Please select an approver');
 			return false;
 		}
-		if (!selectedCategoryId) {
-			alert('Please select an expense category');
-			return false;
-		}
+		// Category is now optional - removed validation
 		return true;
 	}
 
@@ -380,6 +321,32 @@
 		const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
 		const randomNum = Math.floor(1000 + Math.random() * 9000);
 		requisitionNumber = `REQ-${dateStr}-${randomNum}`;
+	}
+
+	function calculateDueDate() {
+		if (!paymentCategory) return;
+
+		const selectedMethod = paymentCategories.find((m) => m.value === paymentCategory);
+		if (!selectedMethod) return;
+
+		// Use user-entered creditPeriod if available, otherwise use default from payment method
+		const creditDays = creditPeriod && parseInt(creditPeriod) > 0 ? parseInt(creditPeriod) : selectedMethod.creditDays;
+		
+		// Calculate due date from today
+		const baseDate = new Date();
+		baseDate.setDate(baseDate.getDate() + creditDays);
+
+		dueDate = baseDate.toISOString().split('T')[0];
+	}
+
+	// Recalculate due date when payment method changes
+	$: if (paymentCategory) {
+		calculateDueDate();
+	}
+	
+	// Recalculate when creditPeriod changes
+	$: if (creditPeriod && paymentCategory) {
+		calculateDueDate();
 	}
 
 	function generateTemplate() {
@@ -453,9 +420,9 @@
 					branch_name: getBranchName(),
 					approver_id: selectedApproverId || null,
 					approver_name: selectedApproverName,
-					expense_category_id: parseInt(selectedCategoryId),
-					expense_category_name_en: selectedCategoryName.en,
-					expense_category_name_ar: selectedCategoryName.ar,
+					expense_category_id: null, // Category will be selected when closing the bill
+					expense_category_name_en: null,
+					expense_category_name_ar: null,
 					requester_id: requesterId, // This is employee ID as text
 					requester_name: requesterName,
 					requester_contact: requesterContact,
@@ -464,6 +431,7 @@
 					amount: parseFloat(amount),
 					payment_category: paymentCategory,
 					credit_period: creditPeriod ? parseInt(creditPeriod) : null,
+					due_date: dueDate || null, // Automatically calculated due date
 					bank_name: bankName || null,
 					iban: iban || null,
 					description: description,
@@ -480,7 +448,7 @@
 				if (selectedApproverId && selectedApproverName) {
 					await notificationService.createNotification({
 						title: 'New Expense Requisition for Approval',
-						message: `A new expense requisition (${requisitionNumber}) has been submitted for your approval by ${$currentUser?.username || requesterName}. Branch: ${getBranchName()}, Amount: ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR, Category: ${selectedCategoryName.en}`,
+						message: `A new expense requisition (${requisitionNumber}) has been submitted for your approval by ${$currentUser?.username || requesterName}. Branch: ${getBranchName()}, Amount: ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR`,
 						type: 'info',
 						priority: parseFloat(amount) > 10000 ? 'high' : 'medium',
 						target_type: 'specific_users',
@@ -551,10 +519,6 @@
 			message += `*💰 المبلغ | Amount:*\n`;
 			message += `${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\n`;
 			message += vatApplicable ? `✅ ضريبة القيمة المضافة | VAT Applicable\n\n` : `❌ بدون ضريبة | VAT Not Applicable\n\n`;
-			
-			// Category
-			message += `*📂 الفئة | Category:*\n`;
-			message += `${selectedCategoryName.ar} | ${selectedCategoryName.en}\n\n`;
 			
 			// Requisition Number
 			message += `*📋 رقم الطلب | Requisition No:*\n`;
@@ -835,8 +799,6 @@
 		selectedBranchId = '';
 		selectedApproverId = '';
 		selectedApproverName = '';
-		selectedCategoryId = '';
-		selectedCategoryName = { en: '', ar: '' };
 		requesterId = '';
 		requesterName = '';
 		requesterContact = '';
@@ -987,60 +949,6 @@
 						<div class="selected-info">Selected: <strong>{selectedApproverName}</strong></div>
 					{/if}
 				</div>
-
-				<!-- Category Selection -->
-				<div class="form-group">
-					<label>Expense Category *</label>
-					<div class="filter-row">
-						<input
-							type="text"
-							bind:value={categorySearchQuery}
-							on:input={handleCategorySearch}
-							placeholder="Search categories..."
-							class="form-input"
-						/>
-						<select bind:value={categoryParentFilter} on:change={handleCategorySearch} class="form-select">
-							<option value="">All Parents</option>
-							{#each parentCategories as parent}
-								<option value={parent.id}>{parent.name_en}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="selection-table">
-						<table>
-							<thead>
-								<tr>
-									<th>Select</th>
-									<th>Parent Category</th>
-									<th>English Name</th>
-									<th>Arabic Name</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filteredCategories as category}
-									<tr 
-										class:selected={selectedCategoryId === category.id}
-										on:click={() => selectCategory(category)}
-									>
-										<td>
-											<input 
-												type="radio" 
-												checked={selectedCategoryId === category.id}
-												on:click={() => selectCategory(category)}
-											/>
-										</td>
-										<td><span class="parent-badge">{category.expense_parent_categories?.name_en}</span></td>
-										<td>{category.name_en}</td>
-										<td class="arabic">{category.name_ar}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-					{#if selectedCategoryName.en}
-						<div class="selected-info">Selected: <strong>{selectedCategoryName.en} - {selectedCategoryName.ar}</strong></div>
-					{/if}
-				</div>
 			</div>
 		{/if}
 
@@ -1188,6 +1096,21 @@
 					<div class="field-hint">ℹ️ Check this box if VAT is applicable to this requisition (for record-keeping and filtering purposes only)</div>
 				</div>
 
+				<!-- Show calculated due date -->
+				{#if dueDate}
+					<div class="form-group">
+						<label>Due Date (Auto-calculated)</label>
+						<input 
+							type="date" 
+							bind:value={dueDate} 
+							readonly
+							class="form-input" 
+							style="background-color: #f3f4f6; cursor: not-allowed;"
+						/>
+						<div class="field-hint">💡 Automatically calculated based on payment method and credit period</div>
+					</div>
+				{/if}
+
 				<!-- Show selected amount -->
 				<div class="selected-amount-display">
 					<div class="amount-label">Requisition Amount:</div>
@@ -1327,14 +1250,6 @@
 								<span class="label-ar">المعتمد</span>
 							</div>
 							<div class="info-value">{selectedApproverName}</div>
-						</div>
-
-						<div class="info-item">
-							<div class="info-label">
-								<span class="label-en">Category</span>
-								<span class="label-ar">الفئة</span>
-							</div>
-							<div class="info-value">{selectedCategoryName.en} / {selectedCategoryName.ar}</div>
 						</div>
 
 						<div class="info-item">
