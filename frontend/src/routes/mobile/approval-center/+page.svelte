@@ -219,10 +219,14 @@
 			}
 
 			// Calculate stats for approvals assigned to me
-			stats.total = requisitions.length + paymentSchedules.length + approvedSchedulesCount + rejectedSchedulesCount;
+			// Only count items where current user is the approver
+			const myApprovedRequisitions = requisitions.filter(r => r.status === 'approved' && r.approver_id === $currentUser.id);
+			const myRejectedRequisitions = requisitions.filter(r => r.status === 'rejected' && r.approver_id === $currentUser.id);
+			
 			stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length;
-			stats.approved = requisitions.filter(r => r.status === 'approved').length + approvedSchedulesCount;
-			stats.rejected = requisitions.filter(r => r.status === 'rejected').length + rejectedSchedulesCount;
+			stats.approved = myApprovedRequisitions.length + approvedSchedulesCount;
+			stats.rejected = myRejectedRequisitions.length + rejectedSchedulesCount;
+			stats.total = stats.pending + stats.approved + stats.rejected;
 
 			// Calculate stats for my created requests
 			myStats.pending = myCreatedRequisitions.filter(r => r.status === 'pending').length + 
@@ -230,7 +234,7 @@
 			myStats.approved = myCreatedRequisitions.filter(r => r.status === 'approved').length + myApprovedSchedulesCount;
 			myStats.rejected = myCreatedRequisitions.filter(r => r.status === 'rejected').length +
 			                   myCreatedSchedules.filter(s => s.approval_status === 'rejected').length;
-			myStats.total = myCreatedRequisitions.length + myCreatedSchedules.length + myApprovedSchedulesCount;
+			myStats.total = myStats.pending + myStats.approved + myStats.rejected;
 
 			console.log('📈 Approval Stats:', stats);
 			console.log('📈 My Requests Stats:', myStats);
