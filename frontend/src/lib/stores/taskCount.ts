@@ -11,6 +11,7 @@ export interface TaskCounts {
 	overdue: number;
 	quickTasks: number;
 	regularTasks: number;
+	receivingTasks: number;
 	loading: boolean;
 	lastUpdated: Date;
 }
@@ -23,6 +24,7 @@ export const taskCounts = writable<TaskCounts>({
 	overdue: 0,
 	quickTasks: 0,
 	regularTasks: 0,
+	receivingTasks: 0,
 	loading: true,
 	lastUpdated: new Date()
 });
@@ -68,6 +70,13 @@ export const taskCountService = {
 				.eq('assigned_to_user_id', user.id)
 				.in('status', ['assigned', 'in_progress', 'pending']);
 
+			// Fetch receiving tasks
+			const { data: receivingTasks, error: receivingError } = await supabase
+				.from('receiving_tasks')
+				.select('id, task_status, due_date')
+				.eq('assigned_user_id', user.id)
+				.eq('task_status', 'pending');
+
 			if (regularError) {
 				console.error('Error fetching regular task counts:', regularError);
 			}
@@ -76,16 +85,22 @@ export const taskCountService = {
 				console.error('Error fetching quick task counts:', quickError);
 			}
 
+			if (receivingError) {
+				console.error('Error fetching receiving task counts:', receivingError);
+			}
+
 			// Process the data
 			const regularTasksCount = regularTasks?.length || 0;
 			const quickTasksCount = quickTasks?.length || 0;
-			const totalCount = regularTasksCount + quickTasksCount;
+			const receivingTasksCount = receivingTasks?.length || 0;
+			const totalCount = regularTasksCount + quickTasksCount + receivingTasksCount;
 
 			// Count pending and in-progress tasks
 			const pendingRegular = regularTasks?.filter(t => t.status === 'pending' || t.status === 'assigned').length || 0;
 			const inProgressRegular = regularTasks?.filter(t => t.status === 'in_progress').length || 0;
 			const pendingQuick = quickTasks?.filter(t => t.status === 'pending' || t.status === 'assigned').length || 0;
 			const inProgressQuick = quickTasks?.filter(t => t.status === 'in_progress').length || 0;
+			const pendingReceiving = receivingTasksCount; // All receiving tasks we fetch are pending
 
 			// Count overdue tasks
 			const overdueRegular = regularTasks?.filter(t => {
@@ -106,13 +121,19 @@ export const taskCountService = {
 					   t.status !== 'cancelled';
 			}).length || 0;
 
+			const overdueReceiving = receivingTasks?.filter(t => {
+				if (!t.due_date) return false;
+				return new Date(t.due_date) < new Date(now);
+			}).length || 0;
+
 			const counts: TaskCounts = {
 				total: totalCount,
-				pending: pendingRegular + pendingQuick,
+				pending: pendingRegular + pendingQuick + pendingReceiving,
 				inProgress: inProgressRegular + inProgressQuick,
-				overdue: overdueRegular + overdueQuick,
+				overdue: overdueRegular + overdueQuick + overdueReceiving,
 				quickTasks: quickTasksCount,
 				regularTasks: regularTasksCount,
+				receivingTasks: receivingTasksCount,
 				loading: false,
 				lastUpdated: new Date()
 			};
@@ -226,9 +247,27 @@ export const taskCountService = {
 			)
 			.subscribe();
 
+		// Subscribe to receiving tasks
+		const receivingTaskChannel = supabase
+			.channel('receiving-tasks-updates')
+			.on('postgres_changes', 
+				{ 
+					event: '*', 
+					schema: 'public', 
+					table: 'receiving_tasks',
+					filter: `assigned_user_id=eq.${user.id}`
+				}, 
+				() => {
+					console.log('📦 Receiving task changed, refreshing counts...');
+					this.fetchTaskCounts(true); // Silent refresh
+				}
+			)
+			.subscribe();
+
 		return () => {
 			supabase.removeChannel(regularTaskChannel);
 			supabase.removeChannel(quickTaskChannel);
+			supabase.removeChannel(receivingTaskChannel);
 		};
 	},
 

@@ -7,6 +7,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
 	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
+	import ReceivingTaskDetailsModal from './ReceivingTaskDetailsModal.svelte';
+	import ReceivingTaskCompletionDialog from '../receiving/ReceivingTaskCompletionDialog.svelte';
 	
 	let tasks = [];
 	let filteredTasks = [];
@@ -122,161 +124,214 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.warn('⚠️ [MyTasks] Error loading quick tasks (table may not exist):', quickError);
 			}
 
-			// Load task images and assigned_by user details for regular tasks
-			const regularTasksWithImages = await Promise.all(
-				(regularTasks || []).map(async (assignment) => {
-					// Fetch task images
-					const { data: images, error: imageError } = await supabase
-						.from('task_images')
-						.select('*')
-						.eq('task_id', assignment.task.id);
-					
-					if (imageError) {
-						console.error('Error loading task images:', imageError);
+			// Batch fetch all task images for regular tasks (single query instead of N queries)
+			const taskIds = (regularTasks || []).map(a => a.task.id);
+			const { data: allTaskImages } = await supabase
+				.from('task_images')
+				.select('*')
+				.in('task_id', taskIds);
+			
+			// Group images by task_id for quick lookup
+			const imagesByTaskId = {};
+			(allTaskImages || []).forEach(img => {
+				if (!imagesByTaskId[img.task_id]) imagesByTaskId[img.task_id] = [];
+				imagesByTaskId[img.task_id].push(img);
+			});
+
+			// Batch fetch all assigned_by users (single query instead of N queries)
+			const assignedByIds = (regularTasks || [])
+				.map(a => a.assigned_by)
+				.filter(id => id && id.includes('-') && id.length === 36);
+			
+			const { data: assignedByUsers } = assignedByIds.length > 0 
+				? await supabase
+					.from('users')
+					.select(`
+						id,
+						username,
+						hr_employees!employee_id(
+							name
+						)
+					`)
+					.in('id', assignedByIds)
+				: { data: [] };
+			
+			// Create lookup map for assigned_by users
+			const userLookup = {};
+			(assignedByUsers || []).forEach(user => {
+				userLookup[user.id] = user.hr_employees?.[0]?.name || user.username;
+			});
+
+			// Map regular tasks with images and user details
+			const regularTasksWithImages = (regularTasks || []).map(assignment => {
+				let assignedByName = 'Unknown User';
+				if (assignment.assigned_by) {
+					if (userLookup[assignment.assigned_by]) {
+						assignedByName = userLookup[assignment.assigned_by];
+					} else if (!assignment.assigned_by.includes('-')) {
+						assignedByName = assignment.assigned_by;
 					}
+				}
+				
+				if (assignedByName === 'Unknown User' && assignment.assigned_by_name) {
+					assignedByName = assignment.assigned_by_name;
+				}
 
-					// Fetch assigned_by user details if assigned_by is a valid UUID
-					let assignedByName = 'Unknown User';
-					if (assignment.assigned_by) {
-						// Check if assigned_by looks like a UUID (contains hyphens and is 36 characters)
-						if (assignment.assigned_by.includes('-') && assignment.assigned_by.length === 36) {
-							try {
-								const { data: assignedByUser, error: userError } = await supabase
-									.from('users')
-									.select(`
-										id,
-										username,
-										hr_employees!employee_id(
-											name
-										)
-									`)
-									.eq('id', assignment.assigned_by)
-									.single();
+				return {
+					...assignment.task,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.assigned_at,
+					assigned_by: assignment.assigned_by,
+					assigned_by_name: assignedByName,
+					assigned_to_user_id: assignment.assigned_to_user_id,
+					schedule_date: assignment.schedule_date,
+					schedule_time: assignment.schedule_time,
+					deadline_date: assignment.deadline_date,
+					deadline_time: assignment.deadline_time,
+					deadline_datetime: assignment.deadline_datetime,
+					// Assignment requirements
+					require_task_finished: assignment.require_task_finished ?? false,
+					require_photo_upload: assignment.require_photo_upload ?? false,
+					require_erp_reference: assignment.require_erp_reference ?? false,
+					// Task images
+					images: imagesByTaskId[assignment.task.id] || [],
+					// Task type
+					task_type: 'regular'
+				};
+			});
 
-								if (!userError && assignedByUser) {
-									if (assignedByUser.hr_employees && assignedByUser.hr_employees.length > 0) {
-										assignedByName = assignedByUser.hr_employees[0].name;
-									} else {
-										assignedByName = assignedByUser.username;
-									}
-								}
-							} catch (err) {
-								console.error('Error fetching assigned_by user:', err);
-							}
-						} else {
-							// If assigned_by is not a UUID, use it as is (might be a username or name)
-							assignedByName = assignment.assigned_by;
-						}
-					}
-					
-					// Use assigned_by_name as fallback
-					if (assignedByName === 'Unknown User' && assignment.assigned_by_name) {
-						assignedByName = assignment.assigned_by_name;
-					}
+			// Batch fetch all quick task files (single query instead of N queries)
+			const quickTaskIds = (quickTasks || []).map(a => a.quick_task.id);
+			const { data: allQuickTaskFiles } = quickTaskIds.length > 0
+				? await supabase
+					.from('quick_task_files')
+					.select('*')
+					.in('quick_task_id', quickTaskIds)
+				: { data: [] };
+			
+			// Group files by quick_task_id for quick lookup
+			const filesByQuickTaskId = {};
+			(allQuickTaskFiles || []).forEach(file => {
+				if (!filesByQuickTaskId[file.quick_task_id]) filesByQuickTaskId[file.quick_task_id] = [];
+				filesByQuickTaskId[file.quick_task_id].push(file);
+			});
 
-					return {
-						...assignment.task,
-						assignment_id: assignment.id,
-						assignment_status: assignment.status,
-						assigned_at: assignment.assigned_at,
-						assigned_by: assignment.assigned_by,
-						assigned_by_name: assignedByName,
-						assigned_to_user_id: assignment.assigned_to_user_id,
-						schedule_date: assignment.schedule_date,
-						schedule_time: assignment.schedule_time,
-						deadline_date: assignment.deadline_date,
-						deadline_time: assignment.deadline_time,
-						deadline_datetime: assignment.deadline_datetime,
-						// Assignment requirements
-						require_task_finished: assignment.require_task_finished ?? false,
-						require_photo_upload: assignment.require_photo_upload ?? false,
-						require_erp_reference: assignment.require_erp_reference ?? false,
-						// Task images
-						images: images || [],
-						// Task type
-						task_type: 'regular'
-					};
-				})
-			);
+			// Batch fetch all assigned_by users for quick tasks (single query)
+			const quickTaskAssignedByIds = (quickTasks || [])
+				.map(a => a.quick_task.assigned_by)
+				.filter(id => id && id.includes('-') && id.length === 36);
+			
+			const { data: quickTaskAssignedByUsers } = quickTaskAssignedByIds.length > 0
+				? await supabase
+					.from('users')
+					.select(`
+						id,
+						username,
+						hr_employees!employee_id(
+							name
+						)
+					`)
+					.in('id', quickTaskAssignedByIds)
+				: { data: [] };
+			
+			// Create lookup map for quick task assigned_by users
+			const quickTaskUserLookup = {};
+			(quickTaskAssignedByUsers || []).forEach(user => {
+				quickTaskUserLookup[user.id] = user.hr_employees?.[0]?.name || user.username;
+			});
 
-			// Process Quick Tasks
-			const quickTasksWithDetails = await Promise.all(
-				(quickTasks || []).map(async (assignment) => {
-					// Fetch quick task files (attachments)
-					const { data: files, error: filesError } = await supabase
-						.from('quick_task_files')
-						.select('*')
-						.eq('quick_task_id', assignment.quick_task.id);
-					
-					if (filesError) {
-						console.error('Error loading quick task files:', filesError);
-					}
+			// Process Quick Tasks with batched data
+			const quickTasksWithDetails = (quickTasks || []).map(assignment => {
+				let assignedByName = 'Unknown User';
+				if (assignment.quick_task.assigned_by) {
+					assignedByName = quickTaskUserLookup[assignment.quick_task.assigned_by] || 'Unknown User';
+				}
 
-					// Fetch assigned_by user details
-					let assignedByName = 'Unknown User';
-					if (assignment.quick_task.assigned_by) {
-						try {
-							const { data: assignedByUser, error: userError } = await supabase
-								.from('users')
-								.select(`
-									id,
-									username,
-									hr_employees!employee_id(
-										name
-									)
-								`)
-								.eq('id', assignment.quick_task.assigned_by)
-								.single();
+				// Convert Quick Task to match regular task structure
+				return {
+					id: assignment.quick_task.id,
+					title: assignment.quick_task.title,
+					description: assignment.quick_task.description,
+					priority: assignment.quick_task.priority,
+					status: assignment.quick_task.status,
+					created_at: assignment.quick_task.created_at,
+					due_date: null, // Quick tasks use deadline_datetime
+					due_time: null,
+					deadline_datetime: assignment.quick_task.deadline_datetime,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.created_at,
+					assigned_by: assignment.quick_task.assigned_by,
+					assigned_by_name: assignedByName,
+					assigned_to_user_id: assignment.assigned_to_user_id,
+					schedule_date: null,
+					schedule_time: null,
+					// Quick task specific fields
+					price_tag: assignment.quick_task.price_tag,
+					issue_type: assignment.quick_task.issue_type,
+					// Assignment requirements (Quick tasks don't have these by default)
+					require_task_finished: false,
+					require_photo_upload: false,
+					require_erp_reference: false,
+					// Quick task files as images
+					images: filesByQuickTaskId[assignment.quick_task.id] || [],
+					files: filesByQuickTaskId[assignment.quick_task.id] || [],
+					// Task type
+					task_type: 'quick_task'
+				};
+			});
 
-							if (!userError && assignedByUser) {
-								if (assignedByUser.hr_employees && assignedByUser.hr_employees.length > 0) {
-									assignedByName = assignedByUser.hr_employees[0].name;
-								} else {
-									assignedByName = assignedByUser.username;
-								}
-							}
-						} catch (err) {
-							console.error('Error fetching assigned_by user for quick task:', err);
-						}
-					}
+			// Fetch Receiving Tasks assigned to the user (load all, filter in UI)
+			const { data: receivingTasks, error: receivingError } = await supabase
+				.from('receiving_tasks')
+				.select('*')
+				.eq('assigned_user_id', userId)
+				.order('created_at', { ascending: false });
 
-					// Convert Quick Task to match regular task structure
-					return {
-						id: assignment.quick_task.id,
-						title: assignment.quick_task.title,
-						description: assignment.quick_task.description,
-						priority: assignment.quick_task.priority,
-						status: assignment.quick_task.status,
-						created_at: assignment.quick_task.created_at,
-						due_date: null, // Quick tasks use deadline_datetime
-						due_time: null,
-						deadline_datetime: assignment.quick_task.deadline_datetime,
-						assignment_id: assignment.id,
-						assignment_status: assignment.status,
-						assigned_at: assignment.created_at,
-						assigned_by: assignment.quick_task.assigned_by,
-						assigned_by_name: assignedByName,
-						assigned_to_user_id: assignment.assigned_to_user_id,
-						schedule_date: null,
-						schedule_time: null,
-						// Quick task specific fields
-						price_tag: assignment.quick_task.price_tag,
-						issue_type: assignment.quick_task.issue_type,
-						// Assignment requirements (Quick tasks don't have these by default)
-						require_task_finished: false,
-						require_photo_upload: false,
-						require_erp_reference: false,
-						// Quick task files as images
-						images: files || [],
-						files: files || [],
-						// Task type
-						task_type: 'quick_task'
-					};
-				})
-			);
+			console.log('📊 [MyTasks] Receiving tasks query result:', { data: receivingTasks, error: receivingError, userID: userId });
+			
+			if (receivingError) {
+				console.warn('⚠️ [MyTasks] Error loading receiving tasks:', receivingError);
+			}
 
-			// Combine regular tasks and quick tasks
-			const allTasks = [...regularTasksWithImages, ...quickTasksWithDetails];
+			// Process Receiving Tasks
+			const receivingTasksFormatted = (receivingTasks || []).map(task => {
+				return {
+					id: task.id,
+					title: task.title,
+					description: task.description,
+					priority: task.priority,
+					status: task.task_status,
+					created_at: task.created_at,
+					due_date: task.due_date,
+					due_time: null,
+					deadline_datetime: task.due_date,
+					assignment_id: task.id,
+					assignment_status: task.task_status,
+					assigned_at: task.created_at,
+					assigned_by: null,
+					assigned_by_name: 'System (Receiving)',
+					assigned_to_user_id: task.assigned_user_id,
+					schedule_date: null,
+					schedule_time: null,
+					// Receiving task specific fields
+					role_type: task.role_type,
+					receiving_record_id: task.receiving_record_id,
+					clearance_certificate_url: task.clearance_certificate_url,
+					// Assignment requirements
+					require_task_finished: true,
+					require_photo_upload: task.requires_original_bill_upload || false,
+					require_erp_reference: task.requires_erp_reference || false,
+					// Images
+					images: [],
+					// Task type
+					task_type: 'receiving'
+				};
+			});
+
+			// Combine regular tasks, quick tasks, and receiving tasks
+			const allTasks = [...regularTasksWithImages, ...quickTasksWithDetails, ...receivingTasksFormatted];
 			
 			// Sort by creation date (newest first)
 			allTasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -286,7 +341,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			console.log('✅ [MyTasks] Successfully loaded tasks:', { 
 				total: tasks.length, 
 				regular: regularTasksWithImages.length, 
-				quick: quickTasksWithDetails.length 
+				quick: quickTasksWithDetails.length,
+				receiving: receivingTasksFormatted.length
 			});
 		} catch (error) {
 			console.error('❌ [MyTasks] Error loading my tasks:', error);
@@ -308,8 +364,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
 			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
 			const matchesTaskType = filterTaskType === 'all' || 
-				(filterTaskType === 'regular' && task.task_type !== 'quick_task') ||
-				(filterTaskType === 'quick_task' && task.task_type === 'quick_task');
+				(filterTaskType === 'regular' && task.task_type !== 'quick_task' && task.task_type !== 'receiving') ||
+				(filterTaskType === 'quick_task' && task.task_type === 'quick_task') ||
+				(filterTaskType === 'receiving' && task.task_type === 'receiving');
 			
 			return matchesSearch && matchesStatus && matchesPriority && matchesTaskType;
 		});
@@ -318,6 +375,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	function openTaskCompletion(task) {
 		if (task.task_type === 'quick_task') {
 			openQuickTaskCompletion(task);
+		} else if (task.task_type === 'receiving') {
+			openReceivingTaskCompletion(task);
 		} else {
 			const windowId = `task-completion-${task.id}`;
 			openWindow({
@@ -374,9 +433,38 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	async function openReceivingTaskCompletion(task) {
+		const windowId = `receiving-task-completion-${task.id}`;
+		openWindow({
+			id: windowId,
+			title: 'Complete Receiving Task',
+			component: ReceivingTaskCompletionDialog,
+			props: {
+				taskId: task.id,
+				receivingRecordId: task.receiving_record_id,
+				onComplete: () => {
+					windowManager.closeWindow(windowId);
+					loadMyTasks();
+				}
+			},
+			icon: '✅',
+			size: { width: 500, height: 300 },
+			position: { 
+				x: window.innerWidth / 2 - 250, 
+				y: window.innerHeight / 2 - 150 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function openTaskDetails(task) {
 		if (task.task_type === 'quick_task') {
 			openQuickTaskDetails(task);
+		} else if (task.task_type === 'receiving') {
+			openReceivingTaskDetails(task);
 		} else {
 			const windowId = `task-details-${task.id}`;
 			openWindow({
@@ -422,6 +510,32 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			position: { 
 				x: 150 + (Math.random() * 100), 
 				y: 100 + (Math.random() * 50) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openReceivingTaskDetails(task) {
+		const windowId = `receiving-task-details-${task.id}`;
+		openWindow({
+			id: windowId,
+			title: `📦 Receiving Task: ${task.title}`,
+			component: ReceivingTaskDetailsModal,
+			props: {
+				task: task,
+				windowId: windowId,
+				onTaskCompleted: () => {
+					loadMyTasks();
+				}
+			},
+			icon: '📦',
+			size: { width: 800, height: 600 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 50) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -673,6 +787,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<option value="all">All Types</option>
 					<option value="regular">Regular Tasks</option>
 					<option value="quick">Quick Tasks</option>
+					<option value="receiving">Receiving Tasks</option>
 				</select>
 			</div>
 		</div>
@@ -769,7 +884,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										<div>
 											<span class="font-medium">Task Status:</span> {task.status || 'Unknown'}
 										</div>
-										{#if task.task_type === 'quick_task' && task.deadline_datetime}
+										{#if (task.task_type === 'quick_task' || task.task_type === 'receiving') && task.deadline_datetime}
 											{@const deadlineInfo = getDeadlineDisplayFromDatetime(task.deadline_datetime)}
 											<div class="col-span-2">
 												<span class="font-medium">Deadline:</span> 

@@ -64,7 +64,7 @@
   }
   
   // Complete a receiving task
-  async function completeTask(task, erpReference = '', completionNotes = '') {
+  async function completeTask(task, erpReference = '', originalBillPath = '') {
     try {
       const response = await fetch('/api/receiving-tasks/complete', {
         method: 'POST',
@@ -75,7 +75,7 @@
           receiving_task_id: task.task_id,
           user_id: userId,
           erp_reference: erpReference || null,
-          completion_notes: completionNotes || null
+          original_bill_file_path: originalBillPath || null
         })
       });
       
