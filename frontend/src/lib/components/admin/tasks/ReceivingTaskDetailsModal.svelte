@@ -32,18 +32,55 @@
 
 			// Fetch the related receiving record
 			if (taskData.receiving_record_id) {
+				// First get the receiving record
 				const { data: recordData, error: recordError } = await supabase
 					.from('receiving_records')
-					.select(`
-						*,
-						branch:branches!branch_id(name_en, name_ar),
-						vendor:vendors!inner(vendor_name_en, vendor_name_ar, erp_vendor_id)
-					`)
+					.select('*')
 					.eq('id', taskData.receiving_record_id)
 					.single();
 
-				if (!recordError) {
+				if (!recordError && recordData) {
 					receivingRecord = recordData;
+
+					// Get branch info separately
+					const { data: branchData } = await supabase
+						.from('branches')
+						.select('name_en, name_ar')
+						.eq('id', recordData.branch_id)
+						.single();
+
+					// Get vendor info separately using composite key
+					const { data: vendorData } = await supabase
+						.from('vendors')
+						.select('vendor_name, erp_vendor_id')
+						.eq('erp_vendor_id', recordData.vendor_id)
+						.eq('branch_id', recordData.branch_id)
+						.single();
+
+					// Attach the related data
+					if (branchData) {
+						receivingRecord.branch = branchData;
+					}
+					if (vendorData) {
+						receivingRecord.vendor = [vendorData]; // Keep as array to match existing code
+					}
+				}
+			}
+
+			// Get assigned user information
+			if (taskData.assigned_user_id) {
+				const { data: userData } = await supabase
+					.from('users')
+					.select(`
+						id,
+						username,
+						hr_employees(name)
+					`)
+					.eq('id', taskData.assigned_user_id)
+					.single();
+
+				if (userData) {
+					taskDetails.assigned_user_name = userData.hr_employees?.name || userData.username;
 				}
 			}
 		} catch (error) {
@@ -117,7 +154,7 @@
 					</div>
 					<div class="info-item">
 						<span class="label">Assigned to:</span>
-						<span class="value">{task.assigned_to_name || 'N/A'}</span>
+						<span class="value">{taskDetails.assigned_user_name || 'N/A'}</span>
 					</div>
 					<div class="info-item">
 						<span class="label">Priority:</span>
@@ -163,7 +200,7 @@
 						</div>
 						<div class="info-item">
 							<span class="label">Vendor:</span>
-							<span class="value">{receivingRecord.vendor?.[0]?.vendor_name_en || 'N/A'}</span>
+							<span class="value">{receivingRecord.vendor?.[0]?.vendor_name || 'N/A'}</span>
 						</div>
 						<div class="info-item">
 							<span class="label">Vendor ID:</span>

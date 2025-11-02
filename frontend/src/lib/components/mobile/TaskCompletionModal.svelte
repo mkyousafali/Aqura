@@ -268,6 +268,45 @@
 				console.error('Error updating assignment status:', assignmentError);
 			}
 			
+			// If this is a payment task with ERP reference, update vendor_payment_schedule
+			// ONLY for tasks that are specifically payment-related (with payment_schedule_id in metadata)
+			if (resolvedRequireErpReference && completionData.erp_reference_number?.trim()) {
+				try {
+					// Get task metadata to check if this is a payment task
+					const { data: taskData, error: taskError } = await supabase
+						.from('tasks')
+						.select('metadata')
+						.eq('id', task.id)
+						.single();
+					
+					// Only update if this task has payment_schedule_id in metadata (payment tasks only)
+					if (taskData?.metadata?.payment_schedule_id && taskData?.metadata?.payment_type === 'vendor_payment') {
+						const paymentScheduleId = taskData.metadata.payment_schedule_id;
+						console.log('💳 [Mobile] Updating payment_reference for payment schedule:', paymentScheduleId);
+						
+						// Update payment_reference in vendor_payment_schedule
+						const { error: updateError } = await supabase
+							.from('vendor_payment_schedule')
+							.update({ 
+								payment_reference: completionData.erp_reference_number.trim(),
+								updated_at: new Date().toISOString()
+							})
+							.eq('id', paymentScheduleId);
+						
+						if (updateError) {
+							console.error('❌ [Mobile] Failed to update payment_reference:', updateError);
+						} else {
+							console.log('✅ [Mobile] Payment reference updated successfully');
+						}
+					} else {
+						console.log('ℹ️ [Mobile] Task has ERP reference but is not a payment task, skipping vendor_payment_schedule update');
+					}
+				} catch (paymentUpdateError) {
+					console.error('❌ [Mobile] Error updating payment schedule:', paymentUpdateError);
+					// Don't fail task completion if payment update fails
+				}
+			}
+			
 			successMessage = 'Task completed successfully!';
 			
 			// Show success notification

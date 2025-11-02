@@ -379,6 +379,20 @@
 				return false;
 			}
 
+	// Function to handle task navigation based on task type
+	function navigateToTask(task) {
+		if (task.task_type === 'receiving') {
+			// For receiving tasks, go to receiving task details page
+			goto(`/mobile/receiving-tasks/${task.id}`);
+		} else if (task.task_type === 'quick') {
+			// For quick tasks, we might need a quick task details page
+			goto(`/mobile/quick-tasks/${task.id}`);
+		} else {
+			// For regular tasks, go to task details
+			goto(`/mobile/tasks/${task.id}`);
+		}
+	}
+
 			// Safe search - handle null/undefined values
 			const title = task.title || '';
 			const description = task.description || '';
@@ -583,35 +597,42 @@ goto(`/mobile/tasks/${task.id}/complete`);
 }
 }
 
-async function completeReceivingTask(task) {
-const confirmed = confirm(
-`Are you sure you want to mark this receiving task as completed?\n\nRole: ${task.title}\nBranch: ${task.branch_name || 'N/A'}`
-);
+	async function completeReceivingTask(task) {
+		// Special handling for Inventory Manager tasks
+		if (task.role_type === 'inventory_manager') {
+			// Redirect to a special completion form for Inventory Manager
+			goto(`/mobile/receiving-tasks/${task.id}/complete`);
+			return;
+		}
 
-if (!confirmed) return;
+		const confirmed = confirm(
+			`Are you sure you want to mark this receiving task as completed?\n\nRole: ${task.title}\nBranch: ${task.branch_name || 'N/A'}`
+		);
 
-try {
-const response = await fetch('/api/receiving-tasks/complete', {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({
-receiving_task_id: task.id,
-user_id: currentUserData?.id
-})
-});
+		if (!confirmed) return;
 
-if (!response.ok) {
-const error = await response.json();
-throw new Error(error.error || 'Failed to complete receiving task');
-}
+		try {
+			const response = await fetch('/api/receiving-tasks/complete', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					receiving_task_id: task.id,
+					user_id: currentUserData?.id
+				})
+			});
 
-alert('Receiving task completed successfully!');
-await loadTasks();
-} catch (error) {
-console.error('Error completing receiving task:', error);
-alert(`Error: ${error.message}`);
-}
-}
+			if (!response.ok) {
+				const error = await response.json();
+				throw new Error(error.error || 'Failed to complete receiving task');
+			}
+
+			alert('Receiving task completed successfully!');
+			await loadTasks();
+		} catch (error) {
+			console.error('Error completing receiving task:', error);
+			alert(`Error: ${error.message}`);
+		}
+	}
 
 function navigateToTask(task) {
 // Navigate to the appropriate task view based on task type
@@ -625,18 +646,8 @@ goto(`/mobile/tasks/${task.id}`);
 }
 
 function showReceivingTaskDetails(task) {
-const details = [
-`Role: ${task.title || 'N/A'}`,
-`Priority: ${task.priority || 'N/A'}`,
-`Status: ${task.task_status || 'N/A'}`,
-`Branch: ${task.branch_name || 'N/A'}`,
-`Vendor: ${task.vendor_name || 'N/A'}`,
-`Bill Number: ${task.bill_number || 'N/A'}`,
-task.due_date ? `Due Date: ${new Date(task.due_date).toLocaleDateString()}` : null,
-task.clearance_certificate_url ? `Clearance Certificate: Available` : null
-].filter(Boolean).join('\n');
-
-alert(`Receiving Task Details\n\n${details}`);
+// Navigate to the receiving task detail page
+goto(`/mobile/receiving-tasks/${task.id}`);
 }
 
 	// Reactive filtering - trigger when search term or filters change
@@ -780,8 +791,8 @@ alert(`Receiving Task Details\n\n${details}`);
 						</div>
 
 						<div class="task-content" 
-							on:click={() => goto(`/mobile/tasks/${task.id}`)}
-							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && goto(`/mobile/tasks/${task.id}`)}
+							on:click={() => navigateToTask(task)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && navigateToTask(task)}
 							role="button" 
 							tabindex="0"
 						>

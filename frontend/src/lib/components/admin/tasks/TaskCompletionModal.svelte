@@ -72,9 +72,9 @@
 	$: currentUserData = $currentUser;
 	
 	// Resolve requirement flags from assignment details first, then task object, then props
-	$: resolvedRequireTaskFinished = assignmentDetails?.require_task_finished ?? task?.require_task_finished ?? requireTaskFinished ?? true; // Task finished is always mandatory
-	$: resolvedRequirePhotoUpload = assignmentDetails?.require_photo_upload ?? task?.require_photo_upload ?? requirePhotoUpload ?? false;
-	$: resolvedRequireErpReference = assignmentDetails?.require_erp_reference ?? task?.require_erp_reference ?? requireErpReference ?? false;
+	$: resolvedRequireTaskFinished = assignmentDetails?.require_task_finished ?? task?.require_task_finished ?? taskDetails?.require_task_finished ?? requireTaskFinished ?? true; // Task finished is always mandatory
+	$: resolvedRequirePhotoUpload = assignmentDetails?.require_photo_upload ?? task?.require_photo_upload ?? taskDetails?.require_photo_upload ?? requirePhotoUpload ?? false;
+	$: resolvedRequireErpReference = assignmentDetails?.require_erp_reference ?? task?.require_erp_reference ?? taskDetails?.require_erp_reference ?? requireErpReference ?? false;
 	
 	// Initialize completion data with default unchecked state
 	// The user should manually check these when they complete the requirements
@@ -794,6 +794,45 @@
 			
 			if (assignmentError) {
 				console.error('Error updating assignment status:', assignmentError);
+			}
+			
+			// If this is a payment task with ERP reference, update vendor_payment_schedule
+			// ONLY for tasks that are specifically payment-related (with payment_schedule_id in metadata)
+			if (resolvedRequireErpReference && completionData.erp_reference_number?.trim()) {
+				try {
+					// Get task metadata to check if this is a payment task
+					const { data: taskData, error: taskError } = await supabase
+						.from('tasks')
+						.select('metadata')
+						.eq('id', resolvedTaskId)
+						.single();
+					
+					// Only update if this task has payment_schedule_id in metadata (payment tasks only)
+					if (taskData?.metadata?.payment_schedule_id && taskData?.metadata?.payment_type === 'vendor_payment') {
+						const paymentScheduleId = taskData.metadata.payment_schedule_id;
+						console.log('💳 [TaskCompletion] Updating payment_reference for payment schedule:', paymentScheduleId);
+						
+						// Update payment_reference in vendor_payment_schedule
+						const { error: updateError } = await supabase
+							.from('vendor_payment_schedule')
+							.update({ 
+								payment_reference: completionData.erp_reference_number.trim(),
+								updated_at: new Date().toISOString()
+							})
+							.eq('id', paymentScheduleId);
+						
+						if (updateError) {
+							console.error('❌ [TaskCompletion] Failed to update payment_reference:', updateError);
+						} else {
+							console.log('✅ [TaskCompletion] Payment reference updated successfully');
+						}
+					} else {
+						console.log('ℹ️ [TaskCompletion] Task has ERP reference but is not a payment task, skipping vendor_payment_schedule update');
+					}
+				} catch (paymentUpdateError) {
+					console.error('❌ [TaskCompletion] Error updating payment schedule:', paymentUpdateError);
+					// Don't fail task completion if payment update fails
+				}
 			}
 			
 			// Mark notification as read

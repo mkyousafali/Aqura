@@ -112,64 +112,211 @@
 	}
 
 	async function loadTotalTasks() {
-		// Load from task_assignments with branches relation
-		const { data: taskAssignments, error: taError } = await supabase
-			.from('task_assignments')
-			.select(`
-				*,
-				tasks(*),
-				branches:assigned_to_branch_id(id, name_en),
-				assigner:assigned_by(id, username),
-				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
-			`);
+		console.log('🔍 Loading total tasks...');
+		
+		try {
+			// Load ALL task_assignments using pagination with joins for branch and user data
+			let allTaskAssignments = [];
+			let page = 0;
+			const pageSize = 1000;
+			let hasMore = true;
 
-		if (taError) console.error('Error loading task_assignments:', taError);
+			while (hasMore) {
+				const start = page * pageSize;
+				const end = start + pageSize - 1;
+				
+				const { data: batch, error: batchError } = await supabase
+					.from('task_assignments')
+					.select(`
+						*,
+						assigned_to_branch:assigned_to_branch_id(id, name_en),
+						assigned_by_user:assigned_by(id, username),
+						assigned_to_user:assigned_to_user_id(id, username),
+						task:task_id(id, title, description)
+					`)
+					.range(start, end);
 
-		// Load from quick_task_assignments with quick_tasks.branches relation
-		const { data: quickAssignments, error: qaError } = await supabase
-			.from('quick_task_assignments')
-			.select(`
-				*,
-				quick_tasks!inner(
+				if (batchError) {
+					console.error(`❌ Error loading task_assignments batch ${page}:`, batchError);
+					break;
+				}
+
+				if (batch && batch.length > 0) {
+					allTaskAssignments = [...allTaskAssignments, ...batch];
+					console.log(`📋 Loaded batch ${page}: ${batch.length} records (total: ${allTaskAssignments.length})`);
+					
+					// If we got less than pageSize, we're done
+					if (batch.length < pageSize) {
+						hasMore = false;
+					} else {
+						page++;
+					}
+				} else {
+					hasMore = false;
+				}
+			}
+
+			console.log('📋 Total task_assignments loaded:', allTaskAssignments.length);
+
+			// Load from quick_task_assignments simplified
+			const { data: quickAssignments, error: qaError } = await supabase
+				.from('quick_task_assignments')
+				.select('*')
+				.limit(1000);
+
+			if (qaError) {
+				console.error('❌ Error loading quick_task_assignments:', qaError);
+			} else {
+				console.log('⚡ Loaded quick_task_assignments:', quickAssignments?.length || 0);
+			}
+
+			// Load receiving_tasks with receiving record information
+			const { data: receivingTasks, error: rtError } = await supabase
+				.from('receiving_tasks')
+				.select(`
 					*,
-					branches:assigned_to_branch_id(id, name_en),
-					assigner:assigned_by(id, username)
-				),
-				assignee:assigned_to_user_id(id, username, user_branch:branch_id(id, name_en))
-			`);
+					receiving_record:receiving_record_id(
+						id,
+						user_id,
+						branch:branch_id(id, name_en)
+					)
+				`)
+				.limit(1000);
 
-		if (qaError) console.error('Error loading quick_task_assignments:', qaError);
+			if (rtError) {
+				console.error('❌ Error loading receiving_tasks:', rtError);
+			} else {
+				console.log('� Loaded receiving_tasks:', receivingTasks?.length || 0);
+			}
 
-		if (taskAssignments) {
-			tasks = [...tasks, ...taskAssignments.map(ta => ({
-				...ta,
-				task_title: ta.tasks?.title || 'N/A',
-				task_description: ta.tasks?.description || '',
-				task_type: 'regular',
-				branch_name: ta.assignee?.user_branch?.name_en || ta.branches?.name_en || 'N/A',
-				branch_id: ta.assignee?.user_branch?.id || ta.assigned_to_branch_id,
-				assigned_date: ta.assigned_at,
-				deadline: ta.deadline_datetime || ta.deadline_date,
-				assigned_by_name: ta.assigner?.username || ta.assigner?.username,
-				assigned_to_name: ta.assignee?.username || ta.assignee?.username
-			}))];
-		}
+			// Process all the data
+			tasks = [];
 
-		if (quickAssignments) {
-			tasks = [...tasks, ...quickAssignments.map(qa => ({
-				...qa,
-				task_title: qa.quick_tasks?.title || 'N/A',
-				task_description: qa.quick_tasks?.description || '',
-				task_type: 'quick',
-				branch_name: qa.assignee?.user_branch?.name_en || qa.quick_tasks?.branches?.name_en || 'N/A',
-				branch_id: qa.assignee?.user_branch?.id || qa.quick_tasks?.assigned_to_branch_id,
-				assigned_date: qa.quick_tasks?.created_at,
-				deadline: qa.quick_tasks?.deadline_datetime,
-				assigned_by_name: qa.quick_tasks?.assigner?.username,
-				assigned_to_name: qa.assignee?.username,
-				price_tag: qa.quick_tasks?.price_tag,
-				issue_type: qa.quick_tasks?.issue_type
-			}))];
+			if (allTaskAssignments) {
+				console.log('📝 Processing task_assignments:', allTaskAssignments.length);
+				const processedTasks = allTaskAssignments.map(ta => ({
+					...ta,
+					task_title: ta.task?.title || `📋 Task Assignment #${ta.id.slice(-8)}`,
+					task_description: ta.task?.description || ta.task_description || ta.description || 'Regular task assignment',
+					task_type: 'regular',
+					branch_name: ta.assigned_to_branch?.name_en || 'No Branch',
+					branch_id: ta.assigned_to_branch_id,
+					assigned_date: ta.assigned_at,
+					deadline: ta.deadline_datetime || ta.deadline_date,
+					assigned_by_name: ta.assigned_by_user?.username || 'System',
+					assigned_to_name: ta.assigned_to_user?.username || 'Unassigned'
+				}));
+				tasks = [...tasks, ...processedTasks];
+			}
+
+			if (quickAssignments) {
+				console.log('⚡ Processing quick_task_assignments:', quickAssignments.length);
+				const processedQuickTasks = quickAssignments.map(qa => ({
+					...qa,
+					task_title: `⚡ Quick Task #${qa.id}`,
+					task_description: qa.description || 'Quick task assignment',
+					task_type: 'quick',
+					branch_name: 'No Branch',
+					branch_id: null,
+					assigned_date: qa.created_at,
+					deadline: null,
+					assigned_by_name: 'System',
+					assigned_to_name: 'TBD'
+				}));
+				tasks = [...tasks, ...processedQuickTasks];
+			}
+
+			if (receivingTasks) {
+				// Get unique user IDs (both creators and assigned users)
+				const creatorUserIds = [...new Set(receivingTasks.map(rt => rt.receiving_record?.user_id).filter(Boolean))];
+				const assignedUserIds = [...new Set(receivingTasks.map(rt => rt.assigned_user_id).filter(Boolean))];
+				const allUserIds = [...new Set([...creatorUserIds, ...assignedUserIds])];
+				
+				// Fetch user information for all users with IDs
+				let userMap = new Map();
+				if (allUserIds.length > 0) {
+					const { data: users, error: usersError } = await supabase
+						.from('users')
+						.select('id, username')
+						.in('id', allUserIds);
+					
+					if (usersError) {
+						console.error('❌ Error fetching users:', usersError);
+					}
+					
+					if (users) {
+						users.forEach(user => userMap.set(user.id, user.username));
+					}
+				}
+				
+				// For tasks with null assigned_user_id, find users by role and branch
+				const tasksWithNullAssignment = receivingTasks.filter(rt => !rt.assigned_user_id && rt.role_type && rt.receiving_record?.branch?.id);
+				let roleUserMap = new Map(); // Map of "role_branchId" -> username
+				
+				if (tasksWithNullAssignment.length > 0) {
+					// Get unique role+branch combinations
+					const rolesByBranch = [...new Set(tasksWithNullAssignment.map(rt => 
+						`${rt.role_type}_${rt.receiving_record.branch.id}`
+					))];
+					
+					for (const key of rolesByBranch) {
+						const [role, branchId] = key.split('_');
+						
+						// Query users with this role in this branch
+						const { data: roleUsers } = await supabase
+							.from('users')
+							.select('id, username, user_type, branch_id')
+							.eq('branch_id', branchId)
+							.ilike('user_type', `%${role}%`)
+							.limit(1)
+							.single();
+						
+						if (roleUsers) {
+							roleUserMap.set(key, roleUsers.username);
+						}
+					}
+				}
+				
+				const receivingTasksFormatted = receivingTasks.map(rt => {
+					const branchId = rt.receiving_record?.branch?.id;
+					let assignedToUsername;
+					
+					if (rt.assigned_user_id) {
+						// Use direct user ID mapping
+						assignedToUsername = userMap.get(rt.assigned_user_id);
+					} else if (rt.role_type && branchId) {
+						// Use role-based mapping for null assigned_user_id
+						const roleKey = `${rt.role_type}_${branchId}`;
+						assignedToUsername = roleUserMap.get(roleKey);
+					}
+					
+					// Fallback to role_type if no username found
+					assignedToUsername = assignedToUsername || rt.role_type || 'Unassigned';
+					
+					return {
+						...rt,
+						task_title: `📦 ${rt.title || `Receiving Task #${rt.id}`}`,
+						task_description: rt.description || 'Receiving task for inventory management',
+						task_type: 'receiving',
+						branch_name: rt.receiving_record?.branch?.name_en || 'No Branch',
+						branch_id: branchId || null,
+						assigned_date: rt.created_at,
+						deadline: rt.due_date,
+						assigned_by_name: userMap.get(rt.receiving_record?.user_id) || 'System',
+						assigned_to_name: assignedToUsername,
+						role_type: rt.role_type,
+						task_status: rt.task_status,
+						priority: rt.priority
+					};
+				});
+
+				tasks = [...tasks, ...receivingTasksFormatted];
+			}
+
+			console.log('🎯 Total tasks loaded:', tasks.length);
+
+		} catch (error) {
+			console.error('💥 Fatal error in loadTotalTasks:', error);
 		}
 	}
 
@@ -397,6 +544,110 @@
 				price_tag: qa.quick_tasks?.price_tag,
 				issue_type: qa.quick_tasks?.issue_type
 			}))];
+		}
+
+		// Load incomplete receiving tasks (not completed)
+		const { data: receivingTasks, error: rtError } = await supabase
+			.from('receiving_tasks')
+			.select(`
+				*,
+				receiving_record:receiving_record_id(
+					id,
+					user_id,
+					branch:branch_id(id, name_en)
+				)
+			`)
+			.neq('task_status', 'completed')
+			.eq('task_completed', false);
+
+		if (rtError) {
+			console.error('Error loading incomplete receiving_tasks:', rtError);
+		} else {
+			if (receivingTasks && receivingTasks.length > 0) {
+				// Get unique user IDs (both creators and assigned users)
+				const creatorUserIds = [...new Set(receivingTasks.map(rt => rt.receiving_record?.user_id).filter(Boolean))];
+				const assignedUserIds = [...new Set(receivingTasks.map(rt => rt.assigned_user_id).filter(Boolean))];
+				const allUserIds = [...new Set([...creatorUserIds, ...assignedUserIds])];
+				
+				// Fetch user information for all users with IDs
+				let userMap = new Map();
+				if (allUserIds.length > 0) {
+					const { data: users, error: usersError } = await supabase
+						.from('users')
+						.select('id, username')
+						.in('id', allUserIds);
+					
+					if (usersError) {
+						console.error('❌ Error fetching users:', usersError);
+					}
+					
+					if (users) {
+						users.forEach(user => userMap.set(user.id, user.username));
+					}
+				}
+				
+				// For tasks with null assigned_user_id, find users by role and branch
+				const tasksWithNullAssignment = receivingTasks.filter(rt => !rt.assigned_user_id && rt.role_type && rt.receiving_record?.branch?.id);
+				let roleUserMap = new Map(); // Map of "role_branchId" -> username
+				
+				if (tasksWithNullAssignment.length > 0) {
+					// Get unique role+branch combinations
+					const rolesByBranch = [...new Set(tasksWithNullAssignment.map(rt => 
+						`${rt.role_type}_${rt.receiving_record.branch.id}`
+					))];
+					
+					for (const key of rolesByBranch) {
+						const [role, branchId] = key.split('_');
+						
+						// Query users with this role in this branch
+						const { data: roleUsers } = await supabase
+							.from('users')
+							.select('id, username, user_type, branch_id')
+							.eq('branch_id', branchId)
+							.ilike('user_type', `%${role}%`)
+						.limit(1)
+						.single();
+						
+						if (roleUsers) {
+							roleUserMap.set(key, roleUsers.username);
+						}
+					}
+				}				const incompleteReceivingTasks = receivingTasks.map(rt => {
+					const branchId = rt.receiving_record?.branch?.id;
+					let assignedToUsername;
+					
+					if (rt.assigned_user_id) {
+						// Use direct user ID mapping
+						assignedToUsername = userMap.get(rt.assigned_user_id);
+					} else if (rt.role_type && branchId) {
+						// Use role-based mapping for null assigned_user_id
+						const roleKey = `${rt.role_type}_${branchId}`;
+						assignedToUsername = roleUserMap.get(roleKey);
+					}
+					
+					// Fallback to role_type if no username found
+					assignedToUsername = assignedToUsername || rt.role_type || 'Unassigned';
+					
+					return {
+						...rt,
+						receiving_task_id: rt.id,  // Preserve the receiving task ID
+						task_title: `📦 ${rt.title || `Receiving Task #${rt.id.slice(-8)}`}`,
+						task_description: rt.description || 'Receiving task for inventory management',
+						task_type: 'receiving',
+						branch_name: rt.receiving_record?.branch?.name_en || 'No Branch',
+						branch_id: branchId || null,
+						assigned_date: rt.created_at,
+						deadline: rt.due_date,
+						assigned_by_name: userMap.get(rt.receiving_record?.user_id) || 'System',
+						assigned_to_name: assignedToUsername,
+						role_type: rt.role_type,
+						task_status: rt.task_status,
+						priority: rt.priority
+					};
+				});
+				
+				tasks = [...tasks, ...incompleteReceivingTasks];
+			}
 		}
 	}
 
@@ -685,6 +936,9 @@
 	}
 
 	function applyFilters() {
+		console.log('🔍 Applying filters to', tasks.length, 'tasks');
+		console.log('🔍 Filters:', { searchQuery, selectedBranch, selectedUser, dateFilter });
+		
 		filteredTasks = tasks.filter(task => {
 			// Search filter
 			if (searchQuery) {
@@ -742,6 +996,8 @@
 
 			return true;
 		});
+
+		console.log('✅ Filtered tasks result:', filteredTasks.length, 'out of', tasks.length);
 
 		// Sort by deadline - most overdue first (earliest deadline on top)
 		filteredTasks.sort((a, b) => {
@@ -1525,7 +1781,7 @@
 	.table-container {
 		flex: 1;
 		overflow-y: auto;
-		padding: 24px;
+		padding: 0 24px 24px 24px; /* Remove top padding */
 	}
 
 	.loading,
@@ -1538,11 +1794,11 @@
 
 	.tasks-table {
 		width: 100%;
-		border-collapse: collapse;
+		border-collapse: separate;
+		border-spacing: 0;
 		background: white;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		border-radius: 8px;
-		overflow: hidden;
 	}
 
 	.tasks-table thead {
@@ -1557,6 +1813,19 @@
 		font-size: 13px;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
+		position: sticky;
+		top: 0;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		z-index: 10;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	.tasks-table th:first-child {
+		border-top-left-radius: 8px;
+	}
+
+	.tasks-table th:last-child {
+		border-top-right-radius: 8px;
 	}
 
 	.tasks-table tbody tr {

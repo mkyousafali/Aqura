@@ -12,6 +12,7 @@
 	// Task data
 	let regularTasks: any[] = [];
 	let quickTasks: any[] = [];
+	let receivingTasks: any[] = [];
 	let isLoading = true;
 	let error = '';
 	
@@ -93,6 +94,27 @@
 					quickTasks = [];
 				}
 			}
+
+			// Load receiving tasks assigned to the user
+			const { data: receivingData, error: receivingError } = await supabase
+				.from('receiving_tasks')
+				.select(`
+					id, title, description, priority, role_type, task_status,
+					task_completed, due_date, created_at, receiving_record_id,
+					clearance_certificate_url
+				`)
+				.eq('assigned_user_id', user.id)
+				.eq('task_completed', false)
+				.neq('task_status', 'completed')
+				.order('created_at', { ascending: false })
+				.limit(20);
+			
+			if (receivingError) {
+				console.error('Error loading receiving tasks:', receivingError);
+				error = error ? `${error}; Failed to load receiving tasks` : 'Failed to load receiving tasks';
+			} else {
+				receivingTasks = receivingData || [];
+			}
 			
 		} catch (err) {
 			console.error('Error loading tasks:', err);
@@ -133,8 +155,15 @@
 		}
 	}
 	
-	function navigateToTask(task: any, isQuickTask = false) {
-		if (isQuickTask) {
+	function navigateToTask(task: any, isQuickTask = false, isReceivingTask = false) {
+		if (isReceivingTask) {
+			if (task.role_type === 'inventory_manager') {
+				goto(`/mobile/receiving-tasks/${task.id}/complete`);
+			} else {
+				// For other receiving tasks, might need a different completion flow
+				goto(`/mobile/receiving-tasks/${task.id}/complete`);
+			}
+		} else if (isQuickTask) {
 			goto(`/mobile/quick-tasks/${task.quick_task.id}/complete`);
 		} else {
 			goto(`/mobile/tasks/${task.task.id}/complete`);
@@ -155,7 +184,7 @@
 				{#if counts.loading}
 					<span class="loading">Loading...</span>
 				{:else}
-					<span class="total-count">Total: {counts.total}</span>
+					<span class="total-count">Total: {regularTasks.length + quickTasks.length + receivingTasks.length}</span>
 					{#if counts.overdue > 0}
 						<span class="overdue-count">Overdue: {counts.overdue}</span>
 					{/if}
@@ -181,7 +210,7 @@
 				<p>❌ {error}</p>
 				<button on:click={loadTasks}>Try Again</button>
 			</div>
-		{:else if regularTasks.length === 0 && quickTasks.length === 0}
+		{:else if regularTasks.length === 0 && quickTasks.length === 0 && receivingTasks.length === 0}
 			<div class="empty-state">
 				<div class="empty-icon">📝</div>
 				<h3>No Active Tasks</h3>
@@ -189,6 +218,57 @@
 			</div>
 		{:else}
 			<div class="tasks-list">
+				<!-- Receiving Tasks Section -->
+				{#if receivingTasks.length > 0}
+					<div class="task-section">
+						<h2>📦 Receiving Tasks ({receivingTasks.length})</h2>
+						<div class="task-cards">
+							{#each receivingTasks as task}
+								<div class="task-card receiving-task" class:overdue={isOverdue(task.due_date)}>
+									<div class="task-header">
+										<h3>{task.title}</h3>
+										<div class="task-badges">
+											<span class="role-badge">
+												{task.role_type?.replace('_', ' ').toUpperCase() || 'RECEIVING'}
+											</span>
+											<span class="priority-badge {getPriorityColor(task.priority)}">
+												{task.priority?.toUpperCase() || 'MEDIUM'}
+											</span>
+											<span class="status-badge {getStatusColor(task.task_status)}">
+												{task.task_status?.replace('_', ' ').toUpperCase() || 'PENDING'}
+											</span>
+											{#if isOverdue(task.due_date)}
+												<span class="overdue-badge">⚠️ OVERDUE</span>
+											{/if}
+										</div>
+									</div>
+									
+									{#if task.description}
+										<p class="task-description">{task.description}</p>
+									{/if}
+									
+									<div class="task-meta">
+										<div class="task-info">
+											{#if task.due_date}
+												<span>📅 Due: {formatDateTime(task.due_date)}</span>
+											{/if}
+											<span>🕒 Created: {formatDateTime(task.created_at)}</span>
+											<span>🏷️ Role: {task.role_type?.replace('_', ' ') || 'General'}</span>
+											{#if task.receiving_record_id}
+												<span>📋 Record ID: #{task.receiving_record_id}</span>
+											{/if}
+										</div>
+										
+										<button class="complete-btn receiving-btn" on:click={() => navigateToTask(task, false, true)}>
+											{task.role_type === 'inventory_manager' ? 'Complete with Docs' : 'Complete Task'} →
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
 				<!-- Quick Tasks Section -->
 				{#if quickTasks.length > 0}
 					<div class="task-section">
@@ -227,7 +307,7 @@
 											{/if}
 										</div>
 										
-										<button class="complete-btn" on:click={() => navigateToTask(assignment, true)}>
+										<button class="complete-btn" on:click={() => navigateToTask(assignment, true, false)}>
 											Complete Task →
 										</button>
 									</div>
@@ -275,7 +355,7 @@
 											{/if}
 										</div>
 										
-										<button class="complete-btn" on:click={() => navigateToTask(assignment, false)}>
+										<button class="complete-btn" on:click={() => navigateToTask(assignment, false, false)}>
 											Complete Task →
 										</button>
 									</div>
@@ -438,6 +518,10 @@
 	.task-card.regular-task {
 		border-left: 4px solid #3b82f6;
 	}
+
+	.task-card.receiving-task {
+		border-left: 4px solid #059669;
+	}
 	
 	.task-card.overdue {
 		border-left-color: #ef4444;
@@ -466,12 +550,17 @@
 		flex-wrap: wrap;
 	}
 	
-	.priority-badge, .status-badge, .overdue-badge {
+	.priority-badge, .status-badge, .overdue-badge, .role-badge {
 		font-size: 0.75rem;
 		font-weight: 600;
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
 		text-transform: uppercase;
+	}
+
+	.role-badge {
+		background: #065f46;
+		color: white;
 	}
 	
 	.overdue-badge {
@@ -514,6 +603,14 @@
 		cursor: pointer;
 		transition: all 0.2s ease;
 		white-space: nowrap;
+	}
+
+	.complete-btn.receiving-btn {
+		background: #059669;
+	}
+
+	.complete-btn.receiving-btn:hover {
+		background: #047857;
 	}
 	
 	.complete-btn:hover {
