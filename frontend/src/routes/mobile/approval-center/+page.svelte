@@ -804,6 +804,10 @@
 							<span class="value">{selectedRequisition.approver_name}</span>
 						</div>
 						<div class="detail-item">
+							<span class="label">Created By:</span>
+							<span class="value">{selectedRequisition.creator?.username || 'Unknown'}</span>
+						</div>
+						<div class="detail-item">
 							<span class="label">Amount:</span>
 							<span class="value amount-large">SAR {formatAmount(selectedRequisition.amount)}</span>
 						</div>

@@ -1104,6 +1104,11 @@
 						</div>
 
 						<div class="detail-item">
+							<label>Created By</label>
+							<div class="detail-value">{selectedRequisition.creator?.username || 'Unknown'}</div>
+						</div>
+
+						<div class="detail-item">
 							<label>Amount</label>
 							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.amount)}</div>
 						</div>
@@ -1183,15 +1188,15 @@
 						<div class="detail-item">
 							<label>Created Date</label>
 							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
-					</div>
+						</div>
 
-					<div class="detail-item">
-						<label>Created By</label>
-						<div class="detail-value">{selectedRequisition.created_by_username || 'Unknown'}</div>
+						<div class="detail-item">
+							<label>Created By</label>
+							<div class="detail-value">{selectedRequisition.creator?.username || 'Unknown'}</div>
+						</div>
 					</div>
-				</div>
-			{/if}
-		</div>
+				{/if}
+			</div>
 
 		<div class="modal-footer">
 			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
