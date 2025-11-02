@@ -69,13 +69,18 @@ export async function GET({ url }) {
 
 		if (receiving_record_id) {
 			// Get tasks for a specific receiving record
+			console.log('Fetching tasks for receiving_record_id:', receiving_record_id);
 			const { data, error } = await supabase.rpc('get_tasks_for_receiving_record', {
 				receiving_record_id_param: receiving_record_id
 			});
 
 			if (error) {
 				console.error('Database error fetching receiving record tasks:', error);
-				return json({ error: 'Failed to fetch tasks' }, { status: 500 });
+				console.error('Error details:', JSON.stringify(error, null, 2));
+				return json({ 
+					error: 'Failed to fetch tasks: ' + error.message,
+					details: error 
+				}, { status: 500 });
 			}
 
 			// Return empty array if no tasks found instead of error

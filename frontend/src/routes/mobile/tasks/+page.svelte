@@ -183,7 +183,7 @@
 	async function loadTasks() {
 		try {
 			// Parallel loading for better performance
-			const [taskAssignmentsResult, quickTaskAssignmentsResult] = await Promise.all([
+			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
 				// Load regular task assignments with joins
 				supabase
 					.from('task_assignments')
@@ -225,14 +225,23 @@
 						)
 					`)
 					.eq('assigned_to_user_id', currentUserData.id)
+					.order('created_at', { ascending: false }),
+
+				// Load receiving tasks
+				supabase
+					.from('receiving_tasks')
+					.select('*')
+					.eq('assigned_user_id', currentUserData.id)
 					.order('created_at', { ascending: false })
 			]);
 
 			if (taskAssignmentsResult.error) throw taskAssignmentsResult.error;
 			if (quickTaskAssignmentsResult.error) throw quickTaskAssignmentsResult.error;
+			if (receivingTasksResult.error) throw receivingTasksResult.error;
 
 			const taskAssignments = taskAssignmentsResult.data || [];
 			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
+			const receivingTasks = receivingTasksResult.data || [];
 
 			// Get all task IDs for batch loading attachments
 			const regularTaskIds = taskAssignments.map(a => a.task.id);
@@ -321,8 +330,37 @@
 				};
 			});
 
+			// Process receiving tasks
+			const processedReceivingTasks = receivingTasks.map(task => {
+				return {
+					id: task.id,
+					title: task.title,
+					description: task.description,
+					priority: task.priority,
+					status: task.task_status,
+					assignment_id: task.id,
+					assignment_status: task.task_status,
+					assigned_at: task.created_at,
+					deadline_date: task.due_date ? task.due_date.split('T')[0] : null,
+					deadline_time: task.due_date ? task.due_date.split('T')[1]?.substring(0, 5) : null,
+					assigned_by: null,
+					assigned_by_name: 'System (Receiving)',
+					created_by: null,
+					created_by_name: 'System (Receiving)',
+					require_task_finished: true,
+					require_photo_upload: task.requires_original_bill_upload || false,
+					require_erp_reference: task.requires_erp_reference || false,
+					hasAttachments: false,
+					attachments: [],
+					task_type: 'receiving',
+					role_type: task.role_type,
+					receiving_record_id: task.receiving_record_id,
+					clearance_certificate_url: task.clearance_certificate_url
+				};
+			});
+
 			// Combine and sort all tasks
-			tasks = [...processedTasks, ...processedQuickTasks]
+			tasks = [...processedTasks, ...processedQuickTasks, ...processedReceivingTasks]
 				.sort((a, b) => new Date(b.assigned_at) - new Date(a.assigned_at));
 			
 			// Load user cache after loading tasks
@@ -534,23 +572,72 @@
 	}
 
 	async function markAsComplete(task) {
-		// Navigate to the appropriate completion page based on task type
-		if (task.task_type === 'quick') {
-			goto(`/mobile/quick-tasks/${task.id}/complete`);
-		} else {
-			goto(`/mobile/tasks/${task.id}/complete`);
-		}
-	}
+// Navigate to the appropriate completion page based on task type
+if (task.task_type === 'quick') {
+goto(`/mobile/quick-tasks/${task.id}/complete`);
+} else if (task.task_type === 'receiving') {
+// Handle receiving task completion inline with API call
+await completeReceivingTask(task);
+} else {
+goto(`/mobile/tasks/${task.id}/complete`);
+}
+}
 
-	function navigateToTask(task) {
-		// Navigate to the appropriate task view based on task type
-		if (task.task_type === 'quick') {
-			// For quick tasks, go directly to completion since they don't have detailed view pages
-			goto(`/mobile/quick-tasks/${task.id}/complete`);
-		} else {
-			goto(`/mobile/tasks/${task.id}`);
-		}
-	}
+async function completeReceivingTask(task) {
+const confirmed = confirm(
+`Are you sure you want to mark this receiving task as completed?\n\nRole: ${task.title}\nBranch: ${task.branch_name || 'N/A'}`
+);
+
+if (!confirmed) return;
+
+try {
+const response = await fetch('/api/receiving-tasks/complete', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+receiving_task_id: task.id,
+user_id: currentUserData?.id
+})
+});
+
+if (!response.ok) {
+const error = await response.json();
+throw new Error(error.error || 'Failed to complete receiving task');
+}
+
+alert('Receiving task completed successfully!');
+await loadTasks();
+} catch (error) {
+console.error('Error completing receiving task:', error);
+alert(`Error: ${error.message}`);
+}
+}
+
+function navigateToTask(task) {
+// Navigate to the appropriate task view based on task type
+if (task.task_type === 'quick') {
+goto(`/mobile/quick-tasks/${task.id}/complete`);
+} else if (task.task_type === 'receiving') {
+showReceivingTaskDetails(task);
+} else {
+goto(`/mobile/tasks/${task.id}`);
+}
+}
+
+function showReceivingTaskDetails(task) {
+const details = [
+`Role: ${task.title || 'N/A'}`,
+`Priority: ${task.priority || 'N/A'}`,
+`Status: ${task.task_status || 'N/A'}`,
+`Branch: ${task.branch_name || 'N/A'}`,
+`Vendor: ${task.vendor_name || 'N/A'}`,
+`Bill Number: ${task.bill_number || 'N/A'}`,
+task.due_date ? `Due Date: ${new Date(task.due_date).toLocaleDateString()}` : null,
+task.clearance_certificate_url ? `Clearance Certificate: Available` : null
+].filter(Boolean).join('\n');
+
+alert(`Receiving Task Details\n\n${details}`);
+}
 
 	// Reactive filtering - trigger when search term or filters change
 	$: searchTerm, filterStatus, filterPriority, showCompleted, filterTasks();
@@ -1558,3 +1645,4 @@
 		}
 	}
 </style>
+

@@ -121,7 +121,7 @@
 
 		try {
 			// Parallel loading for better performance
-			const [tasksResult, quickTasksResult, userDataResult] = await Promise.all([
+			const [tasksResult, quickTasksResult, receivingTasksResult, userDataResult] = await Promise.all([
 				// Load incomplete regular task count
 				supabase
 					.from('task_assignments')
@@ -138,6 +138,13 @@
 					.neq('status', 'completed')
 					.neq('status', 'cancelled'),
 
+				// Load pending receiving task count
+				supabase
+					.from('receiving_tasks')
+					.select('id, task_status', { count: 'exact', head: true })
+					.eq('assigned_user_id', currentUserData.id)
+					.eq('task_status', 'pending'),
+
 				// Load user data with permissions
 				supabase
 					.from('users')
@@ -146,8 +153,8 @@
 					.single()
 			]);
 
-			// Set task count
-			taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0);
+			// Set task count (include receiving tasks)
+			taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0) + (receivingTasksResult.count || 0);
 
 			// Handle approval permissions and counts
 			if (!userDataResult.error && userDataResult.data) {

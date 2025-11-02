@@ -7,8 +7,7 @@ export async function POST({ request }) {
 			receiving_task_id, 
 			user_id,
 			erp_reference,
-			original_bill_file_path,
-			completion_notes 
+			original_bill_file_path
 		} = await request.json();
 
 		// Validate required fields
@@ -25,8 +24,7 @@ export async function POST({ request }) {
 			receiving_task_id_param: receiving_task_id,
 			user_id_param: user_id,
 			erp_reference_param: erp_reference || null,
-			original_bill_file_path_param: original_bill_file_path || null,
-			completion_notes: completion_notes || null
+			original_bill_file_path_param: original_bill_file_path || null
 		});
 
 		if (error) {
@@ -39,14 +37,15 @@ export async function POST({ request }) {
 		// Check if the response indicates success
 		if (data && !data.success) {
 			return json({ 
-				error: data.error || 'Unknown error occurred'
+				error: data.error || 'Unknown error occurred',
+				error_code: data.error_code
 			}, { status: 400 });
 		}
 
 		return json({ 
 			success: true,
 			data: data,
-			message: data.task_completed ? 'Task completed successfully' : 'Task updated, but completion requirements not yet met'
+			message: 'Task completed successfully'
 		});
 
 	} catch (error) {
