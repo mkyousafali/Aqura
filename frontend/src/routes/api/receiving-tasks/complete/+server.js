@@ -3,29 +3,83 @@ import { supabase } from '$lib/utils/supabase';
 
 export async function POST({ request }) {
 	try {
+		const requestData = await request.json();
+		console.log('🔥 [API] Received completion request:', requestData);
+		
 		const { 
 			receiving_task_id, 
 			user_id,
 			erp_reference,
-			original_bill_file_path
-		} = await request.json();
+			original_bill_file_path,
+			has_erp_purchase_invoice = false,
+			has_pr_excel_file = false,
+			has_original_bill = false
+		} = requestData;
 
 		// Validate required fields
 		if (!receiving_task_id) {
+			console.log('❌ [API] Missing receiving_task_id');
 			return json({ error: 'Receiving task ID is required' }, { status: 400 });
 		}
 
 		if (!user_id) {
+			console.log('❌ [API] Missing user_id');
 			return json({ error: 'User ID is required' }, { status: 400 });
 		}
+
+		console.log('🔍 [API] Looking for task:', receiving_task_id);
+
+		// Get task details to check role type and requirements
+		const { data: taskData, error: taskError } = await supabase
+			.from('receiving_tasks')
+			.select('role_type, requires_erp_reference, requires_original_bill_upload')
+			.eq('id', receiving_task_id)
+			.single();
+
+		console.log('📊 [API] Task query result:', { data: taskData, error: taskError });
+
+		if (taskError || !taskData) {
+			console.log('❌ [API] Task not found:', taskError);
+			return json({ error: 'Task not found' }, { status: 404 });
+		}
+
+		// Special validation for Inventory Manager
+		if (taskData.role_type === 'inventory_manager') {
+			console.log('📦 [API] Validating Inventory Manager requirements...');
+			if (!has_erp_purchase_invoice) {
+				console.log('❌ [API] Missing ERP purchase invoice');
+				return json({ 
+					error: 'ERP Purchase Invoice Reference is required for Inventory Manager tasks' 
+				}, { status: 400 });
+			}
+			if (!has_pr_excel_file) {
+				console.log('❌ [API] Missing PR Excel file');
+				return json({ 
+					error: 'PR Excel file is required for Inventory Manager tasks' 
+				}, { status: 400 });
+			}
+			if (!has_original_bill) {
+				console.log('❌ [API] Missing original bill');
+				return json({ 
+					error: 'Original bill upload is required for Inventory Manager tasks' 
+				}, { status: 400 });
+			}
+		}
+
+		console.log('🚀 [API] Calling complete_receiving_task function...');
 
 		// Call the database function to complete the receiving task
 		const { data, error } = await supabase.rpc('complete_receiving_task', {
 			receiving_task_id_param: receiving_task_id,
 			user_id_param: user_id,
 			erp_reference_param: erp_reference || null,
-			original_bill_file_path_param: original_bill_file_path || null
+			original_bill_file_path_param: original_bill_file_path || null,
+			has_erp_purchase_invoice: has_erp_purchase_invoice,
+			has_pr_excel_file: has_pr_excel_file,
+			has_original_bill: has_original_bill
 		});
+
+		console.log('📊 [API] Database function result:', { data, error });
 
 		if (error) {
 			console.error('Database error completing receiving task:', error);

@@ -11,6 +11,20 @@
   let selectedFilter = 'all'; // all, pending, completed, overdue
   let filteredTasks = [];
   
+  // Inventory Manager Modal
+  let showInventoryManagerModal = false;
+  let selectedTask = null;
+  let isSubmittingInventoryTask = false;
+  let inventoryFormData = {
+    erp_purchase_invoice_reference: '',
+    has_erp_purchase_invoice: false,
+    has_pr_excel_file: false,
+    has_original_bill: false,
+    completion_notes: ''
+  };
+  let prExcelFile = null;
+  let originalBillFile = null;
+  
   // Load user's receiving tasks dashboard
   async function loadDashboard() {
     if (!userId) return;
@@ -65,6 +79,13 @@
   
   // Complete a receiving task
   async function completeTask(task, erpReference = '', originalBillPath = '') {
+    // Special handling for Inventory Manager tasks
+    if (task.role_type === 'inventory_manager') {
+      showInventoryManagerModal = true;
+      selectedTask = task;
+      return;
+    }
+
     try {
       const response = await fetch('/api/receiving-tasks/complete', {
         method: 'POST',
@@ -92,7 +113,7 @@
       
     } catch (err) {
       console.error('Error completing task:', err);
-      throw err;
+      alert(`Error: ${err.message}`);
     }
   }
   
@@ -156,6 +177,132 @@
   function formatDate(dateString) {
     return new Date(dateString).toLocaleString();
   }
+  
+  // Inventory Manager Modal Functions
+  function closeInventoryManagerModal() {
+    showInventoryManagerModal = false;
+    selectedTask = null;
+    // Reset form
+    inventoryFormData = {
+      erp_purchase_invoice_reference: '',
+      has_erp_purchase_invoice: false,
+      has_pr_excel_file: false,
+      has_original_bill: false,
+      completion_notes: ''
+    };
+    prExcelFile = null;
+    originalBillFile = null;
+  }
+
+  function handlePRExcelUpload(event) {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (!file.name.toLowerCase().includes('.xls') && !file.name.toLowerCase().includes('.xlsx')) {
+        alert('Please select a valid Excel file (.xls or .xlsx)');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        alert('Excel file must be less than 10MB');
+        return;
+      }
+      prExcelFile = file;
+      inventoryFormData.has_pr_excel_file = true;
+    }
+  }
+
+  function handleOriginalBillUpload(event) {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        alert('File must be less than 10MB');
+        return;
+      }
+      originalBillFile = file;
+      inventoryFormData.has_original_bill = true;
+    }
+  }
+
+  function removePRExcelFile() {
+    prExcelFile = null;
+    inventoryFormData.has_pr_excel_file = false;
+    const fileInput = document.getElementById('pr-excel-upload');
+    if (fileInput) fileInput.value = '';
+  }
+
+  function removeOriginalBillFile() {
+    originalBillFile = null;
+    inventoryFormData.has_original_bill = false;
+    const fileInput = document.getElementById('original-bill-upload');
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function submitInventoryManagerTask() {
+    if (!selectedTask || !userId) return;
+    
+    // Validate form
+    if (!inventoryFormData.erp_purchase_invoice_reference.trim()) {
+      alert('ERP Purchase Invoice Reference is required');
+      return;
+    }
+    if (!inventoryFormData.has_pr_excel_file) {
+      alert('PR Excel file is required');
+      return;
+    }
+    if (!inventoryFormData.has_original_bill) {
+      alert('Original bill is required');
+      return;
+    }
+
+    try {
+      isSubmittingInventoryTask = true;
+
+      // Submit the completion
+      const response = await fetch('/api/receiving-tasks/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          receiving_task_id: selectedTask.task_id,
+          user_id: userId,
+          erp_reference: inventoryFormData.erp_purchase_invoice_reference,
+          has_erp_purchase_invoice: inventoryFormData.has_erp_purchase_invoice,
+          has_pr_excel_file: inventoryFormData.has_pr_excel_file,
+          has_original_bill: inventoryFormData.has_original_bill,
+          completion_notes: inventoryFormData.completion_notes
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      
+      alert('Inventory Manager task completed successfully!');
+      closeInventoryManagerModal();
+      await loadDashboard();
+      
+    } catch (err) {
+      console.error('Error completing inventory task:', err);
+      alert(`Error: ${err.message}`);
+    } finally {
+      isSubmittingInventoryTask = false;
+    }
+  }
+
+  // Auto-update ERP checkbox when reference is entered
+  $: if (inventoryFormData.erp_purchase_invoice_reference?.trim()) {
+    inventoryFormData.has_erp_purchase_invoice = true;
+  } else {
+    inventoryFormData.has_erp_purchase_invoice = false;
+  }
+
+  // Validate inventory form
+  $: isInventoryFormValid = inventoryFormData.erp_purchase_invoice_reference.trim() && 
+                           inventoryFormData.has_erp_purchase_invoice && 
+                           inventoryFormData.has_pr_excel_file && 
+                           inventoryFormData.has_original_bill;
   
   // Load dashboard when userId changes
   $: if (userId) {
@@ -410,3 +557,187 @@
     </div>
   {/if}
 </div>
+
+<!-- Inventory Manager Completion Modal -->
+{#if showInventoryManagerModal && selectedTask}
+  <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" on:click={closeInventoryManagerModal}>
+    <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white" on:click|stopPropagation>
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b">
+        <h3 class="text-lg font-semibold text-gray-900">Complete Inventory Manager Task</h3>
+        <button on:click={closeInventoryManagerModal} class="text-gray-400 hover:text-gray-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Task Info -->
+      <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+        <h4 class="font-medium text-blue-900">{selectedTask.title}</h4>
+        <p class="text-sm text-blue-700 mt-1">{selectedTask.description}</p>
+      </div>
+
+      <!-- Form -->
+      <div class="mt-6 space-y-6">
+        <!-- ERP Purchase Invoice Reference -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            <span class="text-red-500">*</span> ERP Purchase Invoice Reference
+          </label>
+          <input
+            type="text"
+            bind:value={inventoryFormData.erp_purchase_invoice_reference}
+            placeholder="Enter ERP purchase invoice reference number"
+            disabled={isSubmittingInventoryTask}
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            required
+          />
+          <div class="mt-2 flex items-center">
+            <input
+              type="checkbox"
+              bind:checked={inventoryFormData.has_erp_purchase_invoice}
+              disabled
+              class="h-4 w-4 text-blue-600 border-gray-300 rounded"
+            />
+            <label class="ml-2 text-sm text-gray-600">ERP Reference Entered</label>
+          </div>
+        </div>
+
+        <!-- PR Excel File Upload -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            <span class="text-red-500">*</span> PR Excel File
+          </label>
+          {#if !prExcelFile}
+            <div class="mt-1">
+              <input
+                id="pr-excel-upload"
+                type="file"
+                accept=".xls,.xlsx"
+                on:change={handlePRExcelUpload}
+                disabled={isSubmittingInventoryTask}
+                class="hidden"
+              />
+              <label for="pr-excel-upload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                Choose Excel File
+              </label>
+            </div>
+          {:else}
+            <div class="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-md">
+              <div class="flex items-center">
+                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <span class="text-sm text-green-700">{prExcelFile.name}</span>
+              </div>
+              <button on:click={removePRExcelFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+          {/if}
+          <div class="mt-2 flex items-center">
+            <input
+              type="checkbox"
+              bind:checked={inventoryFormData.has_pr_excel_file}
+              disabled
+              class="h-4 w-4 text-blue-600 border-gray-300 rounded"
+            />
+            <label class="ml-2 text-sm text-gray-600">PR Excel File Uploaded</label>
+          </div>
+        </div>
+
+        <!-- Original Bill Upload -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            <span class="text-red-500">*</span> Original Bill
+          </label>
+          {#if !originalBillFile}
+            <div class="mt-1">
+              <input
+                id="original-bill-upload"
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                on:change={handleOriginalBillUpload}
+                disabled={isSubmittingInventoryTask}
+                class="hidden"
+              />
+              <label for="original-bill-upload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                Choose Bill File
+              </label>
+            </div>
+          {:else}
+            <div class="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-md">
+              <div class="flex items-center">
+                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <span class="text-sm text-green-700">{originalBillFile.name}</span>
+              </div>
+              <button on:click={removeOriginalBillFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+          {/if}
+          <div class="mt-2 flex items-center">
+            <input
+              type="checkbox"
+              bind:checked={inventoryFormData.has_original_bill}
+              disabled
+              class="h-4 w-4 text-blue-600 border-gray-300 rounded"
+            />
+            <label class="ml-2 text-sm text-gray-600">Original Bill Uploaded</label>
+          </div>
+        </div>
+
+        <!-- Completion Notes -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Additional Notes (Optional)</label>
+          <textarea
+            bind:value={inventoryFormData.completion_notes}
+            placeholder="Add any additional notes about the inventory task completion..."
+            disabled={isSubmittingInventoryTask}
+            rows="3"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- Modal Actions -->
+      <div class="flex items-center justify-end space-x-3 pt-6 border-t">
+        <button
+          on:click={closeInventoryManagerModal}
+          disabled={isSubmittingInventoryTask}
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          on:click={submitInventoryManagerTask}
+          disabled={!isInventoryFormValid || isSubmittingInventoryTask}
+          class="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {#if isSubmittingInventoryTask}
+            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Completing...
+          {:else}
+            Complete Task
+          {/if}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

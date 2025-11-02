@@ -1050,8 +1050,15 @@
 							created_by: $currentUser?.id,
 							created_by_name: $currentUser?.username || $currentUser?.displayName,
 							require_task_finished: true,
+							require_erp_reference: true, // MANDATORY: ERP reference required for payment tasks
 							priority: 'medium',
-							status: 'active'
+							status: 'active',
+							metadata: {
+								payment_schedule_id: paymentId,
+								payment_type: 'vendor_payment',
+								bill_number: payment.bill_number,
+								vendor_name: payment.vendor_name
+							}
 						})
 						.select()
 						.single();
@@ -1070,6 +1077,7 @@
 								assigned_by_name: $currentUser?.username || $currentUser?.displayName,
 								deadline_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Due tomorrow
 								require_task_finished: true,
+								require_erp_reference: true, // MANDATORY: ERP reference required for payment tasks
 								status: 'assigned'
 							})
 							.select()

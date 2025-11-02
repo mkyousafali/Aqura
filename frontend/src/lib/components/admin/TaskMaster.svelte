@@ -48,11 +48,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return;
 			}
 
-			// Get total tasks count as sum of task_assignments and quick_task_assignments
-			// Migration 33 -> task_assignments, Migration 23 -> quick_task_assignments
-			const [taskAssignRes, quickAssignRes] = await Promise.all([
+			// Get total tasks count as sum of task_assignments, quick_task_assignments, and receiving_tasks
+			// Migration 33 -> task_assignments, Migration 23 -> quick_task_assignments, receiving_tasks
+			const [taskAssignRes, quickAssignRes, receivingTasksRes] = await Promise.all([
 				supabase.from('task_assignments').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true })
+				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true }),
+				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true })
 			]);
 
 			if (taskAssignRes.error) {
@@ -63,8 +64,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Error fetching quick_task_assignments count:', quickAssignRes.error);
 			}
 
-			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0);
-			console.log('📊 Total tasks:', totalTasksCount, 'task_assignments:', taskAssignRes.count, 'quick_task_assignments:', quickAssignRes.count);
+			if (receivingTasksRes.error) {
+				console.error('Error fetching receiving_tasks count:', receivingTasksRes.error);
+			}
+
+			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0) + (receivingTasksRes.count || 0);
+			console.log('📊 Total tasks:', totalTasksCount, 'task_assignments:', taskAssignRes.count, 'quick_task_assignments:', quickAssignRes.count, 'receiving_tasks:', receivingTasksRes.count);
 
 			// Get active tasks count
 			const { count: activeTasksCount, error: activeError } = await supabase
@@ -76,11 +81,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Error fetching active tasks:', activeError);
 			}
 
-			// Get completed tasks count as sum of task_completions and quick_task_completions
-			// Migration 34 -> task_completions, Migration 24 -> quick_task_completions
-			const [taskCompRes, quickCompRes] = await Promise.all([
+			// Get completed tasks count as sum of task_completions, quick_task_completions, and completed receiving_tasks
+			// Migration 34 -> task_completions, Migration 24 -> quick_task_completions, receiving_tasks (completed status)
+			const [taskCompRes, quickCompRes, receivingCompRes] = await Promise.all([
 				supabase.from('task_completions').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true })
+				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true }),
+				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true }).eq('task_status', 'completed')
 			]);
 
 			if (taskCompRes.error) {
@@ -91,11 +97,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Error fetching quick_task_completions count:', quickCompRes.error);
 			}
 
-			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0);
-			console.log('✅ Completed tasks:', completedTasksCount, 'task_completions:', taskCompRes.count, 'quick_task_completions:', quickCompRes.count);
+			if (receivingCompRes.error) {
+				console.error('Error fetching completed receiving_tasks count:', receivingCompRes.error);
+			}
 
-			// Get tasks assigned to current user from both task_assignments and quick_task_assignments
-			const [myTaskAssignRes, myQuickAssignRes] = await Promise.all([
+			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0) + (receivingCompRes.count || 0);
+			console.log('✅ Completed tasks:', completedTasksCount, 'task_completions:', taskCompRes.count, 'quick_task_completions:', quickCompRes.count, 'receiving_tasks_completed:', receivingCompRes.count);
+
+			// Get tasks assigned to current user from task_assignments, quick_task_assignments, and receiving_tasks
+			const [myTaskAssignRes, myQuickAssignRes, myReceivingAssignRes] = await Promise.all([
 				supabase.from('task_assignments')
 					.select('*', { count: 'exact', head: true })
 					.eq('assigned_to_user_id', user.id)
@@ -103,7 +113,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				supabase.from('quick_task_assignments')
 					.select('*', { count: 'exact', head: true })
 					.eq('assigned_to_user_id', user.id)
-					.in('status', ['assigned', 'in_progress', 'pending'])
+					.in('status', ['assigned', 'in_progress', 'pending']),
+				supabase.from('receiving_tasks')
+					.select('*', { count: 'exact', head: true })
+					.eq('assigned_user_id', user.id)
+					.in('task_status', ['pending', 'in_progress'])
 			]);
 
 			if (myTaskAssignRes.error) {
@@ -114,18 +128,27 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Error fetching my quick_task_assignments:', myQuickAssignRes.error);
 			}
 
-			const myAssignedCount = (myTaskAssignRes.count || 0) + (myQuickAssignRes.count || 0);
-			console.log('👤 My assigned tasks:', myAssignedCount, 'task_assignments:', myTaskAssignRes.count, 'quick_task_assignments:', myQuickAssignRes.count);
+			if (myReceivingAssignRes.error) {
+				console.error('Error fetching my receiving_tasks assignments:', myReceivingAssignRes.error);
+			}
 
-			// Get tasks completed by current user from both task_completions and quick_task_completions
+			const myAssignedCount = (myTaskAssignRes.count || 0) + (myQuickAssignRes.count || 0) + (myReceivingAssignRes.count || 0);
+			console.log('👤 My assigned tasks:', myAssignedCount, 'task_assignments:', myTaskAssignRes.count, 'quick_task_assignments:', myQuickAssignRes.count, 'receiving_tasks:', myReceivingAssignRes.count);
+
+			// Get tasks completed by current user from task_completions, quick_task_completions, and receiving_tasks
 			// Note: task_completions uses 'completed_by' (text), quick_task_completions uses 'completed_by_user_id' (uuid)
-			const [myTaskCompRes, myQuickCompRes] = await Promise.all([
+			// receiving_tasks uses 'completed_by_user_id' (uuid)
+			const [myTaskCompRes, myQuickCompRes, myReceivingCompRes] = await Promise.all([
 				supabase.from('task_completions')
 					.select('*', { count: 'exact', head: true })
 					.eq('completed_by', user.id),
 				supabase.from('quick_task_completions')
 					.select('*', { count: 'exact', head: true })
+					.eq('completed_by_user_id', user.id),
+				supabase.from('receiving_tasks')
+					.select('*', { count: 'exact', head: true })
 					.eq('completed_by_user_id', user.id)
+					.eq('task_status', 'completed')
 			]);
 
 			if (myTaskCompRes.error) {
@@ -136,8 +159,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Error fetching my quick_task_completions:', myQuickCompRes.error);
 			}
 
-			const myCompletedCount = (myTaskCompRes.count || 0) + (myQuickCompRes.count || 0);
-			console.log('✔️ My completed tasks:', myCompletedCount, 'task_completions:', myTaskCompRes.count, 'quick_task_completions:', myQuickCompRes.count);
+			if (myReceivingCompRes.error) {
+				console.error('Error fetching my completed receiving_tasks:', myReceivingCompRes.error);
+			}
+
+			const myCompletedCount = (myTaskCompRes.count || 0) + (myQuickCompRes.count || 0) + (myReceivingCompRes.count || 0);
+			console.log('✔️ My completed tasks:', myCompletedCount, 'task_completions:', myTaskCompRes.count, 'quick_task_completions:', myQuickCompRes.count, 'receiving_tasks_completed:', myReceivingCompRes.count);
 
 			// Get tasks assigned BY current user to others (My Assignments)
 			// task_assignments uses 'assigned_by' (text), need to join quick_task_assignments with quick_tasks
