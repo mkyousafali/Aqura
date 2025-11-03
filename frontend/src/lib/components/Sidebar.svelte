@@ -65,7 +65,7 @@
 				.select('*')
 				.eq('user_id', $currentUser.id)
 				.eq('is_active', true)
-				.single();
+				.maybeSingle(); // Use maybeSingle to handle cases where user has no approval permissions
 
 			if (!error && data) {
 				// User has approval permission if ANY permission type is enabled

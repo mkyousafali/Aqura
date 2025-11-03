@@ -145,30 +145,28 @@
 					.eq('assigned_user_id', currentUserData.id)
 					.eq('task_status', 'pending'),
 
-				// Load user approval permissions
-				supabase
-					.from('approval_permissions')
-					.select('*')
-					.eq('user_id', currentUserData.id)
-					.eq('is_active', true)
-					.single()
-			]);
+			// Load user approval permissions
+			supabase
+				.from('approval_permissions')
+				.select('*')
+				.eq('user_id', currentUserData.id)
+				.eq('is_active', true)
+				.maybeSingle() // Use maybeSingle instead of single to handle zero results gracefully
+		]);
 
-			// Set task count (include receiving tasks)
-			taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0) + (receivingTasksResult.count || 0);
+		// Set task count (include receiving tasks)
+		taskCount = (tasksResult.count || 0) + (quickTasksResult.count || 0) + (receivingTasksResult.count || 0);
 
-			// Handle approval permissions and counts
-			if (!userDataResult.error && userDataResult.data) {
-				// User has approval permission if ANY permission type is enabled
-				hasApprovalPermission = 
-					userDataResult.data.can_approve_requisitions ||
-					userDataResult.data.can_approve_single_bill ||
-					userDataResult.data.can_approve_multiple_bill ||
-					userDataResult.data.can_approve_recurring_bill ||
-					userDataResult.data.can_approve_vendor_payments ||
-					userDataResult.data.can_approve_leave_requests;
-				
-				if (hasApprovalPermission) {
+		// Handle approval permissions and counts
+		if (!userDataResult.error && userDataResult.data) {
+			// User has approval permission if ANY permission type is enabled
+			hasApprovalPermission = 
+				userDataResult.data.can_approve_requisitions ||
+				userDataResult.data.can_approve_single_bill ||
+				userDataResult.data.can_approve_multiple_bill ||
+				userDataResult.data.can_approve_recurring_bill ||
+				userDataResult.data.can_approve_vendor_payments ||
+				userDataResult.data.can_approve_leave_requests;				if (hasApprovalPermission) {
 					// Parallel load approval counts
 					const twoDaysFromNow = new Date();
 					twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);

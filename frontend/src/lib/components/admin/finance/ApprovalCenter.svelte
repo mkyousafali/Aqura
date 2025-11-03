@@ -56,24 +56,22 @@
 
 		console.log('🔐 Current user:', $currentUser);
 
-		// Get current user's approval permissions from approval_permissions table
-		const { data: approvalPerms, error: permsError } = await supabase
-			.from('approval_permissions')
-			.select('*')
-			.eq('user_id', $currentUser.id)
-			.eq('is_active', true)
-			.single();
+	// Get current user's approval permissions from approval_permissions table
+	const { data: approvalPerms, error: permsError } = await supabase
+		.from('approval_permissions')
+		.select('*')
+		.eq('user_id', $currentUser.id)
+		.eq('is_active', true)
+		.maybeSingle(); // Use maybeSingle to handle cases where user has no approval permissions
 
-		console.log('👤 Approval permissions query result:', { approvalPerms, permsError });
+	console.log('👤 Approval permissions query result:', { approvalPerms, permsError });
 
-		if (permsError && permsError.code !== 'PGRST116') {
-			console.error('Error fetching approval permissions:', permsError);
-			alert('❌ Error checking user permissions: ' + permsError.message);
-			loading = false;
-			return;
-		}
-
-		// User can approve if ANY permission is enabled
+	if (permsError) {
+		console.error('Error fetching approval permissions:', permsError);
+		alert('❌ Error checking user permissions: ' + permsError.message);
+		loading = false;
+		return;
+	}		// User can approve if ANY permission is enabled
 		if (approvalPerms) {
 			userCanApprove = 
 				approvalPerms.can_approve_requisitions ||
