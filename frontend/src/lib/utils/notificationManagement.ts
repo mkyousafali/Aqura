@@ -509,24 +509,28 @@ export class NotificationManagementService {
 	 */
 	async markAllAsRead(userId: string): Promise<{success: boolean}> {
 		try {
-			// First get all active notifications
-			const { data: notifications, error: fetchError } = await supabase
-				.from('notifications')
-				.select('id')
-				.eq('status', 'published');
+			// Get only notifications targeted to this specific user via notification_recipients
+			const { data: recipients, error: fetchError } = await supabase
+				.from('notification_recipients')
+				.select('notification_id, notifications!inner(status)')
+				.eq('user_id', userId)
+				.eq('notifications.status', 'published');
 
 			if (fetchError) {
 				throw fetchError;
 			}
 
-			if (!notifications || notifications.length === 0) {
+			if (!recipients || recipients.length === 0) {
 				return { success: true };
 			}
 
-			// Create read states for all notifications using upsert
+			// Extract unique notification IDs
+			const notificationIds = [...new Set(recipients.map(r => r.notification_id))];
+
+			// Create read states for user's notifications using upsert
 			// This will insert new records or update existing ones
-			const readStates = notifications.map(notification => ({
-				notification_id: notification.id,
+			const readStates = notificationIds.map(notificationId => ({
+				notification_id: notificationId,
 				user_id: userId,
 				is_read: true,
 				read_at: new Date().toISOString()
