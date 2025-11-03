@@ -40,10 +40,15 @@ export async function fetchApprovalCounts(): Promise<void> {
 			console.error('❌ Error fetching requisition counts:', reqError);
 		}
 
-		// Count pending payment schedules where user is the approver
-		const { count: scheduleCount, error: schedError } = await supabaseAdmin
+		// Fetch pending payment schedules where user is the approver
+		// Need to fetch data (not just count) to filter by due date
+		const twoDaysFromNow = new Date();
+		twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+		const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+
+		const { data: schedulesData, error: schedError } = await supabaseAdmin
 			.from('non_approved_payment_scheduler')
-			.select('*', { count: 'exact', head: true })
+			.select('id, schedule_type, due_date')
 			.eq('approver_id', user.id)
 			.eq('approval_status', 'pending')
 			.in('schedule_type', ['single_bill', 'multiple_bill']);
@@ -52,14 +57,28 @@ export async function fetchApprovalCounts(): Promise<void> {
 			console.error('❌ Error fetching schedule counts:', schedError);
 		}
 
-		const pendingCount = (requisitionCount || 0) + (scheduleCount || 0);
+		// Filter schedules: all multiple_bill + single_bill within 2 days
+		const filteredSchedules = (schedulesData || []).filter(schedule => {
+			if (schedule.schedule_type === 'multiple_bill') {
+				return true; // Show all multiple bills
+			}
+			// For single_bill, only count those within 2 days
+			return schedule.due_date && schedule.due_date <= twoDaysDate;
+		});
+
+		const scheduleCount = filteredSchedules.length;
+		const pendingCount = (requisitionCount || 0) + scheduleCount;
 		
 		approvalCounts.set({
 			pending: pendingCount,
 			total: pendingCount
 		});
 
-		console.log('✅ Approval counts updated:', { pending: pendingCount });
+		console.log('✅ Approval counts updated:', { 
+			pending: pendingCount, 
+			requisitions: requisitionCount || 0,
+			schedules: scheduleCount 
+		});
 	} catch (error) {
 		console.error('❌ Error in fetchApprovalCounts:', error);
 		approvalCounts.set({ pending: 0, total: 0 });
