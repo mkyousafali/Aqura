@@ -7,6 +7,7 @@
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
+	let vendorPayments = []; // New: vendor payments requiring approval
 	let approvedPaymentSchedules = []; // Approved payment schedules from expense_scheduler
 	let rejectedPaymentSchedules = []; // Rejected payment schedules
 	let myCreatedRequisitions = []; // Requisitions created by current user
@@ -185,6 +186,36 @@
 				console.log('📋 Payment schedules detail:', paymentSchedules);
 			}
 
+			// Load VENDOR PAYMENTS requiring approval (sent_for_approval status)
+			if (approvalPerms && approvalPerms.can_approve_vendor_payments) {
+				console.log('🔍 Loading vendor payments for approval...');
+				const { data: vendorPaymentsData, error: vendorPaymentsError } = await supabaseAdmin
+					.from('vendor_payment_schedule')
+					.select(`
+						*,
+						requester:users!approval_requested_by (
+							id,
+							username
+						)
+					`)
+					.eq('approval_status', 'sent_for_approval')
+					.order('approval_requested_at', { ascending: false });
+
+				if (vendorPaymentsError) {
+					console.error('❌ Error loading vendor payments:', vendorPaymentsError);
+				} else {
+					// Filter by amount limit if set
+					vendorPayments = (vendorPaymentsData || []).filter(payment => {
+						const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
+						// If limit is 0, it means unlimited
+						if (approvalPerms.vendor_payment_amount_limit === 0) return true;
+						// Otherwise check if limit is >= payment amount
+						return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
+					});
+					console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
+				}
+			}
+
 			// Load MY CREATED requisitions (where I'm the creator)
 			const { data: myReqData, error: myReqError } = await supabaseAdmin
 				.from('expense_requisitions')
@@ -289,7 +320,7 @@
 		const myApprovedRequisitions = requisitions.filter(r => r.status === 'approved' && r.approver_id === $currentUser.id);
 		const myRejectedRequisitions = requisitions.filter(r => r.status === 'rejected' && r.approver_id === $currentUser.id);
 		
-		stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length;
+		stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length + vendorPayments.length;
 		stats.approved = myApprovedRequisitions.length + approvedSchedulesCount;
 		stats.rejected = myRejectedRequisitions.length + rejectedSchedulesCount;
 		stats.total = stats.pending + stats.approved + stats.rejected;
@@ -391,7 +422,12 @@
 					item_type: 'payment_schedule',
 					// For approved schedules from expense_scheduler, add approval_status
 					approval_status: s.approval_status || 'approved'
-				}))
+				})),
+				// Add vendor payments (only show in pending tab)
+				...(selectedStatus === 'pending' || selectedStatus === 'all' ? vendorPayments.map(vp => ({
+					...vp,
+					item_type: 'vendor_payment'
+				})) : [])
 			];
 
 			console.log('✅ Final filtered approvals:', {
@@ -564,6 +600,45 @@
 				}
 
 				alert('✅ Payment schedule approved and moved to expense scheduler!');
+			} else if (selectedRequisition.item_type === 'vendor_payment') {
+				// Approve vendor payment
+				const { data: paymentData, error: fetchError } = await supabaseAdmin
+					.from('vendor_payment_schedule')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
+
+				// Update vendor payment status
+				const { error: updateError } = await supabaseAdmin
+					.from('vendor_payment_schedule')
+					.update({
+						approval_status: 'approved',
+						approved_by: $currentUser?.id,
+						approved_at: new Date().toISOString(),
+						approval_notes: 'Approved from Approval Center'
+					})
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					await notificationService.createNotification({
+						title: 'Vendor Payment Approved',
+						message: `Your vendor payment has been approved!\n\nVendor: ${paymentData.vendor_name}\nBill Number: ${paymentData.bill_number}\nAmount: ${parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nBranch: ${paymentData.branch_name}\nApproved by: ${$currentUser?.username}`,
+						type: 'assignment_approved',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [paymentData.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Approval notification sent to requester:', paymentData.approval_requested_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+
+				alert('✅ Vendor payment approved successfully!');
 			} else {
 				// Get the requisition data first
 				const { data: reqData, error: reqError } = await supabaseAdmin
@@ -702,6 +777,45 @@
 				}
 				
 				alert('❌ Payment schedule rejected successfully!');
+			} else if (selectedRequisition.item_type === 'vendor_payment') {
+				// Reject vendor payment
+				const { data: paymentData, error: fetchError } = await supabaseAdmin
+					.from('vendor_payment_schedule')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
+
+				// Update vendor payment status
+				const { error: updateError } = await supabaseAdmin
+					.from('vendor_payment_schedule')
+					.update({
+						approval_status: 'rejected',
+						approved_by: $currentUser?.id,
+						approved_at: new Date().toISOString(),
+						approval_notes: `Rejected: ${reason}`
+					})
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					await notificationService.createNotification({
+						title: 'Vendor Payment Rejected',
+						message: `Your vendor payment has been rejected.\n\nReason: ${reason}\n\nVendor: ${paymentData.vendor_name}\nBill Number: ${paymentData.bill_number}\nAmount: ${parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR\nBranch: ${paymentData.branch_name}\nRejected by: ${$currentUser?.username}`,
+						type: 'assignment_rejected',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [paymentData.approval_requested_by]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					console.log('✅ Rejection notification sent to requester:', paymentData.approval_requested_by);
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
+				alert('❌ Vendor payment rejected successfully!');
 			} else {
 				// Get requisition data first
 				const { data: reqData, error: fetchError } = await supabaseAdmin
@@ -1014,6 +1128,46 @@
 											👁️ View
 										</button>
 									</td>
+								{:else if req.item_type === 'vendor_payment'}
+									<!-- Vendor Payment Row -->
+									<td class="req-number">
+										<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
+										<div class="schedule-id">Bill: {req.bill_number}</div>
+									</td>
+									<td>{req.branch_name}</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">
+												👤 {req.requester?.username || 'Unknown User'}
+											</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">{req.vendor_name}</div>
+											<div class="requester-id">Vendor</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>Vendor Payment</div>
+											<div class="category-ar">دفعة المورد</div>
+										</div>
+									</td>
+									<td class="amount">{formatCurrency(req.final_bill_amount || req.bill_amount)}</td>
+									<td class="payment-type">{req.payment_method?.replace(/_/g, ' ') || 'N/A'}</td>
+									<td>
+										<span class="status-badge status-pending">
+											SENT FOR APPROVAL
+										</span>
+									</td>
+									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
+									<td class="date">{formatDate(req.approval_requested_at)}</td>
+									<td>
+										<button class="btn-view" on:click={() => openDetail(req)}>
+											👁️ View
+										</button>
+									</td>
 								{/if}
 							</tr>
 						{/each}
@@ -1278,17 +1432,123 @@
 							<div class="detail-value">{selectedRequisition.creator?.username || 'Unknown'}</div>
 						</div>
 					</div>
+				{:else if selectedRequisition.item_type === 'vendor_payment'}
+					<!-- Vendor Payment Details -->
+					<div class="detail-grid">
+						<div class="detail-item">
+							<label>Payment Type</label>
+							<div class="detail-value">
+								<span class="schedule-badge vendor-payment">💰 VENDOR PAYMENT</span>
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Status</label>
+							<span class="status-badge status-pending">
+								SENT FOR APPROVAL
+							</span>
+						</div>
+
+						<div class="detail-item">
+							<label>Bill Number</label>
+							<div class="detail-value">{selectedRequisition.bill_number}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Vendor Name</label>
+							<div class="detail-value">{selectedRequisition.vendor_name}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Branch</label>
+							<div class="detail-value">{selectedRequisition.branch_name}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Bill Amount</label>
+							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.bill_amount)}</div>
+						</div>
+
+						{#if selectedRequisition.final_bill_amount && selectedRequisition.final_bill_amount !== selectedRequisition.bill_amount}
+							<div class="detail-item">
+								<label>Final Bill Amount</label>
+								<div class="detail-value amount-large">{formatCurrency(selectedRequisition.final_bill_amount)}</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Payment Method</label>
+							<div class="detail-value">{selectedRequisition.payment_method?.replace(/_/g, ' ') || 'N/A'}</div>
+						</div>
+
+						{#if selectedRequisition.bill_date}
+							<div class="detail-item">
+								<label>Bill Date</label>
+								<div class="detail-value">{formatDate(selectedRequisition.bill_date)}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.due_date}
+							<div class="detail-item">
+								<label>Due Date</label>
+								<div class="detail-value">{formatDate(selectedRequisition.due_date)}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.original_due_date && selectedRequisition.original_due_date !== selectedRequisition.due_date}
+							<div class="detail-item">
+								<label>Original Due Date</label>
+								<div class="detail-value">{formatDate(selectedRequisition.original_due_date)}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.bank_name}
+							<div class="detail-item">
+								<label>Bank Name</label>
+								<div class="detail-value">{selectedRequisition.bank_name}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.iban}
+							<div class="detail-item">
+								<label>IBAN</label>
+								<div class="detail-value">{selectedRequisition.iban}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.priority}
+							<div class="detail-item">
+								<label>Priority</label>
+								<div class="detail-value">{selectedRequisition.priority}</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Requested Date</label>
+							<div class="detail-value">{formatDate(selectedRequisition.approval_requested_at)}</div>
+						</div>
+
+						{#if selectedRequisition.approval_notes}
+							<div class="detail-item full-width">
+								<label>Notes</label>
+								<div class="detail-value description">{selectedRequisition.approval_notes}</div>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 
 		<div class="modal-footer">
-			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status))}
+			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval')}
 					{@const canApproveThis = selectedRequisition.item_type === 'payment_schedule' 
 						? selectedRequisition.approver_id === $currentUser?.id 
+						: selectedRequisition.item_type === 'vendor_payment'
+						? userCanApprove
 						: userCanApprove}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
 					{#if !canApproveThis}
 						<div class="permission-notice">
-							ℹ️ You do not have permission to approve or reject this {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'}.
+							ℹ️ You do not have permission to approve or reject this {itemTypeName}.
 							<br><small>{selectedRequisition.item_type === 'payment_schedule' ? 'This schedule is assigned to a different approver.' : 'Please contact your administrator for approval permissions.'}</small>
 						</div>
 					{/if}
@@ -1309,8 +1569,9 @@
 						{isProcessing ? '⏳ Processing...' : '❌ Reject'}
 					</button>
 				{:else}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
 					<div class="status-info">
-						This {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'} has been {selectedRequisition.status || selectedRequisition.approval_status}
+						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
 				{/if}
 				<button class="btn-close" on:click={closeDetail}>Close</button>
@@ -1680,6 +1941,11 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		margin-bottom: 0.25rem;
+	}
+
+	.schedule-badge.vendor-payment {
+		background: #dcfce7;
+		color: #166534;
 	}
 
 	.schedule-id {
