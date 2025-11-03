@@ -23,11 +23,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let roleFilter = '';
 	let statusFilter = '';
 
-	// Approval limit modal state
-	let showApprovalLimitModal = false;
-	let editingApprovalUser = null;
-	let tempApprovalLimit = 0;
-
 	// Load data from database on mount
 	onMount(async () => {
 		await loadData();
@@ -223,113 +218,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
-	async function toggleApprovalPermission(user) {
-		try {
-			// Check if current user is Master Admin
-			if (userRoleType !== 'Master Admin') {
-				alert('❌ Only Master Admins can modify approval permissions');
-				return;
-			}
-
-			const newValue = !user.can_approve_payments;
-			
-			await userManagement.updateUser(user.id, {
-				can_approve_payments: newValue
-			});
-			
-			// Update local data immediately
-			user.can_approve_payments = newValue;
-			users = [...users]; // Trigger reactivity
-			
-			console.log(`User ${user.username} approval permission changed to ${newValue}`);
-		} catch (err) {
-			console.error('Error updating approval permission:', err);
-			alert('Failed to update approval permission: ' + err.message);
-		}
-	}
-
-	async function updateApprovalLimit(user, newLimit) {
-		try {
-			// Check if current user is Master Admin
-			if (userRoleType !== 'Master Admin') {
-				alert('❌ Only Master Admins can modify approval limits');
-				return;
-			}
-
-			const limitValue = newLimit === '' || newLimit === null ? 0 : parseFloat(newLimit);
-			
-			if (isNaN(limitValue) || limitValue < 0) {
-				alert('Please enter a valid amount (0 or greater)');
-				return;
-			}
-			
-			await userManagement.updateUser(user.id, {
-				approval_amount_limit: limitValue
-			});
-			
-			// Update local data immediately
-			user.approval_amount_limit = limitValue;
-			users = [...users]; // Trigger reactivity
-			
-			console.log(`User ${user.username} approval limit updated to ${limitValue}`);
-		} catch (err) {
-			console.error('Error updating approval limit:', err);
-			alert('Failed to update approval limit: ' + err.message);
-		}
-	}
-
-	function openApprovalLimitModal(user) {
-		// Check if current user is Master Admin
-		if (userRoleType !== 'Master Admin') {
-			alert('❌ Only Master Admins can modify approval limits');
-			return;
-		}
-
-		if (!user.can_approve_payments) {
-			alert('⚠️ Please enable approval permission first');
-			return;
-		}
-
-		editingApprovalUser = user;
-		tempApprovalLimit = user.approval_amount_limit || 0;
-		showApprovalLimitModal = true;
-	}
-
-	function closeApprovalLimitModal() {
-		showApprovalLimitModal = false;
-		editingApprovalUser = null;
-		tempApprovalLimit = 0;
-	}
-
-	async function saveApprovalLimit() {
-		try {
-			if (!editingApprovalUser) return;
-
-			const limitValue = parseFloat(tempApprovalLimit);
-			
-			if (isNaN(limitValue) || limitValue < 0) {
-				alert('Please enter a valid amount (0 or greater)');
-				return;
-			}
-			
-			await userManagement.updateUser(editingApprovalUser.id, {
-				approval_amount_limit: limitValue
-			});
-			
-			// Update local data immediately
-			editingApprovalUser.approval_amount_limit = limitValue;
-			users = [...users]; // Trigger reactivity
-			
-			console.log(`User ${editingApprovalUser.username} approval limit updated to ${limitValue}`);
-			
-			closeApprovalLimitModal();
-			alert('✅ Approval limit saved successfully!');
-		} catch (err) {
-			console.error('Error updating approval limit:', err);
-			alert('Failed to update approval limit: ' + err.message);
-		}
-	}
-
 	// Get unique values for filters
 	$: uniqueBranches = [...new Set(users.map(user => user.branch_name).filter(Boolean))];
 	$: uniqueRoles = [...new Set(users.map(user => user.role_type).filter(Boolean))];
@@ -464,11 +352,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<th>Avatar</th>
 								<th>Username</th>
 								<th>Employee</th>
+								<th>Position</th>
 								<th>Branch</th>
 								<th>Role Type</th>
 								<th>Status</th>
-								<th>Approval Permission</th>
-								<th>Approval Limit (SAR)</th>
 								<th>Last Login</th>
 								<th>Actions</th>
 							</tr>
@@ -493,6 +380,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<td class="employee-cell">
 										{user.employee_name || 'Not Assigned'}
 									</td>
+									<td class="position-cell">
+										{user.position_title || 'Not Assigned'}
+									</td>
 									<td class="branch-cell">
 										{user.branch_name || 'Not Assigned'}
 									</td>
@@ -505,35 +395,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										<span class="status-badge status-{user.status}">
 											{user.status}
 										</span>
-									</td>
-									<td class="approval-permission-cell">
-										<label class="toggle-switch">
-											<input 
-												type="checkbox" 
-												checked={user.can_approve_payments || false}
-												on:change={() => toggleApprovalPermission(user)}
-												disabled={user.status !== 'active' || userRoleType !== 'Master Admin'}
-											/>
-											<span class="toggle-slider"></span>
-										</label>
-									</td>
-									<td class="approval-limit-cell">
-										{#if user.can_approve_payments}
-											<button 
-												class="approval-limit-btn"
-												on:click={() => openApprovalLimitModal(user)}
-												disabled={userRoleType !== 'Master Admin'}
-												title={userRoleType !== 'Master Admin' ? 'Only Master Admins can modify approval limits' : 'Click to set approval limit'}
-											>
-												{#if user.approval_amount_limit && user.approval_amount_limit > 0}
-													<span class="limit-amount">{parseFloat(user.approval_amount_limit).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR</span>
-												{:else}
-													<span class="no-limit">Set Limit</span>
-												{/if}
-											</button>
-										{:else}
-											<span class="no-permission">No Permission</span>
-										{/if}
 									</td>
 									<td class="login-cell">
 										{#if user.last_login}
@@ -586,72 +447,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 	{/if}
 </div>
-
-<!-- Approval Limit Modal -->
-{#if showApprovalLimitModal && editingApprovalUser}
-	<div class="modal-overlay" on:click={closeApprovalLimitModal}>
-		<div class="modal-content" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2 class="modal-title">💰 Set Approval Limit</h2>
-				<button class="modal-close" on:click={closeApprovalLimitModal}>✕</button>
-			</div>
-			
-			<div class="modal-body">
-				<div class="user-info">
-					<div class="info-row">
-						<span class="info-label">User:</span>
-						<span class="info-value">{editingApprovalUser.username}</span>
-					</div>
-					<div class="info-row">
-						<span class="info-label">Employee:</span>
-						<span class="info-value">{editingApprovalUser.employee_name || 'Not Assigned'}</span>
-					</div>
-				</div>
-
-				<div class="form-group">
-					<label for="approval-limit">Maximum Approval Amount (SAR)</label>
-					<div class="amount-input-wrapper">
-						<input 
-							type="number"
-							id="approval-limit"
-							bind:value={tempApprovalLimit}
-							min="0"
-							step="100"
-							placeholder="0.00"
-							class="modal-amount-input"
-							autofocus
-						/>
-						<span class="currency-label">SAR</span>
-					</div>
-					<p class="help-text">
-						Enter 0 for unlimited approval amount, or specify a maximum limit.
-					</p>
-				</div>
-
-				<div class="quick-amounts">
-					<p class="quick-label">Quick amounts:</p>
-					<div class="quick-buttons">
-						<button class="quick-btn" on:click={() => tempApprovalLimit = 5000}>5,000</button>
-						<button class="quick-btn" on:click={() => tempApprovalLimit = 10000}>10,000</button>
-						<button class="quick-btn" on:click={() => tempApprovalLimit = 25000}>25,000</button>
-						<button class="quick-btn" on:click={() => tempApprovalLimit = 50000}>50,000</button>
-						<button class="quick-btn" on:click={() => tempApprovalLimit = 100000}>100,000</button>
-						<button class="quick-btn unlimited" on:click={() => tempApprovalLimit = 0}>Unlimited</button>
-					</div>
-				</div>
-			</div>
-
-			<div class="modal-footer">
-				<button class="btn-cancel" on:click={closeApprovalLimitModal}>
-					Cancel
-				</button>
-				<button class="btn-save" on:click={saveApprovalLimit}>
-					💾 Save Limit
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.user-management {
@@ -1131,97 +926,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		padding: 12px 16px;
 	}
 
-	.toggle-switch {
-		position: relative;
-		display: inline-block;
-		width: 48px;
-		height: 24px;
-		cursor: pointer;
-	}
-
-	.toggle-switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.toggle-slider {
-		position: absolute;
-		cursor: pointer;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background-color: #d1d5db;
-		transition: 0.3s;
-		border-radius: 24px;
-	}
-
-	.toggle-slider:before {
-		position: absolute;
-		content: "";
-		height: 18px;
-		width: 18px;
-		left: 3px;
-		bottom: 3px;
-		background-color: white;
-		transition: 0.3s;
-		border-radius: 50%;
-	}
-
-	.toggle-switch input:checked + .toggle-slider {
-		background-color: #10b981;
-	}
-
-	.toggle-switch input:checked + .toggle-slider:before {
-		transform: translateX(24px);
-	}
-
-	.toggle-switch input:disabled + .toggle-slider {
-		background-color: #e5e7eb;
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	/* Amount Input Styles */
-	.approval-limit-cell {
-		padding: 12px 16px;
-		text-align: center;
-	}
-
-	.approval-limit-btn {
-		padding: 8px 16px;
-		border: 2px solid #d1d5db;
-		border-radius: 8px;
-		background: white;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 600;
-		transition: all 0.2s ease;
-		min-width: 120px;
-	}
-
-	.approval-limit-btn:hover:not(:disabled) {
-		border-color: #3b82f6;
-		background: #eff6ff;
-		transform: translateY(-1px);
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-	}
-
-	.approval-limit-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.limit-amount {
-		color: #059669;
-		font-family: 'Courier New', monospace;
-	}
-
-	.no-limit {
-		color: #6b7280;
-	}
-
 	.no-permission {
 		color: #9ca3af;
 		font-style: italic;
@@ -1331,166 +1035,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		color: #111827;
 		font-weight: 600;
 		font-size: 14px;
-	}
-
-	.form-group {
-		margin-bottom: 24px;
-	}
-
-	.form-group label {
-		display: block;
-		font-weight: 600;
-		color: #374151;
-		margin-bottom: 8px;
-		font-size: 14px;
-	}
-
-	.amount-input-wrapper {
-		position: relative;
-		display: flex;
-		align-items: center;
-	}
-
-	.modal-amount-input {
-		width: 100%;
-		padding: 14px 60px 14px 14px;
-		border: 2px solid #d1d5db;
-		border-radius: 8px;
-		font-size: 20px;
-		font-weight: 700;
-		text-align: right;
-		outline: none;
-		transition: border-color 0.2s, box-shadow 0.2s;
-		font-family: 'Courier New', monospace;
-	}
-
-	.modal-amount-input:focus {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	}
-
-	.currency-label {
-		position: absolute;
-		right: 14px;
-		font-weight: 700;
-		color: #6b7280;
-		font-size: 16px;
-		pointer-events: none;
-	}
-
-	.help-text {
-		margin: 8px 0 0;
-		font-size: 13px;
-		color: #6b7280;
-		line-height: 1.5;
-	}
-
-	.quick-amounts {
-		background: #f9fafb;
-		padding: 16px;
-		border-radius: 8px;
-		border: 1px solid #e5e7eb;
-	}
-
-	.quick-label {
-		font-size: 13px;
-		font-weight: 600;
-		color: #6b7280;
-		margin: 0 0 12px;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.quick-buttons {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 8px;
-	}
-
-	.quick-btn {
-		padding: 10px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		background: white;
-		color: #374151;
-		font-weight: 600;
-		font-size: 14px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.quick-btn:hover {
-		border-color: #3b82f6;
-		background: #eff6ff;
-		color: #3b82f6;
-		transform: translateY(-1px);
-	}
-
-	.quick-btn.unlimited {
-		grid-column: span 3;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
-		border: none;
-	}
-
-	.quick-btn.unlimited:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: 12px;
-		padding: 16px 24px 24px;
-		border-top: 2px solid #f3f4f6;
-	}
-
-	.btn-cancel {
-		padding: 10px 20px;
-		border: 2px solid #d1d5db;
-		border-radius: 8px;
-		background: white;
-		color: #374151;
-		font-weight: 600;
-		font-size: 14px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.btn-cancel:hover {
-		background: #f9fafb;
-		border-color: #9ca3af;
-	}
-
-	.btn-save {
-		padding: 10px 24px;
-		border: none;
-		border-radius: 8px;
-		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-		color: white;
-		font-weight: 600;
-		font-size: 14px;
-		cursor: pointer;
-		transition: all 0.2s;
-		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-	}
-
-	.btn-save:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-	}
-
-	/* Remove spinner arrows from number input */
-	.modal-amount-input::-webkit-outer-spin-button,
-	.modal-amount-input::-webkit-inner-spin-button {
-		-webkit-appearance: none;
-		margin: 0;
-	}
-
-	.modal-amount-input[type=number] {
-		-moz-appearance: textfield;
-		appearance: textfield;
 	}
 
 	@media (max-width: 768px) {

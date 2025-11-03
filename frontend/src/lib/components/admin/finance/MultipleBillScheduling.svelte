@@ -116,6 +116,24 @@
 
 	async function loadApprovers() {
 		try {
+			// Load users with multiple bill approval permissions from approval_permissions table
+			const { data: approvalPermsData } = await supabaseAdmin
+				.from('approval_permissions')
+				.select('user_id, multiple_bill_amount_limit, can_approve_multiple_bill')
+				.eq('is_active', true)
+				.eq('can_approve_multiple_bill', true);
+
+			// Get user IDs with multiple bill approval permissions
+			const approverUserIds = approvalPermsData?.map(p => p.user_id) || [];
+			
+			if (approverUserIds.length === 0) {
+				console.warn('No users with multiple bill approval permissions found');
+				approvers = [];
+				filteredApprovers = [];
+				return;
+			}
+
+			// Load user details for those with permissions
 			const { data, error } = await supabaseAdmin
 				.from('users')
 				.select(`
@@ -125,11 +143,20 @@
 					)
 				`)
 				.eq('status', 'active')
-				.eq('can_approve_payments', true)
+				.in('id', approverUserIds)
 				.order('username');
 
 			if (error) throw error;
-			approvers = data || [];
+
+			// Merge approval limits with user data
+			approvers = (data || []).map(user => {
+				const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
+				return {
+					...user,
+					approval_amount_limit: approvalPerm?.multiple_bill_amount_limit || 0,
+					can_approve_payments: true // For backward compatibility
+				};
+			});
 			filteredApprovers = approvers;
 		} catch (error) {
 			console.error('Error loading approvers:', error);
@@ -1082,35 +1109,6 @@
 								</div>
 							{/if}
 
-							<!-- Approver Selection (Required for all bills) -->
-							<div class="form-group approver-field">
-								<label for="approver">Select Approver *</label>
-								<select
-									id="approver"
-									class="form-select"
-									bind:value={bills[activeBillIndex].approverId}
-									disabled={bills[activeBillIndex].saved}
-									on:change={() => {
-										const approver = approvers.find(a => a.id === bills[activeBillIndex].approverId);
-										bills[activeBillIndex].approverName = approver?.username || '';
-									}}
-								>
-									<option value={null}>-- Select Approver --</option>
-									{#each approvers as approver}
-										<option value={approver.id}>
-											{approver.username} - 
-											{#if approver.approval_amount_limit === 0}
-												♾️ Unlimited
-											{:else}
-												{approver.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
-											{/if}
-											({approver.user_type === 'global' ? 'Global' : branches.find(b => b.id === approver.branch_id)?.name_en || 'Branch'})
-										</option>
-									{/each}
-								</select>
-								<p class="field-hint">⚠️ This bill will require approval before posting to expense scheduler</p>
-							</div>
-
 							<!-- Amount -->
 							<div class="form-group">
 								<label for="amount">Amount (SAR) *</label>
@@ -1126,6 +1124,38 @@
 								/>
 							</div>
 
+						<!-- Approver Selection (Required for all bills) -->
+						<div class="form-group approver-field">
+							<label for="approver">Select Approver *</label>
+							<select
+								id="approver"
+								class="form-select"
+								bind:value={bills[activeBillIndex].approverId}
+								disabled={bills[activeBillIndex].saved}
+								on:change={() => {
+									const approver = approvers.find(a => a.id === bills[activeBillIndex].approverId);
+									bills[activeBillIndex].approverName = approver?.username || '';
+								}}
+							>
+								<option value={null}>-- Select Approver --</option>
+								{#each approvers as approver}
+									{@const billAmount = parseFloat(bills[activeBillIndex].amount) || 0}
+									{@const isOverLimit = billAmount > 0 && approver.approval_amount_limit > 0 && approver.approval_amount_limit < billAmount}
+									{#if !isOverLimit}
+									<option value={approver.id}>
+										{approver.username} - 
+										{#if approver.approval_amount_limit === 0}
+											♾️ Unlimited
+										{:else}
+											{approver.approval_amount_limit?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
+										{/if}
+										({approver.user_type === 'global' ? 'Global' : branches.find(b => b.id === approver.branch_id)?.name_en || 'Branch'})
+									</option>
+									{/if}
+								{/each}
+							</select>
+							<p class="field-hint">⚠️ This bill will require approval before posting to expense scheduler</p>
+						</div>
 							<!-- Description -->
 							<div class="form-group">
 								<label for="description">Description / Notes</label>

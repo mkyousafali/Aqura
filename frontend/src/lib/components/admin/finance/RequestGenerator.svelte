@@ -79,29 +79,52 @@
 				.order('name_en');
 			branches = branchData || [];
 
-		// Load users with approval permissions only
-		const { data: userData } = await supabaseAdmin
-			.from('users')
-			.select(`
-				id,
-				username,
-				employee_id,
-				branch_id,
-				user_type,
-				status,
-				can_approve_payments,
-				approval_amount_limit,
-				hr_employees (
-					name
-				)
-			`)
-			.eq('status', 'active')
-			.eq('can_approve_payments', true)
-			.order('username');
-		users = userData || [];
-		filteredUsers = users;
+		// Load users with approval permissions from approval_permissions table
+		const { data: approvalPermsData } = await supabaseAdmin
+			.from('approval_permissions')
+			.select('user_id, requisition_amount_limit, can_approve_requisitions')
+			.eq('is_active', true)
+			.eq('can_approve_requisitions', true);
 
-			// Load requesters
+		// Get user IDs with requisition approval permissions
+		const approverUserIds = approvalPermsData?.map(p => p.user_id) || [];
+		
+		if (approverUserIds.length === 0) {
+			console.warn('No users with requisition approval permissions found');
+			users = [];
+			filteredUsers = [];
+		} else {
+			// Load user details for those with permissions
+			const { data: userData } = await supabaseAdmin
+				.from('users')
+				.select(`
+					id,
+					username,
+					employee_id,
+					branch_id,
+					user_type,
+					status,
+					hr_employees (
+						name
+					)
+				`)
+				.eq('status', 'active')
+				.in('id', approverUserIds)
+				.order('username');
+
+			// Merge approval limits with user data
+			users = (userData || []).map(user => {
+				const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
+				return {
+					...user,
+					approval_amount_limit: approvalPerm?.requisition_amount_limit || 0,
+					can_approve_payments: true // For backward compatibility
+				};
+			});
+			filteredUsers = users;
+		}
+
+		// Load requesters
 			const { data: requesterData } = await supabaseAdmin
 				.from('requesters')
 				.select('*')

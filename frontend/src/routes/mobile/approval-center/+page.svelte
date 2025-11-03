@@ -60,20 +60,31 @@
 				return;
 			}
 
-		// Get current user's approval permissions
+		// Get current user's approval permissions from approval_permissions table
 		const { supabase } = await import('$lib/utils/supabase');
-		const { data: userData, error: userError } = await supabase
-			.from('users')
-			.select('id, username, can_approve_payments, approval_amount_limit')
-			.eq('id', $currentUser.id)
+		const { data: approvalPerms, error: permsError } = await supabase
+			.from('approval_permissions')
+			.select('*')
+			.eq('user_id', $currentUser.id)
+			.eq('is_active', true)
 			.single();
 
-		if (userError) {
-			console.error('Error checking user permissions:', userError);
+		if (permsError && permsError.code !== 'PGRST116') {
+			console.error('Error checking user permissions:', permsError);
 		}
 
-		// Store user's approval permission status (don't block viewing)
-		userCanApprove = userData?.can_approve_payments || false;
+		// User can approve if ANY permission is enabled
+		if (approvalPerms) {
+			userCanApprove = 
+				approvalPerms.can_approve_requisitions ||
+				approvalPerms.can_approve_single_bill ||
+				approvalPerms.can_approve_multiple_bill ||
+				approvalPerms.can_approve_recurring_bill ||
+				approvalPerms.can_approve_vendor_payments ||
+				approvalPerms.can_approve_leave_requests;
+		} else {
+			userCanApprove = false;
+		}
 		console.log('👤 User approval permission:', userCanApprove);			// Import supabaseAdmin for admin queries
 			const { supabaseAdmin } = await import('$lib/utils/supabase');
 			

@@ -6,14 +6,12 @@
 
 	// Step management
 	let currentStep = 1;
-	const totalSteps = 3; // Step 1: Branch & Category, Step 2: Request, Step 3: Payment Details
+	const totalSteps = 2; // Step 1: Branch & Category, Step 2: Payment Details & Schedule
 
 	// Data arrays
 	let branches = [];
 	let categories = [];
-	let approvedRequests = [];
 	let filteredCategories = [];
-	let filteredRequests = [];
 	let approvers = [];
 	let filteredApprovers = [];
 
@@ -25,18 +23,7 @@
 	let selectedCategoryNameAr = '';
 	let categorySearchQuery = '';
 
-	// Step 2 data
-	let selectedRequestId = '';
-	let selectedRequestNumber = '';
-	let selectedRequestAmount = 0;
-	let selectedRequestRemainingBalance = 0;
-	let selectedRequestUsedAmount = 0;
-	let requestSearchQuery = '';
-	let dateFilter = 'all'; // 'all', 'today', 'yesterday', 'range'
-	let dateRangeStart = '';
-	let dateRangeEnd = '';
-
-	// Step 3 data
+	// Step 2 data (Payment Details & Schedule)
 	let paymentMethod = 'cash'; // Only 'cash' or 'bank'
 	let amount = '';
 	let description = '';
@@ -160,58 +147,55 @@
 			categories = categoriesData || [];
 			filteredCategories = categories;
 
-			// Load approvers (users with can_approve_payments = true)
-			const { data: approversData, error: approversError } = await supabaseAdmin
-				.from('users')
-				.select(`
-					id,
-					username,
-					employee_id,
-					branch_id,
-					user_type,
-					status,
-					can_approve_payments,
-					approval_amount_limit,
-					hr_employees (
-						name
-					)
-				`)
-				.eq('status', 'active')
-				.eq('can_approve_payments', true)
-				.order('username');
+			// Load approvers with recurring bill approval permissions from approval_permissions table
+			const { data: approvalPermsData, error: approvalPermsError } = await supabaseAdmin
+				.from('approval_permissions')
+				.select('user_id, recurring_bill_amount_limit, can_approve_recurring_bill')
+				.eq('is_active', true)
+				.eq('can_approve_recurring_bill', true);
 
-			if (approversError) throw approversError;
-			approvers = approversData || [];
+			if (approvalPermsError) throw approvalPermsError;
+
+			if (approvalPermsData && approvalPermsData.length > 0) {
+				const userIds = approvalPermsData.map(p => p.user_id);
+				
+				const { data: approversData, error: approversError } = await supabaseAdmin
+					.from('users')
+					.select(`
+						id,
+						username,
+						employee_id,
+						branch_id,
+						user_type,
+						status,
+						hr_employees!inner (
+							name,
+							employee_id
+						)
+					`)
+					.eq('status', 'active')
+					.in('id', userIds)
+					.order('username');
+
+				if (approversError) throw approversError;
+				
+				// Merge approval permissions data with user data
+				approvers = (approversData || []).map(user => {
+					const approvalPerm = approvalPermsData.find(p => p.user_id === user.id);
+					return {
+						...user,
+						actual_employee_id: user.hr_employees?.employee_id || '-',
+						employee_name: user.hr_employees?.name || '-',
+						approval_amount_limit: approvalPerm?.recurring_bill_amount_limit || 0
+					};
+				});
+			} else {
+				approvers = [];
+			}
+			
 			filteredApprovers = approvers;
 		} catch (error) {
 			console.error('Error loading initial data:', error);
-		}
-	}
-
-	async function loadApprovedRequests() {
-		if (!selectedBranchId) return;
-
-		try {
-			const { data, error } = await supabaseAdmin
-				.from('expense_requisitions')
-				.select('*, used_amount, remaining_balance')
-				.eq('branch_id', selectedBranchId)
-				.eq('status', 'approved')
-				.eq('is_active', true)
-				.order('created_at', { ascending: false });
-
-			if (error) throw error;
-			
-			// Filter out requests with zero remaining balance
-			const allRequests = data || [];
-			approvedRequests = allRequests.filter(request => {
-				const remainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
-				return remainingBalance > 0;
-			});
-			
-			filteredRequests = approvedRequests;
-		} catch (error) {
-			console.error('Error loading approved requests:', error);
 		}
 	}
 
@@ -229,87 +213,10 @@
 		);
 	}
 
-	function handleRequestSearch() {
-		if (!requestSearchQuery.trim()) {
-			filteredRequests = approvedRequests;
-			applyDateFilter();
-			return;
-		}
-
-		const query = requestSearchQuery.toLowerCase();
-		filteredRequests = approvedRequests.filter(
-			(req) =>
-				req.requisition_number?.toLowerCase().includes(query) ||
-				req.requester_name?.toLowerCase().includes(query) ||
-				req.approver_name?.toLowerCase().includes(query) ||
-				req.amount?.toString().includes(query)
-		);
-		applyDateFilter();
-	}
-
-	function applyDateFilter() {
-		let tempFiltered = filteredRequests;
-
-		if (dateFilter === 'today') {
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-			tempFiltered = filteredRequests.filter((req) => {
-				const reqDate = new Date(req.created_at);
-				reqDate.setHours(0, 0, 0, 0);
-				return reqDate.getTime() === today.getTime();
-			});
-		} else if (dateFilter === 'yesterday') {
-			const yesterday = new Date();
-			yesterday.setDate(yesterday.getDate() - 1);
-			yesterday.setHours(0, 0, 0, 0);
-			tempFiltered = filteredRequests.filter((req) => {
-				const reqDate = new Date(req.created_at);
-				reqDate.setHours(0, 0, 0, 0);
-				return reqDate.getTime() === yesterday.getTime();
-			});
-		} else if (dateFilter === 'range' && dateRangeStart && dateRangeEnd) {
-			const startDate = new Date(dateRangeStart);
-			const endDate = new Date(dateRangeEnd);
-			startDate.setHours(0, 0, 0, 0);
-			endDate.setHours(23, 59, 59, 999);
-			tempFiltered = filteredRequests.filter((req) => {
-				const reqDate = new Date(req.created_at);
-				return reqDate >= startDate && reqDate <= endDate;
-			});
-		}
-
-		filteredRequests = tempFiltered;
-	}
-
-	function handleDateFilterChange() {
-		filteredRequests = approvedRequests;
-		if (requestSearchQuery.trim()) {
-			handleRequestSearch();
-		} else {
-			applyDateFilter();
-		}
-	}
-
 	function selectCategory(category) {
 		selectedCategoryId = category.id;
 		selectedCategoryNameEn = category.name_en;
 		selectedCategoryNameAr = category.name_ar;
-	}
-
-	function selectRequest(request) {
-		selectedRequestId = request.id;
-		selectedRequestNumber = request.requisition_number;
-		selectedRequestAmount = parseFloat(request.amount || 0);
-		selectedRequestRemainingBalance = parseFloat(request.remaining_balance || request.amount || 0);
-		selectedRequestUsedAmount = parseFloat(request.used_amount || 0);
-	}
-
-	function clearRequestSelection() {
-		selectedRequestId = '';
-		selectedRequestNumber = '';
-		selectedRequestAmount = 0;
-		selectedRequestRemainingBalance = 0;
-		selectedRequestUsedAmount = 0;
 	}
 
 	function handleApproverSearch() {
@@ -399,10 +306,6 @@
 	async function nextStep() {
 		if (currentStep === 1) {
 			if (!validateStep1()) return;
-			await loadApprovedRequests();
-		}
-		if (currentStep === 2) {
-			// Step 2 validation is optional (request selection)
 		}
 
 		if (currentStep < totalSteps) {
@@ -574,16 +477,6 @@
 		selectedCategoryNameAr = '';
 		categorySearchQuery = '';
 		
-		selectedRequestId = '';
-		selectedRequestNumber = '';
-		selectedRequestAmount = 0;
-		selectedRequestRemainingBalance = 0;
-		selectedRequestUsedAmount = 0;
-		requestSearchQuery = '';
-		dateFilter = 'all';
-		dateRangeStart = '';
-		dateRangeEnd = '';
-		
 		paymentMethod = 'cash';
 		amount = '';
 		description = '';
@@ -674,8 +567,7 @@
 					<div class="step-number">{index + 1}</div>
 					<div class="step-label">
 						{#if index === 0}Branch & Category
-						{:else if index === 1}Approved Request
-						{:else if index === 2}Payment & Schedule{/if}
+						{:else if index === 1}Payment & Schedule{/if}
 					</div>
 				</div>
 				{#if index < totalSteps - 1}
@@ -778,16 +670,8 @@
 		</div>
 	{/if}
 
-	<!-- Step 2: Request Selection (No C/O User) -->
+	<!-- Step 2: Payment Details & Recurring Schedule -->
 	{#if currentStep === 2}
-		<div class="step-content">
-			<h3 class="step-title">Select Approved Request</h3>
-
-		</div>
-	{/if}
-
-	<!-- Step 3: Payment Details & Recurring Schedule -->
-	{#if currentStep === 3}
 		<div class="step-content">
 			<h3 class="step-title">Payment Details and Recurring Schedule</h3>
 
@@ -862,6 +746,9 @@
 							<tbody>
 								{#if filteredApprovers.length > 0}
 									{#each filteredApprovers as approver}
+										{@const scheduleAmount = parseFloat(amount) || 0}
+										{@const isOverLimit = scheduleAmount > 0 && approver.approval_amount_limit > 0 && approver.approval_amount_limit < scheduleAmount}
+										{#if !isOverLimit}
 										<tr
 											class:selected={selectedApproverId === approver.id}
 											on:click={() => selectApprover(approver)}
@@ -875,8 +762,8 @@
 												/>
 											</td>
 											<td>{approver.username}</td>
-											<td>{approver.employee_id || '-'}</td>
-											<td>{approver.hr_employees?.name || '-'}</td>
+											<td>{approver.actual_employee_id || '-'}</td>
+											<td>{approver.employee_name || '-'}</td>
 											<td>
 												{#if approver.approval_amount_limit}
 													{parseFloat(approver.approval_amount_limit).toLocaleString('en-US', { minimumFractionDigits: 2 })} SAR
@@ -885,6 +772,7 @@
 												{/if}
 											</td>
 										</tr>
+										{/if}
 									{/each}
 								{:else}
 									<tr>
@@ -1808,3 +1696,4 @@
 		transform: translateY(0);
 	}
 </style>
+

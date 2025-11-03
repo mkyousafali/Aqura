@@ -13,6 +13,7 @@
 	} from '$lib/stores/pwaInstall';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { approvalCounts } from '$lib/stores/approvalCounts';
 	
 	// Component imports
 	import BranchMaster from '$lib/components/admin/BranchMaster.svelte';
@@ -24,6 +25,7 @@
 	import ApprovalCenter from '$lib/components/admin/finance/ApprovalCenter.svelte';
 	import UserManagement from '$lib/components/admin/UserManagement.svelte';
 	import Settings from '$lib/components/admin/Settings.svelte';
+	import ApprovalPermissionsManager from '$lib/components/admin/ApprovalPermissionsManager.svelte';
 	import CommunicationCenter from '$lib/components/admin/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
@@ -33,7 +35,9 @@
 	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
 	let hasApprovalPermission = false;
-	let pendingApprovalsCount = 0;
+	
+	// Get pending approvals count from store
+	$: pendingApprovalsCount = $approvalCounts.pending;
 	
 	// Version popup state
 	let showVersionPopup = false;
@@ -45,11 +49,6 @@
 	onMount(async () => {
 		initPWAInstall();
 		await checkApprovalPermission();
-		await loadPendingApprovalsCount();
-		
-		// Refresh pending count every 30 seconds
-		const interval = setInterval(loadPendingApprovalsCount, 30000);
-		return () => clearInterval(interval);
 	});
 
 	// Check if current user has approval permissions
@@ -62,13 +61,23 @@
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase
-				.from('users')
-				.select('can_approve_payments')
-				.eq('id', $currentUser.id)
+				.from('approval_permissions')
+				.select('*')
+				.eq('user_id', $currentUser.id)
+				.eq('is_active', true)
 				.single();
 
 			if (!error && data) {
-				hasApprovalPermission = data.can_approve_payments || false;
+				// User has approval permission if ANY permission type is enabled
+				hasApprovalPermission = 
+					data.can_approve_requisitions ||
+					data.can_approve_single_bill ||
+					data.can_approve_multiple_bill ||
+					data.can_approve_recurring_bill ||
+					data.can_approve_vendor_payments ||
+					data.can_approve_leave_requests;
+			} else {
+				hasApprovalPermission = false;
 			}
 		} catch (err) {
 			console.error('Error checking approval permission:', err);
@@ -302,6 +311,28 @@
 			component: Settings,
 			icon: '🔊',
 			size: { width: 1000, height: 700 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openApprovalPermissions() {
+		const windowId = generateWindowId('approval-permissions');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Approval Permissions #${instanceNumber}`,
+			component: ApprovalPermissionsManager,
+			icon: '🔐',
+			size: { width: 950, height: 750 },
 			position: { 
 				x: 100 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
@@ -565,6 +596,14 @@
 						<span class="menu-text">Users</span>
 					</button>
 				</div>
+				{#if $currentUser?.roleType === 'Master Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openApprovalPermissions}>
+							<span class="menu-icon">🔐</span>
+							<span class="menu-text">Approval Permissions</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -599,7 +638,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v3.0.0
+				v4.0.0
 			</button>
 		</div>
 	</div>
@@ -610,61 +649,72 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v3.0.0</h3>
+				<h3>What's New in v4.0.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Request Closure Manager - Complete System</h4>
+					<h4>🔐 Granular Approval Permissions System</h4>
 					<ul>
-						<li><strong>Bill Management:</strong> Unified interface for closing expense requests with single/multiple bills</li>
-						<li><strong>Write-Off Support:</strong> Close requests without bills (written-off) with proper balance updates</li>
-						<li><strong>Automatic Sync:</strong> Database trigger automatically syncs remaining_balance to requisitions table</li>
-						<li><strong>C/O Notifications:</strong> Automatic notifications to C/O users when requests are closed</li>
-						<li><strong>Smart UI:</strong> "No Bill" option hides bill fields, live calculation updates</li>
+						<li><strong>New Approval Permissions Table:</strong> Replaced single boolean with 6 permission types (Requisitions, Single Bill, Multiple Bill, Recurring Bill, Vendor Payments, Leave Requests)</li>
+						<li><strong>Amount Limits per Type:</strong> Each permission type has its own approval amount limit (0 = unlimited)</li>
+						<li><strong>ApprovalPermissionsManager:</strong> New Master Admin-only component for managing granular permissions</li>
+						<li><strong>Auto-Hide Logic:</strong> Approvers automatically hidden from dropdown when bill amount exceeds their limit</li>
+						<li><strong>Real-time Notifications:</strong> Users notified when their approval permissions are updated</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📊 Request Manager Enhancements</h4>
+					<h4>� User Management Enhancements</h4>
 					<ul>
-						<li><strong>Remaining Balance Column:</strong> Visual display with cyan gradient, strikethrough for zero balance</li>
-						<li><strong>Approval Status Badges:</strong> Colored badges with icons (✅ Approved, ⏳ Pending, ❌ Rejected, 🔒 Closed)</li>
-						<li><strong>Window Integration:</strong> Close Request button opens RequestClosureManager as window</li>
-						<li><strong>Smart Button Logic:</strong> Shows "🔒 Closed" for closed/zero-balance requests</li>
-						<li><strong>Fixed Stats Calculation:</strong> All stats now count correctly (pending + approved + rejected + closed = total)</li>
+						<li><strong>Position Column Added:</strong> Shows employee position title from hr_positions table</li>
+						<li><strong>Approval UI Removed:</strong> Approval permissions now managed in dedicated component</li>
+						<li><strong>Clean Interface:</strong> Removed 464 lines of approval-related code from User Management</li>
+						<li><strong>Database View Integration:</strong> Uses user_management_view for efficient data retrieval</li>
+						<li><strong>Position Relationship:</strong> Links users → hr_employees → hr_position_assignments → hr_positions</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>✅ Approval Center Fixes</h4>
+					<h4>💰 Payment Scheduling Updates</h4>
 					<ul>
-						<li><strong>User-Specific Stats:</strong> Fixed total count to only show logged-in user's requests</li>
-						<li><strong>Accurate Calculations:</strong> Stats now properly filter by approver_id for current user</li>
-						<li><strong>No More Duplicates:</strong> Removed double-counting of approved/rejected items</li>
-						<li><strong>Proper Totals:</strong> Total = Pending + Approved + Rejected (no overlaps)</li>
+						<li><strong>RequestGenerator:</strong> Updated to query can_approve_requisitions permission</li>
+						<li><strong>SingleBillScheduling:</strong> Uses can_approve_single_bill with approval limit column</li>
+						<li><strong>MultipleBillScheduling:</strong> Amount field moved above approver selection, auto-hide for over-limit approvers</li>
+						<li><strong>RecurringExpenseScheduler:</strong> Step 2 removed (now 2 steps instead of 3), uses can_approve_recurring_bill</li>
+						<li><strong>Employee ID Display:</strong> Fixed to show actual employee_id from hr_employees (not UUID)</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>�️ Database Improvements</h4>
+					<h4>📱 Mobile Interface Updates</h4>
 					<ul>
-						<li><strong>Auto-Sync Trigger:</strong> sync_requisition_balance_trigger on expense_scheduler</li>
-						<li><strong>Balance Updates:</strong> Automatic remaining_balance sync to expense_requisitions</li>
-						<li><strong>Write-Off Logic:</strong> Sets remaining_balance=0, used_amount=full amount, status=closed</li>
-						<li><strong>Migration Scripts:</strong> SQL scripts for initial data sync and trigger creation</li>
+						<li><strong>Approval Badge:</strong> Mobile layout updated to check all 6 permission types</li>
+						<li><strong>Approval Center:</strong> Mobile approval center queries approval_permissions table</li>
+						<li><strong>Permission Indicators:</strong> Shows if user has ANY approval permission enabled</li>
+						<li><strong>Consistent Logic:</strong> Same permission checks across desktop and mobile</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎨 Scheduler Refactoring</h4>
+					<h4>🗄️ Database Migrations</h4>
 					<ul>
-						<li><strong>Removed Request Selection:</strong> All schedulers (Single/Multiple/Recurring) now require approval first</li>
-						<li><strong>Approval Flow:</strong> Requests must go through non_approved_payment_scheduler</li>
-						<li><strong>Consistent Workflow:</strong> Standardized approval process across all scheduler types</li>
+						<li><strong>approval_permissions.sql:</strong> Created table with 11 columns (6 permissions + 5 amount limits)</li>
+						<li><strong>migrate_approval_permissions_data.sql:</strong> Migrated existing users.can_approve_payments to new table</li>
+						<li><strong>fix_approval_permissions_rls.sql:</strong> RLS policies updated for custom authentication</li>
+						<li><strong>remove_old_approval_columns.sql:</strong> Dropped can_approve_payments and approval_amount_limit from users table</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🎨 Code Quality Improvements</h4>
+					<ul>
+						<li><strong>Net Code Reduction:</strong> 743 deletions vs 346 insertions (-397 lines total)</li>
+						<li><strong>Separation of Concerns:</strong> User Management focuses on users, ApprovalPermissionsManager handles approvals</li>
+						<li><strong>Consistent Patterns:</strong> All scheduling forms use same approval permission query pattern</li>
+						<li><strong>Type Safety:</strong> Updated TypeScript interfaces with position_title field</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> November 1, 2025</p>
+					<p><strong>Release Date:</strong> November 3, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 3.0.0 - Major Request & Approval System Overhaul</p>
-					<p><strong>Focus:</strong> Request Closure, Balance Sync, Approval Stats, Database Automation</p>
+					<p><strong>Version:</strong> 4.0.0 - Granular Approval Permissions & User Management Overhaul</p>
+					<p><strong>Focus:</strong> Approval System Redesign, User Position Display, Permission Management, Database Optimization</p>
 				</div>
 			</div>
 		</div>
