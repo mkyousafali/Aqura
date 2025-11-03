@@ -285,7 +285,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		openWindow({
 			id: windowId,
-			title: `Approval Center ${approvalCountData.pending > 0 ? `(${approvalCountData.pending} pending)` : ''}`,
+			title: 'Approval Center',
 			component: ApprovalCenter,
 			icon: '✅',
 			size: { width: 1200, height: 700 },
