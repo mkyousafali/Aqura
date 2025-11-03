@@ -7,9 +7,12 @@
 
 	let loading = true;
 	let requisitions = [];
-	let paymentSchedules = []; // Payment schedules where user is approver
+	let paymentSchedules = []; // Pending payment schedules where user is approver
+	let approvedPaymentSchedules = []; // Approved payment schedules from expense_scheduler
+	let rejectedPaymentSchedules = []; // Rejected payment schedules
 	let myCreatedRequisitions = []; // Requisitions created by current user
 	let myCreatedSchedules = []; // Payment schedules created by current user
+	let myApprovedSchedules = []; // My approved schedules
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
 	let selectedStatus = 'pending';
@@ -182,40 +185,66 @@
 			// Also load my approved/rejected schedules from expense_scheduler
 			const { data: myApprovedSchedulesData, error: myApprovedSchedulesError } = await supabaseAdmin
 				.from('expense_scheduler')
-				.select('*')
+				.select(`
+					*,
+					approver:users!approver_id (
+						id,
+						username
+					)
+				`)
 				.eq('created_by', $currentUser.id)
-				.not('schedule_type', 'eq', 'recurring');
+				.not('schedule_type', 'eq', 'recurring')
+				.not('schedule_type', 'eq', 'expense_requisition')
+				.order('created_at', { ascending: false });
 
 			let myApprovedSchedulesCount = 0;
 			if (!myApprovedSchedulesError && myApprovedSchedulesData) {
-				myApprovedSchedulesCount = myApprovedSchedulesData.length;
-				console.log('✅ My approved schedules count:', myApprovedSchedulesCount);
+				myApprovedSchedules = myApprovedSchedulesData || [];
+				myApprovedSchedulesCount = myApprovedSchedules.length;
+				console.log('✅ My approved schedules loaded:', myApprovedSchedulesCount);
 			}
 
 			// Load approved payment schedules from expense_scheduler for stats (where I'm approver)
 			const { data: approvedSchedulesData, error: approvedSchedulesError } = await supabaseAdmin
 				.from('expense_scheduler')
-				.select('id')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
 				.eq('approver_id', $currentUser.id)
-				.not('schedule_type', 'eq', 'recurring'); // Exclude parent recurring schedules
+				.not('schedule_type', 'eq', 'recurring') // Exclude parent recurring schedules
+				.not('schedule_type', 'eq', 'expense_requisition') // Exclude requisition-based schedules
+				.order('created_at', { ascending: false });
 
 			let approvedSchedulesCount = 0;
 			if (!approvedSchedulesError && approvedSchedulesData) {
-				approvedSchedulesCount = approvedSchedulesData.length;
-				console.log('✅ Approved payment schedules count (where user is approver):', approvedSchedulesCount);
+				approvedPaymentSchedules = approvedSchedulesData || [];
+				approvedSchedulesCount = approvedPaymentSchedules.length;
+				console.log('✅ Approved payment schedules loaded:', approvedSchedulesCount);
 			}
 
 			// Also load rejected schedules from non_approved_payment_scheduler
 			const { data: rejectedSchedulesData, error: rejectedSchedulesError } = await supabaseAdmin
 				.from('non_approved_payment_scheduler')
-				.select('id')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
 				.eq('approver_id', $currentUser.id)
-				.eq('approval_status', 'rejected');
+				.eq('approval_status', 'rejected')
+				.order('created_at', { ascending: false});
 			
 			let rejectedSchedulesCount = 0;
 			if (!rejectedSchedulesError && rejectedSchedulesData) {
-				rejectedSchedulesCount = rejectedSchedulesData.length;
-				console.log('✅ Rejected payment schedules count:', rejectedSchedulesCount);
+				rejectedPaymentSchedules = rejectedSchedulesData || [];
+				rejectedSchedulesCount = rejectedPaymentSchedules.length;
+				console.log('✅ Rejected payment schedules loaded:', rejectedSchedulesCount);
 			}
 
 			// Calculate stats for approvals assigned to me
@@ -259,15 +288,25 @@
 				filtered = filtered.filter(r => r.status === selectedStatus);
 			}
 
-			// Filter payment schedules - they should show up in "pending" status
-			if (selectedStatus === 'pending' || selectedStatus === 'all') {
-				filteredSchedules = paymentSchedules;
+			// Filter payment schedules based on status
+			if (selectedStatus === 'all') {
+				filteredSchedules = [...paymentSchedules, ...approvedPaymentSchedules, ...rejectedPaymentSchedules];
+			} else if (selectedStatus === 'pending') {
+				filteredSchedules = [...paymentSchedules];
+			} else if (selectedStatus === 'approved') {
+				filteredSchedules = [...approvedPaymentSchedules];
+			} else if (selectedStatus === 'rejected') {
+				filteredSchedules = [...rejectedPaymentSchedules];
 			}
 
 			// Combine filtered requisitions and payment schedules
 			filteredRequisitions = [
 				...filtered.map(r => ({ ...r, item_type: 'requisition' })),
-				...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+				...filteredSchedules.map(s => ({ 
+					...s, 
+					item_type: 'payment_schedule',
+					approval_status: s.approval_status || 'approved'
+				}))
 			];
 		} else {
 			// Filter my created requests
@@ -275,22 +314,33 @@
 			let filteredSchedules = [];
 
 			// Filter by status
-			if (selectedStatus !== 'all') {
-				filtered = filtered.filter(r => r.status === selectedStatus);
-				filteredSchedules = myCreatedSchedules.filter(s => {
-					if (selectedStatus === 'pending') return s.approval_status === 'pending';
-					if (selectedStatus === 'approved') return false; // Approved ones moved to expense_scheduler
-					if (selectedStatus === 'rejected') return s.approval_status === 'rejected';
-					return true;
-				});
+			if (selectedStatus === 'all') {
+				// Show all requisitions
+				filtered = myCreatedRequisitions;
+				// Combine all schedules: pending + rejected (from myCreatedSchedules) + approved (from myApprovedSchedules)
+				filteredSchedules = [...myCreatedSchedules, ...myApprovedSchedules];
 			} else {
-				filteredSchedules = myCreatedSchedules;
+				// Filter requisitions by status
+				filtered = myCreatedRequisitions.filter(r => r.status === selectedStatus);
+				
+				// Filter schedules by status
+				if (selectedStatus === 'pending') {
+					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'pending');
+				} else if (selectedStatus === 'approved') {
+					filteredSchedules = myApprovedSchedules;
+				} else if (selectedStatus === 'rejected') {
+					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'rejected');
+				}
 			}
 
 			// Combine filtered requests
 			filteredMyRequests = [
 				...filtered.map(r => ({ ...r, item_type: 'requisition' })),
-				...filteredSchedules.map(s => ({ ...s, item_type: 'payment_schedule' }))
+				...filteredSchedules.map(s => ({ 
+					...s, 
+					item_type: 'payment_schedule',
+					approval_status: s.approval_status || 'approved'
+				}))
 			];
 		}
 	}
@@ -835,7 +885,9 @@
 						{/if}
 						<div class="detail-item">
 							<span class="label">Status:</span>
-							<span class="status-badge status-pending">PENDING APPROVAL</span>
+							<span class="status-badge status-{selectedRequisition.approval_status || 'pending'}">
+								{(selectedRequisition.approval_status || 'pending').toUpperCase()}
+							</span>
 						</div>
 						<div class="detail-item">
 							<span class="label">Date:</span>
@@ -850,7 +902,7 @@
 					</div>
 				{/if}
 
-				{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && selectedRequisition.approval_status === 'pending')}
+				{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status))}
 					{#if !canApproveSelected}
 						<div class="permission-notice">
 							ℹ️ You do not have permission to approve or reject this {selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition'}.
