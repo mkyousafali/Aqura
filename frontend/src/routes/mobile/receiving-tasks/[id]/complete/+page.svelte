@@ -30,8 +30,8 @@
 	};
 
 	// File upload states
-	let prExcelFile: File | null = null;
-	let originalBillFile: File | null = null;
+	let prExcelFile: (File & { alreadyUploaded?: boolean }) | null = null;
+	let originalBillFile: (File & { alreadyUploaded?: boolean }) | null = null;
 
 	// Validation
 	$: isFormValid = formData.erp_purchase_invoice_reference.trim() && 
@@ -104,21 +104,31 @@
 				// Pre-fill form if data exists - load from database with proper field names
 				console.log('📋 [Mobile] Loading existing data:', receivingRecord);
 				
-				formData.erp_purchase_invoice_reference = receivingRecord.erp_purchase_invoice_reference || '';
-				formData.has_erp_purchase_invoice = receivingRecord.erp_purchase_invoice_uploaded || false;
-				formData.has_pr_excel_file = receivingRecord.pr_excel_file_uploaded || false;
-				formData.has_original_bill = receivingRecord.original_bill_uploaded || false;
-
-				// Log existing file URLs if available
-				if (receivingRecord.pr_excel_file_url) {
-					console.log('✅ [Mobile] Existing PR Excel file:', receivingRecord.pr_excel_file_url);
-				}
-				if (receivingRecord.original_bill_url) {
-					console.log('✅ [Mobile] Existing Original Bill file:', receivingRecord.original_bill_url);
-				}
+			formData.erp_purchase_invoice_reference = receivingRecord.erp_purchase_invoice_reference || '';
+			
+			// Check for ERP reference
+			if (receivingRecord.erp_purchase_invoice_reference) {
+				formData.has_erp_purchase_invoice = true;
 			}
 
-		} catch (error) {
+			// Check for PR Excel file - look for URL, not boolean flag
+			if (receivingRecord.pr_excel_file_url) {
+				formData.has_pr_excel_file = true;
+				// Create a fake File object to display the filename
+				const fileName = receivingRecord.pr_excel_file_url.split('/').pop() || 'PR Excel (Already Uploaded)';
+				prExcelFile = { name: fileName, alreadyUploaded: true } as any;
+				console.log('✅ [Mobile] PR Excel file already uploaded:', receivingRecord.pr_excel_file_url);
+			}
+
+			// Check for Original Bill file - look for URL, not boolean flag
+			if (receivingRecord.original_bill_url) {
+				formData.has_original_bill = true;
+				// Create a fake File object to display the filename
+				const fileName = receivingRecord.original_bill_url.split('/').pop() || 'Original Bill (Already Uploaded)';
+				originalBillFile = { name: fileName, alreadyUploaded: true } as any;
+				console.log('✅ [Mobile] Original bill already uploaded:', receivingRecord.original_bill_url);
+			}
+		}		} catch (error) {
 			console.error('Error loading task details:', error);
 			errorMessage = error.message || 'Failed to load task details';
 		} finally {
@@ -477,11 +487,13 @@
 							</svg>
 							<span class="file-name">{prExcelFile.name}</span>
 						</div>
-						<button class="remove-file" on:click={removePRExcelFile} disabled={isSubmitting}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M18 6L6 18M6 6l12 12"/>
-							</svg>
-						</button>
+						{#if !prExcelFile.alreadyUploaded}
+							<button class="remove-file" on:click={removePRExcelFile} disabled={isSubmitting}>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18 6L6 18M6 6l12 12"/>
+								</svg>
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -527,11 +539,13 @@
 							</svg>
 							<span class="file-name">{originalBillFile.name}</span>
 						</div>
-						<button class="remove-file" on:click={removeOriginalBillFile} disabled={isSubmitting}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M18 6L6 18M6 6l12 12"/>
-							</svg>
-						</button>
+						{#if !originalBillFile.alreadyUploaded}
+							<button class="remove-file" on:click={removeOriginalBillFile} disabled={isSubmitting}>
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18 6L6 18M6 6l12 12"/>
+								</svg>
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>

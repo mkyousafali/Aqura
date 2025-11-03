@@ -81,8 +81,10 @@
   async function completeTask(task, erpReference = '', originalBillPath = '') {
     // Special handling for Inventory Manager tasks
     if (task.role_type === 'inventory_manager') {
-      showInventoryManagerModal = true;
       selectedTask = task;
+      // Load existing file information from receiving_records
+      await loadExistingFiles(task);
+      showInventoryManagerModal = true;
       return;
     }
 
@@ -173,6 +175,52 @@
     }
   }
   
+  // Load existing files from receiving_records
+  async function loadExistingFiles(task) {
+    try {
+      const { supabase } = await import('$lib/utils/supabase');
+      
+      // Get the receiving record ID from the task
+      const { data: receivingRecord, error } = await supabase
+        .from('receiving_records')
+        .select('*')
+        .eq('id', task.receiving_record_id)
+        .single();
+      
+      if (error) {
+        console.error('Error loading receiving record:', error);
+        return;
+      }
+      
+      if (receivingRecord) {
+        // Check and set flags based on existing files
+        if (receivingRecord.original_bill_url) {
+          inventoryFormData.has_original_bill = true;
+          // Create a fake File object to display the filename
+          const fileName = receivingRecord.original_bill_url.split('/').pop() || 'Original Bill (Already Uploaded)';
+          originalBillFile = { name: fileName, alreadyUploaded: true };
+          console.log('✅ Original bill already uploaded:', receivingRecord.original_bill_url);
+        }
+        
+        if (receivingRecord.pr_excel_file_url) {
+          inventoryFormData.has_pr_excel_file = true;
+          // Create a fake File object to display the filename
+          const fileName = receivingRecord.pr_excel_file_url.split('/').pop() || 'PR Excel (Already Uploaded)';
+          prExcelFile = { name: fileName, alreadyUploaded: true };
+          console.log('✅ PR Excel file already uploaded:', receivingRecord.pr_excel_file_url);
+        }
+        
+        if (receivingRecord.erp_purchase_invoice_reference) {
+          inventoryFormData.erp_purchase_invoice_reference = receivingRecord.erp_purchase_invoice_reference;
+          inventoryFormData.has_erp_purchase_invoice = true;
+          console.log('✅ ERP reference already set:', receivingRecord.erp_purchase_invoice_reference);
+        }
+      }
+    } catch (err) {
+      console.error('Error in loadExistingFiles:', err);
+    }
+  }
+  
   // Format date
   function formatDate(dateString) {
     return new Date(dateString).toLocaleString();
@@ -225,14 +273,14 @@
   function removePRExcelFile() {
     prExcelFile = null;
     inventoryFormData.has_pr_excel_file = false;
-    const fileInput = document.getElementById('pr-excel-upload');
+    const fileInput = /** @type {any} */ (document.getElementById('pr-excel-upload'));
     if (fileInput) fileInput.value = '';
   }
 
   function removeOriginalBillFile() {
     originalBillFile = null;
     inventoryFormData.has_original_bill = false;
-    const fileInput = document.getElementById('original-bill-upload');
+    const fileInput = /** @type {any} */ (document.getElementById('original-bill-upload'));
     if (fileInput) fileInput.value = '';
   }
 
@@ -634,11 +682,13 @@
                 </svg>
                 <span class="text-sm text-green-700">{prExcelFile.name}</span>
               </div>
-              <button on:click={removePRExcelFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-              </button>
+              {#if !prExcelFile.alreadyUploaded}
+                <button on:click={removePRExcelFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              {/if}
             </div>
           {/if}
           <div class="mt-2 flex items-center">
@@ -682,11 +732,13 @@
                 </svg>
                 <span class="text-sm text-green-700">{originalBillFile.name}</span>
               </div>
-              <button on:click={removeOriginalBillFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-              </button>
+              {#if !originalBillFile.alreadyUploaded}
+                <button on:click={removeOriginalBillFile} disabled={isSubmittingInventoryTask} class="text-red-500 hover:text-red-700">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              {/if}
             </div>
           {/if}
           <div class="mt-2 flex items-center">
