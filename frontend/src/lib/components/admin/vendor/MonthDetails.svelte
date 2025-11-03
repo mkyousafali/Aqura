@@ -4,6 +4,8 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import RequestClosureManager from '../finance/RequestClosureManager.svelte';
+	import ApprovalMask from './ApprovalMask.svelte';
+	import ApproverListModal from './ApproverListModal.svelte';
 
 	// Helper function to format date as dd/mm/yyyy
 	function formatDate(dateInput) {
@@ -67,6 +69,10 @@
 		priReferenceNumber: '',
 		priNotes: ''
 	};
+
+	// Approval system state
+	let showApproverListModal = false;
+	let pendingApprovalPayment = null;
 
 	// Initialize component
 	onMount(async () => {
@@ -1392,6 +1398,65 @@
 			alert('An error occurred while updating amount');
 		}
 	}
+
+	// ============================================
+	// APPROVAL SYSTEM FUNCTIONS
+	// ============================================
+
+	/**
+	 * Open the approver list modal for a payment
+	 */
+	function handleRequestApproval(payment) {
+		if (!$currentUser?.id) {
+			alert('You must be logged in to request approval');
+			return;
+		}
+
+		pendingApprovalPayment = payment;
+		showApproverListModal = true;
+	}
+
+	/**
+	 * Handle successful approval submission
+	 */
+	async function handleApprovalSubmitted(event) {
+		const { paymentId, approvers } = event.detail;
+		
+		// Show success message
+		console.log(`✅ Payment ${paymentId} sent for approval to ${approvers.length} approver(s)`);
+		alert(`Payment sent for approval successfully!\n${approvers.length} approver(s) will be notified.`);
+		
+		// Reload payments to reflect updated status
+		await loadScheduledPayments();
+		
+		// Close modal
+		closeApproverModal();
+	}
+
+	/**
+	 * Close the approver list modal
+	 */
+	function closeApproverModal() {
+		showApproverListModal = false;
+		pendingApprovalPayment = null;
+	}
+
+	/**
+	 * Check if a payment needs approval (not approved yet)
+	 */
+	function needsApproval(payment) {
+		// Paid payments don't need approval
+		if (payment.is_paid) return false;
+		// Check if approval status is not 'approved'
+		return payment.approval_status !== 'approved';
+	}
+
+	/**
+	 * Get approval status for display
+	 */
+	function getApprovalStatus(payment) {
+		return payment.approval_status || 'pending';
+	}
 </script>
 
 <!-- Month Details Window Content -->
@@ -1591,20 +1656,45 @@
 										{#if dayData.paymentCount > 0}
 											{#each Object.entries(dayData.paymentsByVendor) as [vendorKey, vendorGroup], vendorIndex}
 												{#each vendorGroup.payments as payment}
-													<tr style="border-left: 4px solid {getVendorColor(vendorIndex)};">
+													<tr style="border-left: 4px solid {getVendorColor(vendorIndex)}; position: relative;">
+														<!-- Always visible: Bill # -->
 														<td>
 															<span class="bill-number-badge">#{payment.bill_number || 'N/A'}</span>
 														</td>
+														
+														<!-- Always visible: Vendor -->
 														<td style="color: {getVendorColor(vendorIndex)}; text-align: left; font-weight: 500;">
 															{vendorGroup.vendor_name}
 														</td>
-														<td style="text-align: right; font-weight: 600; color: #059669;">{formatCurrency(payment.final_bill_amount)}</td>
-														<td style="text-align: right;">{formatCurrency(payment.original_bill_amount || 0)}</td>
-														<td style="text-align: right;">{formatCurrency(payment.original_final_amount || 0)}</td>
-														<td>{formatDate(payment.bill_date)}</td>
-														<td>{formatDate(payment.due_date)}</td>
-														<td>{formatDate(payment.original_due_date)}</td>
-														<td>{payment.branch_name || 'N/A'}</td>
+														
+														<!-- Always visible: Amount -->
+														<td style="text-align: right; font-weight: 600; color: #059669;">
+															{formatCurrency(payment.final_bill_amount)}
+														</td>
+														
+														<!-- Maskable columns -->
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)} style="text-align: right;">
+															{formatCurrency(payment.original_bill_amount || 0)}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)} style="text-align: right;">
+															{formatCurrency(payment.original_final_amount || 0)}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
+															{formatDate(payment.bill_date)}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
+															{formatDate(payment.due_date)}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
+															{formatDate(payment.original_due_date)}
+														</td>
+														
+														<!-- Always visible: Branch -->
+														<td>
+															{payment.branch_name || 'N/A'}
+														</td>
+														
+														<!-- Always visible: Payment Method -->
 														<td>
 															<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
 															{#if !payment.is_paid}
@@ -1617,7 +1707,9 @@
 																</button>
 															{/if}
 														</td>
-														<td>
+														
+														<!-- Maskable columns -->
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
 															{#if payment.vendor_priority}
 																<span class="priority-badge priority-{payment.vendor_priority.toLowerCase()}">
 																	{payment.vendor_priority}
@@ -1626,24 +1718,39 @@
 																<span class="priority-badge priority-normal">Normal</span>
 															{/if}
 														</td>
-														<td>{payment.bank_name || 'N/A'}</td>
-														<td>{payment.iban || 'N/A'}</td>
-														<td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
+															{payment.bank_name || 'N/A'}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
+															{payment.iban || 'N/A'}
+														</td>
+														<td class="maskable-column" class:needs-approval={needsApproval(payment)}>
 															<input 
 																type="checkbox" 
 																class="payment-checkbox"
 																data-payment-id="{payment.id}"
 																checked={payment.is_paid || false}
 																on:change={(e) => handlePaymentStatusChange(payment.id, e.currentTarget.checked)}
+																disabled={needsApproval(payment)}
 															/>
 														</td>
+														
+														<!-- Always visible: Status -->
 														<td>
 															<span class="status-badge {payment.is_paid ? 'status-paid' : 'status-scheduled'}">
 																{payment.is_paid ? 'Paid' : 'Scheduled'}
 															</span>
 														</td>
+														
+														<!-- Always visible: Actions -->
 														<td>
-															{#if !payment.is_paid}
+															{#if needsApproval(payment)}
+																<ApprovalMask 
+																	approvalStatus={getApprovalStatus(payment)}
+																	onRequestApproval={() => handleRequestApproval(payment)}
+																	disabled={!$currentUser?.id}
+																/>
+															{:else if !payment.is_paid}
 																<button 
 																	class="reschedule-btn"
 																	on:click|stopPropagation={() => openRescheduleModal(payment)}
@@ -1667,6 +1774,7 @@
 																</button>
 															{/if}
 														</td>
+														
 													</tr>
 												{/each}
 											{/each}
@@ -2361,6 +2469,16 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Approver List Modal -->
+<ApproverListModal 
+	bind:isOpen={showApproverListModal}
+	paymentData={pendingApprovalPayment}
+	currentUserId={$currentUser?.id}
+	currentUserName={$currentUser?.username || 'Unknown'}
+	on:submitted={handleApprovalSubmitted}
+	on:close={closeApproverModal}
+/>
 
 <style>
 	.month-details-container {
@@ -5031,5 +5149,36 @@
 		flex: 1;
 		overflow-y: auto;
 		padding: 0;
+	}
+
+	/* ============================================
+	   APPROVAL SYSTEM STYLES
+	   ============================================ */
+
+	/* Table row positioning for overlay */
+	.simple-payments-table tbody tr {
+		position: relative;
+	}
+
+	/* Maskable columns - blur when approval is needed */
+	td.maskable-column.needs-approval {
+		filter: blur(4px);
+		pointer-events: none;
+		user-select: none;
+		position: relative;
+	}
+
+	/* Always visible columns remain clear */
+	tr:has(.needs-approval) td:nth-child(1),
+	tr:has(.needs-approval) td:nth-child(2),
+	tr:has(.needs-approval) td:nth-child(3),
+	tr:has(.needs-approval) td:nth-child(9),
+	tr:has(.needs-approval) td:nth-child(10),
+	tr:has(.needs-approval) td:nth-child(15),
+	tr:has(.needs-approval) td:nth-child(16) {
+		/* Bill #, Vendor, Amount, Branch, Payment Method, Status, and Actions columns remain visible */
+		filter: none !important;
+		pointer-events: all !important;
+		position: relative;
 	}
 </style>
