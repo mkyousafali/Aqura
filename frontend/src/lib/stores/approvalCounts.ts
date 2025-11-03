@@ -66,23 +66,61 @@ export async function fetchApprovalCounts(): Promise<void> {
 			return schedule.due_date && schedule.due_date <= twoDaysDate;
 		});
 
-		const scheduleCount = filteredSchedules.length;
-		const pendingCount = (requisitionCount || 0) + scheduleCount;
-		
-		approvalCounts.set({
-			pending: pendingCount,
-			total: pendingCount
-		});
+	const scheduleCount = filteredSchedules.length;
 
-		console.log('✅ Approval counts updated:', { 
-			pending: pendingCount, 
-			requisitions: requisitionCount || 0,
-			schedules: scheduleCount 
-		});
-	} catch (error) {
-		console.error('❌ Error in fetchApprovalCounts:', error);
-		approvalCounts.set({ pending: 0, total: 0 });
+	// Count pending vendor payment approvals (if user has permission)
+	let vendorPaymentCount = 0;
+	
+	// First check if user has vendor payment approval permissions
+	const { data: approvalPerms, error: permsError } = await supabaseAdmin
+		.from('approval_permissions')
+		.select('can_approve_vendor_payments, vendor_payment_amount_limit')
+		.eq('user_id', user.id)
+		.maybeSingle();
+
+	if (permsError) {
+		console.error('❌ Error fetching approval permissions:', permsError);
 	}
+
+	// If user can approve vendor payments, count them
+	if (approvalPerms && approvalPerms.can_approve_vendor_payments) {
+		const { data: vendorPaymentsData, error: vpError } = await supabaseAdmin
+			.from('vendor_payment_schedule')
+			.select('id, final_bill_amount, bill_amount')
+			.eq('approval_status', 'sent_for_approval');
+
+		if (vpError) {
+			console.error('❌ Error fetching vendor payment counts:', vpError);
+		} else if (vendorPaymentsData) {
+			// Filter by amount limit if set
+			const filteredPayments = vendorPaymentsData.filter(payment => {
+				const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
+				// If limit is 0, it means unlimited
+				if (approvalPerms.vendor_payment_amount_limit === 0) return true;
+				// Otherwise check if limit is >= payment amount
+				return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
+			});
+			vendorPaymentCount = filteredPayments.length;
+		}
+	}
+
+	const pendingCount = (requisitionCount || 0) + scheduleCount + vendorPaymentCount;
+	
+	approvalCounts.set({
+		pending: pendingCount,
+		total: pendingCount
+	});
+
+	console.log('✅ Approval counts updated:', { 
+		pending: pendingCount, 
+		requisitions: requisitionCount || 0,
+		schedules: scheduleCount,
+		vendorPayments: vendorPaymentCount
+	});
+} catch (error) {
+	console.error('❌ Error in fetchApprovalCounts:', error);
+	approvalCounts.set({ pending: 0, total: 0 });
+}
 }
 
 /**

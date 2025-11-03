@@ -1301,7 +1301,8 @@
 	}
 
 	// Reactive calculations for real-time updates
-	$: baseAmount = editingAmountPayment ? (editingAmountPayment.original_final_amount || editingAmountPayment.bill_amount || 0) : 0;
+	// IMPORTANT: Use bill_amount as base (not original_final_amount) to match DB constraint
+	$: baseAmount = editingAmountPayment ? (editingAmountPayment.bill_amount || 0) : 0;
 	$: discountAmount = parseFloat(editAmountForm.discountAmount) || 0;
 	$: grrAmount = parseFloat(editAmountForm.grrAmount) || 0;
 	$: priAmount = parseFloat(editAmountForm.priAmount) || 0;
@@ -1362,35 +1363,44 @@
 				.eq('id', editingAmountPayment.id)
 				.single();
 
-			const existingHistory = currentData?.adjustment_history || [];
-			const newHistory = [...existingHistory, historyEntry];
+		const existingHistory = currentData?.adjustment_history || [];
+		const newHistory = [...existingHistory, historyEntry];
 
-			// Update the payment record
-			const { error } = await supabase
-				.from('vendor_payment_schedule')
-				.update({
-					discount_amount: discountAmount,
-					discount_notes: editAmountForm.discountNotes.trim() || null,
-					grr_amount: grrAmount,
-					grr_reference_number: editAmountForm.grrReferenceNumber.trim() || null,
-					grr_notes: editAmountForm.grrNotes.trim() || null,
-					pri_amount: priAmount,
-					pri_reference_number: editAmountForm.priReferenceNumber.trim() || null,
-					pri_notes: editAmountForm.priNotes.trim() || null,
-					last_adjustment_date: new Date().toISOString(),
-					last_adjusted_by: $currentUser?.id,
-					adjustment_history: newHistory,
-					updated_at: new Date().toISOString()
-				})
-				.eq('id', editingAmountPayment.id);
+		// Log the values being sent for debugging
+		console.log('💾 Saving adjustment with values:', {
+			bill_amount: editingAmountPayment.bill_amount,
+			discount_amount: discountAmount,
+			grr_amount: grrAmount,
+			pri_amount: priAmount,
+			calculated_final: newFinalAmount,
+			formula: `${editingAmountPayment.bill_amount} - (${discountAmount} + ${grrAmount} + ${priAmount}) = ${newFinalAmount}`
+		});
 
-			if (error) {
-				console.error('Error updating amount:', error);
-				alert('Failed to update amount: ' + error.message);
-				return;
-			}
+		// Update the payment record
+		const { error } = await supabase
+			.from('vendor_payment_schedule')
+			.update({
+				final_bill_amount: newFinalAmount, // ✅ Update final_bill_amount to satisfy constraint
+				discount_amount: discountAmount,
+				discount_notes: editAmountForm.discountNotes.trim() || null,
+				grr_amount: grrAmount,
+				grr_reference_number: editAmountForm.grrReferenceNumber.trim() || null,
+				grr_notes: editAmountForm.grrNotes.trim() || null,
+				pri_amount: priAmount,
+				pri_reference_number: editAmountForm.priReferenceNumber.trim() || null,
+				pri_notes: editAmountForm.priNotes.trim() || null,
+				last_adjustment_date: new Date().toISOString(),
+				last_adjusted_by: $currentUser?.id,
+				adjustment_history: newHistory,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', editingAmountPayment.id);
 
-			alert('Amount adjusted successfully');
+		if (error) {
+			console.error('Error updating amount:', error);
+			alert('Failed to update amount: ' + error.message);
+			return;
+		}			alert('Amount adjusted successfully');
 			closeEditAmountModal();
 			await loadScheduledPayments();
 		} catch (error) {

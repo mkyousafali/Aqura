@@ -567,6 +567,9 @@
 		>
 			<span class="section-icon">✅</span>
 			<span class="section-text">Approvals</span>
+			{#if pendingApprovalsCount > 0}
+				<span class="approval-badge">{pendingApprovalsCount}</span>
+			{/if}
 		</button>
 	</div>
 		<!-- Settings Section -->

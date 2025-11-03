@@ -52,15 +52,23 @@
 			// Pre-populate form with existing data
 			if (record.erp_purchase_invoice_reference) {
 				inventoryFormData.erp_purchase_invoice_reference = record.erp_purchase_invoice_reference;
-				inventoryFormData.has_erp_purchase_invoice = record.erp_purchase_invoice_uploaded || false;
+				inventoryFormData.has_erp_purchase_invoice = true;
 			}
 
 			if (record.pr_excel_file_url) {
-				inventoryFormData.has_pr_excel_file = record.pr_excel_file_uploaded || false;
+				inventoryFormData.has_pr_excel_file = true;
+				// Create a fake File object to display the filename
+				const fileName = record.pr_excel_file_url.split('/').pop() || 'PR Excel (Already Uploaded)';
+				prExcelFile = { name: fileName, alreadyUploaded: true };
+				console.log('✅ PR Excel file already uploaded:', record.pr_excel_file_url);
 			}
 
 			if (record.original_bill_url) {
-				inventoryFormData.has_original_bill = record.original_bill_uploaded || false;
+				inventoryFormData.has_original_bill = true;
+				// Create a fake File object to display the filename
+				const fileName = record.original_bill_url.split('/').pop() || 'Original Bill (Already Uploaded)';
+				originalBillFile = { name: fileName, alreadyUploaded: true };
+				console.log('✅ Original bill already uploaded:', record.original_bill_url);
 			}
 
 		} catch (err) {
@@ -144,14 +152,14 @@
 	function removePRExcelFile() {
 		prExcelFile = null;
 		inventoryFormData.has_pr_excel_file = false;
-		const fileInput = document.getElementById('pr-excel-upload');
+		const fileInput = /** @type {any} */ (document.getElementById('pr-excel-upload'));
 		if (fileInput) fileInput.value = '';
 	}
 
 	function removeOriginalBillFile() {
 		originalBillFile = null;
 		inventoryFormData.has_original_bill = false;
-		const fileInput = document.getElementById('original-bill-upload');
+		const fileInput = /** @type {any} */ (document.getElementById('original-bill-upload'));
 		if (fileInput) fileInput.value = '';
 	}
 
@@ -393,11 +401,13 @@
 									</svg>
 									<span class="file-name">{prExcelFile.name}</span>
 								</div>
-								<button on:click={removePRExcelFile} disabled={loading} class="remove-file-btn">
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-									</svg>
-								</button>
+								{#if !prExcelFile.alreadyUploaded}
+									<button on:click={removePRExcelFile} disabled={loading} class="remove-file-btn">
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+										</svg>
+									</button>
+								{/if}
 							</div>
 						{/if}
 						<div class="checkbox-group">
@@ -439,11 +449,13 @@
 									</svg>
 									<span class="file-name">{originalBillFile.name}</span>
 								</div>
-								<button on:click={removeOriginalBillFile} disabled={loading} class="remove-file-btn">
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-									</svg>
-								</button>
+								{#if !originalBillFile.alreadyUploaded}
+									<button on:click={removeOriginalBillFile} disabled={loading} class="remove-file-btn">
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+										</svg>
+									</button>
+								{/if}
 							</div>
 						{/if}
 						<div class="checkbox-group">
