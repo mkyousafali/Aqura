@@ -33,7 +33,6 @@
 	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
 	let hasApprovalPermission = false;
-	let pendingApprovalsCount = 0;
 	
 	// Version popup state
 	let showVersionPopup = false;
@@ -45,11 +44,6 @@
 	onMount(async () => {
 		initPWAInstall();
 		await checkApprovalPermission();
-		await loadPendingApprovalsCount();
-		
-		// Refresh pending count every 30 seconds
-		const interval = setInterval(loadPendingApprovalsCount, 30000);
-		return () => clearInterval(interval);
 	});
 
 	// Check if current user has approval permissions
