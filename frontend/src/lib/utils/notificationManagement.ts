@@ -519,56 +519,30 @@ export class NotificationManagementService {
 				throw fetchError;
 			}
 
-			// Get existing read states for this user
-			const { data: existingReadStates, error: existingError } = await supabase
+			if (!notifications || notifications.length === 0) {
+				return { success: true };
+			}
+
+			// Create read states for all notifications using upsert
+			// This will insert new records or update existing ones
+			const readStates = notifications.map(notification => ({
+				notification_id: notification.id,
+				user_id: userId,
+				is_read: true,
+				read_at: new Date().toISOString()
+			}));
+
+			// Use upsert to insert or update records
+			// onConflict specifies the unique constraint to check
+			const { error: upsertError } = await supabase
 				.from('notification_read_states')
-				.select('notification_id')
-				.eq('user_id', userId);
+				.upsert(readStates, {
+					onConflict: 'notification_id,user_id',
+					ignoreDuplicates: false // Update existing records
+				});
 
-			if (existingError) {
-				throw existingError;
-			}
-
-			// Create a Set of existing notification IDs for quick lookup
-			const existingNotificationIds = new Set(
-				existingReadStates?.map(state => state.notification_id) || []
-			);
-
-			// Create read states only for notifications that don't already have read states
-			const newReadStates = notifications
-				?.filter(notification => !existingNotificationIds.has(notification.id))
-				?.map(notification => ({
-					notification_id: notification.id,
-					user_id: userId,
-					is_read: true,
-					read_at: new Date().toISOString()
-				})) || [];
-
-			// Insert new read states if any
-			if (newReadStates.length > 0) {
-				const { error: insertError } = await supabase
-					.from('notification_read_states')
-					.insert(newReadStates);
-
-				if (insertError) {
-					throw insertError;
-				}
-			}
-
-			// Update existing read states to mark them as read
-			if (existingReadStates && existingReadStates.length > 0) {
-				const { error: updateError } = await supabase
-					.from('notification_read_states')
-					.update({ 
-						is_read: true, 
-						read_at: new Date().toISOString() 
-					})
-					.eq('user_id', userId)
-					.eq('is_read', false);
-
-				if (updateError) {
-					throw updateError;
-				}
+			if (upsertError) {
+				throw upsertError;
 			}
 
 			return { success: true };
