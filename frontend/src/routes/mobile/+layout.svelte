@@ -145,11 +145,12 @@
 					.eq('assigned_user_id', currentUserData.id)
 					.eq('task_status', 'pending'),
 
-				// Load user data with permissions
+				// Load user approval permissions
 				supabase
-					.from('users')
-					.select('can_approve_payments')
-					.eq('id', currentUserData.id)
+					.from('approval_permissions')
+					.select('*')
+					.eq('user_id', currentUserData.id)
+					.eq('is_active', true)
 					.single()
 			]);
 
@@ -158,7 +159,14 @@
 
 			// Handle approval permissions and counts
 			if (!userDataResult.error && userDataResult.data) {
-				hasApprovalPermission = userDataResult.data.can_approve_payments || false;
+				// User has approval permission if ANY permission type is enabled
+				hasApprovalPermission = 
+					userDataResult.data.can_approve_requisitions ||
+					userDataResult.data.can_approve_single_bill ||
+					userDataResult.data.can_approve_multiple_bill ||
+					userDataResult.data.can_approve_recurring_bill ||
+					userDataResult.data.can_approve_vendor_payments ||
+					userDataResult.data.can_approve_leave_requests;
 				
 				if (hasApprovalPermission) {
 					// Parallel load approval counts
@@ -505,7 +513,7 @@
 				</div>
 				<!-- Version Number -->
 				<div class="version-badge">
-					<span class="version-text">v3.0.0</span>
+					<span class="version-text">v4.0.0</span>
 				</div>
 				<div class="header-actions">
 					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label={getTranslation('nav.goToDashboard')}>

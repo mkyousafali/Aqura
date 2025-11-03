@@ -28,6 +28,7 @@ interface UserListItem {
 	username: string;
 	employee_name: string;
 	branch_name: string;
+	position_title: string;
 	role_type: 'Master Admin' | 'Admin' | 'Position-based';
 	status: 'active' | 'inactive' | 'locked';
 	avatar?: string;
@@ -60,30 +61,16 @@ export class UserManagementService {
 			return [];
 		}
 
-		// Get approval permissions from users table
-		const { data: approvalData, error: approvalError } = await supabase
-			.from('users')
-			.select('id, can_approve_payments, approval_amount_limit')
-			.in('id', viewData.map(u => u.id));
-
-		if (approvalError) {
-			console.error('Error fetching approval data:', approvalError);
-			// Continue without approval data rather than failing completely
-		}
-
-		// Merge the data
-		const approvalMap = new Map(
-			(approvalData || []).map((a: any) => [a.id, { 
-				can_approve_payments: a.can_approve_payments, 
-				approval_amount_limit: a.approval_amount_limit 
-			}])
-		);
-
-		return viewData.map((user: any) => ({
+		// Map the data to include position_title from the view
+		const mappedData = viewData.map(user => ({
 			...user,
-			can_approve_payments: approvalMap.get(user.id)?.can_approve_payments || false,
-			approval_amount_limit: approvalMap.get(user.id)?.approval_amount_limit || 0
+			position_title: user.position_title_en || 'Not Assigned'
 		}));
+
+		// Return users directly from the view
+		// Approval permissions are now managed in the approval_permissions table
+		// and accessed through the ApprovalPermissionsManager component
+		return mappedData;
 	}
 
 	/**

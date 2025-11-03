@@ -128,6 +128,24 @@
 
 	async function loadApprovers() {
 		try {
+			// Load users with single bill approval permissions from approval_permissions table
+			const { data: approvalPermsData } = await supabaseAdmin
+				.from('approval_permissions')
+				.select('user_id, single_bill_amount_limit, can_approve_single_bill')
+				.eq('is_active', true)
+				.eq('can_approve_single_bill', true);
+
+			// Get user IDs with single bill approval permissions
+			const approverUserIds = approvalPermsData?.map(p => p.user_id) || [];
+			
+			if (approverUserIds.length === 0) {
+				console.warn('No users with single bill approval permissions found');
+				approvers = [];
+				filteredApprovers = [];
+				return;
+			}
+
+			// Load user details for those with permissions
 			const { data, error } = await supabaseAdmin
 				.from('users')
 				.select(`
@@ -137,11 +155,20 @@
 					)
 				`)
 				.eq('status', 'active')
-				.eq('can_approve_payments', true)
+				.in('id', approverUserIds)
 				.order('username');
 
 			if (error) throw error;
-			approvers = data || [];
+
+			// Merge approval limits with user data
+			approvers = (data || []).map(user => {
+				const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
+				return {
+					...user,
+					approval_amount_limit: approvalPerm?.single_bill_amount_limit || 0,
+					can_approve_payments: true // For backward compatibility
+				};
+			});
 			filteredApprovers = approvers;
 		} catch (error) {
 			console.error('Error loading approvers:', error);
@@ -864,6 +891,7 @@
 									<th>Username</th>
 									<th>User Type</th>
 									<th>Branch</th>
+									<th>Approval Limit</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -1071,11 +1099,15 @@
 										<th>Username</th>
 										<th>User Type</th>
 										<th>Branch</th>
+										<th>Approval Limit</th>
 									</tr>
 								</thead>
 								<tbody>
 									{#if filteredApprovers.length > 0}
 										{#each filteredApprovers as approver}
+											{@const billAmount = parseFloat(amount) || 0}
+											{@const isOverLimit = billAmount > 0 && approver.approval_amount_limit > 0 && approver.approval_amount_limit < billAmount}
+											{#if !isOverLimit}
 											<tr
 												class:selected={selectedApproverId === approver.id}
 												on:click={() => selectApprover(approver)}
@@ -1099,11 +1131,19 @@
 														{branches.find((b) => b.id === approver.branch_id)?.name_en || '-'}
 													{/if}
 												</td>
+												<td>
+													{#if approver.approval_amount_limit && approver.approval_amount_limit > 0}
+														{approver.approval_amount_limit.toLocaleString()} SAR
+													{:else}
+														<span class="badge-unlimited">Unlimited</span>
+													{/if}
+												</td>
 											</tr>
+											{/if}
 										{/each}
 									{:else}
 										<tr>
-											<td colspan="4" class="no-data-message">No approvers found</td>
+											<td colspan="5" class="no-data-message">No approvers found</td>
 										</tr>
 									{/if}
 								</tbody>
@@ -1537,6 +1577,17 @@
 		border-radius: 4px;
 		font-size: 0.75rem;
 		font-weight: 600;
+	}
+
+	.badge-unlimited {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: linear-gradient(135deg, #a855f7, #ec4899);
+		color: white;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	.no-data-message {
