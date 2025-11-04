@@ -659,7 +659,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v4.0.1
+				v4.0.2
 			</button>
 		</div>
 	</div>
@@ -670,7 +670,7 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v4.0.1</h3>
+				<h3>What's New in v4.0.2</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
