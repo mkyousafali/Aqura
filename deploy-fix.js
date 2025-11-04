@@ -1,8 +1,16 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcyNzM3ODQ4NiwiZXhwIjoyMDQyOTU0NDg2fQ.lEOzQyEAQ3CvhST4fJfD5xgNJNMO2YoKJHGH2pP1aFw';
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+async function deployFunction() {
+  console.log('🚀 Deploying updated function...');
+  
+  const sql = `
 -- =====================================================
 -- SIMPLE PURCHASE MANAGER COMPLETION FIX
--- =====================================================
--- Remove unnecessary vendor_payment_schedule validation
--- Purchase managers only need receiving_tasks table access
 -- =====================================================
 
 CREATE OR REPLACE FUNCTION complete_receiving_task_simple(
@@ -137,3 +145,39 @@ $$ LANGUAGE plpgsql;
 -- Grant permissions
 GRANT EXECUTE ON FUNCTION complete_receiving_task_simple TO authenticated;
 GRANT EXECUTE ON FUNCTION complete_receiving_task_simple TO service_role;
+  `;
+  
+  try {
+    const { data, error } = await supabase.rpc('exec_sql', { sql });
+    
+    if (error) {
+      console.error('❌ Error deploying function:', error);
+      return;
+    }
+    
+    console.log('✅ Function deployed successfully');
+    
+    // Now fix existing completed tasks
+    console.log('🔧 Fixing existing completed tasks...');
+    
+    const fixSql = `
+      UPDATE receiving_tasks 
+      SET assignment_status = 'completed' 
+      WHERE task_completed = true AND assignment_status != 'completed';
+    `;
+    
+    const { data: fixData, error: fixError } = await supabase.rpc('exec_sql', { sql: fixSql });
+    
+    if (fixError) {
+      console.error('❌ Error fixing existing tasks:', fixError);
+      return;
+    }
+    
+    console.log('✅ Existing completed tasks fixed!');
+    
+  } catch (err) {
+    console.error('❌ Deployment failed:', err);
+  }
+}
+
+deployFunction();
