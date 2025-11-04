@@ -112,15 +112,17 @@
 				.in('id', approverUserIds)
 				.order('username');
 
-			// Merge approval limits with user data
-			users = (userData || []).map(user => {
-				const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
-				return {
-					...user,
-					approval_amount_limit: approvalPerm?.requisition_amount_limit || 0,
-					can_approve_payments: true // For backward compatibility
-				};
-			});
+			// Merge approval limits with user data and exclude current user
+			users = (userData || [])
+				.filter(user => user.id !== $currentUser?.id) // Exclude current user from approvers list
+				.map(user => {
+					const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
+					return {
+						...user,
+						approval_amount_limit: approvalPerm?.requisition_amount_limit || 0,
+						can_approve_payments: true // For backward compatibility
+					};
+				});
 			filteredUsers = users;
 		}
 

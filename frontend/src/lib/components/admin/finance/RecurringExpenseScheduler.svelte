@@ -179,16 +179,18 @@
 
 				if (approversError) throw approversError;
 				
-				// Merge approval permissions data with user data
-				approvers = (approversData || []).map(user => {
-					const approvalPerm = approvalPermsData.find(p => p.user_id === user.id);
-					return {
-						...user,
-						actual_employee_id: user.hr_employees?.employee_id || '-',
-						employee_name: user.hr_employees?.name || '-',
-						approval_amount_limit: approvalPerm?.recurring_bill_amount_limit || 0
-					};
-				});
+				// Merge approval permissions data with user data and exclude current user
+				approvers = (approversData || [])
+					.filter(user => user.id !== $currentUser?.id) // Exclude current user from approvers list
+					.map(user => {
+						const approvalPerm = approvalPermsData.find(p => p.user_id === user.id);
+						return {
+							...user,
+							actual_employee_id: user.hr_employees?.employee_id || '-',
+							employee_name: user.hr_employees?.name || '-',
+							approval_amount_limit: approvalPerm?.recurring_bill_amount_limit || 0
+						};
+					});
 			} else {
 				approvers = [];
 			}
