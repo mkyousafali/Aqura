@@ -62,9 +62,15 @@
 
 			if (queryError) throw queryError;
 
-			// Filter approvers by amount limit
+			// Filter approvers by amount limit and exclude current user
 			approvers = (data || [])
 				.filter(perm => {
+					// Exclude the current user who is requesting approval
+					if (perm.user_id === currentUserId) return false;
+					
+					// Check if user data exists (basic validation)
+					if (!perm.users) return false;
+					
 					// If limit is 0, it means unlimited
 					if (perm.vendor_payment_amount_limit === 0) return true;
 					// Otherwise check if limit is >= payment amount

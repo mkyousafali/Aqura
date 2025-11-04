@@ -1366,43 +1366,42 @@
 		const existingHistory = currentData?.adjustment_history || [];
 		const newHistory = [...existingHistory, historyEntry];
 
-		// Log the values being sent for debugging
-		console.log('💾 Saving adjustment with values:', {
+		// 🔧 FIX: Use PostgreSQL's exact NUMERIC arithmetic to avoid floating-point errors
+		// The constraint validates: final_bill_amount = bill_amount - (discount + grr + pri)
+		// By doing the calculation in PostgreSQL, we ensure exact decimal precision
+		
+		console.log('💾 Saving adjustment with PostgreSQL NUMERIC calculation:', {
 			bill_amount: editingAmountPayment.bill_amount,
 			discount_amount: discountAmount,
 			grr_amount: grrAmount,
 			pri_amount: priAmount,
-			calculated_final: newFinalAmount,
-			formula: `${editingAmountPayment.bill_amount} - (${discountAmount} + ${grrAmount} + ${priAmount}) = ${newFinalAmount}`
+			approach: 'PostgreSQL server-side calculation'
 		});
 
-		// Update the payment record
-		const { error } = await supabase
-			.from('vendor_payment_schedule')
-			.update({
-				final_bill_amount: newFinalAmount, // ✅ Update final_bill_amount to satisfy constraint
-				discount_amount: discountAmount,
-				discount_notes: editAmountForm.discountNotes.trim() || null,
-				grr_amount: grrAmount,
-				grr_reference_number: editAmountForm.grrReferenceNumber.trim() || null,
-				grr_notes: editAmountForm.grrNotes.trim() || null,
-				pri_amount: priAmount,
-				pri_reference_number: editAmountForm.priReferenceNumber.trim() || null,
-				pri_notes: editAmountForm.priNotes.trim() || null,
-				last_adjustment_date: new Date().toISOString(),
-				last_adjusted_by: $currentUser?.id,
-				adjustment_history: newHistory,
-				updated_at: new Date().toISOString()
-			})
-			.eq('id', editingAmountPayment.id);
+		// Use PostgreSQL function for exact calculation
+		const { error } = await supabase.rpc('update_vendor_payment_with_exact_calculation', {
+			payment_id: editingAmountPayment.id,
+			new_discount_amount: discountAmount || null,
+			new_grr_amount: grrAmount || null,
+			new_pri_amount: priAmount || null,
+			discount_notes_val: editAmountForm.discountNotes.trim() || null,
+			grr_reference_val: editAmountForm.grrReferenceNumber.trim() || null,
+			grr_notes_val: editAmountForm.grrNotes.trim() || null,
+			pri_reference_val: editAmountForm.priReferenceNumber.trim() || null,
+			pri_notes_val: editAmountForm.priNotes.trim() || null,
+			history_val: newHistory
+		});
 
 		if (error) {
 			console.error('Error updating amount:', error);
 			alert('Failed to update amount: ' + error.message);
 			return;
-		}			alert('Amount adjusted successfully');
-			closeEditAmountModal();
-			await loadScheduledPayments();
+		}
+
+		alert('Amount adjusted successfully');
+		closeEditAmountModal();
+		await loadScheduledPayments();
+
 		} catch (error) {
 			console.error('Error:', error);
 			alert('An error occurred while updating amount');

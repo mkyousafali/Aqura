@@ -160,15 +160,17 @@
 
 			if (error) throw error;
 
-			// Merge approval limits with user data
-			approvers = (data || []).map(user => {
-				const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
-				return {
-					...user,
-					approval_amount_limit: approvalPerm?.single_bill_amount_limit || 0,
-					can_approve_payments: true // For backward compatibility
-				};
-			});
+			// Merge approval limits with user data and exclude current user
+			approvers = (data || [])
+				.filter(user => user.id !== $currentUser?.id) // Exclude current user from approvers list
+				.map(user => {
+					const approvalPerm = approvalPermsData?.find(p => p.user_id === user.id);
+					return {
+						...user,
+						approval_amount_limit: approvalPerm?.single_bill_amount_limit || 0,
+						can_approve_payments: true // For backward compatibility
+					};
+				});
 			filteredApprovers = approvers;
 		} catch (error) {
 			console.error('Error loading approvers:', error);
