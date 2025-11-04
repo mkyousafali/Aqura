@@ -8,6 +8,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskAssignmentView from './tasks/TaskAssignmentView.svelte';
 	import MyTasksView from './tasks/MyTasksView.svelte';
 	import TaskStatusView from './tasks/TaskStatusView.svelte';
+	import BranchPerformanceWindow from './tasks/BranchPerformanceWindow.svelte';
 	import MyAssignmentsView from './tasks/MyAssignmentsView.svelte';
 	import QuickTaskWindow from './tasks/QuickTaskWindow.svelte';
 	import TaskDetailsView from './tasks/TaskDetailsView.svelte';
@@ -396,6 +397,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		});
 	}
 
+	function openBranchPerformanceWindow() {
+		const windowId = generateWindowId('branch-performance');
+		openWindow({
+			id: windowId,
+			title: 'Branch Performance Health',
+			component: BranchPerformanceWindow,
+			icon: '🏥',
+			size: { width: 1000, height: 700 },
+			position: {
+				x: 60 + (Math.random() * 80),
+				y: 60 + (Math.random() * 80)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function openTaskDetails(cardType: string) {
 		const windowId = generateWindowId('task-details');
 		const cardTitles = {
@@ -516,6 +536,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
 					</svg>
 					<span>Refresh</span>
+				</button>
+				<button
+					on:click={openBranchPerformanceWindow}
+					class="branch-performance-btn"
+					title="Branch Performance"
+				>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4v10H3zM10 4h4v13h-4zM18 9h4v8h-4z"/>
+					</svg>
+					<span>Branch Performance</span>
 				</button>
 			</div>
 		</div>
@@ -860,6 +890,58 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.quick-task-btn span {
+		margin-left: 8px;
+	}
+
+	/* Branch Performance Button */
+	.branch-performance-btn {
+		display: flex;
+		align-items: center;
+		padding: 8px 16px;
+		background: #10b981;
+		color: white;
+		border: 1px solid #10b981;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.branch-performance-btn:hover {
+		background: #059669;
+		border-color: #059669;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.branch-performance-btn span {
+		margin-left: 8px;
+	}
+
+	/* Branch Performance Button */
+	.branch-performance-btn {
+		display: flex;
+		align-items: center;
+		padding: 8px 16px;
+		background: #10b981;
+		color: white;
+		border: 1px solid #10b981;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.branch-performance-btn:hover {
+		background: #059669;
+		border-color: #059669;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.branch-performance-btn span {
 		margin-left: 8px;
 	}
 

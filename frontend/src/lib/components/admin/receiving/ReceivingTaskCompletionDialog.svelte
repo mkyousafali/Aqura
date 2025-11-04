@@ -207,6 +207,16 @@
 				throw new Error('Task not found');
 			}
 
+			// Validate that the current user's role matches the task role
+			if ($currentUser?.roleType && task.role_type !== $currentUser.roleType) {
+				console.error('❌ Role mismatch:', {
+					taskRole: task.role_type,
+					userRole: $currentUser.roleType,
+					userName: $currentUser.username
+				});
+				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${$currentUser.roleType}. Please contact your administrator to fix this task assignment.`);
+			}
+
 			taskDetails = task;
 			console.log('✅ Task details loaded:', taskDetails);
 		} catch (err) {

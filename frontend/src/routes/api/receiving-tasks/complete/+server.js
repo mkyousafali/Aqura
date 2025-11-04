@@ -91,13 +91,27 @@ export async function POST({ request }) {
 		
 		console.log(`📋 [API] Using function: ${functionName} for role: ${taskData?.role_type}`);
 
-		// Call the appropriate database function to complete the receiving task
-		const { data, error } = await supabase.rpc(functionName, {
+		// Prepare function parameters
+		const functionParams = {
 			receiving_task_id_param: receiving_task_id,
 			user_id_param: user_id,
 			completion_photo_url_param: completion_photo_url || null,
 			completion_notes_param: completion_notes || null
-		});
+		};
+
+		// Add inventory manager specific parameters if present
+		if (taskData.role_type === 'inventory_manager') {
+			console.log('📦 [API] Adding inventory manager parameters...');
+			functionParams.erp_reference_param = erp_reference || null;
+			functionParams.has_erp_purchase_invoice = has_erp_purchase_invoice;
+			functionParams.has_pr_excel_file = has_pr_excel_file;
+			functionParams.has_original_bill = has_original_bill;
+		}
+
+		console.log('📋 [API] Function parameters:', functionParams);
+
+		// Call the appropriate database function to complete the receiving task
+		const { data, error } = await supabase.rpc(functionName, functionParams);
 
 		console.log('📊 [API] Database function result:', { data, error });
 

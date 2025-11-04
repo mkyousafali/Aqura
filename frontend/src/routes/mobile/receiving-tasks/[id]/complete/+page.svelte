@@ -105,6 +105,16 @@
 				throw new Error('Task not found or not accessible');
 			}
 
+			// Validate that the current user's role matches the task role
+			if (currentUserData?.roleType && task.role_type !== currentUserData.roleType) {
+				console.error('❌ [Mobile] Role mismatch:', {
+					taskRole: task.role_type,
+					userRole: currentUserData.roleType,
+					userName: currentUserData.username
+				});
+				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${currentUserData.roleType}. Please contact your administrator to fix this task assignment.`);
+			}
+
 			taskDetails = task;
 			receivingRecord = task.receiving_record;
 
