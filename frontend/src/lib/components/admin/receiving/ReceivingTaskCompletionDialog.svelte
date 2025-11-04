@@ -207,15 +207,8 @@
 				throw new Error('Task not found');
 			}
 
-			// Validate that the current user's role matches the task role
-			if ($currentUser?.roleType && task.role_type !== $currentUser.roleType) {
-				console.error('❌ Role mismatch:', {
-					taskRole: task.role_type,
-					userRole: $currentUser.roleType,
-					userName: $currentUser.username
-				});
-				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${$currentUser.roleType}. Please contact your administrator to fix this task assignment.`);
-			}
+			// Validate that the current user has access to this task
+			await validateUserAccess(task);
 
 			taskDetails = task;
 			console.log('✅ Task details loaded:', taskDetails);
@@ -226,6 +219,74 @@
 			loadingTask = false;
 		}
 	}
+
+async function validateUserAccess(task) {
+	// For position-based users, check their actual position assignments
+	if ($currentUser?.roleType === 'Position-based') {
+		console.log('🔍 Checking position-based user access for task:', {
+			taskRole: task.role_type,
+			userRole: $currentUser.roleType,
+			userName: $currentUser.username
+		});
+
+		// Get user's current position assignments
+		const { data: positions, error: positionsError } = await supabase
+			.from('hr_position_assignments')
+			.select(`
+				*,
+				hr_positions (
+					position_title_en,
+					position_title_ar
+				)
+			`)
+			.eq('employee_id', $currentUser.employee_id)
+			.eq('is_current', true);
+
+		if (positionsError) {
+			console.error('❌ Error fetching user positions:', positionsError);
+			throw new Error('Could not verify user permissions. Please contact your administrator.');
+		}
+
+		// Map task roles to position titles
+		const roleToPositionMap = {
+			'inventory_manager': ['Inventory Manager', 'Branch Manager'], // Branch managers can also do inventory tasks
+			'purchase_manager': ['Purchase Manager', 'Branch Manager'],
+			'branch_manager': ['Branch Manager'],
+			'accountant': ['Accountant', 'Branch Manager'],
+			'hr_manager': ['HR Manager', 'Branch Manager']
+		};
+
+		const allowedPositions = roleToPositionMap[task.role_type] || [];
+		const userPositions = positions?.map(p => p.hr_positions?.position_title_en) || [];
+
+		const hasAccess = allowedPositions.some(allowedPos => 
+			userPositions.includes(allowedPos)
+		);
+
+		console.log('🔍 Position access check:', {
+			taskRole: task.role_type,
+			allowedPositions,
+			userPositions,
+			hasAccess
+		});
+
+		if (!hasAccess) {
+			throw new Error(`Access denied: This is a ${task.role_type} task, but your current position(s) [${userPositions.join(', ')}] don't have permission. Required positions: ${allowedPositions.join(', ')}.`);
+		}
+
+		console.log('✅ Position-based user has access to task');
+	} else {
+		// For role-based users, check direct role match
+		if ($currentUser?.roleType && task.role_type !== $currentUser.roleType) {
+			console.error('❌ Role mismatch:', {
+				taskRole: task.role_type,
+				userRole: $currentUser.roleType,
+				userName: $currentUser.username
+			});
+			throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${$currentUser.roleType}. Please contact your administrator to fix this task assignment.`);
+		}
+	}
+}
 
 	// File upload handlers for Inventory Manager
 	async function handlePRExcelUpload(event) {
