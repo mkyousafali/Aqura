@@ -215,7 +215,7 @@
 			const roleToPositionMap = {
 				'inventory_manager': ['Inventory Manager', 'Branch Manager'], // Branch managers can also do inventory tasks
 				'purchase_manager': ['Purchase Manager', 'Branch Manager'],
-				'branch_manager': ['Branch Manager'],
+				'branch_manager': ['Branch Manager', 'Night Supervisor'], // Night Supervisors can handle Branch Manager tasks
 				'accountant': ['Accountant', 'Branch Manager'],
 				'hr_manager': ['HR Manager', 'Branch Manager'],
 				'shelf_stocker': ['Shelf Stocker', 'Branch Manager'],
@@ -245,6 +245,8 @@
 				taskRole: task.role_type,
 				allowedPositions,
 				userPositions: userPositionsRaw,
+				allowedNormalized: [...allowedNormalized],
+				userNormalized: [...userNormalized],
 				hasAccess
 			});
 
