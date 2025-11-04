@@ -27,6 +27,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let assignmentData = [];
 	let filteredAssignmentData = [];
 
+	// Initialize variables to prevent undefined errors
+	$: if (!Array.isArray(filteredAssignmentData)) {
+		filteredAssignmentData = [];
+	}
+
 	onMount(() => {
 		loadData();
 	});
@@ -51,63 +56,108 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	async function loadTaskStatistics() {
 		try {
-			// Query to get overall task statistics (regular tasks)
+			// Get total tasks count as sum of task_assignments, quick_task_assignments, and receiving_tasks
+			// This matches TaskMaster's counting approach
+			const [taskAssignRes, quickAssignRes, receivingTasksRes] = await Promise.all([
+				supabase.from('task_assignments').select('*', { count: 'exact', head: true }),
+				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true }),
+				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true })
+			]);
+
+			if (taskAssignRes.error) throw taskAssignRes.error;
+			if (quickAssignRes.error) throw quickAssignRes.error;
+			if (receivingTasksRes.error) throw receivingTasksRes.error;
+
+			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0) + (receivingTasksRes.count || 0);
+
+			// Get completed tasks count as sum of task_completions, quick_task_completions, and completed receiving_tasks
+			// This matches TaskMaster's completed counting approach
+			const [taskCompRes, quickCompRes, receivingCompRes] = await Promise.all([
+				supabase.from('task_completions').select('*', { count: 'exact', head: true }),
+				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true }),
+				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true }).eq('task_status', 'completed')
+			]);
+
+			if (taskCompRes.error) throw taskCompRes.error;
+			if (quickCompRes.error) throw quickCompRes.error;
+			if (receivingCompRes.error) throw receivingCompRes.error;
+
+			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0) + (receivingCompRes.count || 0);
+
+			// For overdue tasks, we need to fetch data to check deadlines
+			// Query to get overdue task statistics (regular tasks)
 			const { data: regularTasks, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
 					id,
 					status,
-					deadline_datetime,
-					assigned_at
-				`);
+					deadline_datetime
+				`)
+				.neq('status', 'completed');
 
 			if (regularError) throw regularError;
 
-			// Query to get quick task statistics
+			// Query to get overdue quick task statistics
 			const { data: quickTaskAssignments, error: quickError } = await supabase
 				.from('quick_task_assignments')
 				.select(`
 					id,
 					status,
-					completed_at,
-					created_at,
 					quick_tasks(deadline_datetime)
-				`);
+				`)
+				.neq('status', 'completed');
 
 			if (quickError) throw quickError;
 
+			// Query to get overdue receiving task statistics
+			const { data: receivingTasks, error: receivingError } = await supabase
+				.from('receiving_tasks')
+				.select(`
+					id,
+					task_status,
+					due_date
+				`)
+				.neq('task_status', 'completed');
+
+			if (receivingError) throw receivingError;
+
 			const now = new Date();
 			
-			// Process regular tasks
-			const regularTotal = regularTasks.length;
-			const regularCompleted = regularTasks.filter(t => t.status === 'completed').length;
+			// Process overdue regular tasks
 			const regularOverdue = regularTasks.filter(t => {
 				return t.deadline_datetime && 
-					   new Date(t.deadline_datetime) < now && 
-					   t.status !== 'completed';
+					   new Date(t.deadline_datetime) < now;
 			}).length;
 
-			// Process quick tasks
-			const quickTotal = quickTaskAssignments.length;
-			const quickCompleted = quickTaskAssignments.filter(t => t.status === 'completed').length;
+			// Process overdue quick tasks
 			const quickOverdue = quickTaskAssignments.filter(t => {
 				return t.quick_tasks?.deadline_datetime && 
-					   new Date(t.quick_tasks.deadline_datetime) < now && 
-					   t.status !== 'completed';
+					   new Date(t.quick_tasks.deadline_datetime) < now;
 			}).length;
 
-			// Combine statistics
-			const total = regularTotal + quickTotal;
-			const completed = regularCompleted + quickCompleted;
-			const overdue = regularOverdue + quickOverdue;
+			// Process overdue receiving tasks
+			const receivingOverdue = receivingTasks.filter(t => {
+				return t.due_date && 
+					   new Date(t.due_date) < now;
+			}).length;
+
+			// Combine overdue statistics from all three task types
+			const totalOverdue = regularOverdue + quickOverdue + receivingOverdue;
 
 			taskStats = {
-				totalAssigned: total,
-				totalCompleted: completed,
-				totalOverdue: overdue,
-				completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
-				overduePercentage: total > 0 ? Math.round((overdue / total) * 100) : 0
+				totalAssigned: totalTasksCount,
+				totalCompleted: completedTasksCount,
+				totalOverdue: totalOverdue,
+				completionPercentage: totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0,
+				overduePercentage: totalTasksCount > 0 ? Math.round((totalOverdue / totalTasksCount) * 100) : 0
 			};
+
+			console.log('📊 Task statistics loaded:', {
+				total: totalTasksCount,
+				completed: completedTasksCount,
+				overdue: totalOverdue,
+				percentages: { completion: taskStats.completionPercentage, overdue: taskStats.overduePercentage }
+			});
 		} catch (err) {
 			console.error('Error loading task statistics:', err);
 			throw err;
@@ -136,7 +186,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	async function loadAssignmentData() {
 		try {
-			// Load regular task assignments
+			// Load regular task assignments (only overdue ones)
 			const { data: regularAssignments, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
@@ -152,11 +202,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					assigned_at,
 					tasks(id, title, description, priority)
 				`)
-				.eq('status', 'pending'); // Only show pending tasks
+				.neq('status', 'completed') // Exclude completed tasks
+				.not('deadline_datetime', 'is', null); // Only tasks with deadlines
 
 			if (regularError) throw regularError;
 
-			// Load quick task assignments
+			// Load quick task assignments (only overdue ones)
 			const { data: quickAssignments, error: quickError } = await supabase
 				.from('quick_task_assignments')
 				.select(`
@@ -179,16 +230,76 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						created_at
 					)
 				`)
-				.eq('status', 'pending'); // Only show pending quick tasks
+				.neq('status', 'completed'); // Exclude completed tasks
 
 			if (quickError) throw quickError;
 
-			// Get all unique user IDs from both regular and quick tasks
+			// Load receiving task assignments (only overdue ones)
+			const { data: receivingAssignments, error: receivingError } = await supabase
+				.from('receiving_tasks')
+				.select(`
+					id,
+					assigned_user_id,
+					task_status,
+					due_date,
+					created_at,
+					completed_at,
+					completed_by_user_id,
+					title,
+					description,
+					priority,
+					receiving_record_id,
+					receiving_records(
+						id,
+						bill_number,
+						bill_amount,
+						vendor_id,
+						branch_id,
+						user_id,
+						branch:branch_id(id, name_en)
+					)
+				`)
+				.neq('task_status', 'completed') // Exclude completed tasks
+				.not('due_date', 'is', null); // Only tasks with deadlines
+
+			if (receivingError) throw receivingError;
+
+			// Get unique vendor IDs and branch IDs from receiving assignments to fetch vendor names
+			const vendorKeys = [...new Set(receivingAssignments
+				.filter(a => a.receiving_records?.vendor_id && a.receiving_records?.branch_id)
+				.map(a => `${a.receiving_records.vendor_id}-${a.receiving_records.branch_id}`)
+			)];
+
+			// Get vendor details for the composite keys
+			let vendorsData = [];
+			if (vendorKeys.length > 0) {
+				const vendorFilters = vendorKeys.map(key => {
+					const [vendor_id, branch_id] = key.split('-');
+					return { erp_vendor_id: parseInt(vendor_id), branch_id: parseInt(branch_id) };
+				});
+
+				// Build OR condition for vendor lookup
+				const { data: vendors, error: vendorsError } = await supabase
+					.from('vendors')
+					.select('erp_vendor_id, branch_id, vendor_name')
+					.or(vendorFilters.map(v => `and(erp_vendor_id.eq.${v.erp_vendor_id},branch_id.eq.${v.branch_id})`).join(','));
+
+				if (vendorsError) {
+					console.warn('Failed to load vendor names:', vendorsError);
+				} else {
+					vendorsData = vendors || [];
+				}
+			}
+
+			// Get all unique user IDs from all three task types
 			const userIds = [...new Set([
 				...regularAssignments.map(a => a.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36),
 				...regularAssignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
 				...quickAssignments.map(a => a.assigned_to_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
-				...quickAssignments.map(a => a.quick_tasks?.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36)
+				...quickAssignments.map(a => a.quick_tasks?.assigned_by).filter(id => id && typeof id === 'string' && id.length === 36),
+				...receivingAssignments.map(a => a.assigned_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
+				...receivingAssignments.map(a => a.completed_by_user_id).filter(id => id && typeof id === 'string' && id.length === 36),
+				...receivingAssignments.map(a => a.receiving_records?.user_id).filter(id => id && typeof id === 'string' && id.length === 36)
 			])].filter(Boolean);
 
 			// Get user details
@@ -216,7 +327,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				const allAssignmentIds = [
 					...new Set([
 						...regularAssignments.map(a => a.id),
-						...quickAssignments.map(a => a.id)
+						...quickAssignments.map(a => a.id),
+						...receivingAssignments.map(a => a.id)
 					])
 				].filter(Boolean);
 
@@ -239,83 +351,132 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.warn('Error while fetching completions map:', err);
 			}
 
-			// Transform regular assignments
-			const processedRegularAssignments = regularAssignments.map(assignment => {
-				const assignedByUser = usersData.find(u => u.id === assignment.assigned_by);
-				const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
-				
-				const now = new Date();
-				const deadline = assignment.deadline_datetime ? new Date(assignment.deadline_datetime) : null;
-				// Determine if assignment has a completion record (prefer completions table)
-				const completionRecord = completionsMap[assignment.id];
-				const isCompleted = !!completionRecord;
-				const isOverdue = deadline && deadline < now && !isCompleted;
-				const isNearDeadline = deadline && !isOverdue && 
-					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
+			// Define current time for overdue filtering
+			const now = new Date();
 
-				return {
-					id: assignment.id,
-					type: 'regular',
-					task_title: assignment.tasks?.title || 'Unknown Task',
-					task_description: assignment.tasks?.description || '',
-					priority: assignment.tasks?.priority || 'Medium',
-					assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || assignment.assigned_by_name || 'Unknown',
-					assigned_by_id: assignment.assigned_by,
-					assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
-					assigned_to_id: assignment.assigned_to_user_id,
-					assigned_to_username: assignedToUser?.username || 'Unknown',
-					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
-					status: assignment.status, // ✅ FIXED: Use actual status from task_assignments table
-					completed_at: completionRecord?.completed_at || null,
-					deadline: assignment.deadline_datetime,
-					assigned_at: assignment.assigned_at,
-					is_overdue: isOverdue,
-					is_near_deadline: isNearDeadline,
-					warning_level: isOverdue ? 'critical' : isNearDeadline ? 'warning' : 'normal'
-				};
-			});
+			// Transform regular assignments (filter for overdue only)
+			const processedRegularAssignments = regularAssignments
+				.filter(assignment => {
+					const deadline = assignment.deadline_datetime ? new Date(assignment.deadline_datetime) : null;
+					return deadline && deadline < now; // Only overdue tasks
+				})
+				.map(assignment => {
+					const assignedByUser = usersData.find(u => u.id === assignment.assigned_by);
+					const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
+					
+					const deadline = new Date(assignment.deadline_datetime);
+					// Determine if assignment has a completion record (prefer completions table)
+					const completionRecord = completionsMap[assignment.id];
+					const isCompleted = !!completionRecord;
+					const isOverdue = true; // All tasks in this list are overdue
 
-			// Transform quick task assignments
-			const processedQuickAssignments = quickAssignments.map(assignment => {
-				const assignedByUser = usersData.find(u => u.id === assignment.quick_tasks?.assigned_by);
-				const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
-				
-				const now = new Date();
-				const deadline = assignment.quick_tasks?.deadline_datetime ? new Date(assignment.quick_tasks.deadline_datetime) : null;
-				// Check for completion record in completions map, or existing completed_at on quick assignment
-				const completionRecord = completionsMap[assignment.id];
-				const isCompleted = !!completionRecord || !!assignment.completed_at;
-				const isOverdue = deadline && deadline < now && !isCompleted;
-				const isNearDeadline = deadline && !isOverdue && 
-					((deadline.getTime() - now.getTime()) / (1000 * 60 * 60)) <= 24; // 24 hours
+					return {
+						id: assignment.id,
+						type: 'regular',
+						task_title: assignment.tasks?.title || 'Unknown Task',
+						task_description: assignment.tasks?.description || '',
+						priority: assignment.tasks?.priority || 'Medium',
+						assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || assignment.assigned_by_name || 'Unknown',
+						assigned_by_id: assignment.assigned_by,
+						assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
+						assigned_to_id: assignment.assigned_to_user_id,
+						assigned_to_username: assignedToUser?.username || 'Unknown',
+						assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
+						status: assignment.status,
+						completed_at: completionRecord?.completed_at || null,
+						deadline: assignment.deadline_datetime,
+						assigned_at: assignment.assigned_at,
+						is_overdue: isOverdue,
+						is_near_deadline: false,
+						warning_level: 'critical'
+					};
+				});
 
-				return {
-					id: assignment.id,
-					type: 'quick',
-					task_title: assignment.quick_tasks?.title || 'Unknown Quick Task',
-					task_description: assignment.quick_tasks?.description || '',
-					priority: assignment.quick_tasks?.priority || 'Medium',
-					issue_type: assignment.quick_tasks?.issue_type || '',
-					assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || 'Unknown',
-					assigned_by_id: assignment.quick_tasks?.assigned_by,
-					assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
-					assigned_to_id: assignment.assigned_to_user_id,
-					assigned_to_username: assignedToUser?.username || 'Unknown',
-					assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
-					status: assignment.status, // ✅ FIXED: Use actual status from quick_task_assignments table
-					completed_at: completionRecord?.completed_at || assignment.completed_at || null,
-					deadline: assignment.quick_tasks?.deadline_datetime,
-					assigned_at: assignment.created_at,
-					accepted_at: assignment.accepted_at,
-					started_at: assignment.started_at,
-					is_overdue: isOverdue,
-					is_near_deadline: isNearDeadline,
-					warning_level: isOverdue ? 'critical' : isNearDeadline ? 'warning' : 'normal'
-				};
-			});
+			// Transform quick task assignments (filter for overdue only)
+			const processedQuickAssignments = quickAssignments
+				.filter(assignment => {
+					const deadline = assignment.quick_tasks?.deadline_datetime ? new Date(assignment.quick_tasks.deadline_datetime) : null;
+					return deadline && deadline < now; // Only overdue tasks
+				})
+				.map(assignment => {
+					const assignedByUser = usersData.find(u => u.id === assignment.quick_tasks?.assigned_by);
+					const assignedToUser = usersData.find(u => u.id === assignment.assigned_to_user_id);
+					
+					const deadline = new Date(assignment.quick_tasks.deadline_datetime);
+					// Check for completion record in completions map, or existing completed_at on quick assignment
+					const completionRecord = completionsMap[assignment.id];
+					const isCompleted = !!completionRecord || !!assignment.completed_at;
+					const isOverdue = true; // All tasks in this list are overdue
 
-			// Combine and sort assignments
-			assignmentData = [...processedRegularAssignments, ...processedQuickAssignments]
+					return {
+						id: assignment.id,
+						type: 'quick',
+						task_title: assignment.quick_tasks?.title || 'Unknown Quick Task',
+						task_description: assignment.quick_tasks?.description || '',
+						priority: assignment.quick_tasks?.priority || 'Medium',
+						issue_type: assignment.quick_tasks?.issue_type || '',
+						assigned_by: assignedByUser?.hr_employees?.name || assignedByUser?.username || 'Unknown',
+						assigned_by_id: assignment.quick_tasks?.assigned_by,
+						assigned_to: assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown',
+						assigned_to_id: assignment.assigned_to_user_id,
+						assigned_to_username: assignedToUser?.username || 'Unknown',
+						assigned_to_branch: assignedToUser?.branches?.name_en || 'Unknown',
+						status: assignment.status,
+						completed_at: completionRecord?.completed_at || assignment.completed_at || null,
+						deadline: assignment.quick_tasks?.deadline_datetime,
+						assigned_at: assignment.created_at,
+						accepted_at: assignment.accepted_at,
+						started_at: assignment.started_at,
+						is_overdue: isOverdue,
+						is_near_deadline: false,
+						warning_level: 'critical'
+					};
+				});
+
+			// Transform receiving task assignments (filter for overdue only)
+			const processedReceivingAssignments = receivingAssignments
+				.filter(assignment => {
+					const deadline = assignment.due_date ? new Date(assignment.due_date) : null;
+					return deadline && deadline < now; // Only overdue tasks
+				})
+				.map(assignment => {
+					const assignedToUser = usersData.find(u => u.id === assignment.assigned_user_id);
+					const createdByUser = usersData.find(u => u.id === assignment.receiving_records?.user_id);
+					
+					// Find vendor name from vendorsData
+					const vendor = vendorsData.find(v => 
+						v.erp_vendor_id === assignment.receiving_records?.vendor_id && 
+						v.branch_id === assignment.receiving_records?.branch_id
+					);
+					
+					const deadline = new Date(assignment.due_date);
+					const isCompleted = !!assignment.completed_at;
+					const isOverdue = true; // All tasks in this list are overdue
+
+					return {
+						id: assignment.id,
+						type: 'receiving',
+						task_title: assignment.title || `Receiving Task - ${vendor?.vendor_name || 'Unknown Vendor'}`,
+						task_description: assignment.description || `Bill: ${assignment.receiving_records?.bill_number || 'N/A'} - Amount: ${assignment.receiving_records?.bill_amount || 'N/A'}`,
+						priority: assignment.priority || 'Medium',
+						assigned_by: createdByUser?.hr_employees?.name || createdByUser?.username || 'System',
+						assigned_by_id: assignment.receiving_records?.user_id || null,
+						assigned_to: assignment.assigned_user_id ? (assignedToUser?.hr_employees?.name || assignedToUser?.username || 'Unknown') : 'Unassigned',
+						assigned_to_id: assignment.assigned_user_id,
+						assigned_to_username: assignment.assigned_user_id ? (assignedToUser?.username || 'Unknown') : 'Unassigned',
+						assigned_to_branch: assignment.receiving_records?.branch?.name_en || assignedToUser?.branches?.name_en || 'Unknown',
+						status: assignment.task_status,
+						completed_at: assignment.completed_at,
+						deadline: assignment.due_date,
+						assigned_at: assignment.created_at,
+						is_overdue: isOverdue,
+						is_near_deadline: false,
+						warning_level: 'critical'
+					};
+				});
+
+			// Combine and sort all assignments
+			assignmentData = [...processedRegularAssignments, ...processedQuickAssignments, ...processedReceivingAssignments]
 				.sort((a, b) => {
 					// Sort by warning level first (critical, warning, normal)
 					const warningOrder = { critical: 0, warning: 1, normal: 2 };
@@ -337,6 +498,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 		} catch (err) {
 			console.error('Error loading assignment data:', err);
+			// Initialize empty arrays to prevent undefined errors
+			assignmentData = [];
+			filteredAssignmentData = [];
 			throw err;
 		}
 	}
@@ -479,7 +643,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		<!-- Section 2: Branch Filter and Assignment Table -->
 		<div class="assignments-section">
 			<div class="section-header">
-				<h2 class="section-title">Task Assignments</h2>
+				<h2 class="section-title">Overdue Task Assignments ({filteredAssignmentData.length})</h2>
 				
 				<!-- Branch Filter Buttons -->
 				<div class="branch-filter">
@@ -528,6 +692,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<th>Branch</th>
 								<th>Status</th>
 								<th>Deadline</th>
+								<th>Time Overdue</th>
 								<th>Actions</th>
 							</tr>
 						</thead>
@@ -536,7 +701,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<tr class="assignment-row {assignment.warning_level}">
 									<td>
 										<span class="task-type-badge {assignment.type}">
-											{assignment.type === 'regular' ? 'Regular' : 'Quick'}
+											{assignment.type === 'regular' ? 'Regular' : assignment.type === 'quick' ? 'Quick' : 'Receiving'}
 										</span>
 									</td>
 									<td>
@@ -568,13 +733,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<td>
 										{#if assignment.deadline}
 											<div class="deadline-info">
-												{new Date(assignment.deadline).toLocaleDateString()}
+												{new Date(assignment.deadline).toLocaleDateString('en-GB', {
+													day: '2-digit',
+													month: '2-digit', 
+													year: 'numeric'
+												})}
 												<div class="deadline-time">
 													{new Date(assignment.deadline).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
 												</div>
 											</div>
 										{:else}
 											<span class="no-deadline">No deadline</span>
+										{/if}
+									</td>
+									<td>
+										{#if assignment.deadline && new Date(assignment.deadline) < new Date()}
+											{@const overdueDuration = Math.floor((new Date() - new Date(assignment.deadline)) / 1000)}
+											{@const days = Math.floor(overdueDuration / 86400)}
+											{@const hours = Math.floor((overdueDuration % 86400) / 3600)}
+											<div class="overdue-time critical">
+												{#if days > 0}
+													{days}d {hours}h
+												{:else if hours > 0}
+													{hours}h
+												{:else}
+													&lt;1h
+												{/if}
+												<div class="overdue-label">overdue</div>
+											</div>
+										{:else}
+											<span class="not-overdue">-</span>
 										{/if}
 									</td>
 									<td>
@@ -605,19 +793,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 <style>
 	.task-status-view {
-		padding: 24px;
-		height: 100%;
+		padding: 0;
+		height: calc(100vh - 50px);
+		max-height: calc(100vh - 50px);
 		background: white;
-		overflow-y: auto;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
 	}
 
 	.header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 32px;
-		padding-bottom: 20px;
+		margin-bottom: 0;
+		padding: 24px 24px 20px 24px;
 		border-bottom: 1px solid #e5e7eb;
+		flex-shrink: 0;
+		background: white;
+		z-index: 10;
 	}
 
 	.title-section h1.title {
@@ -692,7 +887,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.stats-section {
-		margin-bottom: 32px;
+		margin-bottom: 0;
+		padding: 24px;
+		flex-shrink: 0;
+		background: white;
+		border-bottom: 1px solid #e5e7eb;
 	}
 
 	.section-title {
@@ -759,7 +958,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.assignments-section {
-		margin-bottom: 32px;
+		margin-bottom: 0;
+		flex: 1;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		padding: 0 24px 24px 24px;
+		min-height: 0;
 	}
 
 	.section-header {
@@ -769,6 +974,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		margin-bottom: 20px;
 		flex-wrap: wrap;
 		gap: 16px;
+		flex-shrink: 0;
+		padding-bottom: 16px;
+		border-bottom: 1px solid #e5e7eb;
 	}
 
 	.branch-filter {
@@ -813,11 +1021,41 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
 		overflow: hidden;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
 	}
 
 	.assignments-table {
 		width: 100%;
 		border-collapse: collapse;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.assignments-table thead {
+		display: block;
+		background: #f9fafb;
+		flex-shrink: 0;
+		z-index: 5;
+	}
+
+	.assignments-table tbody {
+		display: block;
+		overflow-y: auto;
+		overflow-x: hidden;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.assignments-table thead tr,
+	.assignments-table tbody tr {
+		display: table;
+		width: 100%;
+		table-layout: fixed;
 	}
 
 	.assignments-table th,
@@ -968,6 +1206,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		color: #d97706;
 	}
 
+	.task-type-badge.receiving {
+		background: #dcfce7;
+		color: #16a34a;
+	}
+
 	.task-details {
 		max-width: 300px;
 	}
@@ -1056,6 +1299,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		font-size: 12px;
 		color: #9ca3af;
 		font-style: italic;
+	}
+
+	.overdue-time {
+		font-size: 12px;
+		font-weight: 600;
+		text-align: center;
+	}
+
+	.overdue-time.critical {
+		color: #dc2626;
+	}
+
+	.overdue-label {
+		font-size: 10px;
+		font-weight: 400;
+		color: #991b1b;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.not-overdue {
+		font-size: 12px;
+		color: #9ca3af;
+		text-align: center;
 	}
 
 	.assignment-row.critical {
