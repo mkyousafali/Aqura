@@ -33,11 +33,25 @@
 	let prExcelFile: (File & { alreadyUploaded?: boolean }) | null = null;
 	let originalBillFile: (File & { alreadyUploaded?: boolean }) | null = null;
 
-	// Validation
-	$: isFormValid = formData.erp_purchase_invoice_reference.trim() && 
-					 formData.has_erp_purchase_invoice && 
-					 formData.has_pr_excel_file && 
-					 formData.has_original_bill;
+	// Purchase manager validation states
+	let verificationCompleted = false;
+	let prExcelUploaded = false;
+
+	// Mobile popup modal states
+	let showErrorPopup = false;
+	let popupTitle = '';
+	let popupMessage = '';
+	let popupType = 'error'; // 'error' | 'success' | 'info'
+
+	// Validation - different for each role
+	$: isFormValid = taskDetails?.role_type === 'inventory_manager' 
+		? (formData.erp_purchase_invoice_reference.trim() && 
+		   formData.has_erp_purchase_invoice && 
+		   formData.has_pr_excel_file && 
+		   formData.has_original_bill)
+		: taskDetails?.role_type === 'purchase_manager'
+		? (prExcelUploaded && verificationCompleted)
+		: true; // Other roles don't require form validation
 
 	onMount(async () => {
 		taskId = $page.params.id;
@@ -66,7 +80,7 @@
 				`)
 				.eq('id', taskId)
 				.eq('assigned_user_id', currentUserData.id)
-				.eq('role_type', 'inventory_manager')
+				.in('role_type', ['inventory_manager', 'purchase_manager'])
 				.single();
 
 			if (taskError || !task) {
@@ -114,10 +128,16 @@
 			// Check for PR Excel file - look for URL, not boolean flag
 			if (receivingRecord.pr_excel_file_url) {
 				formData.has_pr_excel_file = true;
+				prExcelUploaded = true;
 				// Create a fake File object to display the filename
 				const fileName = receivingRecord.pr_excel_file_url.split('/').pop() || 'PR Excel (Already Uploaded)';
 				prExcelFile = { name: fileName, alreadyUploaded: true } as any;
 				console.log('✅ [Mobile] PR Excel file already uploaded:', receivingRecord.pr_excel_file_url);
+			}
+
+			// For purchase manager, also check verification status
+			if (taskDetails?.role_type === 'purchase_manager') {
+				await loadPurchaseManagerStatus();
 			}
 
 			// Check for Original Bill file - look for URL, not boolean flag
@@ -128,11 +148,36 @@
 				originalBillFile = { name: fileName, alreadyUploaded: true } as any;
 				console.log('✅ [Mobile] Original bill already uploaded:', receivingRecord.original_bill_url);
 			}
-		}		} catch (error) {
+		}
+		} catch (error) {
 			console.error('Error loading task details:', error);
 			errorMessage = error.message || 'Failed to load task details';
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	// Load purchase manager verification status
+	async function loadPurchaseManagerStatus() {
+		try {
+			console.log('🔍 [Mobile] Loading purchase manager status...');
+			
+			const { data: paymentSchedule, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('pr_excel_verified')
+				.eq('receiving_record_id', receivingRecord.id)
+				.single();
+
+			if (!scheduleError && paymentSchedule) {
+				verificationCompleted = paymentSchedule.pr_excel_verified === true;
+				console.log('✅ [Mobile] Verification status loaded:', verificationCompleted);
+			} else {
+				verificationCompleted = false;
+				console.log('⚠️ [Mobile] No payment schedule found or verification not completed');
+			}
+		} catch (err) {
+			console.error('❌ [Mobile] Error loading verification status:', err);
+			verificationCompleted = false;
 		}
 	}
 
@@ -304,11 +349,31 @@
 			});
 
 			if (!response.ok) {
-				const error = await response.json();
-				throw new Error(error.error || 'Failed to complete task');
+				const errorData = await response.json();
+				
+				// Show custom popup for purchase manager errors
+				if (taskDetails?.role_type === 'purchase_manager') {
+					if (errorData.error_code === 'PR_EXCEL_NOT_UPLOADED') {
+						showMobilePopup('error', 'PR Excel Required', 'PR Excel not uploaded. The inventory manager must upload the PR Excel. After that, you need to verify it.');
+					} else if (errorData.error_code === 'VERIFICATION_NOT_FINISHED') {
+						showMobilePopup('error', 'Verification Required', 'PR Excel not verified.');
+					} else {
+						showMobilePopup('error', 'Error', errorData.error || 'Failed to complete task');
+					}
+				} else {
+					throw new Error(errorData.error || 'Failed to complete task');
+				}
+				return;
 			}
 
-			successMessage = 'Inventory Manager task completed successfully!';
+			const result = await response.json();
+			
+			// Show success popup
+			if (taskDetails?.role_type === 'purchase_manager') {
+				showMobilePopup('success', 'Task Completed', 'Purchase Manager task completed successfully!');
+			} else {
+				successMessage = 'Inventory Manager task completed successfully!';
+			}
 			
 			notifications.add({
 				type: 'success',
@@ -339,6 +404,21 @@
 		formData.has_erp_purchase_invoice = true;
 	} else {
 		formData.has_erp_purchase_invoice = false;
+	}
+
+	// Mobile popup functions
+	function showMobilePopup(type: 'error' | 'success' | 'info', title: string, message: string) {
+		popupType = type;
+		popupTitle = title;
+		popupMessage = message;
+		showErrorPopup = true;
+	}
+
+	function closeMobilePopup() {
+		showErrorPopup = false;
+		popupTitle = '';
+		popupMessage = '';
+		popupType = 'error';
 	}
 </script>
 
@@ -420,29 +500,32 @@
 		<div class="form-section">
 			<h3>✅ Completion Requirements</h3>
 			
-			<!-- ERP Purchase Invoice Reference -->
-			<div class="requirement-item">
-				<div class="requirement-header">
-					<span class="requirement-label required">🔢 ERP Purchase Invoice Reference</span>
-					<input
-						type="checkbox"
-						bind:checked={formData.has_erp_purchase_invoice}
-						disabled
-						class="requirement-checkbox"
-					/>
+			{#if taskDetails?.role_type === 'inventory_manager'}
+				<!-- Inventory Manager Requirements -->
+				
+				<!-- ERP Purchase Invoice Reference -->
+				<div class="requirement-item">
+					<div class="requirement-header">
+						<span class="requirement-label required">🔢 ERP Purchase Invoice Reference</span>
+						<input
+							type="checkbox"
+							bind:checked={formData.has_erp_purchase_invoice}
+							disabled
+							class="requirement-checkbox"
+						/>
+					</div>
+					<div class="input-section">
+						<input
+							type="text"
+							bind:value={formData.erp_purchase_invoice_reference}
+							on:input={onErpReferenceChange}
+							placeholder="Enter ERP purchase invoice reference number"
+							disabled={isSubmitting}
+							class="erp-input"
+							required
+						/>
+					</div>
 				</div>
-				<div class="input-section">
-					<input
-						type="text"
-						bind:value={formData.erp_purchase_invoice_reference}
-						on:input={onErpReferenceChange}
-						placeholder="Enter ERP purchase invoice reference number"
-						disabled={isSubmitting}
-						class="erp-input"
-						required
-					/>
-				</div>
-			</div>
 
 			<!-- PR Excel File Upload -->
 			<div class="requirement-item">
@@ -564,6 +647,94 @@
 					></textarea>
 				</div>
 			</div>
+			
+			{:else if taskDetails?.role_type === 'purchase_manager'}
+				<!-- Purchase Manager Requirements -->
+				<div class="purchase-manager-info">
+					<!-- Receiving Record Details -->
+					{#if receivingRecord}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📋 Receiving Record Details</h4>
+							</div>
+							<div class="details-grid">
+								<div class="detail-row">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Receiving Date:</span>
+									<span class="detail-value">{new Date(receivingRecord.bill_date).toLocaleDateString()}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecord.bill_amount}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecord.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Task Requirements Status -->
+					<div class="info-card">
+						<div class="info-header">
+							<h4>📊 Task Requirements Status</h4>
+						</div>
+						<div class="requirements-checklist">
+							<div class="requirement-check" class:check-success={prExcelUploaded} class:check-error={!prExcelUploaded}>
+								<span class="check-icon">
+									{#if prExcelUploaded}
+										✅
+									{:else}
+										❌
+									{/if}
+								</span>
+								<div class="check-content">
+									<strong>PR Excel Upload Status</strong>
+									{#if prExcelUploaded}
+										<p class="status-success">PR Excel file is uploaded</p>
+									{:else}
+										<p class="status-error">PR Excel not uploaded. The inventory manager must upload the PR Excel. After that, you need to verify it.</p>
+									{/if}
+								</div>
+							</div>
+							<div class="requirement-check" class:check-success={verificationCompleted} class:check-error={!verificationCompleted}>
+								<span class="check-icon">
+									{#if verificationCompleted}
+										✅
+									{:else}
+										❌
+									{/if}
+								</span>
+								<div class="check-content">
+									<strong>Verification Status</strong>
+									{#if verificationCompleted}
+										<p class="status-success">PR Excel verified</p>
+									{:else}
+										<p class="status-error">PR Excel not verified.</p>
+									{/if}
+								</div>
+							</div>
+						</div>
+						
+						{#if prExcelUploaded && verificationCompleted}
+							<div class="ready-indicator">
+								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+								</svg>
+								<span><strong>Ready to complete!</strong> All requirements are met.</span>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Actions -->
@@ -587,6 +758,44 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Mobile Popup Modal -->
+{#if showErrorPopup}
+	<div class="mobile-popup-overlay" on:click={closeMobilePopup}>
+		<div class="mobile-popup-content" on:click|stopPropagation>
+			<div class="popup-header" class:popup-error={popupType === 'error'} class:popup-success={popupType === 'success'} class:popup-info={popupType === 'info'}>
+				<div class="popup-icon">
+					{#if popupType === 'error'}
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="15" y1="9" x2="9" y2="15"/>
+							<line x1="9" y1="9" x2="15" y2="15"/>
+						</svg>
+					{:else if popupType === 'success'}
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+						</svg>
+					{:else}
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="16" x2="12" y2="12"/>
+							<line x1="12" y1="8" x2="12.01" y2="8"/>
+						</svg>
+					{/if}
+				</div>
+				<h3 class="popup-title">{popupTitle}</h3>
+			</div>
+			<div class="popup-body">
+				<p class="popup-message">{popupMessage}</p>
+			</div>
+			<div class="popup-actions">
+				<button class="popup-btn popup-btn-primary" on:click={closeMobilePopup}>
+					OK
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.mobile-inventory-completion {
@@ -949,5 +1158,337 @@
 		.actions {
 			padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 		}
+	}
+
+	/* Purchase Manager Styles */
+	.purchase-manager-info {
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.info-card {
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 1.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.info-header {
+		margin-bottom: 1rem;
+	}
+
+	.info-header h4 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.details-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.detail-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.detail-row:last-child {
+		border-bottom: none;
+	}
+
+	.detail-label {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.detail-value {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #374151;
+		text-align: right;
+	}
+
+	.requirements-checklist {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.requirement-check {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		transition: all 0.2s ease;
+	}
+
+	.requirement-check.check-success {
+		background: #f0fdf4;
+		border-color: #bbf7d0;
+	}
+
+	.requirement-check.check-error {
+		background: #fef2f2;
+		border-color: #fecaca;
+	}
+
+	.check-icon {
+		font-size: 1.125rem;
+		flex-shrink: 0;
+		margin-top: 0.125rem;
+	}
+
+	.check-content {
+		flex: 1;
+	}
+
+	.check-content strong {
+		display: block;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 0.25rem;
+	}
+
+	.check-content p {
+		margin: 0;
+		font-size: 0.8125rem;
+		line-height: 1.4;
+	}
+
+	.status-success {
+		color: #059669;
+		font-weight: 500;
+	}
+
+	.status-error {
+		color: #dc2626;
+		font-weight: 500;
+	}
+
+	.ready-indicator {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+		border-radius: 8px;
+		color: #059669;
+		margin-top: 1rem;
+	}
+
+	.ready-indicator svg {
+		flex-shrink: 0;
+	}
+
+	.info-header h4 {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.requirements-checklist {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.requirement-check {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 12px;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+	}
+
+	.check-icon {
+		font-size: 18px;
+		flex-shrink: 0;
+		margin-top: 2px;
+	}
+
+	.check-content {
+		flex: 1;
+	}
+
+	.check-content strong {
+		display: block;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 4px;
+	}
+
+	.check-content p {
+		margin: 0;
+		font-size: 13px;
+		color: #6b7280;
+		line-height: 1.4;
+	}
+
+	.info-note {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 12px;
+		background: #eff6ff;
+		border: 1px solid #dbeafe;
+		border-radius: 6px;
+		font-size: 13px;
+		color: #1e40af;
+		line-height: 1.4;
+	}
+
+	.info-note svg {
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	/* Mobile Popup Modal Styles */
+	.mobile-popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.mobile-popup-content {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		max-width: 400px;
+		width: 100%;
+		max-height: 80vh;
+		overflow: hidden;
+		animation: popupSlideIn 0.3s ease-out;
+	}
+
+	@keyframes popupSlideIn {
+		from {
+			opacity: 0;
+			transform: translateY(20px) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.popup-header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 1.5rem 1.5rem 1rem 1.5rem;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.popup-header.popup-error {
+		color: #dc2626;
+	}
+
+	.popup-header.popup-success {
+		color: #059669;
+	}
+
+	.popup-header.popup-info {
+		color: #2563eb;
+	}
+
+	.popup-icon {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+	}
+
+	.popup-error .popup-icon {
+		background: #fef2f2;
+	}
+
+	.popup-success .popup-icon {
+		background: #f0fdf4;
+	}
+
+	.popup-info .popup-icon {
+		background: #eff6ff;
+	}
+
+	.popup-title {
+		margin: 0;
+		font-size: 1.125rem;
+		font-weight: 600;
+		flex: 1;
+	}
+
+	.popup-body {
+		padding: 1rem 1.5rem;
+	}
+
+	.popup-message {
+		margin: 0;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		color: #6b7280;
+	}
+
+	.popup-actions {
+		padding: 1rem 1.5rem 1.5rem 1.5rem;
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+	}
+
+	.popup-btn {
+		padding: 0.5rem 1.5rem;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		border: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		min-width: 80px;
+	}
+
+	.popup-btn-primary {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.popup-btn-primary:hover {
+		background: #2563eb;
+	}
+
+	.popup-btn-primary:active {
+		transform: translateY(1px);
 	}
 </style>

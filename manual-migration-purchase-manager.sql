@@ -1,8 +1,11 @@
 -- =====================================================
--- FUNCTION: complete_receiving_task
+-- MANUAL MIGRATION: Complete Receiving Task with Purchase Manager Validation
 -- =====================================================
--- Purpose: Mark a receiving task as completed
--- Updates: task_status, task_completed, completed_at, completed_by_user_id
+-- Instructions:
+-- 1. Copy this entire SQL code
+-- 2. Go to Supabase Dashboard → SQL Editor
+-- 3. Paste and execute this SQL
+-- 4. Verify the function is updated
 -- =====================================================
 
 -- Drop all existing versions of the function
@@ -159,5 +162,14 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Grant permissions
 GRANT EXECUTE ON FUNCTION complete_receiving_task TO authenticated;
 GRANT EXECUTE ON FUNCTION complete_receiving_task TO service_role;
+
+-- =====================================================
+-- VERIFICATION QUERY (Optional - run after the above)
+-- =====================================================
+-- Uncomment and run this to verify the function was created successfully:
+-- SELECT proname, pg_get_functiondef(oid) 
+-- FROM pg_proc 
+-- WHERE proname = 'complete_receiving_task';
