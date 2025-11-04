@@ -211,12 +211,75 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const myAssignmentsCompletedCount = (myTaskAssignCompRes.count || 0) + (myQuickAssignCompRes.count || 0);
 			console.log('✅ My assignments completed by users:', myAssignmentsCompletedCount, 'task_completions:', myTaskAssignCompRes.count, 'quick_task_completions:', myQuickAssignCompRes.count);
 
+			// Calculate incomplete tasks properly (should match TaskDetailsView logic)
+			// Count task_assignments that don't have completion records and are not completed
+			const { data: allTaskAssignments, error: allTaError } = await supabase
+				.from('task_assignments')
+				.select('id, status');
+			
+			if (allTaError) {
+				console.error('Error fetching all task assignments for incomplete calculation:', allTaError);
+			}
+
+			// Get task completion assignment IDs
+			const { data: taskCompletions, error: tcError } = await supabase
+				.from('task_completions')
+				.select('assignment_id');
+				
+			if (tcError) {
+				console.error('Error fetching task completions for incomplete calculation:', tcError);
+			}
+
+			// Count quick_task_assignments that don't have completion records and are not completed
+			const { data: allQuickAssignments, error: allQaError } = await supabase
+				.from('quick_task_assignments')
+				.select('id, status');
+			
+			if (allQaError) {
+				console.error('Error fetching all quick assignments for incomplete calculation:', allQaError);
+			}
+
+			// Get quick task completion assignment IDs
+			const { data: quickCompletions, error: qcError } = await supabase
+				.from('quick_task_completions')
+				.select('assignment_id');
+				
+			if (qcError) {
+				console.error('Error fetching quick completions for incomplete calculation:', qcError);
+			}
+
+			// Count receiving tasks that are not completed
+			const { count: incompleteReceivingCount, error: incompleteReceivingError } = await supabase
+				.from('receiving_tasks')
+				.select('*', { count: 'exact', head: true })
+				.neq('task_status', 'completed')
+				.eq('task_completed', false);
+
+			if (incompleteReceivingError) {
+				console.error('Error fetching incomplete receiving tasks count:', incompleteReceivingError);
+			}
+
+			// Calculate incomplete task assignments
+			const completedTaskIds = new Set((taskCompletions || []).map(tc => tc.assignment_id));
+			const incompleteTaskAssignments = (allTaskAssignments || []).filter(ta => 
+				!completedTaskIds.has(ta.id) && ta.status !== 'completed'
+			).length;
+
+			// Calculate incomplete quick task assignments
+			const completedQuickIds = new Set((quickCompletions || []).map(qc => qc.assignment_id));
+			const incompleteQuickAssignments = (allQuickAssignments || []).filter(qa => 
+				!completedQuickIds.has(qa.id) && qa.status !== 'completed'
+			).length;
+
+			// Total incomplete tasks (matching TaskDetailsView logic)
+			const totalIncomplete = incompleteTaskAssignments + incompleteQuickAssignments + (incompleteReceivingCount || 0);
+
 			// Update task statistics
 			taskStats = {
 				total_tasks: totalTasksCount || 0,
 				active_tasks: activeTasksCount || 0,
 				completed_tasks: completedTasksCount || 0,
-				incomplete_tasks: (totalTasksCount || 0) - (completedTasksCount || 0),
+				incomplete_tasks: totalIncomplete,
 				my_assigned_tasks: myAssignedCount || 0,
 				my_completed_tasks: myCompletedCount || 0,
 				my_assignments: myAssignmentsCount || 0,

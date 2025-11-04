@@ -21,6 +21,25 @@
 	let users: any[] = [];
 	let branches: any[] = [];
 	
+	// Computed property: users who have tasks assigned
+	$: usersWithTasks = (() => {
+		if (!tasks.length || !users.length) return [];
+		
+		// Get unique user IDs from tasks
+		const userIdsWithTasks = new Set();
+		tasks.forEach(task => {
+			if (task.assigned_to_user_id) {
+				userIdsWithTasks.add(task.assigned_to_user_id);
+			}
+			// Also check other user ID fields that might be used
+			if (task.assigned_to) {
+				userIdsWithTasks.add(task.assigned_to);
+			}
+		});
+		
+		// Filter users to only include those with tasks
+		return users.filter(user => userIdsWithTasks.has(user.id));
+	})();
 	// Reminder functionality
 	let selectedTaskIds: Set<string> = new Set();
 	let selectedTaskIdsArray: string[] = [];
@@ -186,7 +205,10 @@
 			if (rtError) {
 				console.error('❌ Error loading receiving_tasks:', rtError);
 			} else {
-				console.log('� Loaded receiving_tasks:', receivingTasks?.length || 0);
+				console.log('📦 Loaded receiving_tasks:', receivingTasks?.length || 0);
+				if (receivingTasks && receivingTasks.length > 0) {
+					console.log('📦 Sample receiving task:', receivingTasks[0]);
+				}
 			}
 
 			// Process all the data
@@ -204,7 +226,8 @@
 					assigned_date: ta.assigned_at,
 					deadline: ta.deadline_datetime || ta.deadline_date,
 					assigned_by_name: ta.assigned_by_user?.username || 'System',
-					assigned_to_name: ta.assigned_to_user?.username || 'Unassigned'
+					assigned_to_name: ta.assigned_to_user?.username || 'Unassigned',
+					assigned_to_user_id: ta.assigned_to_user_id
 				}));
 				tasks = [...tasks, ...processedTasks];
 			}
@@ -221,7 +244,8 @@
 					assigned_date: qa.created_at,
 					deadline: null,
 					assigned_by_name: 'System',
-					assigned_to_name: 'TBD'
+					assigned_to_name: 'TBD',
+					assigned_to_user_id: qa.assigned_to_user_id
 				}));
 				tasks = [...tasks, ...processedQuickTasks];
 			}
@@ -251,30 +275,20 @@
 				
 				// For tasks with null assigned_user_id, find users by role and branch
 				const tasksWithNullAssignment = receivingTasks.filter(rt => !rt.assigned_user_id && rt.role_type && rt.receiving_record?.branch?.id);
-				let roleUserMap = new Map(); // Map of "role_branchId" -> username
+				let roleUserMap = new Map(); // Map of "role|branchId" -> username
 				
 				if (tasksWithNullAssignment.length > 0) {
-					// Get unique role+branch combinations
+					// Get unique role+branch combinations using a better delimiter
 					const rolesByBranch = [...new Set(tasksWithNullAssignment.map(rt => 
-						`${rt.role_type}_${rt.receiving_record.branch.id}`
+						`${rt.role_type}|${rt.receiving_record.branch.id}`
 					))];
 					
-					for (const key of rolesByBranch) {
-						const [role, branchId] = key.split('_');
-						
-						// Query users with this role in this branch
-						const { data: roleUsers } = await supabase
-							.from('users')
-							.select('id, username, user_type, branch_id')
-							.eq('branch_id', branchId)
-							.ilike('user_type', `%${role}%`)
-							.limit(1)
-							.single();
-						
-						if (roleUsers) {
-							roleUserMap.set(key, roleUsers.username);
-						}
-					}
+					console.log('🔍 Role+Branch combinations found:', rolesByBranch);
+					
+					// Since all users have user_type='branch_specific', we can't match by role
+					// Let's just skip the user lookup and use role names directly
+					console.log('ℹ️ All users have user_type="branch_specific", skipping role-based user lookup');
+					console.log('ℹ️ Will use role types directly as assignee names for receiving tasks');
 				}
 				
 				const receivingTasksFormatted = receivingTasks.map(rt => {
@@ -285,9 +299,11 @@
 						// Use direct user ID mapping
 						assignedToUsername = userMap.get(rt.assigned_user_id);
 					} else if (rt.role_type && branchId) {
-						// Use role-based mapping for null assigned_user_id
-						const roleKey = `${rt.role_type}_${branchId}`;
-						assignedToUsername = roleUserMap.get(roleKey);
+						// Since users don't have specific role types, format the role name nicely
+						assignedToUsername = rt.role_type
+							.split('_')
+							.map(word => word.charAt(0).toUpperCase() + word.slice(1))
+							.join(' ');
 					}
 					
 					// Fallback to role_type if no username found
@@ -304,6 +320,7 @@
 						deadline: rt.due_date,
 						assigned_by_name: userMap.get(rt.receiving_record?.user_id) || 'System',
 						assigned_to_name: assignedToUsername,
+						assigned_to_user_id: rt.assigned_user_id,
 						role_type: rt.role_type,
 						task_status: rt.task_status,
 						priority: rt.priority
@@ -311,9 +328,15 @@
 				});
 
 				tasks = [...tasks, ...receivingTasksFormatted];
+				console.log('📦 Added receiving tasks to main list. Total receiving tasks:', receivingTasksFormatted.length);
 			}
 
 			console.log('🎯 Total tasks loaded:', tasks.length);
+			console.log('📊 Task types breakdown:', {
+				regular: tasks.filter(t => t.task_type === 'regular').length,
+				quick: tasks.filter(t => t.task_type === 'quick').length,
+				receiving: tasks.filter(t => t.task_type === 'receiving').length
+			});
 
 		} catch (error) {
 			console.error('💥 Fatal error in loadTotalTasks:', error);
@@ -586,33 +609,10 @@
 					}
 				}
 				
-				// For tasks with null assigned_user_id, find users by role and branch
-				const tasksWithNullAssignment = receivingTasks.filter(rt => !rt.assigned_user_id && rt.role_type && rt.receiving_record?.branch?.id);
-				let roleUserMap = new Map(); // Map of "role_branchId" -> username
+				// For tasks with null assigned_user_id, skip user lookup since all users are 'branch_specific'
+				console.log('ℹ️ Skipping user lookup for receiving tasks - using role names directly');
 				
-				if (tasksWithNullAssignment.length > 0) {
-					// Get unique role+branch combinations
-					const rolesByBranch = [...new Set(tasksWithNullAssignment.map(rt => 
-						`${rt.role_type}_${rt.receiving_record.branch.id}`
-					))];
-					
-					for (const key of rolesByBranch) {
-						const [role, branchId] = key.split('_');
-						
-						// Query users with this role in this branch
-						const { data: roleUsers } = await supabase
-							.from('users')
-							.select('id, username, user_type, branch_id')
-							.eq('branch_id', branchId)
-							.ilike('user_type', `%${role}%`)
-						.limit(1)
-						.single();
-						
-						if (roleUsers) {
-							roleUserMap.set(key, roleUsers.username);
-						}
-					}
-				}				const incompleteReceivingTasks = receivingTasks.map(rt => {
+				const incompleteReceivingTasks = receivingTasks.map(rt => {
 					const branchId = rt.receiving_record?.branch?.id;
 					let assignedToUsername;
 					
@@ -620,9 +620,11 @@
 						// Use direct user ID mapping
 						assignedToUsername = userMap.get(rt.assigned_user_id);
 					} else if (rt.role_type && branchId) {
-						// Use role-based mapping for null assigned_user_id
-						const roleKey = `${rt.role_type}_${branchId}`;
-						assignedToUsername = roleUserMap.get(roleKey);
+						// Since users don't have specific role types, format the role name nicely
+						assignedToUsername = rt.role_type
+							.split('_')
+							.map(word => word.charAt(0).toUpperCase() + word.slice(1))
+							.join(' ');
 					}
 					
 					// Fallback to role_type if no username found
@@ -999,11 +1001,31 @@
 
 		console.log('✅ Filtered tasks result:', filteredTasks.length, 'out of', tasks.length);
 
-		// Sort by deadline - most overdue first (earliest deadline on top)
+		// Sort by completion status first, then by deadline for overdue prioritization
 		filteredTasks.sort((a, b) => {
-			const deadlineA = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-			const deadlineB = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
-			return deadlineA - deadlineB; // Ascending order - earliest (most overdue) first
+			// Determine completion status for each task
+			const isCompletedViewA = cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed';
+			const isReceivingTaskCompletedA = a.task_type === 'receiving' && a.task_completed === true;
+			const taskStatusA = isCompletedViewA || isReceivingTaskCompletedA ? 'completed' : 'incomplete';
+			
+			const isCompletedViewB = cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed';
+			const isReceivingTaskCompletedB = b.task_type === 'receiving' && b.task_completed === true;
+			const taskStatusB = isCompletedViewB || isReceivingTaskCompletedB ? 'completed' : 'incomplete';
+			
+			// First priority: completed tasks go to bottom
+			if (taskStatusA !== taskStatusB) {
+				return taskStatusA === 'completed' ? 1 : -1; // incomplete first, completed last
+			}
+			
+			// Second priority: for incomplete tasks, sort by deadline (most overdue first)
+			if (taskStatusA === 'incomplete') {
+				const deadlineA = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+				const deadlineB = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+				return deadlineA - deadlineB; // Ascending order - earliest (most overdue) first
+			}
+			
+			// For completed tasks, maintain original order or sort by completion date if available
+			return 0;
 		});
 	}
 
@@ -1044,14 +1066,23 @@
 			const overdueHours = Math.abs(Math.floor(diffHours));
 			
 			if (overdueDays === 0 || overdueHours < 24) {
-				return { 
-					text: `${overdueHours} ${overdueHours === 1 ? 'hour' : 'hours'} overdue`, 
-					days: diffDays, 
-					class: 'status-overdue' 
-				};
+				if (overdueHours < 1) {
+					return { 
+						text: `&lt;1h overdue`, 
+						days: diffDays, 
+						class: 'status-overdue' 
+					};
+				} else {
+					return { 
+						text: `${overdueHours}h overdue`, 
+						days: diffDays, 
+						class: 'status-overdue' 
+					};
+				}
 			} else {
+				const remainingHours = overdueHours % 24;
 				return { 
-					text: `${overdueDays} ${overdueDays === 1 ? 'day' : 'days'} overdue`, 
+					text: remainingHours > 0 ? `${overdueDays}d ${remainingHours}h overdue` : `${overdueDays}d overdue`, 
 					days: diffDays, 
 					class: 'status-overdue' 
 				};
@@ -1426,7 +1457,7 @@
 
 			<select class="filter-select" bind:value={selectedUser} on:change={handleFilterChange}>
 				<option value="">All Users</option>
-				{#each users as user}
+				{#each usersWithTasks as user}
 					<option value={user.id}>{user.username} - {user.username || ''}</option>
 				{/each}
 			</select>
@@ -1490,6 +1521,9 @@
 				<tbody>
 					{#each filteredTasks as task, index (`${task.assignment_id || task.quick_assignment_id || index}-${task.task_type}-${index}`)}
 						{@const taskId = task.assignment_id || task.quick_assignment_id}
+						{@const isCompletedView = cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed'}
+						{@const isReceivingTaskCompleted = task.task_type === 'receiving' && task.task_completed === true}
+						{@const taskStatus = isCompletedView || isReceivingTaskCompleted ? 'completed' : (task.status || 'pending')}
 						<tr class="clickable-row">
 							{#if cardType === 'incomplete_tasks'}
 								<td class="checkbox-col" on:click|stopPropagation>
@@ -1513,8 +1547,8 @@
 								</div>
 							</td>
 							<td on:click={() => viewTaskDetails(task)}>
-								<span class="badge {task.task_type === 'quick' ? 'badge-quick' : 'badge-regular'}">
-									{task.task_type === 'quick' ? 'Quick' : 'Regular'}
+								<span class="badge {task.task_type === 'quick' ? 'badge-quick' : task.task_type === 'receiving' ? 'badge-receiving' : 'badge-regular'}">
+									{task.task_type === 'quick' ? 'Quick' : task.task_type === 'receiving' ? 'Receiving' : 'Regular'}
 								</span>
 							</td>
 							<td on:click={() => viewTaskDetails(task)}>{task.branch_name}</td>
@@ -1523,7 +1557,9 @@
 							<td on:click={() => viewTaskDetails(task)}>{formatDate(task.assigned_date)}</td>
 							<td on:click={() => viewTaskDetails(task)}>{formatDate(task.deadline)}</td>
 							<td on:click={() => viewTaskDetails(task)}>
-								{#if task.deadline}
+								{#if taskStatus === 'completed'}
+									<span class="due-status-badge status-completed">Completed</span>
+								{:else if task.deadline}
 									{@const dueStatus = getDueStatus(task.deadline)}
 									<span class="due-status-badge {dueStatus.class}">
 										{dueStatus.text}
@@ -1533,8 +1569,8 @@
 								{/if}
 							</td>
 							<td on:click={() => viewTaskDetails(task)}>
-								<span class="badge badge-{task.status || 'pending'}">
-									{task.status || 'N/A'}
+								<span class="badge badge-{taskStatus}">
+									{taskStatus.charAt(0).toUpperCase() + taskStatus.slice(1)}
 								</span>
 							</td>
 							{#if cardType === 'completed_tasks' || cardType === 'my_completed_tasks' || cardType === 'my_assignments_completed'}
@@ -1568,8 +1604,8 @@
 				<div class="detail-grid">
 					<div class="detail-item">
 						<label>Type:</label>
-						<span class="badge {selectedTask.task_type === 'quick' ? 'badge-quick' : 'badge-regular'}">
-							{selectedTask.task_type === 'quick' ? 'Quick Task' : 'Regular Task'}
+						<span class="badge {selectedTask.task_type === 'quick' ? 'badge-quick' : selectedTask.task_type === 'receiving' ? 'badge-receiving' : 'badge-regular'}">
+							{selectedTask.task_type === 'quick' ? 'Quick Task' : selectedTask.task_type === 'receiving' ? 'Receiving Task' : 'Regular Task'}
 						</span>
 					</div>
 					
@@ -1876,6 +1912,11 @@
 		color: #1e40af;
 	}
 
+	.badge-receiving {
+		background: #dcfce7;
+		color: #166534;
+	}
+
 	.badge-regular {
 		background: #f3e8ff;
 		color: #6b21a8;
@@ -1962,6 +2003,13 @@
 		background: #d1fae5;
 		color: #065f46;
 		border: 1px solid #6ee7b7;
+	}
+
+	.status-completed {
+		background: #dcfce7;
+		color: #166534;
+		border: 1px solid #4ade80;
+		font-weight: 600;
 	}
 
 	.status-no-deadline {
