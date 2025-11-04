@@ -108,7 +108,7 @@ BEGIN
   UPDATE receiving_tasks
   SET 
     task_completed = true,
-    assignment_status = 'completed',
+    task_status = 'completed',
     completed_at = CURRENT_TIMESTAMP,
     completion_photo_url = completion_photo_url_param,
     completion_notes = completion_notes_param
@@ -137,3 +137,8 @@ $$ LANGUAGE plpgsql;
 -- Grant permissions
 GRANT EXECUTE ON FUNCTION complete_receiving_task_simple TO authenticated;
 GRANT EXECUTE ON FUNCTION complete_receiving_task_simple TO service_role;
+
+-- Fix existing completed tasks that still show as pending
+UPDATE receiving_tasks 
+SET task_status = 'completed' 
+WHERE task_completed = true AND task_status != 'completed';
