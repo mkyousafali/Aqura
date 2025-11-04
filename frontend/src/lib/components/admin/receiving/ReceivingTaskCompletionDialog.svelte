@@ -1153,11 +1153,6 @@ async function validateUserAccess(task) {
 								{/each}
 							</div>
 						</div>
-					{:else}
-						<!-- Debug: Show when photos section is hidden -->
-						<div class="debug-info" style="background: #f0f0f0; padding: 8px; border-radius: 4px; font-size: 12px; color: #666;">
-							🐛 Debug: dependencyPhotos = {JSON.stringify(dependencyPhotos)} | keys = {dependencyPhotos ? Object.keys(dependencyPhotos).length : 'null'}
-						</div>
 					{/if}
 				</div>
 			

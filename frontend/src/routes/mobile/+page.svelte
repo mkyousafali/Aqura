@@ -200,13 +200,6 @@
 				const notificationsWithRecipients = await Promise.all(
 					filteredNotifications.map(async (notification) => {
 						const notificationId = notification.notification_id || notification.id;
-						console.log('🔍 [Recipients Debug] Processing notification:', {
-							id: notificationId,
-							title: notification.title,
-							target_type: notification.target_type,
-							target_users: notification.target_users,
-							created_by_name: notification.created_by_name
-						});
 
 						// Check read state for current user
 						let isRead = false;
@@ -225,14 +218,13 @@
 									.single();
 								
 								if (readError) {
-									console.warn('Could not fetch read state for notification:', notificationId, readError);
-									isRead = false; // Default to unread if we can't check
+									// Default to unread if we can't check
+									isRead = false;
 								} else {
 									isRead = readState ? readState.is_read : false;
 								}
 							} catch (readError) {
 								// If no read state exists or permission denied, notification is unread
-								console.warn('Read state check failed for notification:', notificationId, readError);
 								isRead = false;
 							}
 						}
@@ -258,14 +250,12 @@
 								.eq('notification_id', notificationId);
 
 							if (error) {
-								console.warn('📋 [Recipients] notification_recipients query failed:', error);
 								recipientsError = error;
 							} else if (recipientsData && recipientsData.length > 0) {
 								recipients = recipientsData;
-								console.log('✅ [Recipients] Found recipients from notification_recipients:', recipients.length);
 							}
 						} catch (e) {
-							console.warn('📋 [Recipients] notification_recipients table error:', e);
+							// Recipients table access error
 						}
 
 						// Approach 2: If no recipients from table, try to resolve from target_users
@@ -278,12 +268,11 @@
 									try {
 										targetUserIds = JSON.parse(targetUserIds);
 									} catch (e) {
-										console.warn('📋 [Recipients] Failed to parse target_users JSON:', e);
+										// Failed to parse target_users JSON
 									}
 								}
 
 								if (Array.isArray(targetUserIds) && targetUserIds.length > 0) {
-									console.log('🔍 [Recipients] Resolving user names for IDs:', targetUserIds);
 									
 									// Get user information for the target user IDs
 									const { data: usersData, error: usersError } = await supabase
@@ -298,22 +287,20 @@
 										.in('id', targetUserIds);
 
 									if (usersError) {
-										console.warn('📋 [Recipients] Users query failed:', usersError);
+										// Users query failed
 									} else if (usersData && usersData.length > 0) {
 										recipients = usersData.map(user => ({
 											user_id: user.id,
 											user: user
 										}));
-										console.log('✅ [Recipients] Resolved users from target_users:', recipients.length);
 									}
 								}
 							} catch (e) {
-								console.warn('📋 [Recipients] Error processing target_users:', e);
+								// Error processing target_users
 							}
 						}
 
 						if (recipientsError) {
-							console.warn('Error loading recipients:', recipientsError);
 							// Try to get user info from notification metadata or target_users as fallback
 							let fallbackRecipients = 'Recipients';
 							try {
@@ -491,13 +478,6 @@
 
 				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
 				
-				console.log('📎 [Mobile Dashboard] Attachments check:', recentNotifications.map(n => ({
-					id: n.id,
-					title: n.title,
-					has_attachments: n.has_attachments,
-					attachments_count: n.all_attachments?.length || 0,
-					attachments: n.all_attachments
-				})));
 			} else {
 				recentNotifications = [];
 			}
