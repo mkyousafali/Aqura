@@ -36,6 +36,7 @@
 		try {
 			console.log('📋 Loading existing receiving record data...');
 			
+			// Load receiving record data
 			const { data: record, error: recordError } = await supabase
 				.from('receiving_records')
 				.select('erp_purchase_invoice_reference, pr_excel_file_url, original_bill_url, erp_purchase_invoice_uploaded, pr_excel_file_uploaded, original_bill_uploaded')
@@ -71,9 +72,102 @@
 				console.log('✅ Original bill already uploaded:', record.original_bill_url);
 			}
 
+			// For purchase manager, also check verification status and load details
+			if (taskDetails?.role_type === 'purchase_manager') {
+				await loadVerificationStatus();
+				await loadReceivingRecordDetails();
+			}
+
 		} catch (err) {
 			console.error('❌ Error loading existing data:', err);
 		}
+	}
+
+	// New function to load verification status for purchase managers
+	let verificationCompleted = false;
+	let receivingRecordDetails = null;
+	
+	async function loadVerificationStatus() {
+		try {
+			console.log('🔍 Loading verification status for purchase manager...');
+			
+			const { data: paymentSchedule, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('pr_excel_verified')
+				.eq('receiving_record_id', receivingRecordId)
+				.single();
+
+			if (!scheduleError && paymentSchedule) {
+				verificationCompleted = paymentSchedule.pr_excel_verified === true;
+				console.log('✅ Verification status loaded:', verificationCompleted);
+			} else {
+				verificationCompleted = false;
+				console.log('⚠️ No payment schedule found or verification not completed');
+			}
+		} catch (err) {
+			console.error('❌ Error loading verification status:', err);
+			verificationCompleted = false;
+		}
+	}
+
+	async function loadReceivingRecordDetails() {
+		try {
+			console.log('📋 Loading receiving record details...');
+			
+			// First get the receiving record with vendor_id and branch_id
+			const { data: receivingRecord, error: receivingError } = await supabase
+				.from('receiving_records')
+				.select('vendor_id, branch_id, bill_date, bill_amount, bill_number')
+				.eq('id', receivingRecordId)
+				.single();
+
+			if (receivingError || !receivingRecord) {
+				console.error('❌ Failed to load receiving record:', receivingError);
+				return;
+			}
+
+			// Get vendor information
+			const { data: vendor, error: vendorError } = await supabase
+				.from('vendors')
+				.select('vendor_name')
+				.eq('erp_vendor_id', receivingRecord.vendor_id)
+				.eq('branch_id', receivingRecord.branch_id)
+				.single();
+
+			// Get branch information
+			const { data: branch, error: branchError } = await supabase
+				.from('branches')
+				.select('name_en')
+				.eq('id', receivingRecord.branch_id)
+				.single();
+
+			receivingRecordDetails = {
+				vendor_name: vendor?.vendor_name || 'Unknown Vendor',
+				branch_name: branch?.name_en || 'Unknown Branch',
+				bill_date: receivingRecord.bill_date,
+				bill_amount: receivingRecord.bill_amount,
+				bill_number: receivingRecord.bill_number
+			};
+
+			console.log('✅ Receiving record details loaded:', receivingRecordDetails);
+
+			if (vendorError) {
+				console.error('⚠️ Failed to load vendor details:', vendorError);
+			}
+			if (branchError) {
+				console.error('⚠️ Failed to load branch details:', branchError);
+			}
+		} catch (err) {
+			console.error('❌ Error loading receiving record details:', err);
+		}
+	}
+
+	// Refresh status for purchase managers
+	async function refreshStatus() {
+		console.log('🔄 Refreshing status...');
+		error = null; // Clear any existing errors
+		await loadExistingData(); // This will reload PR Excel, verification status, and receiving record details
+		console.log('✅ Status refreshed');
 	}
 
 	async function loadTaskDetails() {
@@ -342,7 +436,7 @@
 		</div>
 	{:else if taskDetails}
 		<div class="dialog-content">
-			<h2>Complete {taskDetails.role_type === 'inventory_manager' ? 'Inventory Manager' : 'Receiving'} Task</h2>
+			<h2>Complete {taskDetails.role_type === 'inventory_manager' ? 'Inventory Manager' : taskDetails.role_type === 'purchase_manager' ? 'Purchase Manager' : 'Receiving'} Task</h2>
 			
 			{#if taskDetails.role_type === 'inventory_manager'}
 				<!-- Inventory Manager Form -->
@@ -481,6 +575,89 @@
 						></textarea>
 					</div>
 				</div>
+			{:else if taskDetails.role_type === 'purchase_manager'}
+				<!-- Purchase Manager Task Completion -->
+				<div class="purchase-manager-form">
+					<!-- Receiving Record Details -->
+					{#if receivingRecordDetails}
+						<div class="receiving-details">
+							<h4>Receiving Record Details</h4>
+							<div class="details-grid">
+								<div class="detail-item">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecordDetails.branch_name}</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecordDetails.vendor_name}</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-label">Receiving Date:</span>
+									<span class="detail-value">{new Date(receivingRecordDetails.bill_date).toLocaleDateString()}</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecordDetails.bill_amount}</span>
+								</div>
+								<div class="detail-item">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecordDetails.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<div class="status-section">
+						<h4>Task Requirements Status</h4>
+						
+						<!-- PR Excel Upload Status -->
+						<div class="status-item" class:status-success={inventoryFormData.has_pr_excel_file} class:status-error={!inventoryFormData.has_pr_excel_file}>
+							<div class="status-icon">
+								{#if inventoryFormData.has_pr_excel_file}
+									✅
+								{:else}
+									❌
+								{/if}
+							</div>
+							<div class="status-content">
+								<h5>PR Excel Upload Status</h5>
+								{#if inventoryFormData.has_pr_excel_file}
+									<p class="status-success">PR Excel file is uploaded</p>
+								{:else}
+									<p class="status-error">PR Excel not uploaded. The inventory manager must upload the PR Excel. After that, you need to verify it.</p>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Verification Status -->
+						<div class="status-item" class:status-success={verificationCompleted} class:status-error={!verificationCompleted}>
+							<div class="status-icon">
+								{#if verificationCompleted}
+									✅
+								{:else}
+									❌
+								{/if}
+							</div>
+							<div class="status-content">
+								<h5>Verification Status</h5>
+								{#if verificationCompleted}
+									<p class="status-success">PR Excel verified</p>
+								{:else}
+									<p class="status-error">PR Excel not verified.</p>
+								{/if}
+							</div>
+						</div>
+					</div>
+
+					{#if inventoryFormData.has_pr_excel_file && verificationCompleted}
+						<div class="ready-box">
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							<span><strong>Ready to complete!</strong> All requirements are met.</span>
+						</div>
+					{/if}
+				</div>
 			{:else}
 				<!-- Regular Task Completion -->
 				<p class="confirmation-text">
@@ -505,18 +682,36 @@
 				>
 					Cancel
 				</button>
-				<button 
-					class="btn btn-complete" 
-					on:click={completeTask}
-					disabled={loading || (taskDetails.role_type === 'inventory_manager' && !isInventoryFormValid)}
-				>
-					{#if loading}
-						<span class="spinner"></span>
-						Completing...
-					{:else}
-						✅ Complete Task
-					{/if}
-				</button>
+				
+				{#if taskDetails.role_type === 'purchase_manager'}
+					<!-- Purchase manager button - always visible but disabled when requirements not met -->
+					<button 
+						class="btn btn-complete" 
+						on:click={completeTask}
+						disabled={loading || !inventoryFormData.has_pr_excel_file || !verificationCompleted}
+					>
+						{#if loading}
+							<span class="spinner"></span>
+							Completing...
+						{:else}
+							✅ Complete Task
+						{/if}
+					</button>
+				{:else}
+					<!-- For all other roles (inventory manager, etc.) -->
+					<button 
+						class="btn btn-complete" 
+						on:click={completeTask}
+						disabled={loading || (taskDetails.role_type === 'inventory_manager' && !isInventoryFormValid)}
+					>
+						{#if loading}
+							<span class="spinner"></span>
+							Completing...
+						{:else}
+							✅ Complete Task
+						{/if}
+					</button>
+				{/if}
 			</div>
 		</div>
 	{:else}
@@ -838,5 +1033,156 @@
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
+	}
+
+	/* Purchase Manager Form Styles */
+	.purchase-manager-form {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+	}
+
+	.receiving-details {
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		padding: 16px;
+	}
+
+	.receiving-details h4 {
+		margin: 0 0 12px 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.details-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	.detail-item {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.detail-label {
+		font-size: 12px;
+		font-weight: 500;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.detail-value {
+		font-size: 14px;
+		font-weight: 500;
+		color: #374151;
+	}
+
+	.status-section {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.status-section h4 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.status-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 16px;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		transition: all 0.2s ease;
+	}
+
+	.status-item.status-success {
+		background: #f0fdf4;
+		border-color: #bbf7d0;
+	}
+
+	.status-item.status-error {
+		background: #fef2f2;
+		border-color: #fecaca;
+	}
+
+	.status-icon {
+		font-size: 18px;
+		flex-shrink: 0;
+		margin-top: 2px;
+	}
+
+	.status-content {
+		flex: 1;
+	}
+
+	.status-content h5 {
+		margin: 0 0 4px 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.status-content p {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.4;
+	}
+
+	.status-content .status-success {
+		color: #059669;
+		font-weight: 500;
+	}
+
+	.status-content .status-error {
+		color: #dc2626;
+		font-weight: 500;
+	}
+
+	.ready-box {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 16px;
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+		border-radius: 8px;
+		color: #059669;
+	}
+
+	.ready-box svg {
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.info-box {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 12px;
+		background: #eff6ff;
+		border: 1px solid #dbeafe;
+		border-radius: 6px;
+		font-size: 13px;
+		color: #1e40af;
+	}
+
+	.info-box svg {
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	.info-box strong {
+		font-weight: 600;
 	}
 </style>

@@ -17,12 +17,19 @@ async function deployFunction() {
     await client.connect();
     console.log('✅ Connected to database');
     
-    const sql = fs.readFileSync('./supabase/migrations/process_clearance_certificate_generation.sql', 'utf8');
+    const sql = fs.readFileSync('./supabase/migrations/complete_receiving_task.sql', 'utf8');
     
-    console.log('📤 Deploying function...');
+    console.log('📤 Deploying updated complete_receiving_task function...');
+    console.log('🔍 Adding purchase manager validation logic...');
+    
     await client.query(sql);
     
     console.log('✅ Function deployed successfully!');
+    console.log('📋 New features added:');
+    console.log('   - Purchase manager validation');
+    console.log('   - PR Excel upload check');
+    console.log('   - Verification status check');
+    console.log('   - Custom error messages');
     
   } catch (err) {
     console.error('❌ Error:', err.message);

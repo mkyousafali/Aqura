@@ -66,6 +66,13 @@ export async function POST({ request }) {
 			}
 		}
 
+		// Special handling for Purchase Manager
+		if (taskData.role_type === 'purchase_manager') {
+			console.log('💰 [API] Processing Purchase Manager task completion...');
+			// Purchase manager validations are handled in the database function
+			// No additional client-side validation needed as it requires database queries
+		}
+
 		console.log('🚀 [API] Calling complete_receiving_task function...');
 
 		// Call the database function to complete the receiving task
@@ -90,8 +97,20 @@ export async function POST({ request }) {
 
 		// Check if the response indicates success
 		if (data && !data.success) {
+			// Handle specific error codes for better user experience
+			let errorMessage = data.error || 'Unknown error occurred';
+			
+			// Purchase Manager specific error handling
+			if (data.error_code === 'PR_EXCEL_NOT_UPLOADED') {
+				console.log('❌ [API] Purchase Manager: PR Excel not uploaded');
+				errorMessage = 'PR Excel not uploaded';
+			} else if (data.error_code === 'VERIFICATION_NOT_FINISHED') {
+				console.log('❌ [API] Purchase Manager: Verification not finished');
+				errorMessage = 'Verification not finished';
+			}
+			
 			return json({ 
-				error: data.error || 'Unknown error occurred',
+				error: errorMessage,
 				error_code: data.error_code
 			}, { status: 400 });
 		}
