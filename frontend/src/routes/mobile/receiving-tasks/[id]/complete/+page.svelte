@@ -37,11 +37,27 @@
 	let verificationCompleted = false;
 	let prExcelUploaded = false;
 
+	// Photo upload states (for shelf_stocker and other roles requiring photos)
+	let photoFile: File | null = null;
+	let photoPreview: string | null = null;
+	let requirePhotoUpload = false;
+
+	// Task dependency states
+	let dependencyStatus: any = null;
+	let dependencyPhotos: any = null;
+	let canComplete = true;
+	let blockingRoles: string[] = [];
+
 	// Mobile popup modal states
 	let showErrorPopup = false;
 	let popupTitle = '';
 	let popupMessage = '';
 	let popupType = 'error'; // 'error' | 'success' | 'info'
+
+	// Photo viewer modal states
+	let showPhotoViewer = false;
+	let viewerPhotoUrl = '';
+	let viewerPhotoTitle = '';
 
 	// Validation - different for each role
 	$: isFormValid = taskDetails?.role_type === 'inventory_manager' 
@@ -51,7 +67,9 @@
 		   formData.has_original_bill)
 		: taskDetails?.role_type === 'purchase_manager'
 		? (prExcelUploaded && verificationCompleted)
-		: true; // Other roles don't require form validation
+		: taskDetails?.role_type === 'shelf_stocker'
+		? (requirePhotoUpload ? photoFile !== null : true)
+		: canComplete; // For branch_manager, night_supervisor - check dependencies
 
 	onMount(async () => {
 		taskId = $page.params.id;
@@ -80,7 +98,7 @@
 				`)
 				.eq('id', taskId)
 				.eq('assigned_user_id', currentUserData.id)
-				.in('role_type', ['inventory_manager', 'purchase_manager'])
+				.in('role_type', ['inventory_manager', 'purchase_manager', 'shelf_stocker', 'branch_manager', 'night_supervisor', 'warehouse_handler', 'accountant'])
 				.single();
 
 			if (taskError || !task) {
@@ -139,6 +157,12 @@
 			if (taskDetails?.role_type === 'purchase_manager') {
 				await loadPurchaseManagerStatus();
 			}
+
+			// Check if this role requires photo upload
+			await checkPhotoRequirement();
+
+			// Check task dependencies
+			await checkTaskDependencies();
 
 			// Check for Original Bill file - look for URL, not boolean flag
 			if (receivingRecord.original_bill_url) {
@@ -333,6 +357,23 @@
 		try {
 			console.log('🚀 [Mobile] Submitting task completion...');
 
+			// Upload photo if required and provided
+			let photoUrl = null;
+			if (requirePhotoUpload && photoFile) {
+				console.log('📷 [Mobile] Uploading completion photo...');
+				photoUrl = await uploadPhoto();
+				if (!photoUrl) {
+					showMobilePopup('error', 'Upload Failed', 'Failed to upload photo. Please try again.');
+					return;
+				}
+			}
+
+			// Check dependencies one more time before submission
+			if (!canComplete) {
+				showMobilePopup('error', 'Dependencies Not Met', `Cannot complete task. Waiting for: ${blockingRoles.join(', ')}`);
+				return;
+			}
+
 			// Submit completion (files are already uploaded incrementally)
 			const response = await fetch('/api/receiving-tasks/complete', {
 				method: 'POST',
@@ -344,14 +385,15 @@
 					has_erp_purchase_invoice: formData.has_erp_purchase_invoice,
 					has_pr_excel_file: formData.has_pr_excel_file,
 					has_original_bill: formData.has_original_bill,
-					completion_notes: formData.completion_notes
+					completion_notes: formData.completion_notes,
+					completion_photo_url: photoUrl
 				})
 			});
 
 			if (!response.ok) {
 				const errorData = await response.json();
 				
-				// Show custom popup for purchase manager errors
+				// Show custom popup for different error types
 				if (taskDetails?.role_type === 'purchase_manager') {
 					if (errorData.error_code === 'PR_EXCEL_NOT_UPLOADED') {
 						showMobilePopup('error', 'PR Excel Required', 'PR Excel not uploaded. The inventory manager must upload the PR Excel. After that, you need to verify it.');
@@ -360,20 +402,31 @@
 					} else {
 						showMobilePopup('error', 'Error', errorData.error || 'Failed to complete task');
 					}
+				} else if (errorData.error_code === 'PHOTO_UPLOAD_REQUIRED') {
+					showMobilePopup('error', 'Photo Required', `Photo upload is required for ${taskDetails?.role_type} tasks.`);
+				} else if (errorData.error_code === 'DEPENDENCIES_NOT_MET') {
+					showMobilePopup('error', 'Dependencies Not Met', errorData.error || 'Cannot complete task due to unmet dependencies.');
 				} else {
-					throw new Error(errorData.error || 'Failed to complete task');
+					showMobilePopup('error', 'Error', errorData.error || 'Failed to complete task');
 				}
 				return;
 			}
 
 			const result = await response.json();
 			
-			// Show success popup
-			if (taskDetails?.role_type === 'purchase_manager') {
-				showMobilePopup('success', 'Task Completed', 'Purchase Manager task completed successfully!');
-			} else {
-				successMessage = 'Inventory Manager task completed successfully!';
-			}
+			// Show success popup based on role
+			const roleDisplayNames = {
+				'inventory_manager': 'Inventory Manager',
+				'purchase_manager': 'Purchase Manager', 
+				'shelf_stocker': 'Shelf Stocker',
+				'branch_manager': 'Branch Manager',
+				'night_supervisor': 'Night Supervisor',
+				'warehouse_handler': 'Warehouse Handler',
+				'accountant': 'Accountant'
+			};
+			
+			const roleName = roleDisplayNames[taskDetails?.role_type] || taskDetails?.role_type;
+			showMobilePopup('success', 'Task Completed', `${roleName} task completed successfully!`);
 			
 			notifications.add({
 				type: 'success',
@@ -381,6 +434,7 @@
 				duration: 3000
 			});
 			
+			// Auto redirect after 2 seconds
 			setTimeout(() => {
 				goto('/mobile/tasks');
 			}, 2000);
@@ -419,6 +473,216 @@
 		popupTitle = '';
 		popupMessage = '';
 		popupType = 'error';
+	}
+
+	// Photo viewer functions
+	function openPhotoViewer(photoUrl, roleType) {
+		viewerPhotoUrl = photoUrl;
+		viewerPhotoTitle = roleType === 'shelf_stocker' ? 'Shelf Stocker Completion Photo' : `${roleType} Completion Photo`;
+		showPhotoViewer = true;
+	}
+
+	function closePhotoViewer() {
+		showPhotoViewer = false;
+		viewerPhotoUrl = '';
+		viewerPhotoTitle = '';
+	}
+
+	// Check if this role requires photo upload
+	async function checkPhotoRequirement() {
+		if (!taskDetails?.template_id) return;
+
+		try {
+			const { data: template, error } = await supabase
+				.from('receiving_task_templates')
+				.select('require_photo_upload')
+				.eq('id', taskDetails.template_id)
+				.single();
+
+			if (!error && template) {
+				requirePhotoUpload = template.require_photo_upload || false;
+				console.log(`📷 [Mobile] Photo required for ${taskDetails.role_type}: ${requirePhotoUpload}`);
+			}
+		} catch (error) {
+			console.error('Error checking photo requirement:', error);
+		}
+	}
+
+	// Check task dependencies
+	async function checkTaskDependencies() {
+		if (!taskDetails?.receiving_record_id || !taskDetails?.role_type) return;
+
+		// Special check for accountant dependency on inventory manager
+		if (taskDetails.role_type === 'accountant') {
+			await checkAccountantDependency();
+			return;
+		}
+
+		try {
+			const { data: depStatus, error } = await supabase.rpc('check_receiving_task_dependencies', {
+				receiving_record_id_param: taskDetails.receiving_record_id,
+				role_type_param: taskDetails.role_type
+			});
+
+			if (!error && depStatus) {
+				dependencyStatus = depStatus;
+				canComplete = depStatus.can_complete || false;
+				blockingRoles = depStatus.blocking_roles || [];
+				
+				console.log(`🔗 [Mobile] Dependencies for ${taskDetails.role_type}:`, depStatus);
+
+				// If there are completed dependencies, get their photos
+				if (depStatus.completed_dependencies && depStatus.completed_dependencies.length > 0) {
+					await loadDependencyPhotos(depStatus.completed_dependencies);
+				}
+			}
+		} catch (error) {
+			console.error('Error checking dependencies:', error);
+		}
+	}
+
+	// Special dependency check for accountant role
+	async function checkAccountantDependency() {
+		try {
+			console.log('🧾 [Mobile] Checking accountant dependency on inventory manager...');
+			
+			// Check if inventory manager task is completed
+			const { data: inventoryTask, error: inventoryError } = await supabase
+				.from('receiving_tasks')
+				.select('task_completed, completed_at')
+				.eq('receiving_record_id', taskDetails.receiving_record_id)
+				.eq('role_type', 'inventory_manager')
+				.single();
+
+			if (inventoryError || !inventoryTask?.task_completed) {
+				canComplete = false;
+				blockingRoles = ['Inventory Manager must complete their task first'];
+				errorMessage = 'The Inventory Manager must complete their task before the Accountant can proceed.';
+				console.log('❌ [Mobile] Inventory manager task not completed');
+				return;
+			}
+
+			// Check if original bill is uploaded
+			const { data: receivingRecord, error: recordError } = await supabase
+				.from('receiving_records')
+				.select('original_bill_uploaded, original_bill_url')
+				.eq('id', taskDetails.receiving_record_id)
+				.single();
+
+			if (recordError) {
+				console.error('❌ [Mobile] Error checking receiving record:', recordError);
+				canComplete = false;
+				errorMessage = 'Error checking dependencies. Please try again.';
+				return;
+			}
+
+			// Check original bill upload status
+			if (!receivingRecord.original_bill_uploaded || !receivingRecord.original_bill_url) {
+				canComplete = false;
+				blockingRoles = ['Original bill upload required from Inventory Manager'];
+				errorMessage = 'Original bill not uploaded by the inventory manager – please follow up.';
+				console.log('❌ [Mobile] Original bill not uploaded by inventory manager');
+				return;
+			}
+
+			// All good, accountant can proceed
+			canComplete = true;
+			blockingRoles = [];
+			errorMessage = '';
+			console.log('✅ [Mobile] Accountant dependency check passed - original bill uploaded');
+			
+		} catch (error) {
+			console.error('❌ [Mobile] Error checking accountant dependency:', error);
+			canComplete = false;
+			errorMessage = 'Error checking dependencies. Please try again.';
+		}
+	}
+
+	// Load photos from completed dependency tasks
+	async function loadDependencyPhotos(completedDependencies: string[]) {
+		try {
+			const { data: photos, error } = await supabase.rpc('get_dependency_completion_photos', {
+				receiving_record_id_param: taskDetails.receiving_record_id,
+				dependency_role_types: completedDependencies
+			});
+
+			if (!error && photos) {
+				dependencyPhotos = photos;
+				console.log(`📸 [Mobile] Dependency photos loaded:`, photos);
+			}
+		} catch (error) {
+			console.error('Error loading dependency photos:', error);
+		}
+	}
+
+	// Handle photo upload
+	async function handlePhotoUpload(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+		
+		if (file) {
+			if (!file.type.startsWith('image/')) {
+				showMobilePopup('error', 'Invalid File', 'Please select a valid image file');
+				return;
+			}
+			
+			if (file.size > 5 * 1024 * 1024) {
+				showMobilePopup('error', 'File Too Large', 'Image file must be less than 5MB');
+				return;
+			}
+			
+			photoFile = file;
+			
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				photoPreview = e.target?.result as string;
+			};
+			reader.readAsDataURL(file);
+			
+			console.log('📷 [Mobile] Photo selected:', file.name);
+		}
+	}
+
+	function removePhoto() {
+		photoFile = null;
+		photoPreview = null;
+		
+		const fileInput = document.getElementById('photo-upload') as HTMLInputElement;
+		if (fileInput) {
+			fileInput.value = '';
+		}
+	}
+
+	// Upload photo to storage
+	async function uploadPhoto(): Promise<string | null> {
+		if (!photoFile || !currentUserData) return null;
+		
+		try {
+			const fileExt = photoFile.name.split('.').pop();
+			const fileName = `receiving-task-${taskId}-${Date.now()}.${fileExt}`;
+			
+			const { data, error } = await supabase.storage
+				.from('completion-photos')
+				.upload(fileName, photoFile, {
+					cacheControl: '3600',
+					upsert: false
+				});
+			
+			if (error) {
+				console.error('Photo upload error:', error);
+				return null;
+			}
+			
+			const { data: urlData } = supabase.storage
+				.from('completion-photos')
+				.getPublicUrl(fileName);
+			
+			console.log('✅ [Mobile] Photo uploaded successfully:', urlData.publicUrl);
+			return urlData.publicUrl;
+		} catch (error) {
+			console.error('Error uploading photo:', error);
+			return null;
+		}
 	}
 </script>
 
@@ -734,6 +998,284 @@
 						{/if}
 					</div>
 				</div>
+			
+			{:else if taskDetails?.role_type === 'shelf_stocker'}
+				<!-- Shelf Stocker Requirements -->
+				<div class="shelf-stocker-info">
+					{#if receivingRecord}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📋 Receiving Record Details</h4>
+							</div>
+							<div class="details-grid">
+								<div class="detail-row">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecord.bill_amount}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecord.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Photo Upload Requirement -->
+					{#if requirePhotoUpload}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📷 Photo Upload Required</h4>
+							</div>
+							<div class="photo-requirement">
+								<p class="requirement-description">
+									Please take a photo of the completed shelf stocking to document your work.
+								</p>
+								
+								{#if !photoPreview}
+									<div class="upload-section">
+										<input
+											id="photo-upload"
+											type="file"
+											accept="image/*"
+											on:change={handlePhotoUpload}
+											disabled={isSubmitting}
+											class="file-input"
+											required
+										/>
+										<label for="photo-upload" class="upload-btn">
+											<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+												<circle cx="12" cy="13" r="4"/>
+											</svg>
+											Take Photo
+										</label>
+									</div>
+								{:else}
+									<div class="photo-preview">
+										<img src={photoPreview} alt="Shelf stocking completion" class="preview-image" />
+										<button class="remove-photo" on:click={removePhoto} disabled={isSubmitting}>
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M18 6L6 18M6 6l12 12"/>
+											</svg>
+										</button>
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else if taskDetails?.role_type === 'branch_manager' || taskDetails?.role_type === 'night_supervisor'}
+				<!-- Branch Manager / Night Supervisor Requirements -->
+				<div class="supervisor-info">
+					{#if receivingRecord}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📋 Receiving Record Details</h4>
+							</div>
+							<div class="details-grid">
+								<div class="detail-row">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecord.bill_amount}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecord.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Dependency Status -->
+					{#if dependencyStatus}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📊 Task Dependencies</h4>
+							</div>
+							<div class="dependency-status">
+								{#if canComplete}
+									<div class="dependency-success">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+										</svg>
+										<span><strong>Ready to complete!</strong> All dependencies are met.</span>
+									</div>
+								{:else}
+									<div class="dependency-waiting">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"/>
+											<polyline points="12,6 12,12 16,14"/>
+										</svg>
+										<span><strong>Waiting for:</strong> {blockingRoles.join(', ')}</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
+					<!-- Dependency Photos (show completed dependency work) -->
+					{#if dependencyPhotos && Object.keys(dependencyPhotos).length > 0}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📸 Completed Work Photos</h4>
+							</div>
+							<div class="dependency-photos">
+								{#each Object.entries(dependencyPhotos) as [roleType, photoUrl]}
+									<div class="dependency-photo">
+										<h5 class="photo-role-title">
+											{roleType === 'shelf_stocker' ? 'Shelf Stocker' : roleType} Work:
+										</h5>
+										<div class="photo-container" on:click={() => openPhotoViewer(photoUrl, roleType)}>
+											<img src={photoUrl} alt="{roleType} completion photo" class="dependency-photo-img" />
+											<div class="photo-overlay">
+												<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<path d="M15 3h6v6m-6 0L9 15M9 3H3v6"/>
+												</svg>
+												<span>Tap to view full size</span>
+											</div>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else if taskDetails?.role_type === 'accountant'}
+				<!-- Accountant Requirements -->
+				<div class="accountant-info">
+					{#if receivingRecord}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📋 Receiving Record Details</h4>
+							</div>
+							<div class="details-grid">
+								<div class="detail-row">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecord.bill_amount}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecord.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Accountant Dependency Status -->
+					<div class="info-card">
+						<div class="info-header">
+							<h4>📊 Prerequisites</h4>
+						</div>
+						<div class="dependency-status">
+							{#if canComplete}
+								<div class="dependency-success">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+									</svg>
+									<span><strong>Ready to complete!</strong> Original bill has been uploaded by the Inventory Manager.</span>
+								</div>
+							{:else}
+								<div class="dependency-waiting">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"/>
+										<polyline points="12,6 12,12 16,14"/>
+									</svg>
+									<span><strong>Waiting:</strong> {blockingRoles.join(', ')}</span>
+								</div>
+								{#if errorMessage}
+									<div class="error-message">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"/>
+											<line x1="12" y1="8" x2="12" y2="12"/>
+											<line x1="12" y1="16" x2="12.01" y2="16"/>
+										</svg>
+										<span>{errorMessage}</span>
+									</div>
+								{/if}
+							{/if}
+						</div>
+					</div>
+
+					<div class="info-card">
+						<div class="info-header">
+							<h4>🧾 Accountant Tasks</h4>
+						</div>
+						<div class="completion-info">
+							<p>As the Accountant, you need to:</p>
+							<ul>
+								<li>Enter payment details into Purchase ERP system</li>
+								<li>Process the original bill documentation</li>
+								<li>Update ERP reference number</li>
+								<li>Confirm all financial records are accurate</li>
+							</ul>
+							<p><strong>Note:</strong> You can only complete this task after the Inventory Manager has uploaded the original bill.</p>
+						</div>
+					</div>
+				</div>
+
+			{:else}
+				<!-- Other Roles (warehouse_handler, etc.) -->
+				<div class="other-role-info">
+					{#if receivingRecord}
+						<div class="info-card">
+							<div class="info-header">
+								<h4>📋 Receiving Record Details</h4>
+							</div>
+							<div class="details-grid">
+								<div class="detail-row">
+									<span class="detail-label">Branch:</span>
+									<span class="detail-value">{receivingRecord.branch_name || 'Unknown Branch'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Vendor:</span>
+									<span class="detail-value">{receivingRecord.vendor_name || 'Unknown Vendor'}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Amount:</span>
+									<span class="detail-value">{receivingRecord.bill_amount}</span>
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Bill Number:</span>
+									<span class="detail-value">{receivingRecord.bill_number}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<div class="info-card">
+						<div class="info-header">
+							<h4>✅ Task Completion</h4>
+						</div>
+						<div class="completion-info">
+							<p>Mark this task as completed when you have finished your {taskDetails?.role_type} responsibilities for this receiving record.</p>
+						</div>
+					</div>
+				</div>
 			{/if}
 		</div>
 
@@ -792,6 +1334,26 @@
 				<button class="popup-btn popup-btn-primary" on:click={closeMobilePopup}>
 					OK
 				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Photo Viewer Modal -->
+{#if showPhotoViewer}
+	<div class="photo-viewer-overlay" on:click={closePhotoViewer}>
+		<div class="photo-viewer-content" on:click|stopPropagation>
+			<div class="photo-viewer-header">
+				<h3 class="photo-viewer-title">{viewerPhotoTitle}</h3>
+				<button class="photo-viewer-close" on:click={closePhotoViewer}>
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			</div>
+			<div class="photo-viewer-body">
+				<img src={viewerPhotoUrl} alt={viewerPhotoTitle} class="photo-viewer-img" />
 			</div>
 		</div>
 	</div>
@@ -1490,5 +2052,320 @@
 
 	.popup-btn-primary:active {
 		transform: translateY(1px);
+	}
+
+	/* New Role-Specific Styles */
+	.shelf-stocker-info,
+	.supervisor-info,
+	.other-role-info {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.photo-requirement {
+		padding: 1rem;
+	}
+
+	.requirement-description {
+		margin: 0 0 1rem 0;
+		font-size: 0.875rem;
+		color: #6b7280;
+		line-height: 1.5;
+	}
+
+	.upload-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.2s ease;
+		justify-content: center;
+		width: 100%;
+	}
+
+	.upload-btn:hover {
+		background: #2563eb;
+	}
+
+	.upload-btn:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.photo-preview {
+		position: relative;
+		display: inline-block;
+		margin-top: 1rem;
+	}
+
+	.preview-image {
+		width: 100%;
+		max-width: 300px;
+		height: 200px;
+		object-fit: cover;
+		border-radius: 8px;
+		border: 2px solid #e5e7eb;
+	}
+
+	.remove-photo {
+		position: absolute;
+		top: -8px;
+		right: -8px;
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: background 0.2s ease;
+	}
+
+	.remove-photo:hover {
+		background: #dc2626;
+	}
+
+	.dependency-status {
+		padding: 1rem;
+	}
+
+	.dependency-success,
+	.dependency-waiting {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		border-radius: 8px;
+		font-size: 0.875rem;
+	}
+
+	.dependency-success {
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+		color: #059669;
+	}
+
+	.dependency-waiting {
+		background: #fffbeb;
+		border: 1px solid #fed7aa;
+		color: #d97706;
+	}
+
+	.dependency-photos {
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.dependency-photo {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.photo-role-title {
+		margin: 0;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.dependency-photo-img {
+		width: 100%;
+		max-width: 300px;
+		height: 150px;
+		object-fit: cover;
+		border-radius: 8px;
+		border: 2px solid #e5e7eb;
+	}
+
+	.completion-info {
+		padding: 1rem;
+	}
+
+	.completion-info p {
+		margin: 0;
+		font-size: 0.875rem;
+		color: #6b7280;
+		line-height: 1.5;
+	}
+
+	/* Accountant-specific styles */
+	.dependency-status {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.dependency-success {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: #16a34a;
+		background: #f0fdf4;
+		padding: 8px 12px;
+		border-radius: 6px;
+		border: 1px solid #86efac;
+	}
+
+	.dependency-waiting {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: #ca8a04;
+		background: #fefce8;
+		padding: 8px 12px;
+		border-radius: 6px;
+		border: 1px solid #fbbf24;
+	}
+
+	.error-message {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: #dc2626;
+		background: #fef2f2;
+		padding: 8px 12px;
+		border-radius: 6px;
+		border: 1px solid #fca5a5;
+		margin-top: 4px;
+	}
+
+	.accountant-info .completion-info ul {
+		margin: 8px 0;
+		padding-left: 20px;
+	}
+
+	.accountant-info .completion-info li {
+		margin: 4px 0;
+		color: #6b7280;
+	}
+
+	.other-role-info .completion-info {
+		color: #6b7280;
+	}
+
+	/* Photo viewer styles */
+	.photo-container {
+		position: relative;
+		cursor: pointer;
+		border-radius: 8px;
+		overflow: hidden;
+		transition: transform 0.2s ease;
+	}
+
+	.photo-container:hover {
+		transform: scale(1.02);
+	}
+
+	.photo-container:active {
+		transform: scale(0.98);
+	}
+
+	.photo-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		opacity: 0;
+		transition: opacity 0.2s ease;
+		color: white;
+		font-size: 0.75rem;
+		text-align: center;
+		gap: 4px;
+	}
+
+	.photo-container:hover .photo-overlay {
+		opacity: 1;
+	}
+
+	.photo-viewer-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.9);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 20px;
+	}
+
+	.photo-viewer-content {
+		background: white;
+		border-radius: 12px;
+		max-width: 95vw;
+		max-height: 95vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.photo-viewer-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 16px 20px;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.photo-viewer-title {
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: #111827;
+		margin: 0;
+	}
+
+	.photo-viewer-close {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 6px;
+		color: #6b7280;
+		transition: all 0.2s ease;
+	}
+
+	.photo-viewer-close:hover {
+		background: #e5e7eb;
+		color: #374151;
+	}
+
+	.photo-viewer-body {
+		padding: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 300px;
+		max-height: 70vh;
+		overflow: hidden;
+	}
+
+	.photo-viewer-img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: 8px;
 	}
 </style>

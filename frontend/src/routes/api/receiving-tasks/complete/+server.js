@@ -13,7 +13,9 @@ export async function POST({ request }) {
 			original_bill_file_path,
 			has_erp_purchase_invoice = false,
 			has_pr_excel_file = false,
-			has_original_bill = false
+			has_original_bill = false,
+			completion_photo_url,
+			completion_notes
 		} = requestData;
 
 		// Validate required fields
@@ -66,6 +68,13 @@ export async function POST({ request }) {
 			}
 		}
 
+		// Special handling for Accountant
+		if (taskData.role_type === 'accountant') {
+			console.log('🧾 [API] Processing Accountant task completion...');
+			// Accountant validations are handled in the database function
+			// The database checks if inventory manager has uploaded original bill
+		}
+
 		// Special handling for Purchase Manager
 		if (taskData.role_type === 'purchase_manager') {
 			console.log('💰 [API] Processing Purchase Manager task completion...');
@@ -83,7 +92,9 @@ export async function POST({ request }) {
 			original_bill_file_path_param: original_bill_file_path || null,
 			has_erp_purchase_invoice: has_erp_purchase_invoice,
 			has_pr_excel_file: has_pr_excel_file,
-			has_original_bill: has_original_bill
+			has_original_bill: has_original_bill,
+			completion_photo_url_param: completion_photo_url || null,
+			completion_notes_param: completion_notes || null
 		});
 
 		console.log('📊 [API] Database function result:', { data, error });
@@ -100,18 +111,35 @@ export async function POST({ request }) {
 			// Handle specific error codes for better user experience
 			let errorMessage = data.error || 'Unknown error occurred';
 			
+			// Accountant specific error handling
+			if (data.error_code === 'ORIGINAL_BILL_NOT_UPLOADED') {
+				console.log('❌ [API] Accountant: Original bill not uploaded by inventory manager');
+				errorMessage = data.message || 'Original bill not uploaded by the inventory manager – please follow up.';
+			} else if (data.error_code === 'ORIGINAL_BILL_FILE_MISSING') {
+				console.log('❌ [API] Accountant: Original bill file missing');
+				errorMessage = data.message || 'Original bill file not uploaded by the inventory manager – please follow up.';
+			} else if (data.error_code === 'INVENTORY_MANAGER_NOT_COMPLETED') {
+				console.log('❌ [API] Accountant: Inventory manager task not completed');
+				errorMessage = data.message || 'The Inventory Manager must complete their task before the Accountant can proceed.';
 			// Purchase Manager specific error handling
-			if (data.error_code === 'PR_EXCEL_NOT_UPLOADED') {
+			} else if (data.error_code === 'PR_EXCEL_NOT_UPLOADED') {
 				console.log('❌ [API] Purchase Manager: PR Excel not uploaded');
 				errorMessage = 'PR Excel not uploaded';
 			} else if (data.error_code === 'VERIFICATION_NOT_FINISHED') {
 				console.log('❌ [API] Purchase Manager: Verification not finished');
 				errorMessage = 'Verification not finished';
+			} else if (data.error_code === 'PHOTO_UPLOAD_REQUIRED') {
+				console.log('❌ [API] Photo upload required');
+				errorMessage = 'Photo upload is required for this task';
+			} else if (data.error_code === 'DEPENDENCIES_NOT_MET') {
+				console.log('❌ [API] Task dependencies not met');
+				errorMessage = data.error; // Use the specific dependency message from database
 			}
 			
 			return json({ 
 				error: errorMessage,
-				error_code: data.error_code
+				error_code: data.error_code,
+				message: data.message // Include the detailed message for frontend use
 			}, { status: 400 });
 		}
 

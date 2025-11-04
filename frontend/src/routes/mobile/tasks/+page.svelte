@@ -598,9 +598,14 @@ goto(`/mobile/tasks/${task.id}/complete`);
 }
 
 	async function completeReceivingTask(task) {
-		// Special handling for Inventory Manager tasks
-		if (task.role_type === 'inventory_manager') {
-			// Redirect to a special completion form for Inventory Manager
+		// Special handling for roles that require detailed completion forms
+		if (task.role_type === 'inventory_manager' || 
+			task.role_type === 'purchase_manager' || 
+			task.role_type === 'shelf_stocker' ||
+			task.role_type === 'branch_manager' ||
+			task.role_type === 'night_supervisor' ||
+			task.role_type === 'accountant') {
+			// Redirect to the detailed completion form
 			goto(`/mobile/receiving-tasks/${task.id}/complete`);
 			return;
 		}
@@ -621,10 +626,22 @@ goto(`/mobile/tasks/${task.id}/complete`);
 				})
 			});
 
+			console.log('🔍 [Mobile Tasks] API Response status:', response.status);
+
 			if (!response.ok) {
-				const error = await response.json();
-				throw new Error(error.error || 'Failed to complete receiving task');
+				const errorData = await response.json();
+				console.log('❌ [Mobile Tasks] API Error Response:', errorData);
+				
+				// Handle specific error cases
+				if (errorData.error_code === 'DEPENDENCIES_NOT_MET') {
+					throw new Error(errorData.error || errorData.message || 'Task dependencies not met');
+				} else {
+					throw new Error(errorData.error || errorData.message || 'Failed to complete receiving task');
+				}
 			}
+
+			const result = await response.json();
+			console.log('✅ [Mobile Tasks] API Success Response:', result);
 
 			alert('Receiving task completed successfully!');
 			await loadTasks();
