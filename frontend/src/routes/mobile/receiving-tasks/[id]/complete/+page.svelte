@@ -105,15 +105,8 @@
 				throw new Error('Task not found or not accessible');
 			}
 
-			// Validate that the current user's role matches the task role
-			if (currentUserData?.roleType && task.role_type !== currentUserData.roleType) {
-				console.error('❌ [Mobile] Role mismatch:', {
-					taskRole: task.role_type,
-					userRole: currentUserData.roleType,
-					userName: currentUserData.username
-				});
-				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${currentUserData.roleType}. Please contact your administrator to fix this task assignment.`);
-			}
+			// Validate that the current user has access to this task
+			await validateUserAccess(task, currentUserData);
 
 			taskDetails = task;
 			receivingRecord = task.receiving_record;
@@ -188,6 +181,77 @@
 			errorMessage = error.message || 'Failed to load task details';
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	async function validateUserAccess(task, currentUserData) {
+		// For position-based users, check their actual position assignments
+		if (currentUserData?.roleType === 'Position-based') {
+			console.log('🔍 [Mobile] Checking position-based user access for task:', {
+				taskRole: task.role_type,
+				userRole: currentUserData.roleType,
+				userName: currentUserData.username
+			});
+
+			// Get user's current position assignments
+			const { data: positions, error: positionsError } = await supabase
+				.from('hr_position_assignments')
+				.select(`
+					*,
+					hr_positions (
+						position_title_en,
+						position_title_ar
+					)
+				`)
+				.eq('employee_id', currentUserData.employee_id)
+				.eq('is_current', true);
+
+			if (positionsError) {
+				console.error('❌ [Mobile] Error fetching user positions:', positionsError);
+				throw new Error('Could not verify user permissions. Please contact your administrator.');
+			}
+
+			// Map task roles to position titles
+			const roleToPositionMap = {
+				'inventory_manager': ['Inventory Manager', 'Branch Manager'], // Branch managers can also do inventory tasks
+				'purchase_manager': ['Purchase Manager', 'Branch Manager'],
+				'branch_manager': ['Branch Manager'],
+				'accountant': ['Accountant', 'Branch Manager'],
+				'hr_manager': ['HR Manager', 'Branch Manager'],
+				'shelf_stocker': ['Shelf Stocker', 'Branch Manager'],
+				'night_supervisor': ['Night Supervisor', 'Branch Manager'],
+				'warehouse_handler': ['Warehouse Handler', 'Branch Manager']
+			};
+
+			const allowedPositions = roleToPositionMap[task.role_type] || [];
+			const userPositions = positions?.map(p => p.hr_positions?.position_title_en) || [];
+
+			const hasAccess = allowedPositions.some(allowedPos => 
+				userPositions.includes(allowedPos)
+			);
+
+			console.log('🔍 [Mobile] Position access check:', {
+				taskRole: task.role_type,
+				allowedPositions,
+				userPositions,
+				hasAccess
+			});
+
+			if (!hasAccess) {
+				throw new Error(`Access denied: This is a ${task.role_type} task, but your current position(s) [${userPositions.join(', ')}] don't have permission. Required positions: ${allowedPositions.join(', ')}.`);
+			}
+
+			console.log('✅ [Mobile] Position-based user has access to task');
+		} else {
+			// For role-based users, check direct role match
+			if (currentUserData?.roleType && task.role_type !== currentUserData.roleType) {
+				console.error('❌ [Mobile] Role mismatch:', {
+					taskRole: task.role_type,
+					userRole: currentUserData.roleType,
+					userName: currentUserData.username
+				});
+				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${currentUserData.roleType}. Please contact your administrator to fix this task assignment.`);
+			}
 		}
 	}
 
