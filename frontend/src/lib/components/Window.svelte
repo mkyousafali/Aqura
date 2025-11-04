@@ -12,6 +12,7 @@
 	let dragStart = { x: 0, y: 0 };
 	let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
 	let resizeDirection = '';
+	let refreshing = false;
 
 	// Reactive variables for window state
 	$: isMaximized = window.state === 'maximized';
@@ -187,13 +188,56 @@
 		}
 	}
 
-	function refresh() {
-		// Trigger a refresh event that can be handled by the component
-		if (window.props?.onRefresh) {
-			window.props.onRefresh();
-		} else {
-			// Reload the component by remounting
-			windowManager.refreshWindow(window.id);
+	async function refresh() {
+		if (refreshing) return; // Prevent multiple simultaneous refreshes
+		
+		try {
+			refreshing = true;
+			console.log('🔄 [Window] Starting window refresh for:', window.title);
+			console.log('🔍 [Window] Window props:', window.props);
+			
+			// Try multiple approaches to find and call refresh function
+			let refreshExecuted = false;
+			
+			// Method 1: Call component's onRefresh if available
+			if (window.props?.onRefresh) {
+				console.log('✅ [Window] Found onRefresh prop, calling it...');
+				try {
+					await window.props.onRefresh();
+					refreshExecuted = true;
+				} catch (error) {
+					console.error('❌ [Window] onRefresh failed:', error);
+				}
+			}
+			
+			// Method 2: Try to find data-refresh-target element
+			if (!refreshExecuted) {
+				const componentElement = windowElement?.querySelector('[data-refresh-target]');
+				if (componentElement && componentElement.refreshData) {
+					console.log('✅ [Window] Found data-refresh-target element, calling refreshData...');
+					try {
+						await componentElement.refreshData();
+						refreshExecuted = true;
+					} catch (error) {
+						console.error('❌ [Window] refreshData failed:', error);
+					}
+				}
+			}
+			
+			// Method 3: Fallback to window manager refresh
+			if (!refreshExecuted) {
+				console.log('❌ [Window] No refresh methods found, using fallback remount');
+				windowManager.refreshWindow(window.id);
+				refreshExecuted = true;
+			}
+			
+			if (refreshExecuted) {
+				console.log('✅ [Window] Window refresh successful for:', window.title);
+			}
+		} catch (error) {
+			console.error('❌ [Window] Error during window refresh:', error);
+		} finally {
+			refreshing = false;
 		}
 	}
 </script>
@@ -232,21 +276,20 @@
 		</div>
 		
 		<div class="title-bar-controls">
-			{#if window.refreshable !== false}
+			<!-- Refresh button enabled -->
+			{#if true}
 				<button
 					class="control-button refresh"
+					disabled={refreshing}
 					on:click|stopPropagation={refresh}
-					title="Refresh"
+					title={refreshing ? "Refreshing..." : "Refresh"}
 					aria-label="Refresh window content"
 				>
-					<svg viewBox="0 0 16 16" width="14" height="14">
-						<path d="M13.5 3.5 C13.5 3.5, 13.5 1.5, 13.5 1.5 M13.5 3.5 C13.5 3.5, 15.5 3.5, 15.5 3.5 M13.5 3.5 C12.5 2.5, 11 2, 8 2 C4 2, 1 4.5, 1 8 C1 11.5, 4 14, 8 14 C11.5 14, 14 11.5, 14 8.5" 
-							stroke="currentColor" 
-							stroke-width="1.5" 
-							fill="none" 
-							stroke-linecap="round"
-						/>
-					</svg>
+					{#if refreshing}
+						⏳
+					{:else}
+						🔄
+					{/if}
 				</button>
 			{/if}
 			
@@ -513,6 +556,13 @@
 	.control-button.refresh:hover {
 		background: #10b981;
 		color: white;
+	}
+
+	.control-button.refresh:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		pointer-events: none;
+		background: rgba(0, 0, 0, 0.1);
 	}
 
 	.control-button.popout:hover {

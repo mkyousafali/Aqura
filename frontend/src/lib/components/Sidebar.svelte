@@ -392,10 +392,28 @@
 		const windowId = generateWindowId('scheduled-payments');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
+		let scheduledPaymentsRefreshFunction = null;
+		
 		openWindow({
 			id: windowId,
 			title: `Scheduled Payments #${instanceNumber}`,
 			component: ScheduledPayments,
+			props: {
+				setRefreshCallback: (fn) => {
+					console.log('📝 [Sidebar] Refresh function registered from ScheduledPayments');
+					scheduledPaymentsRefreshFunction = fn;
+				},
+				onRefresh: async () => {
+					console.log('🔄 [Sidebar] onRefresh called from window');
+					console.log('🔍 [Sidebar] scheduledPaymentsRefreshFunction:', scheduledPaymentsRefreshFunction);
+					if (scheduledPaymentsRefreshFunction) {
+						console.log('✅ [Sidebar] Calling ScheduledPayments refresh function');
+						return await scheduledPaymentsRefreshFunction();
+					} else {
+						console.log('❌ [Sidebar] No refresh function available');
+					}
+				}
+			},
 			icon: '💰',
 			size: { width: 1400, height: 900 },
 			position: { 

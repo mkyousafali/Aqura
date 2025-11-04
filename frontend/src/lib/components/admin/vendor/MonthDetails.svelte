@@ -25,11 +25,15 @@
 
 	// Props passed from parent
 	export let monthData = null;
+	export let onRefresh = null; // Window refresh callback
+	export let setRefreshCallback = null; // Function to register our refresh function
 
 	// Component state
 	let monthDetailData = [];
 	let scheduledPayments = [];
 	let expenseSchedulerPayments = []; // For expense scheduler payments
+	let refreshing = false;
+	let monthDetailsElement;
 	
 	// Filter state
 	let filterBranch = '';
@@ -75,15 +79,7 @@
 	let pendingApprovalPayment = null;
 
 	// Initialize component
-	onMount(async () => {
-		if (monthData) {
-			await loadBranches();
-			await loadPaymentMethods();
-			await loadScheduledPayments();
-			await loadExpenseSchedulerPayments();
-			generateAllDaysOfMonth(monthData);
-		}
-	});
+	// (Initialization moved to loadInitialData function called from main onMount)
 
 	// Reactive statement to regenerate data when scheduledPayments change
 	$: if (scheduledPayments.length >= 0 && monthData) {
@@ -1471,10 +1467,77 @@
 	function getApprovalStatus(payment) {
 		return payment.approval_status || 'pending';
 	}
+
+	// Refresh function to reload all data
+	async function refreshData() {
+		if (refreshing) return; // Prevent multiple simultaneous refreshes
+		
+		try {
+			refreshing = true;
+			console.log('🔄 [MonthDetails] Starting complete data refresh...');
+			
+			// Clear existing data first
+			scheduledPayments = [];
+			expenseSchedulerPayments = [];
+			monthDetailData = [];
+			
+			// Force reload all data sources
+			await Promise.all([
+				loadBranches(),
+				loadPaymentMethods(),
+				loadScheduledPayments(),
+				loadExpenseSchedulerPayments()
+			]);
+			
+			// Regenerate calendar data
+			if (monthData) {
+				generateAllDaysOfMonth(monthData);
+			}
+			
+			console.log('✅ [MonthDetails] Complete data refresh successful');
+		} catch (error) {
+			console.error('❌ [MonthDetails] Error during complete refresh:', error);
+			alert('Error refreshing data. Please try again.');
+		} finally {
+			refreshing = false;
+		}
+	}
+
+	// Expose refreshData function to parent/window
+	$: if (monthDetailsElement) {
+		monthDetailsElement.refreshData = refreshData;
+	}
+
+	// Auto-refresh when component mounts or monthData changes
+	async function loadInitialData() {
+		if (monthData) {
+			await loadBranches();
+			await loadPaymentMethods();
+			await loadScheduledPayments();
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		}
+	}
+
+	onMount(() => {
+		console.log('🚀 [MonthDetails] Component mounted');
+		console.log('🔍 [MonthDetails] setRefreshCallback:', setRefreshCallback);
+		console.log('🔍 [MonthDetails] onRefresh:', onRefresh);
+		
+		loadInitialData();
+		
+		// Register our refresh function with the window
+		if (setRefreshCallback) {
+			console.log('✅ [MonthDetails] Registering refreshData function with window');
+			setRefreshCallback(refreshData);
+		} else {
+			console.log('❌ [MonthDetails] No setRefreshCallback provided');
+		}
+	});
 </script>
 
 <!-- Month Details Window Content -->
-<div class="month-details-container">
+<div class="month-details-container" data-refresh-target bind:this={monthDetailsElement}>
 	{#if monthData}
 		<!-- Fixed Header Section -->
 		<div class="fixed-header-section">
@@ -1482,7 +1545,15 @@
 			<!-- Compact Calendar Card with integrated summary -->
 			<div class="header-card calendar-card">
 				<div class="header-card-title">
-					<h3>� Schedule Calendar</h3>
+					<h3>📅 Schedule Calendar</h3>
+					<button 
+						class="small-refresh-btn"
+						disabled={refreshing}
+						on:click={refreshData}
+						title={refreshing ? "Refreshing..." : "Refresh data"}
+					>
+						{refreshing ? "⏳" : "🔄"}
+					</button>
 				</div>
 				<div class="header-card-content">
 					<!-- Payment Summary inside calendar -->
@@ -2557,6 +2628,9 @@
 		background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 		padding: 12px 16px;
 		border-bottom: 1px solid #e2e8f0;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
 	}
 
 	.header-card-title h3 {
@@ -2564,6 +2638,35 @@
 		font-size: 14px;
 		font-weight: 600;
 		color: #374151;
+	}
+
+	.small-refresh-btn {
+		background: rgba(255, 255, 255, 0.8);
+		border: 1px solid #e2e8f0;
+		border-radius: 4px;
+		padding: 4px 6px;
+		font-size: 12px;
+		cursor: pointer;
+		color: #374151;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 24px;
+		height: 24px;
+	}
+
+	.small-refresh-btn:hover {
+		background: rgba(255, 255, 255, 1);
+		border-color: #3b82f6;
+		color: #3b82f6;
+		transform: rotate(180deg);
+	}
+
+	.small-refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		pointer-events: none;
 	}
 
 	.payment-summary-card .header-card-title {

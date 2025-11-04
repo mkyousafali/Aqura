@@ -5,6 +5,10 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import MonthDetails from './MonthDetails.svelte';
 
+	// Props for window refresh functionality
+	export let onRefresh = null; // Window refresh callback
+	export let setRefreshCallback = null; // Function to register our refresh function
+
 	// Helper function to format date as dd/mm/yyyy
 	function formatDate(dateString) {
 		if (!dateString) return 'N/A';
@@ -31,6 +35,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let weekDays = [];
 	let totalScheduledAmount = 0;
 	let totalExpensesScheduled = 0;
+	let refreshing = false;
+	let scheduledPaymentsElement;
 	
 	// Selected day details
 	let selectedDay = null;
@@ -59,8 +65,52 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let currentMonthIndex = 0; // Starting from current month
 	let visibleMonthsCount = 6; // Show 6 months at a time
 
+	// Refresh function to reload all data
+	async function refreshData() {
+		if (refreshing) return; // Prevent multiple simultaneous refreshes
+		
+		try {
+			refreshing = true;
+			console.log('🔄 [ScheduledPayments] Starting complete data refresh...');
+			console.log('🔍 [ScheduledPayments] Current scheduledPayments:', scheduledPayments.length);
+			console.log('🔍 [ScheduledPayments] Current expenseSchedulerPayments:', expenseSchedulerPayments.length);
+			
+			// Clear existing data first
+			scheduledPayments = [];
+			expenseSchedulerPayments = [];
+			weekDays = [];
+			
+			console.log('✅ [ScheduledPayments] Data cleared, reloading...');
+			
+			// Reload all data sources
+			generateWeekDays();
+			calculateMonthlyTotals();
+			
+			console.log('✅ [ScheduledPayments] Week days and calculations regenerated');
+			
+			await Promise.all([
+				loadBranches(),
+				loadPaymentMethods(),
+				loadVendors(),
+				loadScheduledPayments(),
+				loadExpenseSchedulerPayments()
+			]);
+			
+			console.log('✅ [ScheduledPayments] All data reloaded successfully');
+			console.log('🔍 [ScheduledPayments] New scheduledPayments:', scheduledPayments.length);
+			console.log('🔍 [ScheduledPayments] New expenseSchedulerPayments:', expenseSchedulerPayments.length);
+			
+		} catch (error) {
+			console.error('❌ [ScheduledPayments] Error during complete refresh:', error);
+			alert('Error refreshing data. Please try again.');
+		} finally {
+			refreshing = false;
+			console.log('🏁 [ScheduledPayments] Refresh completed, refreshing state reset');
+		}
+	}
+
 	// Initialize component
-	onMount(async () => {
+	async function loadInitialData() {
 		generateWeekDays();
 		calculateMonthlyTotals();
 		await loadBranches();
@@ -68,7 +118,28 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		await loadVendors();
 		await loadScheduledPayments();
 		await loadExpenseSchedulerPayments();
+	}
+
+	onMount(async () => {
+		console.log('🚀 [ScheduledPayments] Component mounted');
+		console.log('🔍 [ScheduledPayments] setRefreshCallback:', setRefreshCallback);
+		console.log('🔍 [ScheduledPayments] onRefresh:', onRefresh);
+		
+		await loadInitialData();
+		
+		// Register our refresh function with the window
+		if (setRefreshCallback) {
+			console.log('✅ [ScheduledPayments] Registering refreshData function with window');
+			setRefreshCallback(refreshData);
+		} else {
+			console.log('❌ [ScheduledPayments] No setRefreshCallback provided');
+		}
 	});
+
+	// Expose refreshData function to parent/window
+	$: if (scheduledPaymentsElement) {
+		scheduledPaymentsElement.refreshData = refreshData;
+	}
 
 	// Generate week view (7 days starting from current week)
 	function generateWeekDays() {
@@ -478,11 +549,29 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const windowId = generateWindowId('month-details');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
+		let monthDetailsRefreshFunction = null;
+
 		openWindow({
 			id: windowId,
 			title: `${monthData.monthName} ${monthData.year} - Payment Details #${instanceNumber}`,
 			component: MonthDetails,
-			props: { monthData },
+			props: { 
+				monthData,
+				setRefreshCallback: (fn) => {
+					console.log('📝 [ScheduledPayments] Refresh function registered from MonthDetails');
+					monthDetailsRefreshFunction = fn;
+				},
+				onRefresh: async () => {
+					console.log('🔄 [ScheduledPayments] onRefresh called from window');
+					console.log('🔍 [ScheduledPayments] monthDetailsRefreshFunction:', monthDetailsRefreshFunction);
+					if (monthDetailsRefreshFunction) {
+						console.log('✅ [ScheduledPayments] Calling MonthDetails refresh function');
+						return await monthDetailsRefreshFunction();
+					} else {
+						console.log('❌ [ScheduledPayments] No refresh function available');
+					}
+				}
+			},
 			icon: '📊',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -584,11 +673,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 
 <!-- Scheduled Payments Window Content -->
-<div class="scheduled-payments">
+<div class="scheduled-payments" data-refresh-target bind:this={scheduledPaymentsElement}>
 	<div class="header">
 		<div class="header-top">
 			<div class="title-section">
-				<h1>💰 Scheduled Payments</h1>
+				<h1>💰 Scheduled Payments 
+					<button 
+						class="inline-refresh-btn"
+						disabled={refreshing}
+						on:click={() => {
+							console.log('🖱️ [ScheduledPayments] Refresh button clicked!');
+							refreshData();
+						}}
+						title={refreshing ? "Refreshing..." : "Refresh data"}
+					>
+						{refreshing ? "⏳" : "🔄"}
+					</button>
+				</h1>
 				<p>Total Vendor Scheduled: <strong>{formatCurrency(totalScheduledAmount)}</strong> | Total Expenses Scheduled: <strong style="color: #dc2626;">{formatCurrency(totalExpensesScheduled)}</strong></p>
 			</div>
 			
@@ -1081,6 +1182,68 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 20px;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.inline-refresh-btn {
+		background: rgba(255, 255, 255, 0.9);
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 16px;
+		transition: all 0.2s ease;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		margin-left: 8px;
+		vertical-align: middle;
+	}
+
+	.inline-refresh-btn:hover {
+		background: rgba(59, 130, 246, 0.1);
+		border-color: #3b82f6;
+		color: #3b82f6;
+		transform: rotate(180deg);
+	}
+
+	.inline-refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		pointer-events: none;
+	}
+
+	.small-refresh-btn {
+		background: rgba(255, 255, 255, 0.9);
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 14px;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 24px;
+		height: 24px;
+	}
+
+	.small-refresh-btn:hover {
+		background: rgba(255, 255, 255, 1);
+		border-color: #3b82f6;
+		color: #3b82f6;
+		transform: rotate(180deg);
+	}
+
+	.small-refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		pointer-events: none;
 	}
 
 	/* Vendor Search Results Styles */
