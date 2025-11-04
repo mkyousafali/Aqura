@@ -224,21 +224,32 @@
 			};
 
 			const allowedPositions = roleToPositionMap[task.role_type] || [];
-			const userPositions = positions?.map(p => p.hr_positions?.position_title_en) || [];
 
-			const hasAccess = allowedPositions.some(allowedPos => 
-				userPositions.includes(allowedPos)
-			);
+			// Normalize position titles for robust matching (lowercase, singularize trailing 's', remove punctuation/extra spaces)
+			const userPositionsRaw = positions?.map(p => p.hr_positions?.position_title_en).filter(Boolean) || [];
+			const normalize = (s) => String(s || '')
+				.toLowerCase()
+				.replace(/[^a-z0-9 ]+/g, ' ') // remove punctuation
+				.replace(/\s+/g, ' ') // collapse spaces
+				.replace(/\s+$/,'')
+				.replace(/^\s+/, '')
+				.replace(/s$/,'') // naive singularize: drop trailing s
+				.trim();
+
+			const allowedNormalized = new Set(allowedPositions.map(normalize));
+			const userNormalized = new Set(userPositionsRaw.map(normalize));
+
+			const hasAccess = [...allowedNormalized].some(ap => userNormalized.has(ap));
 
 			console.log('🔍 [Mobile] Position access check:', {
 				taskRole: task.role_type,
 				allowedPositions,
-				userPositions,
+				userPositions: userPositionsRaw,
 				hasAccess
 			});
 
 			if (!hasAccess) {
-				throw new Error(`Access denied: This is a ${task.role_type} task, but your current position(s) [${userPositions.join(', ')}] don't have permission. Required positions: ${allowedPositions.join(', ')}.`);
+				throw new Error(`Access denied: This is a ${task.role_type} task, but your current position(s) [${userPositionsRaw.join(', ')}] don't have permission. Required positions: ${allowedPositions.join(', ')}.`);
 			}
 
 			console.log('✅ [Mobile] Position-based user has access to task');
