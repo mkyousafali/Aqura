@@ -100,15 +100,17 @@
 
 				// Check if payment schedule exists - handle errors gracefully
 				let scheduleData = null;
+				let hasMultipleSchedules = false;
 				try {
 					const { data, error: scheduleError } = await supabase
 						.from('vendor_payment_schedule')
 						.select('id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
-						.eq('receiving_record_id', record.id)
-						.maybeSingle(); // Use maybeSingle instead of single to avoid errors when no record exists
+						.eq('receiving_record_id', record.id);
 
-					if (!scheduleError) {
-						scheduleData = data;
+					if (!scheduleError && data && data.length > 0) {
+						scheduleData = data[0]; // Use the first record for display
+						hasMultipleSchedules = data.length > 1;
+						console.log(`📋 Record ${record.id} has ${data.length} payment schedule(s)`);
 					}
 				} catch (err) {
 					console.warn(`Could not check payment schedule for record ${record.id}:`, err);
@@ -129,6 +131,7 @@
 					vendors: vendorData,
 					schedule_status: scheduleData,
 					is_scheduled: !!scheduleData,
+					has_multiple_schedules: hasMultipleSchedules,
 					pr_excel_verified: scheduleData?.pr_excel_verified || false,
 					pr_excel_verified_by: scheduleData?.pr_excel_verified_by,
 					pr_excel_verified_date: scheduleData?.pr_excel_verified_date
@@ -468,6 +471,8 @@
 				pr_excel_verified_date: isVerified ? new Date().toISOString() : null
 			};
 
+			// Update ALL payment schedules for this receiving record
+			// This is important for split payments where there might be multiple schedules
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.update(updateData)
@@ -479,7 +484,14 @@
 				throw error;
 			}
 
-			console.log('Update successful:', data);
+			console.log('Update successful for payment schedules:', data);
+
+			// Also verify we have a payment schedule for this record
+			if (!data || data.length === 0) {
+				console.warn(`No payment schedules found for receiving record ${recordId}`);
+				alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
+				return;
+			}
 
 			// Refresh the records to show updated verification status
 			await loadReceivingRecords();
@@ -1034,7 +1046,9 @@
 									{#if record.schedule_status?.is_paid}
 										<span class="status-badge paid">✓ Paid</span>
 									{:else}
-										<span class="status-badge scheduled">📅 Scheduled</span>
+										<span class="status-badge scheduled">
+											📅 {record.has_multiple_schedules ? 'Split Scheduled' : 'Scheduled'}
+										</span>
 									{/if}
 								{:else}
 									<span class="status-badge not-scheduled">⏳ Not Scheduled</span>
