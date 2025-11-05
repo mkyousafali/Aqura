@@ -779,7 +779,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	<div class="search-results-section">
 		<div class="search-results-header">
 			<h3>📋 Payments for {selectedVendor}</h3>
-			<span class="results-count">{filteredPayments.length} payments found</span>
+			<div class="results-summary">
+				<span class="results-count">{filteredPayments.length} payments found</span>
+				<span class="results-total">Total: {formatCurrency(totalScheduledAmount)}</span>
+			</div>
 		</div>
 		
 		<div class="search-results-table">
@@ -1368,6 +1371,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		font-weight: 600;
 	}
 
+	.results-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		align-items: flex-end;
+	}
+
 	.results-count {
 		background: #3b82f6;
 		color: white;
@@ -1375,6 +1385,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-radius: 12px;
 		font-size: 12px;
 		font-weight: 600;
+	}
+
+	.results-total {
+		background: #10b981;
+		color: white;
+		padding: 6px 12px;
+		border-radius: 12px;
+		font-size: 14px;
+		font-weight: 700;
+		border: 1px solid #059669;
 	}
 
 	.search-results-table {

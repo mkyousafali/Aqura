@@ -60,31 +60,27 @@
 			const popoutParam = urlParams.get('popout');
 			const windowDataParam = urlParams.get('windowData');
 			
+			console.log('🪟 URL check - popout param:', popoutParam);
+			console.log('🪟 URL check - windowData param:', windowDataParam ? 'present' : 'missing');
+			
 			isPopoutMode = !!popoutParam;
 			popoutWindowId = popoutParam || '';
 			
-			// Parse window data if available
+			// Try to get window data from URL parameter first
 			if (windowDataParam) {
 				try {
 					popoutWindowData = JSON.parse(decodeURIComponent(windowDataParam));
+					console.log('🪟 Window data from URL parameter:', popoutWindowData);
 				} catch (e) {
-					console.error('Failed to parse window data:', e);
+					console.error('Failed to parse window data from URL:', e);
 				}
-			}
-			
-			// Also check hash as fallback
-			if (!isPopoutMode) {
-				const hash = window.location.hash;
-				const popoutMatch = hash.match(/^#popout=(.+)$/);
-				isPopoutMode = !!popoutMatch;
-				popoutWindowId = popoutMatch ? popoutMatch[1] : '';
 			}
 			
 			// Debug logging
 			if (isPopoutMode) {
 				console.log('🪟 Popout mode detected:', popoutWindowId);
-				if (popoutWindowData) {
-					console.log('🪟 Window data:', popoutWindowData);
+				if (!popoutWindowData) {
+					console.log('🪟 No window data in URL, will wait for postMessage...');
 				}
 			}
 		}
@@ -92,30 +88,60 @@
 	
 	// Recreate the window in popout mode
 	$: if (isPopoutMode && popoutWindowData) {
+		console.log('🪟 Reactive statement triggered - isAuthenticated:', isAuthenticated);
+		console.log('🪟 popoutWindowData:', popoutWindowData);
+		
 		if (isAuthenticated) {
 			console.log('🔐 Authentication confirmed in popout:', isAuthenticated);
-			console.log('🪟 Creating popout window...');
-			createPopoutWindow();
+			console.log('🪟 Setting up popout window...');
+			setupPopoutWindow();
 		} else {
 			console.log('🔐 Authentication pending in popout mode...');
 			console.log('🔐 Auth state:', isAuthenticated);
-			// For popout windows, try to create anyway after a delay
+			// For popout windows, try to setup anyway after a delay
 			setTimeout(() => {
 				if (!isAuthenticated) {
-					console.log('🔐 Force creating popout window (authentication timeout)');
-					createPopoutWindow();
+					console.log('🔐 Force setting up popout window (authentication timeout)');
+					setupPopoutWindow();
 				}
 			}, 2000);
 		}
 	}
 	
-	async function createPopoutWindow() {
-		if (!popoutWindowData) return;
+	// Handle authentication state changes for popout
+	$: if (isPopoutMode && popoutWindowData && isAuthenticated) {
+		console.log('🔐 Authentication state changed in popout, setting up window...');
+		// Check if window hasn't been created yet
+		if (!windowManager.getWindow(popoutWindowData.id)) {
+			console.log('🪟 Window not found, creating...');
+			setupPopoutWindow();
+		} else {
+			console.log('🪟 Window already exists');
+		}
+	}
+	
+	async function setupPopoutWindow() {
+		if (!popoutWindowData) {
+			console.log('🪟 setupPopoutWindow called but no window data available');
+			return;
+		}
+		
+		console.log('🪟 Setting up popout window:', popoutWindowData.title);
+		console.log('🪟 Window data:', popoutWindowData);
+		
+		// Dynamically import the component based on component name
+		let component;
+		const componentName = popoutWindowData.componentName || popoutWindowData.component?.name;
+		
+		console.log('🪟 Loading component:', componentName);
 		
 		try {
-			// Map component names to actual components
-			let component;
-			switch (popoutWindowData.component) {
+			// Map component names to imports
+			switch (componentName) {
+				case 'VendorMaster':
+					const { default: VendorMaster } = await import('$lib/components/admin/VendorMaster.svelte');
+					component = VendorMaster;
+					break;
 				case 'BranchMaster':
 					const { default: BranchMaster } = await import('$lib/components/admin/BranchMaster.svelte');
 					component = BranchMaster;
@@ -144,6 +170,20 @@
 					const { default: ScheduledPayments } = await import('$lib/components/admin/vendor/ScheduledPayments.svelte');
 					component = ScheduledPayments;
 					break;
+				case 'PaymentManager':
+					const { default: PaymentManager } = await import('$lib/components/admin/vendor/PaymentManager.svelte');
+					component = PaymentManager;
+					break;
+				case 'MonthDetails':
+					console.log('🪟 Loading MonthDetails component...');
+					const { default: MonthDetails } = await import('$lib/components/admin/vendor/MonthDetails.svelte');
+					component = MonthDetails;
+					console.log('🪟 MonthDetails component loaded:', component);
+					break;
+				case 'UnpaidScheduledDetails':
+					const { default: UnpaidScheduledDetails } = await import('$lib/components/admin/vendor/UnpaidScheduledDetails.svelte');
+					component = UnpaidScheduledDetails;
+					break;
 				case 'TaskMaster':
 					const { default: TaskMaster } = await import('$lib/components/admin/TaskMaster.svelte');
 					component = TaskMaster;
@@ -156,17 +196,9 @@
 					const { default: OperationsMaster } = await import('$lib/components/admin/OperationsMaster.svelte');
 					component = OperationsMaster;
 					break;
-				case 'VendorMaster':
-					const { default: VendorMaster } = await import('$lib/components/admin/VendorMaster.svelte');
-					component = VendorMaster;
-					break;
 				case 'FinanceMaster':
 					const { default: FinanceMaster } = await import('$lib/components/admin/FinanceMaster.svelte');
 					component = FinanceMaster;
-					break;
-				case 'ManualScheduling':
-					const { default: ManualScheduling } = await import('$lib/components/admin/finance/ManualScheduling.svelte');
-					component = ManualScheduling;
 					break;
 				case 'UserManagement':
 					const { default: UserManagement } = await import('$lib/components/admin/UserManagement.svelte');
@@ -188,34 +220,6 @@
 					const { default: ManageVendor } = await import('$lib/components/admin/vendor/ManageVendor.svelte');
 					component = ManageVendor;
 					break;
-				case 'PaymentManager':
-					const { default: PaymentManager } = await import('$lib/components/admin/vendor/PaymentManager.svelte');
-					component = PaymentManager;
-					break;
-				case 'WarningMaster':
-					const { default: WarningMaster } = await import('$lib/components/admin/warnings/WarningMaster.svelte');
-					component = WarningMaster;
-					break;
-				case 'TaskStatusView':
-					const { default: TaskStatusView } = await import('$lib/components/admin/tasks/TaskStatusView.svelte');
-					component = TaskStatusView;
-					break;
-				case 'TaskTemplateView':
-					const { default: TaskViewTable } = await import('$lib/components/admin/tasks/TaskViewTable.svelte');
-					component = TaskViewTable;
-					break;
-				case 'TaskAssignView':
-					const { default: TaskAssignmentView } = await import('$lib/components/admin/tasks/TaskAssignmentView.svelte');
-					component = TaskAssignmentView;
-					break;
-				case 'MyTasksView':
-					const { default: MyTasksView } = await import('$lib/components/admin/tasks/MyTasksView.svelte');
-					component = MyTasksView;
-					break;
-				case 'MyAssignmentsView':
-					const { default: MyAssignmentsView } = await import('$lib/components/admin/tasks/MyAssignmentsView.svelte');
-					component = MyAssignmentsView;
-					break;
 				case 'EditUser':
 					const { default: EditUser } = await import('$lib/components/admin/user/EditUser.svelte');
 					component = EditUser;
@@ -229,49 +233,67 @@
 					component = DocumentManagement;
 					break;
 				default:
-					console.warn('Unknown component:', popoutWindowData.component);
-					console.log('Available data:', popoutWindowData);
+					console.error('🪟 Unknown component name:', componentName);
 					return;
 			}
 			
-			// Recreate the window in the window manager
-			const windowConfig = {
-				id: popoutWindowData.id,
-				title: popoutWindowData.title,
-				component: component,
-				props: popoutWindowData.props || {},
-				icon: popoutWindowData.icon,
-				size: popoutWindowData.size,
-				position: { x: 0, y: 0 }, // Will be full screen in popout
-				resizable: false,
-				minimizable: false,
-				maximizable: false,
-				closable: false,
-				popOutEnabled: false, // Disable pop-out in the popout
-				state: 'normal',
-				isActive: true
-			};
+			console.log('🪟 Component loaded successfully:', component);
 			
-			console.log('🪟 Creating window with config:', windowConfig);
-			windowManager.openWindow(windowConfig);
-			
-			// Ensure the window is activated after a brief delay
-			setTimeout(() => {
-				windowManager.activateWindow(popoutWindowData.id);
-			}, 100);
-			
-			console.log('🪟 Recreated window in popout mode:', popoutWindowData.id);
 		} catch (error) {
-			console.error('Failed to create popout window:', error);
+			console.error('🪟 Failed to load component:', componentName, error);
+			return;
+		}
+		
+		// Recreate the window in the window manager with the loaded component
+		const windowConfig = {
+			id: popoutWindowData.id,
+			title: popoutWindowData.title,
+			component: component,
+			props: popoutWindowData.props || {},
+			icon: popoutWindowData.icon,
+			size: popoutWindowData.size,
+			position: { x: 0, y: 0 },
+			resizable: false,
+			minimizable: false,
+			maximizable: false,
+			closable: false,
+			popOutEnabled: false,
+			state: 'normal',
+			isActive: true
+		};
+		
+		console.log('🪟 Creating window with config:', windowConfig);
+		const newWindowId = windowManager.openWindow(windowConfig);
+		console.log('🪟 Window created with ID:', newWindowId);
+		
+		windowManager.activateWindow(popoutWindowData.id);
+		console.log('🪟 Window activated:', popoutWindowData.id);
+		
+		// Signal to parent window that loading is complete
+		if (window.parent && window.parent !== window) {
+			console.log('🪟 Signaling parent window that loading is complete');
+			try {
+				window.parent.postMessage({
+					type: 'popout-loading-complete',
+					windowId: popoutWindowData.id
+				}, '*');
+				console.log('🪟 PostMessage sent successfully');
+			} catch (error) {
+				console.error('🪟 Failed to send postMessage:', error);
+			}
+		} else {
+			console.log('🪟 Not in iframe context, parent:', window.parent === window ? 'same as window' : 'different');
 		}
 	}
-
+	
 	// Handle window open requests from pop-out windows
 	function handleCrossWindowMessages() {
 		if (typeof window !== 'undefined') {
 			window.addEventListener('message', (event) => {
 				// Only handle messages from our own domain
 				if (event.origin !== window.location.origin) return;
+				
+				console.log('🪟 Parent received message:', event.data);
 				
 				if (event.data && event.data.type === 'open-window-from-popout') {
 					const { windowConfig } = event.data;
@@ -284,6 +306,34 @@
 					setTimeout(() => {
 						windowManager.popOutWindow(newWindowId);
 					}, 100);
+				} else if (event.data && event.data.type === 'popout-ready') {
+					const { windowId } = event.data;
+					console.log('🪟 Popout iframe ready, sending window data for:', windowId);
+					
+					// Find the window and send its data to the iframe
+					const targetWindow = windowManager.getWindow(windowId);
+					console.log('🪟 Found target window:', targetWindow);
+					
+					if (targetWindow) {
+						const windowData = {
+							id: targetWindow.id,
+							title: targetWindow.title,
+							componentName: targetWindow.component?.name || 'UnknownComponent',
+							props: targetWindow.props || {},
+							icon: targetWindow.icon,
+							size: targetWindow.size
+						};
+						
+						console.log('🪟 Sending window data to iframe:', windowData);
+						
+						event.source.postMessage({
+							type: 'popout-window-data',
+							windowData: windowData
+						}, event.origin);
+					} else {
+						console.log('🪟 No window found in parent for ID:', windowId);
+						console.log('🪟 Available windows:', get(windowManager.windowList));
+					}
 				}
 			});
 		}
@@ -292,6 +342,51 @@
 	// Initialize cross-window message handling
 	onMount(() => {
 		handleCrossWindowMessages();
+		
+		// Handle popout window setup
+		if (isPopoutMode) {
+			console.log('🪟 Setting up popout for window:', popoutWindowId);
+			
+			// If we already have window data from URL, set up immediately
+			if (popoutWindowData) {
+				console.log('🪟 Window data available from URL, setting up...');
+				if (isAuthenticated) {
+					setupPopoutWindow();
+				}
+			} else {
+				// Fall back to postMessage approach
+				console.log('🪟 Setting up postMessage listener for window:', popoutWindowId);
+				
+				const handleMessage = (event) => {
+					// Verify origin for security
+					if (event.origin !== window.location.origin) return;
+					
+					console.log('🪟 Received message in popout:', event.data);
+					
+					if (event.data && event.data.type === 'popout-window-data') {
+						console.log('🪟 Received window data:', event.data.windowData);
+						popoutWindowData = event.data.windowData;
+						
+						// Set up the window once we have the data
+						if (isAuthenticated) {
+							console.log('🪟 Setting up window immediately (authenticated)');
+							setupPopoutWindow();
+						} else {
+							console.log('🪟 Waiting for authentication...');
+						}
+					}
+				};
+				
+				window.addEventListener('message', handleMessage);
+				
+				// Send ready message to parent to request window data
+				console.log('🪟 Sending popout-ready message to parent for window:', popoutWindowId);
+				window.parent.postMessage({
+					type: 'popout-ready',
+					windowId: popoutWindowId
+				}, window.location.origin);
+			}
+		}
 		
 		// Expose window manager proxy for popout iframes
 		if (typeof window !== 'undefined' && popoutWindowId) {

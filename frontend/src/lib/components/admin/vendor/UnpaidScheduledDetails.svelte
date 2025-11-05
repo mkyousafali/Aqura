@@ -5,6 +5,15 @@
 	// Props
 	export let payments = [];
 
+	// Debug logging
+	$: {
+		console.log('UnpaidScheduledDetails: Received payments prop:', payments);
+		console.log('UnpaidScheduledDetails: Number of payments:', payments.length);
+		if (payments.length > 0) {
+			console.log('UnpaidScheduledDetails: Sample payment:', payments[0]);
+		}
+	}
+
 	// Expense scheduler payments
 	let expenseSchedulerPayments = [];
 

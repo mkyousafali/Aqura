@@ -7,9 +7,15 @@ import type { WindowConfig } from '$lib/stores/windowManager';
  */
 export function getWindowManager() {
 	// Check if we're in a popout window (iframe context)
-	const isInPopout = typeof window !== 'undefined' && 
-		window.parent !== window && 
-		window.location.search.includes('component=');
+	// The popout iframe uses query params like ?popout=<id>&windowData=... (or hash #popout=...)
+	// so detect any of those markers instead of only 'component=' (which was brittle).
+	const isInPopout = typeof window !== 'undefined' &&
+		window.parent !== window && (
+			window.location.search.includes('popout=') ||
+			window.location.search.includes('windowData=') ||
+			window.location.search.includes('component=') ||
+			window.location.hash.includes('#popout=')
+		);
 	
 	if (isInPopout && typeof window !== 'undefined' && window.windowManagerProxy) {
 		console.log('🪟 Using window manager proxy for popout');
