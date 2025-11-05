@@ -615,163 +615,163 @@
 </script>
 
 <div class="budget-planner">
-	<div class="planner-header">
-		<h2>📊 Day Budget Planner</h2>
-		<p>Plan and manage your daily budget for scheduled payments and expenses</p>
-	</div>
-
-	<!-- Date Selection and Budget Input -->
-	<div class="budget-controls">
-		<div class="date-selector">
-			<label for="selectedDate">📅 Select Date:</label>
-			<input 
-				id="selectedDate"
-				type="date" 
-				bind:value={selectedDate}
-				on:change={onDateChange}
-				class="date-input"
-			/>
-		</div>
-
-		<div class="budget-input">
-			<label for="dailyBudget">💰 Daily Budget (SAR):</label>
-			<div class="budget-input-group">
+	<!-- Combined Date Selection and Budget Summary Section -->
+	<div class="unified-controls-section">
+		<!-- Date Selection Card -->
+		<div class="control-card">
+			<div class="date-selector">
+				<label for="selectedDate">📅 Select Date:</label>
 				<input 
-					id="dailyBudget"
-					type="number" 
-					bind:value={calculatedTotalBudget}
-					step="0.01"
-					min="0"
-					placeholder="0.00"
-					class="budget-amount"
-					readonly
-					title="This is calculated from payment method budgets below"
+					id="selectedDate"
+					type="date" 
+					bind:value={selectedDate}
+					on:change={onDateChange}
+					class="date-input"
 				/>
-				<span class="calculated-label">Auto-calculated</span>
+			</div>
+
+			<div class="budget-input">
+				<label for="dailyBudget">💰 Daily Budget (SAR):</label>
+				<div class="budget-input-group">
+					<input 
+						id="dailyBudget"
+						type="number" 
+						bind:value={calculatedTotalBudget}
+						step="0.01"
+						min="0"
+						placeholder="0.00"
+						class="budget-amount"
+						readonly
+						title="This is calculated from payment method budgets below"
+					/>
+					<span class="calculated-label">Auto-calculated</span>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<!-- Two-Card Budget Display -->
-	<div class="budget-cards">
-		<!-- Total Summary Card -->
-		<div class="budget-card total-card" class:over-budget={budgetStatus === 'over'} class:exact-budget={budgetStatus === 'exact'}>
-			<div class="card-header">
-				<h3>📊 Total Budget Summary</h3>
+		<!-- Budget Summary Card -->
+		<div class="control-card budget-summary-card" class:over-budget={budgetStatus === 'over'} class:exact-budget={budgetStatus === 'exact'}>
+			<div class="unified-budget-card">
+				<!-- Left Side: Total Summary -->
+				<div class="budget-summary-side">
+					<div class="card-header">
+						<h3>📊 Total Budget Summary</h3>
+					</div>
+					<div class="card-content">
+					<div class="summary-item">
+						<span class="label">Daily Budget:</span>
+						<span class="value">{formatCurrency(calculatedTotalBudget)}</span>
+					</div>
+					<div class="summary-item">
+						<span class="label">Total Scheduled (Selected):</span>
+						<span class="value">{formatCurrency(totalScheduled)}</span>
+						<span class="count-info">
+							({selectedVendorPayments.size + selectedExpenseSchedules.size + selectedNonApprovedPayments.size} items selected)
+						</span>
+					</div>
+					<div class="summary-item remaining">
+						<span class="label">Remaining:</span>
+						<span class="value" class:negative={remainingBudget < 0}>
+							{formatCurrency(remainingBudget)}
+						</span>
+					</div>
+					<div class="budget-status-indicator">
+						{#if budgetStatus === 'over'}
+							{@const totalOverBudget = remainingBudget < 0}
+							
+							⚠️ Over Budget
+							{#if totalOverBudget}
+								<div class="over-budget-detail">Total: {formatCurrency(Math.abs(remainingBudget))} over daily budget</div>
+							{/if}
+							
+							{#if breakdown && breakdown.allPaymentMethods}
+								{#each Array.from(breakdown.allPaymentMethods) as method}
+									{@const methodBudget = paymentMethodBudgets[method] || 0}
+									{@const methodUsed = breakdown.byPaymentMethod.get(method) || 0}
+									{#if methodBudget > 0 && methodUsed > methodBudget}
+										<div class="over-budget-detail">
+											{method}: {formatCurrency(methodUsed - methodBudget)} over budget
+										</div>
+									{/if}
+								{/each}
+							{/if}
+						{:else if budgetStatus === 'exact'}
+							✅ Exact Budget Match
+						{:else}
+							✅ Within Budget
+						{/if}
+					</div>
+				</div>
 			</div>
-			<div class="card-content">
-				<div class="summary-item">
-					<span class="label">Daily Budget:</span>
-					<span class="value">{formatCurrency(calculatedTotalBudget)}</span>
+
+			<!-- Right Side: Detailed Breakdown -->
+			<div class="budget-breakdown-side">
+				<div class="card-header">
+					<h3>📋 Detailed Breakdown</h3>
 				</div>
-				<div class="summary-item">
-					<span class="label">Total Scheduled (Selected):</span>
-					<span class="value">{formatCurrency(totalScheduled)}</span>
-					<span class="count-info">
-						({selectedVendorPayments.size + selectedExpenseSchedules.size + selectedNonApprovedPayments.size} items selected)
-					</span>
-				</div>
-				<div class="summary-item remaining">
-					<span class="label">Remaining:</span>
-					<span class="value" class:negative={remainingBudget < 0}>
-						{formatCurrency(remainingBudget)}
-					</span>
-				</div>
-				<div class="budget-status-indicator">
-					{#if budgetStatus === 'over'}
-						{@const totalOverBudget = remainingBudget < 0}
-						
-						⚠️ Over Budget
-						{#if totalOverBudget}
-							<div class="over-budget-detail">Total: {formatCurrency(Math.abs(remainingBudget))} over daily budget</div>
-						{/if}
-						
-						{#if breakdown && breakdown.allPaymentMethods}
-							{#each Array.from(breakdown.allPaymentMethods) as method}
-								{@const methodBudget = paymentMethodBudgets[method] || 0}
-								{@const methodUsed = breakdown.byPaymentMethod.get(method) || 0}
-								{#if methodBudget > 0 && methodUsed > methodBudget}
-									<div class="over-budget-detail">
-										{method}: {formatCurrency(methodUsed - methodBudget)} over budget
-									</div>
-								{/if}
-							{/each}
-						{/if}
-					{:else if budgetStatus === 'exact'}
-						✅ Exact Budget Match
+				<div class="card-content">
+					<!-- By Payment Method Table -->
+					{#if breakdown.allPaymentMethods.size > 0}
+						<div class="breakdown-section">
+							<h4>By Payment Method</h4>
+							<div class="breakdown-table-container">
+								<table class="breakdown-table">
+									<thead>
+										<tr>
+											<th>Payment Method</th>
+											<th>Budget</th>
+											<th>Selected Total</th>
+											<th>Remaining</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each Array.from(breakdown.allPaymentMethods) as method}
+											{@const amount = breakdown.byPaymentMethod.get(method) || 0}
+											{@const budgetForMethod = paymentMethodBudgets[method] || 0}
+											{@const remaining = budgetForMethod - amount}
+											<tr class:over-budget-row={budgetForMethod > 0 && amount > budgetForMethod}>
+												<td class="method-name-cell">
+													<span class="method-name">{method}</span>
+												</td>
+												<td class="budget-cell">
+													<input 
+														type="number"
+														bind:value={paymentMethodBudgets[method]}
+														step="0.01"
+														min="0"
+														placeholder="0.00"
+														class="budget-input-inline"
+													/>
+												</td>
+												<td class="selected-cell">
+													<span class="selected-amount" class:over-budget={budgetForMethod > 0 && amount > budgetForMethod}>
+														{formatCurrency(amount)}
+													</span>
+												</td>
+												<td class="remaining-cell">
+													{#if budgetForMethod > 0}
+														<span class="remaining-amount" class:negative={remaining < 0}>
+															{formatCurrency(remaining)}
+														</span>
+													{:else}
+														<span class="no-limit-text">∞</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
 					{:else}
-						✅ Within Budget
+						<div class="no-breakdown">
+							<p>Loading payment methods...</p>
+						</div>
 					{/if}
 				</div>
 			</div>
 		</div>
-
-		<!-- Detailed Breakdown Card -->
-		<div class="budget-card detail-card">
-			<div class="card-header">
-				<h3>📋 Detailed Breakdown</h3>
-			</div>
-			<div class="card-content">
-				<!-- By Payment Method Table -->
-				{#if breakdown.allPaymentMethods.size > 0}
-					<div class="breakdown-section">
-						<h4>By Payment Method</h4>
-						<div class="breakdown-table-container">
-							<table class="breakdown-table">
-								<thead>
-									<tr>
-										<th>Payment Method</th>
-										<th>Budget</th>
-										<th>Selected Total</th>
-										<th>Remaining</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each Array.from(breakdown.allPaymentMethods) as method}
-										{@const amount = breakdown.byPaymentMethod.get(method) || 0}
-										{@const budgetForMethod = paymentMethodBudgets[method] || 0}
-										{@const remaining = budgetForMethod - amount}
-										<tr class:over-budget-row={budgetForMethod > 0 && amount > budgetForMethod}>
-											<td class="method-name-cell">
-												<span class="method-name">{method}</span>
-											</td>
-											<td class="budget-cell">
-												<input 
-													type="number"
-													bind:value={paymentMethodBudgets[method]}
-													step="0.01"
-													min="0"
-													placeholder="0.00"
-													class="budget-input-inline"
-												/>
-											</td>
-											<td class="selected-cell">
-												<span class="selected-amount" class:over-budget={budgetForMethod > 0 && amount > budgetForMethod}>
-													{formatCurrency(amount)}
-												</span>
-											</td>
-											<td class="remaining-cell">
-												{#if budgetForMethod > 0}
-													<span class="remaining-amount" class:negative={remaining < 0}>
-														{formatCurrency(remaining)}
-													</span>
-												{:else}
-													<span class="no-limit-text">∞</span>
-												{/if}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					</div>
-				{:else}
-					<div class="no-breakdown">
-						<p>Loading payment methods...</p>
-					</div>
-				{/if}
-			</div>
-		</div>
+	</div>
 	</div>
 
 	{#if isLoading}
@@ -865,7 +865,6 @@
 										<th class="vendor-amount">Amount</th>
 										<th class="vendor-adjust-amount">Adjust Amount</th>
 										<th class="vendor-payment-method">Payment Method</th>
-										<th class="vendor-due-date">Due Date</th>
 										<th class="vendor-approval-status">Approval Status</th>
 										<th class="vendor-actions">Actions</th>
 									</tr>
@@ -902,7 +901,6 @@
 												/>
 											</td>
 											<td class="payment-method vendor-payment-method">{payment.payment_method}</td>
-											<td class="due-date vendor-due-date">{formatDate(payment.due_date)}</td>
 											<td class="vendor-approval-status">
 												<span class="status-badge" class:approved={payment.approval_status === 'approved'} class:pending={payment.approval_status === 'pending'}>
 													{#if payment.approval_status === 'approved'}
@@ -1056,7 +1054,6 @@
 										<th>Amount</th>
 										<th>Adjust Amount</th>
 										<th>Payment Method</th>
-										<th>Due Date</th>
 										<th>Type</th>
 										<th>Actions</th>
 									</tr>
@@ -1093,7 +1090,6 @@
 												/>
 											</td>
 											<td class="payment-method">{expense.payment_method}</td>
-											<td class="due-date">{formatDate(expense.due_date)}</td>
 											<td>
 												<span class="type-badge">{expense.schedule_type}</span>
 											</td>
@@ -1175,7 +1171,6 @@
 										<th>Vendor</th>
 										<th>Amount</th>
 										<th>Adjust Amount</th>
-										<th>Due Date</th>
 										<th>Status</th>
 									</tr>
 								</thead>
@@ -1208,7 +1203,6 @@
 													class="adjust-amount-input"
 												/>
 											</td>
-											<td>{formatDate(payment.due_date)}</td>
 											<td>
 												<span class="status-badge not-approved">Not Approved</span>
 											</td>
@@ -1471,24 +1465,45 @@
 		padding: 2rem;
 		background: #f8fafc;
 		min-height: 100vh;
+		font-size: 1.125rem; /* Increased base font size from default 1rem to 1.125rem */
 	}
 
-	.planner-header {
-		text-align: center;
-		margin-bottom: 2rem;
+	/* Unified Controls Section */
+	.unified-controls-section {
+		position: sticky;
+		top: 0;
+		z-index: 1000;
+		background: white;
+		margin-bottom: 24px;
+		display: flex;
+		gap: 20px;
+		padding: 20px;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
 
-	.planner-header h2 {
-		color: #1e293b;
-		margin: 0 0 0.5rem 0;
-		font-size: 2rem;
-		font-weight: 700;
+	.control-card {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 16px;
+		flex: 1;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 	}
 
-	.planner-header p {
-		color: #64748b;
-		margin: 0;
-		font-size: 1.1rem;
+	.budget-summary-card {
+		flex: 2;
+	}
+
+	.budget-summary-card.over-budget {
+		border-color: #ef4444;
+		background: #fef2f2;
+	}
+
+	.budget-summary-card.exact-budget {
+		border-color: #10b981;
+		background: #f0fdf4;
 	}
 
 	/* Budget Controls */
@@ -1501,6 +1516,9 @@
 		padding: 2rem;
 		border-radius: 12px;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		position: sticky;
+		top: 0;
+		z-index: 200;
 	}
 
 	.date-selector, .budget-input {
@@ -1534,14 +1552,14 @@
 	.date-selector label, .budget-input label {
 		font-weight: 600;
 		color: #374151;
-		font-size: 1rem;
+		font-size: 1.25rem; /* Increased from 1rem to 1.25rem */
 	}
 
 	.date-input, .budget-amount {
 		padding: 0.75rem 1rem;
 		border: 2px solid #e5e7eb;
 		border-radius: 8px;
-		font-size: 1rem;
+		font-size: 1.125rem; /* Increased from 1rem to 1.125rem */
 		transition: border-color 0.2s;
 	}
 
@@ -1552,7 +1570,7 @@
 	}
 
 	.budget-amount {
-		font-size: 1.25rem;
+		font-size: 1.5rem; /* Increased from 1.25rem to 1.5rem */
 		font-weight: 600;
 		text-align: right;
 	}
@@ -1638,15 +1656,22 @@
 		margin-left: 0.5rem;
 	}
 
-	/* Two-Card Budget Layout */
-	.budget-cards {
+	/* Unified Budget Section */
+	.unified-budget-section {
+		margin: 20px 0;
+		position: sticky;
+		top: 120px;
+		z-index: 100;
+		background: #f8fafc;
+		padding: 10px;
+		border-radius: 12px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	.unified-budget-card {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 20px;
-		margin: 20px 0;
-	}
-
-	.budget-card {
 		background: white;
 		border-radius: 12px;
 		border: 1px solid #e5e7eb;
@@ -1654,14 +1679,41 @@
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
-	.budget-card.over-budget {
+	.unified-budget-card.over-budget {
 		border-color: #ef4444;
 		background: #fef2f2;
 	}
 
-	.budget-card.exact-budget {
+	.unified-budget-card.exact-budget {
 		border-color: #10b981;
 		background: #f0fdf4;
+	}
+
+	.budget-summary-side,
+	.budget-breakdown-side {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.budget-summary-side {
+		border-right: 1px solid #e5e7eb;
+	}
+
+	.unified-budget-card {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0;
+		background: white;
+		height: 100%;
+	}
+
+	.budget-summary-side,
+	.budget-breakdown-side {
+		padding: 20px;
+	}
+
+	.budget-breakdown-side {
+		border-left: 1px solid #e5e7eb;
 	}
 
 	.card-header {
@@ -1672,7 +1724,7 @@
 
 	.card-header h3 {
 		margin: 0;
-		font-size: 1.125rem;
+		font-size: 1.375rem; /* Increased from 1.125rem to 1.375rem */
 		font-weight: 600;
 		color: #374151;
 	}
@@ -1915,7 +1967,7 @@
 		padding: 0.5rem;
 		border: 1px solid #d1d5db;
 		border-radius: 4px;
-		font-size: 0.875rem;
+		font-size: 1rem; /* Increased from 0.875rem to 1rem */
 		background-color: white;
 		transition: border-color 0.2s ease;
 	}
@@ -2233,7 +2285,7 @@
 		margin: 0;
 		color: #1e293b;
 		font-weight: 600;
-		font-size: 1.25rem;
+		font-size: 1.5rem; /* Increased from 1.25rem to 1.5rem */
 	}
 
 	.section-description {
@@ -2255,7 +2307,7 @@
 		border-radius: 6px;
 		background: white;
 		color: #374151;
-		font-size: 0.875rem;
+		font-size: 1rem; /* Increased from 0.875rem to 1rem */
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -2390,7 +2442,7 @@
 		border-bottom: 2px solid #e5e7eb;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		font-size: 0.875rem;
+		font-size: 1rem; /* Increased from 0.875rem to 1rem */
 	}
 
 	.body-table tr:nth-child(even) {
@@ -2404,6 +2456,7 @@
 	.body-table td {
 		border-bottom: 1px solid #f3f4f6;
 		vertical-align: middle;
+		font-size: 1rem; /* Added font-size to increase table cell text */
 	}
 
 	/* Column width consistency - applying to both header and body */
@@ -2603,7 +2656,7 @@
 	.status-badge {
 		padding: 4px 8px;
 		border-radius: 12px;
-		font-size: 0.75rem;
+		font-size: 0.875rem; /* Increased from 0.75rem to 0.875rem */
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -2693,7 +2746,7 @@
 		background: #e0e7ff;
 		color: #3730a3;
 		border-radius: 4px;
-		font-size: 0.75rem;
+		font-size: 0.875rem; /* Increased from 0.75rem to 0.875rem */
 		font-weight: 500;
 	}
 
@@ -2708,7 +2761,7 @@
 		border: none;
 		padding: 0.4rem 0.8rem;
 		border-radius: 6px;
-		font-size: 0.75rem;
+		font-size: 0.875rem; /* Increased from 0.75rem to 0.875rem */
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
