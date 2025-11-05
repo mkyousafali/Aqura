@@ -256,15 +256,80 @@
 
 			console.log('✅ [Mobile] Position-based user has access to task');
 		} else {
-			// For role-based users, check direct role match
-			if (currentUserData?.roleType && task.role_type !== currentUserData.roleType) {
-				console.error('❌ [Mobile] Role mismatch:', {
-					taskRole: task.role_type,
-					userRole: currentUserData.roleType,
-					userName: currentUserData.username
-				});
-				throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${currentUserData.roleType}. Please contact your administrator to fix this task assignment.`);
+			// For role-based users (Admin, Master Admin), first check direct role match
+			if (currentUserData?.roleType && task.role_type === currentUserData.roleType.toLowerCase().replace(' ', '_')) {
+				console.log('✅ [Mobile] Direct role match for role-based user');
+				return; // Direct match, access granted
 			}
+
+			// If no direct role match, fall back to checking position assignments
+			console.log('🔍 [Mobile] No direct role match, checking position assignments for role-based user:', {
+				taskRole: task.role_type,
+				userRole: currentUserData.roleType,
+				userName: currentUserData.username
+			});
+
+			// Get user's current position assignments as fallback
+			const { data: positions, error: positionsError } = await supabase
+				.from('hr_position_assignments')
+				.select(`
+					*,
+					hr_positions (
+						position_title_en,
+						position_title_ar
+					)
+				`)
+				.eq('employee_id', currentUserData.employee_id)
+				.eq('is_current', true);
+
+			if (positionsError) {
+				console.error('❌ [Mobile] Error fetching user positions for fallback:', positionsError);
+				throw new Error('Could not verify user permissions. Please contact your administrator.');
+			}
+
+			// Map task roles to position titles (same as above)
+			const roleToPositionMap = {
+				'inventory_manager': ['Inventory Manager', 'Branch Manager'],
+				'purchase_manager': ['Purchase Manager', 'Branch Manager'],
+				'branch_manager': ['Branch Manager', 'Night Supervisor'],
+				'accountant': ['Accountant', 'Branch Manager'],
+				'hr_manager': ['HR Manager', 'Branch Manager'],
+				'shelf_stocker': ['Shelf Stocker', 'Branch Manager'],
+				'night_supervisor': ['Night Supervisor', 'Branch Manager'],
+				'warehouse_handler': ['Warehouse Handler', 'Branch Manager']
+			};
+
+			const allowedPositions = roleToPositionMap[task.role_type] || [];
+
+		// Normalize position titles for robust matching
+		const userPositionsRaw = positions?.map(p => p.hr_positions?.position_title_en).filter(Boolean) || [];
+		const normalize = (s) => String(s || '')
+			.toLowerCase()
+			.replace(/[^a-z0-9 ]+/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.replace(/purchasing/g, 'purchase') // Convert "purchasing" to "purchase"
+			.replace(/\bs\b/g, '') // Remove standalone 's' 
+			.replace(/\s+/g, ' ')
+			.trim();			const allowedNormalized = new Set(allowedPositions.map(normalize));
+			const userNormalized = new Set(userPositionsRaw.map(normalize));
+
+			const hasPositionAccess = [...allowedNormalized].some(ap => userNormalized.has(ap));
+
+			console.log('🔍 [Mobile] Position fallback check for role-based user:', {
+				taskRole: task.role_type,
+				allowedPositions,
+				userPositions: userPositionsRaw,
+				hasPositionAccess
+			});
+
+			if (hasPositionAccess) {
+				console.log('✅ [Mobile] Role-based user has access via position assignment');
+				return; // Access granted via position
+			}
+
+			// If neither direct role nor position grants access, deny
+			throw new Error(`Access denied: This is a ${task.role_type} task, but you are a ${currentUserData.roleType} with position(s) [${userPositionsRaw.join(', ')}]. Please contact your administrator to fix this task assignment.`);
 		}
 	}
 
