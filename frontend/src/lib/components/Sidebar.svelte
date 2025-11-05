@@ -659,7 +659,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v4.0.3
+				v5.0.0
 			</button>
 		</div>
 	</div>
@@ -670,72 +670,75 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v4.0.3</h3>
+				<h3>What's New in v5.0.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🔐 Granular Approval Permissions System</h4>
+					<h4>� Day Budget Planner - Complete Overhaul</h4>
 					<ul>
-						<li><strong>New Approval Permissions Table:</strong> Replaced single boolean with 6 permission types (Requisitions, Single Bill, Multiple Bill, Recurring Bill, Vendor Payments, Leave Requests)</li>
-						<li><strong>Amount Limits per Type:</strong> Each permission type has its own approval amount limit (0 = unlimited)</li>
-						<li><strong>ApprovalPermissionsManager:</strong> New Master Admin-only component for managing granular permissions</li>
-						<li><strong>Auto-Hide Logic:</strong> Approvers automatically hidden from dropdown when bill amount exceeds their limit</li>
-						<li><strong>Real-time Notifications:</strong> Users notified when their approval permissions are updated</li>
+						<li><strong>Frozen Table Headers:</strong> Vendor payments and expense schedules tables now have sticky headers for better navigation</li>
+						<li><strong>Adjust Amount Functionality:</strong> Added adjust amount columns with conditional split buttons - only show when amount entered</li>
+						<li><strong>Enhanced Split Modal:</strong> Split functionality now shows original amount as total, pre-fills split amount as (original - adjustment), remaining shows adjustment amount</li>
+						<li><strong>Payment Method Breakdown:</strong> Budget status now calculated per payment method with individual over-budget detection</li>
+						<li><strong>Smart Budget Calculations:</strong> Fixed budget status to detect when any payment method exceeds its limit, not just total</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� User Management Enhancements</h4>
+					<h4>🔍 Advanced Filter System</h4>
 					<ul>
-						<li><strong>Position Column Added:</strong> Shows employee position title from hr_positions table</li>
-						<li><strong>Approval UI Removed:</strong> Approval permissions now managed in dedicated component</li>
-						<li><strong>Clean Interface:</strong> Removed 464 lines of approval-related code from User Management</li>
-						<li><strong>Database View Integration:</strong> Uses user_management_view for efficient data retrieval</li>
-						<li><strong>Position Relationship:</strong> Links users → hr_employees → hr_position_assignments → hr_positions</li>
+						<li><strong>Main Header Filters:</strong> Moved all filters to main section headers for better visibility and usability</li>
+						<li><strong>Dropdown Filters:</strong> Branch and Payment Method filters converted to searchable dropdowns with "All" options</li>
+						<li><strong>Real-time Filtering:</strong> Vendor payments and expense schedules filter instantly with filtered count display</li>
+						<li><strong>Professional Styling:</strong> Enhanced filter UI with proper labels, responsive design, and clear filters functionality</li>
+						<li><strong>Comprehensive Coverage:</strong> Vendor, Branch, Payment Method for vendor payments; Description, Category, Branch, Payment Method for expenses</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>💰 Payment Scheduling Updates</h4>
+					<h4>� Receiving Records Fixes</h4>
 					<ul>
-						<li><strong>RequestGenerator:</strong> Updated to query can_approve_requisitions permission</li>
-						<li><strong>SingleBillScheduling:</strong> Uses can_approve_single_bill with approval limit column</li>
-						<li><strong>MultipleBillScheduling:</strong> Amount field moved above approver selection, auto-hide for over-limit approvers</li>
-						<li><strong>RecurringExpenseScheduler:</strong> Step 2 removed (now 2 steps instead of 3), uses can_approve_recurring_bill</li>
-						<li><strong>Employee ID Display:</strong> Fixed to show actual employee_id from hr_employees (not UUID)</li>
+						<li><strong>Verification Issues Resolved:</strong> Fixed PR Excel verification checkbox for split payment records</li>
+						<li><strong>Schedule Status Accuracy:</strong> Improved detection of scheduled vs split scheduled records</li>
+						<li><strong>Multi-Schedule Support:</strong> Enhanced handling of split payments with multiple payment schedules</li>
+						<li><strong>Better Error Handling:</strong> Added validation and clearer error messages for verification failures</li>
+						<li><strong>Split Status Display:</strong> Shows "Split Scheduled" when multiple payment schedules exist</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>📱 Mobile Interface Updates</h4>
+					<h4>🎯 User Experience Enhancements</h4>
 					<ul>
-						<li><strong>Approval Badge:</strong> Mobile layout updated to check all 6 permission types</li>
-						<li><strong>Approval Center:</strong> Mobile approval center queries approval_permissions table</li>
-						<li><strong>Permission Indicators:</strong> Shows if user has ANY approval permission enabled</li>
-						<li><strong>Consistent Logic:</strong> Same permission checks across desktop and mobile</li>
+						<li><strong>Table Alignment Fixes:</strong> Resolved table layout issues with proper CSS classes and column sizing</li>
+						<li><strong>Conditional UI Elements:</strong> Split buttons only appear when adjust amounts are entered</li>
+						<li><strong>Accessibility Improvements:</strong> Added proper label associations for all form controls</li>
+						<li><strong>Visual Feedback:</strong> Enhanced status badges and interactive elements for better user guidance</li>
+						<li><strong>Responsive Design:</strong> Filter sections adapt to different screen sizes with professional styling</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🗄️ Database Migrations</h4>
+					<h4>� Technical Improvements</h4>
 					<ul>
-						<li><strong>approval_permissions.sql:</strong> Created table with 11 columns (6 permissions + 5 amount limits)</li>
-						<li><strong>migrate_approval_permissions_data.sql:</strong> Migrated existing users.can_approve_payments to new table</li>
-						<li><strong>fix_approval_permissions_rls.sql:</strong> RLS policies updated for custom authentication</li>
-						<li><strong>remove_old_approval_columns.sql:</strong> Dropped can_approve_payments and approval_amount_limit from users table</li>
+						<li><strong>Reactive State Management:</strong> Enhanced Svelte reactivity for real-time filter updates and calculations</li>
+						<li><strong>Database Query Optimization:</strong> Improved handling of multiple payment schedules and verification queries</li>
+						<li><strong>Code Quality:</strong> Fixed syntax errors and improved error handling across components</li>
+						<li><strong>CSS Architecture:</strong> Added specific classes for better styling control and maintainability</li>
+						<li><strong>Data Integrity:</strong> Enhanced validation for split amounts and budget calculations</li>
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>🎨 Code Quality Improvements</h4>
+					<h4>🔧 Bug Fixes & Stability</h4>
 					<ul>
-						<li><strong>Net Code Reduction:</strong> 743 deletions vs 346 insertions (-397 lines total)</li>
-						<li><strong>Separation of Concerns:</strong> User Management focuses on users, ApprovalPermissionsManager handles approvals</li>
-						<li><strong>Consistent Patterns:</strong> All scheduling forms use same approval permission query pattern</li>
-						<li><strong>Type Safety:</strong> Updated TypeScript interfaces with position_title field</li>
+						<li><strong>Split Modal Logic:</strong> Fixed calculation to show proper remaining balance after adjustment</li>
+						<li><strong>Budget Status Detection:</strong> Corrected individual payment method over-budget calculations</li>
+						<li><strong>Filter State Management:</strong> Resolved filter clearing and dropdown selection issues</li>
+						<li><strong>Table Rendering:</strong> Fixed table alignment and column width consistency</li>
+						<li><strong>Syntax Corrections:</strong> Resolved JavaScript parsing errors in receiving records</li>
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> November 3, 2025</p>
+					<p><strong>Release Date:</strong> November 5, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 4.0.0 - Granular Approval Permissions & User Management Overhaul</p>
-					<p><strong>Focus:</strong> Approval System Redesign, User Position Display, Permission Management, Database Optimization</p>
+					<p><strong>Version:</strong> 5.0.0 - Budget Management Revolution & Filter System Overhaul</p>
+					<p><strong>Focus:</strong> Day Budget Planner Enhancement, Advanced Filtering, Split Payment Management, User Experience</p>
 				</div>
 			</div>
 		</div>
