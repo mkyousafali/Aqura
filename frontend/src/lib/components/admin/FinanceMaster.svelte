@@ -3,6 +3,7 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PaymentManager from './vendor/PaymentManager.svelte';
 	import ManualScheduling from './finance/ManualScheduling.svelte';
+	import DayBudgetPlanner from './finance/DayBudgetPlanner.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -24,6 +25,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			description: 'Schedule payments manually for unscheduled records',
 			icon: '📅',
 			color: 'blue'
+		},
+		{
+			id: 'day-budget-planner',
+			title: 'Day Budget Planner',
+			description: 'Plan daily budget and reschedule payments',
+			icon: '📊',
+			color: 'green'
 		}
 	];
 
@@ -59,6 +67,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				position: { 
 					x: 140 + (Math.random() * 100),
 					y: 140 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else if (financeOperation.id === 'day-budget-planner') {
+			// Open Day Budget Planner component
+			openWindow({
+				id: windowId,
+				title: `Day Budget Planner #${instanceNumber}`,
+				component: DayBudgetPlanner,
+				icon: financeOperation.icon,
+				size: { width: 1400, height: 900 },
+				position: { 
+					x: 160 + (Math.random() * 100),
+					y: 160 + (Math.random() * 100) 
 				},
 				resizable: true,
 				minimizable: true,
@@ -173,6 +198,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.finance-card.blue:hover {
 		border-color: #2563eb;
 		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+	}
+
+	.finance-card.green {
+		border-color: #10b981;
+		background: linear-gradient(135deg, #f3f4f6 0%, #ecfdf5 100%);
+	}
+
+	.finance-card.green:hover {
+		border-color: #059669;
+		background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
 	}
 
 	.card-icon {
