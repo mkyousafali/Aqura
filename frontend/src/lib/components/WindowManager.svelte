@@ -17,8 +17,18 @@
 	// Debug logging for popout mode
 	$: if (popoutOnly) {
 		console.log('🪟 WindowManager in popout mode for:', popoutOnly);
-		console.log('🪟 Available windows:', $windows.map(w => w.id));
-		console.log('🪟 Filtered windows:', filteredWindows.map(w => w.id));
+		console.log('🪟 Available windows:', $windows.length);
+		console.log('🪟 Filtered windows:', filteredWindows.length);
+		if (filteredWindows.length > 0) {
+			console.log('🪟 Window details:', filteredWindows.map(w => ({
+				id: w.id,
+				title: w.title,
+				component: !!w.component ? w.component.name : 'No component',
+				hasComponent: !!w.component,
+				state: w.state,
+				isActive: w.isActive
+			})));
+		}
 	}
 </script>
 

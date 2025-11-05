@@ -309,6 +309,22 @@ class WindowManager {
 		const windowConfig = windows.get(windowId);
 		if (!windowConfig || windowConfig.isPoppedOut) return;
 
+		// Check if we're in a PWA environment
+		const isPWA = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+		const isIOSPWA = (window.navigator as any).standalone === true;
+		const isWebView = navigator.userAgent.includes('wv');
+		
+		console.log('🪟 Environment check:', { isPWA, isIOSPWA, isWebView });
+		
+		// If in PWA mode, use alternative fullscreen approach
+		if (isPWA || isIOSPWA || isWebView) {
+			console.log('🪟 PWA environment detected, using alternative fullscreen approach');
+			this.showWindowFullscreen(windowId);
+			return;
+		}
+		
+		console.log('🪟 Regular browser detected, using pop-out window');
+
 		// Create a new browser window
 		const popOutFeatures = [
 			`width=${windowConfig.size.width}`,
@@ -326,7 +342,8 @@ class WindowManager {
 		const popOutWindow = globalThis.window.open('', `popout_${windowId}`, popOutFeatures);
 		
 		if (!popOutWindow) {
-			console.error('Failed to open pop-out window. Pop-ups may be blocked.');
+			console.error('🪟 Failed to open pop-out window. Pop-ups may be blocked, trying PWA fullscreen mode instead.');
+			this.showWindowFullscreen(windowId);
 			return;
 		}
 
@@ -335,57 +352,44 @@ class WindowManager {
 		const baseUrl = currentUrl.split('#')[0].split('?')[0]; // Remove any hash and query params
 		
 		// Serialize the window data to pass to iframe
-		// Try to get a better component name
-		let componentName = windowConfig.component.name || 'UnknownComponent';
+		// Try to get the real component name, not the wrapper
+		let componentName = windowConfig.component?.name;
 		
-		// Map known components to their proper names
+		// If it's a wrapper, try to get the actual component name from the title or other means
 		if (componentName === 'wrapper' || !componentName || componentName === 'UnknownComponent') {
-			// Try to infer from the window title
-			if (windowConfig.title.includes('Branches Master')) {
+			// Infer component name from window title (order matters - check more specific first)
+			if (windowConfig.title.includes('Upload Vendor')) {
+				componentName = 'UploadVendor';
+			} else if (windowConfig.title.includes('Manage Vendor')) {
+				componentName = 'ManageVendor';
+			} else if (windowConfig.title.includes('Vendor Master')) {
+				componentName = 'VendorMaster';
+			} else if (windowConfig.title.includes('Branches Master') || windowConfig.title.includes('Branch Master')) {
 				componentName = 'BranchMaster';
 			} else if (windowConfig.title.includes('Start Receiving')) {
 				componentName = 'StartReceiving';
-			} else if (windowConfig.title.includes('Receiving Records') || windowConfig.title.includes('📋 Receiving Records')) {
+			} else if (windowConfig.title.includes('Receiving Records')) {
 				componentName = 'ReceivingRecords';
 			} else if (windowConfig.title.includes('Receiving Tasks')) {
 				componentName = 'ReceivingTasksDashboard';
 			} else if (windowConfig.title.includes('Receiving Data')) {
 				componentName = 'ReceivingDataWindow';
 			} else if (windowConfig.title.match(/^Receiving #\d+$/)) {
-				// This is the main Receiving dashboard from Operations Master
 				componentName = 'Receiving';
-			} else if (windowConfig.title.includes('Upload Vendor')) {
-				componentName = 'UploadVendor';
-			} else if (windowConfig.title.includes('Manage Vendor')) {
-				componentName = 'ManageVendor';
-			} else if (windowConfig.title.includes('Payment Manager') || windowConfig.title.includes('Scheduled Payments')) {
-				componentName = 'PaymentManager';
-			} else if (windowConfig.title.includes('Task Status')) {
-				componentName = 'TaskStatusView';
-			} else if (windowConfig.title.includes('View Task Templates')) {
-				componentName = 'TaskTemplateView';
-			} else if (windowConfig.title.includes('Assign Tasks')) {
-				componentName = 'TaskAssignView';
-			} else if (windowConfig.title.includes('My Tasks')) {
-				componentName = 'MyTasksView';
-			} else if (windowConfig.title.includes('My Assignments')) {
-				componentName = 'MyAssignmentsView';
-			} else if (windowConfig.title.includes('Edit User')) {
-				componentName = 'EditUser';
-			} else if (windowConfig.title.includes('Notification Center')) {
-				componentName = 'NotificationCenter';
-			} else if (windowConfig.title.includes('Document Management')) {
-				componentName = 'DocumentManagement';
 			} else if (windowConfig.title.includes('Scheduled Payments')) {
 				componentName = 'ScheduledPayments';
+			} else if (windowConfig.title.includes('Payment Manager')) {
+				componentName = 'PaymentManager';
+			} else if (windowConfig.title.includes('Payment Details')) {
+				componentName = 'MonthDetails';
+			} else if (windowConfig.title.includes('Overdue Payments Details')) {
+				componentName = 'UnpaidScheduledDetails';
 			} else if (windowConfig.title.includes('Task Master')) {
 				componentName = 'TaskMaster';
 			} else if (windowConfig.title.includes('HR Master')) {
 				componentName = 'HRMaster';
 			} else if (windowConfig.title.includes('Operations Master')) {
 				componentName = 'OperationsMaster';
-			} else if (windowConfig.title.includes('Vendor Master')) {
-				componentName = 'VendorMaster';
 			} else if (windowConfig.title.includes('Finance Master')) {
 				componentName = 'FinanceMaster';
 			} else if (windowConfig.title.includes('User Management')) {
@@ -394,27 +398,60 @@ class WindowManager {
 				componentName = 'CommunicationCenter';
 			} else if (windowConfig.title.includes('Settings')) {
 				componentName = 'Settings';
+			} else if (windowConfig.title.includes('Edit User')) {
+				componentName = 'EditUser';
+			} else if (windowConfig.title.includes('Notification Center')) {
+				componentName = 'NotificationCenter';
+			} else if (windowConfig.title.includes('Document Management')) {
+				componentName = 'DocumentManagement';
+			} else {
+				console.warn('🪟 Unknown window title pattern:', windowConfig.title);
+				componentName = 'UnknownComponent';
 			}
 		}
 		
-		const windowData = encodeURIComponent(JSON.stringify({
-			id: windowConfig.id,
-			title: windowConfig.title,
-			component: componentName,
-			icon: windowConfig.icon,
-			size: windowConfig.size,
-			props: windowConfig.props || {}
-		}));
+		console.log('🪟 Creating popup with component:', componentName);
+		console.log('🪟 Original component name:', windowConfig.component?.name);
+		console.log('🪟 Window title:', windowConfig.title);
 		
-		// Construct the iframe URL with popout parameter and window data
-		const iframeUrl = `${baseUrl}?popout=${windowId}&windowData=${windowData}`;
+		// Check if props are too large for URL
+		const propsSize = JSON.stringify(windowConfig.props || {}).length;
+		const usePostMessage = propsSize > 1000; // If props are large, use postMessage
+		
+		let iframeUrl;
+		if (usePostMessage) {
+			// Use postMessage for large data
+			iframeUrl = `${baseUrl}?popout=${windowId}`;
+			console.log('🪟 Using postMessage approach due to large props:', propsSize, 'characters');
+		} else {
+			// Use URL parameter for small data
+			const windowData = encodeURIComponent(JSON.stringify({
+				id: windowConfig.id,
+				title: windowConfig.title,
+				componentName: componentName,
+				props: windowConfig.props || {},
+				icon: windowConfig.icon,
+				size: windowConfig.size
+			}));
+			
+			iframeUrl = `${baseUrl}?popout=${windowId}&windowData=${windowData}`;
+			console.log('🪟 Using URL parameter approach for small props');
+		}
+		
+		// Properly escape JSON for template insertion
+		const escapedProps = JSON.stringify(windowConfig.props || {}).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+		const escapedSize = JSON.stringify(windowConfig.size).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+		const escapedTitle = (windowConfig.title || '').replace(/'/g, "\\'");
+		const escapedIcon = (windowConfig.icon || '').replace(/'/g, "\\'");
+		const escapedComponentName = componentName.replace(/'/g, "\\'");
+		const escapedWindowId = windowId.replace(/'/g, "\\'");
 
 		// Set up the pop-out window with iframe containing the app
 		popOutWindow.document.title = windowConfig.title;
 		popOutWindow.document.head.innerHTML = `
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
-			<title>${windowConfig.title}</title>
+			<title>${escapedTitle}</title>
 			<style>
 				body {
 					margin: 0;
@@ -486,6 +523,7 @@ class WindowManager {
 					padding: 20px;
 					border-radius: 8px;
 					box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+					display: none; /* Hide by default */
 				}
 			</style>
 		`;
@@ -494,8 +532,8 @@ class WindowManager {
 		popOutWindow.document.body.innerHTML = `
 			<div class="popout-header" id="popout-header">
 				<div class="popout-title">
-					<span>${windowConfig.icon || '📱'}</span>
-					<span>${windowConfig.title}</span>
+					<span>${escapedIcon || '📱'}</span>
+					<span>${escapedTitle}</span>
 				</div>
 				<div class="popout-controls">
 					<button class="popout-btn" onclick="returnToApp()">↩️ Return to App</button>
@@ -504,24 +542,117 @@ class WindowManager {
 			</div>
 			<div class="loading-message" id="loading">
 				<p>Loading window content...</p>
-				<small>Loading: ${windowConfig.title}</small>
+				<small>Loading: ${escapedTitle}</small>
 			</div>
 			<iframe 
 				class="popout-iframe" 
 				src="${iframeUrl}"
-				title="${windowConfig.title}"
+				title="${escapedTitle}"
 				onload="
-					document.getElementById('loading').style.display='none';
+					console.log('🪟 Iframe loaded, hiding loading message');
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl) {
+						loadingEl.style.display = 'none';
+						console.log('🪟 Loading message hidden');
+					}
+					
+					// If using postMessage approach, send window data
+					if ('${usePostMessage}' === 'true') {
+						console.log('🪟 Sending window data via postMessage');
+						var iframe = document.querySelector('.popout-iframe');
+						if (iframe && iframe.contentWindow) {
+							iframe.contentWindow.postMessage({
+								type: 'popout-window-data',
+								windowData: {
+									id: '${escapedWindowId}',
+									title: '${escapedTitle}',
+									componentName: '${escapedComponentName}',
+									props: ${escapedProps},
+									icon: '${escapedIcon}',
+									size: ${escapedSize}
+								}
+							}, '*');
+						}
+					}
 				"
-				onerror="document.getElementById('loading').innerHTML='<p>Error loading content</p><small>Component: ${componentName}</small>'"
+				onerror="
+					console.error('🪟 Iframe load error');
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl) {
+						loadingEl.innerHTML = '<p>Error loading content</p>';
+					}
+				"
 			></iframe>
 			<script>
+				// IMMEDIATE: Hide loading dialog right away
+				document.addEventListener('DOMContentLoaded', function() {
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl) {
+						loadingEl.style.display = 'none';
+						console.log('🪟 Loading dialog hidden on DOMContentLoaded');
+					}
+				});
+				
+				// IMMEDIATE: Hide loading dialog without waiting
+				var loadingEl = document.getElementById('loading');
+				if (loadingEl) {
+					loadingEl.style.display = 'none';
+					console.log('🪟 Loading dialog hidden immediately on script execution');
+				}
+				
+				// Backup: Hide loading after a timeout
+				setTimeout(function() {
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl && loadingEl.style.display !== 'none') {
+						console.log('🪟 Hiding loading message via timeout backup');
+						loadingEl.style.display = 'none';
+					}
+				}, 3000);
+				
+				// Immediate check after a short delay
+				setTimeout(function() {
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl) {
+						loadingEl.style.display = 'none';
+						console.log('🪟 Loading message hidden immediately');
+					}
+				}, 500);
+				
+				// More aggressive backup - check multiple times
+				var attempts = 0;
+				var checkInterval = setInterval(function() {
+					attempts++;
+					var loadingEl = document.getElementById('loading');
+					if (loadingEl && loadingEl.style.display !== 'none') {
+						loadingEl.style.display = 'none';
+						console.log('🪟 Loading dialog hidden by interval check #' + attempts);
+					}
+					if (attempts >= 10) { // Stop after 10 attempts (5 seconds)
+						clearInterval(checkInterval);
+					}
+				}, 500);
+				
+				// Listen for completion message from iframe
+				window.addEventListener('message', function(event) {
+					console.log('🪟 Received message:', event.data);
+					if (event.data && event.data.type === 'popout-loading-complete') {
+						console.log('🪟 Received loading complete signal from iframe');
+						var loadingEl = document.getElementById('loading');
+						if (loadingEl) {
+							loadingEl.style.display = 'none';
+							console.log('🪟 Loading dialog hidden via iframe signal');
+						} else {
+							console.log('🪟 Loading element not found');
+						}
+					}
+				});
+				
 				function returnToApp() {
 					// Notify parent window to pop this window back in
 					if (window.opener && !window.opener.closed) {
 						window.opener.postMessage({
 							type: 'pop-in-window',
-							windowId: '${windowId}'
+							windowId: '${escapedWindowId}'
 						}, '*');
 						window.close();
 					}
@@ -629,6 +760,159 @@ class WindowManager {
 	 */
 	public hasModalWindows(): boolean {
 		return Array.from(get(this.windows).values()).some(w => w.modal && w.state !== 'minimized');
+	}
+
+	/**
+	 * PWA-specific fullscreen mode for windows when pop-out is not available
+	 */
+	private showWindowFullscreen(windowId: string): void {
+		const windowConfig = get(this.windows).get(windowId);
+		if (!windowConfig) {
+			console.error('🪟 Window not found for fullscreen:', windowId);
+			return;
+		}
+		
+		console.log('🪟 Showing window in fullscreen mode (PWA alternative)');
+		
+		// Maximize the window and bring it to front
+		this.windows.update(windows => {
+			const config = windows.get(windowId);
+			if (config) {
+				config.state = 'maximized';
+				config.isActive = true;
+				config.position = { x: 0, y: 0 };
+				config.size = { 
+					width: window.innerWidth, 
+					height: window.innerHeight - 60 // Account for taskbar
+				};
+				// Mark as "popped out" in PWA mode
+				config.isPoppedOut = true;
+				
+				// Hide other windows temporarily
+				windows.forEach((win, id) => {
+					if (id !== windowId) {
+						win.state = 'minimized';
+						win.isActive = false;
+					}
+				});
+			}
+			return windows;
+		});
+		
+		// Add a PWA-specific header with "back" button
+		this.addPWAControls(windowId);
+	}
+	
+	/**
+	 * Add floating controls for PWA fullscreen mode
+	 */
+	private addPWAControls(windowId: string): void {
+		// Add a floating control panel for PWA mode
+		const existingControls = document.querySelector('.pwa-window-controls');
+		if (existingControls) {
+			existingControls.remove();
+		}
+		
+		const windowConfig = get(this.windows).get(windowId);
+		const controls = document.createElement('div');
+		controls.className = 'pwa-window-controls';
+		controls.innerHTML = `
+			<div class="pwa-controls-content">
+				<button class="pwa-back-btn" onclick="window.aquraPWA.exitFullscreen('${windowId}')">
+					← Back to Desktop
+				</button>
+				<span class="pwa-window-title">${windowConfig?.title || 'Window'}</span>
+			</div>
+		`;
+		
+		// Add styles if not already present
+		if (!document.querySelector('#pwa-controls-style')) {
+			const style = document.createElement('style');
+			style.id = 'pwa-controls-style';
+			style.textContent = `
+				.pwa-window-controls {
+					position: fixed;
+					top: 10px;
+					right: 10px;
+					z-index: 9999;
+					background: rgba(79, 70, 229, 0.95);
+					backdrop-filter: blur(10px);
+					border-radius: 8px;
+					padding: 8px 16px;
+					box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+				}
+				.pwa-controls-content {
+					display: flex;
+					align-items: center;
+					gap: 12px;
+					color: white;
+					font-size: 14px;
+				}
+				.pwa-back-btn {
+					background: rgba(255, 255, 255, 0.2);
+					color: white;
+					border: none;
+					padding: 6px 12px;
+					border-radius: 6px;
+					cursor: pointer;
+					font-size: 12px;
+					font-weight: 500;
+					transition: background 0.15s ease;
+				}
+				.pwa-back-btn:hover {
+					background: rgba(255, 255, 255, 0.3);
+				}
+				.pwa-window-title {
+					font-weight: 500;
+					opacity: 0.9;
+				}
+			`;
+			document.head.appendChild(style);
+		}
+		
+		document.body.appendChild(controls);
+		
+		// Setup global PWA functions
+		(window as any).aquraPWA = {
+			exitFullscreen: (windowId: string) => {
+				this.exitPWAFullscreen(windowId);
+			}
+		};
+	}
+	
+	/**
+	 * Exit PWA fullscreen mode and return to normal desktop view
+	 */
+	private exitPWAFullscreen(windowId: string): void {
+		console.log('🪟 Exiting PWA fullscreen mode');
+		
+		// Remove PWA controls
+		const controls = document.querySelector('.pwa-window-controls');
+		if (controls) {
+			controls.remove();
+		}
+		
+		// Restore normal window state
+		this.windows.update(windows => {
+			const config = windows.get(windowId);
+			if (config) {
+				config.state = 'normal';
+				config.size = { width: 1200, height: 800 };
+				config.position = { x: 100, y: 100 };
+				config.isPoppedOut = false;
+			}
+			
+			// Restore other windows
+			windows.forEach((win) => {
+				if (win.state === 'minimized') {
+					win.state = 'normal';
+				}
+			});
+			
+			return windows;
+		});
+		
+		this.activateWindow(windowId);
 	}
 
 	// Store getters for reactive subscriptions
