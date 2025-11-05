@@ -18,12 +18,14 @@
 
 	// Step 1 data
 	let selectedBranchId = '';
+	let selectedBranchName = '';
 	let selectedApproverId = '';
 	let selectedApproverName = '';
 	let userSearchQuery = '';
 	let amount = ''; // Moved to Step 1
 
 	// Step 2 data
+	let requestType = 'external'; // 'external' or 'internal'
 	let requesterId = '';
 	let requesterName = '';
 	let requesterContact = '';
@@ -31,6 +33,14 @@
 	let requesterSearchQuery = '';
 	let showNewRequesterFields = false;
 	let isNewRequester = false;
+	
+	// Internal employee data
+	let selectedInternalUserId = '';
+	let selectedEmployeeName = '';
+	let selectedEmployeeContact = '';
+	let employeeSearchQuery = '';
+	let internalEmployees = [];
+	let filteredInternalEmployees = [];
 	let vatApplicable = false;
 	let paymentCategory = 'advance_cash';
 	let description = '';
@@ -64,6 +74,9 @@
 		{ value: 'stock_purchase_cash', label: 'Stock Purchase Cash - شراء مخزون نقدي', creditDays: 0 },
 		{ value: 'stock_purchase_bank', label: 'Stock Purchase Bank - شراء مخزون بنكي', creditDays: 0 }
 	];
+
+	// Reactive statement to update branch name when branch ID changes
+	$: selectedBranchName = selectedBranchId ? branches.find(b => b.id == selectedBranchId)?.name_en || '' : '';
 
 	onMount(async () => {
 		await loadInitialData();
@@ -133,6 +146,37 @@
 				.order('requester_name');
 			requesters = requesterData || [];
 			filteredRequesters = requesters;
+
+			// Load internal employees (users with employee data) - ALL employees from ALL branches
+			const { data: employeeData } = await supabaseAdmin
+				.from('users')
+				.select(`
+					id,
+					username,
+					employee_id,
+					branch_id,
+					status,
+					user_type,
+					branches (
+						name_en,
+						name_ar
+					)
+				`)
+				.eq('status', 'active')
+				.order('username');
+
+			internalEmployees = (employeeData || [])
+				.map(emp => {
+					return {
+						...emp,
+						display_name: emp.username,
+						employee_code: emp.employee_id || emp.id,
+						branch_name: emp.branches?.name_en || emp.branches?.name_ar || 'No Branch',
+						position_title: emp.user_type || 'No Position',
+						department_name: 'No Department'
+					};
+				});
+			filteredInternalEmployees = internalEmployees;
 
 		} catch (err) {
 			console.error('Error loading data:', err);
@@ -282,6 +326,38 @@
 		}
 	}
 
+	// Internal employee management functions
+	function handleEmployeeSearch() {
+		const query = employeeSearchQuery.toLowerCase();
+		if (query) {
+			filteredInternalEmployees = internalEmployees.filter(emp =>
+				emp.username?.toLowerCase().includes(query) ||
+				emp.display_name?.toLowerCase().includes(query) ||
+				emp.employee_code?.toLowerCase().includes(query) ||
+				emp.branch_name?.toLowerCase().includes(query) ||
+				emp.department_name?.toLowerCase().includes(query) ||
+				emp.position_title?.toLowerCase().includes(query)
+			);
+		} else {
+			filteredInternalEmployees = internalEmployees;
+		}
+	}
+
+	function selectInternalEmployee(employee) {
+		selectedInternalUserId = employee.id;
+		selectedEmployeeName = employee.display_name;
+		// For contact, we could use username or a phone field if available
+		selectedEmployeeContact = employee.username; // You might want to add phone field to hr_employees
+		employeeSearchQuery = ''; // Clear search to hide dropdown
+	}
+
+	function clearInternalEmployeeSelection() {
+		selectedInternalUserId = '';
+		selectedEmployeeName = '';
+		selectedEmployeeContact = '';
+		employeeSearchQuery = '';
+	}
+
 	function validateStep1() {
 		if (!selectedBranchId) {
 			alert('Please select a branch');
@@ -300,14 +376,26 @@
 	}
 
 	function validateStep2() {
-		if (!requesterId.trim()) {
-			alert('Please select a requester or enter requester ID');
-			return false;
+		if (requestType === 'external') {
+			if (!requesterId.trim()) {
+				alert('Please select a requester or enter requester ID');
+				return false;
+			}
+			if (!requesterName.trim()) {
+				alert('Please select a requester or enter requester name');
+				return false;
+			}
+		} else if (requestType === 'internal') {
+			if (!selectedInternalUserId) {
+				alert('Please select an internal employee');
+				return false;
+			}
+			if (!selectedEmployeeName.trim()) {
+				alert('Please select a valid internal employee');
+				return false;
+			}
 		}
-		if (!requesterName.trim()) {
-			alert('Please select a requester or enter requester name');
-			return false;
-		}
+		
 		// Contact number is optional now
 		// Validate credit period for credit payment methods
 		if ((paymentCategory === 'advance_cash_credit' || paymentCategory === 'advance_bank_credit' || paymentCategory === 'cash_credit' || paymentCategory === 'bank_credit') && (!creditPeriod || parseInt(creditPeriod) <= 0)) {
@@ -437,33 +525,47 @@
 			savingStatus = 'Saving to database...';
 
 			// Step 5: Save requisition to database (80-100%)
+			const insertData = {
+				requisition_number: requisitionNumber,
+				branch_id: parseInt(selectedBranchId),
+				branch_name: getBranchName(),
+				approver_id: selectedApproverId || null,
+				approver_name: selectedApproverName,
+				expense_category_id: null, // Category will be selected when closing the bill
+				expense_category_name_en: null,
+				expense_category_name_ar: null,
+				vat_applicable: vatApplicable,
+				amount: parseFloat(amount),
+				payment_category: paymentCategory,
+				credit_period: creditPeriod ? parseInt(creditPeriod) : null,
+				due_date: dueDate || null, // Automatically calculated due date
+				bank_name: bankName || null,
+				iban: iban || null,
+				description: description,
+				status: 'pending',
+				image_url: savedImageUrl,
+				created_by: $currentUser?.id || (requestType === 'internal' ? selectedInternalUserId : requesterId),
+				request_type: requestType
+			};
+
+			// Add request-specific fields
+			if (requestType === 'external') {
+				insertData.requester_id = requesterId;
+				insertData.requester_name = requesterName;
+				insertData.requester_contact = requesterContact;
+				insertData.requester_ref_id = selectedRequesterId || null;
+				insertData.internal_user_id = null;
+			} else {
+				insertData.requester_id = selectedInternalUserId; // Store user ID as text for consistency
+				insertData.requester_name = selectedEmployeeName;
+				insertData.requester_contact = selectedEmployeeContact;
+				insertData.requester_ref_id = null;
+				insertData.internal_user_id = selectedInternalUserId;
+			}
+
 			const { error: dbError } = await supabaseAdmin
 				.from('expense_requisitions')
-				.insert({
-					requisition_number: requisitionNumber,
-					branch_id: parseInt(selectedBranchId),
-					branch_name: getBranchName(),
-					approver_id: selectedApproverId || null,
-					approver_name: selectedApproverName,
-					expense_category_id: null, // Category will be selected when closing the bill
-					expense_category_name_en: null,
-					expense_category_name_ar: null,
-					requester_id: requesterId, // This is employee ID as text
-					requester_name: requesterName,
-					requester_contact: requesterContact,
-					requester_ref_id: selectedRequesterId || null, // Reference to requesters table
-					vat_applicable: vatApplicable,
-					amount: parseFloat(amount),
-					payment_category: paymentCategory,
-					credit_period: creditPeriod ? parseInt(creditPeriod) : null,
-					due_date: dueDate || null, // Automatically calculated due date
-					bank_name: bankName || null,
-					iban: iban || null,
-					description: description,
-					status: 'pending',
-					image_url: savedImageUrl,
-					created_by: $currentUser?.id || requesterId
-				});			if (dbError) throw dbError;
+				.insert(insertData);			if (dbError) throw dbError;
 			
 			savingProgress = 95;
 			savingStatus = 'Sending notification to approver...';
@@ -485,6 +587,25 @@
 			} catch (notifError) {
 				console.error('❌ Failed to send notification to approver:', notifError);
 				// Don't throw error - notification failure shouldn't stop requisition creation
+			}
+
+			// Send notification to internal employee if applicable
+			if (requestType === 'internal' && selectedInternalUserId) {
+				try {
+					await notificationService.createNotification({
+						title: 'Expense Requisition Submitted for You',
+						message: `An expense requisition (${requisitionNumber}) has been submitted on your behalf by ${$currentUser?.username || 'System'}. Amount: ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR. Status: Pending Approval`,
+						type: 'info',
+						priority: 'medium',
+						target_type: 'specific_users',
+						target_users: [selectedInternalUserId]
+					}, $currentUser?.id || $currentUser?.username || 'System');
+					
+					console.log('✅ Notification sent to internal employee:', selectedEmployeeName);
+				} catch (notifError) {
+					console.error('❌ Failed to send notification to internal employee:', notifError);
+					// Don't throw error - notification failure shouldn't stop requisition creation
+				}
 			}
 			
 			savingProgress = 100;
@@ -843,8 +964,31 @@
 
 <div class="request-generator">
 	<div class="header">
-		<h1 class="title">📝 Requisition Generator</h1>
-		<p class="subtitle">Generate professional expense requisitions</p>
+		<div class="header-main">
+			<h1 class="title">📝 Requisition Generator</h1>
+			<p class="subtitle">Generate professional expense requisitions</p>
+		</div>
+		
+		{#if amount && parseFloat(amount) > 0}
+			<div class="header-summary">
+				<div class="summary-item">
+					<span class="summary-label">Amount:</span>
+					<span class="summary-value">{parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
+				</div>
+				{#if selectedBranchName}
+					<div class="summary-item">
+						<span class="summary-label">Branch:</span>
+						<span class="summary-value">{selectedBranchName}</span>
+					</div>
+				{/if}
+				{#if currentStep > 1}
+					<div class="summary-item">
+						<span class="summary-label">Step:</span>
+						<span class="summary-value">{currentStep} of {totalSteps}</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	<!-- Progress Steps -->
@@ -982,9 +1126,27 @@
 			<div class="step-content">
 				<h2 class="step-title">Step 2: Expense Details</h2>
 
-				<!-- Requester Selection -->
-				<div class="form-group requester-dropdown-container">
-					<label>Select or Add Requester *</label>
+				<!-- Request Type Selection -->
+				<div class="form-group">
+					<label>Request For *</label>
+					<div class="radio-group">
+						<label class="radio-option">
+							<input type="radio" bind:group={requestType} value="external" />
+							<span class="radio-label">External Requester</span>
+							<span class="radio-description">Someone outside the company</span>
+						</label>
+						<label class="radio-option">
+							<input type="radio" bind:group={requestType} value="internal" />
+							<span class="radio-label">Internal Employee</span>
+							<span class="radio-description">Company employee</span>
+						</label>
+					</div>
+				</div>
+
+				{#if requestType === 'external'}
+					<!-- External Requester Selection -->
+					<div class="form-group requester-dropdown-container">
+						<label>Select or Add Requester *</label>
 					<input 
 						type="text" 
 						bind:value={requesterSearchQuery} 
@@ -1053,16 +1215,86 @@
 								/>
 							</div>
 						</div>
+					</div>
+				{/if}
 
+				<div class="form-group">
+					<label>Contact Number</label>
+					<input 
+						type="tel" 
+						bind:value={requesterContact} 
+						placeholder="Enter contact number" 
+						class="form-input" 
+					/>
+				</div>
+		{/if}
+
+				<!-- Internal Employee Selection (requestType = 'internal') -->
+				{#if requestType === 'internal'}
+					<div class="requester-section">
+						<h4>👤 Internal Employee Selection</h4>
+						
 						<div class="form-group">
-							<label>Contact Number</label>
+							<label>Search Employee *</label>
 							<input 
-								type="tel" 
-								bind:value={requesterContact} 
-								placeholder="Enter contact number" 
+								type="text" 
+								bind:value={employeeSearchQuery} 
+								on:input={handleEmployeeSearch}
+								placeholder="Search by name, employee ID, or department" 
 								class="form-input" 
 							/>
 						</div>
+
+						{#if filteredInternalEmployees.length > 0}
+							<div class="employee-search-results">
+								<h5>Search Results:</h5>
+								{#each filteredInternalEmployees as employee}
+									<div 
+										class="employee-item {selectedInternalUserId === employee.id ? 'selected' : ''}"
+										on:click={() => selectInternalEmployee(employee)}
+									>
+										<div class="employee-info">
+											<strong>{employee.display_name || employee.username || 'No Name'}</strong>
+											<span class="employee-id">ID: {employee.employee_code || employee.employee_id || employee.id}</span>
+										</div>
+										<div class="employee-details">
+											<span class="department">{employee.department_name || employee.branch_name || 'No Department'}</span>
+											<span class="position">{employee.position_title || employee.user_type || 'No Position'}</span>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						{#if selectedInternalUserId && selectedEmployeeName}
+							<div class="selected-employee">
+								<h5>✅ Selected Employee:</h5>
+								<div class="employee-card">
+									<div class="employee-header">
+										<strong>{selectedEmployeeName}</strong>
+										<span class="employee-id">ID: {selectedInternalUserId}</span>
+									</div>
+									<div class="employee-meta">
+										{#each internalEmployees as emp}
+											{#if emp.id === selectedInternalUserId}
+												<span class="department">{emp.department_name || emp.branch_name || 'No Department'}</span>
+												<span class="position">{emp.position_title || emp.user_type || 'No Position'}</span>
+												{#if emp.email}
+													<span class="email">{emp.email}</span>
+												{/if}
+											{/if}
+										{/each}
+									</div>
+									<button 
+										type="button" 
+										class="clear-selection-btn"
+										on:click={clearInternalEmployeeSelection}
+									>
+										❌ Clear Selection
+									</button>
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/if}
 
@@ -1435,7 +1667,44 @@
 
 	.header {
 		margin-bottom: 2rem;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+
+	.header-main {
 		text-align: center;
+		flex: 1;
+	}
+
+	.header-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		background: #f8fafc;
+		padding: 1rem;
+		border-radius: 8px;
+		border: 1px solid #e2e8f0;
+		min-width: 200px;
+	}
+
+	.summary-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 0.875rem;
+	}
+
+	.summary-label {
+		color: #64748b;
+		font-weight: 500;
+	}
+
+	.summary-value {
+		color: #1e293b;
+		font-weight: 600;
 	}
 
 	.title {
@@ -2693,5 +2962,209 @@
 
 	.save-field-btn:hover {
 		background: #059669;
+	}
+
+	/* Internal Employee Selection Styles */
+	.employee-search-results {
+		margin-top: 12px;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+		background: white;
+		max-height: 300px;
+		overflow-y: auto;
+	}
+
+	.employee-search-results h5 {
+		margin: 0;
+		padding: 12px;
+		background: #f8fafc;
+		border-bottom: 1px solid #e2e8f0;
+		font-size: 0.875rem;
+		color: #64748b;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.employee-item {
+		padding: 12px;
+		cursor: pointer;
+		border-bottom: 1px solid #f1f5f9;
+		transition: all 0.2s;
+	}
+
+	.employee-item:hover {
+		background-color: #f8fafc;
+	}
+
+	.employee-item.selected {
+		background-color: #dbeafe;
+		border-color: #3b82f6;
+	}
+
+	.employee-item:last-child {
+		border-bottom: none;
+	}
+
+	.employee-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 4px;
+	}
+
+	.employee-info strong {
+		color: #334155;
+		font-weight: 600;
+	}
+
+	.employee-id {
+		font-size: 0.75rem;
+		color: #64748b;
+		background: #f1f5f9;
+		padding: 2px 6px;
+		border-radius: 4px;
+	}
+
+	.employee-details {
+		display: flex;
+		gap: 12px;
+		font-size: 0.875rem;
+		color: #64748b;
+	}
+
+	.department, .position {
+		padding: 2px 6px;
+		background: #f3f4f6;
+		border-radius: 4px;
+		font-size: 0.75rem;
+	}
+
+	.selected-employee {
+		margin-top: 16px;
+		padding: 16px;
+		background: #f0f9ff;
+		border: 1px solid #0ea5e9;
+		border-radius: 8px;
+	}
+
+	.selected-employee h5 {
+		margin: 0 0 12px 0;
+		color: #0c4a6e;
+		font-size: 0.875rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.employee-card {
+		background: white;
+		border-radius: 6px;
+		padding: 12px;
+		position: relative;
+	}
+
+	.employee-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+
+	.employee-header strong {
+		color: #334155;
+		font-weight: 600;
+		font-size: 1rem;
+	}
+
+	.employee-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.email {
+		color: #0ea5e9;
+		font-size: 0.875rem;
+		text-decoration: underline;
+	}
+
+	.clear-selection-btn {
+		background: #ef4444;
+		color: white;
+		border: none;
+		padding: 6px 12px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background-color 0.2s;
+	}
+
+	.clear-selection-btn:hover {
+		background: #dc2626;
+	}
+
+	/* Request Type Radio Buttons */
+	.request-type-selection {
+		margin-bottom: 24px;
+		padding: 16px;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 8px;
+	}
+
+	.request-type-selection h4 {
+		margin: 0 0 12px 0;
+		color: #334155;
+		font-size: 1rem;
+	}
+
+	.radio-group {
+		display: flex;
+		gap: 20px;
+		flex-wrap: wrap;
+	}
+
+	.radio-option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		padding: 8px 12px;
+		border-radius: 6px;
+		transition: background-color 0.2s;
+	}
+
+	.radio-option:hover {
+		background: #f1f5f9;
+	}
+
+	.radio-option input[type="radio"] {
+		margin: 0;
+		transform: scale(1.2);
+	}
+
+	.radio-option label {
+		margin: 0;
+		cursor: pointer;
+		font-weight: 500;
+		color: #374151;
+	}
+
+	/* Responsive header design */
+	@media (max-width: 768px) {
+		.header {
+			flex-direction: column;
+			text-align: center;
+		}
+		
+		.header-summary {
+			min-width: 100%;
+			order: -1;
+		}
+		
+		.summary-item {
+			font-size: 0.8rem;
+		}
 	}
 </style>
