@@ -3,8 +3,8 @@ export interface User {
   id: string;
   username: string;
   role: string;
-  roleType: "Master Admin" | "Admin" | "Position-based";
-  userType: "global" | "branch_specific";
+  roleType: "Master Admin" | "Admin" | "Position-based" | "Customer";
+  userType: "global" | "branch_specific" | "customer";
   avatar?: string;
   employeeName?: string;
   branchName?: string;
@@ -12,6 +12,7 @@ export interface User {
   branch_id?: string;
   lastLogin?: string;
   permissions?: UserPermissions;
+  customerId?: string; // For customer users
 }
 
 export interface UserPermissions {
@@ -27,7 +28,7 @@ export interface UserPermissions {
 export interface AuthSession {
   token: string;
   user: User;
-  loginMethod: "username" | "quickAccess";
+  loginMethod: "username" | "quickAccess" | "customerAccess";
   loginTime: string;
   expiresAt: string;
 }

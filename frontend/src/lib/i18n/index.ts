@@ -213,6 +213,63 @@ export function formatCurrency(
 // Export the main translation function as default
 export default t;
 
+// Create reactive translation store
+export const _ = derived(
+  localeData,
+  ($localeData) => (keyPath: string, context: TranslationContext = {}): string => {
+    const keys = keyPath.split(".");
+
+    let value: any = $localeData.translations;
+    for (const key of keys) {
+      if (value && typeof value === "object" && key in value) {
+        value = value[key];
+      } else {
+        // Fallback to English if key not found
+        const fallbackLocale = locales[defaultConfig.fallbackLocale];
+        let fallbackValue: any = fallbackLocale.translations;
+        for (const fallbackKey of keys) {
+          if (
+            fallbackValue &&
+            typeof fallbackValue === "object" &&
+            fallbackKey in fallbackValue
+          ) {
+            fallbackValue = fallbackValue[fallbackKey];
+          } else {
+            console.warn(`Translation key not found: ${keyPath}`);
+            return keyPath; // Return key path if translation not found
+          }
+        }
+        value = fallbackValue;
+        break;
+      }
+    }
+
+    if (typeof value !== "string") {
+      console.warn(`Translation key is not a string: ${keyPath}`);
+      return keyPath;
+    }
+
+    // Handle pluralization
+    if (context.count !== undefined) {
+      const pluralRule = $localeData.pluralRules.find((rule) => {
+        if (rule.count === "other") return true;
+        return rule.count === context.count;
+      });
+
+      if (pluralRule) {
+        const pluralKey = `${keyPath}.${pluralRule.form}`;
+        const pluralValue = getPluralTranslation(pluralKey, $localeData);
+        if (pluralValue) {
+          value = pluralValue;
+        }
+      }
+    }
+
+    // Handle interpolation
+    return interpolate(value, context);
+  }
+);
+
 // Export getTranslation as an alias to t for compatibility
 export const getTranslation = t;
 

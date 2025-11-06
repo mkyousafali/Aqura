@@ -590,19 +590,41 @@ export const englishLocale: LocaleData = {
       mustChangePassword: "You must change your password before continuing",
     },
 
-    // Admin Modules
+    // Admin
     admin: {
-      title: "Administration",
-      hrMaster: "HR Master",
-      branchesMaster: "Branches Master",
-      taskMaster: "Task Master",
-      vendorsMaster: "Vendors Master",
+      title: "Admin Panel",
+      dashboard: "Dashboard",
+      reports: "Reports",
+      settings: "Settings",
+      users: "Users",
+      logs: "Activity Logs",
+      systemHealth: "System Health",
+      backup: "Backup & Restore",
+      branchMaster: "Branch Master",
+      vendorMaster: "Vendor Master",
+      employeeMaster: "Employee Master",
+      userMaster: "User Master",
+      categoriesMaster: "Categories Master",
+      itemsMaster: "Items Master",
+      customerMaster: "Customer Master",
       invoiceMaster: "Invoice Master",
       userRoles: "User Roles",
       hierarchyMaster: "Hierarchy Master",
       userManagement: "User Management",
       importData: "Import Data",
       auditLog: "Audit Log",
+      customerManagement: "Customer Management",
+      customerManagementDescription: "Manage customer registrations and access approvals",
+      pending: "Pending",
+      approved: "Approved",
+      rejected: "Rejected",
+      approve: "Approve",
+      reject: "Reject",
+      approveCustomer: "Approve Customer",
+      rejectCustomer: "Reject Customer",
+      notes: "Notes",
+      approvalNotesPlaceholder: "Add approval notes or special instructions...",
+      rejectionNotesPlaceholder: "Provide reason for rejection...",
       hr: {
         title: "HR Master",
         subtitle: "Manage employees and staff",
@@ -798,6 +820,10 @@ export const englishLocale: LocaleData = {
       status: "Status",
       loading: "Loading...",
       error: "An error occurred",
+      rememberDevice: "Remember this device",
+      optional: "Optional",
+      users: "Users",
+      customer: "Customer",
     },
 
     // Status Messages
@@ -850,6 +876,146 @@ export const englishLocale: LocaleData = {
       rejected: "Rejected",
       total: "Total",
       noRequisitions: "No requisitions found",
+    },
+
+    // Customer Interface
+    customer: {
+      customerName: "Customer Name",
+      companyName: "Company Name", 
+      username: "Username",
+      whatsappNumber: "Mobile Number",
+      status: "Status",
+      registrationDate: "Registration Date",
+      
+      // Customer Login
+      login: {
+        title: "Customer Portal",
+        subtitle: "Access your customer account",
+        interfaceOption: "Customer Login",
+        welcomeTitle: "Welcome to Aqura Customer Portal",
+        welcomeSubtitle: "Secure access for our valued customers",
+        username: "Username",
+        usernamePlaceholder: "Enter your username",
+        accessCode: "Access Code",
+        accessCodePlaceholder: "Enter 6-digit access code",
+        loginButton: "Sign In",
+        loggingIn: "Signing in...",
+        forgotCredentials: "Forgot your username or access code?",
+        requestNewAccess: "Request Account Recovery",
+        backToLogin: "Back to Login",
+        
+        // Forgot credentials section
+        forgotTitle: "Account Recovery",
+        forgotSubtitle: "We'll help you recover your account",
+        whatsappLabel: "Mobile Number",
+        whatsappPlaceholder: "5X XXX XXXX",
+        submitRequest: "Submit Recovery Request",
+        submittingRequest: "Submitting request...",
+        requestSubmitted: "Recovery request submitted successfully",
+        requestSubmittedMessage: "An admin will verify your identity and send your credentials via WhatsApp shortly.",
+        
+        // Registration section
+        registerTitle: "New Customer Registration",
+        registerSubtitle: "Join Aqura Customer Portal",
+        customerName: "Full Name",
+        customerNamePlaceholder: "Enter your full name",
+        email: "Email (Optional)",
+        emailPlaceholder: "Enter your email address",
+        registerButton: "Submit Registration",
+        registering: "Submitting registration...",
+        registrationSubmitted: "Registration submitted successfully",
+        registrationMessage: "Your registration has been submitted for approval. You will receive your login credentials via WhatsApp once approved.",
+        alreadyHaveAccount: "Already have an account? Sign in",
+        needNewAccount: "Don't have an account?",
+        
+        // Error messages
+        errors: {
+          usernameRequired: "Username is required",
+          accessCodeRequired: "Access code is required",
+          invalidCredentials: "Invalid username or access code",
+          accountNotApproved: "Your account is pending approval",
+          whatsappRequired: "Mobile number is required",
+          customerNameRequired: "Full name is required",
+          invalidWhatsappFormat: "Please enter a valid mobile number",
+          accessCodeLength: "Access code must be 6 digits",
+          tooManyRequests: "Too many requests. Please try again later",
+          networkError: "Network error. Please check your connection",
+          serverError: "Server error. Please try again later",
+          registrationFailed: "Registration failed. Please try again",
+          recoveryFailed: "Recovery request failed. Please try again",
+        },
+        
+        // Success messages
+        success: {
+          loginSuccessful: "Login successful! Welcome back",
+          requestSent: "Recovery request sent successfully",
+          registrationSent: "Registration submitted successfully",
+        },
+        
+        // Interface selection
+        interface: {
+          desktop: "Desktop Interface",
+          mobile: "Mobile Interface", 
+          customer: "Customer Portal",
+          selectInterface: "Choose your interface",
+          customerDescription: "Secure portal for customer access",
+          mobileDescription: "Optimized for mobile devices",
+          desktopDescription: "Full desktop experience",
+        },
+      },
+      
+      // Customer notifications
+      notifications: {
+        welcome: "Welcome to Aqura Customer Portal",
+        accountApproved: "Your customer account has been approved",
+        accessCodeSent: "Your new access code has been sent",
+        accountRecovery: "Account recovery request received",
+        credentialsShared: "Your login credentials have been shared via WhatsApp",
+        registrationReceived: "Registration request received and under review",
+      },
+
+      // Customer dashboard
+      dashboard: {
+        title: "Customer Dashboard",
+        welcome: "Welcome to your portal",
+        defaultCompany: "Valued Customer",
+        accessCode: "Access Code",
+        accountStatus: "Account Status",
+        
+        status: {
+          approved: "Your account is approved and active",
+          pending: "Your account is pending approval",
+          rejected: "Your account access has been denied",
+          pendingDescription: "Our team is reviewing your registration. You will be notified once approved.",
+          rejectedDescription: "Please contact support for assistance with your account access.",
+        },
+
+        features: {
+          orders: "Orders & Requests",
+          ordersDescription: "View and manage your orders and service requests",
+          viewOrders: "View Orders",
+          
+          support: "Customer Support",
+          supportDescription: "Get help and contact our support team",
+          contactSupport: "Contact Support",
+          
+          account: "Account Settings", 
+          accountDescription: "Manage your account information and preferences",
+          manageAccount: "Manage Account",
+          
+          reports: "Reports & History",
+          reportsDescription: "Access your transaction history and reports",
+          viewReports: "View Reports",
+        },
+
+        contact: {
+          title: "Need Help? Contact Us",
+          email: "Email Support",
+          whatsapp: "WhatsApp Support",
+          hours: "Business Hours",
+          businessHours: "Sunday - Thursday, 9:00 AM - 6:00 PM",
+        },
+      },
     },
   },
 };
