@@ -107,93 +107,153 @@
 
 	async function loadDashboardData() {
 		try {
-			// Load task statistics - include tasks assigned TO user OR assigned BY user to themselves
-			const { data: taskAssignments, error: taskError } = await supabase
-				.from('task_assignments')
-				.select(`
-					*,
-					task:tasks!inner(
-						id,
-						title,
-						description,
-						priority,
-						due_date,
-						status,
-						created_at
-					)
-				`)
-				.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
-				.order('assigned_at', { ascending: false });
-
+			console.log('🔍 Loading mobile dashboard data in parallel for better performance...');
+			
+			// Run all queries in parallel for better mobile performance
+			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+				// Load task assignments
+				supabase
+					.from('task_assignments')
+					.select(`
+						*,
+						task:tasks!inner(
+							id,
+							title,
+							description,
+							priority,
+							due_date,
+							status,
+							created_at
+						)
+					`)
+					.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
+					.order('assigned_at', { ascending: false }),
+				
+				// Load quick task assignments
+				supabase
+					.from('quick_task_assignments')
+					.select(`
+						*,
+						quick_task:quick_tasks!inner(
+							id,
+							title,
+							description,
+							priority,
+							deadline_datetime,
+							status,
+							created_at
+						)
+					`)
+					.eq('assigned_to_user_id', currentUserData.id)
+					.order('created_at', { ascending: false }),
+				
+				// Load receiving tasks
+				supabase
+					.from('receiving_task_assignments')
+					.select(`
+						*,
+						receiving_task:receiving_tasks!inner(
+							id,
+							title,
+							description,
+							priority,
+							due_date,
+							status,
+							created_at
+						)
+					`)
+					.eq('assigned_to_user_id', currentUserData.id)
+					.order('assigned_at', { ascending: false })
+			]);
+			
+			// Process task assignment results
+			const { data: taskAssignments, error: taskError } = taskAssignmentsResult;
+			const { data: quickTaskAssignments, error: quickTaskError } = quickTaskAssignmentsResult;
+			const { data: receivingTasks, error: receivingTaskError } = receivingTasksResult;
+			
+			// Calculate task statistics from all task types
+			let totalTasks = 0;
+			let pendingTasks = 0;
+			let completedTasks = 0;
+			
 			if (!taskError && taskAssignments) {
-				stats.totalTasks = taskAssignments.length;
-				// Count pending tasks based on assignment status - include all non-completed/cancelled statuses
-				stats.pendingTasks = taskAssignments.filter(t => 
+				totalTasks += taskAssignments.length;
+				pendingTasks += taskAssignments.filter(t => 
 					t.status !== 'completed' && t.status !== 'cancelled'
 				).length;
-				stats.completedTasks = taskAssignments.filter(t => 
+				completedTasks += taskAssignments.filter(t => 
 					t.status === 'completed'
 				).length;
 			}
+			
+			if (!quickTaskError && quickTaskAssignments) {
+				totalTasks += quickTaskAssignments.length;
+				pendingTasks += quickTaskAssignments.filter(t => 
+					t.status !== 'completed' && t.status !== 'cancelled'
+				).length;
+				completedTasks += quickTaskAssignments.filter(t => 
+					t.status === 'completed'
+				).length;
+			}
+			
+			if (!receivingTaskError && receivingTasks) {
+				totalTasks += receivingTasks.length;
+				pendingTasks += receivingTasks.filter(t => 
+					t.status !== 'completed' && t.status !== 'cancelled'
+				).length;
+				completedTasks += receivingTasks.filter(t => 
+					t.status === 'completed'
+				).length;
+			}
+			
+			stats.totalTasks = totalTasks;
+			stats.pendingTasks = pendingTasks;
+			stats.completedTasks = completedTasks;
 
-			// Load notification statistics
-			try {
-				const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
+			// Load notification statistics and recent notifications in parallel
+			const [notificationStatsResult, recentNotificationsResult] = await Promise.all([
+				// Load notification statistics
+				(async () => {
+					try {
+						const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
+						if (userNotifications && userNotifications.length > 0) {
+							return userNotifications.filter(n => !n.is_read).length;
+						}
+						return 0;
+					} catch (error) {
+						console.error('❌ [Mobile Dashboard] Error loading notifications:', error);
+						return 0;
+					}
+				})(),
 				
-				if (userNotifications && userNotifications.length > 0) {
-					// Count unread notifications
-					stats.unreadNotifications = userNotifications.filter(n => !n.is_read).length;
-				} else {
-					stats.unreadNotifications = 0;
-				}
-			} catch (error) {
-				console.error('❌ [Mobile Dashboard] Error loading notifications:', error);
-				stats.unreadNotifications = 0;
-			}
-
-			// Load recent notifications
-			await loadRecentNotifications();
-
-		} catch (error) {
-			console.error('Error loading dashboard data:', error);
-		}
-	}
-
-	async function loadRecentNotifications() {
-		if (!currentUserData) return;
-
-		try {
-			// Use the notification management service to get notifications with read states
-			let notifications;
-			let error;
-
-			// All users should get the same notification format with attachments
-			const result = await notificationManagement.getAllNotifications(currentUserData.id);
-			notifications = result || [];
-			error = null;
-
-			if (error) {
-				console.error('Error loading recent notifications:', error);
-				recentNotifications = [];
-				return;
-			}
-
+				// Load recent notifications
+				(async () => {
+					try {
+						const result = await notificationManagement.getAllNotifications(currentUserData.id);
+						return result || [];
+					} catch (error) {
+						console.error('Error loading recent notifications:', error);
+						return [];
+					}
+				})()
+			]);
+			
+			// Set notification statistics
+			stats.unreadNotifications = notificationStatsResult;
+			
+			// Process recent notifications
+			const notifications = recentNotificationsResult;
+			
 			// Filter to recent notifications (yesterday, today, and overdue)
 			const today = new Date();
 			const yesterday = new Date(today);
 			yesterday.setDate(yesterday.getDate() - 1);
 			yesterday.setHours(0, 0, 0, 0);
-
+			
 			const filteredNotifications = notifications.filter(notification => {
 				const notificationDate = new Date(notification.created_at);
 				return notificationDate >= yesterday;
 			}).slice(0, 20); // Limit to 20 recent notifications
-
-			if (error) {
-				console.error('Error loading recent notifications:', error);
-				recentNotifications = [];
-				return;
-			}
 
 			// For each notification, get recipients info, process attachments, and check read state
 			if (filteredNotifications) {
@@ -232,6 +292,71 @@
 						// Try multiple approaches to get recipient information
 						let recipients = [];
 						let recipientsError = null;
+
+						// Try to get recipients from notification_recipients table
+						try {
+							const { data: recipientData, error: recipientError } = await supabase
+								.from('notification_recipients')
+								.select(`
+									recipient_type,
+									recipient_id,
+									user:user_id(id, username),
+									branch:branch_id(id, name_en, name_ar)
+								`)
+								.eq('notification_id', notificationId);
+
+							if (recipientError) {
+								recipientsError = recipientError;
+							} else {
+								recipients = recipientData || [];
+							}
+						} catch (error) {
+							recipientsError = error;
+						}
+
+						// Process attachments (same logic as before)
+						let attachments = [];
+						if (notification.attachments) {
+							try {
+								// Parse attachments if it's a string
+								const parsedAttachments = typeof notification.attachments === 'string' 
+									? JSON.parse(notification.attachments) 
+									: notification.attachments;
+								
+								// Ensure attachments is an array
+								if (Array.isArray(parsedAttachments)) {
+									attachments = parsedAttachments.map(attachment => ({
+										...attachment,
+										url: getFileUrl(attachment)
+									}));
+								}
+							} catch (parseError) {
+								console.warn('Failed to parse attachments for notification:', notificationId, parseError);
+								attachments = [];
+							}
+						}
+
+						return {
+							...notification,
+							id: notificationId,
+							recipients: recipients,
+							attachments: attachments,
+							recipientsError: recipientsError,
+							read: isRead
+						};
+					})
+				);
+
+				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
+				
+			} else {
+				recentNotifications = [];
+			}
+
+		} catch (error) {
+			console.error('Error loading dashboard data:', error);
+		}
+	}
 
 						// Approach 1: Try notification_recipients table first
 						try {
