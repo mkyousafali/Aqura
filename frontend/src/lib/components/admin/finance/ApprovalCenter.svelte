@@ -96,67 +96,38 @@
 			console.log('👤 No approval permissions found for user');
 		}
 
-		console.log('✅ Loading approval center for user:', $currentUser.username);			// IMPORTANT: Use supabaseAdmin for queries that need to bypass RLS
-			// since we're using custom auth, not Supabase Auth
-			console.log('🔍 Fetching requisitions from expense_requisitions table...');
-			
-			// Import supabaseAdmin for admin queries
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			
-			// Fetch requisitions (without JOIN to avoid FK requirement)
-			// Load ALL requisitions where current user is the approver (pending, approved, rejected)
-			const { data, error } = await supabaseAdmin
+		console.log('✅ Loading approval center for user:', $currentUser.username);
+		
+		// Import supabaseAdmin for admin queries
+		const { supabaseAdmin } = await import('$lib/utils/supabase');
+		
+		// Calculate date for filtering
+		const twoDaysFromNow = new Date();
+		twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+		const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+		
+		console.log('🔍 Loading all data in parallel for better performance...');
+		
+		// Run all queries in parallel for better performance
+		const [
+			requisitionsResult,
+			schedulesResult,
+			vendorPaymentsResult,
+			myRequisitionsResult,
+			mySchedulesResult,
+			myApprovedSchedulesResult,
+			approvedSchedulesResult,
+			rejectedSchedulesResult
+		] = await Promise.all([
+			// 1. Requisitions where current user is approver
+			supabaseAdmin
 				.from('expense_requisitions')
 				.select('*')
 				.eq('approver_id', $currentUser.id)
-				.order('created_at', { ascending: false });
-
-			console.log('📊 Query result:', { data, error, count: data?.length });
-
-			if (error) {
-				console.error('❌ Supabase query error:', error);
-				throw error;
-			}
-
-			requisitions = data || [];
+				.order('created_at', { ascending: false }),
 			
-			// Fetch usernames for all unique created_by IDs
-			if (requisitions.length > 0) {
-				const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
-				
-				if (userIds.length > 0) {
-					const { data: usersData } = await supabaseAdmin
-						.from('users')
-						.select('id, username')
-						.in('id', userIds);
-					
-					// Create a map of user IDs to usernames
-					const userMap = {};
-					if (usersData) {
-						usersData.forEach(user => {
-							userMap[user.id] = user.username;
-						});
-					}
-					
-					// Add username to each requisition
-					requisitions = requisitions.map(req => ({
-						...req,
-						created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
-					}));
-				}
-			}
-			
-			console.log('✅ Loaded requisitions:', requisitions.length);
-
-			// Also load payment schedules requiring approval
-			// Show single_bill and multiple_bill schedules
-			const twoDaysFromNow = new Date();
-			twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
-			const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
-			
-			console.log('🔍 Querying payment schedules for approver:', $currentUser.id);
-			
-			const { data: schedulesData, error: schedulesError } = await supabaseAdmin
+			// 2. Payment schedules requiring approval
+			supabaseAdmin
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -167,29 +138,12 @@
 				`)
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
-				.in('schedule_type', ['single_bill', 'multiple_bill']) // Include both types
-				.order('created_at', { ascending: false });
-
-			if (schedulesError) {
-				console.error('❌ Error loading payment schedules:', schedulesError);
-			} else {
-				console.log('📦 Raw schedules data:', schedulesData);
-				// Filter single_bill by due date, show all multiple_bill
-				paymentSchedules = (schedulesData || []).filter(schedule => {
-					if (schedule.schedule_type === 'multiple_bill') {
-						return true; // Show all multiple bills
-					}
-					// For single_bill, only show within 2 days
-					return schedule.due_date && schedule.due_date <= twoDaysDate;
-				});
-				console.log('✅ Loaded payment schedules:', paymentSchedules.length);
-				console.log('📋 Payment schedules detail:', paymentSchedules);
-			}
-
-			// Load VENDOR PAYMENTS requiring approval (sent_for_approval status)
-			if (approvalPerms && approvalPerms.can_approve_vendor_payments) {
-				console.log('🔍 Loading vendor payments for approval...');
-				const { data: vendorPaymentsData, error: vendorPaymentsError } = await supabaseAdmin
+				.in('schedule_type', ['single_bill', 'multiple_bill'])
+				.order('created_at', { ascending: false }),
+			
+			// 3. Vendor payments requiring approval (only if user has permission)
+			(approvalPerms && approvalPerms.can_approve_vendor_payments) ? 
+				supabaseAdmin
 					.from('vendor_payment_schedule')
 					.select(`
 						*,
@@ -199,37 +153,18 @@
 						)
 					`)
 					.eq('approval_status', 'sent_for_approval')
-					.order('approval_requested_at', { ascending: false });
-
-				if (vendorPaymentsError) {
-					console.error('❌ Error loading vendor payments:', vendorPaymentsError);
-				} else {
-					// Filter by amount limit if set
-					vendorPayments = (vendorPaymentsData || []).filter(payment => {
-						const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
-						// If limit is 0, it means unlimited
-						if (approvalPerms.vendor_payment_amount_limit === 0) return true;
-						// Otherwise check if limit is >= payment amount
-						return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
-					});
-					console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
-				}
-			}
-
-			// Load MY CREATED requisitions (where I'm the creator)
-			const { data: myReqData, error: myReqError } = await supabaseAdmin
+					.order('approval_requested_at', { ascending: false }) :
+				Promise.resolve({ data: [], error: null }),
+			
+			// 4. My created requisitions
+			supabaseAdmin
 				.from('expense_requisitions')
 				.select('*')
 				.eq('created_by', $currentUser.id)
-				.order('created_at', { ascending: false });
-
-			if (!myReqError && myReqData) {
-				myCreatedRequisitions = myReqData || [];
-				console.log('✅ My created requisitions:', myCreatedRequisitions.length);
-			}
-
-			// Load MY CREATED payment schedules
-			const { data: mySchedulesData, error: mySchedulesError } = await supabaseAdmin
+				.order('created_at', { ascending: false }),
+			
+			// 5. My created payment schedules
+			supabaseAdmin
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -240,15 +175,10 @@
 				`)
 				.eq('created_by', $currentUser.id)
 				.in('schedule_type', ['single_bill', 'multiple_bill'])
-				.order('created_at', { ascending: false });
-
-			if (!mySchedulesError && mySchedulesData) {
-				myCreatedSchedules = mySchedulesData || [];
-				console.log('✅ My created payment schedules:', myCreatedSchedules.length);
-			}
-
-			// Also load my approved/rejected schedules from expense_scheduler
-			const { data: myApprovedSchedulesData, error: myApprovedSchedulesError } = await supabaseAdmin
+				.order('created_at', { ascending: false }),
+			
+			// 6. My approved/rejected schedules from expense_scheduler
+			supabaseAdmin
 				.from('expense_scheduler')
 				.select(`
 					*,
@@ -260,18 +190,10 @@
 				.eq('created_by', $currentUser.id)
 				.not('schedule_type', 'eq', 'recurring')
 				.not('schedule_type', 'eq', 'expense_requisition')
-				.order('created_at', { ascending: false });
-
-			let myApprovedSchedulesCount = 0;
-			if (!myApprovedSchedulesError && myApprovedSchedulesData) {
-				myApprovedSchedules = myApprovedSchedulesData || [];
-				myApprovedSchedulesCount = myApprovedSchedules.length;
-				console.log('✅ My approved schedules loaded:', myApprovedSchedulesCount);
-			}
-
-			// Load approved/rejected payment schedules where current user was the approver
-			// This includes schedules that went through the approval center
-			const { data: approvedSchedulesData, error: approvedSchedulesError } = await supabaseAdmin
+				.order('created_at', { ascending: false }),
+			
+			// 7. Approved payment schedules where I was the approver
+			supabaseAdmin
 				.from('expense_scheduler')
 				.select(`
 					*,
@@ -281,20 +203,12 @@
 					)
 				`)
 				.eq('approver_id', $currentUser.id)
-				.not('schedule_type', 'eq', 'recurring') // Exclude parent recurring schedules
-				.not('schedule_type', 'eq', 'expense_requisition') // Exclude requisition-based schedules (already in requisitions table)
-				.order('created_at', { ascending: false });
-
-			let approvedSchedulesCount = 0;
-			if (!approvedSchedulesError && approvedSchedulesData) {
-				approvedPaymentSchedules = approvedSchedulesData || [];
-				approvedSchedulesCount = approvedPaymentSchedules.length;
-				console.log('✅ Approved payment schedules loaded (where user is approver):', approvedSchedulesCount);
-				console.log('📋 Approved schedules detail:', approvedPaymentSchedules);
-			}
+				.not('schedule_type', 'eq', 'recurring')
+				.not('schedule_type', 'eq', 'expense_requisition')
+				.order('created_at', { ascending: false }),
 			
-			// Also load rejected schedules from non_approved_payment_scheduler
-			const { data: rejectedSchedulesData, error: rejectedSchedulesError } = await supabaseAdmin
+			// 8. Rejected schedules where I was the approver
+			supabaseAdmin
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -305,14 +219,113 @@
 				`)
 				.eq('approver_id', $currentUser.id)
 				.eq('approval_status', 'rejected')
-				.order('created_at', { ascending: false });
+				.order('created_at', { ascending: false })
+		]);
+		
+		// Process requisitions result
+		const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
+		if (requisitionsError) {
+			console.error('❌ Error loading requisitions:', requisitionsError);
+			throw requisitionsError;
+		}
+		
+		requisitions = requisitionsData || [];
+		
+		// Fetch usernames for requisitions if needed
+		if (requisitions.length > 0) {
+			const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
 			
-			let rejectedSchedulesCount = 0;
-			if (!rejectedSchedulesError && rejectedSchedulesData) {
-				rejectedPaymentSchedules = rejectedSchedulesData || [];
-				rejectedSchedulesCount = rejectedPaymentSchedules.length;
-				console.log('✅ Rejected payment schedules loaded:', rejectedSchedulesCount);
+			if (userIds.length > 0) {
+				const { data: usersData } = await supabaseAdmin
+					.from('users')
+					.select('id, username')
+					.in('id', userIds);
+				
+				const userMap = {};
+				if (usersData) {
+					usersData.forEach(user => {
+						userMap[user.id] = user.username;
+					});
+				}
+				
+				requisitions = requisitions.map(req => ({
+					...req,
+					created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
+				}));
 			}
+		}
+		console.log('✅ Loaded requisitions:', requisitions.length);
+		
+		// Process payment schedules result
+		const { data: schedulesData, error: schedulesError } = schedulesResult;
+		if (schedulesError) {
+			console.error('❌ Error loading payment schedules:', schedulesError);
+		} else {
+			// Filter single_bill by due date, show all multiple_bill
+			paymentSchedules = (schedulesData || []).filter(schedule => {
+				if (schedule.schedule_type === 'multiple_bill') {
+					return true;
+				}
+				return schedule.due_date && schedule.due_date <= twoDaysDate;
+			});
+			console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+		}
+		
+		// Process vendor payments result
+		const { data: vendorPaymentsData, error: vendorPaymentsError } = vendorPaymentsResult;
+		if (vendorPaymentsError) {
+			console.error('❌ Error loading vendor payments:', vendorPaymentsError);
+		} else {
+			// Filter by amount limit if set
+			vendorPayments = (vendorPaymentsData || []).filter(payment => {
+				if (!approvalPerms || !approvalPerms.can_approve_vendor_payments) return false;
+				const paymentAmount = payment.final_bill_amount || payment.bill_amount || 0;
+				if (approvalPerms.vendor_payment_amount_limit === 0) return true;
+				return approvalPerms.vendor_payment_amount_limit >= paymentAmount;
+			});
+			console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
+		}
+		
+		// Process my created requisitions
+		const { data: myReqData, error: myReqError } = myRequisitionsResult;
+		if (!myReqError && myReqData) {
+			myCreatedRequisitions = myReqData || [];
+			console.log('✅ My created requisitions:', myCreatedRequisitions.length);
+		}
+		
+		// Process my created schedules
+		const { data: mySchedulesData, error: mySchedulesError } = mySchedulesResult;
+		if (!mySchedulesError && mySchedulesData) {
+			myCreatedSchedules = mySchedulesData || [];
+			console.log('✅ My created payment schedules:', myCreatedSchedules.length);
+		}
+		
+		// Process my approved schedules
+		const { data: myApprovedSchedulesData, error: myApprovedSchedulesError } = myApprovedSchedulesResult;
+		let myApprovedSchedulesCount = 0;
+		if (!myApprovedSchedulesError && myApprovedSchedulesData) {
+			myApprovedSchedules = myApprovedSchedulesData || [];
+			myApprovedSchedulesCount = myApprovedSchedules.length;
+			console.log('✅ My approved schedules loaded:', myApprovedSchedulesCount);
+		}
+		
+		// Process approved schedules where I was approver
+		const { data: approvedSchedulesData, error: approvedSchedulesError } = approvedSchedulesResult;
+		let approvedSchedulesCount = 0;
+		if (!approvedSchedulesError && approvedSchedulesData) {
+			approvedPaymentSchedules = approvedSchedulesData || [];
+			approvedSchedulesCount = approvedPaymentSchedules.length;
+			console.log('✅ Approved payment schedules loaded (where user is approver):', approvedSchedulesCount);
+		}
+		
+		// Process rejected schedules
+		const { data: rejectedSchedulesData, error: rejectedSchedulesError } = rejectedSchedulesResult;
+		let rejectedSchedulesCount = 0;
+		if (!rejectedSchedulesError && rejectedSchedulesData) {
+			rejectedPaymentSchedules = rejectedSchedulesData || [];
+			rejectedSchedulesCount = rejectedPaymentSchedules.length;
+			console.log('✅ Rejected payment schedules loaded:', rejectedSchedulesCount);
+		}
 
 		// Calculate stats (include both requisitions and payment schedules)
 		// Stats for approvals assigned to me
