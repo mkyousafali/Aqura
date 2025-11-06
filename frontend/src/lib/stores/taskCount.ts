@@ -1,32 +1,32 @@
-import { writable } from 'svelte/store';
-import { supabase } from '$lib/utils/supabase';
-import { currentUser } from '$lib/utils/persistentAuth';
-import { get } from 'svelte/store';
-import { browser } from '$app/environment';
+import { writable } from "svelte/store";
+import { supabase } from "$lib/utils/supabase";
+import { currentUser } from "$lib/utils/persistentAuth";
+import { get } from "svelte/store";
+import { browser } from "$app/environment";
 
 export interface TaskCounts {
-	total: number;
-	pending: number;
-	inProgress: number;
-	overdue: number;
-	quickTasks: number;
-	regularTasks: number;
-	receivingTasks: number;
-	loading: boolean;
-	lastUpdated: Date;
+  total: number;
+  pending: number;
+  inProgress: number;
+  overdue: number;
+  quickTasks: number;
+  regularTasks: number;
+  receivingTasks: number;
+  loading: boolean;
+  lastUpdated: Date;
 }
 
 // Create task counts store
 export const taskCounts = writable<TaskCounts>({
-	total: 0,
-	pending: 0,
-	inProgress: 0,
-	overdue: 0,
-	quickTasks: 0,
-	regularTasks: 0,
-	receivingTasks: 0,
-	loading: true,
-	lastUpdated: new Date()
+  total: 0,
+  pending: 0,
+  inProgress: 0,
+  overdue: 0,
+  quickTasks: 0,
+  regularTasks: 0,
+  receivingTasks: 0,
+  loading: true,
+  lastUpdated: new Date(),
 });
 
 // Track previous counts to detect changes
@@ -35,116 +35,134 @@ let isInitialLoad = true;
 
 // Task count management functions
 export const taskCountService = {
-	// Fetch task counts for current user
-	async fetchTaskCounts(silent = false): Promise<void> {
-		const user = get(currentUser);
-		if (!user || !browser) {
-			return;
-		}
+  // Fetch task counts for current user
+  async fetchTaskCounts(silent = false): Promise<void> {
+    const user = get(currentUser);
+    if (!user || !browser) {
+      return;
+    }
 
-		if (!silent) {
-			taskCounts.update(state => ({ ...state, loading: true }));
-		}
+    if (!silent) {
+      taskCounts.update((state) => ({ ...state, loading: true }));
+    }
 
-		try {
-			const now = new Date().toISOString();
-			
-			// Fetch regular task assignments (simplified query like mobile layout)
-			const { data: regularTasks, error: regularError } = await supabase
-				.from('task_assignments')
-				.select('id, status, deadline_date, deadline_time, assigned_at')
-				.eq('assigned_to_user_id', user.id)
-				.in('status', ['assigned', 'in_progress', 'pending']);
+    try {
+      const now = new Date().toISOString();
 
-			// Fetch quick task assignments (simplified query like mobile layout)
-			const { data: quickTasks, error: quickError } = await supabase
-				.from('quick_task_assignments')
-				.select(`
+      // Fetch regular task assignments (simplified query like mobile layout)
+      const { data: regularTasks, error: regularError } = await supabase
+        .from("task_assignments")
+        .select("id, status, deadline_date, deadline_time, assigned_at")
+        .eq("assigned_to_user_id", user.id)
+        .in("status", ["assigned", "in_progress", "pending"]);
+
+      // Fetch quick task assignments (simplified query like mobile layout)
+      const { data: quickTasks, error: quickError } = await supabase
+        .from("quick_task_assignments")
+        .select(
+          `
 					id,
 					status,
 					created_at,
 					quick_task:quick_tasks!inner(
 						deadline_datetime
 					)
-				`)
-				.eq('assigned_to_user_id', user.id)
-				.in('status', ['assigned', 'in_progress', 'pending']);
+				`,
+        )
+        .eq("assigned_to_user_id", user.id)
+        .in("status", ["assigned", "in_progress", "pending"]);
 
-			// Fetch receiving tasks
-			const { data: receivingTasks, error: receivingError } = await supabase
-				.from('receiving_tasks')
-				.select('id, task_status, due_date')
-				.eq('assigned_user_id', user.id)
-				.eq('task_status', 'pending');
+      // Fetch receiving tasks
+      const { data: receivingTasks, error: receivingError } = await supabase
+        .from("receiving_tasks")
+        .select("id, task_status, due_date")
+        .eq("assigned_user_id", user.id)
+        .eq("task_status", "pending");
 
-			if (regularError) {
-				console.error('Error fetching regular task counts:', regularError);
-			}
+      if (regularError) {
+        console.error("Error fetching regular task counts:", regularError);
+      }
 
-			if (quickError) {
-				console.error('Error fetching quick task counts:', quickError);
-			}
+      if (quickError) {
+        console.error("Error fetching quick task counts:", quickError);
+      }
 
-			if (receivingError) {
-				console.error('Error fetching receiving task counts:', receivingError);
-			}
+      if (receivingError) {
+        console.error("Error fetching receiving task counts:", receivingError);
+      }
 
-			// Process the data
-			const regularTasksCount = regularTasks?.length || 0;
-			const quickTasksCount = quickTasks?.length || 0;
-			const receivingTasksCount = receivingTasks?.length || 0;
-			const totalCount = regularTasksCount + quickTasksCount + receivingTasksCount;
+      // Process the data
+      const regularTasksCount = regularTasks?.length || 0;
+      const quickTasksCount = quickTasks?.length || 0;
+      const receivingTasksCount = receivingTasks?.length || 0;
+      const totalCount =
+        regularTasksCount + quickTasksCount + receivingTasksCount;
 
-			// Count pending and in-progress tasks
-			const pendingRegular = regularTasks?.filter(t => t.status === 'pending' || t.status === 'assigned').length || 0;
-			const inProgressRegular = regularTasks?.filter(t => t.status === 'in_progress').length || 0;
-			const pendingQuick = quickTasks?.filter(t => t.status === 'pending' || t.status === 'assigned').length || 0;
-			const inProgressQuick = quickTasks?.filter(t => t.status === 'in_progress').length || 0;
-			const pendingReceiving = receivingTasksCount; // All receiving tasks we fetch are pending
+      // Count pending and in-progress tasks
+      const pendingRegular =
+        regularTasks?.filter(
+          (t) => t.status === "pending" || t.status === "assigned",
+        ).length || 0;
+      const inProgressRegular =
+        regularTasks?.filter((t) => t.status === "in_progress").length || 0;
+      const pendingQuick =
+        quickTasks?.filter(
+          (t) => t.status === "pending" || t.status === "assigned",
+        ).length || 0;
+      const inProgressQuick =
+        quickTasks?.filter((t) => t.status === "in_progress").length || 0;
+      const pendingReceiving = receivingTasksCount; // All receiving tasks we fetch are pending
 
-			// Count overdue tasks
-			const overdueRegular = regularTasks?.filter(t => {
-				if (!t.deadline_date) return false;
-				const deadlineStr = t.deadline_time ? 
-					`${t.deadline_date}T${t.deadline_time}` : 
-					`${t.deadline_date}T23:59:59`;
-				return new Date(deadlineStr) < new Date(now) && 
-					   t.status !== 'completed' && 
-					   t.status !== 'cancelled';
-			}).length || 0;
+      // Count overdue tasks
+      const overdueRegular =
+        regularTasks?.filter((t) => {
+          if (!t.deadline_date) return false;
+          const deadlineStr = t.deadline_time
+            ? `${t.deadline_date}T${t.deadline_time}`
+            : `${t.deadline_date}T23:59:59`;
+          return (
+            new Date(deadlineStr) < new Date(now) &&
+            t.status !== "completed" &&
+            t.status !== "cancelled"
+          );
+        }).length || 0;
 
-			const overdueQuick = quickTasks?.filter(t => {
-				const deadlineDateTime = t.quick_task?.deadline_datetime;
-				if (!deadlineDateTime) return false;
-				return new Date(deadlineDateTime) < new Date(now) && 
-					   t.status !== 'completed' && 
-					   t.status !== 'cancelled';
-			}).length || 0;
+      const overdueQuick =
+        quickTasks?.filter((t) => {
+          const deadlineDateTime = t.quick_task?.deadline_datetime;
+          if (!deadlineDateTime) return false;
+          return (
+            new Date(deadlineDateTime) < new Date(now) &&
+            t.status !== "completed" &&
+            t.status !== "cancelled"
+          );
+        }).length || 0;
 
-			const overdueReceiving = receivingTasks?.filter(t => {
-				if (!t.due_date) return false;
-				return new Date(t.due_date) < new Date(now);
-			}).length || 0;
+      const overdueReceiving =
+        receivingTasks?.filter((t) => {
+          if (!t.due_date) return false;
+          return new Date(t.due_date) < new Date(now);
+        }).length || 0;
 
-			const counts: TaskCounts = {
-				total: totalCount,
-				pending: pendingRegular + pendingQuick + pendingReceiving,
-				inProgress: inProgressRegular + inProgressQuick,
-				overdue: overdueRegular + overdueQuick + overdueReceiving,
-				quickTasks: quickTasksCount,
-				regularTasks: regularTasksCount,
-				receivingTasks: receivingTasksCount,
-				loading: false,
-				lastUpdated: new Date()
-			};
+      const counts: TaskCounts = {
+        total: totalCount,
+        pending: pendingRegular + pendingQuick + pendingReceiving,
+        inProgress: inProgressRegular + inProgressQuick,
+        overdue: overdueRegular + overdueQuick + overdueReceiving,
+        quickTasks: quickTasksCount,
+        regularTasks: regularTasksCount,
+        receivingTasks: receivingTasksCount,
+        loading: false,
+        lastUpdated: new Date(),
+      };
 
-			// Update the store
-			taskCounts.set(counts);
+      // Update the store
+      taskCounts.set(counts);
 
-			// NOTE: PWA badge is managed by notification system (notifications.ts)
-			// Task badge is disabled to avoid conflicts
-			// Keeping this code commented for reference:
-			/*
+      // NOTE: PWA badge is managed by notification system (notifications.ts)
+      // Task badge is disabled to avoid conflicts
+      // Keeping this code commented for reference:
+      /*
 			// Update PWA badge if supported and count changed
 			if (browser && totalCount !== previousTotalCount) {
 				try {
@@ -170,136 +188,147 @@ export const taskCountService = {
 			}
 			*/
 
-			// Play notification sound if count increased (new tasks)
-			if (!isInitialLoad && totalCount > previousTotalCount && browser) {
-				try {
-					const { notificationSoundManager } = await import('$lib/utils/inAppNotificationSounds');
-					if (notificationSoundManager) {
-						const newTaskNotification = {
-							id: 'new-task-' + Date.now(),
-							title: 'New Task Assignment',
-							message: `You have ${totalCount - previousTotalCount} new task${totalCount - previousTotalCount !== 1 ? 's' : ''} assigned`,
-							type: 'info' as const,
-							priority: 'medium' as const,
-							timestamp: new Date(),
-							read: false,
-							soundEnabled: true
-						};
-						await notificationSoundManager.playNotificationSound(newTaskNotification);
-					}
-				} catch (error) {
-					console.warn('Failed to play new task notification sound:', error);
-				}
-			}
+      // Play notification sound if count increased (new tasks)
+      if (!isInitialLoad && totalCount > previousTotalCount && browser) {
+        try {
+          const { notificationSoundManager } = await import(
+            "$lib/utils/inAppNotificationSounds"
+          );
+          if (notificationSoundManager) {
+            const newTaskNotification = {
+              id: "new-task-" + Date.now(),
+              title: "New Task Assignment",
+              message: `You have ${totalCount - previousTotalCount} new task${totalCount - previousTotalCount !== 1 ? "s" : ""} assigned`,
+              type: "info" as const,
+              priority: "medium" as const,
+              timestamp: new Date(),
+              read: false,
+              soundEnabled: true,
+            };
+            await notificationSoundManager.playNotificationSound(
+              newTaskNotification,
+            );
+          }
+        } catch (error) {
+          console.warn("Failed to play new task notification sound:", error);
+        }
+      }
 
-			previousTotalCount = totalCount;
-			isInitialLoad = false;
+      previousTotalCount = totalCount;
+      isInitialLoad = false;
 
-			console.log('📊 Task counts updated:', counts);
+      console.log("📊 Task counts updated:", counts);
+    } catch (error) {
+      console.error("Error fetching task counts:", error);
+      taskCounts.update((state) => ({ ...state, loading: false }));
+    }
+  },
 
-		} catch (error) {
-			console.error('Error fetching task counts:', error);
-			taskCounts.update(state => ({ ...state, loading: false }));
-		}
-	},
+  // Refresh task counts (wrapper for fetchTaskCounts)
+  async refreshTaskCounts(): Promise<void> {
+    return this.fetchTaskCounts();
+  },
 
-	// Refresh task counts (wrapper for fetchTaskCounts)
-	async refreshTaskCounts(): Promise<void> {
-		return this.fetchTaskCounts();
-	},
+  // Subscribe to real-time task updates
+  subscribeToTaskUpdates() {
+    const user = get(currentUser);
+    if (!user || !browser) return null;
 
-	// Subscribe to real-time task updates
-	subscribeToTaskUpdates() {
-		const user = get(currentUser);
-		if (!user || !browser) return null;
+    // Subscribe to regular task assignments
+    const regularTaskChannel = supabase
+      .channel("task-assignments-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "task_assignments",
+          filter: `assigned_to_user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log(
+            "📋 Regular task assignment changed, refreshing counts...",
+          );
+          this.fetchTaskCounts(true); // Silent refresh
+        },
+      )
+      .subscribe();
 
-		// Subscribe to regular task assignments
-		const regularTaskChannel = supabase
-			.channel('task-assignments-updates')
-			.on('postgres_changes', 
-				{ 
-					event: '*', 
-					schema: 'public', 
-					table: 'task_assignments',
-					filter: `assigned_to_user_id=eq.${user.id}`
-				}, 
-				() => {
-					console.log('📋 Regular task assignment changed, refreshing counts...');
-					this.fetchTaskCounts(true); // Silent refresh
-				}
-			)
-			.subscribe();
+    // Subscribe to quick task assignments
+    const quickTaskChannel = supabase
+      .channel("quick-task-assignments-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quick_task_assignments",
+          filter: `assigned_to_user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log("⚡ Quick task assignment changed, refreshing counts...");
+          this.fetchTaskCounts(true); // Silent refresh
+        },
+      )
+      .subscribe();
 
-		// Subscribe to quick task assignments
-		const quickTaskChannel = supabase
-			.channel('quick-task-assignments-updates')
-			.on('postgres_changes', 
-				{ 
-					event: '*', 
-					schema: 'public', 
-					table: 'quick_task_assignments',
-					filter: `assigned_to_user_id=eq.${user.id}`
-				}, 
-				() => {
-					console.log('⚡ Quick task assignment changed, refreshing counts...');
-					this.fetchTaskCounts(true); // Silent refresh
-				}
-			)
-			.subscribe();
+    // Subscribe to receiving tasks
+    const receivingTaskChannel = supabase
+      .channel("receiving-tasks-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "receiving_tasks",
+          filter: `assigned_user_id=eq.${user.id}`,
+        },
+        () => {
+          console.log("📦 Receiving task changed, refreshing counts...");
+          this.fetchTaskCounts(true); // Silent refresh
+        },
+      )
+      .subscribe();
 
-		// Subscribe to receiving tasks
-		const receivingTaskChannel = supabase
-			.channel('receiving-tasks-updates')
-			.on('postgres_changes', 
-				{ 
-					event: '*', 
-					schema: 'public', 
-					table: 'receiving_tasks',
-					filter: `assigned_user_id=eq.${user.id}`
-				}, 
-				() => {
-					console.log('📦 Receiving task changed, refreshing counts...');
-					this.fetchTaskCounts(true); // Silent refresh
-				}
-			)
-			.subscribe();
+    return () => {
+      supabase.removeChannel(regularTaskChannel);
+      supabase.removeChannel(quickTaskChannel);
+      supabase.removeChannel(receivingTaskChannel);
+    };
+  },
 
-		return () => {
-			supabase.removeChannel(regularTaskChannel);
-			supabase.removeChannel(quickTaskChannel);
-			supabase.removeChannel(receivingTaskChannel);
-		};
-	},
+  // Initialize task count monitoring
+  async initTaskCountMonitoring() {
+    if (!browser) return;
 
-	// Initialize task count monitoring
-	async initTaskCountMonitoring() {
-		if (!browser) return;
+    // Initial fetch
+    await this.fetchTaskCounts();
 
-		// Initial fetch
-		await this.fetchTaskCounts();
+    // Subscribe to real-time updates
+    const unsubscribe = this.subscribeToTaskUpdates();
 
-		// Subscribe to real-time updates
-		const unsubscribe = this.subscribeToTaskUpdates();
+    // Periodic refresh every 5 minutes
+    const refreshInterval = setInterval(
+      () => {
+        this.fetchTaskCounts(true);
+      },
+      5 * 60 * 1000,
+    );
 
-		// Periodic refresh every 5 minutes
-		const refreshInterval = setInterval(() => {
-			this.fetchTaskCounts(true);
-		}, 5 * 60 * 1000);
-
-		// Return cleanup function
-		return () => {
-			if (unsubscribe) unsubscribe();
-			clearInterval(refreshInterval);
-		};
-	}
+    // Return cleanup function
+    return () => {
+      if (unsubscribe) unsubscribe();
+      clearInterval(refreshInterval);
+    };
+  },
 };
 
 // Start monitoring when the store is imported (browser only)
 if (browser) {
-	// Wait for current user to be available
-	currentUser.subscribe(user => {
-		if (user) {
-			taskCountService.initTaskCountMonitoring();
-		}
-	});
+  // Wait for current user to be available
+  currentUser.subscribe((user) => {
+    if (user) {
+      taskCountService.initTaskCountMonitoring();
+    }
+  });
 }
