@@ -117,37 +117,48 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	async function loadDataFromSupabase() {
 		try {
 			isLoading = true;
-			console.log('Starting data load...');
+			console.log('🔍 Starting parallel data load for better performance...');
 			
-			// Load tasks (only assignable ones - active and draft status)
-			const taskResult = await loadTasks(100, 0, undefined);
+			// Run all major queries in parallel for much better performance
+			const [taskResult, branchResult, userResult] = await Promise.all([
+				// Load tasks (only assignable ones - active and draft status)
+				loadTasks(100, 0, undefined),
+				
+				// Load branches from Supabase
+				db.branches.getAll(),
+				
+				// Load users with complete employee data using a direct query
+				db.users.getAllWithEmployeeDetailsFlat()
+			]);
+			
+			// Process tasks result
 			if (taskResult.success) {
 				// Filter for assignable tasks (active and draft)
 				tasks = (taskResult.data || []).filter(task => 
 					task.status === 'active' || task.status === 'draft'
 				);
 				
-				// Load image data for each task
-				for (let task of tasks) {
-					try {
-						console.log(`Loading images for task: ${task.id} (${task.title})`);
-						const imageResult = await db.taskImages.getByTaskId(task.id);
-						console.log(`Image result for task ${task.id}:`, imageResult);
-						
-						if (imageResult.data && imageResult.data.length > 0) {
-							// Get the first image URL - note: column is 'file_url' not 'image_url'
-							task.image_url = imageResult.data[0].file_url;
-							console.log(`Found image for task ${task.id}: ${task.image_url}`);
-						} else {
-							console.log(`No images found for task ${task.id}`);
-							// Check if task might have image stored differently (for debugging)
-							if (task.title.toLowerCase().includes('image')) {
-								console.warn(`Task "${task.title}" suggests it has an image but none found in database`);
+				// Load images for all tasks in parallel (much faster than sequential)
+				if (tasks.length > 0) {
+					console.log(`Loading images for ${tasks.length} tasks in parallel...`);
+					
+					const imagePromises = tasks.map(async (task) => {
+						try {
+							const imageResult = await db.taskImages.getByTaskId(task.id);
+							if (imageResult.data && imageResult.data.length > 0) {
+								task.image_url = imageResult.data[0].file_url;
+								console.log(`Found image for task ${task.id}: ${task.image_url}`);
 							}
+							return task;
+						} catch (error) {
+							console.warn(`Failed to load image for task ${task.id}:`, error);
+							return task;
 						}
-					} catch (error) {
-						console.warn(`Failed to load image for task ${task.id}:`, error);
-					}
+					});
+					
+					// Wait for all image loading to complete in parallel
+					tasks = await Promise.all(imagePromises);
+					console.log('✅ All task images loaded in parallel');
 				}
 				
 				console.log('Loaded tasks:', tasks.length);
@@ -155,9 +166,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.error('Failed to load tasks:', taskResult.error);
 			}
 
-			// Load branches from Supabase
-			console.log('Loading branches...');
-			const { data: branchData, error: branchError } = await db.branches.getAll();
+			// Process branches result
+			const { data: branchData, error: branchError } = branchResult;
 			if (!branchError && branchData) {
 				branches = branchData;
 				console.log('Loaded branches:', branches.length);
@@ -170,12 +180,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				];
 			}
 
-			// Load users with complete employee data using a direct query
-			console.log('Loading users with employee details...');
-			
-			// Use the new flat data structure method
-			const { data: userData, error: userError } = await db.users.getAllWithEmployeeDetailsFlat();
-			
+			// Process users result
+			const { data: userData, error: userError } = userResult;
 			console.log('🔍 [Admin] Users query result count:', userData?.length, 'Error:', userError);
 			
 			let allUsers = [];
@@ -970,8 +976,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					</div>
 
 					<!-- Enhanced Users List -->
-					<div class="flex-1 border rounded-lg overflow-hidden">
-						<div class="bg-gray-50 px-4 py-3 border-b text-sm font-medium text-gray-700">
+					<div class="flex-1 border rounded-lg overflow-hidden flex flex-col">
+						<div class="bg-gray-50 px-4 py-3 border-b text-sm font-medium text-gray-700 flex-shrink-0">
 							<div class="grid grid-cols-9 gap-3 items-center">
 								<div class="col-span-1 text-center">Select</div>
 								<div class="col-span-1">User</div>
@@ -984,7 +990,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<div class="col-span-1">Status</div>
 							</div>
 						</div>
-						<div class="overflow-y-auto max-h-96">
+						<div class="overflow-y-auto flex-1">
 							{#each filteredUsers as user}
 								<label class="block hover:bg-gray-50 cursor-pointer border-b last:border-b-0">
 									<div class="grid grid-cols-9 gap-3 items-center px-4 py-3">
@@ -1194,9 +1200,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					</div>
 
 					<!-- Tasks Table -->
-					<div class="flex-1 overflow-hidden">
+					<div class="flex-1 overflow-hidden flex flex-col">
 						{#if filteredTasks.length === 0}
-							<div class="flex flex-col items-center justify-center h-full text-gray-500">
+							<div class="flex flex-col items-center justify-center flex-1 text-gray-500">
 								<svg class="w-16 h-16 mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
 								</svg>
@@ -1216,9 +1222,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							</div>
 						{:else}
 							<!-- Table View -->
-							<div class="border rounded-lg overflow-hidden bg-white">
+							<div class="border rounded-lg overflow-hidden bg-white flex-1 flex flex-col">
 								<!-- Table Header -->
-								<div class="bg-gray-50 px-6 py-3 border-b text-sm font-medium text-gray-700">
+								<div class="bg-gray-50 px-6 py-3 border-b text-sm font-medium text-gray-700 flex-shrink-0">
 									<div class="grid grid-cols-12 gap-4 items-center">
 										<div class="col-span-1 flex items-center justify-center">
 											<input
@@ -1238,7 +1244,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								</div>
 								
 								<!-- Table Body -->
-								<div class="overflow-y-auto max-h-96">
+								<div class="overflow-y-auto flex-1">
 									{#each filteredTasks as task}
 										<div class="block hover:bg-gray-50 border-b last:border-b-0 transition-colors">
 											<div class="grid grid-cols-12 gap-4 items-center px-6 py-4">
