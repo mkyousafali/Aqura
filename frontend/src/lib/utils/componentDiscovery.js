@@ -1,28 +1,28 @@
-﻿import { writable } from 'svelte/store';
+﻿import { writable } from "svelte/store";
 
 export const componentDiscovery = writable({
-isDiscovering: false,
-lastDiscovery: null,
-discoveredComponents: [],
-registeredFunctions: []
+  isDiscovering: false,
+  lastDiscovery: null,
+  discoveredComponents: [],
+  registeredFunctions: [],
 });
 
 export async function discoverAndSyncComponents() {
-return { success: true, components: [] };
+  return { success: true, components: [] };
 }
 
 export async function getDiscoveredComponents() {
-return [];
+  return [];
 }
 
 export async function registerComponentFunction(functionData) {
-return { success: true, data: functionData };
+  return { success: true, data: functionData };
 }
 
 export async function getComponentStructure() {
-return { masterData: [], hr: [], userManagement: [], system: [], all: [] };
+  return { masterData: [], hr: [], userManagement: [], system: [], all: [] };
 }
 
 export async function analyzeLocalComponents() {
-return [];
+  return [];
 }

@@ -147,23 +147,26 @@
 					.eq('assigned_to_user_id', currentUserData.id)
 					.order('created_at', { ascending: false }),
 				
-				// Load receiving tasks
+				// Load receiving tasks (direct table, no assignments table)
 				supabase
-					.from('receiving_task_assignments')
+					.from('receiving_tasks')
 					.select(`
-						*,
-						receiving_task:receiving_tasks!inner(
-							id,
-							title,
-							description,
-							priority,
-							due_date,
-							status,
-							created_at
-						)
+						id,
+						title,
+						description,
+						priority,
+						due_date,
+						task_status,
+						created_at,
+						updated_at,
+						assigned_user_id,
+						receiving_record_id,
+						role_type,
+						task_completed,
+						completed_at
 					`)
-					.eq('assigned_to_user_id', currentUserData.id)
-					.order('assigned_at', { ascending: false })
+					.eq('assigned_user_id', currentUserData.id)
+					.order('created_at', { ascending: false })
 			]);
 			
 			// Process task assignment results
@@ -199,10 +202,10 @@
 			if (!receivingTaskError && receivingTasks) {
 				totalTasks += receivingTasks.length;
 				pendingTasks += receivingTasks.filter(t => 
-					t.status !== 'completed' && t.status !== 'cancelled'
+					t.task_status !== 'completed' && t.task_status !== 'cancelled'
 				).length;
 				completedTasks += receivingTasks.filter(t => 
-					t.status === 'completed'
+					t.task_status === 'completed'
 				).length;
 			}
 			
@@ -358,244 +361,148 @@
 		}
 	}
 
-						// Approach 1: Try notification_recipients table first
+	// Load recent notifications
+	async function loadRecentNotifications() {
+		try {
+			const { data: notifications, error: notificationError } = await supabase
+				.from('notifications')
+				.select(`
+					*,
+					notification_read_states!inner (
+						is_read
+					),
+					notification_recipients (
+						user_id,
+						user:users (
+							id,
+							username,
+							employee:hr_employees (
+								name
+							)
+						)
+					),
+					notification_attachments (*),
+					tasks (
+						id,
+						title,
+						task_images (*)
+					),
+					task_assignments (
+						tasks (
+							id,
+							title,
+							task_images (*)
+						)
+					)
+				`)
+				.eq('notification_read_states.user_id', currentUserData.id)
+				.eq('notification_read_states.is_read', false) // Only unread notifications
+				.order('created_at', { ascending: false })
+				.limit(20);
+
+			if (notificationError) {
+				console.error('Error loading recent notifications:', notificationError);
+				recentNotifications = [];
+				return;
+			}
+
+			// Get yesterday's date for filtering recent notifications
+			const yesterday = new Date();
+			yesterday.setDate(yesterday.getDate() - 1);
+			yesterday.setHours(0, 0, 0, 0);
+			
+			const filteredNotifications = notifications.filter(notification => {
+				const notificationDate = new Date(notification.created_at);
+				return notificationDate >= yesterday;
+			}).slice(0, 20); // Limit to 20 recent notifications
+
+			// For each notification, get recipients info, process attachments, and check read state
+			if (filteredNotifications) {
+				const notificationsWithRecipients = await Promise.all(
+					filteredNotifications.map(async (notification) => {
+						const notificationId = notification.notification_id || notification.id;
+
+						// Check read state for current user
+						let isRead = false;
+						
+						// First try to get read state from the notification object (for regular users)
+						if (notification.is_read !== undefined) {
+							isRead = notification.is_read;
+						} else {
+							// For admin users or when read state is not included, check directly
+							try {
+								const { data: readState, error: readError } = await supabase
+									.from('notification_read_states')
+									.select('is_read')
+									.eq('notification_id', notificationId)
+									.eq('user_id', currentUserData.id)
+									.single();
+								
+								if (readError) {
+									// Default to unread if we can't check
+									isRead = false;
+								} else {
+									isRead = readState ? readState.is_read : false;
+								}
+							} catch (readError) {
+								// If no read state exists or permission denied, notification is unread
+								isRead = false;
+							}
+						}
+
+						// Try multiple approaches to get recipient information
+						let recipients = [];
+						let recipientsError = null;
+
+						// Try to get recipients from notification_recipients table
 						try {
-							const { data: recipientsData, error } = await supabase
+							const { data: recipientData, error: recipientError } = await supabase
 								.from('notification_recipients')
 								.select(`
-									user_id,
-									user:users (
-										id,
-										username,
-										employee:hr_employees (
-											name
-										)
-									)
+									recipient_type,
+									recipient_id,
+									user:user_id(id, username),
+									branch:branch_id(id, name_en, name_ar)
 								`)
 								.eq('notification_id', notificationId);
 
-							if (error) {
-								recipientsError = error;
-							} else if (recipientsData && recipientsData.length > 0) {
-								recipients = recipientsData;
-							}
-						} catch (e) {
-							// Recipients table access error
-						}
-
-						// Approach 2: If no recipients from table, try to resolve from target_users
-						if (recipients.length === 0 && notification.target_users) {
-							try {
-								let targetUserIds = notification.target_users;
-								
-								// Parse target_users if it's a JSON string
-								if (typeof targetUserIds === 'string') {
-									try {
-										targetUserIds = JSON.parse(targetUserIds);
-									} catch (e) {
-										// Failed to parse target_users JSON
-									}
-								}
-
-								if (Array.isArray(targetUserIds) && targetUserIds.length > 0) {
-									
-									// Get user information for the target user IDs
-									const { data: usersData, error: usersError } = await supabase
-										.from('users')
-										.select(`
-											id,
-											username,
-											employee:hr_employees (
-												name
-											)
-										`)
-										.in('id', targetUserIds);
-
-									if (usersError) {
-										// Users query failed
-									} else if (usersData && usersData.length > 0) {
-										recipients = usersData.map(user => ({
-											user_id: user.id,
-											user: user
-										}));
-									}
-								}
-							} catch (e) {
-								// Error processing target_users
-							}
-						}
-
-						if (recipientsError) {
-							// Try to get user info from notification metadata or target_users as fallback
-							let fallbackRecipients = 'Recipients';
-							try {
-								if (notification.target_type === 'all_users') {
-									fallbackRecipients = 'All Users';
-								} else if (notification.target_type === 'specific_users' && notification.target_users) {
-									// Try to parse target_users if it's a JSON string
-									let targetUsers = notification.target_users;
-									if (typeof targetUsers === 'string') {
-										try {
-											targetUsers = JSON.parse(targetUsers);
-										} catch (e) {
-											// Keep as string if parsing fails
-										}
-									}
-									if (Array.isArray(targetUsers) && targetUsers.length > 0) {
-										fallbackRecipients = `${targetUsers.length} user${targetUsers.length > 1 ? 's' : ''}`;
-									} else {
-										fallbackRecipients = 'Specific Users';
-									}
-								} else if (notification.created_by_name) {
-									fallbackRecipients = `Created by ${notification.created_by_name}`;
-								}
-							} catch (e) {
-								console.warn('Error processing fallback recipients:', e);
-							}
-							
-							return {
-								...notification,
-								recipients: [],
-								recipients_text: fallbackRecipients,
-								all_attachments: []
-							};
-						}
-
-						// Format recipients text
-						let recipientsText = 'Recipients';
-						if (notification.target_type === 'all_users') {
-							recipientsText = 'All Users';
-						} else if (recipients && recipients.length > 0) {
-							const userNames = recipients.map(r => {
-								// Use employee name or username in that order
-								return r.user?.employee?.name || 
-									   r.user?.username || 
-									   `User ${r.user?.id?.substring(0, 8) || 'Unknown'}`;
-							}).filter(name => name && name !== 'Unknown' && !name.startsWith('User Unknown')); // Filter out empty/unknown names
-							
-							if (userNames.length > 0) {
-								if (userNames.length <= 3) {
-									recipientsText = userNames.join(', ');
-								} else {
-									recipientsText = `${userNames.slice(0, 2).join(', ')} and ${userNames.length - 2} others`;
-								}
+							if (recipientError) {
+								recipientsError = recipientError;
 							} else {
-								// If no valid names found but we have recipients, show count
-								recipientsText = `${recipients.length} user${recipients.length > 1 ? 's' : ''}`;
+								recipients = recipientData || [];
 							}
-						} else if (notification.target_type === 'specific_users' && notification.target_users) {
-							// Try to get count from target_users metadata
+						} catch (error) {
+							recipientsError = error;
+						}
+
+						// Process attachments (same logic as before)
+						let attachments = [];
+						if (notification.attachments) {
 							try {
-								let targetUsers = notification.target_users;
-								if (typeof targetUsers === 'string') {
-									targetUsers = JSON.parse(targetUsers);
-								}
-								if (Array.isArray(targetUsers) && targetUsers.length > 0) {
-									recipientsText = `${targetUsers.length} specific user${targetUsers.length > 1 ? 's' : ''}`;
-								} else {
-									recipientsText = 'Specific Users';
-								}
-							} catch (e) {
-								recipientsText = 'Specific Users';
-							}
-						} else if (notification.created_by_name) {
-							// Fallback to creator if no recipients found
-							recipientsText = `By ${notification.created_by_name}`;
-						}
-
-						// Process attachments from multiple sources
-						const allAttachments = [];
-						
-						// 1. Add notification attachments
-						if (notification.notification_attachments) {
-							allAttachments.push(...notification.notification_attachments.map(att => ({
-								...att,
-								type: 'notification_attachment',
-								is_image: att.file_type && att.file_type.startsWith('image/'),
-								file_url: att.file_path, // Use file_path from schema
-								source: 'Notification'
-							})));
-						}
-
-						// 2. Add task images from direct task relationship
-						if (notification.tasks && notification.tasks.task_images) {
-							
-							allAttachments.push(...notification.tasks.task_images.map(img => ({
-								...img,
-								type: 'task_image',
-								is_image: true,
-								source: `Task: ${notification.tasks.title}`
-							})));
-						}
-
-						// 3. Add task images from task assignment relationship  
-						if (notification.task_assignments && notification.task_assignments.tasks && notification.task_assignments.tasks.task_images) {
-							
-							allAttachments.push(...notification.task_assignments.tasks.task_images.map(img => ({
-								...img,
-								type: 'task_image_assignment',
-								is_image: true,
-								source: `Task: ${notification.task_assignments.tasks.title}`
-							})));
-						}
-
-						// 4. For quick task notifications, fetch quick task files if this is a quick task notification
-						if (notification.message && 
-						   (notification.message.toLowerCase().includes('quick task') || 
-						    notification.title.toLowerCase().includes('quick task'))) {
-							try {
-								// Try to get quick task ID from metadata first
-								let quickTaskId = null;
-								if (notification.metadata && notification.metadata.quick_task_id) {
-									quickTaskId = notification.metadata.quick_task_id;
-								} else {
-									// Try to extract from notification title or message
-									const titleMatch = notification.title?.match(/quick task.*?([a-f0-9-]{36})/i);
-									const messageMatch = notification.message?.match(/quick task.*?([a-f0-9-]{36})/i);
-									if (titleMatch) {
-										quickTaskId = titleMatch[1];
-									} else if (messageMatch) {
-										quickTaskId = messageMatch[1];
-									}
-								}
+								// Parse attachments if it's a string
+								const parsedAttachments = typeof notification.attachments === 'string' 
+									? JSON.parse(notification.attachments) 
+									: notification.attachments;
 								
-								if (quickTaskId) {
-									// Get files for specific quick task only
-									const { data: quickTaskFiles } = await supabase
-										.from('quick_task_files')
-										.select('*, quick_tasks(title)')
-										.eq('quick_task_id', quickTaskId);
-									
-									if (quickTaskFiles && quickTaskFiles.length > 0) {
-										allAttachments.push(...quickTaskFiles.map(file => ({
-											...file,
-											type: 'quick_task_file',
-											is_image: file.file_type && file.file_type.startsWith('image/'),
-											file_url: file.storage_path,
-											source: `Quick Task: ${file.quick_tasks?.title || 'Unknown'}`
-										})));
-									}
+								// Ensure attachments is an array
+								if (Array.isArray(parsedAttachments)) {
+									attachments = parsedAttachments.map(attachment => ({
+										...attachment,
+										url: getFileUrl(attachment)
+									}));
 								}
-							} catch (quickTaskError) {
-								console.warn('📎 [Debug] Could not fetch quick task files:', quickTaskError);
+							} catch (parseError) {
+								console.warn('Failed to parse attachments for notification:', notificationId, parseError);
+								attachments = [];
 							}
 						}
-
-						// Remove duplicates based on file path/URL and file name to prevent double display
-						const uniqueAttachments = allAttachments.filter((att, index, self) => {
-							const identifier = att.file_url || att.file_path || att.storage_path;
-							return index === self.findIndex(a => {
-								const aIdentifier = a.file_url || a.file_path || a.storage_path;
-								return aIdentifier === identifier && a.file_name === att.file_name;
-							});
-						});
 
 						return {
 							...notification,
-							id: notificationId, // Ensure consistent ID
-							recipients: recipients || [],
-							recipients_text: recipientsText,
-							all_attachments: uniqueAttachments,
+							id: notificationId,
+							recipients: recipients,
+							attachments: attachments,
+							recipientsError: recipientsError,
 							read: isRead
 						};
 					})

@@ -1,0 +1,26 @@
+# Generated files
+.svelte-kit/
+build/
+dist/
+node_modules/
+.vercel/
+
+# Build outputs
+*.min.js
+*.min.css
+
+# Generated types
+src/lib/types/generated/
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+
+# Development files
+dev-dist/
+
+# Environment files
+.env*
+
+# Static files that shouldn't be formatted
+static/

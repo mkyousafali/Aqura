@@ -1,50 +1,57 @@
-import { json } from '@sveltejs/kit';
-import { supabase } from '$lib/utils/supabase';
+import { json } from "@sveltejs/kit";
+import { supabase } from "$lib/utils/supabase";
 
 /** @type {import('./$types').RequestHandler} */
 export async function POST({ request }) {
-	try {
-		const { receivingRecordId, erpReference } = await request.json();
+  try {
+    const { receivingRecordId, erpReference } = await request.json();
 
-		// Validate input
-		if (!receivingRecordId) {
-			return json({ error: 'Receiving record ID is required' }, { status: 400 });
-		}
+    // Validate input
+    if (!receivingRecordId) {
+      return json(
+        { error: "Receiving record ID is required" },
+        { status: 400 },
+      );
+    }
 
-		if (!erpReference || !erpReference.trim()) {
-			return json({ error: 'ERP reference is required' }, { status: 400 });
-		}
+    if (!erpReference || !erpReference.trim()) {
+      return json({ error: "ERP reference is required" }, { status: 400 });
+    }
 
-		// Update the receiving record with the ERP reference
-		const { data, error } = await supabase
-			.from('receiving_records')
-			.update({ 
-				erp_purchase_invoice_reference: erpReference.trim(),
-				updated_at: new Date().toISOString()
-			})
-			.eq('id', receivingRecordId)
-			.select()
-			.single();
+    // Update the receiving record with the ERP reference
+    const { data, error } = await supabase
+      .from("receiving_records")
+      .update({
+        erp_purchase_invoice_reference: erpReference.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", receivingRecordId)
+      .select()
+      .single();
 
-		if (error) {
-			console.error('Database error updating ERP reference:', error);
-			return json({ error: `Database error: ${error.message}` }, { status: 500 });
-		}
+    if (error) {
+      console.error("Database error updating ERP reference:", error);
+      return json(
+        { error: `Database error: ${error.message}` },
+        { status: 500 },
+      );
+    }
 
-		if (!data) {
-			return json({ error: 'Receiving record not found' }, { status: 404 });
-		}
+    if (!data) {
+      return json({ error: "Receiving record not found" }, { status: 404 });
+    }
 
-		console.log(`ERP reference updated successfully for record ${receivingRecordId}: ${erpReference}`);
+    console.log(
+      `ERP reference updated successfully for record ${receivingRecordId}: ${erpReference}`,
+    );
 
-		return json({ 
-			success: true, 
-			data: data,
-			message: 'ERP invoice reference updated successfully'
-		});
-
-	} catch (error) {
-		console.error('Error updating ERP reference:', error);
-		return json({ error: 'Internal server error' }, { status: 500 });
-	}
+    return json({
+      success: true,
+      data: data,
+      message: "ERP invoice reference updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating ERP reference:", error);
+    return json({ error: "Internal server error" }, { status: 500 });
+  }
 }
