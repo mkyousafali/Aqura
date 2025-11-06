@@ -8,7 +8,6 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
 	import { localeData } from '$lib/i18n';
-
 	let currentUserData = null;
 	let stats = {
 		pendingTasks: 0,
@@ -18,34 +17,27 @@
 	};
 	let recentNotifications = [];
 	let isLoading = true;
-	
 	// Swipe gesture state
 	let swipeStartX = 0;
 	let swipeCurrentX = 0;
 	let swipeThreshold = 100; // Minimum distance for swipe
 	let isSwipeActive = false;
 	let swipeTargetNotification = null;
-	
 	// Success message state
 	let showSuccessMessage = false;
 	let successMessage = '';
-	
 	// Image preview modal
 	let showImagePreview = false;
 	let previewImage = null;
-	
 	// Create notification modal
 	let showCreateNotificationModal = false;
-	
 	// Computed role check
 	$: userRole = currentUserData?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
-
 	// Reactive refresh when returning to dashboard
 	$: if ($page.url.pathname === '/mobile' && currentUserData) {
 		refreshNotificationCount(true); // Silent refresh
 	}
-
 	// Helper function to get translations
 	function getTranslation(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -59,37 +51,31 @@
 		}
 		return typeof value === 'string' ? value : keyPath;
 	}
-
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
 			await loadDashboardData();
 		}
 		isLoading = false;
-		
 		// Set up automatic refresh for notification count every 30 seconds
 		const refreshInterval = setInterval(async () => {
 			if (currentUserData) {
 				await refreshNotificationCount(true); // Silent refresh
 			}
 		}, 30000);
-		
 		// Refresh when page becomes visible (user returns to dashboard)
 		const handleVisibilityChange = async () => {
 			if (!document.hidden && currentUserData) {
 				await refreshNotificationCount(true); // Silent refresh
 			}
 		};
-		
 		document.addEventListener('visibilitychange', handleVisibilityChange);
-		
 		// Cleanup on component destroy
 		return () => {
 			clearInterval(refreshInterval);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	});
-
 	async function refreshNotificationCount(silent = false) {
 		try {
 			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
@@ -104,11 +90,9 @@
 			}
 		}
 	}
-
 	async function loadDashboardData() {
 		try {
 			console.log('🔍 Loading mobile dashboard data in parallel for better performance...');
-			
 			// Run all queries in parallel for better mobile performance
 			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
 				// Load task assignments
@@ -128,7 +112,6 @@
 					`)
 					.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
 					.order('assigned_at', { ascending: false }),
-				
 				// Load quick task assignments
 				supabase
 					.from('quick_task_assignments')
@@ -146,7 +129,6 @@
 					`)
 					.eq('assigned_to_user_id', currentUserData.id)
 					.order('created_at', { ascending: false }),
-				
 				// Load receiving tasks (direct table, no assignments table)
 				supabase
 					.from('receiving_tasks')
@@ -168,17 +150,14 @@
 					.eq('assigned_user_id', currentUserData.id)
 					.order('created_at', { ascending: false })
 			]);
-			
 			// Process task assignment results
 			const { data: taskAssignments, error: taskError } = taskAssignmentsResult;
 			const { data: quickTaskAssignments, error: quickTaskError } = quickTaskAssignmentsResult;
 			const { data: receivingTasks, error: receivingTaskError } = receivingTasksResult;
-			
 			// Calculate task statistics from all task types
 			let totalTasks = 0;
 			let pendingTasks = 0;
 			let completedTasks = 0;
-			
 			if (!taskError && taskAssignments) {
 				totalTasks += taskAssignments.length;
 				pendingTasks += taskAssignments.filter(t => 
@@ -188,7 +167,6 @@
 					t.status === 'completed'
 				).length;
 			}
-			
 			if (!quickTaskError && quickTaskAssignments) {
 				totalTasks += quickTaskAssignments.length;
 				pendingTasks += quickTaskAssignments.filter(t => 
@@ -198,7 +176,6 @@
 					t.status === 'completed'
 				).length;
 			}
-			
 			if (!receivingTaskError && receivingTasks) {
 				totalTasks += receivingTasks.length;
 				pendingTasks += receivingTasks.filter(t => 
@@ -208,11 +185,9 @@
 					t.task_status === 'completed'
 				).length;
 			}
-			
 			stats.totalTasks = totalTasks;
 			stats.pendingTasks = pendingTasks;
 			stats.completedTasks = completedTasks;
-
 			// Load notification statistics and recent notifications in parallel
 			const [notificationStatsResult, recentNotificationsResult] = await Promise.all([
 				// Load notification statistics
@@ -228,7 +203,6 @@
 						return 0;
 					}
 				})(),
-				
 				// Load recent notifications
 				(async () => {
 					try {
@@ -240,33 +214,26 @@
 					}
 				})()
 			]);
-			
 			// Set notification statistics
 			stats.unreadNotifications = notificationStatsResult;
-			
 			// Process recent notifications
 			const notifications = recentNotificationsResult;
-			
 			// Filter to recent notifications (yesterday, today, and overdue)
 			const today = new Date();
 			const yesterday = new Date(today);
 			yesterday.setDate(yesterday.getDate() - 1);
 			yesterday.setHours(0, 0, 0, 0);
-			
 			const filteredNotifications = notifications.filter(notification => {
 				const notificationDate = new Date(notification.created_at);
 				return notificationDate >= yesterday;
 			}).slice(0, 20); // Limit to 20 recent notifications
-
 			// For each notification, get recipients info, process attachments, and check read state
 			if (filteredNotifications) {
 				const notificationsWithRecipients = await Promise.all(
 					filteredNotifications.map(async (notification) => {
 						const notificationId = notification.notification_id || notification.id;
-
 						// Check read state for current user
 						let isRead = false;
-						
 						// First try to get read state from the notification object (for regular users)
 						if (notification.is_read !== undefined) {
 							isRead = notification.is_read;
@@ -279,7 +246,6 @@
 									.eq('notification_id', notificationId)
 									.eq('user_id', currentUserData.id)
 									.single();
-								
 								if (readError) {
 									// Default to unread if we can't check
 									isRead = false;
@@ -291,23 +257,19 @@
 								isRead = false;
 							}
 						}
-
 						// Try multiple approaches to get recipient information
 						let recipients = [];
 						let recipientsError = null;
-
 						// Try to get recipients from notification_recipients table
 						try {
 							const { data: recipientData, error: recipientError } = await supabase
 								.from('notification_recipients')
 								.select(`
-									recipient_type,
-									recipient_id,
-									user:user_id(id, username),
-									branch:branch_id(id, name_en, name_ar)
+									role,
+									branch_id,
+									user_id
 								`)
 								.eq('notification_id', notificationId);
-
 							if (recipientError) {
 								recipientsError = recipientError;
 							} else {
@@ -316,7 +278,6 @@
 						} catch (error) {
 							recipientsError = error;
 						}
-
 						// Process attachments (same logic as before)
 						let attachments = [];
 						if (notification.attachments) {
@@ -325,7 +286,6 @@
 								const parsedAttachments = typeof notification.attachments === 'string' 
 									? JSON.parse(notification.attachments) 
 									: notification.attachments;
-								
 								// Ensure attachments is an array
 								if (Array.isArray(parsedAttachments)) {
 									attachments = parsedAttachments.map(attachment => ({
@@ -338,7 +298,6 @@
 								attachments = [];
 							}
 						}
-
 						return {
 							...notification,
 							id: notificationId,
@@ -349,82 +308,42 @@
 						};
 					})
 				);
-
 				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
-				
 			} else {
 				recentNotifications = [];
 			}
-
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
 		}
 	}
-
 	// Load recent notifications
 	async function loadRecentNotifications() {
 		try {
 			const { data: notifications, error: notificationError } = await supabase
 				.from('notifications')
-				.select(`
-					*,
-					notification_read_states!inner (
-						is_read
-					),
-					notification_recipients (
-						user_id,
-						user:users (
-							id,
-							username,
-							employee:hr_employees (
-								name
-							)
-						)
-					),
-					notification_attachments (*),
-					tasks (
-						id,
-						title,
-						task_images (*)
-					),
-					task_assignments (
-						tasks (
-							id,
-							title,
-							task_images (*)
-						)
-					)
-				`)
-				.eq('notification_read_states.user_id', currentUserData.id)
-				.eq('notification_read_states.is_read', false) // Only unread notifications
+				.select('*')
 				.order('created_at', { ascending: false })
 				.limit(20);
-
 			if (notificationError) {
 				console.error('Error loading recent notifications:', notificationError);
 				recentNotifications = [];
 				return;
 			}
-
 			// Get yesterday's date for filtering recent notifications
 			const yesterday = new Date();
 			yesterday.setDate(yesterday.getDate() - 1);
 			yesterday.setHours(0, 0, 0, 0);
-			
 			const filteredNotifications = notifications.filter(notification => {
 				const notificationDate = new Date(notification.created_at);
 				return notificationDate >= yesterday;
 			}).slice(0, 20); // Limit to 20 recent notifications
-
 			// For each notification, get recipients info, process attachments, and check read state
 			if (filteredNotifications) {
 				const notificationsWithRecipients = await Promise.all(
 					filteredNotifications.map(async (notification) => {
 						const notificationId = notification.notification_id || notification.id;
-
 						// Check read state for current user
 						let isRead = false;
-						
 						// First try to get read state from the notification object (for regular users)
 						if (notification.is_read !== undefined) {
 							isRead = notification.is_read;
@@ -437,7 +356,6 @@
 									.eq('notification_id', notificationId)
 									.eq('user_id', currentUserData.id)
 									.single();
-								
 								if (readError) {
 									// Default to unread if we can't check
 									isRead = false;
@@ -449,23 +367,19 @@
 								isRead = false;
 							}
 						}
-
 						// Try multiple approaches to get recipient information
 						let recipients = [];
 						let recipientsError = null;
-
 						// Try to get recipients from notification_recipients table
 						try {
 							const { data: recipientData, error: recipientError } = await supabase
 								.from('notification_recipients')
 								.select(`
-									recipient_type,
-									recipient_id,
-									user:user_id(id, username),
-									branch:branch_id(id, name_en, name_ar)
+									role,
+									branch_id,
+									user_id
 								`)
 								.eq('notification_id', notificationId);
-
 							if (recipientError) {
 								recipientsError = recipientError;
 							} else {
@@ -474,7 +388,6 @@
 						} catch (error) {
 							recipientsError = error;
 						}
-
 						// Process attachments (same logic as before)
 						let attachments = [];
 						if (notification.attachments) {
@@ -483,7 +396,6 @@
 								const parsedAttachments = typeof notification.attachments === 'string' 
 									? JSON.parse(notification.attachments) 
 									: notification.attachments;
-								
 								// Ensure attachments is an array
 								if (Array.isArray(parsedAttachments)) {
 									attachments = parsedAttachments.map(attachment => ({
@@ -496,7 +408,6 @@
 								attachments = [];
 							}
 						}
-
 						return {
 							...notification,
 							id: notificationId,
@@ -507,38 +418,29 @@
 						};
 					})
 				);
-
 				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
-				
 			} else {
 				recentNotifications = [];
 			}
-
 		} catch (error) {
 			console.error('Error loading recent notifications:', error);
 			recentNotifications = [];
 		}
 	}
-
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
-		
-		
 		const baseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public';
-		
 		if (attachment.type === 'task_image') {
 			// Task images use file_url or file_path
 			const fileName = attachment.file_url || attachment.file_path;
 			if (fileName) {
 				const url = `${baseUrl}/task-images/${fileName}`;
-				
 				return url;
 			}
 		} else if (attachment.type === 'quick_task_file') {
 			// Quick task files use storage_path
 			if (attachment.storage_path) {
 				const url = `${baseUrl}/quick-task-files/${attachment.storage_path}`;
-				
 				return url;
 			}
 		} else if (attachment.type === 'notification_attachment') {
@@ -546,25 +448,18 @@
 			const fileName = attachment.file_path || attachment.file_url;
 			if (fileName) {
 				const url = `${baseUrl}/notification-images/${fileName}`;
-				
 				return url;
 			}
 		}
-		
 		// Fallback: if it's already a full URL, use it
 		if (attachment.file_url && attachment.file_url.startsWith('http')) {
-			
 			return attachment.file_url;
 		}
-		
-		
 		return null;
 	}
-
 	// Helper function to download files
 	function downloadFile(attachment) {
 		const downloadUrl = getFileUrl(attachment);
-		
 		if (downloadUrl) {
 			// Create a temporary link and trigger download
 			const link = document.createElement('a');
@@ -579,7 +474,6 @@
 			console.error('No download URL available for attachment:', attachment);
 		}
 	}
-
 	// Image preview functions
 	function openImagePreview(attachment) {
 		previewImage = {
@@ -589,19 +483,16 @@
 		};
 		showImagePreview = true;
 	}
-
 	function closeImagePreview() {
 		showImagePreview = false;
 		previewImage = null;
 	}
-
 	function formatDate(dateString) {
 		const date = new Date(dateString);
 		const now = new Date();
 		const diffInMs = now.getTime() - date.getTime();
 		const diffInHours = diffInMs / (1000 * 60 * 60);
 		const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
-
 		if (diffInHours < 1) {
 			const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
 			return `${diffInMinutes}m ago`;
@@ -613,11 +504,9 @@
 			return date.toLocaleDateString();
 		}
 	}
-
 	function logout() {
 		// Clear interface preference to allow user to choose again
 		interfacePreferenceService.clearPreference(currentUserData?.id);
-		
 		// Logout from persistent auth service
 		persistentAuthService.logout().then(() => {
 			// Redirect to login page to choose interface again
@@ -628,33 +517,26 @@
 			goto('/login');
 		});
 	}
-
 	function openCreateNotification() {
 		showCreateNotificationModal = true;
 	}
-
 	function closeCreateNotification() {
 		showCreateNotificationModal = false;
 		// Refresh notifications after creating a new one
 		loadDashboardData();
 	}
-
 	// Swipe gesture functions
 	function handleTouchStart(event, notification) {
 		if (notification.read) return; // Only allow swipe on unread notifications
-		
 		swipeStartX = event.touches[0].clientX;
 		swipeCurrentX = swipeStartX;
 		isSwipeActive = true;
 		swipeTargetNotification = notification;
 	}
-
 	function handleTouchMove(event) {
 		if (!isSwipeActive || !swipeTargetNotification) return;
-		
 		swipeCurrentX = event.touches[0].clientX;
 		const deltaX = swipeCurrentX - swipeStartX;
-		
 		// Only allow left swipe (negative delta)
 		if (deltaX < 0) {
 			event.preventDefault();
@@ -664,33 +546,26 @@
 			element.style.opacity = Math.max(0.5, 1 + deltaX / 200);
 		}
 	}
-
 	function handleTouchEnd(event) {
 		if (!isSwipeActive || !swipeTargetNotification) return;
-		
 		const deltaX = swipeCurrentX - swipeStartX;
 		const element = event.currentTarget;
-		
 		// Reset transform
 		element.style.transform = '';
 		element.style.opacity = '';
-		
 		// Check if swipe distance meets threshold for mark as read
 		if (deltaX < -swipeThreshold) {
 			markNotificationAsRead(swipeTargetNotification.id);
 		}
-		
 		// Reset swipe state
 		isSwipeActive = false;
 		swipeTargetNotification = null;
 		swipeStartX = 0;
 		swipeCurrentX = 0;
 	}
-
 	// Mark individual notification as read
 	async function markNotificationAsRead(notificationId) {
 		if (!currentUserData?.id) return;
-		
 		try {
 			const result = await notificationManagement.markAsRead(notificationId, currentUserData.id);
 			if (result.success) {
@@ -709,11 +584,9 @@
 			console.error('Error marking notification as read:', error);
 		}
 	}
-
 	// Mark all notifications as read
 	async function markAllNotificationsAsRead() {
 		if (!currentUserData?.id || recentNotifications.length === 0) return;
-		
 		try {
 			const result = await notificationManagement.markAllAsRead(currentUserData.id);
 			if (result.success) {
@@ -731,7 +604,6 @@
 			console.error('Error marking all notifications as read:', error);
 		}
 	}
-
 	// Show success message
 	function showSuccess(message) {
 		successMessage = message;
@@ -742,11 +614,9 @@
 		}, 3000);
 	}
 </script>
-
 <svelte:head>
 	<title>Dashboard - Aqura Mobile</title>
 </svelte:head>
-
 <div class="mobile-dashboard">
 	{#if showSuccessMessage}
 		<div class="success-message">
@@ -756,7 +626,6 @@
 			{successMessage}
 		</div>
 	{/if}
-	
 	{#if isLoading}
 		<div class="loading-content">
 			<div class="loading-spinner"></div>
@@ -778,7 +647,6 @@
 						<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
 					</div>
 				</div>
-
 				<div class="stat-card completed">
 					<div class="stat-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -791,7 +659,6 @@
 						<p>{getTranslation('mobile.dashboardContent.stats.completed')}</p>
 					</div>
 				</div>
-
 				<div class="stat-card notifications" on:click={() => goto('/mobile/notifications')} role="button" tabindex="0">
 					<div class="stat-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -804,7 +671,6 @@
 						<p>{getTranslation('mobile.dashboardContent.stats.notifications')}</p>
 					</div>
 				</div>
-
 				<div class="stat-card total">
 					<div class="stat-icon">
 						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -819,7 +685,6 @@
 				</div>
 			</div>
 		</section>
-
 		<!-- Recent Notifications Section -->
 		<section class="recent-section">
 			<div class="section-header">
@@ -841,7 +706,6 @@
 					{/if}
 				</span>
 			</div>
-			
 			{#if recentNotifications.length > 0}
 				<div class="notifications-list">
 					{#each recentNotifications as notification}
@@ -876,7 +740,6 @@
 									<span class="meta-value">{notification.recipients_text}</span>
 								</div>
 							</div>
-							
 							<!-- Attachments Section -->
 							{#if notification.all_attachments && notification.all_attachments.length > 0}
 								<div class="notification-attachments">
@@ -953,7 +816,6 @@
 		</section>
 	{/if}
 </div>
-
 <!-- Create Notification Modal -->
 {#if showCreateNotificationModal}
 	<div class="modal-overlay">
@@ -973,7 +835,6 @@
 		</div>
 	</div>
 {/if}
-
 <!-- Image Preview Modal -->
 {#if showImagePreview && previewImage}
 	<div class="image-preview-modal" on:click={closeImagePreview} role="button" tabindex="0">
@@ -1008,7 +869,6 @@
 		</div>
 	</div>
 {/if}
-
 <style>
 	.mobile-dashboard {
 		min-height: 100vh;
@@ -1019,7 +879,6 @@
 		-webkit-overflow-scrolling: touch;
 		position: relative;
 	}
-
 	/* Success Message */
 	.success-message {
 		position: fixed;
@@ -1039,7 +898,6 @@
 		z-index: 1000;
 		animation: slideDown 0.3s ease-out;
 	}
-
 	@keyframes slideDown {
 		from {
 			opacity: 0;
@@ -1050,7 +908,6 @@
 			transform: translateX(-50%) translateY(0);
 		}
 	}
-
 	/* Loading */
 	.loading-content {
 		display: flex;
@@ -1061,7 +918,6 @@
 		text-align: center;
 		color: #6B7280;
 	}
-
 	.loading-spinner {
 		width: 32px;
 		height: 32px;
@@ -1071,24 +927,20 @@
 		animation: spin 1s linear infinite;
 		margin-bottom: 1rem;
 	}
-
 	@keyframes spin {
 		to {
 			transform: rotate(360deg);
 		}
 	}
-
 	/* Stats Section */
 	.stats-section {
 		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 	}
-
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
 	}
-
 	.stat-card {
 		background: white;
 		border-radius: 13px; /* Reduced from 16px (20% smaller) */
@@ -1099,12 +951,10 @@
 		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
 		transition: all 0.3s ease;
 	}
-
 	.stat-card:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
-
 	.stat-icon {
 		width: 38px; /* Reduced from 48px (20% smaller) */
 		height: 38px; /* Reduced from 48px (20% smaller) */
@@ -1114,76 +964,62 @@
 		justify-content: center;
 		flex-shrink: 0;
 	}
-
 	.stat-card.pending .stat-icon {
 		background: rgba(59, 130, 246, 0.1);
 		color: #3B82F6;
 	}
-
 	.stat-card.completed .stat-icon {
 		background: rgba(16, 185, 129, 0.1);
 		color: #10B981;
 	}
-
 	.stat-card.notifications .stat-icon {
 		background: rgba(245, 158, 11, 0.1);
 		color: #F59E0B;
 	}
-
 	.stat-card.notifications {
 		cursor: pointer;
 	}
-
 	.stat-card.notifications:hover {
 		transform: translateY(-3px);
 		box-shadow: 0 6px 16px rgba(245, 158, 11, 0.2);
 	}
-
 	.stat-card.notifications:active {
 		transform: translateY(-1px);
 	}
-
 	.stat-card.total .stat-icon {
 		background: rgba(107, 114, 128, 0.1);
 		color: #6B7280;
 	}
-
 	.stat-info h3 {
 		font-size: 1.6rem; /* Reduced from 2rem (20% smaller) */
 		font-weight: 700;
 		margin: 0 0 0.2rem 0; /* Reduced from 0.25rem */
 		color: #1F2937;
 	}
-
 	.stat-info p {
 		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
 		margin: 0;
 	}
-
 	/* Recent Notifications Section */
 	.recent-section {
 		padding: 0 1.2rem 1.2rem 1.2rem;
 	}
-
 	.section-header {
 		margin-bottom: 1rem;
 	}
-
 	.section-title-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		margin-bottom: 0.25rem;
 	}
-
 	.section-header h2 {
 		font-size: 1.25rem;
 		font-weight: 600;
 		color: #1F2937;
 		margin: 0;
 	}
-
 	.mark-all-read-btn {
 		background: #3B82F6;
 		color: white;
@@ -1199,35 +1035,29 @@
 		gap: 0.375rem;
 		white-space: nowrap;
 	}
-
 	.mark-all-read-btn:hover {
 		background: #2563EB;
 		transform: translateY(-1px);
 	}
-
 	.mark-all-read-btn:active {
 		transform: translateY(0);
 	}
-
 	.section-subtitle {
 		font-size: 0.75rem;
 		color: #6B7280;
 		font-weight: 400;
 	}
-
 	.swipe-hint {
 		font-size: 0.7rem;
 		color: #10B981;
 		margin-top: 0.25rem;
 		font-style: italic;
 	}
-
 	.notifications-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
 	}
-
 	.notification-card {
 		background: white;
 		border-radius: 12px;
@@ -1239,22 +1069,18 @@
 		position: relative;
 		overflow: hidden;
 	}
-
 	.notification-card.unread {
 		border-left-color: #10B981;
 		background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
 	}
-
 	.notification-card.read {
 		border-left-color: #D1D5DB;
 		opacity: 0.8;
 	}
-
 	.notification-card:hover {
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
-
 	.notification-header {
 		display: flex;
 		justify-content: space-between;
@@ -1262,7 +1088,6 @@
 		margin-bottom: 0.5rem;
 		gap: 0.75rem;
 	}
-
 	.notification-header h4 {
 		font-size: 0.9rem;
 		font-weight: 600;
@@ -1271,20 +1096,17 @@
 		line-height: 1.3;
 		flex: 1;
 	}
-
 	.notification-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		flex-shrink: 0;
 	}
-
 	.notification-time {
 		font-size: 0.7rem;
 		color: #9CA3AF;
 		font-weight: 400;
 	}
-
 	.mark-read-btn {
 		background: #10B981;
 		color: white;
@@ -1298,24 +1120,20 @@
 		justify-content: center;
 		opacity: 0.8;
 	}
-
 	.mark-read-btn:hover {
 		background: #059669;
 		opacity: 1;
 		transform: scale(1.05);
 	}
-
 	.mark-read-btn:active {
 		transform: scale(0.95);
 	}
-
 	.notification-message {
 		font-size: 0.8rem;
 		color: #4B5563;
 		line-height: 1.4;
 		margin: 0 0 0.75rem 0;
 	}
-
 	.notification-meta {
 		display: flex;
 		flex-direction: column;
@@ -1323,14 +1141,12 @@
 		padding-top: 0.5rem;
 		border-top: 1px solid #F3F4F6;
 	}
-
 	.notification-sender,
 	.notification-recipients {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 	}
-
 	.meta-label {
 		font-size: 0.65rem;
 		color: #9CA3AF;
@@ -1339,20 +1155,17 @@
 		letter-spacing: 0.05em;
 		min-width: 45px;
 	}
-
 	.meta-value {
 		font-size: 0.7rem;
 		color: #6B7280;
 		font-weight: 400;
 	}
-
 	/* Notification Attachments Styles */
 	.notification-attachments {
 		margin-top: 0.75rem;
 		padding-top: 0.75rem;
 		border-top: 1px solid #F3F4F6;
 	}
-
 	.notification-attachments h5 {
 		font-size: 0.75rem;
 		font-weight: 600;
@@ -1361,22 +1174,18 @@
 		text-transform: uppercase;
 		letter-spacing: 0.025em;
 	}
-
 	.attachments-grid {
 		display: grid;
 		gap: 0.5rem;
 		grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
 	}
-
 	.attachment-item {
 		position: relative;
 	}
-
 	.attachment-info {
 		margin-top: 0.25rem;
 		text-align: center;
 	}
-
 	.attachment-name {
 		display: block;
 		font-size: 0.75rem;
@@ -1386,7 +1195,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-
 	.attachment-source {
 		display: block;
 		font-size: 0.625rem;
@@ -1394,7 +1202,6 @@
 		margin-top: 0.125rem;
 		font-style: italic;
 	}
-
 	.file-source {
 		display: block;
 		font-size: 0.625rem;
@@ -1402,7 +1209,6 @@
 		margin-top: 0.125rem;
 		font-style: italic;
 	}
-
 	.attachment-image {
 		position: relative;
 		width: 80px;
@@ -1415,17 +1221,14 @@
 		cursor: pointer;
 		transition: transform 0.2s ease;
 	}
-
 	.attachment-image:hover {
 		transform: scale(1.05);
 	}
-
 	.attachment-image img {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 	}
-
 	.preview-overlay {
 		position: absolute;
 		top: 0;
@@ -1440,11 +1243,9 @@
 		transition: opacity 0.2s ease;
 		color: white;
 	}
-
 	.attachment-image:hover .preview-overlay {
 		opacity: 1;
 	}
-
 	.download-btn-small {
 		display: inline-flex;
 		align-items: center;
@@ -1459,13 +1260,11 @@
 		transition: all 0.2s ease;
 		margin-top: 4px;
 	}
-
 	.download-btn-small:hover {
 		background: #F3F4F6;
 		color: #374151;
 		border-color: #D1D5DB;
 	}
-
 	.attachment-file {
 		display: flex;
 		align-items: center;
@@ -1476,7 +1275,6 @@
 		border-radius: 8px;
 		min-height: 60px;
 	}
-
 	.file-icon {
 		flex-shrink: 0;
 		width: 32px;
@@ -1488,12 +1286,10 @@
 		border-radius: 6px;
 		color: #6B7280;
 	}
-
 	.file-info {
 		flex: 1;
 		min-width: 0;
 	}
-
 	.file-name {
 		display: block;
 		font-size: 0.7rem;
@@ -1503,14 +1299,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-
 	.file-type {
 		display: block;
 		font-size: 0.6rem;
 		color: #9CA3AF;
 		text-transform: uppercase;
 	}
-
 	.download-btn {
 		background: #3B82F6;
 		color: white;
@@ -1524,15 +1318,12 @@
 		transition: background-color 0.2s ease;
 		flex-shrink: 0;
 	}
-
 	.download-btn:hover {
 		background: #2563EB;
 	}
-
 	.download-btn:active {
 		background: #1D4ED8;
 	}
-
 	.empty-state {
 		display: flex;
 		flex-direction: column;
@@ -1542,91 +1333,73 @@
 		text-align: center;
 		color: #9CA3AF;
 	}
-
 	.empty-state svg {
 		margin-bottom: 0.75rem;
 		opacity: 0.5;
 	}
-
 	.empty-state p {
 		font-size: 0.875rem;
 		margin: 0;
 	}
-
 	/* Responsive adjustments */
 	@media (max-width: 480px) {
 		.mobile-header {
 			padding: 1rem;
 			padding-top: calc(1rem + env(safe-area-inset-top));
 		}
-
 		.stats-section,
 		.recent-section {
 			padding-left: 1rem;
 			padding-right: 1rem;
 		}
-
 		.stat-card {
 			padding: 1rem;
 		}
-
 		.stat-icon {
 			width: 40px;
 			height: 40px;
 		}
-
 		.stat-info h3 {
 			font-size: 1.5rem;
 		}
-
 		.notification-card {
 			padding: 0.875rem;
 		}
-
 		.attachment-image {
 			width: 60px;
 			height: 60px;
 		}
-
 		.attachments-grid {
 			gap: 0.5rem;
 			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
 		}
-
 		.notification-header h4 {
 			font-size: 0.85rem;
 		}
-
 		.notification-message {
 			font-size: 0.75rem;
 		}
-
 		.attachments-grid {
 			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
 		}
-
 		.attachment-file {
 			padding: 0.375rem;
 			min-height: 50px;
 		}
-
 		.file-icon {
 			width: 24px;
 			height: 24px;
 		}
-
 		.download-btn {
 			padding: 0.375rem;
 		}
 	}
-
 	/* Safe area handling for iOS */
 	@supports (padding: max(0px)) {
 		.mobile-header {
 			padding-top: max(1rem, env(safe-area-inset-top));
 		}
 	}
-
 	/* Modal Styles */
 	.modal-overlay {
 		position: fixed;
@@ -1641,7 +1414,6 @@
 		z-index: 1000;
 		padding: 1rem;
 	}
-
 	.modal-container {
 		background: white;
 		border-radius: 12px;
@@ -1651,7 +1423,6 @@
 		overflow: hidden;
 		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 	}
-
 	.modal-header {
 		display: flex;
 		align-items: center;
@@ -1660,14 +1431,12 @@
 		border-bottom: 1px solid #E5E7EB;
 		background: #F9FAFB;
 	}
-
 	.modal-header h2 {
 		margin: 0;
 		font-size: 1.25rem;
 		font-weight: 600;
 		color: #1F2937;
 	}
-
 	.close-btn {
 		background: none;
 		border: none;
@@ -1677,18 +1446,15 @@
 		color: #6B7280;
 		transition: all 0.2s ease;
 	}
-
 	.close-btn:hover {
 		background: #E5E7EB;
 		color: #374151;
 	}
-
 	.modal-content {
 		padding: 0;
 		overflow-y: auto;
 		max-height: calc(90vh - 80px);
 	}
-	
 	/* Image Preview Modal */
 	.image-preview-modal {
 		position: fixed;
@@ -1701,7 +1467,6 @@
 		align-items: center;
 		justify-content: center;
 	}
-
 	.modal-backdrop {
 		position: absolute;
 		top: 0;
@@ -1711,7 +1476,6 @@
 		background: rgba(0, 0, 0, 0.8);
 		backdrop-filter: blur(4px);
 	}
-
 	.image-preview-container {
 		position: relative;
 		max-width: 90vw;
@@ -1722,7 +1486,6 @@
 		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 		z-index: 1001;
 	}
-
 	.preview-header {
 		display: flex;
 		align-items: center;
@@ -1731,7 +1494,6 @@
 		background: #F8FAFC;
 		border-bottom: 1px solid #E5E7EB;
 	}
-
 	.preview-header h3 {
 		margin: 0;
 		font-size: 1.125rem;
@@ -1742,13 +1504,11 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-
 	.preview-actions {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 	}
-
 	.download-btn-modal {
 		display: inline-flex;
 		align-items: center;
@@ -1763,11 +1523,9 @@
 		cursor: pointer;
 		transition: background 0.2s ease;
 	}
-
 	.download-btn-modal:hover {
 		background: #2563EB;
 	}
-
 	.close-btn {
 		display: flex;
 		align-items: center;
@@ -1781,12 +1539,10 @@
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
-
 	.close-btn:hover {
 		background: #E5E7EB;
 		color: #374151;
 	}
-
 	.preview-image-wrapper {
 		display: flex;
 		align-items: center;
@@ -1794,55 +1550,47 @@
 		max-height: 70vh;
 		overflow: hidden;
 	}
-
 	.preview-image-wrapper img {
 		max-width: 100%;
 		max-height: 100%;
 		object-fit: contain;
 	}
-
 	.preview-footer {
 		padding: 1rem 1.5rem;
 		background: #F8FAFC;
 		border-top: 1px solid #E5E7EB;
 	}
-
 	.image-source {
 		font-size: 0.875rem;
 		color: #6B7280;
 	}
-
 	@media (max-width: 768px) {
 		.image-preview-container {
 			max-width: 95vw;
 			max-height: 95vh;
 		}
-
 		.preview-header {
 			padding: 0.75rem 1rem;
 		}
-
 		.preview-header h3 {
 			font-size: 1rem;
 			max-width: 150px;
 		}
-
 		.download-btn-modal {
 			padding: 0.375rem 0.75rem;
 			font-size: 0.8rem;
 		}
-
 		.close-btn {
 			width: 36px;
 			height: 36px;
 		}
-
 		.preview-footer {
 			padding: 0.75rem 1rem;
 		}
-
 		.image-source {
 			font-size: 0.8rem;
 		}
 	}
 </style>
+
+

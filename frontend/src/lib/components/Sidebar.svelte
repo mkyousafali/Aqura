@@ -30,6 +30,9 @@
 	import StartReceiving from '$lib/components/admin/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
 	import ExpensesManager from '$lib/components/admin/finance/ExpensesManager.svelte';
+	import CustomerMaster from '$lib/components/admin/CustomerMaster.svelte';
+	import CustomerAccountRecoveryManager from '$lib/components/admin/CustomerAccountRecoveryManager.svelte';
+	import InterfaceAccessManager from '$lib/components/InterfaceAccessManager.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -253,6 +256,50 @@
 		showMasterSubmenu = false;
 	}
 
+	function openCustomerMaster() {
+		const windowId = generateWindowId('customer-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Customer Master #${instanceNumber}`,
+			component: CustomerMaster,
+			icon: '👥',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMasterSubmenu = false;
+	}
+
+	function openCustomerAccountRecoveryManager() {
+		const windowId = generateWindowId('customer-account-recovery-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Customer Account Recovery Manager #${instanceNumber}`,
+			component: CustomerAccountRecoveryManager,
+			icon: '🔐',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMasterSubmenu = false;
+	}
+
 	function openApprovalCenter() {
 		const windowId = generateWindowId('approval-center');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -289,6 +336,28 @@
 			component: UserManagement,
 			icon: '👤',
 			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openInterfaceAccessManager() {
+		const windowId = generateWindowId('interface-access');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Interface Access Manager #${instanceNumber}`,
+			component: InterfaceAccessManager,
+			icon: '🔧',
+			size: { width: 1400, height: 900 },
 			position: { 
 				x: 50 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
@@ -503,6 +572,18 @@
 					</button>
 				</div>
 				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCustomerMaster}>
+						<span class="menu-icon">🤝</span>
+						<span class="menu-text">Customer Master</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCustomerAccountRecoveryManager}>
+						<span class="menu-icon">🔐</span>
+						<span class="menu-text">Account Recovery</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openHRMaster}>
 						<span class="menu-icon">👥</span>
 						<span class="menu-text">HR Master</span>
@@ -615,6 +696,12 @@
 					<button class="submenu-item" on:click={openUserManagement}>
 						<span class="menu-icon">👤</span>
 						<span class="menu-text">Users</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openInterfaceAccessManager}>
+						<span class="menu-icon">🔧</span>
+						<span class="menu-text">Interface Access</span>
 					</button>
 				</div>
 				{#if $currentUser?.roleType === 'Master Admin'}

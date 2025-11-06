@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { localeData, t } from '$lib/i18n';
+	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import CustomerLogin from '$lib/components/CustomerLogin.svelte';
 
 	// Login form states
-	let interfaceChoice: 'desktop' | 'mobile' | null = null;
-	let loginMethod: 'username' | 'quickAccess' = 'username';
+	let interfaceChoice: 'desktop' | 'mobile' | 'customer' | null = null;
+	let loginMethod: 'username' | 'quickAccess' | 'customerAccess' = 'username';
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
@@ -65,10 +66,15 @@
 		quickAccessValid = true;
 	}
 
-	function chooseInterface(choice: 'desktop' | 'mobile') {
+	function chooseInterface(choice: 'desktop' | 'mobile' | 'customer') {
 		if (choice === 'mobile') {
 			// Redirect to mobile login
 			goto('/mobile-login');
+		} else if (choice === 'customer') {
+			// Set customer interface and show customer login
+			interfaceChoice = 'customer';
+			loginMethod = 'customerAccess';
+			clearForm();
 		} else {
 			// Continue with desktop interface
 			interfaceChoice = 'desktop';
@@ -138,7 +144,7 @@
 		errorMessage = '';
 
 		try {
-			const result = await persistentAuthService.loginWithQuickAccess(quickAccessCode);
+			const result = await persistentAuthService.loginWithQuickAccess(quickAccessCode, 'desktop');
 			
 			if (result.success) {
 				successMessage = 'Quick access successful! Redirecting...';
@@ -277,6 +283,14 @@
 		
 		validateQuickAccess();
 	}
+
+	function handleCustomerSuccess(event) {
+		const { detail } = event;
+		if (detail.type === 'customer_login') {
+			// Redirect to customer interface
+			goto('/customer');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -299,11 +313,23 @@
 			<div class="login-main-card">
 				<!-- Logo Section matching main page -->
 				<div class="logo-section">
-					<div class="logo">
-						<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+					<div class="logo-header">
+						<div class="logo">
+							<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
+						</div>
+						<button 
+							class="language-toggle-main" 
+							on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
+							title={$_('nav.languageToggle')}
+						>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="10"/>
+								<path d="M8 12h8"/>
+								<path d="M12 8v8"/>
+							</svg>
+							{$currentLocale === 'ar' ? 'English' : 'العربية'}
+						</button>
 					</div>
-					<h1 class="app-title">Aqura</h1>
-					<p class="app-subtitle">Management System Access</p>
 				</div>
 
 				<!-- Authentication Methods Section -->
@@ -311,60 +337,60 @@
 					{#if interfaceChoice === null}
 						<!-- Interface Choice -->
 						<div class="interface-choice">
-							<div class="form-header">
-								<h2>Choose Your Interface</h2>
-								<p>Select how you'd like to access the system</p>
-							</div>
-
 							<div class="interface-options">
 								<button 
 									class="interface-btn desktop-btn"
 									on:click={() => chooseInterface('desktop')}
 									disabled={isLoading}
+									title={$_('customer.login.interface.desktop')}
 								>
 									<div class="interface-icon">
-										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<rect x="2" y="4" width="20" height="12" rx="2"/>
 											<path d="M2 16h20"/>
 											<path d="M8 20h8"/>
 										</svg>
 									</div>
-									<div class="interface-info">
-										<h3>Desktop Interface</h3>
-										<p>Full windowed management system</p>
-										<span class="interface-features">• Complete feature access • Multiple windows • Advanced tools</span>
-									</div>
-									<div class="interface-arrow">
-										<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path d="M9 18l6-6-6-6"/>
-										</svg>
-									</div>
+									<span class="interface-label">{$_('common.users')}</span>
 								</button>
 
 								<button 
 									class="interface-btn mobile-btn"
 									on:click={() => chooseInterface('mobile')}
 									disabled={isLoading}
+									title={$_('customer.login.interface.mobile')}
 								>
 									<div class="interface-icon">
-										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<rect x="5" y="2" width="14" height="20" rx="2"/>
 											<path d="M12 18h.01"/>
 										</svg>
 									</div>
-									<div class="interface-info">
-										<h3>Mobile Interface</h3>
-										<p>Optimized mobile experience</p>
-										<span class="interface-features">• Touch-friendly • Quick access • Essential features</span>
-									</div>
-									<div class="interface-arrow">
-										<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path d="M9 18l6-6-6-6"/>
+									<span class="interface-label">{$_('common.users')}</span>
+								</button>
+
+								<button 
+									class="interface-btn customer-btn"
+									on:click={() => chooseInterface('customer')}
+									disabled={isLoading}
+									title={$_('customer.login.interface.customer')}
+								>
+									<div class="interface-icon">
+										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+											<circle cx="12" cy="7" r="4"/>
 										</svg>
 									</div>
+									<span class="interface-label">{$_('common.customer')}</span>
 								</button>
 							</div>
 						</div>
+					{:else if interfaceChoice === 'customer'}
+						<!-- Customer Login Interface -->
+						<CustomerLogin 
+							on:back={goBackToChoice}
+							on:success={handleCustomerSuccess}
+						/>
 					{:else}
 						<!-- Desktop Authentication Interface -->
 					<!-- Method Toggle -->
@@ -719,6 +745,33 @@
 		position: relative;
 	}
 
+	.logo-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		margin-bottom: 1rem;
+	}
+
+	.language-toggle-main {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		color: white;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		backdrop-filter: blur(10px);
+	}
+
+	.language-toggle-main:hover {
+		background: rgba(255, 255, 255, 0.2);
+		border-color: rgba(255, 255, 255, 0.3);
+	}
+
 	.logo-section::after {
 		content: '';
 		position: absolute;
@@ -792,37 +845,42 @@
 	}
 
 	.interface-options {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.5rem;
 		margin-top: 2rem;
+		justify-items: center;
 	}
 
 	.interface-btn {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 1.5rem;
-		padding: 2rem;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1.5rem 1rem;
 		background: #F8FAFC;
 		border: 2px solid #E2E8F0;
-		border-radius: 16px;
+		border-radius: 20px;
 		cursor: pointer;
 		transition: all 0.3s ease;
-		text-align: left;
+		text-align: center;
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
-		width: 100%;
+		width: 120px;
+		height: 140px;
+		position: relative;
 	}
 
 	.interface-btn:hover:not(:disabled) {
 		background: #F1F5F9;
 		border-color: #CBD5E1;
-		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(71, 85, 105, 0.15);
+		transform: translateY(-4px);
+		box-shadow: 0 12px 30px rgba(71, 85, 105, 0.2);
 	}
 
 	.interface-btn:active:not(:disabled) {
-		transform: translateY(0);
+		transform: translateY(-2px);
 	}
 
 	.interface-btn:disabled {
@@ -833,17 +891,22 @@
 
 	.desktop-btn:hover:not(:disabled) {
 		border-color: #15A34A;
-		box-shadow: 0 8px 25px rgba(21, 163, 74, 0.15);
+		box-shadow: 0 12px 30px rgba(21, 163, 74, 0.25);
 	}
 
 	.mobile-btn:hover:not(:disabled) {
 		border-color: #3B82F6;
-		box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
+		box-shadow: 0 12px 30px rgba(59, 130, 246, 0.25);
+	}
+
+	.customer-btn:hover:not(:disabled) {
+		border-color: #8B5CF6;
+		box-shadow: 0 12px 30px rgba(139, 92, 246, 0.25);
 	}
 
 	.interface-icon {
-		width: 64px;
-		height: 64px;
+		width: 60px;
+		height: 60px;
 		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
 		border-radius: 16px;
 		display: flex;
@@ -857,37 +920,15 @@
 		background: linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%);
 	}
 
-	.interface-info {
-		flex: 1;
+	.customer-btn .interface-icon {
+		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
 	}
 
-	.interface-info h3 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1E293B;
-		margin-bottom: 0.5rem;
-	}
-
-	.interface-info p {
-		font-size: 1rem;
+	.interface-label {
+		font-size: 0.75rem;
+		font-weight: 500;
 		color: #64748B;
-		margin-bottom: 0.75rem;
-	}
-
-	.interface-features {
-		font-size: 0.875rem;
-		color: #9CA3AF;
-		font-style: italic;
-	}
-
-	.interface-arrow {
-		color: #9CA3AF;
-		flex-shrink: 0;
-	}
-
-	.interface-btn:hover .interface-arrow {
-		color: #64748B;
-		transform: translateX(4px);
+		margin-top: 0.25rem;
 	}
 
 	/* Desktop login header */
@@ -1342,9 +1383,16 @@
 			padding: 2rem 1.5rem;
 		}
 
-		.interface-btn {
-			padding: 1.5rem;
+		.interface-options {
+			grid-template-columns: repeat(3, 1fr);
 			gap: 1rem;
+			margin-top: 1.5rem;
+		}
+
+		.interface-btn {
+			width: 100px;
+			height: 120px;
+			padding: 1.25rem 0.75rem;
 		}
 
 		.interface-icon {
@@ -1352,16 +1400,8 @@
 			height: 48px;
 		}
 
-		.interface-info h3 {
-			font-size: 1.1rem;
-		}
-
-		.interface-info p {
-			font-size: 0.9rem;
-		}
-
-		.interface-features {
-			font-size: 0.8rem;
+		.interface-label {
+			font-size: 0.7rem;
 		}
 
 		.method-selector {
@@ -1571,6 +1611,27 @@
 			padding: 1.25rem 0.75rem;
 		}
 
+		.interface-options {
+			grid-template-columns: repeat(3, 1fr);
+			gap: 0.75rem;
+			margin-top: 1rem;
+		}
+
+		.interface-btn {
+			width: 80px;
+			height: 100px;
+			padding: 1rem 0.5rem;
+		}
+
+		.interface-icon {
+			width: 36px;
+			height: 36px;
+		}
+
+		.interface-label {
+			font-size: 0.65rem;
+		}
+
 		.method-btn {
 			padding: 0.875rem;
 		}
@@ -1732,6 +1793,27 @@
 				padding-bottom: 5rem;
 			}
 
+			.interface-options {
+				grid-template-columns: repeat(3, 1fr);
+				gap: 0.5rem;
+				margin-top: 0.75rem;
+			}
+
+			.interface-btn {
+				width: 70px;
+				height: 90px;
+				padding: 0.75rem 0.5rem;
+			}
+
+			.interface-icon {
+				width: 32px;
+				height: 32px;
+			}
+
+			.interface-label {
+				font-size: 0.6rem;
+			}
+
 			.auth-submit-btn {
 				font-size: 0.9rem;
 				padding: 1rem;
@@ -1776,6 +1858,30 @@
 			.login-page {
 				-webkit-overflow-scrolling: touch;
 				overflow-y: scroll;
+			}
+		}
+
+		/* Customer Login Integration */
+		.auth-section :global(.customer-login-container) {
+			padding: 0;
+			margin: 0;
+			background: transparent;
+			border: none;
+			box-shadow: none;
+		}
+
+		.auth-section :global(.customer-header) {
+			margin-top: 0;
+		}
+
+		/* Ensure proper spacing on mobile for customer login */
+		@media (max-width: 768px) {
+			.auth-section :global(.customer-login-container) {
+				padding: 0;
+			}
+			
+			.auth-section :global(.form-header) {
+				margin-bottom: 1rem;
 			}
 		}
 	</style>

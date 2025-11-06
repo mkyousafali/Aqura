@@ -128,6 +128,7 @@ export class UserAuthService {
    */
   async loginWithQuickAccess(
     quickAccessCode: string,
+    interfaceType: 'desktop' | 'mobile' | 'customer' = 'desktop'
   ): Promise<{ user: User; token: string }> {
     try {
       console.log("🔍 [UserAuth] Starting quick access login");
@@ -202,6 +203,26 @@ export class UserAuthService {
       const permissions = await this.getUserPermissions(dbUser.id);
       console.log("✅ [UserAuth] User permissions retrieved");
 
+      // Step 4.1: Check interface access permission based on interface type
+      console.log(`🔍 [UserAuth] Checking ${interfaceType} interface access permission`);
+      const { data: interfacePermissions, error: permissionError } = await supabase
+        .from("interface_permissions")
+        .select("desktop_enabled, mobile_enabled, customer_enabled")
+        .eq("user_id", dbUser.id)
+        .single();
+
+      if (permissionError) {
+        console.log("⚠️ [UserAuth] No interface permissions found, defaulting to enabled");
+      } else if (interfacePermissions) {
+        const isEnabled = interfacePermissions[`${interfaceType}_enabled`];
+        if (!isEnabled) {
+          console.error(`❌ [UserAuth] ${interfaceType} interface access denied for user:`, dbUser.username);
+          throw new Error(`${interfaceType.charAt(0).toUpperCase() + interfaceType.slice(1)} interface access is disabled for your account. Please contact your administrator${interfaceType !== 'desktop' ? ' or use the desktop interface' : ''}.`);
+        }
+      }
+
+      console.log(`✅ [UserAuth] ${interfaceType} interface access confirmed`);
+
       // Step 5: Update last login
       console.log("🔍 [UserAuth] Updating last login timestamp");
       await this.updateLastLogin(dbUser.id);
@@ -236,6 +257,148 @@ export class UserAuthService {
         }
       } else {
         throw new Error("Authentication service error. Please try again.");
+      }
+    }
+  }
+
+  /**
+   * Authenticate customer with username and access code
+   */
+  async loginWithCustomerCredentials(
+    username: string,
+    accessCode: string,
+  ): Promise<{ user: User; token: string; customer: any }> {
+    try {
+      console.log("🔍 [UserAuth] Starting customer authentication");
+
+      // Step 1: Validate inputs
+      if (!username?.trim() || !accessCode?.trim()) {
+        throw new Error("Username and access code are required");
+      }
+
+      if (!/^[0-9]{6}$/.test(accessCode)) {
+        throw new Error("Access code must be 6 digits");
+      }
+
+      console.log("🔍 [UserAuth] Calling customer authentication function");
+
+      // Step 2: Authenticate using database function
+      const { data: authResult, error: authError } = await supabase.rpc(
+        "authenticate_customer_access_code",
+        {
+          p_username: username.trim(),
+          p_access_code: accessCode.trim(),
+        },
+      );
+
+      if (authError) {
+        console.error("❌ [UserAuth] Database authentication error:", authError);
+        throw new Error("Authentication service error. Please try again.");
+      }
+
+      if (!authResult || !authResult.success) {
+        const errorMsg = authResult?.error || "Invalid credentials";
+        console.error("❌ [UserAuth] Authentication failed:", errorMsg);
+        
+        if (errorMsg.includes("not found")) {
+          throw new Error("Invalid username or access code");
+        } else if (errorMsg.includes("not approved")) {
+          throw new Error("Your account is pending approval");
+        } else if (errorMsg.includes("suspended")) {
+          throw new Error("Your account has been suspended");
+        } else {
+          throw new Error("Authentication failed. Please try again.");
+        }
+      }
+
+      console.log("✅ [UserAuth] Customer authenticated successfully");
+
+      // Step 3: Get user and customer details
+      const userId = authResult.user_id;
+      const customerId = authResult.customer_id;
+
+      // Get user details from view
+      const { data: userDetails, error: userDetailsError } = await supabase
+        .from("user_management_view")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (userDetailsError || !userDetails) {
+        console.error("❌ [UserAuth] User details error:", userDetailsError);
+        throw new Error("User account configuration error. Please contact support.");
+      }
+
+      // Get customer details
+      const { data: customerDetails, error: customerError } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("id", customerId)
+        .single();
+
+      if (customerError || !customerDetails) {
+        console.error("❌ [UserAuth] Customer details error:", customerError);
+        throw new Error("Customer account error. Please contact support.");
+      }
+
+      // Step 4: Get user permissions (customers have limited permissions)
+      const permissions = await this.getUserPermissions(userId);
+
+      // Step 4.1: Check customer interface access permission
+      console.log("🔍 [UserAuth] Checking customer interface access permission");
+      const { data: interfacePermissions, error: permissionError } = await supabase
+        .from("interface_permissions")
+        .select("customer_enabled")
+        .eq("user_id", userId)
+        .single();
+
+      if (permissionError) {
+        console.log("⚠️ [UserAuth] No interface permissions found, defaulting to enabled");
+      } else if (interfacePermissions && !interfacePermissions.customer_enabled) {
+        console.error("❌ [UserAuth] Customer interface access denied for user:", userDetails.username);
+        throw new Error("Customer interface access is disabled for your account. Please contact your administrator.");
+      }
+
+      console.log("✅ [UserAuth] Customer interface access confirmed");
+
+      // Step 5: Update last login for customer
+      await supabase
+        .from("customers")
+        .update({ last_login_at: new Date().toISOString() })
+        .eq("id", customerId);
+
+      // Step 6: Create session token
+      const token = this.generateSessionToken();
+      const user = this.mapDatabaseUserToUser(
+        userDetails as DatabaseUserView,
+        permissions,
+      );
+
+      // Add customer-specific properties
+      user.userType = "customer";
+      user.customerId = customerId;
+
+      // Step 7: Store session in database
+      await this.createUserSession(userId, token, "customer_access");
+
+      console.log("✅ [UserAuth] Customer login completed successfully");
+      return { user, token, customer: customerDetails };
+    } catch (error) {
+      console.error("❌ [UserAuth] Customer login error:", error);
+
+      // Rethrow with more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes("fetch")) {
+          throw new Error(
+            "Network connection error. Please check your internet connection.",
+          );
+        } else if (error.message.includes("Database")) {
+          throw new Error("Database connection error. Please try again.");
+        } else {
+          throw error;
+        }
+      } else {
+        throw new Error("Customer authentication error. Please try again.");
       }
     }
   }

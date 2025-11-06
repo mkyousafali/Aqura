@@ -17,10 +17,14 @@ interface UserSession {
   branchName?: string;
   employee_id?: string;
   branch_id?: string;
+  customerId?: string; // For customer users
   loginTime: string;
   deviceId: string;
-  loginMethod: "password" | "quickAccess";
+  loginMethod: "password" | "quickAccess" | "customerAccess";
   isActive: boolean;
+  token?: string;
+  permissions?: any;
+  customer?: any; // Customer details for customer users
 }
 
 interface DeviceSession {
@@ -92,13 +96,14 @@ export class PersistentAuthService {
    */
   async loginWithQuickAccess(
     quickAccessCode: string,
+    interfaceType: 'desktop' | 'mobile' | 'customer' = 'desktop'
   ): Promise<{ success: boolean; error?: string; user?: UserSession }> {
     try {
       console.log("🔐 [PersistentAuth] Starting quick access login process");
 
       // Use the userAuth service to authenticate
       const { user, token } =
-        await userAuth.loginWithQuickAccess(quickAccessCode);
+        await userAuth.loginWithQuickAccess(quickAccessCode, interfaceType);
       console.log("✅ [PersistentAuth] UserAuth completed successfully");
 
       // Convert User to UserSession
@@ -188,6 +193,94 @@ export class PersistentAuthService {
   }
 
   /**
+   * Login customer with username and access code
+   */
+  async loginWithCustomerCredentials(
+    username: string,
+    accessCode: string,
+  ): Promise<{ success: boolean; error?: string; user?: UserSession }> {
+    try {
+      console.log("🔐 [PersistentAuth] Starting customer login process");
+
+      // Use the userAuth service to authenticate customer
+      const { user, token, customer } = await userAuth.loginWithCustomerCredentials(
+        username,
+        accessCode,
+      );
+      console.log("✅ [PersistentAuth] Customer authentication completed successfully");
+
+      // Convert User to UserSession
+      const userSession: UserSession = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        roleType: user.roleType,
+        userType: user.userType,
+        avatar: user.avatar,
+        employeeName: user.employeeName,
+        branchName: user.branchName,
+        employee_id: user.employee_id,
+        branch_id: user.branch_id,
+        customerId: user.customerId,
+        loginTime: new Date().toISOString(),
+        deviceId: this.getDeviceId(),
+        loginMethod: "customerAccess" as const,
+        isActive: true,
+        token,
+        permissions: user.permissions,
+        customer, // Add customer details
+      };
+
+      // Save session to device
+      console.log("🔐 [PersistentAuth] Saving customer session to device...");
+      await this.saveUserSession(userSession);
+      console.log("✅ [PersistentAuth] Customer session saved to device");
+
+      // Set as current user
+      console.log("🔐 [PersistentAuth] Setting current customer user...");
+      await this.setCurrentUser(userSession);
+      console.log("✅ [PersistentAuth] Current customer user set successfully");
+
+      console.log("✅ [PersistentAuth] Customer session created successfully");
+
+      // Initialize push notifications after successful login (with delay for Service Worker)
+      console.log(
+        "🔔 [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...",
+      );
+      setTimeout(async () => {
+        try {
+          console.log(
+            "🔔 [PersistentAuth] Starting delayed push notification initialization...",
+          );
+          await pushNotificationService.initialize();
+          console.log(
+            "✅ [PersistentAuth] Delayed push notification initialization completed successfully",
+          );
+        } catch (error) {
+          console.warn(
+            "⚠️ [PersistentAuth] Delayed push notification initialization failed:",
+            error,
+          );
+        }
+      }, 5000); // Wait 5 seconds for all Service Worker operations to complete
+
+      // Log customer login activity (simplified without activityService dependency)
+      console.log("🔐 [PersistentAuth] Customer login completed successfully");
+
+      return { success: true, user: userSession };
+    } catch (error) {
+      console.error("❌ [PersistentAuth] Customer login failed:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Customer login failed. Please try again.",
+      };
+    }
+  }
+
+  /**
    * Login user and create persistent session
    */
   async login(
@@ -230,6 +323,23 @@ export class PersistentAuthService {
 
       if (userError || !userData) {
         return { success: false, error: "User data not found" };
+      }
+
+      // Check desktop interface access permission
+      const { data: interfacePermissions, error: permissionError } = await supabase
+        .from("interface_permissions")
+        .select("desktop_enabled")
+        .eq("user_id", userData.id)
+        .single();
+
+      if (permissionError) {
+        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
+      } else if (interfacePermissions && !interfacePermissions.desktop_enabled) {
+        console.error("❌ [PersistentAuth] Desktop interface access denied for user:", userData.username);
+        return { 
+          success: false, 
+          error: "Desktop interface access is disabled for your account. Please contact your administrator or use the mobile interface." 
+        };
       }
 
       // Create user session

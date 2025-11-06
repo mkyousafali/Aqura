@@ -570,6 +570,18 @@ export const arabicLocale: LocaleData = {
       userManagement: "إدارة المستخدمين",
       importData: "استيراد البيانات",
       auditLog: "سجل المراجعة",
+      customerManagement: "إدارة العملاء",
+      customerManagementDescription: "إدارة تسجيلات العملاء وموافقات الوصول",
+      pending: "قيد الانتظار",
+      approved: "موافق عليه",
+      rejected: "مرفوض",
+      approve: "موافقة",
+      reject: "رفض",
+      approveCustomer: "موافقة العميل",
+      rejectCustomer: "رفض العميل",
+      notes: "ملاحظات",
+      approvalNotesPlaceholder: "أضف ملاحظات الموافقة أو تعليمات خاصة...",
+      rejectionNotesPlaceholder: "قدم سبب الرفض...",
     },
 
     // Welcome
@@ -760,6 +772,10 @@ export const arabicLocale: LocaleData = {
       status: "الحالة",
       loading: "جاري التحميل...",
       error: "حدث خطأ",
+      rememberDevice: "تذكر هذا الجهاز",
+      optional: "اختياري",
+      users: "المستخدمين",
+      customer: "العميل",
     },
 
     // Status Messages
@@ -812,6 +828,147 @@ export const arabicLocale: LocaleData = {
       rejected: "مرفوض",
       total: "الإجمالي",
       noRequisitions: "لم يتم العثور على طلبات",
+    },
+
+    // Customer Interface
+    customer: {
+      customerName: "اسم العميل",
+      companyName: "اسم الشركة",
+      username: "اسم المستخدم", 
+      whatsappNumber: "رقم الجوال",
+      status: "الحالة",
+      registrationDate: "تاريخ التسجيل",
+      
+      // Customer Login
+      login: {
+        title: "بوابة العملاء",
+        subtitle: "الوصول إلى حساب العميل",
+        interfaceOption: "تسجيل دخول العملاء",
+        welcomeTitle: "مرحباً بكم في بوابة عملاء أكورا",
+        welcomeSubtitle: "وصول آمن لعملائنا الكرام",
+        username: "اسم المستخدم",
+        usernamePlaceholder: "أدخل اسم المستخدم",
+        accessCode: "رمز الوصول",
+        accessCodePlaceholder: "أدخل رمز الوصول المكون من 6 أرقام",
+        loginButton: "تسجيل الدخول",
+        loggingIn: "جاري تسجيل الدخول...",
+        forgotCredentials: "نسيت اسم المستخدم أو رمز الوصول؟",
+        requestNewAccess: "طلب استرداد الحساب",
+        needNewAccess: "تحتاج لاسترداد حسابك؟",
+        backToLogin: "العودة لتسجيل الدخول",
+        
+        // Forgot credentials section
+        forgotTitle: "استرداد الحساب",
+        forgotSubtitle: "سنساعدك في استرداد حسابك",
+        whatsappLabel: "رقم الجوال",
+        whatsappPlaceholder: "5X XXX XXXX",
+        submitRequest: "إرسال طلب الاسترداد",
+        submittingRequest: "جاري إرسال الطلب...",
+        requestSubmitted: "تم إرسال طلب الاسترداد بنجاح",
+        requestSubmittedMessage: "سيقوم أحد المشرفين بالتحقق من هويتك وإرسال بيانات الدخول عبر الواتساب قريباً.",
+        
+        // Registration section
+        registerTitle: "تسجيل عميل جديد",
+        registerSubtitle: "انضم إلى بوابة عملاء أكورا",
+        customerName: "الاسم الكامل",
+        customerNamePlaceholder: "أدخل اسمك الكامل",
+        email: "البريد الإلكتروني (اختياري)",
+        emailPlaceholder: "أدخل عنوان البريد الإلكتروني",
+        registerButton: "إرسال التسجيل",
+        registering: "جاري إرسال التسجيل...",
+        registrationSubmitted: "تم إرسال التسجيل بنجاح",
+        registrationMessage: "تم إرسال تسجيلك للموافقة عليه. ستتلقى بيانات تسجيل الدخول عبر الواتساب بمجرد الموافقة.",
+        alreadyHaveAccount: "هل لديك حساب بالفعل؟ سجل الدخول",
+        needNewAccount: "ليس لديك حساب؟",
+        
+        // Error messages
+        errors: {
+          usernameRequired: "اسم المستخدم مطلوب",
+          accessCodeRequired: "رمز الوصول مطلوب",
+          invalidCredentials: "اسم المستخدم أو رمز الوصول غير صحيح",
+          accountNotApproved: "حسابك في انتظار الموافقة",
+          whatsappRequired: "رقم الجوال مطلوب",
+          customerNameRequired: "الاسم الكامل مطلوب",
+          invalidWhatsappFormat: "يرجى إدخال رقم جوال صحيح",
+          accessCodeLength: "رمز الوصول يجب أن يكون 6 أرقام",
+          tooManyRequests: "طلبات كثيرة جداً. يرجى المحاولة لاحقاً",
+          networkError: "خطأ في الشبكة. يرجى التحقق من اتصالك",
+          serverError: "خطأ في الخادم. يرجى المحاولة لاحقاً",
+          registrationFailed: "فشل التسجيل. يرجى المحاولة مرة أخرى",
+          recoveryFailed: "فشل طلب الاسترداد. يرجى المحاولة مرة أخرى",
+        },
+        
+        // Success messages
+        success: {
+          loginSuccessful: "تم تسجيل الدخول بنجاح! مرحباً بعودتك",
+          requestSent: "تم إرسال طلب الاسترداد بنجاح",
+          registrationSent: "تم إرسال التسجيل بنجاح",
+        },
+        
+        // Interface selection
+        interface: {
+          desktop: "واجهة سطح المكتب",
+          mobile: "واجهة الجوال",
+          customer: "بوابة العملاء",
+          selectInterface: "اختر واجهتك",
+          customerDescription: "بوابة آمنة لوصول العملاء",
+          mobileDescription: "محسّنة للأجهزة المحمولة",
+          desktopDescription: "تجربة سطح المكتب الكاملة",
+        },
+      },
+      
+      // Customer notifications
+      notifications: {
+        welcome: "مرحباً بك في بوابة عملاء أكورا",
+        accountApproved: "تمت الموافقة على حساب العميل الخاص بك",
+        accessCodeSent: "تم إرسال رمز الوصول الجديد الخاص بك",
+        accountRecovery: "تم استلام طلب استرداد الحساب",
+        credentialsShared: "تم مشاركة بيانات تسجيل الدخول الخاصة بك عبر الواتساب",
+        registrationReceived: "تم استلام طلب التسجيل وهو قيد المراجعة",
+      },
+
+      // Customer dashboard
+      dashboard: {
+        title: "لوحة تحكم العميل",
+        welcome: "مرحباً بك في بوابتك",
+        defaultCompany: "عميل مُقدر",
+        accessCode: "رمز الوصول",
+        accountStatus: "حالة الحساب",
+        
+        status: {
+          approved: "حسابك معتمد ونشط",
+          pending: "حسابك في انتظار الموافقة",
+          rejected: "تم رفض الوصول إلى حسابك",
+          pendingDescription: "فريقنا يراجع تسجيلك. سيتم إشعارك بمجرد الموافقة.",
+          rejectedDescription: "يرجى الاتصال بالدعم للحصول على المساعدة في الوصول إلى حسابك.",
+        },
+
+        features: {
+          orders: "الطلبات والطلبات",
+          ordersDescription: "عرض وإدارة طلباتك وطلبات الخدمة",
+          viewOrders: "عرض الطلبات",
+          
+          support: "دعم العملاء",
+          supportDescription: "احصل على المساعدة واتصل بفريق الدعم",
+          contactSupport: "اتصل بالدعم",
+          
+          account: "إعدادات الحساب",
+          accountDescription: "إدارة معلومات حسابك وتفضيلاتك",
+          manageAccount: "إدارة الحساب",
+          
+          reports: "التقارير والتاريخ",
+          reportsDescription: "الوصول إلى تاريخ المعاملات والتقارير",
+          viewReports: "عرض التقارير",
+        },
+
+        contact: {
+          title: "تحتاج مساعدة؟ اتصل بنا",
+          email: "دعم البريد الإلكتروني",
+          whatsapp: "دعم الواتساب",
+          hours: "ساعات العمل",
+          businessHours: "الأحد - الخميس، 9:00 ص - 6:00 م",
+        },
+      },
     },
   },
 };

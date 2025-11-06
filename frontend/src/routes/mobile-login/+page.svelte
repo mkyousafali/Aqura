@@ -75,7 +75,7 @@
 		try {
 			console.log('🔍 [Mobile Login] Starting quick access login with code:', quickAccessCode);
 			
-			const loginPromise = persistentAuthService.loginWithQuickAccess(quickAccessCode);
+			const loginPromise = persistentAuthService.loginWithQuickAccess(quickAccessCode, 'mobile');
 			const timeoutPromise = new Promise((_, reject) => {
 				timeoutId = setTimeout(() => {
 					reject(new Error('Login request timed out. Please check your connection and try again.'));
