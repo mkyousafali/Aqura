@@ -10,6 +10,11 @@
   let videoError = false;
   let userName = 'Guest';
   let loading = true;
+  
+  // Touch tracking for scroll vs click detection
+  let touchStartY = 0;
+  let touchStartX = 0;
+  let isTouchMoving = false;
 
   // Advertisement videos data
   const advertisementVideos = [
@@ -184,7 +189,33 @@
     showVideo: 'Show Video'
   };
 
+  // Touch event handlers for scroll detection
+  function handleTouchStart(event) {
+    touchStartY = event.touches[0].clientY;
+    touchStartX = event.touches[0].clientX;
+    isTouchMoving = false;
+  }
+
+  function handleTouchMove(event) {
+    const touchEndY = event.touches[0].clientY;
+    const touchEndX = event.touches[0].clientX;
+    const diffY = Math.abs(touchEndY - touchStartY);
+    const diffX = Math.abs(touchEndX - touchStartX);
+    
+    // If finger moved more than 10px, consider it as scrolling
+    if (diffY > 10 || diffX > 10) {
+      isTouchMoving = true;
+    }
+  }
+
   function handleCategoryClick(categoryId, event) {
+    // Prevent navigation if user was scrolling
+    if (isTouchMoving) {
+      event?.preventDefault();
+      event?.stopPropagation();
+      return;
+    }
+    
     console.log('Category clicked:', categoryId);
     event?.preventDefault();
     event?.stopPropagation();
@@ -196,6 +227,13 @@
   }
 
   function handleAllProducts(event) {
+    // Prevent navigation if user was scrolling
+    if (isTouchMoving) {
+      event?.preventDefault();
+      event?.stopPropagation();
+      return;
+    }
+    
     console.log('All products clicked');
     event?.preventDefault();
     event?.stopPropagation();
@@ -306,6 +344,8 @@
       <button 
         class="all-products-btn" 
         on:click={handleAllProducts}
+        on:touchstart={handleTouchStart}
+        on:touchmove={handleTouchMove}
         on:touchend={handleAllProducts}
         type="button"
       >
@@ -320,6 +360,8 @@
         <button 
           class="category-card" 
           on:click={(e) => handleCategoryClick(category.id, e)}
+          on:touchstart={handleTouchStart}
+          on:touchmove={handleTouchMove}
           on:touchend={(e) => handleCategoryClick(category.id, e)}
           type="button"
         >
