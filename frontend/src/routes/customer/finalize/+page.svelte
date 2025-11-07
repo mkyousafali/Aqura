@@ -2,30 +2,21 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { cartStore, cartCount, cartTotal } from '$lib/stores/cart.js';
+  import { supabase } from '$lib/utils/supabase';
+  import { deliverySettings } from '$lib/stores/delivery.js';
   
   let currentLanguage = 'ar';
   let cartItems = [];
-  
-  // Delivery service configuration  
-  const deliveryService = {
-    isActive: true,
-    operatingHours: {
-      startTime: "00:00", 
-      endTime: "23:59"
-    },
-    minimumOrder: 15,
-    is24Hours: true,
-    deliveryFee: 15.00,
-    displayAr: "التوصيل متاح على مدار الساعة (24/7)",
-    displayEn: "Delivery available 24/7"
-  };
+  let branches = [];
+  let selectedBranch = null;
+  let loadingBranches = false;
   
   // Use reactive declarations for store values
   $: total = $cartTotal;
   $: itemCount = $cartCount;
 
   // Load language from localStorage and listen for changes
-  onMount(() => {
+  onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
@@ -43,6 +34,10 @@
     }
 
     window.addEventListener('storage', handleStorageChange);
+    
+    // Load branches
+    await loadBranches();
+    
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
@@ -62,10 +57,35 @@
       unsubscribe();
     };
   });
+  
+  // Load branches with at least one service enabled
+  async function loadBranches() {
+    loadingBranches = true;
+    try {
+      // Use the new function to get branches with delivery settings
+      const { data, error } = await supabase.rpc('get_all_branches_delivery_settings');
+      
+      if (error) throw error;
+      
+      // Filter to only show branches with at least one service enabled
+      branches = (data || []).filter(b => 
+        b.delivery_service_enabled || b.pickup_service_enabled
+      );
+      
+      console.log('📦 [Finalize] Loaded branches with settings:', branches);
+    } catch (error) {
+      console.error('❌ [Finalize] Error loading branches:', error);
+      alert('Failed to load branches');
+    } finally {
+      loadingBranches = false;
+    }
+  }
 
   // Language text
   $: texts = currentLanguage === 'ar' ? {
     title: 'إنهاء طلبك',
+    selectBranch: 'اختر الفرع',
+    selectBranchSubtitle: 'اختر الفرع الذي تريد الطلب منه',
     subtitle: 'اختر طريقة استلام طلبك',
     pickupFromStore: 'الاستلام من المتجر',
     pickupDescription: 'ادفع في المتجر',
@@ -77,15 +97,20 @@
     total: 'المجموع',
     sar: 'ر.س',
     backToCart: 'العودة إلى السلة',
+    backToBranches: 'العودة للفروع',
     serviceUnavailable: 'الخدمة غير متاحة حالياً',
     minimumOrder: 'الحد الأدنى للطلب',
-    operatingHours: 'ساعات العمل',
-    currentTime: 'الوقت الحالي',
     pickupBenefits: ['دفع في المكان', 'لا رسوم توصيل', 'استلام فوري'],
-    storeLocation: 'الموقع: الرياض، المملكة العربية السعودية',
-    estimatedTime: 'جاهز للاستلام خلال 15-30 دقيقة'
+    storeLocation: 'الموقع',
+    estimatedTime: 'جاهز للاستلام خلال 15-30 دقيقة',
+    deliveryOnly: 'التوصيل فقط',
+    pickupOnly: 'الاستلام فقط',
+    bothAvailable: 'التوصيل والاستلام',
+    noBranches: 'لا توجد فروع متاحة حالياً'
   } : {
     title: 'Finalize Your Order',
+    selectBranch: 'Select Branch',
+    selectBranchSubtitle: 'Choose the branch you want to order from',
     subtitle: 'Choose how you want to receive your order', 
     pickupFromStore: 'Pick Up From Store',
     pickupDescription: 'Pay at store',
@@ -97,71 +122,53 @@
     total: 'Total',
     sar: 'SAR',
     backToCart: 'Back to Cart',
+    backToBranches: 'Back to Branches',
     serviceUnavailable: 'Service currently unavailable',
     minimumOrder: 'Minimum order',
-    operatingHours: 'Operating hours',
-    currentTime: 'Current time',
     pickupBenefits: ['Pay at location', 'No delivery fees', 'Instant pickup'],
-    storeLocation: 'Location: Riyadh, Saudi Arabia',
-    estimatedTime: 'Ready for pickup in 15-30 minutes'
+    storeLocation: 'Location',
+    estimatedTime: 'Ready for pickup in 15-30 minutes',
+    deliveryOnly: 'Delivery Only',
+    pickupOnly: 'Pickup Only',
+    bothAvailable: 'Delivery & Pickup',
+    noBranches: 'No branches available'
   };
-
-  // Check if current time is within delivery hours
-  function isDeliveryServiceAvailable() {
-    if (!deliveryService.isActive) return false;
-    if (deliveryService.is24Hours) return true;
-    
-    const now = new Date();
-    const currentTime = now.getHours() * 100 + now.getMinutes();
-    const startTime = parseInt(deliveryService.operatingHours.startTime.replace(':', ''));
-    const endTime = parseInt(deliveryService.operatingHours.endTime.replace(':', ''));
-    
-    return currentTime >= startTime && currentTime <= endTime;
-  }
-
-  // Check if order meets minimum requirement
-  function meetsFulfillmentRequirements() {
-    return total >= deliveryService.minimumOrder;
-  }
-
-  // Get delivery status message
-  function getDeliveryStatusMessage() {
-    if (!meetsFulfillmentRequirements()) {
-      return currentLanguage === 'ar'
-        ? `${texts.minimumOrder}: ${deliveryService.minimumOrder} ${texts.sar}`
-        : `${texts.minimumOrder}: ${deliveryService.minimumOrder} ${texts.sar}`;
+  
+  function getBranchServicesText(branch) {
+    if (branch.delivery_service_enabled && branch.pickup_service_enabled) {
+      return texts.bothAvailable;
+    } else if (branch.delivery_service_enabled) {
+      return texts.deliveryOnly;
+    } else if (branch.pickup_service_enabled) {
+      return texts.pickupOnly;
     }
-    
-    if (!isDeliveryServiceAvailable()) {
-      return currentLanguage === 'ar' 
-        ? 'خدمة التوصيل مغلقة حالياً'
-        : 'Delivery service is currently closed';
-    }
-    
-    return null; // Service is available
+    return '';
   }
 
-  function choosePickup() {
-    console.log('🔄 [Finalize] Pickup button clicked');
-    try {
-      goto('/customer/checkout?fulfillment=pickup');
-    } catch (error) {
-      console.error('❌ [Finalize] Pickup navigation error:', error);
-    }
-  }
-
-  function chooseDelivery() {
-    console.log('🔄 [Finalize] Delivery button clicked');
-    try {
-      const statusMessage = getDeliveryStatusMessage();
-      if (statusMessage) {
-        console.log('⚠️ [Finalize] Delivery blocked:', statusMessage);
-        alert(statusMessage);
-        return;
+  function getOperatingHoursText(branch, serviceType) {
+    if (serviceType === 'delivery') {
+      if (branch.delivery_is_24_hours) {
+        return currentLanguage === 'ar' ? '⏰ 24/7 على مدار الساعة' : '⏰ 24/7 Open';
+      } else if (branch.delivery_start_time && branch.delivery_end_time) {
+        return `⏰ ${branch.delivery_start_time} - ${branch.delivery_end_time}`;
       }
-      goto('/customer/checkout?fulfillment=delivery');
+    } else if (serviceType === 'pickup') {
+      if (branch.pickup_is_24_hours) {
+        return currentLanguage === 'ar' ? '⏰ 24/7 على مدار الساعة' : '⏰ 24/7 Open';
+      } else if (branch.pickup_start_time && branch.pickup_end_time) {
+        return `⏰ ${branch.pickup_start_time} - ${branch.pickup_end_time}`;
+      }
+    }
+    return '';
+  }
+
+  function selectBranchForService(branch, serviceType) {
+    selectedBranch = branch;
+    console.log(`🔄 [Finalize] ${serviceType} selected for branch:`, branch.branch_id);
+    try {
+      goto(`/customer/checkout?fulfillment=${serviceType}&branch=${branch.branch_id}`);
     } catch (error) {
-      console.error('❌ [Finalize] Delivery navigation error:', error);
+      console.error('❌ [Finalize] Navigation error:', error);
     }
   }
 
@@ -189,82 +196,97 @@
     <div></div> <!-- Spacer for flexbox -->
   </header>
 
-  <p class="subtitle">{texts.subtitle}</p>
-
-  <!-- Order Summary -->
-  <div class="order-summary-card">
-    <div class="order-summary">
-      <h3>{texts.orderSummary}</h3>
-      <div class="summary-details">
-        <div class="summary-row">
-          <span>{itemCount} {texts.items}</span>
-          <span>{total.toFixed(2)} {texts.sar}</span>
-        </div>
-        <div class="summary-row total-row">
-          <span>{texts.total}</span>
-          <span>{total.toFixed(2)} {texts.sar}</span>
+  <p class="subtitle">{texts.selectBranchSubtitle}</p>
+    
+    <!-- Order Summary -->
+    <div class="order-summary-card">
+      <div class="order-summary">
+        <h3>{texts.orderSummary}</h3>
+        <div class="summary-details">
+          <div class="summary-row">
+            <span>{itemCount} {texts.items}</span>
+            <span>{total.toFixed(2)} {texts.sar}</span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Fulfillment Options -->
-  <div class="options-section">
-    <!-- Pick Up From Store -->
-    <div class="option-card-container">
-      <button class="option-card pickup" on:click={choosePickup} type="button">
-        <div class="option-icon">🏪</div>
-        <div class="option-content">
-          <h3>{texts.pickupFromStore}</h3>
-          <p class="option-description">{texts.pickupDescription}</p>
-          <ul class="benefits-list">
-            {#each texts.pickupBenefits as benefit}
-              <li>✓ {benefit}</li>
-            {/each}
-          </ul>
-          <div class="store-info">
-            <p class="store-location">{texts.storeLocation}</p>
-            <p class="estimated-time">{texts.estimatedTime}</p>
-          </div>
+    
+    <!-- Branch List -->
+    <div class="branches-section">
+      <h2>{texts.selectBranch}</h2>
+      
+      {#if loadingBranches}
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Loading branches...</p>
         </div>
-        <div class="option-arrow">›</div>
-      </button>
+      {:else if branches.length === 0}
+        <div class="empty-state">
+          <p>{texts.noBranches}</p>
+        </div>
+      {:else}
+        <div class="branches-list">
+          {#each branches as branch}
+            <div class="branch-item {selectedBranch?.branch_id === branch.branch_id ? 'expanded' : ''}">
+              <!-- Branch Header (Always Visible) -->
+              <button 
+                class="branch-header" 
+                on:click={() => selectedBranch?.branch_id === branch.branch_id ? selectedBranch = null : selectedBranch = branch}
+                type="button"
+              >
+                <div class="branch-header-content">
+                  <div class="branch-icon">🏢</div>
+                  <div class="branch-info">
+                    <h3>{currentLanguage === 'ar' ? branch.branch_name_ar : branch.branch_name_en}</h3>
+                    <div class="branch-services-inline">
+                      {#if branch.delivery_service_enabled}
+                        <span class="service-badge-sm delivery">🚚 {currentLanguage === 'ar' ? 'توصيل' : 'Delivery'}</span>
+                      {/if}
+                      {#if branch.pickup_service_enabled}
+                        <span class="service-badge-sm pickup">🏪 {currentLanguage === 'ar' ? 'استلام' : 'Pickup'}</span>
+                      {/if}
+                    </div>
+                  </div>
+                  <div class="expand-icon">{selectedBranch?.branch_id === branch.branch_id ? '▲' : '▼'}</div>
+                </div>
+              </button>
+              
+              <!-- Expanded Services (Show when selected) -->
+              {#if selectedBranch?.branch_id === branch.branch_id}
+                <div class="services-detail">
+                  <!-- Delivery Service Card -->
+                  {#if branch.delivery_service_enabled}
+                    <button class="service-card delivery-card" on:click={() => selectBranchForService(branch, 'delivery')} type="button">
+                      <div class="service-card-icon">🚚</div>
+                      <div class="service-card-content">
+                        <h4>{currentLanguage === 'ar' ? 'خدمة التوصيل' : 'Delivery Service'}</h4>
+                        <p class="service-timing">{getOperatingHoursText(branch, 'delivery')}</p>
+                        <p class="service-description">{currentLanguage === 'ar' ? 'سنوصل طلبك إلى موقعك' : 'We deliver to your location'}</p>
+                      </div>
+                      <div class="service-arrow">→</div>
+                    </button>
+                  {/if}
+                  
+                  <!-- Pickup Service Card -->
+                  {#if branch.pickup_service_enabled}
+                    <button class="service-card pickup-card" on:click={() => selectBranchForService(branch, 'pickup')} type="button">
+                      <div class="service-card-icon">🏪</div>
+                      <div class="service-card-content">
+                        <h4>{currentLanguage === 'ar' ? 'الاستلام من المتجر' : 'Store Pickup'}</h4>
+                        <p class="service-timing">{getOperatingHoursText(branch, 'pickup')}</p>
+                        <p class="service-description">{currentLanguage === 'ar' ? 'استلم طلبك من الفرع' : 'Pickup from the branch'}</p>
+                      </div>
+                      <div class="service-arrow">→</div>
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
 
-    <!-- Delivery -->
-    <div class="option-card-container">
-      <button 
-        class="option-card delivery {getDeliveryStatusMessage() ? 'unavailable' : ''}" 
-        on:click={chooseDelivery} 
-        type="button"
-        disabled={!!getDeliveryStatusMessage()}
-      >
-        <div class="option-icon">🚚</div>
-        <div class="option-content">
-          <h3>{texts.delivery}</h3>
-          <p class="option-description">{texts.deliveryDescription}</p>
-          <ul class="benefits-list">
-            {#each texts.deliveryBenefits as benefit}
-              <li>✓ {benefit}</li>
-            {/each}
-          </ul>
-          
-          <!-- Service Status -->
-          {#if getDeliveryStatusMessage()}
-            <div class="service-status unavailable">
-              <p>⚠️ {getDeliveryStatusMessage()}</p>
-            </div>
-          {:else}
-            <div class="service-status available">
-              <p>✅ {currentLanguage === 'ar' ? deliveryService.displayAr : deliveryService.displayEn}</p>
-              <small>{texts.minimumOrder}: {deliveryService.minimumOrder} {texts.sar}</small>
-            </div>
-          {/if}
-        </div>
-        <div class="option-arrow">›</div>
-      </button>
-    </div>
-  </div>
 </div>
 
 <style>
@@ -522,6 +544,140 @@
     align-self: center;
   }
 
+  /* Branch Selection Styles */
+  .branches-section {
+    margin: 2rem 0;
+  }
+
+  .branches-section h2 {
+    margin: 0 0 1.5rem 0;
+    color: var(--color-ink);
+    font-size: 1.3rem;
+  }
+
+  .branches-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .branch-card {
+    background: white;
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    width: 100%;
+  }
+
+  .branch-card:hover {
+    border-color: var(--color-primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .branch-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .branch-card h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--color-ink);
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .branch-services {
+    margin: 0 0 0.5rem 0;
+    color: var(--color-ink-light);
+    font-size: 0.9rem;
+  }
+
+  .branch-hours {
+    margin: 0 0 1rem 0;
+    color: #059669;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .branch-badges {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .service-badge {
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .service-badge.delivery {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .service-badge.pickup {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .selected-branch-info {
+    background: var(--color-surface);
+    padding: 1rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    border: 2px solid var(--color-primary);
+  }
+
+  .selected-branch-info h3 {
+    margin: 0;
+    color: var(--color-primary);
+    font-size: 1.1rem;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 3rem;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--color-border);
+    border-top: 4px solid var(--color-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: var(--color-ink-light);
+  }
+
+  .no-services-message {
+    text-align: center;
+    padding: 2rem;
+    background: #fef2f2;
+    border: 1px solid #ef4444;
+    border-radius: 12px;
+    color: #7f1d1d;
+  }
+
   /* Mobile optimizations */
   @media (max-width: 480px) {
     .finalize-container {
@@ -537,5 +693,268 @@
       align-self: center;
       transform: rotate(90deg);
     }
+    
+    .branches-grid {
+      gap: 0.75rem;
+    }
+    
+    .branch-card {
+      padding: 1.25rem;
+    }
+  }
+
+  /* New Expandable Branch List Styles */
+  .branches-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .branch-item {
+    background: white;
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  .branch-item.expanded {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .branch-header {
+    width: 100%;
+    padding: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    text-align: left;
+    gap: 1rem;
+  }
+
+  .branch-header:hover {
+    background: var(--color-surface);
+  }
+
+  .branch-header:active {
+    transform: scale(0.99);
+  }
+
+  .branch-header-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+  }
+
+  .branch-icon-large {
+    font-size: 2.5rem;
+    flex-shrink: 0;
+  }
+
+  .branch-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .branch-info h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--color-ink);
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+
+  .branch-services-inline {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .service-badge-sm {
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .service-badge-sm.delivery {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .service-badge-sm.pickup {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .expand-icon {
+    color: var(--color-ink-light);
+    font-size: 1.25rem;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+  }
+
+  .branch-item.expanded .expand-icon {
+    transform: rotate(180deg);
+  }
+
+  .services-detail {
+    padding: 0 1.25rem 1.25rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .service-card {
+    width: 100%;
+    background: linear-gradient(135deg, var(--color-surface) 0%, white 100%);
+    border: 2px solid var(--color-border-light);
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .service-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 0;
+  }
+
+  .service-card:hover::before {
+    opacity: 0.05;
+  }
+
+  .service-card:active {
+    transform: scale(0.98);
+    border-color: var(--color-primary);
+  }
+
+  .service-card:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+  }
+
+  .service-card-icon {
+    font-size: 2.5rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .service-card-content {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+  }
+
+  .service-card-content h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--color-ink);
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .service-timing {
+    margin: 0;
+    color: var(--color-ink-light);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .service-timing::before {
+    content: '';
+    font-size: 1rem;
+  }
+
+  .service-arrow {
+    color: var(--color-ink-light);
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    position: relative;
+    z-index: 1;
+  }
+
+  .service-card:hover .service-arrow {
+    transform: translateX(4px);
+    color: var(--color-primary);
+  }
+
+  .service-card.delivery-service {
+    border-left: 4px solid #3b82f6;
+  }
+
+  .service-card.pickup-service {
+    border-left: 4px solid #10b981;
+  }
+
+  @media (max-width: 480px) {
+    .branch-header {
+      padding: 1rem;
+    }
+    .branch-header-content {
+      gap: 0.75rem;
+    }
+    .branch-icon-large {
+      font-size: 2rem;
+    }
+    .branch-info h3 {
+      font-size: 1rem;
+    }
+    .services-detail {
+      padding: 0 1rem 1rem 1rem;
+    }
+    .service-card {
+      padding: 1rem;
+    }
+    .service-card-icon {
+      font-size: 2rem;
+    }
+    .service-card-content h4 {
+      font-size: 1rem;
+    }
+    .service-timing {
+      font-size: 0.85rem;
+    }
   }
 </style>
+
+

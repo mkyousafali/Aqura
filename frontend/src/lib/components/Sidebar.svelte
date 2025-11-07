@@ -33,6 +33,7 @@
 	import CustomerMaster from '$lib/components/admin/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/admin/AdManager.svelte';
+	import DeliverySettings from '$lib/components/admin/DeliverySettings.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -288,6 +289,28 @@
 			title: `Ad Manager #${instanceNumber}`,
 			component: AdManager,
 			icon: '📢',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showCustomerAppSubmenu = false;
+	}
+
+	function openDeliverySettings() {
+		const windowId = generateWindowId('delivery-settings');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Delivery Settings #${instanceNumber}`,
+			component: DeliverySettings,
+			icon: '📦',
 			size: { width: 1400, height: 900 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -660,6 +683,12 @@
 					<button class="submenu-item" on:click={openAdManager}>
 						<span class="menu-icon">📢</span>
 						<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openDeliverySettings}>
+						<span class="menu-icon">📦</span>
+						<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
 					</button>
 				</div>
 			</div>
