@@ -38,6 +38,10 @@
     display: flex;
     flex-direction: column;
     background: var(--color-surface);
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    box-sizing: border-box;
   }
 
   .customer-main.with-nav {

@@ -2,50 +2,22 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { userStore, userActions } from '$lib/stores/user.js';
+  import { supabase } from '$lib/utils/supabase';
 
   let currentLanguage = 'ar';
   let videoContainer;
   let currentVideoIndex = 0;
+  let currentMediaIndex = 0;
   let isVideoHidden = false;
   let videoError = false;
   let userName = 'Guest';
   let loading = true;
+  let mediaItems = []; // Combined video and image items from database
   
   // Touch tracking for scroll vs click detection
   let touchStartY = 0;
   let touchStartX = 0;
   let isTouchMoving = false;
-
-  // Advertisement videos data
-  const advertisementVideos = [
-    {
-      id: 1,
-      src: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      title: 'عروض أكوا الخاصة',
-      titleEn: 'Aqua Special Offers',
-      duration: 15,
-      fileSize: '8.2 MB',
-      uploadTime: '2024-11-01 14:30'
-    },
-    {
-      id: 2,
-      src: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      title: 'خدماتنا المتميزة',
-      titleEn: 'Our Premium Services',
-      duration: 12,
-      fileSize: '6.8 MB',
-      uploadTime: '2024-11-01 15:45'
-    },
-    {
-      id: 3,
-      src: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      title: 'أحدث المنتجات',
-      titleEn: 'Latest Products',
-      duration: 18,
-      fileSize: '5.1 MB',
-      uploadTime: '2024-11-01 16:20'
-    }
-  ];
 
   // Product categories
   const categories = [
@@ -70,7 +42,36 @@
   ];
 
   // Load language and user data
-  onMount(() => {
+  // Load media items from database
+  async function loadMediaItems() {
+    try {
+      const { data, error } = await supabase.rpc('get_active_customer_media');
+      
+      if (error) {
+        console.error('Error loading media:', error);
+        mediaItems = [];
+        return;
+      }
+      
+      // Transform database records to match expected format
+      mediaItems = (data || []).map(item => ({
+        id: item.id,
+        src: item.file_url,
+        type: item.media_type, // 'video' or 'image'
+        title: `Slot ${item.slot_number}`,
+        titleEn: `Slot ${item.slot_number}`,
+        duration: item.duration || 5, // Default 5 seconds for images
+        slot_number: item.slot_number
+      }));
+      
+      console.log(`Loaded ${mediaItems.length} active media items`);
+    } catch (err) {
+      console.error('Failed to load media:', err);
+      mediaItems = [];
+    }
+  }
+
+  onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
@@ -83,6 +84,9 @@
       return;
     }
 
+    // Load media from database
+    await loadMediaItems();
+    
     loading = false;
 
     // Subscribe to user store for reactive updates
@@ -93,8 +97,8 @@
     // Reset video error state on mount
     videoError = false;
     
-    // Start video rotation
-    startVideoRotation();
+    // Start media rotation
+    startMediaRotation();
 
     // Load video visibility preference
     const videoHiddenPref = localStorage.getItem('videoHidden');
@@ -110,51 +114,71 @@
     }
   }
 
-  // Video rotation functionality
-  function startVideoRotation() {
-    if (advertisementVideos.length === 0) return;
+  // Media rotation functionality (handles both videos and images)
+  function startMediaRotation() {
+    if (mediaItems.length === 0) return;
     
-    function scheduleNextVideo() {
-      const currentVideo = advertisementVideos[currentVideoIndex];
-      const duration = currentVideo.duration * 1000 + 2000;
+    function scheduleNextMedia() {
+      const currentMedia = mediaItems[currentMediaIndex];
+      const duration = currentMedia.duration * 1000 + 2000; // Add 2 seconds buffer
       
       setTimeout(() => {
-        nextVideo();
-        scheduleNextVideo();
+        nextMedia();
+        scheduleNextMedia();
       }, duration);
     }
     
-    scheduleNextVideo();
+    scheduleNextMedia();
   }
   
-  function nextVideo() {
-    currentVideoIndex = (currentVideoIndex + 1) % advertisementVideos.length;
-    updateVideoDisplay();
+  function nextMedia() {
+    currentMediaIndex = (currentMediaIndex + 1) % mediaItems.length;
+    updateMediaDisplay();
   }
   
-  function updateVideoDisplay() {
-    if (videoContainer) {
-      const video = videoContainer.querySelector('video');
-      if (video) {
-        video.src = advertisementVideos[currentVideoIndex].src;
-        video.load();
-        video.play().catch(e => {
-          console.log('Video autoplay prevented:', e);
-          videoError = false;
-        });
+  function updateMediaDisplay() {
+    if (videoContainer && mediaItems.length > 0) {
+      const currentMedia = mediaItems[currentMediaIndex];
+      
+      if (currentMedia.type === 'video') {
+        const video = videoContainer.querySelector('video');
+        const img = videoContainer.querySelector('img');
+        
+        // Hide image if visible
+        if (img) img.style.display = 'none';
+        
+        if (video) {
+          video.style.display = 'block';
+          video.src = currentMedia.src;
+          video.load();
+          video.play().catch(e => {
+            console.log('Video autoplay prevented:', e);
+            videoError = false;
+          });
+        }
+      } else if (currentMedia.type === 'image') {
+        const video = videoContainer.querySelector('video');
+        const img = videoContainer.querySelector('img');
+        
+        // Hide video if playing
+        if (video) {
+          video.pause();
+          video.style.display = 'none';
+        }
+        
+        if (img) {
+          img.style.display = 'block';
+          img.src = currentMedia.src;
+        }
       }
     }
   }
 
   function handleVideoError() {
-    console.log('Video failed to load');
+    console.log('Media failed to load');
     videoError = false;
   }
   
-  function handleVideoClick() {
-    goto('/customer/products');
-  }
-
   function hideVideo() {
     isVideoHidden = true;
     localStorage.setItem('videoHidden', 'true');
@@ -261,22 +285,8 @@
   </div>
 {:else}
   <div class="home-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-    <!-- Header Section with LED Welcome Message -->
-    <div class="header-section">
-      <div class="led-welcome-container">
-        <div class="led-border">
-          <div class="welcome-content">
-            <div class="logo-container">
-              <img src="/icons/logo.png" alt="Aqura Logo" class="app-logo" />
-            </div>
-            <h1 class="welcome-text">{texts.greeting}</h1>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Advertisement Video Section (LED Screen Style) -->
-    {#if !isVideoHidden}
+    <!-- Advertisement Media Section (LED Screen Style) - Shows videos and images from database -->
+    {#if !isVideoHidden && mediaItems.length > 0}
       <div class="advertisement-section" bind:this={videoContainer}>
         <div class="led-screen-container">
           <div class="led-frame">
@@ -287,33 +297,37 @@
                   muted 
                   loop
                   playsinline
-                  on:click={handleVideoClick}
+                  on:click={nextMedia}
                   on:error={handleVideoError}
-                  src={advertisementVideos[currentVideoIndex]?.src}
+                  src={mediaItems[currentMediaIndex]?.src}
                 >
-                  <source src={advertisementVideos[currentVideoIndex]?.src} type="video/mp4">
+                  <source src={mediaItems[currentMediaIndex]?.src} type="video/mp4">
                   Your browser does not support the video tag.
                 </video>
+                
+                <!-- Image element for image media -->
+                <img 
+                  src={mediaItems[currentMediaIndex]?.src} 
+                  alt="Advertisement" 
+                  on:click={nextMedia}
+                  on:error={handleVideoError}
+                  style="display: none; width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
+                />
               {:else}
-                <div class="video-fallback" on:click={handleVideoClick}>
+                <div class="video-fallback" on:click={nextMedia}>
                   <div class="fallback-content">
                     <div class="fallback-icon">�</div>
                     <div class="fallback-title">
                       {currentLanguage === 'ar' 
-                        ? advertisementVideos[currentVideoIndex]?.title 
-                        : advertisementVideos[currentVideoIndex]?.titleEn}
+                        ? mediaItems[currentMediaIndex]?.title 
+                        : mediaItems[currentMediaIndex]?.titleEn}
                     </div>
                     <div class="fallback-subtitle">
-                      {currentLanguage === 'ar' ? 'انقر للمشاهدة' : 'Click to Watch'}
+                      {currentLanguage === 'ar' ? 'انقر للتالي' : 'Click for Next'}
                     </div>
                   </div>
                 </div>
               {/if}
-              
-              <!-- Next Button -->
-              <button class="next-btn" on:click={nextVideo} title="Next Video">
-                <span>▶</span>
-              </button>
 
               <!-- Hide Button -->
               <button class="hide-btn" on:click={hideVideo} title={texts.hideVideo}>
@@ -404,124 +418,6 @@
     margin: 0 auto;
     min-height: 100vh;
     background: var(--color-surface);
-  }
-
-  .header-section {
-    text-align: center;
-    margin-bottom: 1.5rem;
-    padding: 1rem 0;
-    width: 100%;
-  }
-
-  .led-welcome-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin: 0 auto 1.5rem auto;
-    padding: 0 1rem;
-    width: 100%;
-    max-width: 800px;
-  }
-
-  .led-border {
-    position: relative;
-    width: min(500px, 95vw);
-    height: 100px;
-    border-radius: 25px;
-    padding: 12px;
-    background: linear-gradient(45deg, 
-      var(--color-primary) 0%, 
-      var(--color-primary) 25%, 
-      var(--color-secondary) 50%, 
-      var(--color-secondary) 75%, 
-      var(--color-primary) 100%
-    );
-    background-size: 400% 400%;
-    animation: ledGlow 3s ease-in-out infinite;
-    box-shadow: 
-      0 0 35px rgba(16, 179, 0, 0.5),
-      0 0 70px rgba(200, 162, 50, 0.3),
-      inset 0 0 25px rgba(255, 255, 255, 0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto;
-  }
-
-  .led-border::before {
-    content: '';
-    position: absolute;
-    top: 5px;
-    left: 5px;
-    right: 5px;
-    bottom: 5px;
-    border-radius: 20px;
-    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-    z-index: 1;
-  }
-
-  .welcome-content {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    width: 100%;
-    height: 100%;
-    padding: 0 0.75rem;
-  }
-
-  .logo-container {
-    flex-shrink: 0;
-  }
-
-  .app-logo {
-    width: 60px;
-    height: 60px;
-    object-fit: contain;
-    border-radius: 10px;
-  }
-
-  .welcome-text {
-    font-size: clamp(1.3rem, 4.5vw, 1.8rem);
-    font-weight: 700;
-    color: var(--color-primary);
-    margin: 0;
-    text-align: center;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: linear-gradient(45deg, var(--color-primary), var(--color-accent));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.15));
-  }
-
-  @keyframes ledGlow {
-    0% {
-      background-position: 0% 50%;
-      box-shadow: 
-        0 0 35px rgba(16, 179, 0, 0.8),
-        0 0 70px rgba(16, 179, 0, 0.5),
-        inset 0 0 25px rgba(255, 255, 255, 0.15);
-    }
-    50% {
-      background-position: 100% 50%;
-      box-shadow: 
-        0 0 35px rgba(200, 162, 50, 0.8),
-        0 0 70px rgba(200, 162, 50, 0.5),
-        inset 0 0 25px rgba(255, 255, 255, 0.15);
-    }
-    100% {
-      background-position: 0% 50%;
-      box-shadow: 
-        0 0 35px rgba(16, 179, 0, 0.8),
-        0 0 70px rgba(16, 179, 0, 0.5),
-        inset 0 0 25px rgba(255, 255, 255, 0.15);
-    }
   }
 
   /* Advertisement LED Screen Styles */
@@ -623,28 +519,6 @@
     font-style: italic;
   }
 
-  .next-btn {
-    position: absolute;
-    top: 50%;
-    right: 1rem;
-    transform: translateY(-50%);
-    background: rgba(16, 179, 0, 0.2);
-    color: var(--color-primary);
-    border: 2px solid var(--color-primary);
-    border-radius: 50%;
-    width: 50px;
-    height: 50px;
-    font-size: 1.2rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 5;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 0 15px rgba(16, 179, 0, 0.4);
-  }
-
   .hide-btn {
     position: absolute;
     top: 1rem;
@@ -675,17 +549,6 @@
   .hide-btn span {
     text-shadow: 0 0 5px #ef4444;
     font-weight: bold;
-  }
-
-  .next-btn:hover {
-    background: rgba(16, 179, 0, 0.4);
-    transform: translateY(-50%) scale(1.1);
-    box-shadow: 0 0 20px rgba(16, 179, 0, 0.6);
-  }
-
-  .next-btn span {
-    text-shadow: 0 0 5px var(--color-primary);
-    margin-left: 2px;
   }
 
   /* Show Video Section Styles */
@@ -857,46 +720,6 @@
       padding: 0.75rem;
     }
 
-    .header-section {
-      padding: 0.75rem 0;
-      margin-bottom: 1rem;
-    }
-
-    .led-welcome-container {
-      padding: 0 0.5rem;
-      max-width: 100%;
-    }
-
-    .led-border {
-      width: min(420px, 90vw);
-      height: 85px;
-      border-radius: 20px;
-      padding: 10px;
-      margin: 0 auto;
-    }
-
-    .app-logo {
-      width: 45px;
-      height: 45px;
-    }
-
-    .welcome-content {
-      gap: 0.75rem;
-      padding: 0 0.5rem;
-    }
-
-    .led-border::before {
-      top: 4px;
-      left: 4px;
-      right: 4px;
-      bottom: 4px;
-      border-radius: 16px;
-    }
-
-    .welcome-text {
-      font-size: clamp(1.1rem, 4vw, 1.4rem);
-    }
-
     .advertisement-section {
       margin: 1rem 0 1.5rem 0;
     }
@@ -907,13 +730,6 @@
 
     .video-content {
       height: 400px;
-    }
-
-    .next-btn {
-      width: 40px;
-      height: 40px;
-      font-size: 1rem;
-      right: 0.5rem;
     }
 
     .hide-btn {
