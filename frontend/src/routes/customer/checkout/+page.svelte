@@ -10,6 +10,7 @@
   let selectedPaymentMethod = '';
   let showOrderConfirmation = false;
   let showCancellationSuccess = false;
+  let showOrderSuccess = false;
   let showPaymentMethods = false;
   let orderNumber = '';
   let orderPlacedTime = null;
@@ -50,8 +51,10 @@
     quantity: 'الكمية',
     cancellationNotice: 'يمكن إلغاء الطلب خلال دقيقة واحدة فقط من وقت تأكيد الطلب',
     cancelOrder: 'إلغاء الطلب',
+    confirmOrder: 'تأكيد الطلب',
     timeRemaining: 'الوقت المتبقي للإلغاء',
     orderCancelled: 'تم إلغاء الطلب بنجاح',
+    orderFinalized: 'تم تأكيد طلبك بنجاح!',
     freeDeliveryMsg: 'توصيل مجاني للطلبات أكثر من 500 ر.س',
     addMoreForFreeDelivery: 'أضف {amount} ر.س للحصول على التوصيل المجاني',
     fulfillmentType: fulfillmentMethod === 'pickup' ? 'الاستلام من المتجر' : 'التوصيل',
@@ -104,8 +107,10 @@
     quantity: 'Quantity',
     cancellationNotice: 'Order can only be cancelled within 1 minute of placing the order',
     cancelOrder: 'Cancel Order',
+    confirmOrder: 'Place Order',
     timeRemaining: 'Time remaining to cancel',
     orderCancelled: 'Order cancelled successfully',
+    orderFinalized: 'Your order has been confirmed successfully!',
     freeDeliveryMsg: 'Free delivery for orders over 500 SAR',
     addMoreForFreeDelivery: 'Add {amount} SAR more for free delivery',
     goToProducts: 'Continue Shopping',
@@ -241,9 +246,20 @@
         canCancelOrder = false;
         timeRemaining = 0;
         
-        // Timer expired - finalize the order and clear cart
-        console.log('🔄 [Checkout] Cancellation timer expired - finalizing order');
+        // Timer expired - finalize the order and clear cart// Close order confirmation popup
+        showOrderConfirmation = false;
+        
+        // Show success popup
+        showOrderSuccess = true;
+        
+        // Clear cart
         cartActions.clearCart();
+        
+        // Hide success popup after 2 seconds and redirect
+        setTimeout(() => {
+          showOrderSuccess = false;
+          goto('/customer/products');
+        }, 2000);
       }
     }, 1000);
   }
@@ -271,15 +287,38 @@
     }, 2000);
   }
 
+  function confirmOrderImmediately() {// Clear timer
+    if (cancellationTimer) {
+      clearInterval(cancellationTimer);
+    }
+    
+    // Disable cancellation
+    canCancelOrder = false;
+    timeRemaining = 0;
+    
+    // Close order confirmation popup
+    showOrderConfirmation = false;
+    
+    // Show success popup
+    showOrderSuccess = true;
+    
+    // Clear cart
+    cartActions.clearCart();
+    
+    // Hide success popup after 2 seconds and redirect
+    setTimeout(() => {
+      showOrderSuccess = false;
+      goto('/customer/products');
+    }, 2000);
+  }
+
   function formatTime(seconds) {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
 
-  function closeOrderConfirmation() {
-    console.log('🔄 [Checkout] Close order confirmation clicked');
-    showOrderConfirmation = false;
+  function closeOrderConfirmation() {showOrderConfirmation = false;
     
     // Clear timer if still running (order will be finalized)
     if (cancellationTimer) {
@@ -297,19 +336,14 @@
     goto('/customer/products');
   }
 
-  function goBackToCart() {
-    console.log('🔄 [Checkout] Back button clicked');
-    try {
+  function goBackToCart() {try {
       goto('/customer/finalize');
     } catch (error) {
       console.error('❌ [Checkout] Back navigation error:', error);
     }
   }
 
-  function goToProducts() {
-    console.log('🔄 [Checkout] Continue Shopping clicked');
-    
-    // If there's an active order confirmation, clear the timer
+  function goToProducts() {// If there's an active order confirmation, clear the timer
     if (cancellationTimer) {
       clearInterval(cancellationTimer);
       canCancelOrder = false;
@@ -325,17 +359,9 @@
     goto('/customer/products');
   }
 
-  function showPaymentMethodOptions() {
-    console.log('🔄 [Checkout] Payment method button clicked');
-    showPaymentMethods = true;
-    console.log('🔄 [Checkout] showPaymentMethods set to:', showPaymentMethods);
-  }
+  function showPaymentMethodOptions() {showPaymentMethods = true;}
 
-  function selectPaymentMethod(method) {
-    console.log('🔄 [Checkout] Payment method selected:', method);
-    selectedPaymentMethod = method;
-    console.log('🔄 [Checkout] selectedPaymentMethod set to:', selectedPaymentMethod);
-  }
+  function selectPaymentMethod(method) {selectedPaymentMethod = method;}
 
   // Calculate delivery fee
   $: isFreeDelivery = total >= freeDeliveryThreshold;
@@ -458,14 +484,11 @@
     </div>
 
     <!-- Choose Payment Method Button -->
-    <p style="color: red; font-size: 12px;">Debug: showPaymentMethods = {showPaymentMethods}</p>
     {#if !showPaymentMethods}
       <div class="payment-button-section">
         <button 
           class="payment-method-btn" 
           on:click={showPaymentMethodOptions}
-          on:mousedown={() => console.log('🔄 [Checkout] Button mousedown')}
-          on:pointerdown={() => console.log('🔄 [Checkout] Button pointerdown')}
           type="button"
         >
           {texts.choosePaymentMethod}
@@ -520,9 +543,14 @@
             <span class="timer-label">{texts.timeRemaining}:</span>
             <span class="timer-countdown">{formatTime(timeRemaining)}</span>
           </div>
-          <button class="cancel-order-btn" on:click={cancelOrder}>
-            {texts.cancelOrder}
-          </button>
+          <div class="order-actions-buttons">
+            <button class="cancel-order-btn" on:click={cancelOrder}>
+              {texts.cancelOrder}
+            </button>
+            <button class="confirm-order-btn" on:click={confirmOrderImmediately}>
+              {texts.confirmOrder}
+            </button>
+          </div>
         </div>
       {/if}
       
@@ -541,6 +569,16 @@
     <div class="success-popup-content">
       <div class="success-icon">✅</div>
       <h3>{texts.orderCancelled}</h3>
+    </div>
+  </div>
+{/if}
+
+<!-- Order Finalized Success Popup -->
+{#if showOrderSuccess}
+  <div class="success-popup-overlay">
+    <div class="success-popup-content">
+      <div class="success-icon">✅</div>
+      <h3>{texts.orderFinalized}</h3>
     </div>
   </div>
 {/if}
@@ -1036,6 +1074,14 @@
     font-family: monospace;
   }
 
+  .order-actions-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
   .cancel-order-btn {
     background: var(--color-danger);
     color: white;
@@ -1045,10 +1091,29 @@
     font-weight: 600;
     cursor: pointer;
     transition: background 0.2s ease;
+    flex: 1;
+    min-width: 140px;
   }
 
   .cancel-order-btn:hover {
     background: #dc2626;
+  }
+
+  .confirm-order-btn {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    flex: 1;
+    min-width: 140px;
+  }
+
+  .confirm-order-btn:hover {
+    background: #059669;
   }
 
   .popup-actions {
@@ -1165,3 +1230,6 @@
     }
   }
 </style>
+
+
+

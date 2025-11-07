@@ -2,35 +2,44 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { cartCount, cartTotal } from '$lib/stores/cart.js';
+  import { deliveryTiers, deliveryActions, freeDeliveryThreshold } from '$lib/stores/delivery.js';
   
   let currentLanguage = 'ar';
   let showFireworks = false;
   let showSadMessage = false;
   let previousTotal = 0;
   let hasReachedFreeDelivery = false;
-
-  // Delivery fee settings
-  const freeDeliveryThreshold = 500.00;
-  const deliveryFee = 15.00;
+  let currentDeliveryFee = 0;
+  let nextTierInfo = null;
 
   // Subscribe to cart updates using reactive syntax
   $: itemCount = $cartCount;
   $: total = $cartTotal;
+  $: freeDeliveryMin = $freeDeliveryThreshold;
+  
+  // Calculate delivery fee reactively
+  $: {
+    if (total > 0 && $deliveryTiers.length > 0) {
+      currentDeliveryFee = deliveryActions.getDeliveryFeeLocal(total);
+      nextTierInfo = deliveryActions.getNextTierLocal(total);
+    }
+  }
   
   // Reactive statement for total changes
   $: {
     // Track if user has ever reached free delivery
-    if (total >= freeDeliveryThreshold) {
+    if (currentDeliveryFee === 0 && total >= freeDeliveryMin) {
       hasReachedFreeDelivery = true;
     }
     
     // Trigger fireworks when crossing threshold upward
-    if (previousTotal < freeDeliveryThreshold && total >= freeDeliveryThreshold) {
+    const prevFee = previousTotal > 0 ? deliveryActions.getDeliveryFeeLocal(previousTotal) : currentDeliveryFee;
+    if (prevFee > 0 && currentDeliveryFee === 0 && total >= freeDeliveryMin) {
       triggerFireworks();
     }
     
     // Trigger sad message when falling below threshold after reaching it
-    if (hasReachedFreeDelivery && previousTotal >= freeDeliveryThreshold && total < freeDeliveryThreshold) {
+    if (hasReachedFreeDelivery && prevFee === 0 && currentDeliveryFee > 0) {
       triggerSadMessage();
     }
     
@@ -38,15 +47,18 @@
     previousTotal = total;
   }
 
-  $: isFreeDelivery = total >= freeDeliveryThreshold;
-  $: finalTotal = total + (isFreeDelivery ? 0 : deliveryFee);
+  $: isFreeDelivery = currentDeliveryFee === 0;
+  $: finalTotal = total + currentDeliveryFee;
 
   // Load language from localStorage
-  onMount(() => {
+  onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
     }
+    
+    // Initialize delivery data
+    await deliveryActions.initialize();
   });
 
   // Listen for language changes
@@ -71,7 +83,9 @@
     freeDelivery: 'توصيل مجاني!',
     freeDeliveryUnlocked: 'تم فتح التوصيل المجاني! 🎉',
     sadMessage: '😢 أوه لا! فقدت التوصيل المجاني',
-    encourageMessage: `أضف ${(freeDeliveryThreshold - total).toFixed(2)} ر.س أكثر للحصول على توصيل مجاني!`
+    encourageMessage: nextTierInfo 
+      ? `أضف ${nextTierInfo.amountNeeded.toFixed(2)} ر.س أكثر لتوفير ${nextTierInfo.potentialSavings.toFixed(2)} ر.س على التوصيل!`
+      : `أضف ${(freeDeliveryMin - total).toFixed(2)} ر.س أكثر للحصول على توصيل مجاني!`
   } : {
     items: 'items',
     total: 'Total',
@@ -80,7 +94,9 @@
     freeDelivery: 'Free Delivery!',
     freeDeliveryUnlocked: 'Free Delivery Unlocked! 🎉',
     sadMessage: '😢 Oh no! You lost free delivery',
-    encourageMessage: `Add ${(freeDeliveryThreshold - total).toFixed(2)} SAR more for free delivery!`
+    encourageMessage: nextTierInfo 
+      ? `Add ${nextTierInfo.amountNeeded.toFixed(2)} SAR more to save ${nextTierInfo.potentialSavings.toFixed(2)} SAR on delivery!`
+      : `Add ${(freeDeliveryMin - total).toFixed(2)} SAR more for free delivery!`
   };
 
   function triggerFireworks() {
@@ -142,8 +158,8 @@
       <span class="total-amount">{total.toFixed(2)} {texts.sar}</span>
       {#if isFreeDelivery}
         <span class="free-delivery-badge">{texts.freeDelivery}</span>
-      {:else if deliveryFee > 0}
-        <small class="delivery-hint">+{deliveryFee.toFixed(2)} {currentLanguage === 'ar' ? 'توصيل' : 'delivery'}</small>
+      {:else if currentDeliveryFee > 0}
+        <small class="delivery-hint">+{currentDeliveryFee.toFixed(2)} {currentLanguage === 'ar' ? 'توصيل' : 'delivery'}</small>
       {/if}
     </div>
   </div>
