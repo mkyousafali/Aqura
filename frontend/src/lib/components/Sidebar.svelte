@@ -32,10 +32,12 @@
 	import ExpensesManager from '$lib/components/admin/finance/ExpensesManager.svelte';
 	import CustomerMaster from '$lib/components/admin/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/InterfaceAccessManager.svelte';
+	import AdManager from '$lib/components/admin/AdManager.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
+	let showCustomerAppSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -274,7 +276,29 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showCustomerAppSubmenu = false;
+	}
+
+	function openAdManager() {
+		const windowId = generateWindowId('ad-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Ad Manager #${instanceNumber}`,
+			component: AdManager,
+			icon: '📢',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showCustomerAppSubmenu = false;
 	}
 
 	function openApprovalCenter() {
@@ -549,12 +573,6 @@
 					</button>
 				</div>
 				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCustomerMaster}>
-						<span class="menu-icon">🤝</span>
-						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openHRMaster}>
 						<span class="menu-icon">👥</span>
 						<span class="menu-text">{t('admin.hrMaster') || 'HR Master'}</span>
@@ -612,6 +630,36 @@
 					<button class="submenu-item" on:click={openExpenseManager}>
 						<span class="menu-icon">💸</span>
 						<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Customer App Section -->
+		<div class="menu-section">
+			<button 
+				class="section-button"
+				on:click={() => showCustomerAppSubmenu = !showCustomerAppSubmenu}
+			>
+				<span class="section-icon">📱</span>
+				<span class="section-text">{t('nav.customerApp') || 'Customer App'}</span>
+				<span class="arrow" class:expanded={showCustomerAppSubmenu}>▼</span>
+			</button>
+		</div>
+
+		<!-- Customer App Submenu - Inline below Customer App button -->
+		{#if showCustomerAppSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCustomerMaster}>
+						<span class="menu-icon">🤝</span>
+						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openAdManager}>
+						<span class="menu-icon">📢</span>
+						<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
 					</button>
 				</div>
 			</div>
@@ -896,7 +944,7 @@
 		transition: all 0.2s ease;
 		font-size: 12px;
 		width: 100%;
-		height: 44px; /* Fixed height for all buttons */
+		min-height: 44px; /* Changed from height to min-height */
 		text-align: left;
 	}
 
@@ -939,10 +987,12 @@
 
 	.section-text {
 		flex: 1;
-		white-space: nowrap;
+		white-space: normal;
 		overflow: visible;
 		text-overflow: clip;
 		font-weight: 500;
+		line-height: 1.2;
+		word-wrap: break-word;
 	}
 
 	.arrow {
