@@ -31,7 +31,6 @@
 	import ScheduledPayments from '$lib/components/admin/vendor/ScheduledPayments.svelte';
 	import ExpensesManager from '$lib/components/admin/finance/ExpensesManager.svelte';
 	import CustomerMaster from '$lib/components/admin/CustomerMaster.svelte';
-	import CustomerAccountRecoveryManager from '$lib/components/admin/CustomerAccountRecoveryManager.svelte';
 	import InterfaceAccessManager from '$lib/components/InterfaceAccessManager.svelte';
 
 	let showSettingsSubmenu = false;
@@ -265,28 +264,6 @@
 			title: `Customer Master #${instanceNumber}`,
 			component: CustomerMaster,
 			icon: '👥',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showMasterSubmenu = false;
-	}
-
-	function openCustomerAccountRecoveryManager() {
-		const windowId = generateWindowId('customer-account-recovery-manager');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Customer Account Recovery Manager #${instanceNumber}`,
-			component: CustomerAccountRecoveryManager,
-			icon: '🔐',
 			size: { width: 1400, height: 900 },
 			position: { 
 				x: 50 + (Math.random() * 100), // Slightly offset each new window
@@ -562,37 +539,31 @@
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openVendorMaster}>
 						<span class="menu-icon">🏪</span>
-						<span class="menu-text">Vendor Master</span>
+						<span class="menu-text">{t('admin.vendorMaster') || 'Vendor Master'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openFinanceMaster}>
 						<span class="menu-icon">💰</span>
-						<span class="menu-text">Finance Master</span>
+						<span class="menu-text">{t('admin.financeMaster') || 'Finance Master'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openCustomerMaster}>
 						<span class="menu-icon">🤝</span>
-						<span class="menu-text">Customer Master</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCustomerAccountRecoveryManager}>
-						<span class="menu-icon">🔐</span>
-						<span class="menu-text">Account Recovery</span>
+						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openHRMaster}>
 						<span class="menu-icon">👥</span>
-						<span class="menu-text">HR Master</span>
+						<span class="menu-text">{t('admin.hrMaster') || 'HR Master'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openOperationsMaster}>
 						<span class="menu-icon">⚙️</span>
-						<span class="menu-text">Operations Master</span>
+						<span class="menu-text">{t('admin.operationsMaster') || 'Operations Master'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
@@ -604,7 +575,7 @@
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openCommunicationCenter}>
 						<span class="menu-icon">📞</span>
-						<span class="menu-text">Com Center</span>
+						<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
 					</button>
 				</div>
 			</div>
@@ -628,19 +599,19 @@
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openStartReceiving}>
 						<span class="menu-icon">📦</span>
-						<span class="menu-text">Start Receiving</span>
+						<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openScheduledPayments}>
 						<span class="menu-icon">💰</span>
-						<span class="menu-text">Scheduled Payments</span>
+						<span class="menu-text">{t('nav.scheduledPayments') || 'Scheduled Payments'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openExpenseManager}>
 						<span class="menu-icon">💸</span>
-						<span class="menu-text">Expense Manager</span>
+						<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
 					</button>
 				</div>
 			</div>
@@ -665,7 +636,7 @@
 			on:click={openApprovalCenter}
 		>
 			<span class="section-icon">✅</span>
-			<span class="section-text">Approvals</span>
+			<span class="section-text">{t('nav.approvals') || 'Approvals'}</span>
 			{#if pendingApprovalsCount > 0}
 				<span class="approval-badge">{pendingApprovalsCount}</span>
 			{/if}
@@ -689,26 +660,26 @@
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openSettings}>
 						<span class="menu-icon">🔊</span>
-						<span class="menu-text">Sound Settings</span>
+						<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openUserManagement}>
 						<span class="menu-icon">👤</span>
-						<span class="menu-text">Users</span>
+						<span class="menu-text">{t('nav.users') || 'Users'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openInterfaceAccessManager}>
 						<span class="menu-icon">🔧</span>
-						<span class="menu-text">Interface Access</span>
+						<span class="menu-text">{t('nav.interfaceAccess') || 'Interface Access'}</span>
 					</button>
 				</div>
 				{#if $currentUser?.roleType === 'Master Admin'}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openApprovalPermissions}>
 							<span class="menu-icon">🔐</span>
-							<span class="menu-text">Approval Permissions</span>
+							<span class="menu-text">{t('nav.approvalPermissions') || 'Approval Permissions'}</span>
 						</button>
 					</div>
 				{/if}

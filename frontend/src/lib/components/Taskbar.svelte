@@ -115,6 +115,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Switch between English and Arabic
 		const nextLocale = currentLang === 'en' ? 'ar' : 'en';
 		switchLocale(nextLocale);
+		
+		// Trigger hard refresh after a short delay to allow locale switch to complete
+		setTimeout(() => {
+			window.location.reload();
+		}, 100);
 	}
 
 	function getLanguageDisplayName(locale: string): string {

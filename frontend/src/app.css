@@ -2,10 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Urban-Express Design System Variables */
+:root {
+  /* Brand Colors - Official Pantone Profile */
+  --color-primary: #10B300; /* PANTONE P 24-8 C - Primary Green */
+  --color-primary-light: #A5C032; /* PANTONE P 8-15 C - Light Green */
+  --color-primary-dark: #6B9B20; /* PANTONE P 20-15 C - Dark Green */
+  --color-secondary: #C8A232; /* PANTONE P 161-15 C - Golden Yellow */
+  --color-accent: #E17739; /* PANTONE P 154-15 C - Orange */
+  --color-accent-dark: #D96539; /* PANTONE P 148-8 C - Deep Orange */
+  
+  /* Brand Gradients */
+  --gradient-primary: linear-gradient(135deg, #10B300 0%, #6B9B20 50%, #A5C032 100%);
+  --gradient-accent: linear-gradient(135deg, #C8A232 0%, #E17739 50%, #D96539 100%);
+  --gradient-brand: linear-gradient(90deg, #10B300 0%, #6B9B20 16.67%, #A5C032 33.33%, #C8A232 50%, #E17739 66.67%, #D96539 83.33%, #D96539 100%);
+  
+  /* UI Colors */
+  --color-ink: #0F172A;
+  --color-ink-light: #334155;
+  --color-background: #F8FAFC;
+  --color-surface: #F8FAFC;
+  --color-surface-dark: #E2E8F0;
+  --color-white: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-border-light: #F1F5F9;
+  --color-border-focus: #10B300;
+  
+  /* Semantic Colors */
+  --color-info: #3B82F6;
+  --color-info-light: #DBEAFE;
+  --color-warning: #C8A232;
+  --color-warning-light: #FFF8E1;
+  --color-danger: #EF4444;
+  --color-danger-light: #FEE2E2;
+  --color-error: #EF4444;
+  --color-error-light: #FEE2E2;
+  --color-success: #10B300;
+  --color-success-light: #E8F5E8;
+  
+  /* Typography */
+  --font-family-ar: 'Tajawal', 'Arabic UI Text', 'SF Arabic', 'Segoe UI Arabic', sans-serif;
+  --font-family-en: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+}
+
 @layer base {
   /* Root font configuration */
   html {
-    font-family: "Inter", system-ui, sans-serif;
+    font-family: var(--font-family-en);
   }
 
   /* Arabic font support */

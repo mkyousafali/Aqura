@@ -3,11 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import CustomerLogin from '$lib/components/CustomerLogin.svelte';
 
 	// Login form states
-	let interfaceChoice: 'desktop' | 'mobile' | 'customer' | null = null;
-	let loginMethod: 'username' | 'quickAccess' | 'customerAccess' = 'username';
+	let interfaceChoice: 'desktop' | 'mobile' | null = null;
+	let loginMethod: 'username' | 'quickAccess' = 'username';
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
@@ -66,15 +65,10 @@
 		quickAccessValid = true;
 	}
 
-	function chooseInterface(choice: 'desktop' | 'mobile' | 'customer') {
+	function chooseInterface(choice: 'desktop' | 'mobile') {
 		if (choice === 'mobile') {
 			// Redirect to mobile login
 			goto('/mobile-login');
-		} else if (choice === 'customer') {
-			// Set customer interface and show customer login
-			interfaceChoice = 'customer';
-			loginMethod = 'customerAccess';
-			clearForm();
 		} else {
 			// Continue with desktop interface
 			interfaceChoice = 'desktop';
@@ -85,6 +79,11 @@
 	function goBackToChoice() {
 		interfaceChoice = null;
 		clearForm();
+	}
+
+	function goToCustomerLogin() {
+		console.log('🔄 [Main Login] Customer Login button clicked');
+		goto('/customer-login');
 	}
 
 	function validateUsername() {
@@ -283,14 +282,6 @@
 		
 		validateQuickAccess();
 	}
-
-	function handleCustomerSuccess(event) {
-		const { detail } = event;
-		if (detail.type === 'customer_login') {
-			// Redirect to customer interface
-			goto('/customer');
-		}
-	}
 </script>
 
 <svelte:head>
@@ -369,11 +360,13 @@
 									<span class="interface-label">{$_('common.users')}</span>
 								</button>
 
+								<!-- Customer Login Button -->
 								<button 
 									class="interface-btn customer-btn"
-									on:click={() => chooseInterface('customer')}
+									on:click={goToCustomerLogin}
 									disabled={isLoading}
-									title={$_('customer.login.interface.customer')}
+									type="button"
+									title="Customer Login"
 								>
 									<div class="interface-icon">
 										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -385,12 +378,6 @@
 								</button>
 							</div>
 						</div>
-					{:else if interfaceChoice === 'customer'}
-						<!-- Customer Login Interface -->
-						<CustomerLogin 
-							on:back={goBackToChoice}
-							on:success={handleCustomerSuccess}
-						/>
 					{:else}
 						<!-- Desktop Authentication Interface -->
 					<!-- Method Toggle -->
@@ -900,8 +887,12 @@
 	}
 
 	.customer-btn:hover:not(:disabled) {
-		border-color: #8B5CF6;
-		box-shadow: 0 12px 30px rgba(139, 92, 246, 0.25);
+		border-color: #F59E0B;
+		box-shadow: 0 12px 30px rgba(245, 158, 11, 0.25);
+	}
+
+	.customer-btn .interface-icon {
+		background: linear-gradient(135deg, #F59E0B 0%, #FCD34D 100%);
 	}
 
 	.interface-icon {
@@ -918,10 +909,6 @@
 
 	.mobile-btn .interface-icon {
 		background: linear-gradient(135deg, #3B82F6 0%, #60A5FA 100%);
-	}
-
-	.customer-btn .interface-icon {
-		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
 	}
 
 	.interface-label {
@@ -1384,7 +1371,7 @@
 		}
 
 		.interface-options {
-			grid-template-columns: repeat(3, 1fr);
+			grid-template-columns: repeat(2, 1fr);
 			gap: 1rem;
 			margin-top: 1.5rem;
 		}
@@ -1612,7 +1599,7 @@
 		}
 
 		.interface-options {
-			grid-template-columns: repeat(3, 1fr);
+			grid-template-columns: repeat(2, 1fr);
 			gap: 0.75rem;
 			margin-top: 1rem;
 		}
@@ -1794,7 +1781,7 @@
 			}
 
 			.interface-options {
-				grid-template-columns: repeat(3, 1fr);
+				grid-template-columns: repeat(2, 1fr);
 				gap: 0.5rem;
 				margin-top: 0.75rem;
 			}

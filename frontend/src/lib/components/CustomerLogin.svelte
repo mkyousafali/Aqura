@@ -382,54 +382,30 @@
 			}
 		}
 		
-		whatsappNumber = value;
-		input.value = value;
-	}
-
-	function goBack() {
-		dispatch('back');
-	}
-</script>
-
-<div class="customer-login-container">
-	<!-- Header -->
-	<div class="customer-header">
-		<div class="header-controls">
-			<button class="back-btn" on:click={goBack} disabled={isLoading}>
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M19 12H5M12 19l-7-7 7-7"/>
-				</svg>
-				{$_('nav.goBack')}
-			</button>
-			
-			<button 
-				class="language-toggle-btn" 
-				on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
-				title={$_('nav.languageToggle')}
-			>
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<circle cx="12" cy="12" r="10"/>
-					<path d="M8 12h8"/>
-					<path d="M12 8v8"/>
-				</svg>
-				{$currentLocale === 'ar' ? 'English' : 'العربية'}
-			</button>
-		</div>
+	whatsappNumber = value;
+	input.value = value;
+}
+</script><div class="customer-login-container">
+	<!-- Language Toggle Button -->
+	<div class="language-toggle-wrapper">
+		<button 
+			type="button"
+			class="language-toggle-btn" 
+			on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
+			title={$_('nav.languageToggle')}
+		>
+			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="12" cy="12" r="10"/>
+				<path d="M8 12h8"/>
+				<path d="M12 8v8"/>
+			</svg>
+			{$currentLocale === 'ar' ? 'English' : 'العربية'}
+		</button>
 	</div>
 
 	{#if currentView === 'login'}
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
-			<div class="form-header">
-				<div class="customer-icon">
-					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-						<circle cx="12" cy="7" r="4"/>
-					</svg>
-				</div>
-				<h2>{$_('customer.login.title')}</h2>
-				<p>{$_('customer.login.subtitle')}</p>
-			</div>
 
 			<div class="form-fields">
 				<div class="field-group">
@@ -504,18 +480,6 @@
 	{:else if currentView === 'register'}
 		<!-- Customer Registration Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerRegistration}>
-			<div class="form-header">
-				<div class="customer-icon register">
-					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-						<circle cx="8.5" cy="7" r="4"/>
-						<line x1="20" y1="8" x2="20" y2="14"/>
-						<line x1="23" y1="11" x2="17" y2="11"/>
-					</svg>
-				</div>
-				<h2>{$_('customer.login.registerTitle')}</h2>
-				<p>{$_('customer.login.registerSubtitle')}</p>
-			</div>
 
 			<div class="form-fields">
 				<div class="field-group">
@@ -586,19 +550,6 @@
 	{:else if currentView === 'forgot'}
 		<!-- Forgot Access Code Form -->
 		<form class="customer-form" on:submit|preventDefault={handleForgotAccessCode}>
-			<div class="form-header">
-				<div class="customer-icon forgot">
-					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M9 12l2 2 4-4"/>
-						<path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
-						<path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
-						<path d="M12 21c-4.418 0-8-3.582-8-8"/>
-						<path d="M12 3c4.418 0 8 3.582 8 8"/>
-					</svg>
-				</div>
-				<h2>{$_('customer.login.forgotTitle')}</h2>
-				<p>{$_('customer.login.forgotSubtitle')}</p>
-			</div>
 
 			<div class="form-fields">
 				<div class="field-group">
@@ -779,98 +730,38 @@
 		}
 	}
 
-	.customer-header {
-		margin-bottom: 1rem;
-		padding-bottom: 1rem;
-		border-bottom: 1px solid #E5E7EB;
-	}
-
-	.header-controls {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.back-btn, .language-toggle-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		background: transparent;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		color: #64748B;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-	}
-
-	.language-toggle-btn {
-		background: #F8FAFC;
-		border-color: #CBD5E1;
-		color: #475569;
-		font-weight: 500;
-	}
-
-	.back-btn:hover:not(:disabled),
-	.language-toggle-btn:hover {
-		background: #F1F5F9;
-		border-color: #94A3B8;
-		color: #334155;
-	}
-
-	.back-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
 	.customer-form {
 		width: 100%;
 		margin: 0;
 		padding: 0;
 	}
 
-	.form-header {
-		text-align: center;
+	.language-toggle-wrapper {
+		display: flex;
+		justify-content: flex-end;
 		margin-bottom: 1.5rem;
 	}
 
-	.customer-icon {
-		width: 64px;
-		height: 64px;
-		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
-		border-radius: 16px;
+	.language-toggle-btn {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		color: white;
-		margin: 0 auto 1rem;
-		box-shadow: 0 6px 24px rgba(139, 92, 246, 0.25);
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: #F8FAFC;
+		border: 1px solid #CBD5E1;
+		border-radius: 8px;
+		color: #475569;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		touch-action: manipulation;
 	}
 
-	.customer-icon.register {
-		background: linear-gradient(135deg, #059669 0%, #10B981 100%);
-		box-shadow: 0 6px 24px rgba(5, 150, 105, 0.25);
-	}
-
-	.customer-icon.forgot {
-		background: linear-gradient(135deg, #7C3AED 0%, #A855F7 100%);
-		box-shadow: 0 6px 24px rgba(124, 58, 237, 0.25);
-	}
-
-	.form-header h2 {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: #1E293B;
-		margin-bottom: 0.375rem;
-	}
-
-	.form-header p {
-		color: #64748B;
-		font-size: 1rem;
-		margin: 0;
+	.language-toggle-btn:hover {
+		background: #F1F5F9;
+		border-color: #94A3B8;
+		color: #334155;
 	}
 
 	.form-fields {
@@ -1222,21 +1113,8 @@
 			font-size: 1.2rem;
 		}
 
-		.customer-icon {
-			width: 56px;
-			height: 56px;
-		}
-
-		.form-header h2 {
-			font-size: 1.375rem;
-		}
-
 		.field-input {
 			font-size: 16px; /* Prevents zoom on iOS */
-		}
-
-		.form-header {
-			margin-bottom: 1.25rem;
 		}
 
 		.form-fields {
@@ -1255,26 +1133,8 @@
 			font-size: 1.1rem;
 		}
 
-		.customer-icon {
-			width: 48px;
-			height: 48px;
-		}
-
-		.form-header h2 {
-			font-size: 1.25rem;
-		}
-
 		.customer-submit-btn {
 			min-height: 52px;
-		}
-
-		.form-header {
-			margin-bottom: 1rem;
-		}
-
-		.customer-header {
-			margin-bottom: 0.75rem;
-			padding-bottom: 0.75rem;
 		}
 	}
 
@@ -1287,15 +1147,6 @@
 			width: 34px;
 			height: 34px;
 			font-size: 1rem;
-		}
-
-		.customer-icon {
-			width: 44px;
-			height: 44px;
-		}
-
-		.form-header h2 {
-			font-size: 1.125rem;
 		}
 	}
 </style>
