@@ -4,6 +4,8 @@
   import { currentUser } from "$lib/utils/persistentAuth";
   import { notificationManagement } from '$lib/utils/notificationManagement';
   import { t } from "$lib/i18n";
+  import { openWindow } from '$lib/utils/windowManagerUtils';
+  import CustomerAccountRecoveryManager from './CustomerAccountRecoveryManager.svelte';
 
   interface Customer {
     id: string;
@@ -33,9 +35,14 @@
   let showWhatsAppButton = false;
   let isGeneratingCode = false;
   let isSavingApproval = false;
+  
+  // Statistics
+  let pendingRegistrations = 0;
+  let pendingRecoveryRequests = 0;
 
   onMount(() => {
     loadCustomers();
+    loadStatistics();
   });
 
   async function loadCustomers() {
@@ -53,11 +60,44 @@
       customers = data || [];
       console.log("✅ [CustomerMaster] Loaded customers:", customers.length, "customers");
       console.log("📊 [CustomerMaster] Sample customer data:", customers[0]);
+      
+      // Load statistics
+      await loadStatistics();
     } catch (error) {
       console.error("❌ [CustomerMaster] Error loading customers:", error);
       alert("Error loading customers");
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadStatistics() {
+    try {
+      // Load pending registration requests
+      const { data: pendingRegs, error: regError } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("registration_status", "pending");
+
+      if (regError) {
+        console.error("Error loading pending registrations:", regError);
+      } else {
+        pendingRegistrations = pendingRegs?.length || 0;
+      }
+
+      // Load unresolved account recovery requests
+      const { data: recoveryReqs, error: recoveryError } = await supabase
+        .from("customer_recovery_requests")
+        .select("id")
+        .neq("verification_status", "processed");
+
+      if (recoveryError) {
+        console.error("Error loading recovery requests:", recoveryError);
+      } else {
+        pendingRecoveryRequests = recoveryReqs?.length || 0;
+      }
+    } catch (error) {
+      console.error("Error loading statistics:", error);
     }
   }
 
@@ -103,8 +143,9 @@
       // Send notification through notification center
       await sendAdminNotification(customerId, status, notes || "", accessCode);
       
-      // Reload customers list
+      // Reload customers list and statistics
       await loadCustomers();
+      await loadStatistics();
       
     } catch (error) {
       console.error("Error updating customer status:", error);
@@ -283,12 +324,65 @@ Welcome aboard! 🚀
       default: return "text-gray-600 bg-gray-100";
     }
   }
+
+  function openAccountRecoveryManager() {
+    const windowId = `account-recovery-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+    
+    openWindow({
+      id: windowId,
+      title: `Customer Account Recovery Manager #${instanceNumber}`,
+      component: CustomerAccountRecoveryManager,
+      icon: '🔐',
+      size: { width: 1400, height: 900 },
+      position: { 
+        x: 50 + (Math.random() * 100), 
+        y: 50 + (Math.random() * 100) 
+      },
+      resizable: true,
+      minimizable: true,
+      maximizable: true,
+      closable: true
+    });
+  }
 </script>
 
 <div class="customer-management">
   <div class="header">
-    <h1>Customer Management</h1>
-    <p>Manage customer registrations and access approvals</p>
+    <div class="header-content">
+      <div class="header-text">
+        <h1>Customer Management</h1>
+        <p>Manage customer registrations and access approvals</p>
+      </div>
+      <div class="header-actions">
+        <button 
+          class="account-recovery-btn"
+          on:click={openAccountRecoveryManager}
+          title="Open Account Recovery Manager"
+        >
+          <span class="btn-icon">🔐</span>
+          <span class="btn-text">Account Recovery</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Cards -->
+  <div class="status-cards">
+    <div class="status-card registration-card">
+      <div class="card-icon">👥</div>
+      <div class="card-content">
+        <div class="card-number">{pendingRegistrations}</div>
+        <div class="card-label">{t('admin.pendingRegistrationRequests')}</div>
+      </div>
+    </div>
+    <div class="status-card recovery-card">
+      <div class="card-icon">🔓</div>
+      <div class="card-content">
+        <div class="card-number">{pendingRecoveryRequests}</div>
+        <div class="card-label">{t('admin.unresolvedAccountRecovery')}</div>
+      </div>
+    </div>
   </div>
 
   <!-- Filters -->
@@ -494,6 +588,17 @@ Welcome aboard! 🚀
     margin-bottom: 2rem;
   }
 
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .header-text {
+    flex: 1;
+  }
+
   .header h1 {
     margin: 0 0 0.5rem 0;
     color: #374151;
@@ -505,6 +610,109 @@ Welcome aboard! 🚀
     margin: 0;
     color: #6b7280;
     font-size: 1rem;
+  }
+
+  .header-actions {
+    flex-shrink: 0;
+  }
+
+  .account-recovery-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border: none;
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  }
+
+  .account-recovery-btn:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+  }
+
+  .account-recovery-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  }
+
+  .account-recovery-btn .btn-icon {
+    font-size: 1rem;
+  }
+
+  .account-recovery-btn .btn-text {
+    white-space: nowrap;
+  }
+
+  /* Status Cards */
+  .status-cards {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .status-card {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: white;
+    border-radius: 1rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s ease;
+  }
+
+  .status-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  }
+
+  .card-icon {
+    font-size: 2.5rem;
+    min-width: 3rem;
+    text-align: center;
+  }
+
+  .card-content {
+    flex: 1;
+  }
+
+  .card-number {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 0.25rem;
+  }
+
+  .card-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .registration-card .card-number {
+    color: #f59e0b;
+  }
+
+  .recovery-card .card-number {
+    color: #ef4444;
+  }
+
+  @media (max-width: 768px) {
+    .status-cards {
+      flex-direction: column;
+      gap: 1rem;
+    }
   }
 
   .filters {

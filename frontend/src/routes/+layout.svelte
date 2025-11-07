@@ -741,7 +741,9 @@
 				updateBodyClass();
 				
 				// Only redirect if we're not already on the target page to prevent loops
-				if (!authenticated && $page.url.pathname !== '/login') {
+				// Also exclude customer routes from employee authentication checks
+				const isCustomerRoute = $page.url.pathname.startsWith('/customer');
+				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute) {
 					console.log('🔐 Not authenticated, redirecting to login');
 					goto('/login', { replaceState: true });
 				}
@@ -775,8 +777,9 @@
 					console.warn('⚠️ Loading timeout reached, forcing loading state to false');
 					isLoading = false;
 					
-					// If still not authenticated after timeout, redirect to login (exclude mobile routes)
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute) {
+					// If still not authenticated after timeout, redirect to login (exclude mobile and customer routes)
+					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -801,8 +804,9 @@
 			isLoading = false;
 			isAuthenticated = false;
 			
-			// Only redirect to login if we're not already there
-			if ($page.url.pathname !== '/login') {
+			// Only redirect to login if we're not already there and not on customer routes
+			const isCustomerRouteError = $page.url.pathname.startsWith('/customer');
+			if ($page.url.pathname !== '/login' && !isCustomerRouteError) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
