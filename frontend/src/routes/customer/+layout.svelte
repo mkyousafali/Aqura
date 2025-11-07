@@ -21,7 +21,7 @@
   <TopBar />
 {/if}
 
-<main class="customer-main" class:with-nav={showNavigation}>
+<main class="customer-main" class:with-nav={showNavigation} class:with-cart={showCartBar}>
   <slot />
 </main>
 
@@ -47,5 +47,10 @@
   .customer-main.with-nav {
     padding-top: 60px;
     padding-bottom: 80px;
+  }
+
+  /* Add extra padding when cart bar is visible */
+  .customer-main.with-nav.with-cart {
+    padding-bottom: 160px; /* 80px nav + 80px cart bar */
   }
 </style>
