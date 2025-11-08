@@ -13,6 +13,7 @@
   let userName = 'Guest';
   let loading = true;
   let mediaItems = []; // Combined video and image items from database
+  let rotationTimer = null; // timer for auto-rotation
   
   // Touch tracking for scroll vs click detection
   let touchStartY = 0;
@@ -115,25 +116,42 @@
   }
 
   // Media rotation functionality (handles both videos and images)
-  function startMediaRotation() {
+  function scheduleNextMedia() {
     if (mediaItems.length === 0) return;
-    
-    function scheduleNextMedia() {
-      const currentMedia = mediaItems[currentMediaIndex];
-      const duration = currentMedia.duration * 1000 + 2000; // Add 2 seconds buffer
-      
-      setTimeout(() => {
-        nextMedia();
-        scheduleNextMedia();
-      }, duration);
-    }
-    
+    const currentMedia = mediaItems[currentMediaIndex] || { duration: 5 };
+    const duration = (currentMedia.duration || 5) * 1000 + 2000; // Add 2 seconds buffer
+    clearTimeout(rotationTimer);
+    rotationTimer = setTimeout(() => {
+      nextMedia();
+      scheduleNextMedia();
+    }, duration);
+  }
+
+  function startMediaRotation() {
     scheduleNextMedia();
   }
   
   function nextMedia() {
     currentMediaIndex = (currentMediaIndex + 1) % mediaItems.length;
     updateMediaDisplay();
+  }
+  function advanceMediaNow() {
+    // Manually go to next media and reschedule rotation
+    clearTimeout(rotationTimer);
+    nextMedia();
+    scheduleNextMedia();
+  }
+
+  function handleMediaClick(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    advanceMediaNow();
+  }
+
+  function handleMediaTouchEnd(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    advanceMediaNow();
   }
   
   function updateMediaDisplay() {
@@ -179,12 +197,25 @@
     videoError = false;
   }
   
-  function hideVideo() {
+  function hideVideo(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
     isVideoHidden = true;
     localStorage.setItem('videoHidden', 'true');
   }
 
-  function showVideo() {
+  function showVideo(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    console.log('Show video clicked');
+    isVideoHidden = false;
+    localStorage.removeItem('videoHidden');
+  }
+
+  function handleShowVideoTouch(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    console.log('Show video touched');
     isVideoHidden = false;
     localStorage.removeItem('videoHidden');
   }
@@ -248,11 +279,17 @@
     }
   }
 
-  function goStartShopping() {
+  function goStartShopping(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    console.log('Go shopping clicked');
     goto('/customer/start');
   }
 
-  function goSupport() {
+  function goSupport(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    console.log('Go support clicked');
     goto('/customer/support');
   }
 
@@ -273,28 +310,77 @@
   </div>
 {:else}
   <div class="home-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-    <div class="hero">
-      <h2 class="greeting">{texts.greeting}</h2>
-      <p class="subtitle">{texts.startSubtitle}</p>
-      <div class="cta-buttons">
-        <button class="cta primary" on:click={goStartShopping} type="button">🛒 {texts.shopNow}</button>
-        <button class="cta secondary" on:click={goSupport} type="button">🆘 {texts.support}</button>
-      </div>
+    <!-- LED Screen Media Section -->
+    {#if !isVideoHidden && mediaItems.length > 0}
+      <section class="advertisement-section">
+        <div class="led-screen-container">
+          <div class="led-frame">
+            <button class="hide-btn" on:click={hideVideo} type="button">
+              <span>✕</span>
+            </button>
+            <div class="screen-glow"></div>
+            <div class="video-content" bind:this={videoContainer} on:click={handleMediaClick} on:touchend={handleMediaTouchEnd}>
+              <div class="led-dots"></div>
+              {#each mediaItems as media, index}
+                {#if media.type === 'video'}
+                  <video
+                    style="display: {index === currentMediaIndex ? 'block' : 'none'};"
+                    src={media.src}
+                    playsinline
+                    muted
+                    loop={false}
+                    on:ended={advanceMediaNow}
+                    on:error={handleVideoError}
+                  ></video>
+                {:else if media.type === 'image'}
+                  <img
+                    style="display: {index === currentMediaIndex ? 'block' : 'none'};"
+                    src={media.src}
+                    alt={media.title}
+                  />
+                {/if}
+              {/each}
+              {#if videoError || mediaItems.length === 0}
+                <div class="video-fallback">
+                  <div class="fallback-content">
+                    <div class="fallback-icon">🎬</div>
+                    <div class="fallback-title">Coming Soon</div>
+                    <div class="fallback-subtitle">Stay tuned for exciting updates!</div>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      </section>
+    {:else if isVideoHidden}
+      <section class="show-video-section">
+        <button 
+          class="show-video-btn" 
+          on:click={showVideo}
+          on:touchstart={handleShowVideoTouch}
+          type="button"
+        >
+          <span class="video-icon">📺</span>
+          Show Advertisements
+        </button>
+      </section>
+    {/if}
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button class="action-btn primary" on:click={goStartShopping} type="button">
+        🛒 {texts.shopNow}
+      </button>
+      <button class="action-btn secondary" on:click={goSupport} type="button">
+        🆘 {texts.support}
+      </button>
     </div>
   </div>
 {/if}
 
 <style>
   .loading-container {
-  .hero { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height: 70vh; gap: 1rem; text-align:center; }
-  .greeting { margin: 0; color: var(--color-ink); }
-  .subtitle { margin: 0; color: var(--color-ink-light); }
-  .cta-buttons { display:flex; gap: 0.75rem; flex-wrap: wrap; justify-content:center; }
-  .cta { border: none; border-radius: 10px; padding: 0.85rem 1.25rem; font-weight: 700; cursor: pointer; }
-  .cta.primary { background: var(--color-primary); color: #fff; }
-  .cta.secondary { background: var(--color-surface); color: var(--color-ink); border:1px solid var(--color-border); }
-  .cta.primary:hover { background: var(--color-primary-dark); }
-  .cta.secondary:hover { background: #f6f7f9; }
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -319,17 +405,155 @@
   }
 
   .home-container {
-    padding: 1rem;
+    /* Brand palette derived from logo */
+    --brand-green: #16a34a; /* primary */
+    --brand-green-dark: #15803d;
+    --brand-green-light: #22c55e;
+    --brand-orange: #f59e0b; /* accent */
+    --brand-orange-dark: #d97706;
+    --brand-orange-light: #fbbf24;
+    --brand-yellow: #fef3c7;
+    --brand-blue: #dbeafe;
+
+    /* Remap app variables for this page to brand colors */
+    --color-primary: var(--brand-green);
+    --color-primary-dark: var(--brand-green-dark);
+    --color-accent: var(--brand-orange);
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start; /* start at top */
+    padding: 0 1rem 2rem 1rem;
     max-width: 100%;
     margin: 0 auto;
     min-height: 100vh;
-    background: var(--color-surface);
+    gap: 1.5rem;
+    position: relative;
+
+    /* Enhanced vibrant brand background with gradients */
+    background:
+      radial-gradient(circle at 20% 10%, rgba(22,163,74,0.15), transparent 40%),
+      radial-gradient(circle at 80% 20%, rgba(245,158,11,0.15), transparent 40%),
+      radial-gradient(circle at 50% 60%, rgba(34,197,94,0.08), transparent 50%),
+      radial-gradient(circle at 10% 90%, rgba(251,191,36,0.12), transparent 40%),
+      linear-gradient(135deg, #fef3c7 0%, #ffffff 30%, #dbeafe 70%, #f0fdf4 100%);
+  }
+
+  /* Enhanced decorative overlay with animated gradient */
+  .home-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 800px 400px at 30% 20%, rgba(22,163,74,0.08), transparent 60%),
+      radial-gradient(ellipse 600px 500px at 70% 80%, rgba(245,158,11,0.10), transparent 70%),
+      radial-gradient(ellipse 700px 300px at 50% 50%, rgba(34,197,94,0.04), transparent 80%);
+    pointer-events: none;
+    z-index: 0;
+    animation: gradientShift 10s ease-in-out infinite alternate;
+  }
+
+  @keyframes gradientShift {
+    0% {
+      opacity: 0.8;
+      transform: scale(1) translateY(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1.02) translateY(-10px);
+    }
+  }
+
+  /* Action Buttons */
+  .action-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  .action-btn {
+    flex: 1;
+    min-width: 140px;
+    border: none;
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  .action-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+
+  .action-btn:active::before {
+    width: 300px;
+    height: 300px;
+  }
+  
+  .action-btn.primary {
+    background: linear-gradient(135deg, var(--brand-green) 0%, var(--brand-green-dark) 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35),
+                0 0 30px rgba(22, 163, 74, 0.15);
+  }
+  
+  .action-btn.secondary {
+    background: linear-gradient(135deg, #ffffff 0%, #fef3c7 100%);
+    color: var(--brand-orange-dark);
+    border: 3px solid var(--brand-orange);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.25),
+                0 0 25px rgba(245, 158, 11, 0.12);
+  }
+
+  .action-btn:active {
+    transform: scale(0.96);
+  }
+  
+  .action-btn.primary:hover {
+    background: linear-gradient(135deg, var(--brand-green-light) 0%, var(--brand-green) 100%);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 28px rgba(22, 163, 74, 0.40),
+                0 0 40px rgba(22, 163, 74, 0.20);
+  }
+  
+  .action-btn.secondary:hover {
+    background: linear-gradient(135deg, #fef3c7 0%, var(--brand-orange-light) 100%);
+    border-color: var(--brand-orange-dark);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(245, 158, 11, 0.35),
+                0 0 35px rgba(245, 158, 11, 0.18);
   }
 
   /* Advertisement LED Screen Styles */
   .advertisement-section {
-    margin: 1rem 0 2rem 0;
+    margin: 0;
     padding: 0;
+    width: 100%;
+    position: relative;
+    top: 0;
   }
 
   .led-screen-container {
@@ -462,6 +686,8 @@
     margin: 2rem 0;
     padding: 0;
     text-align: center;
+    width: 100%;
+    max-width: 400px;
   }
 
   .show-video-btn {
@@ -480,6 +706,17 @@
     transition: all 0.3s ease;
     box-shadow: 0 0 20px rgba(16, 179, 0, 0.3);
     text-shadow: 0 0 5px var(--color-primary);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    z-index: 10;
+  }
+
+  .show-video-btn:active {
+    transform: scale(0.95);
+    box-shadow: 0 0 15px rgba(16, 179, 0, 0.4);
   }
 
   .show-video-btn:hover {
@@ -513,7 +750,7 @@
     left: -5px;
     right: -5px;
     bottom: -5px;
-    background: linear-gradient(45deg, var(--color-primary), var(--color-accent), var(--color-secondary), var(--color-primary));
+    background: linear-gradient(45deg, var(--color-primary), var(--color-accent), var(--color-primary));
     border-radius: 16px;
     opacity: 0.2;
     filter: blur(8px);
@@ -545,28 +782,50 @@
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
-    padding: 1rem;
-    background: var(--color-primary);
+    padding: 1.25rem;
+    background: linear-gradient(135deg, var(--brand-green) 0%, var(--brand-green-light) 100%);
     color: white;
     border: none;
-    border-radius: 12px;
-    font-size: 1.1rem;
-    font-weight: 600;
+    border-radius: 16px;
+    font-size: 1.15rem;
+    font-weight: 700;
     margin-bottom: 1.5rem;
     cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    box-shadow: 0 6px 20px rgba(22, 163, 74, 0.30),
+                0 0 30px rgba(22, 163, 74, 0.15);
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
     position: relative;
     z-index: 10;
+    overflow: hidden;
+  }
+
+  .all-products-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.5s;
+  }
+
+  .all-products-btn:hover::before {
+    left: 100%;
   }
 
   .all-products-btn:hover {
-    background: var(--color-primary-dark);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: linear-gradient(135deg, var(--brand-green-light) 0%, var(--brand-green) 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(22, 163, 74, 0.40),
+                0 0 40px rgba(22, 163, 74, 0.20);
+  }
+
+  .all-products-btn:active {
+    transform: translateY(0) scale(0.98);
   }
 
   .btn-icon {
@@ -585,30 +844,58 @@
     align-items: center;
     justify-content: center;
     padding: 1.5rem 1rem;
-    background: white;
-    border: 2px solid var(--color-border);
-    border-radius: 16px;
+    background: linear-gradient(135deg, #ffffff 0%, #fefefe 100%);
+    border: 2px solid transparent;
+    border-radius: 20px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
     text-decoration: none;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.9);
     min-height: 120px;
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
     position: relative;
     z-index: 10;
+    overflow: hidden;
+  }
+
+  .category-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.05) 0%, rgba(245, 158, 11, 0.05) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    border-radius: 20px;
+  }
+
+  .category-card:hover::before {
+    opacity: 1;
   }
 
   .category-card:hover {
-    border-color: var(--color-primary);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--brand-green);
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 8px 24px rgba(22, 163, 74, 0.20),
+                0 0 30px rgba(22, 163, 74, 0.10),
+                inset 0 1px 0 rgba(255, 255, 255, 1);
+  }
+
+  .category-card:active {
+    transform: translateY(-2px) scale(0.99);
   }
 
   .category-icon {
-    font-size: 2.5rem;
+    font-size: 3rem;
     margin-bottom: 0.75rem;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    transition: transform 0.3s ease;
+  }
+
+  .category-card:hover .category-icon {
+    transform: scale(1.15) rotate(5deg);
   }
 
   .category-card h3 {
@@ -623,11 +910,12 @@
   /* Mobile optimizations */
   @media (max-width: 480px) {
     .home-container {
-      padding: 0.75rem;
+      padding: 0 0.75rem 1.25rem 0.75rem; /* slightly less bottom */
+      gap: 1.25rem;
     }
 
     .advertisement-section {
-      margin: 1rem 0 1.5rem 0;
+      margin: 0;
     }
 
     .led-screen-container {
@@ -656,6 +944,17 @@
       margin: 0 auto;
     }
 
+    .action-buttons {
+      gap: 0.75rem;
+      padding: 0 0.5rem;
+    }
+
+    .action-btn {
+      min-width: 120px;
+      padding: 0.875rem 1.25rem;
+      font-size: 0.95rem;
+    }
+
     .category-card {
       padding: 1.25rem 0.75rem;
       min-height: 110px;
@@ -675,7 +974,7 @@
   @media (min-width: 768px) {
     .home-container {
       max-width: 800px;
-      padding: 2rem;
+      padding: 0 2rem 2rem 2rem; /* no top padding on desktop */
     }
 
     .categories-grid {

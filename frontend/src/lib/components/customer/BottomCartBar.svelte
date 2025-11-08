@@ -8,10 +8,15 @@
   let currentLanguage = 'ar';
   let showFireworks = false;
   let showSadMessage = false;
+  let showTierMessage = false;
   let previousTotal = 0;
+  let previousDeliveryFee = null;
   let hasReachedFreeDelivery = false;
   let currentDeliveryFee = 0;
   let nextTierInfo = null;
+  let highestDeliveryFeeInTier = 0; // Track highest fee while in current tier
+  let tierSavingsAmount = 0; // Store the savings when tier activates
+  let nextTierAtActivation = null; // Store next tier info when tier activates
 
   // Subscribe to cart updates using reactive syntax
   $: itemCount = $cartCount;
@@ -20,10 +25,17 @@
   
   // Calculate delivery fee reactively
   $: {
-    const branchId = $orderFlow?.branchId || null;
-    if (total > 0 && $deliveryTiers.length > 0) {
+    const branchId = $orderFlow?.branchId;
+    if (branchId && total > 0 && $deliveryTiers.length > 0) {
       currentDeliveryFee = deliveryActions.getDeliveryFeeLocal(total, branchId);
       nextTierInfo = deliveryActions.getNextTierLocal(total, branchId);
+      
+      // Track highest delivery fee while in current tier
+      if (currentDeliveryFee > highestDeliveryFeeInTier) {
+        highestDeliveryFeeInTier = currentDeliveryFee;
+      }
+      
+      console.log('Cart bar update:', {total, currentDeliveryFee, nextTierInfo, highestDeliveryFeeInTier});
     } else {
       currentDeliveryFee = 0;
       nextTierInfo = null;
@@ -32,13 +44,19 @@
   
   // Reactive statement for total changes
   $: {
+    const branchId = $orderFlow?.branchId;
+    
     // Track if user has ever reached free delivery
     if (currentDeliveryFee === 0 && total >= freeDeliveryMin) {
       hasReachedFreeDelivery = true;
     }
     
+    // Calculate previous fee with branchId
+    const prevFee = (previousTotal > 0 && branchId) 
+      ? deliveryActions.getDeliveryFeeLocal(previousTotal, branchId) 
+      : currentDeliveryFee;
+    
     // Trigger fireworks when crossing threshold upward
-    const prevFee = previousTotal > 0 ? deliveryActions.getDeliveryFeeLocal(previousTotal) : currentDeliveryFee;
     if (prevFee > 0 && currentDeliveryFee === 0 && total >= freeDeliveryMin) {
       triggerFireworks();
     }
@@ -48,8 +66,31 @@
       triggerSadMessage();
     }
     
-    // Update previous total
+    // Trigger tier message when activating a new tier (fee decreased)
+    // Must have valid previous fee and current fee must be lower but not zero
+    if (previousDeliveryFee !== null && previousDeliveryFee > currentDeliveryFee && currentDeliveryFee > 0) {
+      // Calculate savings from the highest fee user had in previous tier
+      tierSavingsAmount = highestDeliveryFeeInTier - currentDeliveryFee;
+      
+      // Capture next tier info at activation moment
+      nextTierAtActivation = nextTierInfo;
+      
+      console.log('Tier activated!', {
+        highestDeliveryFeeInTier, 
+        currentDeliveryFee, 
+        tierSavingsAmount, 
+        nextTierAtActivation
+      });
+      
+      // Reset highest fee tracker for new tier
+      highestDeliveryFeeInTier = currentDeliveryFee;
+      
+      triggerTierMessage();
+    }
+    
+    // Update previous values
     previousTotal = total;
+    previousDeliveryFee = currentDeliveryFee;
   }
 
   $: isFreeDelivery = currentDeliveryFee === 0;
@@ -68,6 +109,8 @@
   // Reload tiers when branch selection changes
   $: if ($orderFlow?.branchId) {
     deliveryActions.loadTiers($orderFlow.branchId);
+  } else {
+    deliveryTiers.set([]);
   }
 
   // Listen for language changes
@@ -95,10 +138,7 @@
     sar: 'ر.س',
     freeDelivery: 'توصيل مجاني!',
     freeDeliveryUnlocked: 'تم فتح التوصيل المجاني! 🎉',
-    sadMessage: '😢 أوه لا! فقدت التوصيل المجاني',
-    encourageMessage: nextTierInfo 
-      ? `أضف ${nextTierInfo.amountNeeded.toFixed(2)} ر.س أكثر لتوفير ${nextTierInfo.potentialSavings.toFixed(2)} ر.س على التوصيل!`
-      : `أضف ${(freeDeliveryMin - total).toFixed(2)} ر.س أكثر للحصول على توصيل مجاني!`
+    sadMessage: '😢 أوه لا! فقدت التوصيل المجاني'
   } : {
     items: 'items',
     total: 'Total',
@@ -106,10 +146,7 @@
     sar: 'SAR',
     freeDelivery: 'Free Delivery!',
     freeDeliveryUnlocked: 'Free Delivery Unlocked! 🎉',
-    sadMessage: '😢 Oh no! You lost free delivery',
-    encourageMessage: nextTierInfo 
-      ? `Add ${nextTierInfo.amountNeeded.toFixed(2)} SAR more to save ${nextTierInfo.potentialSavings.toFixed(2)} SAR on delivery!`
-      : `Add ${(freeDeliveryMin - total).toFixed(2)} SAR more for free delivery!`
+    sadMessage: '😢 Oh no! You lost free delivery'
   };
 
   function triggerFireworks() {
@@ -126,11 +163,24 @@
     }, 4000);
   }
 
+  function triggerTierMessage() {
+    console.log('Triggering tier message, nextTierAtActivation:', nextTierAtActivation);
+    showTierMessage = true;
+    setTimeout(() => {
+      showTierMessage = false;
+      nextTierAtActivation = null; // Reset after showing
+    }, 4000);
+  }
+
   function openSteps() { showSteps = true; }
   function closeSteps() { showSteps = false; }
 
   function goToCart() {
     goto('/customer/cart');
+  }
+
+  function goToCheckout() {
+    goto('/customer/checkout');
   }
 </script>
 
@@ -155,7 +205,27 @@
       <div class="sad-emoji">😢</div>
       <div class="sad-message">
         <div class="sad-title">{texts.sadMessage}</div>
-        <div class="encourage-text">{texts.encourageMessage}</div>
+      </div>
+    </div>
+  {/if}
+  
+  <!-- Tier Activated Message -->
+  {#if showTierMessage}
+    <div class="tier-message-container">
+      <div class="tier-emoji">🎉</div>
+      <div class="tier-message">
+        <div class="tier-title">
+          {currentLanguage === 'ar' 
+            ? `رائع! وفرت ${tierSavingsAmount.toFixed(2)} ر.س على التوصيل` 
+            : `Great! Saved ${tierSavingsAmount.toFixed(2)} SAR on delivery`}
+        </div>
+        {#if nextTierAtActivation}
+          <div class="next-tier-info">
+            {currentLanguage === 'ar'
+              ? `المستوى التالي عند ${nextTierAtActivation.nextTierMinAmount.toFixed(0)} ر.س - وفر ${nextTierAtActivation.potentialSavings.toFixed(2)} ر.س إضافية`
+              : `Next tier at ${nextTierAtActivation.nextTierMinAmount.toFixed(0)} SAR - Save ${nextTierAtActivation.potentialSavings.toFixed(2)} SAR more`}
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -176,7 +246,7 @@
     </div>
   </div>
   
-  <button class="checkout-btn" on:click={openSteps}>
+  <button class="checkout-btn" on:click={goToCheckout}>
     {texts.checkout}
   </button>
 </div>
@@ -540,19 +610,114 @@
     max-width: 300px;
   }
 
-  .sad-title {
+  .tier-title {
     font-size: 1.1rem;
     font-weight: bold;
     margin-bottom: 0.5rem;
   }
 
-  .encourage-text {
-    font-size: 0.9rem;
+  .next-tier-info {
+    font-size: 0.85rem;
     opacity: 0.9;
     line-height: 1.4;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.3);
   }
 
   @keyframes sadMessageSlide {
+    0% {
+      transform: translate(-50%, -50%) translateY(100px) scale(0);
+      opacity: 0;
+    }
+    25% {
+      transform: translate(-50%, -50%) translateY(0) scale(1.1);
+      opacity: 1;
+    }
+    35% {
+      transform: translate(-50%, -50%) translateY(-5px) scale(1);
+      opacity: 1;
+    }
+    85% {
+      transform: translate(-50%, -50%) translateY(0) scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(-50%, -50%) translateY(30px) scale(0.9);
+      opacity: 0;
+    }
+  }
+
+  /* Tier Activated Message Styles */
+  .tier-message-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .tier-emoji {
+    position: absolute;
+    font-size: 4rem;
+    animation: tierEmojiFloat 4s ease-out forwards;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  @keyframes tierEmojiFloat {
+    0% {
+      transform: translateX(-50%) translateY(-100px) scale(0) rotate(-180deg);
+      opacity: 0;
+    }
+    20% {
+      transform: translateX(-50%) translateY(0) scale(1.2) rotate(0deg);
+      opacity: 1;
+    }
+    30% {
+      transform: translateX(-50%) translateY(10px) scale(1) rotate(0deg);
+      opacity: 1;
+    }
+    80% {
+      transform: translateX(-50%) translateY(0) scale(1) rotate(0deg);
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(-50%) translateY(-50px) scale(0.8) rotate(0deg);
+      opacity: 0;
+    }
+  }
+
+  .tier-message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(45deg, #4CAF50, #66BB6A);
+    color: white;
+    padding: 1.5rem 2rem;
+    border-radius: 20px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(76, 175, 80, 0.4);
+    animation: tierMessageSlide 4s ease-out forwards;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    max-width: 300px;
+  }
+
+  .tier-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+  }
+
+  @keyframes tierMessageSlide {
     0% {
       transform: translate(-50%, -50%) translateY(100px) scale(0);
       opacity: 0;

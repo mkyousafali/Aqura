@@ -49,7 +49,7 @@
   }
 
   function goBack() {
-    goto('/customer/finalize');
+    goto('/customer/cart');
   }
 </script>
 

@@ -21,50 +21,31 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 AS $$
-DECLARE
-    v_has_branch boolean;
 BEGIN
+    -- Strictly branch-specific tiers; if branch_id is NULL, return empty set
     IF p_branch_id IS NULL THEN
-        -- Only global tiers
-        RETURN QUERY
-        SELECT 
-            t.id, t.branch_id, t.min_order_amount, t.max_order_amount,
-            t.delivery_fee, t.tier_order, t.is_active, t.description_en, t.description_ar
-        FROM public.delivery_fee_tiers t
-        WHERE t.is_active = true AND t.branch_id IS NULL
-        ORDER BY t.tier_order ASC;
         RETURN;
     END IF;
 
-    -- Check if branch-specific tiers exist
-    SELECT EXISTS (
-        SELECT 1 FROM public.delivery_fee_tiers 
-        WHERE is_active = true AND branch_id = p_branch_id
-    ) INTO v_has_branch;
-
-    IF v_has_branch THEN
-        RETURN QUERY
-        SELECT 
-            t.id, t.branch_id, t.min_order_amount, t.max_order_amount,
-            t.delivery_fee, t.tier_order, t.is_active, t.description_en, t.description_ar
-        FROM public.delivery_fee_tiers t
-        WHERE t.is_active = true AND t.branch_id = p_branch_id
-        ORDER BY t.tier_order ASC;
-    ELSE
-        -- Fallback to global tiers
-        RETURN QUERY
-        SELECT 
-            t.id, t.branch_id, t.min_order_amount, t.max_order_amount,
-            t.delivery_fee, t.tier_order, t.is_active, t.description_en, t.description_ar
-        FROM public.delivery_fee_tiers t
-        WHERE t.is_active = true AND t.branch_id IS NULL
-        ORDER BY t.tier_order ASC;
-    END IF;
+    RETURN QUERY
+    SELECT 
+        t.id,
+        t.branch_id,
+        t.min_order_amount,
+        t.max_order_amount,
+        t.delivery_fee,
+        t.tier_order,
+        t.is_active,
+        t.description_en,
+        t.description_ar
+    FROM public.delivery_fee_tiers t
+    WHERE t.is_active = true
+      AND t.branch_id = p_branch_id
+    ORDER BY t.tier_order ASC;
 END;
 $$;
 
-COMMENT ON FUNCTION public.get_delivery_tiers_by_branch(bigint) IS 'Get active delivery fee tiers for a branch (or global if branch_id is NULL)';
+COMMENT ON FUNCTION public.get_delivery_tiers_by_branch(bigint) IS 'Get active delivery fee tiers for a specific branch only';
 
 -- Example usage:
 -- SELECT * FROM public.get_delivery_tiers_by_branch(5);
--- SELECT * FROM public.get_delivery_tiers_by_branch(NULL);

@@ -7,8 +7,8 @@
 	let activeTab = 'tiers'; // 'tiers', 'settings', 'branches'
 
 	// Tiers scope (global or per-branch)
-	let tierScope = 'global'; // 'global' | 'branch'
-	let tierBranchId = null; // selected branch id for tiers tab
+	// Branch tier management (global removed)
+	let tierBranchId = null; // selected branch id for tiers tab (required)
 	
 	// Tier editing
 	let editingTier = null;
@@ -61,7 +61,9 @@
 		await deliveryActions.initialize();
 		await loadBranches();
 		// Initialize tiers view
-		await deliveryActions.loadTiers(null);
+		if (tierBranchId) {
+			await deliveryActions.loadTiers(tierBranchId);
+		}
 		
 		// Sync settings form with store
 		deliverySettings.subscribe(settings => {
@@ -77,7 +79,9 @@
 				selectBranch(branches[0]);
 			}
 			if (branches.length > 0 && !tierBranchId) {
+				// Set first branch and load its tiers
 				tierBranchId = branches[0].branch_id;
+				await deliveryActions.loadTiers(tierBranchId);
 			}
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -87,12 +91,8 @@
 		}
 	}
 
-	async function loadTiersForScope() {
-		if (tierScope === 'branch' && tierBranchId) {
-			await deliveryActions.loadTiers(tierBranchId);
-		} else {
-			await deliveryActions.loadTiers(null);
-		}
+	async function reloadBranchTiers() {
+		if (tierBranchId) await deliveryActions.loadTiers(tierBranchId);
 	}
 	
 	function selectBranch(branch) {
@@ -150,9 +150,9 @@
 		try {
 			let result;
 			if (isEditMode && editingTier) {
-				result = await deliveryActions.updateTier(editingTier.id, tierForm, tierScope === 'branch' ? tierBranchId : null);
+				result = await deliveryActions.updateTier(editingTier.id, tierForm, tierBranchId);
 			} else {
-				result = await deliveryActions.addTier(tierForm, tierScope === 'branch' ? tierBranchId : null);
+				result = await deliveryActions.addTier(tierForm, tierBranchId);
 			}
 			
 			if (result.success) {
@@ -169,7 +169,7 @@
 	
 	async function deleteTier(tier) {
 		if (!confirm(`Delete tier: ${tier.description_en}?`)) return;
-		const result = await deliveryActions.deleteTier(tier.id, tierScope === 'branch' ? tierBranchId : null);
+		const result = await deliveryActions.deleteTier(tier.id, tierBranchId);
 		if (result.success) {
 			alert('✅ Tier deleted successfully!');
 		} else {
@@ -217,7 +217,7 @@
 	}
 	
 	$: sortedTiers = $deliveryTiers.sort((a, b) => a.tier_order - b.tier_order);
-	$: isBranchSpecific = tierScope === 'branch' && sortedTiers.length > 0 && sortedTiers.every(t => t.branch_id === tierBranchId);
+	$: isBranchSpecific = sortedTiers.length > 0 && sortedTiers.every(t => t.branch_id === tierBranchId);
 </script>
 
 <div class="delivery-settings">
@@ -254,31 +254,22 @@
 	<!-- Tier Management Tab -->
 	{#if activeTab === 'tiers'}
 		<div class="tab-content">
-			<div class="section-header">
-				<h2>Delivery Fee Tiers</h2>
-				<div class="tier-controls">
-					<label>
-						Scope:
-						<select bind:value={tierScope} on:change={loadTiersForScope}>
-							<option value="global">Global</option>
-							<option value="branch">Branch</option>
-						</select>
-					</label>
-					{#if tierScope === 'branch'}
+				<div class="section-header">
+					<h2>Delivery Fee Tiers (Branch Specific)</h2>
+					<div class="tier-controls">
 						<label>
 							Branch:
-							<select bind:value={tierBranchId} on:change={loadTiersForScope}>
+							<select bind:value={tierBranchId} on:change={reloadBranchTiers}>
 								{#each branches as branch}
 									<option value={branch.branch_id}>{branch.branch_name_en}</option>
 								{/each}
 							</select>
 						</label>
-					{/if}
-					<button class="btn-primary" on:click={() => openTierModal()}>
-						+ Add New Tier
-					</button>
+						<button class="btn-primary" on:click={() => openTierModal()} disabled={!tierBranchId}>
+							+ Add New Tier
+						</button>
+					</div>
 				</div>
-			</div>
 			
 			{#if $deliveryDataLoading}
 				<div class="loading">Loading tiers...</div>
@@ -287,11 +278,6 @@
 					<p>No tiers configured. Add your first tier to get started.</p>
 				</div>
 			{:else}
-				{#if tierScope === 'branch' && !isBranchSpecific && sortedTiers.length > 0}
-					<div class="notice">
-						Currently showing global tiers (no branch-specific tiers for selected branch).
-					</div>
-				{/if}
 				<div class="tiers-table">
 					<table>
 						<thead>
@@ -327,8 +313,8 @@
 										</span>
 									</td>
 									<td class="actions-cell">
-										<button class="btn-edit" on:click={() => openTierModal(tier)} disabled={tierScope === 'branch' && !isBranchSpecific}>✏️</button>
-										<button class="btn-delete" on:click={() => deleteTier(tier)} disabled={tierScope === 'branch' && !isBranchSpecific}>🗑️</button>
+										<button class="btn-edit" on:click={() => openTierModal(tier)}>✏️</button>
+										<button class="btn-delete" on:click={() => deleteTier(tier)}>🗑️</button>
 									</td>
 								</tr>
 							{/each}

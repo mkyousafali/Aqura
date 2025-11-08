@@ -581,6 +581,8 @@ export const arabicLocale: LocaleData = {
       invoiceMaster: "إدارة الفواتير",
       operationsMaster: "إدارة العمليات",
       financeMaster: "الإدارة المالية",
+      // Delivery module
+      deliverySettings: "إعدادات التوصيل",
       customerMaster: "إدارة العملاء",
       adManager: "إدارة الإعلانات",
       employeeMaster: "إدارة الموظفين",
