@@ -90,6 +90,214 @@
 	let splitAmount = 0;
 	let remainingAmount = 0;
 
+	// Print functionality
+	let showPrintPreview = false;
+
+	function generatePrintPreview() {
+		showPrintPreview = true;
+	}
+
+	function closePrintPreview() {
+		showPrintPreview = false;
+	}
+
+	function printSchedule() {
+		// Trigger browser's print dialog which allows saving as PDF
+		window.print();
+	}
+
+	function saveAsPDF() {
+		// Get the print template element
+		const printTemplate = document.querySelector('#printModalOverlay .print-template');
+		
+		if (!printTemplate) {
+			alert('Print template not found');
+			return;
+		}
+
+		// Create a new window for printing
+		const printWindow = window.open('', '_blank', 'width=1200,height=800');
+		
+		// Write the HTML content
+		printWindow.document.write(`
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>Daily Budget Schedule - ${formatDate(selectedDate)}</title>
+				<style>
+					@page {
+						size: A4 landscape;
+						margin: 8mm;
+					}
+					* {
+						box-sizing: border-box;
+					}
+					body {
+						margin: 0;
+						padding: 10mm;
+						font-family: Arial, sans-serif;
+						background: white;
+					}
+					h1 { 
+						text-align: center; 
+						color: #1f2937; 
+						margin: 0 0 10px 0;
+						font-size: 2rem;
+					}
+					h2 { 
+						color: #1f2937; 
+						border-bottom: 2px solid #3b82f6; 
+						padding-bottom: 8px; 
+						margin: 0 0 15px 0;
+						font-size: 1.3rem;
+					}
+					.print-header { 
+						border-bottom: 3px solid #3b82f6; 
+						padding-bottom: 15px; 
+						margin-bottom: 30px; 
+					}
+					.print-header-top {
+						display: flex;
+						justify-content: space-between;
+						align-items: flex-start;
+						margin-bottom: 20px;
+					}
+					.print-logo { 
+						display: flex; 
+						align-items: center; 
+						gap: 12px; 
+					}
+					.logo-img { 
+						width: 50px; 
+						height: 50px; 
+					}
+					.app-name {
+						font-size: 1.3rem;
+						font-weight: 700;
+						color: #1f2937;
+					}
+					.print-meta {
+						text-align: right;
+						display: flex;
+						flex-direction: column;
+						gap: 6px;
+						font-size: 0.95rem;
+						color: #374151;
+					}
+					.print-meta strong {
+						color: #1f2937;
+					}
+					.print-date-info {
+						color: #3b82f6;
+						font-size: 1.05rem;
+					}
+					.print-summary { 
+						display: grid; 
+						grid-template-columns: repeat(4, 1fr); 
+						gap: 20px; 
+						margin-bottom: 30px; 
+						padding: 20px; 
+						background: #f9fafb; 
+						border: 2px solid #e5e7eb;
+						border-radius: 8px;
+					}
+					.print-summary-item {
+						display: flex;
+						flex-direction: column;
+						gap: 5px;
+					}
+					.print-label {
+						font-size: 0.9rem;
+						color: #6b7280;
+						font-weight: 600;
+					}
+					.print-value {
+						font-size: 1.3rem;
+						color: #1f2937;
+						font-weight: 700;
+					}
+					.print-section {
+						margin-bottom: 30px;
+						page-break-inside: auto;
+					}
+					table { 
+						border-collapse: collapse; 
+						width: 100%; 
+						margin-bottom: 20px; 
+						font-size: 8pt;
+					}
+					thead {
+						display: table-header-group;
+					}
+					tbody {
+						display: table-row-group;
+					}
+					th, td { 
+						border: 1px solid #e5e7eb; 
+						padding: 8px 6px; 
+						text-align: left; 
+					}
+					th { 
+						background: #3b82f6; 
+						color: white; 
+						font-weight: 600; 
+					}
+					tr:nth-child(even) { 
+						background: #f9fafb; 
+					}
+					tr {
+						page-break-inside: avoid;
+					}
+					.status-badge { 
+						display: inline-block;
+						padding: 4px 10px; 
+						border-radius: 4px; 
+						font-size: 0.85rem; 
+						font-weight: 600; 
+					}
+					.status-badge.over { 
+						background: #fee2e2; 
+						color: #dc2626; 
+					}
+					.status-badge.within { 
+						background: #d1fae5; 
+						color: #059669; 
+					}
+					.status-badge.unused { 
+						background: #f3f4f6; 
+						color: #6b7280; 
+					}
+					.status-badge.approved { 
+						background: #d1fae5; 
+						color: #059669; 
+					}
+					.status-badge.pending { 
+						background: #fef3c7; 
+						color: #d97706; 
+					}
+					.negative {
+						color: #dc2626;
+						font-weight: 700;
+					}
+				</style>
+			</head>
+			<body>
+				${printTemplate.innerHTML}
+			</body>
+			</html>
+		`);
+		
+		printWindow.document.close();
+		
+		// Wait for content to load, then trigger print
+		printWindow.onload = function() {
+			printWindow.focus();
+			printWindow.print();
+			// Close the window after printing/saving
+			setTimeout(() => printWindow.close(), 100);
+		};
+	}
+
 	onMount(() => {
 		// Set default date to today
 		selectedDate = new Date().toISOString().split('T')[0];
@@ -646,6 +854,14 @@
 					/>
 					<span class="calculated-label">Auto-calculated</span>
 				</div>
+			</div>
+
+			<!-- Print Schedule Button -->
+			<div class="print-schedule-section">
+				<button class="print-schedule-btn" on:click={generatePrintPreview}>
+					<span class="btn-icon">🖨️</span>
+					<span class="btn-text">Generate Day Schedule</span>
+				</button>
 			</div>
 		</div>
 
@@ -1455,6 +1671,224 @@
 				>
 					✂️ Split & Reschedule
 				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Print Preview Modal -->
+{#if showPrintPreview}
+	<div id="printModalOverlay" class="modal-overlay print-modal-overlay" on:click={closePrintPreview}>
+		<div class="print-modal-content" on:click|stopPropagation>
+			<div class="print-modal-header no-print">
+				<h2>📄 Day Schedule Preview</h2>
+				<button class="close-btn" on:click={closePrintPreview}>&times;</button>
+			</div>
+
+			<div class="print-modal-actions no-print">
+				<button class="print-btn" on:click={saveAsPDF}>
+					<span>�</span> Save as PDF
+				</button>
+			</div>
+
+			<!-- A4 Landscape Print Template -->
+			<div class="print-template">
+				<div class="print-header">
+					<div class="print-header-top">
+						<div class="print-logo">
+							<img src="/icons/logo.png" alt="Aqura Logo" class="logo-img" />
+							<span class="app-name">Aqura Management System</span>
+						</div>
+						<div class="print-meta">
+							<div class="print-date-info">
+								<strong>Schedule Date:</strong> {formatDate(selectedDate)}
+							</div>
+							<div class="print-generated">
+								<strong>Generated:</strong> {new Date().toLocaleString('en-US', { 
+									year: 'numeric', 
+									month: 'short', 
+									day: 'numeric', 
+									hour: '2-digit', 
+									minute: '2-digit',
+									hour12: true 
+								})}
+							</div>
+							<div class="print-user">
+								<strong>Prepared by:</strong> {$currentUser?.username || 'N/A'}
+							</div>
+						</div>
+					</div>
+					<h1>Daily Budget Schedule</h1>
+				</div>
+
+				<div class="print-summary">
+					<div class="print-summary-item">
+						<span class="print-label">Total Daily Budget:</span>
+						<span class="print-value">{formatCurrency(calculatedTotalBudget)}</span>
+					</div>
+					<div class="print-summary-item">
+						<span class="print-label">Total Scheduled:</span>
+						<span class="print-value">{formatCurrency(totalScheduled)}</span>
+					</div>
+					<div class="print-summary-item">
+						<span class="print-label">Remaining:</span>
+						<span class="print-value" class:negative={remainingBudget < 0}>{formatCurrency(remainingBudget)}</span>
+					</div>
+					<div class="print-summary-item">
+						<span class="print-label">Status:</span>
+						<span class="print-value status-badge" class:over={budgetStatus === 'over'} class:exact={budgetStatus === 'exact'}>
+							{#if budgetStatus === 'over'}
+								⚠️ Over Budget
+							{:else if budgetStatus === 'exact'}
+								✅ Exact Match
+							{:else}
+								✅ Within Budget
+							{/if}
+						</span>
+					</div>
+				</div>
+
+				<!-- Payment Method Budget Breakdown -->
+				<div class="print-section">
+					<h2 class="print-section-title">💳 Payment Method Budget Breakdown</h2>
+					<table class="print-table">
+						<thead>
+							<tr>
+								<th>Payment Method</th>
+								<th>Budget Allocated</th>
+								<th>Amount Spent</th>
+								<th>Remaining</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each Array.from(breakdown.allPaymentMethods) as method}
+								{@const budget = paymentMethodBudgets[method] || 0}
+								{@const spent = breakdown.byPaymentMethod.get(method) || 0}
+								{@const remaining = budget - spent}
+								{@const isOver = remaining < 0}
+								<tr>
+									<td><strong>{method}</strong></td>
+									<td>{formatCurrency(budget)}</td>
+									<td>{formatCurrency(spent)}</td>
+									<td class:negative={isOver}>{formatCurrency(remaining)}</td>
+									<td>
+										<span class="status-badge" class:over={isOver} class:within={!isOver && spent > 0} class:unused={spent === 0}>
+											{#if isOver}
+												⚠️ Over Budget
+											{:else if spent === 0}
+												⭕ Unused
+											{:else if remaining === 0}
+												✅ Exact
+											{:else}
+												✅ Within Budget
+											{/if}
+										</span>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Vendor Payments -->
+				{#if selectedVendorPayments.size > 0}
+					<div class="print-section">
+						<h2 class="print-section-title">💼 Vendor Payments ({selectedVendorPayments.size})</h2>
+						<table class="print-table">
+							<thead>
+								<tr>
+									<th>Bill Number</th>
+									<th>Vendor</th>
+									<th>Branch</th>
+									<th>Payment Method</th>
+									<th>Amount</th>
+									<th>Adjusted</th>
+									<th>Status</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filteredVendorPayments.filter(p => selectedVendorPayments.has(p.id)) as payment}
+									<tr>
+										<td>{payment.bill_number}</td>
+										<td>{payment.vendor_name}</td>
+										<td>{payment.branch_name}</td>
+										<td>{payment.payment_method}</td>
+										<td>{formatCurrency(payment.final_bill_amount || payment.bill_amount)}</td>
+										<td>{formatCurrency(adjustAmounts[`vendor-${payment.id}`] || 0)}</td>
+										<td>
+											<span class="status-badge" class:approved={payment.approval_status === 'Approved'} class:pending={payment.approval_status === 'Pending'}>
+												{payment.approval_status}
+											</span>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+
+				<!-- Expense Schedules -->
+				{#if selectedExpenseSchedules.size > 0}
+					<div class="print-section">
+						<h2 class="print-section-title">💸 Expense Schedules ({selectedExpenseSchedules.size})</h2>
+						<table class="print-table">
+							<thead>
+								<tr>
+									<th>Description</th>
+									<th>Category</th>
+									<th>Branch</th>
+									<th>Payment Method</th>
+									<th>Amount</th>
+									<th>Adjusted</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filteredExpenseSchedules.filter(e => selectedExpenseSchedules.has(e.id)) as expense}
+									<tr>
+										<td>{expense.description}</td>
+										<td>{expense.expense_category_name_en || 'N/A'}</td>
+										<td>{expense.branch_name}</td>
+										<td>{expense.payment_method}</td>
+										<td>{formatCurrency(expense.amount)}</td>
+										<td>{formatCurrency(adjustAmounts[`expense-${expense.id}`] || 0)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+
+				<!-- Non-Approved Payments -->
+				{#if selectedNonApprovedPayments.size > 0}
+					<div class="print-section">
+						<h2 class="print-section-title">⚠️ Non-Approved Payments ({selectedNonApprovedPayments.size})</h2>
+						<table class="print-table">
+							<thead>
+								<tr>
+									<th>Bill Number</th>
+									<th>Vendor</th>
+									<th>Branch</th>
+									<th>Payment Method</th>
+									<th>Amount</th>
+									<th>Adjusted</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each nonApprovedPayments.filter(p => selectedNonApprovedPayments.has(p.id)) as payment}
+									<tr>
+										<td>{payment.bill_number}</td>
+										<td>{payment.vendor_name}</td>
+										<td>{payment.branch_name}</td>
+										<td>{payment.payment_method}</td>
+										<td>{formatCurrency(payment.final_bill_amount || payment.bill_amount)}</td>
+										<td>{formatCurrency(adjustAmounts[`nonapproved-${payment.id}`] || 0)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -3119,6 +3553,417 @@
 		.modal-actions {
 			padding: 1rem 1.5rem;
 			flex-direction: column;
+		}
+	}
+
+	/* Print Modal Styles */
+	.print-modal-overlay {
+		z-index: 1200;
+		background: rgba(0, 0, 0, 0.7);
+	}
+
+	.print-modal-content {
+		width: 98%;
+		max-width: 1400px;
+		max-height: 95vh;
+		background: white;
+		border-radius: 8px;
+		overflow-y: auto;
+		padding: 0;
+	}
+
+	.print-modal-header {
+		position: sticky;
+		top: 0;
+		background: white;
+		padding: 20px 30px;
+		border-bottom: 2px solid #e5e7eb;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		z-index: 10;
+	}
+
+	.print-modal-header h2 {
+		margin: 0;
+		color: #1f2937;
+		font-size: 1.5rem;
+	}
+
+	.print-modal-actions {
+		position: sticky;
+		top: 76px;
+		background: #f9fafb;
+		padding: 15px 30px;
+		border-bottom: 1px solid #e5e7eb;
+		z-index: 9;
+		display: flex;
+		gap: 10px;
+	}
+
+	.print-btn {
+		padding: 12px 24px;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 600;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.2s;
+	}
+
+	.print-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+	}
+
+	.print-template {
+		padding: 30px;
+		background: white;
+		font-family: Arial, sans-serif;
+	}
+
+	.print-header {
+		margin-bottom: 30px;
+		border-bottom: 3px solid #3b82f6;
+		padding-bottom: 15px;
+	}
+
+	.print-header-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		margin-bottom: 20px;
+	}
+
+	.print-logo {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.logo-img {
+		width: 50px;
+		height: 50px;
+		object-fit: contain;
+	}
+
+	.app-name {
+		font-size: 1.3rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.print-meta {
+		text-align: right;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-size: 0.95rem;
+		color: #374151;
+	}
+
+	.print-meta strong {
+		color: #1f2937;
+	}
+
+	.print-date-info {
+		color: #3b82f6;
+		font-size: 1.05rem;
+	}
+
+	.print-header h1 {
+		margin: 0;
+		color: #1f2937;
+		font-size: 2rem;
+		text-align: center;
+	}
+
+	.print-summary {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 20px;
+		margin-bottom: 30px;
+		padding: 20px;
+		background: #f9fafb;
+		border-radius: 8px;
+		border: 2px solid #e5e7eb;
+	}
+
+	.print-summary-item {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+	}
+
+	.print-label {
+		font-size: 0.9rem;
+		color: #6b7280;
+		font-weight: 600;
+	}
+
+	.print-value {
+		font-size: 1.3rem;
+		color: #1f2937;
+		font-weight: 700;
+	}
+
+	.print-value.negative {
+		color: #dc2626;
+	}
+
+	.print-section {
+		margin-bottom: 30px;
+		page-break-inside: avoid;
+	}
+
+	.print-section-title {
+		margin: 0 0 15px 0;
+		color: #1f2937;
+		font-size: 1.3rem;
+		padding-bottom: 8px;
+		border-bottom: 2px solid #3b82f6;
+	}
+
+	.print-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.9rem;
+	}
+
+	.print-table thead {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.print-table th {
+		padding: 12px 8px;
+		text-align: left;
+		font-weight: 600;
+		border: 1px solid #2563eb;
+	}
+
+	.print-table td {
+		padding: 10px 8px;
+		border: 1px solid #e5e7eb;
+		color: #374151;
+	}
+
+	.print-table td.negative {
+		color: #dc2626;
+		font-weight: 700;
+	}
+
+	.print-table tbody tr:nth-child(even) {
+		background: #f9fafb;
+	}
+
+	.print-table tbody tr:hover {
+		background: #eff6ff;
+	}
+
+	.print-table .status-badge {
+		display: inline-block;
+		padding: 4px 10px;
+		border-radius: 4px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.print-table .status-badge.over {
+		background: #fee2e2;
+		color: #dc2626;
+	}
+
+	.print-table .status-badge.within {
+		background: #d1fae5;
+		color: #059669;
+	}
+
+	.print-table .status-badge.unused {
+		background: #f3f4f6;
+		color: #6b7280;
+	}
+
+	.print-table .status-badge.approved {
+		background: #d1fae5;
+		color: #059669;
+	}
+
+	.print-table .status-badge.pending {
+		background: #fef3c7;
+		color: #d97706;
+	}
+
+	.print-footer {
+		margin-top: 40px;
+		padding-top: 20px;
+		border-top: 2px solid #e5e7eb;
+		text-align: center;
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.print-footer p {
+		margin: 5px 0;
+	}
+
+	/* Print-specific styles */
+	@media print {
+		/* Nuclear option - hide absolutely everything globally */
+		:global(*) {
+			visibility: hidden !important;
+			display: none !important;
+		}
+
+		/* Reset body and html */
+		:global(html),
+		:global(body) {
+			display: block !important;
+			visibility: visible !important;
+			height: auto !important;
+			width: 100% !important;
+			overflow: visible !important;
+			margin: 0 !important;
+			padding: 0 !important;
+			background: white !important;
+		}
+
+		/* Show ONLY the print modal and everything inside it */
+		:global(#printModalOverlay),
+		:global(#printModalOverlay *),
+		:global(#printModalOverlay *::before),
+		:global(#printModalOverlay *::after) {
+			visibility: visible !important;
+			display: block !important;
+		}
+
+		/* Tables */
+		:global(#printModalOverlay table),
+		:global(#printModalOverlay .print-table) {
+			display: table !important;
+		}
+
+		:global(#printModalOverlay thead),
+		:global(#printModalOverlay .print-table thead) {
+			display: table-header-group !important;
+		}
+
+		:global(#printModalOverlay tbody),
+		:global(#printModalOverlay .print-table tbody) {
+			display: table-row-group !important;
+		}
+
+		:global(#printModalOverlay tr),
+		:global(#printModalOverlay .print-table tr) {
+			display: table-row !important;
+		}
+
+		:global(#printModalOverlay th),
+		:global(#printModalOverlay td),
+		:global(#printModalOverlay .print-table th),
+		:global(#printModalOverlay .print-table td) {
+			display: table-cell !important;
+		}
+
+		/* Flex containers */
+		:global(#printModalOverlay .print-logo),
+		:global(#printModalOverlay .print-header-top),
+		:global(#printModalOverlay .print-meta),
+		:global(#printModalOverlay .print-summary),
+		:global(#printModalOverlay .print-summary-item) {
+			display: flex !important;
+		}
+
+		/* Inline elements */
+		:global(#printModalOverlay span),
+		:global(#printModalOverlay strong),
+		:global(#printModalOverlay .print-label),
+		:global(#printModalOverlay .print-value),
+		:global(#printModalOverlay .app-name) {
+			display: inline !important;
+		}
+
+		/* Inline-block elements */
+		:global(#printModalOverlay img),
+		:global(#printModalOverlay .logo-img),
+		:global(#printModalOverlay .status-badge) {
+			display: inline-block !important;
+		}
+
+		/* Hide non-printable */
+		:global(#printModalOverlay .no-print),
+		:global(#printModalOverlay .print-modal-header),
+		:global(#printModalOverlay .print-modal-actions) {
+			display: none !important;
+			visibility: hidden !important;
+		}
+
+		/* Position the print modal */
+		:global(#printModalOverlay) {
+			position: fixed !important;
+			top: 0 !important;
+			left: 0 !important;
+			width: 100vw !important;
+			height: auto !important;
+			background: white !important;
+			margin: 0 !important;
+			padding: 0 !important;
+			z-index: 999999 !important;
+		}
+
+		:global(#printModalOverlay .print-modal-content) {
+			width: 100% !important;
+			max-width: none !important;
+			height: auto !important;
+			overflow: visible !important;
+			margin: 0 !important;
+			padding: 0 !important;
+		}
+
+		:global(#printModalOverlay .print-template) {
+			padding: 10mm !important;
+			width: 100% !important;
+		}
+
+		/* Page breaks */
+		:global(#printModalOverlay .print-header),
+		:global(#printModalOverlay .print-summary) {
+			page-break-inside: avoid !important;
+			page-break-after: avoid !important;
+		}
+
+		:global(#printModalOverlay .print-section) {
+			page-break-inside: auto !important;
+		}
+
+		:global(#printModalOverlay .print-table) {
+			font-size: 8pt !important;
+			page-break-inside: auto !important;
+		}
+
+		:global(#printModalOverlay .print-table tr) {
+			page-break-inside: avoid !important;
+		}
+
+		:global(#printModalOverlay .print-table th),
+		:global(#printModalOverlay .print-table td) {
+			padding: 5px 3px !important;
+			font-size: 8pt !important;
+		}
+
+		@page {
+			size: A4 landscape;
+			margin: 8mm;
+		}
+
+		body {
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
 		}
 	}
 </style>
