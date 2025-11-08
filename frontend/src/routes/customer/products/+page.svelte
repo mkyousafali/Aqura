@@ -4,6 +4,7 @@
   import { cartActions, cartStore } from '$lib/stores/cart.js';
   import { scrollingContent, scrollingContentActions } from '$lib/stores/scrollingContent.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
+  import { supabase } from '$lib/utils/supabase';
   
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
@@ -12,13 +13,19 @@
   let selectedUnits = new Map();
   let categoryTabsContainer;
   let isScrolling = false;
+  let products = [];
+  let categories = [];
+  let loading = true;
   
   // Guard: ensure branch/service selected before shopping
-  onMount(() => {
+  onMount(async () => {
     const saved = flow;
     if (!saved?.branchId || !saved?.fulfillment) {
       try { goto('/customer/start'); } catch (e) { console.error(e); }
     }
+    
+    await loadCategories();
+    await loadProducts();
   });
 
   // Reactive cart items for quantity display
@@ -39,833 +46,99 @@
   $: currentScrollingContent = $scrollingContent;
   $: activeScrollingTexts = scrollingContentActions.getActiveContent(currentScrollingContent, currentLanguage);
 
-  // Sample products data (you can replace this with real data from your API)
-  const products = [
-    // Water Products
-    {
-      id: 1,
-      nameAr: 'مياه معدنية طبيعية',
-      nameEn: 'Natural Mineral Water',
-      image: null,
-      basePrice: 5.50,
-      originalPrice: 7.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة',
-        nameEn: '500ml Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 5.50,
-        originalPrice: 7.00,
-        stock: 100,
-        lowStockThreshold: 10,
-        barcode: '123456789001'
-      },
-      additionalUnits: [
-        {
-          id: 'pack6',
-          nameAr: 'عبوة 6 زجاجات',
-          nameEn: '6-pack',
-          unitAr: 'عبوة',
-          unitEn: 'pack',
-          basePrice: 30.00,
-          originalPrice: 36.00,
-          stock: 25,
-          lowStockThreshold: 5,
-          barcode: '123456789002'
-        }
-      ],
-      category: 'water'
-    },
-    {
-      id: 2,
-      nameAr: 'مياه شرب نقية',
-      nameEn: 'Pure Drinking Water',
-      image: null,
-      basePrice: 3.50,
-      originalPrice: 4.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '1.5 لتر',
-        nameEn: '1.5 Liter',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 3.50,
-        originalPrice: 4.50,
-        stock: 200,
-        lowStockThreshold: 20,
-        barcode: '123456789003'
-      },
-      category: 'water'
-    },
+  // Load categories from database
+  async function loadCategories() {
+    try {
+      const { data, error } = await supabase
+        .from('product_categories')
+        .select('id, name_en, name_ar')
+        .eq('is_active', true)
+        .order('name_en');
 
-    // Juice Products
-    {
-      id: 3,
-      nameAr: 'عصير برتقال طبيعي',
-      nameEn: 'Fresh Orange Juice',
-      image: null,
-      basePrice: 8.75,
-      originalPrice: 10.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '1 لتر',
-        nameEn: '1 Liter',
-        unitAr: 'لتر',
-        unitEn: 'liter',
-        basePrice: 8.75,
-        originalPrice: 10.00,
-        stock: 50,
-        lowStockThreshold: 10,
-        barcode: '123456789004'
-      },
-      category: 'juice'
-    },
-    {
-      id: 4,
-      nameAr: 'عصير تفاح طازج',
-      nameEn: 'Fresh Apple Juice',
-      image: null,
-      basePrice: 9.25,
-      originalPrice: 11.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '1 لتر',
-        nameEn: '1 Liter',
-        unitAr: 'لتر',
-        unitEn: 'liter',
-        basePrice: 9.25,
-        originalPrice: 11.00,
-        stock: 35,
-        lowStockThreshold: 8,
-        barcode: '123456789005'
-      },
-      category: 'juice'
-    },
-    {
-      id: 5,
-      nameAr: 'عصير مانجو استوائي',
-      nameEn: 'Tropical Mango Juice',
-      image: null,
-      basePrice: 12.50,
-      originalPrice: 15.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل',
-        nameEn: '500ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 12.50,
-        originalPrice: 15.00,
-        stock: 40,
-        lowStockThreshold: 10,
-        barcode: '123456789006'
-      },
-      category: 'juice'
-    },
-
-    // Coffee Products
-    {
-      id: 6,
-      nameAr: 'قهوة عربية فاخرة',
-      nameEn: 'Premium Arabic Coffee',
-      image: null,
-      basePrice: 25.00,
-      originalPrice: 30.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '250غم',
-        nameEn: '250g',
-        unitAr: 'غرام',
-        unitEn: 'gram',
-        basePrice: 25.00,
-        originalPrice: 30.00,
-        stock: 30,
-        lowStockThreshold: 5,
-        barcode: '123456789007'
-      },
-      category: 'coffee'
-    },
-    {
-      id: 7,
-      nameAr: 'قهوة إسبريسو إيطالية',
-      nameEn: 'Italian Espresso Coffee',
-      image: null,
-      basePrice: 45.00,
-      originalPrice: 50.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500غم',
-        nameEn: '500g',
-        unitAr: 'غرام',
-        unitEn: 'gram',
-        basePrice: 45.00,
-        originalPrice: 50.00,
-        stock: 15,
-        lowStockThreshold: 3,
-        barcode: '123456789008'
-      },
-      category: 'coffee'
-    },
-    {
-      id: 8,
-      nameAr: 'قهوة باردة جاهزة',
-      nameEn: 'Ready-to-Drink Cold Coffee',
-      image: null,
-      basePrice: 8.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '250مل',
-        nameEn: '250ml',
-        unitAr: 'علبة',
-        unitEn: 'can',
-        basePrice: 8.50,
-        stock: 80,
-        lowStockThreshold: 15,
-        barcode: '123456789009'
-      },
-      category: 'coffee'
-    },
-
-    // Tea Products
-    {
-      id: 9,
-      nameAr: 'شاي أخضر ياباني',
-      nameEn: 'Japanese Green Tea',
-      image: null,
-      basePrice: 18.00,
-      originalPrice: 22.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '100غم',
-        nameEn: '100g',
-        unitAr: 'علبة',
-        unitEn: 'box',
-        basePrice: 18.00,
-        originalPrice: 22.00,
-        stock: 25,
-        lowStockThreshold: 5,
-        barcode: '123456789010'
-      },
-      category: 'tea'
-    },
-    {
-      id: 10,
-      nameAr: 'شاي أحمر إنجليزي',
-      nameEn: 'English Black Tea',
-      image: null,
-      basePrice: 15.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '20 كيس',
-        nameEn: '20 Tea Bags',
-        unitAr: 'علبة',
-        unitEn: 'box',
-        basePrice: 15.50,
-        stock: 60,
-        lowStockThreshold: 10,
-        barcode: '123456789011'
-      },
-      category: 'tea'
-    },
-
-    // Energy Drinks
-    {
-      id: 11,
-      nameAr: 'مشروب طاقة أحمر',
-      nameEn: 'Red Energy Drink',
-      image: null,
-      basePrice: 12.00,
-      originalPrice: 14.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '250مل',
-        nameEn: '250ml',
-        unitAr: 'علبة',
-        unitEn: 'can',
-        basePrice: 12.00,
-        originalPrice: 14.00,
-        stock: 75,
-        lowStockThreshold: 15,
-        barcode: '123456789012'
-      },
-      category: 'energy'
-    },
-    {
-      id: 12,
-      nameAr: 'مشروب طاقة طبيعي',
-      nameEn: 'Natural Energy Drink',
-      image: null,
-      basePrice: 15.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '330مل',
-        nameEn: '330ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 15.50,
-        stock: 45,
-        lowStockThreshold: 8,
-        barcode: '123456789013'
-      },
-      category: 'energy'
-    },
-
-    // Soft Drinks
-    {
-      id: 13,
-      nameAr: 'مشروب غازي كولا',
-      nameEn: 'Cola Soft Drink',
-      image: null,
-      basePrice: 4.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '330مل',
-        nameEn: '330ml',
-        unitAr: 'علبة',
-        unitEn: 'can',
-        basePrice: 4.50,
-        stock: 150,
-        lowStockThreshold: 30,
-        barcode: '123456789014'
-      },
-      additionalUnits: [
-        {
-          id: 'pack12',
-          nameAr: 'عبوة 12 علبة',
-          nameEn: '12-pack',
-          unitAr: 'عبوة',
-          unitEn: 'pack',
-          basePrice: 48.00,
-          originalPrice: 54.00,
-          stock: 20,
-          lowStockThreshold: 5,
-          barcode: '123456789015'
-        }
-      ],
-      category: 'soft-drinks'
-    },
-    {
-      id: 14,
-      nameAr: 'مشروب غازي برتقال',
-      nameEn: 'Orange Soft Drink',
-      image: null,
-      basePrice: 4.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '330مل',
-        nameEn: '330ml',
-        unitAr: 'علبة',
-        unitEn: 'can',
-        basePrice: 4.50,
-        stock: 120,
-        lowStockThreshold: 25,
-        barcode: '123456789016'
-      },
-      category: 'soft-drinks'
-    },
-
-    // Dairy Products
-    {
-      id: 15,
-      nameAr: 'حليب طازج كامل الدسم',
-      nameEn: 'Fresh Whole Milk',
-      image: null,
-      basePrice: 7.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '1 لتر',
-        nameEn: '1 Liter',
-        unitAr: 'كرتون',
-        unitEn: 'carton',
-        basePrice: 7.50,
-        stock: 85,
-        lowStockThreshold: 20,
-        barcode: '123456789017'
-      },
-      category: 'milk'
-    },
-    {
-      id: 16,
-      nameAr: 'لبن رائب طبيعي',
-      nameEn: 'Natural Yogurt Drink',
-      image: null,
-      basePrice: 5.25,
-      originalPrice: 6.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل',
-        nameEn: '500ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 5.25,
-        originalPrice: 6.00,
-        stock: 95,
-        lowStockThreshold: 18,
-        barcode: '123456789018'
-      },
-      category: 'milk'
-    },
-
-    // Sports Drinks
-    {
-      id: 17,
-      nameAr: 'مشروب رياضي أزرق',
-      nameEn: 'Blue Sports Drink',
-      image: null,
-      basePrice: 8.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل',
-        nameEn: '500ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 8.00,
-        stock: 70,
-        lowStockThreshold: 15,
-        barcode: '123456789019'
-      },
-      category: 'sports'
-    },
-    {
-      id: 18,
-      nameAr: 'مشروب رياضي بنكهة البرتقال',
-      nameEn: 'Orange Flavored Sports Drink',
-      image: null,
-      basePrice: 8.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '600مل',
-        nameEn: '600ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 8.50,
-        stock: 55,
-        lowStockThreshold: 12,
-        barcode: '123456789020'
-      },
-      category: 'sports'
-    },
-
-    // Healthy Drinks
-    {
-      id: 19,
-      nameAr: 'عصير أخضر صحي',
-      nameEn: 'Healthy Green Juice',
-      image: null,
-      basePrice: 16.00,
-      originalPrice: 19.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '330مل',
-        nameEn: '330ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 16.00,
-        originalPrice: 19.00,
-        stock: 30,
-        lowStockThreshold: 8,
-        barcode: '123456789021'
-      },
-      category: 'healthy'
-    },
-    {
-      id: 20,
-      nameAr: 'ماء جوز الهند الطبيعي',
-      nameEn: 'Natural Coconut Water',
-      image: null,
-      basePrice: 12.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل',
-        nameEn: '500ml',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 12.50,
-        stock: 40,
-        lowStockThreshold: 10,
-        barcode: '123456789022'
-      },
-      category: 'healthy'
-    },
-
-    // Beverages (General)
-    {
-      id: 21,
-      nameAr: 'مشروب منعش مختلط',
-      nameEn: 'Refreshing Mixed Beverage',
-      image: null,
-      basePrice: 6.50,
-      originalPrice: 8.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '330مل علبة',
-        nameEn: '330ml Can',
-        unitAr: 'علبة',
-        unitEn: 'can',
-        basePrice: 6.50,
-        originalPrice: 8.00,
-        stock: 120,
-        lowStockThreshold: 15,
-        barcode: '123456789021'
-      },
-      category: 'beverages'
-    },
-
-    // Smoothies
-    {
-      id: 22,
-      nameAr: 'سموذي المانجو والموز',
-      nameEn: 'Mango Banana Smoothie',
-      image: null,
-      basePrice: 12.75,
-      originalPrice: 15.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة',
-        nameEn: '500ml Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 12.75,
-        originalPrice: 15.00,
-        stock: 45,
-        lowStockThreshold: 8,
-        barcode: '123456789022'
-      },
-      category: 'smoothies'
-    },
-    {
-      id: 23,
-      nameAr: 'سموذي التوت الأزرق',
-      nameEn: 'Blueberry Smoothie',
-      image: null,
-      basePrice: 13.25,
-      originalPrice: 16.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة',
-        nameEn: '500ml Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 13.25,
-        originalPrice: 16.00,
-        stock: 38,
-        lowStockThreshold: 8,
-        barcode: '123456789023'
-      },
-      category: 'smoothies'
-    },
-
-    // Seasonal Drinks
-    {
-      id: 24,
-      nameAr: 'مشروب القرفة الشتوي',
-      nameEn: 'Winter Cinnamon Drink',
-      image: null,
-      basePrice: 9.50,
-      originalPrice: 12.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '400مل كوب',
-        nameEn: '400ml Cup',
-        unitAr: 'كوب',
-        unitEn: 'cup',
-        basePrice: 9.50,
-        originalPrice: 12.00,
-        stock: 60,
-        lowStockThreshold: 10,
-        barcode: '123456789024'
-      },
-      category: 'seasonal'
-    },
-    {
-      id: 25,
-      nameAr: 'مشروب البطيخ الصيفي',
-      nameEn: 'Summer Watermelon Drink',
-      image: null,
-      basePrice: 8.25,
-      originalPrice: 10.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة',
-        nameEn: '500ml Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 8.25,
-        originalPrice: 10.50,
-        stock: 75,
-        lowStockThreshold: 12,
-        barcode: '123456789025'
-      },
-      category: 'seasonal'
-    },
-
-    // Premium Drinks
-    {
-      id: 26,
-      nameAr: 'مشروب الذهب الفاخر',
-      nameEn: 'Premium Gold Beverage',
-      image: null,
-      basePrice: 25.00,
-      originalPrice: 30.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '750مل زجاجة فاخرة',
-        nameEn: '750ml Premium Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 25.00,
-        originalPrice: 30.00,
-        stock: 20,
-        lowStockThreshold: 5,
-        barcode: '123456789026'
-      },
-      category: 'premium'
-    },
-    {
-      id: 27,
-      nameAr: 'مشروب الكافيار الفاخر',
-      nameEn: 'Luxury Caviar Drink',
-      image: null,
-      basePrice: 35.50,
-      originalPrice: 42.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة مطلية بالذهب',
-        nameEn: '500ml Gold-Plated Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 35.50,
-        originalPrice: 42.00,
-        stock: 15,
-        lowStockThreshold: 3,
-        barcode: '123456789027'
-      },
-      category: 'premium'
-    },
-
-    // Organic Drinks
-    {
-      id: 28,
-      nameAr: 'عصير عضوي طبيعي',
-      nameEn: 'Organic Natural Juice',
-      image: null,
-      basePrice: 14.75,
-      originalPrice: 18.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '1 لتر عضوي معتمد',
-        nameEn: '1L Certified Organic',
-        unitAr: 'لتر',
-        unitEn: 'liter',
-        basePrice: 14.75,
-        originalPrice: 18.00,
-        stock: 35,
-        lowStockThreshold: 8,
-        barcode: '123456789028'
-      },
-      category: 'organic'
-    },
-    {
-      id: 29,
-      nameAr: 'شاي أخضر عضوي',
-      nameEn: 'Organic Green Tea',
-      image: null,
-      basePrice: 11.25,
-      originalPrice: 14.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة عضوية',
-        nameEn: '500ml Organic Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 11.25,
-        originalPrice: 14.00,
-        stock: 50,
-        lowStockThreshold: 10,
-        barcode: '123456789029'
-      },
-      category: 'organic'
-    },
-
-    // Functional Drinks
-    {
-      id: 30,
-      nameAr: 'مشروب تعزيز المناعة',
-      nameEn: 'Immunity Booster Drink',
-      image: null,
-      basePrice: 16.50,
-      originalPrice: 20.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '300مل زجاجة طبية',
-        nameEn: '300ml Medical Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 16.50,
-        originalPrice: 20.00,
-        stock: 40,
-        lowStockThreshold: 8,
-        barcode: '123456789030'
-      },
-      category: 'functional'
-    },
-    {
-      id: 31,
-      nameAr: 'مشروب تحسين التركيز',
-      nameEn: 'Focus Enhancement Drink',
-      image: null,
-      basePrice: 18.75,
-      originalPrice: 22.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '250مل أمبولة',
-        nameEn: '250ml Vial',
-        unitAr: 'أمبولة',
-        unitEn: 'vial',
-        basePrice: 18.75,
-        originalPrice: 22.50,
-        stock: 25,
-        lowStockThreshold: 5,
-        barcode: '123456789031'
-      },
-      category: 'functional'
-    },
-
-    // International Drinks
-    {
-      id: 32,
-      nameAr: 'مشروب ياباني تقليدي',
-      nameEn: 'Traditional Japanese Drink',
-      image: null,
-      basePrice: 22.00,
-      originalPrice: 26.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '350مل زجاجة يابانية',
-        nameEn: '350ml Japanese Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 22.00,
-        originalPrice: 26.00,
-        stock: 30,
-        lowStockThreshold: 6,
-        barcode: '123456789032'
-      },
-      category: 'international'
-    },
-    {
-      id: 33,
-      nameAr: 'مشروب إيطالي فاخر',
-      nameEn: 'Luxury Italian Beverage',
-      image: null,
-      basePrice: 19.50,
-      originalPrice: 24.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل زجاجة إيطالية',
-        nameEn: '500ml Italian Bottle',
-        unitAr: 'زجاجة',
-        unitEn: 'bottle',
-        basePrice: 19.50,
-        originalPrice: 24.00,
-        stock: 42,
-        lowStockThreshold: 8,
-        barcode: '123456789033'
-      },
-      category: 'international'
-    },
-
-    // Hot Beverages
-    {
-      id: 34,
-      nameAr: 'شوكولاتة ساخنة فاخرة',
-      nameEn: 'Premium Hot Chocolate',
-      image: null,
-      basePrice: 13.50,
-      originalPrice: 16.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '400مل كوب ساخن',
-        nameEn: '400ml Hot Cup',
-        unitAr: 'كوب',
-        unitEn: 'cup',
-        basePrice: 13.50,
-        originalPrice: 16.50,
-        stock: 55,
-        lowStockThreshold: 10,
-        barcode: '123456789034'
-      },
-      category: 'hot-beverages'
-    },
-    {
-      id: 35,
-      nameAr: 'قهوة تركية أصيلة',
-      nameEn: 'Authentic Turkish Coffee',
-      image: null,
-      basePrice: 12.25,
-      originalPrice: 15.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '200مل فنجان تركي',
-        nameEn: '200ml Turkish Cup',
-        unitAr: 'فنجان',
-        unitEn: 'cup',
-        basePrice: 12.25,
-        originalPrice: 15.00,
-        stock: 48,
-        lowStockThreshold: 9,
-        barcode: '123456789035'
-      },
-      category: 'hot-beverages'
-    },
-
-    // Cold Beverages
-    {
-      id: 36,
-      nameAr: 'مشروب الثلج المنعش',
-      nameEn: 'Refreshing Ice Drink',
-      image: null,
-      basePrice: 7.75,
-      originalPrice: 9.50,
-      baseUnit: {
-        id: 'base',
-        nameAr: '500مل كوب مثلج',
-        nameEn: '500ml Iced Cup',
-        unitAr: 'كوب',
-        unitEn: 'cup',
-        basePrice: 7.75,
-        originalPrice: 9.50,
-        stock: 80,
-        lowStockThreshold: 15,
-        barcode: '123456789036'
-      },
-      category: 'cold-beverages'
-    },
-    {
-      id: 37,
-      nameAr: 'عصير ليمونادة باردة',
-      nameEn: 'Cold Lemonade',
-      image: null,
-      basePrice: 6.25,
-      originalPrice: 8.00,
-      baseUnit: {
-        id: 'base',
-        nameAr: '600مل كوب بارد',
-        nameEn: '600ml Cold Cup',
-        unitAr: 'كوب',
-        unitEn: 'cup',
-        basePrice: 6.25,
-        originalPrice: 8.00,
-        stock: 95,
-        lowStockThreshold: 18,
-        barcode: '123456789037'
-      },
-      category: 'cold-beverages'
+      if (error) throw error;
+      
+      // Add "All" category at the beginning
+      categories = [
+        { id: 'all', name_en: 'All', name_ar: 'الكل' },
+        ...(data || [])
+      ];
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      categories = [{ id: 'all', name_en: 'All', name_ar: 'الكل' }];
     }
-  ];
+  }
 
-  // Initialize selected units with first unit of each product
+  // Load products from database
+  async function loadProducts() {
+    loading = true;
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('product_name_en');
+
+      if (error) throw error;
+      
+      // Group products by product_serial to combine units
+      const productMap = new Map();
+      
+      (data || []).forEach(row => {
+        if (!productMap.has(row.product_serial)) {
+          productMap.set(row.product_serial, {
+            id: row.product_serial,
+            nameEn: row.product_name_en,
+            nameAr: row.product_name_ar,
+            category: row.category_id,
+            categoryNameEn: row.category_name_en,
+            categoryNameAr: row.category_name_ar,
+            image: row.image_url,
+            units: []
+          });
+        }
+        
+        const product = productMap.get(row.product_serial);
+        product.units.push({
+          id: row.id,
+          nameEn: `${row.unit_qty} ${row.unit_name_en}`,
+          nameAr: `${row.unit_qty} ${row.unit_name_ar}`,
+          unitEn: row.unit_name_en,
+          unitAr: row.unit_name_ar,
+          basePrice: parseFloat(row.sale_price),
+          originalPrice: row.cost > 0 ? parseFloat(row.cost) : null,
+          stock: row.current_stock,
+          lowStockThreshold: row.minimum_qty_alert,
+          barcode: row.barcode,
+          unitQty: row.unit_qty,
+          image: row.image_url
+        });
+      });
+      
+      // Convert map to array and set first unit as baseUnit
+      products = Array.from(productMap.values()).map(product => {
+        const sortedUnits = product.units.sort((a, b) => a.unitQty - b.unitQty);
+        return {
+          ...product,
+          baseUnit: sortedUnits[0],
+          additionalUnits: sortedUnits.slice(1)
+        };
+      });
+      
+      // Initialize selected units
+      products.forEach(product => {
+        selectedUnits.set(product.id, product.baseUnit);
+      });
+      selectedUnits = selectedUnits;
+      
+    } catch (error) {
+      console.error('Error loading products:', error);
+      products = [];
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Initialize language and listen for changes
   onMount(() => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
@@ -887,24 +160,6 @@
     if (categoryParam) {
       selectedCategory = categoryParam;
     }
-
-    // Initialize selected units
-    products.forEach(product => {
-      selectedUnits.set(product.id, product.baseUnit);
-    });
-    selectedUnits = selectedUnits; // Trigger reactivity
-
-    // Initialize selected units
-    products.forEach(product => {
-      selectedUnits.set(product.id, product.baseUnit);
-    });
-    selectedUnits = selectedUnits; // Trigger reactivity
-
-    // Initialize selected units
-    products.forEach(product => {
-      selectedUnits.set(product.id, product.baseUnit);
-    });
-    selectedUnits = selectedUnits; // Trigger reactivity
 
     // Only log for debugging - no custom handlers
     if (categoryTabsContainer) {
@@ -961,18 +216,14 @@
 
   // Get selected unit for a product
   function getSelectedUnit(product) {
-    const selectedUnitId = selectedUnits.get(product.id);
+    const selectedUnitObj = selectedUnits.get(product.id);
     
-    if (!selectedUnitId || selectedUnitId === product.baseUnit) {
+    if (!selectedUnitObj) {
       return product.baseUnit;
     }
     
-    if (product.additionalUnits) {
-      const foundUnit = product.additionalUnits.find(unit => unit.id === selectedUnitId);
-      if (foundUnit) return foundUnit;
-    }
-    
-    return product.baseUnit;
+    // Return the selected unit object directly
+    return selectedUnitObj;
   }
 
   // Filter products based on search and category
@@ -985,29 +236,6 @@
     
     return matchesSearch && matchesCategory;
   });
-
-  // Categories for filtering
-  const categories = [
-    { id: 'all', nameAr: 'الكل', nameEn: 'All' },
-    { id: 'beverages', nameAr: 'المشروبات', nameEn: 'Beverages' },
-    { id: 'water', nameAr: 'المياه', nameEn: 'Water' },
-    { id: 'juice', nameAr: 'العصائر', nameEn: 'Juices' },
-    { id: 'coffee', nameAr: 'القهوة', nameEn: 'Coffee' },
-    { id: 'tea', nameAr: 'الشاي', nameEn: 'Tea' },
-    { id: 'energy', nameAr: 'مشروبات الطاقة', nameEn: 'Energy Drinks' },
-    { id: 'soft-drinks', nameAr: 'المشروبات الغازية', nameEn: 'Soft Drinks' },
-    { id: 'milk', nameAr: 'منتجات الألبان', nameEn: 'Dairy Products' },
-    { id: 'smoothies', nameAr: 'العصائر المخلوطة', nameEn: 'Smoothies' },
-    { id: 'sports', nameAr: 'المشروبات الرياضية', nameEn: 'Sports Drinks' },
-    { id: 'healthy', nameAr: 'المشروبات الصحية', nameEn: 'Healthy Drinks' },
-    { id: 'seasonal', nameAr: 'المشروبات الموسمية', nameEn: 'Seasonal Drinks' },
-    { id: 'premium', nameAr: 'المشروبات الممتازة', nameEn: 'Premium Drinks' },
-    { id: 'organic', nameAr: 'المشروبات العضوية', nameEn: 'Organic Drinks' },
-    { id: 'functional', nameAr: 'المشروبات الوظيفية', nameEn: 'Functional Drinks' },
-    { id: 'international', nameAr: 'المشروبات العالمية', nameEn: 'International Drinks' },
-    { id: 'hot-beverages', nameAr: 'المشروبات الساخنة', nameEn: 'Hot Beverages' },
-    { id: 'cold-beverages', nameAr: 'المشروبات الباردة', nameEn: 'Cold Beverages' }
-  ];
 
   function addToCart(product) {
     const selectedUnit = getSelectedUnit(product);
@@ -1085,7 +313,7 @@
               role="tab"
               aria-selected={selectedCategory === category.id}
             >
-              {currentLanguage === 'ar' ? category.nameAr : category.nameEn}
+              {currentLanguage === 'ar' ? category.name_ar : category.name_en}
             </button>
           {/each}
         </div>
@@ -1102,7 +330,7 @@
   <!-- Products Grid -->
   <div class="products-grid">
     {#each filteredProducts as product}
-      {#key $cartStore}
+      {#key `${$cartStore.length}-${selectedUnits.get(product.id)?.id || 'default'}`}
         {@const selectedUnit = getSelectedUnit(product)}
         {@const quantity = getItemQuantity(product)}
         {@const hasDiscount = selectedUnit.originalPrice && selectedUnit.originalPrice > selectedUnit.basePrice}
@@ -1112,7 +340,9 @@
       <div class="product-card">
         <!-- Product Image -->
         <div class="product-image">
-          {#if product.image}
+          {#if selectedUnit.image}
+            <img src={selectedUnit.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
+          {:else if product.image}
             <img src={product.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
           {:else}
             <div class="image-placeholder">📦</div>
@@ -1131,11 +361,40 @@
             {currentLanguage === 'ar' ? product.nameAr : product.nameEn}
           </h3>
           
-          <div class="unit-info">
-            <span class="unit-size">
-              {currentLanguage === 'ar' ? selectedUnit.nameAr : selectedUnit.nameEn}
-            </span>
-          </div>
+          <!-- Unit Selector -->
+          {#if product.additionalUnits && product.additionalUnits.length > 0}
+            <div class="unit-selector">
+              <select 
+                class="unit-dropdown"
+                value={selectedUnit.id}
+                on:change={(e) => {
+                  const allUnits = [product.baseUnit, ...product.additionalUnits];
+                  const newUnit = allUnits.find(u => u.id === e.target.value);
+                  if (newUnit) {
+                    selectedUnits.set(product.id, newUnit);
+                    selectedUnits = selectedUnits;
+                  }
+                }}
+                on:click={(e) => e.stopPropagation()}
+                on:touchstart={(e) => e.stopPropagation()}
+              >
+                <option value={product.baseUnit.id}>
+                  {currentLanguage === 'ar' ? product.baseUnit.nameAr : product.baseUnit.nameEn}
+                </option>
+                {#each product.additionalUnits as unit}
+                  <option value={unit.id}>
+                    {currentLanguage === 'ar' ? unit.nameAr : unit.nameEn}
+                  </option>
+                {/each}
+              </select>
+            </div>
+          {:else}
+            <div class="unit-info">
+              <span class="unit-size">
+                {currentLanguage === 'ar' ? selectedUnit.nameAr : selectedUnit.nameEn}
+              </span>
+            </div>
+          {/if}
 
           <!-- Price -->
           <div class="price-section">
@@ -1528,6 +787,58 @@
 
   .unit-info {
     margin-bottom: 1rem;
+  }
+
+  .unit-selector {
+    margin-bottom: 1rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .unit-dropdown {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--color-ink);
+    background: var(--color-background);
+    border: 1px solid var(--color-border-light);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2rem;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .unit-dropdown:hover {
+    border-color: var(--color-primary);
+    background-color: rgba(255, 152, 0, 0.05);
+  }
+
+  .unit-dropdown:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+  }
+
+  .unit-dropdown:active {
+    transform: scale(0.98);
+  }
+
+  @media (min-width: 768px) {
+    .unit-dropdown {
+      font-size: 0.9rem;
+      padding: 0.6rem 0.875rem;
+      border-radius: 10px;
+    }
   }
 
   .unit-size {

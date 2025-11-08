@@ -619,6 +619,7 @@ export const englishLocale: LocaleData = {
       customerMaster: "Customer Master",
       invoiceMaster: "Invoice Master",
       adManager: "Ad Manager",
+      productsManager: "Products Manager",
       userRoles: "User Roles",
       hierarchyMaster: "Hierarchy Master",
       userManagement: "User Management",

@@ -585,6 +585,7 @@ export const arabicLocale: LocaleData = {
       deliverySettings: "إعدادات التوصيل",
       customerMaster: "إدارة العملاء",
       adManager: "إدارة الإعلانات",
+      productsManager: "إدارة المنتجات",
       employeeMaster: "إدارة الموظفين",
       userMaster: "إدارة المستخدمين",
       categoriesMaster: "إدارة الفئات",
