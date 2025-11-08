@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { cartCount, cartTotal } from '$lib/stores/cart.js';
   import { deliveryTiers, deliveryActions, freeDeliveryThreshold } from '$lib/stores/delivery.js';
+  import { orderFlow } from '$lib/stores/orderFlow.js';
   
   let currentLanguage = 'ar';
   let showFireworks = false;
@@ -75,10 +76,14 @@
     };
   });
 
+  // Steps placeholder state
+  let showSteps = false;
+  $: flow = $orderFlow;
+
   $: texts = currentLanguage === 'ar' ? {
     items: 'منتج',
     total: 'المجموع',
-    checkout: 'إنهاء طلبك',
+    checkout: 'الدفع',
     sar: 'ر.س',
     freeDelivery: 'توصيل مجاني!',
     freeDeliveryUnlocked: 'تم فتح التوصيل المجاني! 🎉',
@@ -89,7 +94,7 @@
   } : {
     items: 'items',
     total: 'Total',
-    checkout: 'Finalize your order',
+    checkout: 'Checkout',
     sar: 'SAR',
     freeDelivery: 'Free Delivery!',
     freeDeliveryUnlocked: 'Free Delivery Unlocked! 🎉',
@@ -113,9 +118,8 @@
     }, 4000);
   }
 
-  function goToCheckout() {
-    goto('/customer/finalize');
-  }
+  function openSteps() { showSteps = true; }
+  function closeSteps() { showSteps = false; }
 
   function goToCart() {
     goto('/customer/cart');
@@ -164,9 +168,38 @@
     </div>
   </div>
   
-  <button class="checkout-btn" on:click={goToCheckout}>
+  <button class="checkout-btn" on:click={openSteps}>
     {texts.checkout}
   </button>
+</div>
+{/if}
+
+{#if showSteps}
+<div class="steps-overlay" on:click={closeSteps}>
+  <div class="steps-modal" on:click|stopPropagation>
+    <div class="steps-header">
+      <h3>{currentLanguage === 'ar' ? 'مراحل الطلب' : 'Order Steps'}</h3>
+      <button class="close" on:click={closeSteps}>×</button>
+    </div>
+    <ol class="steps-list" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+      <li class="step-item {flow.branchId && flow.fulfillment ? 'done' : ''}">
+        <span class="index">1</span>
+        <span class="label">{currentLanguage === 'ar' ? 'اختر الفرع والخدمة' : 'Select branch & service'}</span>
+        <small class="hint">{flow.branchId && flow.fulfillment ? (currentLanguage === 'ar' ? 'تم الاختيار' : 'Selected') : (currentLanguage === 'ar' ? 'ابدأ من الرئيسية' : 'Start from Home')}</small>
+      </li>
+      <li class="step-item current">
+        <span class="index">2</span>
+        <span class="label">{currentLanguage === 'ar' ? 'إضافة المنتجات' : 'Add products'}</span>
+      </li>
+      <li class="step-item">
+        <span class="index">3</span>
+        <span class="label">{currentLanguage === 'ar' ? 'مراجعة و الدفع' : 'Review & pay'}</span>
+      </li>
+    </ol>
+    <div class="steps-footer">
+      <button class="btn-secondary" on:click={closeSteps}>{currentLanguage === 'ar' ? 'إغلاق' : 'Close'}</button>
+    </div>
+  </div>
 </div>
 {/if}
 
@@ -282,6 +315,21 @@
   .checkout-btn:hover {
     background: var(--color-primary-dark);
   }
+
+  /* Steps modal */
+  .steps-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+  .steps-modal { background: #fff; width: 92%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; }
+  .steps-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border-light); }
+  .steps-header h3 { margin: 0; font-size: 1.1rem; color: var(--color-ink); }
+  .steps-header .close { background: none; border: none; font-size: 1.25rem; cursor: pointer; }
+  .steps-list { list-style: none; margin: 0; padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .step-item { display: flex; align-items: center; gap: 0.75rem; }
+  .step-item .index { width: 28px; height: 28px; border-radius: 50%; background: var(--color-surface); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: var(--color-ink); }
+  .step-item.done .index { background: #d1fae5; color: #065f46; }
+  .step-item.current .index { background: #dbeafe; color: #1e40af; }
+  .step-item .label { font-weight: 600; color: var(--color-ink); }
+  .step-item .hint { margin-inline-start: auto; color: var(--color-ink-light); }
+  .steps-footer { border-top: 1px solid var(--color-border-light); padding: 0.75rem 1.25rem; display: flex; justify-content: flex-end; }
 
   /* Fireworks Animation */
   .fireworks-container {

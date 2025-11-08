@@ -3,14 +3,24 @@
   import { goto } from '$app/navigation';
   import { cartActions, cartStore } from '$lib/stores/cart.js';
   import { scrollingContent, scrollingContentActions } from '$lib/stores/scrollingContent.js';
+  import { orderFlow } from '$lib/stores/orderFlow.js';
   
   let currentLanguage = 'ar';
+  $: flow = $orderFlow;
   let searchQuery = '';
   let selectedCategory = 'all';
   let selectedUnits = new Map();
   let categoryTabsContainer;
   let isScrolling = false;
   
+  // Guard: ensure branch/service selected before shopping
+  onMount(() => {
+    const saved = flow;
+    if (!saved?.branchId || !saved?.fulfillment) {
+      try { goto('/customer/start'); } catch (e) { console.error(e); }
+    }
+  });
+
   // Reactive cart items for quantity display
   $: cartItems = $cartStore;
   $: cartItemsMap = new Map(cartItems.map(item => [
