@@ -200,17 +200,15 @@
   $: texts = currentLanguage === 'ar' ? {
     title: 'الرئيسية - أكوا إكسبرس',
     greeting: `مرحباً ${userName} 👋`,
-    subtitle: 'اختر فئة المنتجات التي تريد التسوق منها',
-    allProducts: 'جميع المنتجات',
-    hideVideo: 'إخفاء الفيديو',
-    showVideo: 'إظهار الفيديو'
+    shopNow: 'ابدأ التسوق',
+    support: 'الدعم والمساعدة',
+    startSubtitle: 'اختر الفرع والخدمة ثم أضف المنتجات',
   } : {
     title: 'Home - Aqua Express',
     greeting: `Welcome ${userName} 👋`,
-    subtitle: 'Choose a product category to shop from',
-    allProducts: 'All Products',
-    hideVideo: 'Hide Video',
-    showVideo: 'Show Video'
+    shopNow: 'Shop Now',
+    support: 'Support',
+    startSubtitle: 'Pick a branch and service, then add products',
   };
 
   // Touch event handlers for scroll detection
@@ -250,22 +248,12 @@
     }
   }
 
-  function handleAllProducts(event) {
-    // Prevent navigation if user was scrolling
-    if (isTouchMoving) {
-      event?.preventDefault();
-      event?.stopPropagation();
-      return;
-    }
-    
-    console.log('All products clicked');
-    event?.preventDefault();
-    event?.stopPropagation();
-    try {
-      goto('/customer/products');
-    } catch (error) {
-      console.error('Navigation error:', error);
-    }
+  function goStartShopping() {
+    goto('/customer/start');
+  }
+
+  function goSupport() {
+    goto('/customer/support');
   }
 
   function logout() {
@@ -285,110 +273,28 @@
   </div>
 {:else}
   <div class="home-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-    <!-- Advertisement Media Section (LED Screen Style) - Shows videos and images from database -->
-    {#if !isVideoHidden && mediaItems.length > 0}
-      <div class="advertisement-section" bind:this={videoContainer}>
-        <div class="led-screen-container">
-          <div class="led-frame">
-            <div class="video-content">
-              {#if !videoError}
-                <video 
-                  autoplay 
-                  muted 
-                  loop
-                  playsinline
-                  on:click={nextMedia}
-                  on:error={handleVideoError}
-                  src={mediaItems[currentMediaIndex]?.src}
-                >
-                  <source src={mediaItems[currentMediaIndex]?.src} type="video/mp4">
-                  Your browser does not support the video tag.
-                </video>
-                
-                <!-- Image element for image media -->
-                <img 
-                  src={mediaItems[currentMediaIndex]?.src} 
-                  alt="Advertisement" 
-                  on:click={nextMedia}
-                  on:error={handleVideoError}
-                  style="display: none; width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
-                />
-              {:else}
-                <div class="video-fallback" on:click={nextMedia}>
-                  <div class="fallback-content">
-                    <div class="fallback-icon">�</div>
-                    <div class="fallback-title">
-                      {currentLanguage === 'ar' 
-                        ? mediaItems[currentMediaIndex]?.title 
-                        : mediaItems[currentMediaIndex]?.titleEn}
-                    </div>
-                    <div class="fallback-subtitle">
-                      {currentLanguage === 'ar' ? 'انقر للتالي' : 'Click for Next'}
-                    </div>
-                  </div>
-                </div>
-              {/if}
-
-              <!-- Hide Button -->
-              <button class="hide-btn" on:click={hideVideo} title={texts.hideVideo}>
-                <span>✕</span>
-              </button>
-              
-              <!-- LED Screen Effects -->
-              <div class="led-dots"></div>
-              <div class="screen-glow"></div>
-            </div>
-          </div>
-        </div>
+    <div class="hero">
+      <h2 class="greeting">{texts.greeting}</h2>
+      <p class="subtitle">{texts.startSubtitle}</p>
+      <div class="cta-buttons">
+        <button class="cta primary" on:click={goStartShopping} type="button">🛒 {texts.shopNow}</button>
+        <button class="cta secondary" on:click={goSupport} type="button">🆘 {texts.support}</button>
       </div>
-    {:else}
-      <!-- Show Video Button when hidden -->
-      <div class="show-video-section">
-        <button class="show-video-btn" on:click={showVideo}>
-          <span class="video-icon">�</span>
-          <span>{texts.showVideo}</span>
-        </button>
-      </div>
-    {/if}
-
-    <!-- Category Selection Section -->
-    <div class="category-selection-section">
-      <p class="category-subtitle">{texts.subtitle}</p>
-      <!-- All Products Button -->
-      <button 
-        class="all-products-btn" 
-        on:click={handleAllProducts}
-        on:touchstart={handleTouchStart}
-        on:touchmove={handleTouchMove}
-        on:touchend={handleAllProducts}
-        type="button"
-      >
-        <div class="btn-icon">🛒</div>
-        <span>{texts.allProducts}</span>
-      </button>
-    </div>
-
-    <!-- Categories Grid -->
-    <div class="categories-grid">
-      {#each categories as category}
-        <button 
-          class="category-card" 
-          on:click={(e) => handleCategoryClick(category.id, e)}
-          on:touchstart={handleTouchStart}
-          on:touchmove={handleTouchMove}
-          on:touchend={(e) => handleCategoryClick(category.id, e)}
-          type="button"
-        >
-          <div class="category-icon">{category.icon}</div>
-          <h3>{currentLanguage === 'ar' ? category.nameAr : category.nameEn}</h3>
-        </button>
-      {/each}
     </div>
   </div>
 {/if}
 
 <style>
   .loading-container {
+  .hero { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height: 70vh; gap: 1rem; text-align:center; }
+  .greeting { margin: 0; color: var(--color-ink); }
+  .subtitle { margin: 0; color: var(--color-ink-light); }
+  .cta-buttons { display:flex; gap: 0.75rem; flex-wrap: wrap; justify-content:center; }
+  .cta { border: none; border-radius: 10px; padding: 0.85rem 1.25rem; font-weight: 700; cursor: pointer; }
+  .cta.primary { background: var(--color-primary); color: #fff; }
+  .cta.secondary { background: var(--color-surface); color: var(--color-ink); border:1px solid var(--color-border); }
+  .cta.primary:hover { background: var(--color-primary-dark); }
+  .cta.secondary:hover { background: #f6f7f9; }
     display: flex;
     flex-direction: column;
     align-items: center;
