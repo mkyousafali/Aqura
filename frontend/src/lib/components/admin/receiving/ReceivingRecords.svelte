@@ -37,7 +37,6 @@
 	let updatingErp = false;
 
 	onMount(() => {
-		console.log('🔍 ReceivingRecords component mounted');
 		loadBranches();
 		loadReceivingRecords();
 	});
@@ -63,11 +62,9 @@
 	async function loadReceivingRecords() {
 		loading = true;
 		try {
-			console.log('🔍 Loading receiving records...');
-			// Import supabase here to avoid circular dependencies
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// First, get receiving records with user and branch information
+			// Get receiving records with user and branch information
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
 				.select(`
@@ -89,35 +86,40 @@
 				throw recordsError;
 			}
 
-			// Then, for each record, get the vendor info and payment schedule status
-			const recordsWithVendors = await Promise.all((records || []).map(async (record) => {
-				const { data: vendorData, error: vendorError } = await supabase
-					.from('vendors')
-					.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact')
-					.eq('erp_vendor_id', record.vendor_id)
-					.eq('branch_id', record.branch_id)
-					.single();
+			if (!records || records.length === 0) {
+				receivingRecords = [];
+				applyFilters();
+				return;
+			}
 
-				// Check if payment schedule exists - handle errors gracefully
-				let scheduleData = null;
-				let hasMultipleSchedules = false;
-				try {
-					const { data, error: scheduleError } = await supabase
+			// For each record, get the vendor info and payment schedule status IN PARALLEL
+			const recordsWithVendors = await Promise.all((records || []).map(async (record) => {
+				// Fetch vendor and payment schedule in parallel for each record
+				const [vendorResult, scheduleResult] = await Promise.all([
+					supabase
+						.from('vendors')
+						.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact')
+						.eq('erp_vendor_id', record.vendor_id)
+						.eq('branch_id', record.branch_id)
+						.single(),
+					supabase
 						.from('vendor_payment_schedule')
 						.select('id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
-						.eq('receiving_record_id', record.id);
+						.eq('receiving_record_id', record.id)
+				]);
 
-					if (!scheduleError && data && data.length > 0) {
-						scheduleData = data[0]; // Use the first record for display
-						hasMultipleSchedules = data.length > 1;
-						console.log(`📋 Record ${record.id} has ${data.length} payment schedule(s)`);
-					}
-				} catch (err) {
-					console.warn(`Could not check payment schedule for record ${record.id}:`, err);
+				const vendorData = vendorResult.data;
+				const vendorError = vendorResult.error;
+				
+				let scheduleData = null;
+				let hasMultipleSchedules = false;
+				
+				if (!scheduleResult.error && scheduleResult.data && scheduleResult.data.length > 0) {
+					scheduleData = scheduleResult.data[0];
+					hasMultipleSchedules = scheduleResult.data.length > 1;
 				}
 
 				if (vendorError) {
-					console.warn(`Could not find vendor ${record.vendor_id} for branch ${record.branch_id}:`, vendorError);
 					return {
 						...record,
 						vendors: null,
@@ -139,7 +141,6 @@
 			}));
 
 			receivingRecords = recordsWithVendors;
-			console.log('🔍 Receiving records loaded:', receivingRecords.length);
 			
 			applyFilters();
 		} catch (err) {
@@ -465,10 +466,11 @@
 			
 			console.log('Updating PR Excel verification:', { recordId, isVerified, userId: $currentUser?.id });
 			
+			const verifiedDate = isVerified ? new Date().toISOString() : null;
 			const updateData = {
 				pr_excel_verified: isVerified,
 				pr_excel_verified_by: isVerified ? $currentUser?.id : null,
-				pr_excel_verified_date: isVerified ? new Date().toISOString() : null
+				pr_excel_verified_date: verifiedDate
 			};
 
 			// Update ALL payment schedules for this receiving record
@@ -493,8 +495,27 @@
 				return;
 			}
 
-			// Refresh the records to show updated verification status
-			await loadReceivingRecords();
+			// Update local state instead of reloading everything
+			receivingRecords = receivingRecords.map(record => {
+				if (record.id === recordId) {
+					return {
+						...record,
+						pr_excel_verified: isVerified,
+						pr_excel_verified_by: isVerified ? $currentUser?.id : null,
+						pr_excel_verified_date: verifiedDate,
+						schedule_status: record.schedule_status ? {
+							...record.schedule_status,
+							pr_excel_verified: isVerified,
+							pr_excel_verified_by: isVerified ? $currentUser?.id : null,
+							pr_excel_verified_date: verifiedDate
+						} : null
+					};
+				}
+				return record;
+			});
+
+			// Reapply filters to update the filtered view
+			applyFilters();
 			
 		} catch (error) {
 			console.error('Error updating PR Excel verification:', error);
