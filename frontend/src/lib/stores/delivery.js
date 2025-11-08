@@ -21,23 +21,41 @@ export const deliverySettings = writable({
 
 // Loading state
 export const deliveryDataLoading = writable(false);
+// Flag to indicate DB doesn't have branch-aware column yet
+export const deliveryBranchColumnMissing = writable(false);
+
+// Helper to detect DB errors for missing branch column
+function _isMissingBranchColumnError(err) {
+  if (!err) return false;
+  try { if (err.code === '42703') return true; } catch (e) {}
+  const msg = (err.message || '').toString();
+  if (msg.includes('branch_id') || msg.includes('t.branch_id') || msg.includes('does not exist')) return true;
+  return false;
+}
 
 // Actions
 export const deliveryActions = {
   // Load delivery tiers (branch-specific if branchId provided)
-  async loadTiers(branchId = null) {
+  async loadTiers(branchId) {
     deliveryDataLoading.set(true);
     try {
-      let rpcName;
-      let params = {};
-      if (branchId) {
-        rpcName = 'get_delivery_tiers_by_branch';
-        params = { p_branch_id: branchId };
-      } else {
-        rpcName = 'get_all_delivery_tiers';
+      if (!branchId) {
+        deliveryTiers.set([]);
+        return [];
       }
-      const { data, error } = await supabase.rpc(rpcName, params);
-      if (error) throw error;
+      const { data, error } = await supabase.rpc('get_delivery_tiers_by_branch', { p_branch_id: branchId });
+      if (error) {
+        if (_isMissingBranchColumnError(error)) {
+          console.warn('Branch tiers column missing; falling back to global tiers temporarily');
+          deliveryBranchColumnMissing.set(true);
+          const { data: legacy, error: legacyError } = await supabase.rpc('get_all_delivery_tiers');
+          if (!legacyError) {
+            deliveryTiers.set(legacy || []);
+            return legacy;
+          }
+        }
+        throw error;
+      }
       deliveryTiers.set(data || []);
       return data;
     } catch (error) {
@@ -74,19 +92,19 @@ export const deliveryActions = {
   },
 
   // Calculate delivery fee for a given amount
-  async getDeliveryFee(orderAmount, branchId = null) {
+  async getDeliveryFee(orderAmount, branchId) {
     try {
-      let rpcName;
-      let params;
-      if (branchId) {
-        rpcName = 'get_delivery_fee_for_amount_by_branch';
-        params = { p_branch_id: branchId, p_order_amount: orderAmount };
-      } else {
-        rpcName = 'get_delivery_fee_for_amount';
-        params = { order_amount: orderAmount };
+      if (!branchId) return 0;
+      const { data, error } = await supabase.rpc('get_delivery_fee_for_amount_by_branch', { p_branch_id: branchId, p_order_amount: orderAmount });
+      if (error) {
+        if (_isMissingBranchColumnError(error)) {
+          console.warn('Branch-aware delivery fee RPC failed; falling back to global fee RPC.');
+          deliveryBranchColumnMissing.set(true);
+          const { data: legacy, error: legacyError } = await supabase.rpc('get_delivery_fee_for_amount', { order_amount: orderAmount });
+          if (!legacyError) return legacy || 0;
+        }
+        throw error;
       }
-      const { data, error } = await supabase.rpc(rpcName, params);
-      if (error) throw error;
       return data || 0;
     } catch (error) {
       console.error('Error calculating delivery fee:', error);
@@ -95,15 +113,16 @@ export const deliveryActions = {
   },
 
   // Get delivery fee using local tiers (faster, no DB call)
-  getDeliveryFeeLocal(orderAmount, branchId = null) {
+  getDeliveryFeeLocal(orderAmount, branchId) {
     const tiers = get(deliveryTiers);
-    let scoped = [];
-    if (branchId) {
-      scoped = tiers.filter(t => t.branch_id === branchId);
-      if (scoped.length === 0) scoped = tiers.filter(t => t.branch_id == null);
-    } else {
-      scoped = tiers.filter(t => t.branch_id == null);
+    // If branch tiers not loaded but global legacy tiers present (no branch_id field), use them
+    const hasBranchField = tiers.length === 0 ? false : Object.prototype.hasOwnProperty.call(tiers[0], 'branch_id');
+    if (!hasBranchField) {
+      // Legacy global tiers behavior
+      return legacyTierFee(orderAmount, tiers);
     }
+    if (!branchId) return 0;
+    const scoped = tiers.filter(t => t.branch_id === branchId);
     // Find the appropriate tier
     for (let i = scoped.length - 1; i >= 0; i--) {
       const tier = scoped[i];
@@ -118,19 +137,19 @@ export const deliveryActions = {
   },
 
   // Get next better tier
-  async getNextTier(currentAmount, branchId = null) {
+  async getNextTier(currentAmount, branchId) {
     try {
-      let rpcName;
-      let params;
-      if (branchId) {
-        rpcName = 'get_next_delivery_tier_by_branch';
-        params = { p_branch_id: branchId, p_current_amount: currentAmount };
-      } else {
-        rpcName = 'get_next_delivery_tier';
-        params = { current_amount: currentAmount };
+      if (!branchId) return null;
+      const { data, error } = await supabase.rpc('get_next_delivery_tier_by_branch', { p_branch_id: branchId, p_current_amount: currentAmount });
+      if (error) {
+        if (_isMissingBranchColumnError(error)) {
+          console.warn('Branch-aware next-tier RPC failed; falling back to global next-tier RPC.');
+          deliveryBranchColumnMissing.set(true);
+          const { data: legacy, error: legacyError } = await supabase.rpc('get_next_delivery_tier', { current_amount: currentAmount });
+          if (!legacyError) return legacy && legacy.length > 0 ? legacy[0] : null;
+        }
+        throw error;
       }
-      const { data, error } = await supabase.rpc(rpcName, params);
-      if (error) throw error;
       return data && data.length > 0 ? data[0] : null;
     } catch (error) {
       console.error('Error getting next tier:', error);
@@ -139,16 +158,16 @@ export const deliveryActions = {
   },
 
   // Get next tier using local tiers (faster)
-  getNextTierLocal(currentAmount, branchId = null) {
+  getNextTierLocal(currentAmount, branchId) {
     const tiers = get(deliveryTiers);
-    const currentFee = this.getDeliveryFeeLocal(currentAmount, branchId);
-    let scoped = [];
-    if (branchId) {
-      scoped = tiers.filter(t => t.branch_id === branchId);
-      if (scoped.length === 0) scoped = tiers.filter(t => t.branch_id == null);
-    } else {
-      scoped = tiers.filter(t => t.branch_id == null);
+    const hasBranchField = tiers.length === 0 ? false : Object.prototype.hasOwnProperty.call(tiers[0], 'branch_id');
+    if (!hasBranchField) {
+      // Legacy behavior on global tiers
+      return legacyNextTier(currentAmount, tiers);
     }
+    if (!branchId) return null;
+    const scoped = tiers.filter(t => t.branch_id === branchId);
+    const currentFee = this.getDeliveryFeeLocal(currentAmount, branchId);
     // Find next tier with lower fee and higher min amount
     for (const tier of scoped) {
       if (!tier.is_active) continue;
@@ -348,7 +367,7 @@ export const deliveryActions = {
   // Initialize - load all data
   async initialize() {
     const flow = get(orderFlow);
-    const branchId = flow?.branchId || null;
+    const branchId = flow?.branchId;
     await Promise.all([
       this.loadTiers(branchId),
       this.loadSettings()
@@ -358,18 +377,47 @@ export const deliveryActions = {
 
 // Derived store for free delivery threshold (highest tier with 0 fee)
 export const freeDeliveryThreshold = derived([deliveryTiers, orderFlow], ([$tiers, $flow]) => {
-  const branchId = $flow?.branchId || null;
-  let scoped = [];
-  if (branchId) {
-    scoped = $tiers.filter(t => t.branch_id === branchId);
-    if (scoped.length === 0) scoped = $tiers.filter(t => t.branch_id == null);
-  } else {
-    scoped = $tiers.filter(t => t.branch_id == null);
+  const branchId = $flow?.branchId;
+  const hasBranchField = $tiers.length === 0 ? false : Object.prototype.hasOwnProperty.call($tiers[0], 'branch_id');
+  if (!hasBranchField) {
+    // Legacy global tiers
+    const freeTierLegacy = $tiers.find(t => t.is_active && t.delivery_fee === 0);
+    return freeTierLegacy ? freeTierLegacy.min_order_amount : 0;
   }
-  const freeTier = scoped.find(t => t.is_active && t.delivery_fee === 0);
-  return freeTier ? freeTier.min_order_amount : 500;
+  if (!branchId) return 0;
+  const freeTier = $tiers.filter(t => t.branch_id === branchId).find(t => t.is_active && t.delivery_fee === 0);
+  return freeTier ? freeTier.min_order_amount : 0;
 });
 
+// Legacy helper functions (global tiers without branch_id)
+function legacyTierFee(orderAmount, tiers) {
+  for (let i = tiers.length - 1; i >= 0; i--) {
+    const tier = tiers[i];
+    if (!tier.is_active) continue;
+    const meetsMin = orderAmount >= tier.min_order_amount;
+    const meetsMax = tier.max_order_amount === null || orderAmount <= tier.max_order_amount;
+    if (meetsMin && meetsMax) return tier.delivery_fee;
+  }
+  return 0;
+}
+
+function legacyNextTier(currentAmount, tiers) {
+  const currentFee = legacyTierFee(currentAmount, tiers);
+  for (const tier of tiers) {
+    if (!tier.is_active) continue;
+    if (tier.min_order_amount > currentAmount && tier.delivery_fee < currentFee) {
+      return {
+        nextTierMinAmount: tier.min_order_amount,
+        nextTierDeliveryFee: tier.delivery_fee,
+        amountNeeded: tier.min_order_amount - currentAmount,
+        potentialSavings: currentFee - tier.delivery_fee,
+        descriptionEn: tier.description_en,
+        descriptionAr: tier.description_ar
+      };
+    }
+  }
+  return null;
+}
 // Initialize on module load
 if (typeof window !== 'undefined') {
   deliveryActions.initialize().catch(console.error);

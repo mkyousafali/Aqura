@@ -186,7 +186,7 @@
   <title>{texts.title}</title>
 </svelte:head>
 
-<div class="profile-container">
+<div class="profile-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
   <header class="page-header">
     <h1>{texts.title}</h1>
     <div class="header-actions">
@@ -260,12 +260,12 @@
     <div class="section">
       <h2>{texts.orders}</h2>
       <div class="menu-items">
-        <button class="menu-item" on:click={goToCart}>
-          <span>{texts.trackOrder}</span>
+        <button class="menu-item" on:click={() => goto('/customer/track-order')}>
+          <span>🔍 {texts.trackOrder}</span>
           <span class="arrow">›</span>
         </button>
-        <button class="menu-item" on:click={goToCart}>
-          <span>{texts.orderHistory}</span>
+        <button class="menu-item" on:click={() => goto('/customer/orders')}>
+          <span>📋 {texts.orderHistory}</span>
           <span class="arrow">›</span>
         </button>
       </div>
@@ -537,12 +537,31 @@
     cursor: pointer;
     border-bottom: 1px solid var(--color-border-light);
     color: var(--color-ink);
-    transition: color 0.2s ease;
+    transition: all 0.3s ease;
     text-align: left;
+    font-size: 1rem;
+    font-weight: 500;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    z-index: 10;
   }
 
   .menu-item:hover {
     color: var(--color-primary);
+    background: rgba(22, 163, 74, 0.05);
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    margin-left: -0.5rem;
+    margin-right: -0.5rem;
+    border-radius: 8px;
+  }
+
+  .menu-item:active {
+    transform: scale(0.98);
+    background: rgba(22, 163, 74, 0.1);
   }
 
   .menu-item:last-child {
@@ -551,7 +570,13 @@
 
   .arrow {
     color: var(--color-ink-light);
-    font-size: 1.2rem;
+    font-size: 1.5rem;
+    transition: all 0.3s ease;
+  }
+
+  .menu-item:hover .arrow {
+    color: var(--color-primary);
+    transform: translateX(5px);
   }
 
   .logout-section {

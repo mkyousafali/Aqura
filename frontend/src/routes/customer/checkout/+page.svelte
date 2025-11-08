@@ -45,6 +45,9 @@
       ? 'شكراً لك! سيتم تحضير طلبك وسنتواصل معك عند جاهزيته للاستلام.' 
       : 'شكراً لك! سيتم تحضير طلبك والتواصل معك قريباً.',
     closeOrder: 'إغلاق',
+    newOrder: 'طلب جديد',
+    trackOrder: 'تتبع الطلب',
+    orderSuccess: 'تم تأكيد طلبك بنجاح!',
     sar: 'ر.س',
     free: 'مجاني',
     remove: 'حذف',
@@ -84,6 +87,9 @@
       ? 'Thank you! Your order will be prepared and we\'ll contact you when ready for pickup.'
       : 'Thank you! Your order will be prepared and we\'ll contact you shortly.',
     closeOrder: 'Close',
+    newOrder: 'New Order',
+    trackOrder: 'Track Order',
+    orderSuccess: 'Your order has been confirmed successfully!',
     sar: 'SAR',
     free: 'Free',
     remove: 'Remove',
@@ -323,9 +329,10 @@
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
 
-  function closeOrderConfirmation() {showOrderConfirmation = false;
+  function closeOrderConfirmation() {
+    showOrderConfirmation = false;
     
-    // Clear timer if still running (order will be finalized)
+    // Clear timer if still running
     if (cancellationTimer) {
       clearInterval(cancellationTimer);
     }
@@ -335,14 +342,39 @@
     orderPlacedTime = null;
     timeRemaining = 60;
     
-    // Clear cart when closing confirmation (order is finalized)
+    // Clear cart and go home
     cartActions.clearCart();
-    
-    goto('/customer/products');
+    goto('/customer');
   }
 
-  function goBackToCart() {try {
-      goto('/customer/finalize');
+  function goToNewOrder() {
+    showOrderConfirmation = false;
+    
+    // Clear timer
+    if (cancellationTimer) {
+      clearInterval(cancellationTimer);
+    }
+    
+    // Clear cart and go to start page
+    cartActions.clearCart();
+    goto('/customer/start');
+  }
+
+  function goToTrackOrder() {
+    showOrderConfirmation = false;
+    
+    // Clear timer
+    if (cancellationTimer) {
+      clearInterval(cancellationTimer);
+    }
+    
+    // Go to track order page
+    goto('/customer/track-order');
+  }
+
+  function goBackToCart() {
+    try {
+      goto('/customer/cart');
     } catch (error) {
       console.error('❌ [Checkout] Back navigation error:', error);
     }
@@ -366,19 +398,28 @@
 
   function showPaymentMethodOptions() {showPaymentMethods = true;}
 
-  function selectPaymentMethod(method) {selectedPaymentMethod = method;}
+  function selectPaymentMethod(method) {
+    selectedPaymentMethod = method;
+    // Scroll to place order button after short delay to let it render
+    setTimeout(() => {
+      const placeOrderBtn = document.querySelector('.place-order-btn');
+      if (placeOrderBtn) {
+        placeOrderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  }
 
   // Calculate delivery fee (branch-aware)
   $: freeDeliveryThreshold = $freeDeliveryThresholdStore;
   $: isFreeDelivery = total >= freeDeliveryThreshold;
   $: finalDeliveryFee = (() => {
     if (fulfillmentMethod === 'pickup') return 0;
-    const flow = $orderFlow;
-    const branchId = flow?.branchId || null;
+    const branchId = $orderFlow?.branchId;
+    if (!branchId) return 0;
     return deliveryActions.getDeliveryFeeLocal(total || 0, branchId);
   })();
-  $: finalTotal = (total || 0) + (isFreeDelivery ? 0 : finalDeliveryFee);
-  $: amountForFreeDelivery = freeDeliveryThreshold - (total || 0);
+  $: finalTotal = (total || 0) + finalDeliveryFee;
+  $: amountForFreeDelivery = freeDeliveryThreshold > 0 ? (freeDeliveryThreshold - (total || 0)) : 0;
 </script>
 
 <svelte:head>
@@ -540,34 +581,25 @@
 
 <!-- Order Confirmation Popup -->
 {#if showOrderConfirmation}
-  <div class="popup-overlay" on:click={closeOrderConfirmation}>
+  <div class="popup-overlay" on:click|stopPropagation>
     <div class="popup-content" on:click|stopPropagation>
       <div class="popup-icon">✅</div>
       <h2>{texts.orderConfirmed}</h2>
-      <p><strong>{texts.orderNumber}:</strong> {orderNumber}</p>
-      <p>{texts.thankYou}</p>
-      
-      <!-- Cancellation Timer -->
-      {#if canCancelOrder && timeRemaining > 0}
-        <div class="cancellation-section">
-          <div class="timer-display">
-            <span class="timer-label">{texts.timeRemaining}:</span>
-            <span class="timer-countdown">{formatTime(timeRemaining)}</span>
-          </div>
-          <div class="order-actions-buttons">
-            <button class="cancel-order-btn" on:click={cancelOrder}>
-              {texts.cancelOrder}
-            </button>
-            <button class="confirm-order-btn" on:click={confirmOrderImmediately}>
-              {texts.confirmOrder}
-            </button>
-          </div>
-        </div>
-      {/if}
+      <div class="order-number-display">
+        <strong>{texts.orderNumber}:</strong>
+        <span class="order-number-value">{orderNumber}</span>
+      </div>
+      <p class="thank-you-message">{texts.thankYou}</p>
       
       <div class="popup-actions">
-        <button class="close-btn" on:click={goToProducts}>
-          {texts.goToProducts}
+        <button class="new-order-btn" on:click={goToNewOrder}>
+          🛒 {texts.newOrder}
+        </button>
+        <button class="track-order-btn" on:click={goToTrackOrder}>
+          📦 {texts.trackOrder}
+        </button>
+        <button class="close-btn" on:click={closeOrderConfirmation}>
+          🏠 {texts.closeOrder}
         </button>
       </div>
     </div>
@@ -1127,23 +1159,83 @@
     background: #059669;
   }
 
-  .popup-actions {
-    margin-top: 1.5rem;
+  .order-number-display {
+    background: #f0fdf4;
+    border: 2px solid #16a34a;
+    border-radius: 12px;
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
   }
 
+  .order-number-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #16a34a;
+    margin-top: 0.5rem;
+    letter-spacing: 1px;
+  }
+
+  .thank-you-message {
+    margin: 1rem 0;
+    line-height: 1.6;
+  }
+
+  .popup-actions {
+    margin-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .new-order-btn,
+  .track-order-btn,
   .close-btn {
-    background: var(--color-primary);
-    color: white;
+    width: 100%;
     border: none;
     padding: 1rem 2rem;
     border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .new-order-btn {
+    background: #16a34a;
+    color: white;
+  }
+
+  .new-order-btn:hover {
+    background: #15803d;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+  }
+
+  .track-order-btn {
+    background: #f59e0b;
+    color: white;
+  }
+
+  .track-order-btn:hover {
+    background: #d97706;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+
+  .close-btn {
+    background: #6b7280;
+    color: white;
   }
 
   .close-btn:hover {
-    background: var(--color-primary-dark);
+    background: #4b5563;
+    transform: translateY(-1px);
   }
 
   /* Mobile optimizations */

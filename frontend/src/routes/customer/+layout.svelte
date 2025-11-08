@@ -10,11 +10,11 @@
                       !$page.url.pathname.includes('/customer-login') &&
                       !$page.url.pathname.includes('/login');
   
-  // Hide cart bar on cart, checkout, and finalize pages
+  // Hide cart bar on cart and checkout pages
   $: showCartBar = showNavigation && 
                    !$page.url.pathname.includes('/cart') && 
-                   !$page.url.pathname.includes('/checkout') && 
-                   !$page.url.pathname.includes('/finalize');
+                   !$page.url.pathname.includes('/checkout');
+
 </script>
 
 {#if showNavigation}
@@ -48,6 +48,8 @@
     padding-top: 60px;
     padding-bottom: 80px;
   }
+
+  /* Keep consistent top offset equal to TopBar height */
 
   /* Add extra padding when cart bar is visible */
   .customer-main.with-nav.with-cart {

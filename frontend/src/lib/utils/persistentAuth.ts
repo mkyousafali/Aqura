@@ -6,9 +6,10 @@ import { userAuth } from "./userAuth";
 import type { User } from "$lib/types/auth";
 
 // Types
-interface UserSession {
+export interface UserSession {
   id: string;
   username: string;
+  email?: string;
   role?: string;
   roleType?: string;
   userType?: string;
@@ -27,7 +28,7 @@ interface UserSession {
   customer?: any; // Customer details for customer users
 }
 
-interface DeviceSession {
+export interface DeviceSession {
   deviceId: string;
   users: UserSession[];
   currentUserId?: string;

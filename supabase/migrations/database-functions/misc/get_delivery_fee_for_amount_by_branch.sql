@@ -19,6 +19,11 @@ AS $$
 DECLARE
     v_fee numeric;
 BEGIN
+  -- Require a branch id; without it, no fee can be determined
+  IF p_branch_id IS NULL THEN
+    RETURN 0;
+  END IF;
+
     -- Attempt branch-specific tier match
     SELECT t.delivery_fee INTO v_fee
     FROM public.delivery_fee_tiers t
@@ -29,23 +34,11 @@ BEGIN
     ORDER BY t.min_order_amount DESC
     LIMIT 1;
 
-    -- Fallback to global tiers if no branch-specific fee found
-    IF v_fee IS NULL THEN
-        SELECT t.delivery_fee INTO v_fee
-        FROM public.delivery_fee_tiers t
-        WHERE t.is_active = true
-          AND t.branch_id IS NULL
-          AND t.min_order_amount <= p_order_amount
-          AND (t.max_order_amount IS NULL OR t.max_order_amount >= p_order_amount)
-        ORDER BY t.min_order_amount DESC
-        LIMIT 1;
-    END IF;
-
     RETURN COALESCE(v_fee, 0);
 END;
 $$;
 
-COMMENT ON FUNCTION public.get_delivery_fee_for_amount_by_branch(bigint, numeric) IS 'Calculate delivery fee for order amount using branch tiers or global fallback';
+COMMENT ON FUNCTION public.get_delivery_fee_for_amount_by_branch(bigint, numeric) IS 'Calculate delivery fee for order amount using branch tiers only';
 
 -- Example usage:
 -- SELECT public.get_delivery_fee_for_amount_by_branch(3, 275.00);
