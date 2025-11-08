@@ -5,6 +5,10 @@
 	
 	// Active tab
 	let activeTab = 'tiers'; // 'tiers', 'settings', 'branches'
+
+	// Tiers scope (global or per-branch)
+	let tierScope = 'global'; // 'global' | 'branch'
+	let tierBranchId = null; // selected branch id for tiers tab
 	
 	// Tier editing
 	let editingTier = null;
@@ -56,6 +60,8 @@
 	async function loadData() {
 		await deliveryActions.initialize();
 		await loadBranches();
+		// Initialize tiers view
+		await deliveryActions.loadTiers(null);
 		
 		// Sync settings form with store
 		deliverySettings.subscribe(settings => {
@@ -70,11 +76,22 @@
 			if (branches.length > 0 && !selectedBranch) {
 				selectBranch(branches[0]);
 			}
+			if (branches.length > 0 && !tierBranchId) {
+				tierBranchId = branches[0].branch_id;
+			}
 		} catch (error) {
 			console.error('Error loading branches:', error);
 			alert('Failed to load branches');
 		} finally {
 			loadingBranches = false;
+		}
+	}
+
+	async function loadTiersForScope() {
+		if (tierScope === 'branch' && tierBranchId) {
+			await deliveryActions.loadTiers(tierBranchId);
+		} else {
+			await deliveryActions.loadTiers(null);
 		}
 	}
 	
@@ -133,9 +150,9 @@
 		try {
 			let result;
 			if (isEditMode && editingTier) {
-				result = await deliveryActions.updateTier(editingTier.id, tierForm);
+				result = await deliveryActions.updateTier(editingTier.id, tierForm, tierScope === 'branch' ? tierBranchId : null);
 			} else {
-				result = await deliveryActions.addTier(tierForm);
+				result = await deliveryActions.addTier(tierForm, tierScope === 'branch' ? tierBranchId : null);
 			}
 			
 			if (result.success) {
@@ -152,8 +169,7 @@
 	
 	async function deleteTier(tier) {
 		if (!confirm(`Delete tier: ${tier.description_en}?`)) return;
-		
-		const result = await deliveryActions.deleteTier(tier.id);
+		const result = await deliveryActions.deleteTier(tier.id, tierScope === 'branch' ? tierBranchId : null);
 		if (result.success) {
 			alert('✅ Tier deleted successfully!');
 		} else {
@@ -201,6 +217,7 @@
 	}
 	
 	$: sortedTiers = $deliveryTiers.sort((a, b) => a.tier_order - b.tier_order);
+	$: isBranchSpecific = tierScope === 'branch' && sortedTiers.length > 0 && sortedTiers.every(t => t.branch_id === tierBranchId);
 </script>
 
 <div class="delivery-settings">
@@ -239,9 +256,28 @@
 		<div class="tab-content">
 			<div class="section-header">
 				<h2>Delivery Fee Tiers</h2>
-				<button class="btn-primary" on:click={() => openTierModal()}>
-					+ Add New Tier
-				</button>
+				<div class="tier-controls">
+					<label>
+						Scope:
+						<select bind:value={tierScope} on:change={loadTiersForScope}>
+							<option value="global">Global</option>
+							<option value="branch">Branch</option>
+						</select>
+					</label>
+					{#if tierScope === 'branch'}
+						<label>
+							Branch:
+							<select bind:value={tierBranchId} on:change={loadTiersForScope}>
+								{#each branches as branch}
+									<option value={branch.branch_id}>{branch.branch_name_en}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					<button class="btn-primary" on:click={() => openTierModal()}>
+						+ Add New Tier
+					</button>
+				</div>
 			</div>
 			
 			{#if $deliveryDataLoading}
@@ -251,6 +287,11 @@
 					<p>No tiers configured. Add your first tier to get started.</p>
 				</div>
 			{:else}
+				{#if tierScope === 'branch' && !isBranchSpecific && sortedTiers.length > 0}
+					<div class="notice">
+						Currently showing global tiers (no branch-specific tiers for selected branch).
+					</div>
+				{/if}
 				<div class="tiers-table">
 					<table>
 						<thead>
@@ -286,8 +327,8 @@
 										</span>
 									</td>
 									<td class="actions-cell">
-										<button class="btn-edit" on:click={() => openTierModal(tier)}>✏️</button>
-										<button class="btn-delete" on:click={() => deleteTier(tier)}>🗑️</button>
+										<button class="btn-edit" on:click={() => openTierModal(tier)} disabled={tierScope === 'branch' && !isBranchSpecific}>✏️</button>
+										<button class="btn-delete" on:click={() => deleteTier(tier)} disabled={tierScope === 'branch' && !isBranchSpecific}>🗑️</button>
 									</td>
 								</tr>
 							{/each}
@@ -855,6 +896,21 @@
 		text-align: center;
 		padding: 3rem;
 		color: #6b7280;
+	}
+
+	.notice {
+		margin-bottom: 1rem;
+		padding: 0.75rem 1rem;
+		background: #fffbeb;
+		border: 1px solid #f59e0b;
+		border-radius: 8px;
+		color: #92400e;
+	}
+
+	.tier-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
 	}
 	
 	/* Modal Styles */

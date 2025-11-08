@@ -20,9 +20,13 @@
   
   // Calculate delivery fee reactively
   $: {
+    const branchId = $orderFlow?.branchId || null;
     if (total > 0 && $deliveryTiers.length > 0) {
-      currentDeliveryFee = deliveryActions.getDeliveryFeeLocal(total);
-      nextTierInfo = deliveryActions.getNextTierLocal(total);
+      currentDeliveryFee = deliveryActions.getDeliveryFeeLocal(total, branchId);
+      nextTierInfo = deliveryActions.getNextTierLocal(total, branchId);
+    } else {
+      currentDeliveryFee = 0;
+      nextTierInfo = null;
     }
   }
   
@@ -61,6 +65,10 @@
     // Initialize delivery data
     await deliveryActions.initialize();
   });
+  // Reload tiers when branch selection changes
+  $: if ($orderFlow?.branchId) {
+    deliveryActions.loadTiers($orderFlow.branchId);
+  }
 
   // Listen for language changes
   function handleStorageChange(event) {

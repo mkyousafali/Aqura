@@ -3,6 +3,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { cartStore, cartTotal, cartCount, cartActions } from '$lib/stores/cart.js';
+  import { deliveryActions, freeDeliveryThreshold as freeDeliveryThresholdStore } from '$lib/stores/delivery.js';
+  import { orderFlow } from '$lib/stores/orderFlow.js';
   
   let currentLanguage = 'ar';
   let cartItems = [];
@@ -19,9 +21,7 @@
   let canCancelOrder = false;
   let fulfillmentMethod = 'delivery'; // Default to delivery
 
-  // Delivery fee configuration
-  const deliveryFee = 15.00; // SAR
-  const freeDeliveryThreshold = 500.00; // SAR
+  // Branch-aware delivery fee will be computed from delivery tiers store
 
   // Language texts
   $: texts = currentLanguage === 'ar' ? {
@@ -126,11 +126,16 @@
       currentLanguage = savedLanguage;
     }
 
-    // Get fulfillment method from URL parameters
+    // Get fulfillment method from URL parameters (or orderFlow)
     const urlParams = new URLSearchParams(window.location.search);
     const fulfillmentParam = urlParams.get('fulfillment');
     if (fulfillmentParam === 'pickup' || fulfillmentParam === 'delivery') {
       fulfillmentMethod = fulfillmentParam;
+    } else {
+      const flow = JSON.parse(localStorage.getItem('orderFlow') || '{}');
+      if (flow?.fulfillment) {
+        fulfillmentMethod = flow.fulfillment;
+      }
     }
 
     // Subscribe to cart store
@@ -363,10 +368,16 @@
 
   function selectPaymentMethod(method) {selectedPaymentMethod = method;}
 
-  // Calculate delivery fee
+  // Calculate delivery fee (branch-aware)
+  $: freeDeliveryThreshold = $freeDeliveryThresholdStore;
   $: isFreeDelivery = total >= freeDeliveryThreshold;
-  $: finalDeliveryFee = fulfillmentMethod === 'pickup' ? 0 : (isFreeDelivery ? 0 : deliveryFee);
-  $: finalTotal = (total || 0) + finalDeliveryFee;
+  $: finalDeliveryFee = (() => {
+    if (fulfillmentMethod === 'pickup') return 0;
+    const flow = $orderFlow;
+    const branchId = flow?.branchId || null;
+    return deliveryActions.getDeliveryFeeLocal(total || 0, branchId);
+  })();
+  $: finalTotal = (total || 0) + (isFreeDelivery ? 0 : finalDeliveryFee);
   $: amountForFreeDelivery = freeDeliveryThreshold - (total || 0);
 </script>
 
