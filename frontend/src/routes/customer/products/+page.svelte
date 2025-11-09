@@ -187,7 +187,7 @@
 <svelte:head><title>{texts.title}</title></svelte:head>
 
 <div class="page" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-  <!-- sticky, touch-scroll categories + left menu button -->
+  <!-- sticky, touch-scroll categories + left menu button + search button -->
   <div class="top">
     <div class="category-row">
       <button class="cat-menu-btn" type="button" aria-haspopup="dialog" aria-expanded={showCategoryMenu}
@@ -207,6 +207,8 @@
           </button>
         {/each}
       </div>
+
+      <button class="search-btn" aria-expanded={showSearch} on:click={() => (showSearch = !showSearch)} aria-label="Search" title="Search">🔎</button>
     </div>
   </div>
 
@@ -298,8 +300,7 @@
     </div>
   {/if}
 
-  <!-- Floating search -->
-  <button class="search-fab" aria-expanded={showSearch} on:click={() => (showSearch = !showSearch)} aria-label="Search">🔎</button>
+  <!-- Search slide -->
   <div class="search-slide" class:open={showSearch}>
     <input type="text" class="search-input" placeholder={texts.search} bind:value={searchQuery} autofocus={showSearch} />
     <button class="close-search" on:click={() => (showSearch = false)} aria-label={texts.close}>✕</button>
@@ -335,16 +336,21 @@
     max-width: 1200px; 
     width: 100%;
     margin: 0 auto; 
-    padding: .5rem .5rem 4.5rem; 
+    padding: .5rem .5rem 120px; 
     min-height: 100vh; 
     background: var(--bg); 
     box-sizing: border-box;
     overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    position: relative;
   }
 
   .top{ position:sticky; top:0; z-index:20; background:var(--bg); padding:.25rem 0 .5rem; }
   .category-row{ display:flex; align-items:center; gap:.5rem; }
-  .cat-menu-btn{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface); cursor:pointer; font-weight:700; }
+  .cat-menu-btn{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface); cursor:pointer; font-weight:700; font-size:1rem; }
+  .search-btn{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface); cursor:pointer; font-size:1rem; }
 
   .category-tabs{ display:flex; gap:.4rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:.2rem 0; flex:1; }
   .category-tabs::-webkit-scrollbar{ display:none; }
@@ -508,10 +514,9 @@
   .no-products-icon{ font-size:3.6rem; margin-bottom:.6rem; }
   .no-products-text{ font-size:1.05rem; }
 
-  /* Floating search */
-  .search-fab{ position:fixed; right:14px; bottom:14px; z-index:30; width:50px; height:50px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-size:1.2rem; box-shadow:0 10px 20px rgba(0,0,0,.18); cursor:pointer; }
+  /* Search slide */
   .search-slide{ position:fixed; left:0; right:0; top:-64px; z-index:25; transition:transform .25s ease; transform: translateY(-100%); display:flex; align-items:center; gap:.4rem; background:var(--bg); padding:.4rem .6rem; border-bottom:1px solid var(--border); }
-  .search-slide.open{ transform: translateY(0); top:0; }
+  .search-slide.open{ transform: translateY(0); top:45px; }
   .search-input{ flex:1; padding:.7rem .9rem; border:2px solid var(--border); border-radius:12px; background:var(--surface); font-size:.95rem; }
   .search-input:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12); }
   .close-search{ border:none; background:var(--surface); border:2px solid var(--border); border-radius:10px; padding:.55rem .7rem; cursor:pointer; }

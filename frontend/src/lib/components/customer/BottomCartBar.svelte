@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { cartCount, cartTotal } from '$lib/stores/cart.js';
   import { deliveryTiers, deliveryActions, freeDeliveryThreshold } from '$lib/stores/delivery.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
@@ -284,17 +285,17 @@
 <style>
   .bottom-cart-bar {
     position: fixed;
-    bottom: 80px; /* Above bottom navigation */
+    bottom: 0;
     left: 0;
     right: 0;
     background: white;
     border-top: 1px solid var(--color-border);
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-    padding: 1rem;
+    padding: 0.5rem 0.75rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.6rem;
     z-index: 90;
     animation: slideUp 0.3s ease-out;
   }
@@ -315,21 +316,21 @@
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.1rem;
   }
 
   .cart-items {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
   }
 
   .cart-icon {
-    font-size: 1.2rem;
+    font-size: 0.85rem;
   }
 
   .item-count {
-    font-size: 0.9rem;
+    font-size: 0.7rem;
     color: var(--color-ink);
     font-weight: 600;
   }
@@ -337,37 +338,37 @@
   .cart-total {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
     flex-wrap: wrap;
   }
 
   .total-label {
-    font-size: 0.9rem;
+    font-size: 0.65rem;
     color: var(--color-ink-light);
   }
 
   .total-amount {
-    font-size: 1.1rem;
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--color-primary);
   }
 
   .delivery-hint {
-    font-size: 0.75rem;
+    font-size: 0.6rem;
     color: var(--color-ink-light);
-    margin-left: 0.25rem;
+    margin-left: 0.2rem;
     font-style: italic;
     opacity: 0.8;
   }
 
   .free-delivery-badge {
-    font-size: 0.75rem;
+    font-size: 0.6rem;
     color: #4CAF50;
     background: rgba(76, 175, 80, 0.1);
-    padding: 0.2rem 0.5rem;
-    border-radius: 12px;
+    padding: 0.1rem 0.3rem;
+    border-radius: 8px;
     font-weight: 600;
-    margin-left: 0.25rem;
+    margin-left: 0.2rem;
     border: 1px solid rgba(76, 175, 80, 0.3);
     animation: pulseBadge 1.5s ease-in-out infinite;
   }
@@ -381,9 +382,9 @@
     background: var(--color-primary);
     color: white;
     border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-size: 1rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.2s ease;
@@ -743,24 +744,24 @@
   /* Mobile optimizations */
   @media (max-width: 480px) {
     .bottom-cart-bar {
-      padding: 0.75rem;
+      padding: 0.4rem 0.6rem;
     }
 
     .cart-info {
-      gap: 0.1rem;
+      gap: 0.05rem;
     }
 
     .item-count, .total-label {
-      font-size: 0.85rem;
+      font-size: 0.65rem;
     }
 
     .total-amount {
-      font-size: 1rem;
+      font-size: 0.75rem;
     }
 
     .checkout-btn {
-      padding: 0.5rem 1rem;
-      font-size: 0.9rem;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.7rem;
     }
   }
 </style>
