@@ -115,6 +115,29 @@
 </svelte:head>
 
 <div class="notifications-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+  <!-- Individual floating bubbles -->
+  <div class="floating-bubbles">
+    <div class="bubble bubble-orange bubble-1"></div>
+    <div class="bubble bubble-blue bubble-2"></div>
+    <div class="bubble bubble-green bubble-3"></div>
+    <div class="bubble bubble-pink bubble-4"></div>
+    <div class="bubble bubble-orange bubble-5"></div>
+    <div class="bubble bubble-blue bubble-6"></div>
+    <div class="bubble bubble-green bubble-7"></div>
+    <div class="bubble bubble-pink bubble-8"></div>
+    <div class="bubble bubble-orange bubble-9"></div>
+    <div class="bubble bubble-blue bubble-10"></div>
+    <div class="bubble bubble-green bubble-11"></div>
+    <div class="bubble bubble-pink bubble-12"></div>
+    <div class="bubble bubble-orange bubble-13"></div>
+    <div class="bubble bubble-blue bubble-14"></div>
+    <div class="bubble bubble-green bubble-15"></div>
+    <div class="bubble bubble-pink bubble-16"></div>
+    <div class="bubble bubble-orange bubble-17"></div>
+    <div class="bubble bubble-blue bubble-18"></div>
+    <div class="bubble bubble-green bubble-19"></div>
+    <div class="bubble bubble-pink bubble-20"></div>
+  </div>
   <div class="page-header">
     <h1 class="page-title">{texts.title}</h1>
     {#if notifications.some(n => !n.read)}
@@ -177,47 +200,313 @@
     touch-action: pan-y;
     box-sizing: border-box;
     
-    /* Gradient background matching home page */
-    background: linear-gradient(180deg, #7ce5a5 0%, #5edda0 40%, #4dd99b 100%);
+    /* Simple neutral background with bubbles */
+    background: #f8fafc;
+    position: relative;
+    overflow: hidden;
   }
 
-  /* Orange wave - bottom layer with animation */
-  .notifications-container::before {
-    content: '';
+  /* Floating bubbles container */
+  .floating-bubbles {
     position: fixed;
-    width: 200%;
-    height: 150px;
-    bottom: 0;
-    left: -50%;
-    z-index: 0;
-    background: #FF5C00;
-    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-    animation: wave 8s ease-in-out infinite;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     pointer-events: none;
-  }
-
-  /* Second wave - lighter orange */
-  .notifications-container::after {
-    content: '';
-    position: fixed;
-    width: 200%;
-    height: 120px;
-    bottom: 0;
-    left: -50%;
     z-index: 1;
-    background: rgba(255, 140, 0, 0.5);
-    border-radius: 50% 50% 0 0 / 80% 80% 0 0;
-    animation: wave 6s ease-in-out infinite reverse;
-    pointer-events: none;
   }
 
-  @keyframes wave {
-    0%, 100% {
-      transform: translateX(0) translateY(0);
-    }
-    50% {
-      transform: translateX(-25%) translateY(-10px);
-    }
+  /* Individual bubble styles */
+  .bubble {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+    /* Water bubble effects */
+    backdrop-filter: blur(2px);
+    box-shadow: 
+      inset -5px -5px 10px rgba(255, 255, 255, 0.4),
+      inset 5px 5px 10px rgba(0, 0, 0, 0.1),
+      0 0 15px rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+
+  /* Water bubble colors with transparency */
+  .bubble-orange { 
+    background: radial-gradient(circle at 30% 30%, rgba(255, 200, 100, 0.8), rgba(255, 165, 0, 0.6));
+    box-shadow: 
+      inset -5px -5px 10px rgba(255, 255, 255, 0.6),
+      inset 5px 5px 10px rgba(255, 100, 0, 0.2),
+      0 0 20px rgba(255, 165, 0, 0.4);
+  }
+  
+  .bubble-blue { 
+    background: radial-gradient(circle at 30% 30%, rgba(150, 200, 255, 0.8), rgba(0, 123, 255, 0.6));
+    box-shadow: 
+      inset -5px -5px 10px rgba(255, 255, 255, 0.6),
+      inset 5px 5px 10px rgba(0, 50, 200, 0.2),
+      0 0 20px rgba(0, 123, 255, 0.4);
+  }
+  
+  .bubble-green { 
+    background: radial-gradient(circle at 30% 30%, rgba(150, 255, 150, 0.8), rgba(40, 167, 69, 0.6));
+    box-shadow: 
+      inset -5px -5px 10px rgba(255, 255, 255, 0.6),
+      inset 5px 5px 10px rgba(0, 100, 20, 0.2),
+      0 0 20px rgba(40, 167, 69, 0.4);
+  }
+  
+  .bubble-pink { 
+    background: radial-gradient(circle at 30% 30%, rgba(255, 180, 200, 0.8), rgba(255, 20, 147, 0.6));
+    box-shadow: 
+      inset -5px -5px 10px rgba(255, 255, 255, 0.6),
+      inset 5px 5px 10px rgba(200, 0, 100, 0.2),
+      0 0 20px rgba(255, 20, 147, 0.4);
+  }
+
+  /* Individual bubble animations and positions */
+  .bubble-1 {
+    width: 25px; height: 25px;
+    left: 10%; top: 20%;
+    animation: float1 8s infinite;
+  }
+
+  .bubble-2 {
+    width: 18px; height: 18px;
+    left: 80%; top: 15%;
+    animation: float2 10s infinite;
+  }
+
+  .bubble-3 {
+    width: 32px; height: 32px;
+    left: 25%; top: 60%;
+    animation: float3 12s infinite;
+  }
+
+  .bubble-4 {
+    width: 22px; height: 22px;
+    left: 90%; top: 45%;
+    animation: float4 9s infinite;
+  }
+
+  .bubble-5 {
+    width: 15px; height: 15px;
+    left: 15%; top: 80%;
+    animation: float5 11s infinite;
+  }
+
+  .bubble-6 {
+    width: 28px; height: 28px;
+    left: 70%; top: 25%;
+    animation: float6 7s infinite;
+  }
+
+  .bubble-7 {
+    width: 20px; height: 20px;
+    left: 45%; top: 10%;
+    animation: float7 13s infinite;
+  }
+
+  .bubble-8 {
+    width: 24px; height: 24px;
+    left: 60%; top: 75%;
+    animation: float8 8s infinite;
+  }
+
+  .bubble-9 {
+    width: 16px; height: 16px;
+    left: 5%; top: 50%;
+    animation: float9 10s infinite;
+  }
+
+  .bubble-10 {
+    width: 30px; height: 30px;
+    left: 85%; top: 70%;
+    animation: float10 9s infinite;
+  }
+
+  .bubble-11 {
+    width: 19px; height: 19px;
+    left: 35%; top: 30%;
+    animation: float11 11s infinite;
+  }
+
+  .bubble-12 {
+    width: 35px; height: 35px;
+    left: 75%; top: 55%;
+    animation: float12 7s infinite;
+  }
+
+  .bubble-13 {
+    width: 12px; height: 12px;
+    left: 20%; top: 40%;
+    animation: float13 14s infinite;
+  }
+
+  .bubble-14 {
+    width: 26px; height: 26px;
+    left: 95%; top: 20%;
+    animation: float14 8s infinite;
+  }
+
+  .bubble-15 {
+    width: 21px; height: 21px;
+    left: 50%; top: 85%;
+    animation: float15 12s infinite;
+  }
+
+  .bubble-16 {
+    width: 17px; height: 17px;
+    left: 30%; top: 5%;
+    animation: float16 10s infinite;
+  }
+
+  .bubble-17 {
+    width: 14px; height: 14px;
+    left: 65%; top: 90%;
+    animation: float17 9s infinite;
+  }
+
+  .bubble-18 {
+    width: 29px; height: 29px;
+    left: 40%; top: 65%;
+    animation: float18 11s infinite;
+  }
+
+  .bubble-19 {
+    width: 13px; height: 13px;
+    left: 55%; top: 35%;
+    animation: float19 13s infinite;
+  }
+
+  .bubble-20 {
+    width: 23px; height: 23px;
+    left: 12%; top: 70%;
+    animation: float20 8s infinite;
+  }
+
+  /* Floating animations - each unique */
+  @keyframes float1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(20px, -30px) scale(1.1); }
+    50% { transform: translate(-15px, -10px) scale(0.9); }
+    75% { transform: translate(10px, -25px) scale(1.05); }
+  }
+
+  @keyframes float2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(-25px, 20px) scale(0.85); }
+    66% { transform: translate(15px, -15px) scale(1.15); }
+  }
+
+  @keyframes float3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    20% { transform: translate(30px, 10px) scale(1.2); }
+    40% { transform: translate(-20px, -20px) scale(0.8); }
+    60% { transform: translate(25px, 15px) scale(1.1); }
+    80% { transform: translate(-10px, -5px) scale(0.95); }
+  }
+
+  @keyframes float4 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-30px, -40px) scale(1.3); }
+  }
+
+  @keyframes float5 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    30% { transform: translate(15px, -25px) scale(0.7); }
+    70% { transform: translate(-20px, 10px) scale(1.4); }
+  }
+
+  @keyframes float6 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(-15px, 25px) scale(1.1); }
+    75% { transform: translate(20px, -15px) scale(0.9); }
+  }
+
+  @keyframes float7 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    40% { transform: translate(25px, 30px) scale(1.2); }
+    80% { transform: translate(-15px, -20px) scale(0.8); }
+  }
+
+  @keyframes float8 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    35% { transform: translate(-20px, -30px) scale(1.15); }
+    65% { transform: translate(30px, 20px) scale(0.85); }
+  }
+
+  @keyframes float9 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    45% { transform: translate(35px, -15px) scale(1.3); }
+    90% { transform: translate(-25px, 25px) scale(0.7); }
+  }
+
+  @keyframes float10 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    30% { transform: translate(-30px, 15px) scale(0.9); }
+    60% { transform: translate(20px, -25px) scale(1.2); }
+  }
+
+  @keyframes float11 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(10px, 35px) scale(1.1); }
+  }
+
+  @keyframes float12 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(-35px, -10px) scale(0.8); }
+    75% { transform: translate(15px, 30px) scale(1.25); }
+  }
+
+  @keyframes float13 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    40% { transform: translate(20px, -35px) scale(1.4); }
+    80% { transform: translate(-30px, 20px) scale(0.6); }
+  }
+
+  @keyframes float14 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(25px, 25px) scale(1.1); }
+    66% { transform: translate(-20px, -30px) scale(0.9); }
+  }
+
+  @keyframes float15 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    20% { transform: translate(-25px, -20px) scale(1.2); }
+    80% { transform: translate(30px, 10px) scale(0.8); }
+  }
+
+  @keyframes float16 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-10px, 40px) scale(1.3); }
+  }
+
+  @keyframes float17 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    35% { transform: translate(30px, -25px) scale(0.85); }
+    70% { transform: translate(-20px, 15px) scale(1.15); }
+  }
+
+  @keyframes float18 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(15px, -30px) scale(1.05); }
+    75% { transform: translate(-25px, 20px) scale(0.95); }
+  }
+
+  @keyframes float19 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    45% { transform: translate(-15px, 30px) scale(1.25); }
+    90% { transform: translate(35px, -15px) scale(0.75); }
+  }
+
+  @keyframes float20 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    30% { transform: translate(20px, 20px) scale(1.1); }
+    70% { transform: translate(-30px, -25px) scale(0.9); }
   }
 
   .page-header {
@@ -369,5 +658,16 @@
   [dir="rtl"] .unread-indicator {
     right: auto;
     left: 0.88rem;
+  }
+
+  /* Mobile optimizations for bubbles */
+  @media (max-width: 480px) {
+    .bubble {
+      transform: scale(0.6);
+      box-shadow: 
+        inset -3px -3px 6px rgba(255, 255, 255, 0.4),
+        inset 3px 3px 6px rgba(0, 0, 0, 0.1),
+        0 0 8px rgba(255, 255, 255, 0.3);
+    }
   }
 </style>
