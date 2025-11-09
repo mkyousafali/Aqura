@@ -5,16 +5,22 @@
   import { scrollingContent, scrollingContentActions } from '$lib/stores/scrollingContent.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
   import { supabase } from '$lib/utils/supabase';
-  
+
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
+
   let searchQuery = '';
+  let showSearch = false;
+
   let selectedCategory = 'all';
   let selectedUnits = new Map();
   let categoryTabsContainer;
+
   let products = [];
   let categories = [];
   let loading = true;
+
+  let showCategoryMenu = false;
 
   // Guard: ensure branch/service selected before shopping
   onMount(async () => {
@@ -35,7 +41,7 @@
   // Reactive cart items for quantity display
   $: cartItems = $cartStore;
   $: cartItemsMap = new Map(cartItems.map(item => [
-    `${item.id}-${item.selectedUnit?.id || 'base'}`, 
+    `${item.id}-${item.selectedUnit?.id || 'base'}`,
     item.quantity
   ]));
 
@@ -130,17 +136,12 @@
 
   function selectCategory(categoryId) {
     selectedCategory = categoryId;
+    showCategoryMenu = false;
+    // keep nice centering for active chip
     if (categoryTabsContainer) {
       const activeTab = categoryTabsContainer.querySelector('.category-tab.active');
       if (activeTab) activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
-  }
-
-  function scrollLeft() {
-    if (categoryTabsContainer) categoryTabsContainer.scrollBy({ left: -220, behavior: 'smooth' });
-  }
-  function scrollRight() {
-    if (categoryTabsContainer) categoryTabsContainer.scrollBy({ left: 220, behavior: 'smooth' });
   }
 
   function getSelectedUnit(product) {
@@ -174,7 +175,9 @@
   // Language texts
   $: texts = currentLanguage === 'ar' ? {
     title: 'المنتجات - أكوا إكسبرس',
-    search: 'البحث في المنتجات...',
+    search: 'ابحث عن منتج...',
+    categories: 'الفئات',
+    close: 'إغلاق',
     addToCart: 'أضف للسلة',
     sar: 'ر.س',
     inStock: 'متوفر',
@@ -184,6 +187,8 @@
   } : {
     title: 'Products - Aqua Express',
     search: 'Search products...',
+    categories: 'Categories',
+    close: 'Close',
     addToCart: 'Add to Cart',
     sar: 'SAR',
     inStock: 'In Stock',
@@ -198,28 +203,18 @@
 </svelte:head>
 
 <div class="page" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-  <!-- Search + Sticky Categories -->
+  <!-- Sticky Categories (touch-scrollable) -->
   <div class="top">
-    <div class="search-bar">
-      <input 
-        type="text" 
-        placeholder={texts.search}
-        bind:value={searchQuery}
-        class="search-input"
-      />
-      <span class="search-icon">🔎</span>
-    </div>
-
-    <div class="category-filter">
-      <button class="nav-button nav-left" on:click={scrollLeft} aria-label="Scroll left">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M12 16L6 10L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+    <div class="category-row">
+      <!-- mini menu button -->
+      <button class="cat-menu-btn" type="button" aria-haspopup="dialog" aria-expanded={showCategoryMenu}
+        on:click={() => (showCategoryMenu = true)} title={texts.categories}>
+        ☰
       </button>
 
       <div class="category-tabs" bind:this={categoryTabsContainer}>
         {#each categories as category}
-          <button 
+          <button
             class="category-tab"
             class:active={selectedCategory === category.id}
             on:click={() => selectCategory(category.id)}
@@ -231,12 +226,6 @@
           </button>
         {/each}
       </div>
-
-      <button class="nav-button nav-right" on:click={scrollRight} aria-label="Scroll right">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M8 4L14 10L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
     </div>
   </div>
 
@@ -251,7 +240,6 @@
         {@const isOutOfStock = selectedUnit.stock === 0}
 
         <div class="product-card">
-          <!-- Image (uniform) -->
           <div class="product-image">
             {#if selectedUnit.image}
               <img src={selectedUnit.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
@@ -267,16 +255,14 @@
             {/if}
           </div>
 
-          <!-- Info -->
           <div class="product-info">
             <h3 class="product-name">
               {currentLanguage === 'ar' ? product.nameAr : product.nameEn}
             </h3>
 
-            <!-- Unit (compact) -->
             {#if product.additionalUnits && product.additionalUnits.length > 0}
               <div class="unit-selector">
-                <select 
+                <select
                   class="unit-dropdown"
                   value={selectedUnit.id}
                   on:change={(e) => {
@@ -308,7 +294,6 @@
               </div>
             {/if}
 
-            <!-- Price only (bold), currency small -->
             <div class="price-row">
               <div class="price-now">
                 {selectedUnit.basePrice.toFixed(2)}
@@ -321,7 +306,6 @@
               {/if}
             </div>
 
-            <!-- Stock (subtle) -->
             <div class="stock-line">
               {#if isOutOfStock}
                 <span class="stock out">{texts.outOfStock}</span>
@@ -332,11 +316,10 @@
               {/if}
             </div>
 
-            <!-- Add / Quantity (floating compact) -->
             <div class="cart-controls">
               {#if quantity === 0}
-                <button 
-                  class="fab-add" 
+                <button
+                  class="fab-add"
                   on:click={() => addToCart(product)}
                   disabled={isOutOfStock}
                   type="button"
@@ -365,16 +348,56 @@
       </div>
     </div>
   {/if}
+
+  <!-- Floating search button -->
+  <button class="search-fab" aria-expanded={showSearch} on:click={() => (showSearch = !showSearch)} aria-label="Search">
+    🔎
+  </button>
+
+  <!-- Slide-down search field -->
+  <div class="search-slide" class:open={showSearch}>
+    <input
+      type="text"
+      class="search-input"
+      placeholder={texts.search}
+      bind:value={searchQuery}
+      autofocus={showSearch}
+    />
+    <button class="close-search" on:click={() => (showSearch = false)} aria-label={texts.close}>✕</button>
+  </div>
+
+  <!-- Category Menu Modal -->
+  {#if showCategoryMenu}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" on:click={() => (showCategoryMenu = false)}>
+      <div class="modal-panel" on:click|stopPropagation>
+        <div class="modal-header">
+          <strong>{texts.categories}</strong>
+          <button class="modal-close" on:click={() => (showCategoryMenu = false)} aria-label={texts.close}>✕</button>
+        </div>
+        <div class="modal-body">
+          {#each categories as category}
+            <button
+              class="modal-cat"
+              class:active={selectedCategory === category.id}
+              on:click={() => selectCategory(category.id)}
+            >
+              {currentLanguage === 'ar' ? category.name_ar : category.name_en}
+            </button>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
   :root{
-    --surface: #ffffff;
-    --bg: #f7f7f8;
-    --ink: #1a1a1a;
+    --surface:#ffffff;
+    --bg:#f7f7f8;
+    --ink:#1a1a1a;
     --ink-2:#5a5a5a;
     --ink-3:#9aa0a6;
-    --primary:#16a34a; /* keep your green for actions only */
+    --primary:#16a34a;
     --primary-700:#15803d;
     --danger:#e11d48;
     --warn:#f59e0b;
@@ -385,168 +408,191 @@
   .page{
     max-width: 1200px;
     margin: 0 auto;
-    padding: 0.75rem;
+    padding: 0.5rem 0.6rem 4.5rem; /* leave room for FABs */
     min-height: 100vh;
     background: var(--bg);
     box-sizing: border-box;
   }
-  @media (min-width:768px){ .page{ padding:1rem; } }
 
-  /* Sticky top area (search + categories) */
+  /* Sticky top (only categories now) */
   .top{
     position: sticky;
     top: 0;
     z-index: 20;
     background: var(--bg);
-    padding-top: 0.25rem;
-    padding-bottom: 0.5rem;
+    padding: .25rem 0 .4rem;
   }
 
-  /* Search */
-  .search-bar{ position: relative; margin-bottom: .5rem; }
-  .search-input{
-    width: 100%;
-    padding: .8rem 2.5rem .8rem 1rem;
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    background: var(--surface);
-    font-size: .95rem;
-    transition: border-color .2s ease, box-shadow .2s ease;
-  }
-  .search-input:focus{ outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
-  .search-icon{
-    position: absolute; right: .8rem; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--ink-3); pointer-events: none;
+  .category-row{
+    display:flex;
+    align-items:center;
+    gap:.5rem;
   }
 
-  /* Categories */
-  .category-filter{ display: flex; align-items: center; gap: .5rem; margin: .5rem 0 1rem; }
-  .nav-button{
-    width: 36px; height: 36px; border-radius: 50%;
-    background: var(--surface); border: 2px solid var(--border); color: var(--ink);
-    display:flex; align-items:center; justify-content:center; cursor:pointer; transition: all .2s;
+  .cat-menu-btn{
+    width:34px;height:34px;flex:0 0 34px;
+    border-radius:10px;border:1.5px solid var(--border);
+    background:var(--surface);cursor:pointer;font-weight:700;
   }
-  .nav-button:hover{ border-color: var(--primary); background: var(--primary); color: #fff; }
+
+  /* Categories: smaller chips, touch scroll */
   .category-tabs{
-    display:flex; gap:.5rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding: .25rem 0; flex:1;
+    display:flex; gap:.4rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:.2rem 0; flex:1;
   }
   .category-tabs::-webkit-scrollbar{ display:none; }
   .category-tab{
-    padding: .6rem 1.1rem; background: var(--surface); border:2px solid var(--border);
-    border-radius: 999px; white-space: nowrap; color: var(--ink); cursor:pointer; transition: all .2s;
-    font-weight: 600; flex-shrink:0;
+    padding:.45rem .85rem;
+    background:var(--surface);
+    border:1.5px solid var(--border);
+    border-radius:999px;
+    white-space:nowrap;
+    color:var(--ink);
+    cursor:pointer;
+    transition:all .2s;
+    font-weight:600;
+    font-size:.85rem;
+    flex-shrink:0;
   }
-  .category-tab:hover{ border-color: var(--primary); color: var(--primary); }
-  .category-tab.active{ background: var(--primary); color:#fff; border-color: var(--primary); }
+  .category-tab:hover{ border-color:var(--primary); color:var(--primary); }
+  .category-tab.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 
-  /* Grid */
+  /* Grid: hard 2-up on narrow screens */
   .products-grid{
     display:grid;
     grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
-    gap: 1rem;
+    gap:.75rem;
   }
-  @media (min-width:480px){
-    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap:1.25rem; }
+  @media (max-width: 480px){
+    .products-grid{
+      grid-template-columns: repeat(2, minmax(0, 1fr)); /* force 2 per row */
+      gap:.6rem;
+    }
   }
   @media (min-width:768px){
-    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:1.5rem; }
+    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:1rem; }
   }
 
-  /* Card */
+  /* Product card (slightly smaller) */
   .product-card{
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
     overflow:hidden;
     display:flex; flex-direction:column;
-    box-shadow: 0 2px 8px rgba(0,0,0,.06);
-    transition: transform .18s ease, box-shadow .18s ease;
+    box-shadow:0 2px 8px rgba(0,0,0,.06);
+    transition:transform .18s ease, box-shadow .18s ease;
   }
-  .product-card:hover{ transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
+  .product-card:hover{ transform: translateY(-2px); box-shadow:0 10px 20px rgba(0,0,0,.12); }
 
-  /* Uniform image area (square on phones, roomy on web) */
   .product-image{
-    position: relative;
-    padding-top: 100%; /* square */
-    background: #f1f3f5;
+    position:relative;
+    padding-top:100%;
+    background:#f1f3f5;
   }
-  @media (min-width:768px){ .product-image{ padding-top: 75%; } } /* a bit wider on desktop */
-  .product-image img{
-    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
-  }
-  .image-placeholder{
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:3rem; color:#c9cdd3;
-  }
+  @media (min-width:768px){ .product-image{ padding-top:78%; } }
+  .product-image img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .image-placeholder{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:2.6rem; color:#c9cdd3; }
   .discount-badge{
-    position:absolute; top:.6rem; inset-inline-end:.6rem;
-    background: var(--danger); color:#fff; padding:.25rem .5rem; border-radius:10px; font-size:.75rem; font-weight:700;
+    position:absolute; top:.45rem; inset-inline-end:.45rem;
+    background:var(--danger); color:#fff; padding:.2rem .45rem; border-radius:9px; font-size:.7rem; font-weight:700;
   }
 
-  .product-info{ padding: .9rem 1rem 1.1rem; display:flex; flex-direction:column; gap:.55rem; flex:1; }
+  .product-info{ padding:.7rem .75rem .85rem; display:flex; flex-direction:column; gap:.45rem; flex:1; }
   .product-name{
-    margin:0; color: var(--ink); font-weight: 700; font-size: .98rem; line-height: 1.3;
+    margin:0; color:var(--ink); font-weight:700; font-size:.95rem; line-height:1.25;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
 
-  /* Unit */
-  .unit-info{ margin-top:.1rem; }
-  .unit-size{
-    font-size: .78rem; color: var(--ink-2); background:#f5f6f7; padding:.25rem .55rem; border-radius:999px; display:inline-block;
-  }
-  .unit-selector{ margin-top:.1rem; }
+  .unit-info{ margin-top:.05rem; }
+  .unit-size{ font-size:.75rem; color:var(--ink-2); background:#f5f6f7; padding:.2rem .48rem; border-radius:999px; display:inline-block; }
+  .unit-selector{ margin-top:.05rem; }
   .unit-dropdown{
-    width:100%; padding:.5rem .9rem; font-size:.85rem; color:var(--ink);
-    background:#f7f8f9; border:1px solid var(--border); border-radius:10px; appearance:none;
+    width:100%; padding:.45rem .8rem; font-size:.82rem; color:var(--ink);
+    background:#f7f8f9; border:1px solid var(--border); border-radius:9px; appearance:none;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-    background-repeat:no-repeat; background-position:right .7rem center; padding-right:2rem;
+    background-repeat:no-repeat; background-position:right .6rem center; padding-right:1.6rem;
     transition:border-color .2s, box-shadow .2s;
   }
   .unit-dropdown:hover{ border-color:var(--primary); }
   .unit-dropdown:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12) }
 
-  /* Price */
-  .price-row{ display:flex; align-items:center; gap:.5rem; }
-  .price-now{ font-weight:800; font-size:1.06rem; color: var(--ink); }
-  .currency{ font-weight:600; font-size:.82rem; color: var(--ink-2); margin-inline-start:.25rem; }
-  .price-old{ font-size:.85rem; color: var(--ink-3); text-decoration: line-through; }
+  .price-row{ display:flex; align-items:center; gap:.45rem; }
+  .price-now{ font-weight:800; font-size:1.02rem; color:var(--ink); }
+  .currency{ font-weight:600; font-size:.8rem; color:var(--ink-2); margin-inline-start:.2rem; }
+  .price-old{ font-size:.8rem; color:var(--ink-3); text-decoration:line-through; }
 
-  /* Stock */
-  .stock-line{ min-height: 1.1rem; }
-  .stock{ font-size:.82rem; font-weight:600; }
-  .stock.in{ color: var(--ok); }
-  .stock.low{ color: var(--warn); }
-  .stock.out{ color: var(--danger); }
+  .stock-line{ min-height:1rem; }
+  .stock{ font-size:.78rem; font-weight:600; }
+  .stock.in{ color:var(--ok); }
+  .stock.low{ color:var(--warn); }
+  .stock.out{ color:var(--danger); }
 
-  /* Cart controls */
-  .cart-controls{ margin-top:auto; position:relative; min-height:44px; }
-  /* Floating add button (bottom-end) */
+  .cart-controls{ margin-top:auto; position:relative; min-height:40px; }
   .fab-add{
-    position:absolute; inset-inline-end:.25rem; bottom:.25rem;
-    width:40px; height:40px; border-radius:50%;
-    background: var(--primary); color:#fff; border:none; font-size:1.35rem; line-height:1;
+    position:absolute; inset-inline-end:.2rem; bottom:.2rem;
+    width:36px; height:36px; border-radius:50%;
+    background:var(--primary); color:#fff; border:none; font-size:1.25rem; line-height:1;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
-    box-shadow: 0 6px 14px rgba(22,163,74,.25);
-    transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+    box-shadow:0 6px 14px rgba(22,163,74,.25);
+    transition:transform .15s ease, background .15s ease, box-shadow .15s ease;
   }
-  .fab-add:hover{ transform: translateY(-1px); background: var(--primary-700); box-shadow: 0 10px 18px rgba(22,163,74,.3); }
+  .fab-add:hover{ transform:translateY(-1px); background:var(--primary-700); box-shadow:0 10px 18px rgba(22,163,74,.3); }
   .fab-add:disabled{ background:#cbd5e1; color:#fff; box-shadow:none; cursor:not-allowed; }
 
-  /* Quantity pill */
   .qty-pill{
-    position:absolute; inset-inline-end:.25rem; bottom:.25rem;
-    display:flex; align-items:center; gap:.5rem;
-    background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.3rem .4rem;
-    box-shadow: 0 4px 10px rgba(0,0,0,.06);
+    position:absolute; inset-inline-end:.2rem; bottom:.2rem;
+    display:flex; align-items:center; gap:.4rem;
+    background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.25rem .35rem;
+    box-shadow:0 4px 10px rgba(0,0,0,.06);
   }
   .pill-btn{
-    width:32px; height:32px; border-radius:50%; border:none; background: var(--primary); color:#fff; font-weight:800;
+    width:30px; height:30px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-weight:800;
     display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background .15s ease;
   }
-  .pill-btn:hover{ background: var(--primary-700); }
+  .pill-btn:hover{ background:var(--primary-700); }
   .pill-btn:disabled{ background:#cbd5e1; cursor:not-allowed; }
-  .pill-q{ min-width:28px; text-align:center; font-weight:800; color: var(--ink); }
+  .pill-q{ min-width:26px; text-align:center; font-weight:800; color:var(--ink); }
 
-  /* Empty state */
-  .no-products{ text-align:center; padding: 4rem 2rem; color: var(--ink-3); }
-  .no-products-icon{ font-size: 4rem; margin-bottom: .75rem; }
-  .no-products-text{ font-size:1.1rem; }
+  .no-products{ text-align:center; padding:3rem 2rem; color:var(--ink-3); }
+  .no-products-icon{ font-size:3.6rem; margin-bottom:.6rem; }
+  .no-products-text{ font-size:1.05rem; }
+
+  /* Floating search button & slide-down input */
+  .search-fab{
+    position:fixed; right:14px; bottom:14px; z-index:30;
+    width:50px; height:50px; border-radius:50%;
+    border:none; background:var(--primary); color:#fff; font-size:1.2rem; box-shadow:0 10px 20px rgba(0,0,0,.18);
+    cursor:pointer;
+  }
+  .search-slide{
+    position:fixed; left:0; right:0; top:-64px; z-index:25; transition:transform .25s ease;
+    transform: translateY(-100%);
+    display:flex; align-items:center; gap:.4rem;
+    background:var(--bg); padding:.4rem .6rem; border-bottom:1px solid var(--border);
+  }
+  .search-slide.open{ transform: translateY(0); top:0; }
+  .search-input{
+    flex:1; padding:.7rem .9rem; border:2px solid var(--border); border-radius:12px; background:var(--surface); font-size:.95rem;
+  }
+  .search-input:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12) }
+  .close-search{ border:none; background:var(--surface); border:2px solid var(--border); border-radius:10px; padding:.55rem .7rem; cursor:pointer; }
+
+  /* Modal for category list */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.38); display:flex; align-items:flex-end; justify-content:center; z-index:40;
+  }
+  @media (min-width:640px){ .modal-backdrop{ align-items:center; } }
+  .modal-panel{
+    width:100%; max-width:420px; max-height:70vh; background:var(--surface); border-radius:14px 14px 0 0;
+    overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,.25);
+  }
+  @media (min-width:640px){ .modal-panel{ border-radius:16px; } }
+  .modal-header{ display:flex; align-items:center; justify-content:space-between; padding:.8rem 1rem; border-bottom:1px solid var(--border); }
+  .modal-close{ border:none; background:transparent; font-size:1.1rem; cursor:pointer; }
+  .modal-body{ padding:.4rem; overflow:auto; max-height:60vh; }
+  .modal-cat{
+    width:100%; text-align: start; padding:.7rem .9rem; margin:.25rem 0;
+    background:#f8f9fb; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-weight:600;
+  }
+  .modal-cat.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 </style>
