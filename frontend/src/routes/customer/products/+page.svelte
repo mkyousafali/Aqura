@@ -22,7 +22,6 @@
 
   let showCategoryMenu = false;
 
-  // Guard: ensure branch/service selected before shopping
   onMount(async () => {
     const saved = flow;
     if (!saved?.branchId || !saved?.fulfillment) {
@@ -32,30 +31,31 @@
     await loadProducts();
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) currentLanguage = savedLanguage;
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'language') currentLanguage = e.newValue || 'ar';
-    });
-    return () => window.removeEventListener('storage', () => {});
+    const onStorage = (e) => { if (e.key === 'language') currentLanguage = e.newValue || 'ar'; };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   });
 
-  // Reactive cart items for quantity display
+  // cart
   $: cartItems = $cartStore;
   $: cartItemsMap = new Map(cartItems.map(item => [
     `${item.id}-${item.selectedUnit?.id || 'base'}`,
     item.quantity
   ]));
-
+  
+  // Create a reactive key that changes when any quantity changes
+  $: cartKey = cartItems.map(item => `${item.id}-${item.selectedUnit?.id}-${item.quantity}`).join(',');
+  
   function getItemQuantity(product) {
-    const selectedUnit = getSelectedUnit(product);
-    const key = `${product.id}-${selectedUnit.id}`;
-    return cartItemsMap.get(key) || 0;
+    const u = getSelectedUnit(product);
+    return cartItemsMap.get(`${product.id}-${u.id}`) || 0;
   }
 
-  // Subscribe to scrolling content store (kept as-is for your banners)
+  // banners
   $: currentScrollingContent = $scrollingContent;
   $: activeScrollingTexts = scrollingContentActions.getActiveContent(currentScrollingContent, currentLanguage);
 
-  // Load categories
+  // categories
   async function loadCategories() {
     try {
       const { data, error } = await supabase
@@ -65,13 +65,12 @@
         .order('name_en');
       if (error) throw error;
       categories = [{ id: 'all', name_en: 'All', name_ar: 'الكل' }, ...(data || [])];
-    } catch (error) {
-      console.error('Error loading categories:', error);
+    } catch {
       categories = [{ id: 'all', name_en: 'All', name_ar: 'الكل' }];
     }
   }
 
-  // Load products
+  // products
   async function loadProducts() {
     loading = true;
     try {
@@ -114,65 +113,52 @@
       });
 
       products = Array.from(productMap.values()).map(product => {
-        const sortedUnits = product.units.sort((a, b) => a.unitQty - b.unitQty);
-        return {
-          ...product,
-          baseUnit: sortedUnits[0],
-          additionalUnits: sortedUnits.slice(1)
-        };
+        const sorted = product.units.sort((a, b) => a.unitQty - b.unitQty);
+        return { ...product, baseUnit: sorted[0], additionalUnits: sorted.slice(1) };
       });
 
-      products.forEach(product => {
-        selectedUnits.set(product.id, product.baseUnit);
-      });
+      products.forEach(p => selectedUnits.set(p.id, p.baseUnit));
       selectedUnits = selectedUnits;
-    } catch (error) {
-      console.error('Error loading products:', error);
+    } catch {
       products = [];
     } finally {
       loading = false;
     }
   }
 
-  function selectCategory(categoryId) {
-    selectedCategory = categoryId;
+  function selectCategory(id) {
+    selectedCategory = id;
     showCategoryMenu = false;
-    // keep nice centering for active chip
     if (categoryTabsContainer) {
       const activeTab = categoryTabsContainer.querySelector('.category-tab.active');
       if (activeTab) activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
   }
 
-  function getSelectedUnit(product) {
-    return selectedUnits.get(product.id) || product.baseUnit;
-  }
+  function getSelectedUnit(product) { return selectedUnits.get(product.id) || product.baseUnit; }
 
-  // Search + filter
-  $: filteredProducts = products.filter(product => {
+  // filters
+  $: filteredProducts = products.filter(p => {
     const q = (searchQuery || '').toLowerCase();
-    const matchesSearch =
-      !q ||
-      product.nameAr.toLowerCase().includes(q) ||
-      product.nameEn.toLowerCase().includes(q);
-    const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const matchesSearch = !q || p.nameAr.toLowerCase().includes(q) || p.nameEn.toLowerCase().includes(q);
+    const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
+    return matchesSearch && matchesCat;
   });
 
-  // Cart ops
+  // cart ops
   function addToCart(product) {
-    const selectedUnit = getSelectedUnit(product);
-    cartActions.addToCart(product, selectedUnit, 1);
+    const u = getSelectedUnit(product);
+    cartActions.addToCart(product, u, 1);
   }
-  function updateQuantity(product, change) {
-    const selectedUnit = getSelectedUnit(product);
-    const currentQuantity = cartActions.getItemQuantity(product.id, selectedUnit.id);
-    const newQuantity = Math.max(0, currentQuantity + change);
-    if (newQuantity === 0) cartActions.removeFromCart(product.id, selectedUnit.id);
-    else cartActions.updateQuantity(product.id, selectedUnit.id, newQuantity);
+  function updateQuantity(product, d) {
+    const u = getSelectedUnit(product);
+    const cur = cartActions.getItemQuantity(product.id, u.id);
+    const next = Math.max(0, cur + d);
+    if (next === 0) cartActions.removeFromCart(product.id, u.id);
+    else cartActions.updateQuantity(product.id, u.id, next);
   }
 
-  // Language texts
+  // i18n
   $: texts = currentLanguage === 'ar' ? {
     title: 'المنتجات - أكوا إكسبرس',
     search: 'ابحث عن منتج...',
@@ -198,19 +184,14 @@
   };
 </script>
 
-<svelte:head>
-  <title>{texts.title}</title>
-</svelte:head>
+<svelte:head><title>{texts.title}</title></svelte:head>
 
 <div class="page" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-  <!-- Sticky Categories (touch-scrollable) -->
+  <!-- sticky, touch-scroll categories + left menu button -->
   <div class="top">
     <div class="category-row">
-      <!-- mini menu button -->
       <button class="cat-menu-btn" type="button" aria-haspopup="dialog" aria-expanded={showCategoryMenu}
-        on:click={() => (showCategoryMenu = true)} title={texts.categories}>
-        ☰
-      </button>
+        on:click={() => (showCategoryMenu = true)} title={texts.categories}>☰</button>
 
       <div class="category-tabs" bind:this={categoryTabsContainer}>
         {#each categories as category}
@@ -229,20 +210,20 @@
     </div>
   </div>
 
-  <!-- Products -->
-  <div class="products-grid">
+  <!-- PRODUCTS: Grid 2-up on phones -->
+  <div class="products-wrap">
     {#each filteredProducts as product}
-      {#key `${$cartStore.length}-${selectedUnits.get(product.id)?.id || 'default'}`}
-        {@const selectedUnit = getSelectedUnit(product)}
-        {@const quantity = getItemQuantity(product)}
-        {@const hasDiscount = selectedUnit.originalPrice && selectedUnit.originalPrice > selectedUnit.basePrice}
-        {@const isLowStock = selectedUnit.stock <= selectedUnit.lowStockThreshold}
-        {@const isOutOfStock = selectedUnit.stock === 0}
+      {#key `${cartKey}-${selectedUnits.get(product.id)?.id || 'default'}`}
+        {@const u = getSelectedUnit(product)}
+        {@const qty = getItemQuantity(product)}
+        {@const hasDiscount = u.originalPrice && u.originalPrice > u.basePrice}
+        {@const isLow = u.stock <= u.lowStockThreshold}
+        {@const out = u.stock === 0}
 
         <div class="product-card">
           <div class="product-image">
-            {#if selectedUnit.image}
-              <img src={selectedUnit.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
+            {#if u.image}
+              <img src={u.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
             {:else if product.image}
               <img src={product.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
             {:else}
@@ -250,87 +231,57 @@
             {/if}
             {#if hasDiscount}
               <div class="discount-badge">
-                -{Math.round(((selectedUnit.originalPrice - selectedUnit.basePrice) / selectedUnit.originalPrice) * 100)}%
+                -{Math.round(((u.originalPrice - u.basePrice) / u.originalPrice) * 100)}%
               </div>
             {/if}
           </div>
 
           <div class="product-info">
-            <h3 class="product-name">
-              {currentLanguage === 'ar' ? product.nameAr : product.nameEn}
-            </h3>
+            <h3 class="product-name">{currentLanguage === 'ar' ? product.nameAr : product.nameEn}</h3>
 
             {#if product.additionalUnits && product.additionalUnits.length > 0}
               <div class="unit-selector">
                 <select
                   class="unit-dropdown"
-                  value={selectedUnit.id}
+                  value={u.id}
                   on:change={(e) => {
-                    const allUnits = [product.baseUnit, ...product.additionalUnits];
-                    const newUnit = allUnits.find(u => u.id === e.target.value);
-                    if (newUnit) {
-                      selectedUnits.set(product.id, newUnit);
-                      selectedUnits = selectedUnits;
+                    const all = [product.baseUnit, ...product.additionalUnits];
+                    const nu = all.find(x => x.id === e.target.value);
+                    if (nu) { 
+                      selectedUnits.set(product.id, nu); 
+                      selectedUnits = selectedUnits; 
                     }
                   }}
-                  on:click={(e) => e.stopPropagation()}
-                  on:touchstart={(e) => e.stopPropagation()}
                 >
-                  <option value={product.baseUnit.id}>
-                    {currentLanguage === 'ar' ? product.baseUnit.nameAr : product.baseUnit.nameEn}
-                  </option>
+                  <option value={product.baseUnit.id}>{currentLanguage === 'ar' ? product.baseUnit.nameAr : product.baseUnit.nameEn}</option>
                   {#each product.additionalUnits as unit}
-                    <option value={unit.id}>
-                      {currentLanguage === 'ar' ? unit.nameAr : unit.nameEn}
-                    </option>
+                    <option value={unit.id}>{currentLanguage === 'ar' ? unit.nameAr : unit.nameEn}</option>
                   {/each}
                 </select>
               </div>
             {:else}
-              <div class="unit-info">
-                <span class="unit-size">
-                  {currentLanguage === 'ar' ? selectedUnit.nameAr : selectedUnit.nameEn}
-                </span>
-              </div>
+              <div class="unit-info"><span class="unit-size">{currentLanguage === 'ar' ? u.nameAr : u.nameEn}</span></div>
             {/if}
 
             <div class="price-row">
-              <div class="price-now">
-                {selectedUnit.basePrice.toFixed(2)}
-                <span class="currency">{texts.sar}</span>
-              </div>
-              {#if hasDiscount}
-                <div class="price-old">
-                  {selectedUnit.originalPrice.toFixed(2)} {texts.sar}
-                </div>
-              {/if}
+              <div class="price-now">{u.basePrice.toFixed(2)} <span class="currency">{texts.sar}</span></div>
+              {#if hasDiscount}<div class="price-old">{u.originalPrice.toFixed(2)} {texts.sar}</div>{/if}
             </div>
 
             <div class="stock-line">
-              {#if isOutOfStock}
-                <span class="stock out">{texts.outOfStock}</span>
-              {:else if isLowStock}
-                <span class="stock low">{texts.lowStock}</span>
-              {:else}
-                <span class="stock in">{texts.inStock}</span>
-              {/if}
+              {#if out}<span class="stock out">{texts.outOfStock}</span>
+              {:else if isLow}<span class="stock low">{texts.lowStock}</span>
+              {:else}<span class="stock in">{texts.inStock}</span>{/if}
             </div>
 
             <div class="cart-controls">
-              {#if quantity === 0}
-                <button
-                  class="fab-add"
-                  on:click={() => addToCart(product)}
-                  disabled={isOutOfStock}
-                  type="button"
-                  aria-label={texts.addToCart}
-                  title={texts.addToCart}
-                >+</button>
+              {#if qty === 0}
+                <button class="fab-add" on:click={() => addToCart(product)} disabled={out} type="button" aria-label={texts.addToCart} title={texts.addToCart}>+</button>
               {:else}
                 <div class="qty-pill">
                   <button class="pill-btn" on:click={() => updateQuantity(product, -1)} aria-label="Decrease">−</button>
-                  <span class="pill-q">{quantity}</span>
-                  <button class="pill-btn" on:click={() => updateQuantity(product, 1)} aria-label="Increase" disabled={isOutOfStock}>+</button>
+                  <span class="pill-q">{qty}</span>
+                  <button class="pill-btn" on:click={() => updateQuantity(product, 1)} aria-label="Increase" disabled={out}>+</button>
                 </div>
               {/if}
             </div>
@@ -343,30 +294,18 @@
   {#if !loading && filteredProducts.length === 0}
     <div class="no-products">
       <div class="no-products-icon">📦</div>
-      <div class="no-products-text">
-        {currentLanguage === 'ar' ? 'لا توجد منتجات مطابقة' : 'No matching products found'}
-      </div>
+      <div class="no-products-text">{currentLanguage === 'ar' ? 'لا توجد منتجات مطابقة' : 'No matching products found'}</div>
     </div>
   {/if}
 
-  <!-- Floating search button -->
-  <button class="search-fab" aria-expanded={showSearch} on:click={() => (showSearch = !showSearch)} aria-label="Search">
-    🔎
-  </button>
-
-  <!-- Slide-down search field -->
+  <!-- Floating search -->
+  <button class="search-fab" aria-expanded={showSearch} on:click={() => (showSearch = !showSearch)} aria-label="Search">🔎</button>
   <div class="search-slide" class:open={showSearch}>
-    <input
-      type="text"
-      class="search-input"
-      placeholder={texts.search}
-      bind:value={searchQuery}
-      autofocus={showSearch}
-    />
+    <input type="text" class="search-input" placeholder={texts.search} bind:value={searchQuery} autofocus={showSearch} />
     <button class="close-search" on:click={() => (showSearch = false)} aria-label={texts.close}>✕</button>
   </div>
 
-  <!-- Category Menu Modal -->
+  <!-- Category modal -->
   {#if showCategoryMenu}
     <div class="modal-backdrop" role="dialog" aria-modal="true" on:click={() => (showCategoryMenu = false)}>
       <div class="modal-panel" on:click|stopPropagation>
@@ -376,11 +315,7 @@
         </div>
         <div class="modal-body">
           {#each categories as category}
-            <button
-              class="modal-cat"
-              class:active={selectedCategory === category.id}
-              on:click={() => selectCategory(category.id)}
-            >
+            <button class="modal-cat" class:active={selectedCategory === category.id} on:click={() => selectCategory(category.id)}>
               {currentLanguage === 'ar' ? category.name_ar : category.name_en}
             </button>
           {/each}
@@ -392,207 +327,203 @@
 
 <style>
   :root{
-    --surface:#ffffff;
-    --bg:#f7f7f8;
-    --ink:#1a1a1a;
-    --ink-2:#5a5a5a;
-    --ink-3:#9aa0a6;
-    --primary:#16a34a;
-    --primary-700:#15803d;
-    --danger:#e11d48;
-    --warn:#f59e0b;
-    --ok:#10b981;
-    --border:#e6e7ea;
+    --surface:#ffffff; --bg:#f7f7f8; --ink:#1a1a1a; --ink-2:#5a5a5a; --ink-3:#9aa0a6;
+    --primary:#16a34a; --primary-700:#15803d; --danger:#e11d48; --warn:#f59e0b; --ok:#10b981; --border:#e6e7ea;
   }
 
-  .page{
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0.5rem 0.6rem 4.5rem; /* leave room for FABs */
-    min-height: 100vh;
-    background: var(--bg);
+  .page{ 
+    max-width: 1200px; 
+    width: 100%;
+    margin: 0 auto; 
+    padding: .5rem .5rem 4.5rem; 
+    min-height: 100vh; 
+    background: var(--bg); 
     box-sizing: border-box;
+    overflow-x: hidden;
   }
 
-  /* Sticky top (only categories now) */
-  .top{
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--bg);
-    padding: .25rem 0 .4rem;
-  }
+  .top{ position:sticky; top:0; z-index:20; background:var(--bg); padding:.25rem 0 .5rem; }
+  .category-row{ display:flex; align-items:center; gap:.5rem; }
+  .cat-menu-btn{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface); cursor:pointer; font-weight:700; }
 
-  .category-row{
-    display:flex;
-    align-items:center;
-    gap:.5rem;
-  }
-
-  .cat-menu-btn{
-    width:34px;height:34px;flex:0 0 34px;
-    border-radius:10px;border:1.5px solid var(--border);
-    background:var(--surface);cursor:pointer;font-weight:700;
-  }
-
-  /* Categories: smaller chips, touch scroll */
-  .category-tabs{
-    display:flex; gap:.4rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:.2rem 0; flex:1;
-  }
+  .category-tabs{ display:flex; gap:.4rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:.2rem 0; flex:1; }
   .category-tabs::-webkit-scrollbar{ display:none; }
-  .category-tab{
-    padding:.45rem .85rem;
-    background:var(--surface);
-    border:1.5px solid var(--border);
-    border-radius:999px;
-    white-space:nowrap;
-    color:var(--ink);
-    cursor:pointer;
-    transition:all .2s;
-    font-weight:600;
-    font-size:.85rem;
-    flex-shrink:0;
-  }
+  .category-tab{ padding:.45rem .85rem; background:var(--surface); border:1.5px solid var(--border); border-radius:999px; white-space:nowrap; color:var(--ink); cursor:pointer; transition:.2s; font-weight:600; font-size:.85rem; flex-shrink:0; }
   .category-tab:hover{ border-color:var(--primary); color:var(--primary); }
   .category-tab.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 
-  /* Grid: hard 2-up on narrow screens */
-  .products-grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
-    gap:.75rem;
+  /* ===== GRID LAYOUT (2-up on phones like Al Baik) ===== */
+  .products-wrap{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
-  @media (max-width: 480px){
-    .products-grid{
-      grid-template-columns: repeat(2, minmax(0, 1fr)); /* force 2 per row */
-      gap:.6rem;
-    }
-  }
-  @media (min-width:768px){
-    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:1rem; }
-  }
-
-  /* Product card (slightly smaller) */
+  
   .product-card{
-    background:var(--surface);
-    border:1px solid var(--border);
-    border-radius:14px;
-    overflow:hidden;
-    display:flex; flex-direction:column;
-    box-shadow:0 2px 8px rgba(0,0,0,.06);
-    transition:transform .18s ease, box-shadow .18s ease;
-  }
-  .product-card:hover{ transform: translateY(-2px); box-shadow:0 10px 20px rgba(0,0,0,.12); }
-
-  .product-image{
-    position:relative;
-    padding-top:100%;
-    background:#f1f3f5;
-  }
-  @media (min-width:768px){ .product-image{ padding-top:78%; } }
-  .product-image img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-  .image-placeholder{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:2.6rem; color:#c9cdd3; }
-  .discount-badge{
-    position:absolute; top:.45rem; inset-inline-end:.45rem;
-    background:var(--danger); color:#fff; padding:.2rem .45rem; border-radius:9px; font-size:.7rem; font-weight:700;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    position: relative;
   }
 
-  .product-info{ padding:.7rem .75rem .85rem; display:flex; flex-direction:column; gap:.45rem; flex:1; }
-  .product-name{
-    margin:0; color:var(--ink); font-weight:700; font-size:.95rem; line-height:1.25;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  /* Responsive column counts */
+  @media (min-width:600px){ .products-wrap{ grid-template-columns: 1fr 1fr 1fr; gap: 12px; } }
+  @media (min-width:900px){ .products-wrap{ grid-template-columns: 1fr 1fr 1fr 1fr; } }
+  @media (min-width:1200px){ .products-wrap{ grid-template-columns: 1fr 1fr 1fr 1fr 1fr; } }
+
+  /* Image area */
+  .product-image{ 
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #f5f5f5;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .product-image img{ 
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    object-fit: cover;
   }
 
-  .unit-info{ margin-top:.05rem; }
-  .unit-size{ font-size:.75rem; color:var(--ink-2); background:#f5f6f7; padding:.2rem .48rem; border-radius:999px; display:inline-block; }
-  .unit-selector{ margin-top:.05rem; }
+  .image-placeholder{ 
+    position: absolute; 
+    inset: 0; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    font-size: 2.5rem; 
+    color: #d1d5db; 
+  }
+  .discount-badge{ 
+    position: absolute; 
+    top: .5rem; 
+    inset-inline-end: .5rem; 
+    background: var(--danger); 
+    color: #fff; 
+    padding: .2rem .4rem; 
+    border-radius: 6px; 
+    font-size: .7rem; 
+    font-weight: 700; 
+  }
+
+  .product-info{ 
+    padding: .6rem .65rem .7rem; 
+    display: flex; 
+    flex-direction: column; 
+    gap: .4rem; 
+    flex: 1;
+    position: relative;
+    z-index: 1;
+  }
+  .product-name{ 
+    margin: 0; 
+    color: var(--ink); 
+    font-weight: 700; 
+    font-size: .875rem; 
+    line-height: 1.25; 
+    display: -webkit-box; 
+    -webkit-line-clamp: 2; 
+    -webkit-box-orient: vertical; 
+    overflow: hidden; 
+    min-height: 2.5em; 
+  }
+
+  .unit-info{ margin-top: .02rem; }
+  .unit-size{ 
+    font-size: .7rem; 
+    color: var(--ink-2); 
+    background: #f5f6f7; 
+    padding: .15rem .35rem; 
+    border-radius: 999px; 
+    display: inline-block; 
+  }
+  .unit-selector{ 
+    margin-top: .02rem; 
+    position: relative;
+    z-index: 1;
+  }
   .unit-dropdown{
-    width:100%; padding:.45rem .8rem; font-size:.82rem; color:var(--ink);
-    background:#f7f8f9; border:1px solid var(--border); border-radius:9px; appearance:none;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-    background-repeat:no-repeat; background-position:right .6rem center; padding-right:1.6rem;
-    transition:border-color .2s, box-shadow .2s;
+    width: 100%; 
+    padding: .4rem .65rem; 
+    font-size: .75rem; 
+    color: var(--ink);
+    background: #fff; 
+    border: 1px solid var(--border); 
+    border-radius: 8px; 
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; 
+    background-position: right .5rem center; 
+    padding-right: 1.5rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    pointer-events: auto;
+    position: relative;
+    z-index: 2;
   }
-  .unit-dropdown:hover{ border-color:var(--primary); }
-  .unit-dropdown:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12) }
-
-  .price-row{ display:flex; align-items:center; gap:.45rem; }
-  .price-now{ font-weight:800; font-size:1.02rem; color:var(--ink); }
-  .currency{ font-weight:600; font-size:.8rem; color:var(--ink-2); margin-inline-start:.2rem; }
-  .price-old{ font-size:.8rem; color:var(--ink-3); text-decoration:line-through; }
-
-  .stock-line{ min-height:1rem; }
-  .stock{ font-size:.78rem; font-weight:600; }
-  .stock.in{ color:var(--ok); }
-  .stock.low{ color:var(--warn); }
-  .stock.out{ color:var(--danger); }
-
-  .cart-controls{ margin-top:auto; position:relative; min-height:40px; }
-  .fab-add{
-    position:absolute; inset-inline-end:.2rem; bottom:.2rem;
-    width:36px; height:36px; border-radius:50%;
-    background:var(--primary); color:#fff; border:none; font-size:1.25rem; line-height:1;
-    display:flex; align-items:center; justify-content:center; cursor:pointer;
-    box-shadow:0 6px 14px rgba(22,163,74,.25);
-    transition:transform .15s ease, background .15s ease, box-shadow .15s ease;
+  .unit-dropdown:focus{
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1);
   }
-  .fab-add:hover{ transform:translateY(-1px); background:var(--primary-700); box-shadow:0 10px 18px rgba(22,163,74,.3); }
+  .unit-dropdown:active{
+    background: #f0f0f0;
+  }
+
+  .price-row{ display:flex; align-items:center; gap:.35rem; }
+  .price-now{ font-weight:800; font-size:.9rem; color:var(--ink); }
+  .currency{ font-weight:600; font-size:.72rem; color:var(--ink-2); margin-inline-start:.15rem; }
+  .price-old{ font-size:.72rem; color:var(--ink-3); text-decoration:line-through; }
+
+  .stock-line{ min-height:.9rem; }
+  .stock{ font-size:.7rem; font-weight:600; }
+  .stock.in{ color:var(--ok); } .stock.low{ color:var(--warn); } .stock.out{ color:var(--danger); }
+
+  .cart-controls{ margin-top:auto; position:relative; min-height:32px; display:flex; justify-content:flex-end; align-items:center; }
+  .fab-add{ width:32px; height:32px; border-radius:50%; background:var(--primary); color:#fff; border:none; font-size:1.1rem; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 8px rgba(22,163,74,.3); }
   .fab-add:disabled{ background:#cbd5e1; color:#fff; box-shadow:none; cursor:not-allowed; }
 
-  .qty-pill{
-    position:absolute; inset-inline-end:.2rem; bottom:.2rem;
-    display:flex; align-items:center; gap:.4rem;
-    background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.25rem .35rem;
-    box-shadow:0 4px 10px rgba(0,0,0,.06);
-  }
-  .pill-btn{
-    width:30px; height:30px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-weight:800;
-    display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background .15s ease;
-  }
-  .pill-btn:hover{ background:var(--primary-700); }
+  .qty-pill{ display:flex; align-items:center; gap:.3rem; background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.2rem .3rem; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+  .pill-btn{ width:26px; height:26px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-weight:800; font-size:.9rem; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .pill-btn:disabled{ background:#cbd5e1; cursor:not-allowed; }
-  .pill-q{ min-width:26px; text-align:center; font-weight:800; color:var(--ink); }
+  .pill-q{ min-width:24px; text-align:center; font-weight:800; color:var(--ink); font-size:.85rem; }
 
   .no-products{ text-align:center; padding:3rem 2rem; color:var(--ink-3); }
   .no-products-icon{ font-size:3.6rem; margin-bottom:.6rem; }
   .no-products-text{ font-size:1.05rem; }
 
-  /* Floating search button & slide-down input */
-  .search-fab{
-    position:fixed; right:14px; bottom:14px; z-index:30;
-    width:50px; height:50px; border-radius:50%;
-    border:none; background:var(--primary); color:#fff; font-size:1.2rem; box-shadow:0 10px 20px rgba(0,0,0,.18);
-    cursor:pointer;
-  }
-  .search-slide{
-    position:fixed; left:0; right:0; top:-64px; z-index:25; transition:transform .25s ease;
-    transform: translateY(-100%);
-    display:flex; align-items:center; gap:.4rem;
-    background:var(--bg); padding:.4rem .6rem; border-bottom:1px solid var(--border);
-  }
+  /* Floating search */
+  .search-fab{ position:fixed; right:14px; bottom:14px; z-index:30; width:50px; height:50px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-size:1.2rem; box-shadow:0 10px 20px rgba(0,0,0,.18); cursor:pointer; }
+  .search-slide{ position:fixed; left:0; right:0; top:-64px; z-index:25; transition:transform .25s ease; transform: translateY(-100%); display:flex; align-items:center; gap:.4rem; background:var(--bg); padding:.4rem .6rem; border-bottom:1px solid var(--border); }
   .search-slide.open{ transform: translateY(0); top:0; }
-  .search-input{
-    flex:1; padding:.7rem .9rem; border:2px solid var(--border); border-radius:12px; background:var(--surface); font-size:.95rem;
-  }
-  .search-input:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12) }
+  .search-input{ flex:1; padding:.7rem .9rem; border:2px solid var(--border); border-radius:12px; background:var(--surface); font-size:.95rem; }
+  .search-input:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12); }
   .close-search{ border:none; background:var(--surface); border:2px solid var(--border); border-radius:10px; padding:.55rem .7rem; cursor:pointer; }
 
-  /* Modal for category list */
-  .modal-backdrop{
-    position:fixed; inset:0; background:rgba(0,0,0,.38); display:flex; align-items:flex-end; justify-content:center; z-index:40;
-  }
+  /* Category modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.38); display:flex; align-items:flex-end; justify-content:center; z-index:40; }
   @media (min-width:640px){ .modal-backdrop{ align-items:center; } }
-  .modal-panel{
-    width:100%; max-width:420px; max-height:70vh; background:var(--surface); border-radius:14px 14px 0 0;
-    overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,.25);
-  }
+  .modal-panel{ width:100%; max-width:420px; max-height:70vh; background:var(--surface); border-radius:14px 14px 0 0; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,.25); }
   @media (min-width:640px){ .modal-panel{ border-radius:16px; } }
   .modal-header{ display:flex; align-items:center; justify-content:space-between; padding:.8rem 1rem; border-bottom:1px solid var(--border); }
   .modal-close{ border:none; background:transparent; font-size:1.1rem; cursor:pointer; }
   .modal-body{ padding:.4rem; overflow:auto; max-height:60vh; }
-  .modal-cat{
-    width:100%; text-align: start; padding:.7rem .9rem; margin:.25rem 0;
-    background:#f8f9fb; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-weight:600;
-  }
+  .modal-cat{ width:100%; text-align:start; padding:.7rem .9rem; margin:.25rem 0; background:#f8f9fb; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-weight:600; }
   .modal-cat.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 </style>
