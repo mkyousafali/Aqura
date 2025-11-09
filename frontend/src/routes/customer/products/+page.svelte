@@ -12,20 +12,24 @@
   let selectedCategory = 'all';
   let selectedUnits = new Map();
   let categoryTabsContainer;
-  let isScrolling = false;
   let products = [];
   let categories = [];
   let loading = true;
-  
+
   // Guard: ensure branch/service selected before shopping
   onMount(async () => {
     const saved = flow;
     if (!saved?.branchId || !saved?.fulfillment) {
       try { goto('/customer/start'); } catch (e) { console.error(e); }
     }
-    
     await loadCategories();
     await loadProducts();
+    const savedLanguage = localStorage.getItem('language');
+    if (savedLanguage) currentLanguage = savedLanguage;
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'language') currentLanguage = e.newValue || 'ar';
+    });
+    return () => window.removeEventListener('storage', () => {});
   });
 
   // Reactive cart items for quantity display
@@ -35,18 +39,17 @@
     item.quantity
   ]));
 
-  // Function to get item quantity from reactive cart
   function getItemQuantity(product) {
     const selectedUnit = getSelectedUnit(product);
     const key = `${product.id}-${selectedUnit.id}`;
     return cartItemsMap.get(key) || 0;
   }
 
-  // Subscribe to scrolling content store
+  // Subscribe to scrolling content store (kept as-is for your banners)
   $: currentScrollingContent = $scrollingContent;
   $: activeScrollingTexts = scrollingContentActions.getActiveContent(currentScrollingContent, currentLanguage);
 
-  // Load categories from database
+  // Load categories
   async function loadCategories() {
     try {
       const { data, error } = await supabase
@@ -54,21 +57,15 @@
         .select('id, name_en, name_ar')
         .eq('is_active', true)
         .order('name_en');
-
       if (error) throw error;
-      
-      // Add "All" category at the beginning
-      categories = [
-        { id: 'all', name_en: 'All', name_ar: 'الكل' },
-        ...(data || [])
-      ];
+      categories = [{ id: 'all', name_en: 'All', name_ar: 'الكل' }, ...(data || [])];
     } catch (error) {
       console.error('Error loading categories:', error);
       categories = [{ id: 'all', name_en: 'All', name_ar: 'الكل' }];
     }
   }
 
-  // Load products from database
+  // Load products
   async function loadProducts() {
     loading = true;
     try {
@@ -77,12 +74,9 @@
         .select('*')
         .eq('is_active', true)
         .order('product_name_en');
-
       if (error) throw error;
-      
-      // Group products by product_serial to combine units
+
       const productMap = new Map();
-      
       (data || []).forEach(row => {
         if (!productMap.has(row.product_serial)) {
           productMap.set(row.product_serial, {
@@ -96,9 +90,8 @@
             units: []
           });
         }
-        
-        const product = productMap.get(row.product_serial);
-        product.units.push({
+        const p = productMap.get(row.product_serial);
+        p.units.push({
           id: row.id,
           nameEn: `${row.unit_qty} ${row.unit_name_en}`,
           nameAr: `${row.unit_qty} ${row.unit_name_ar}`,
@@ -113,8 +106,7 @@
           image: row.image_url
         });
       });
-      
-      // Convert map to array and set first unit as baseUnit
+
       products = Array.from(productMap.values()).map(product => {
         const sortedUnits = product.units.sort((a, b) => a.unitQty - b.unitQty);
         return {
@@ -123,13 +115,11 @@
           additionalUnits: sortedUnits.slice(1)
         };
       });
-      
-      // Initialize selected units
+
       products.forEach(product => {
         selectedUnits.set(product.id, product.baseUnit);
       });
       selectedUnits = selectedUnits;
-      
     } catch (error) {
       console.error('Error loading products:', error);
       products = [];
@@ -138,120 +128,47 @@
     }
   }
 
-  // Initialize language and listen for changes
-  onMount(() => {
-    const savedLanguage = localStorage.getItem('language');
-    if (savedLanguage) {
-      currentLanguage = savedLanguage;
-    }
-
-    // Listen for language changes
-    const handleStorageChange = (event) => {
-      if (event.key === 'language') {
-        currentLanguage = event.newValue || 'ar';
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-
-    // Check for category parameter in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const categoryParam = urlParams.get('category');
-    if (categoryParam) {
-      selectedCategory = categoryParam;
-    }
-
-    // Only log for debugging - no custom handlers
-    if (categoryTabsContainer) {
-      console.log('Container width:', categoryTabsContainer.clientWidth);
-      console.log('Content width:', categoryTabsContainer.scrollWidth);
-      console.log('Can scroll:', categoryTabsContainer.scrollWidth > categoryTabsContainer.clientWidth);
-      
-      // Simple scroll test to verify scrollbar works
-      categoryTabsContainer.addEventListener('scroll', () => {
-        console.log('Scrolled to position:', categoryTabsContainer.scrollLeft);
-      });
-    }
-
-    // Cleanup event listener
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  });
-
   function selectCategory(categoryId) {
     selectedCategory = categoryId;
-    
-    // Auto-scroll the selected tab into view
     if (categoryTabsContainer) {
       const activeTab = categoryTabsContainer.querySelector('.category-tab.active');
-      if (activeTab) {
-        activeTab.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'nearest',
-          inline: 'center'
-        });
-      }
+      if (activeTab) activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
   }
 
-  // Navigation functions like Urban-Express
   function scrollLeft() {
-    if (categoryTabsContainer) {
-      categoryTabsContainer.scrollBy({
-        left: -200,
-        behavior: 'smooth'
-      });
-    }
+    if (categoryTabsContainer) categoryTabsContainer.scrollBy({ left: -220, behavior: 'smooth' });
   }
-
   function scrollRight() {
-    if (categoryTabsContainer) {
-      categoryTabsContainer.scrollBy({
-        left: 200,
-        behavior: 'smooth'
-      });
-    }
+    if (categoryTabsContainer) categoryTabsContainer.scrollBy({ left: 220, behavior: 'smooth' });
   }
 
-  // Get selected unit for a product
   function getSelectedUnit(product) {
-    const selectedUnitObj = selectedUnits.get(product.id);
-    
-    if (!selectedUnitObj) {
-      return product.baseUnit;
-    }
-    
-    // Return the selected unit object directly
-    return selectedUnitObj;
+    return selectedUnits.get(product.id) || product.baseUnit;
   }
 
-  // Filter products based on search and category
+  // Search + filter
   $: filteredProducts = products.filter(product => {
-    const matchesSearch = !searchQuery || 
-      product.nameAr.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.nameEn.toLowerCase().includes(searchQuery.toLowerCase());
-    
+    const q = (searchQuery || '').toLowerCase();
+    const matchesSearch =
+      !q ||
+      product.nameAr.toLowerCase().includes(q) ||
+      product.nameEn.toLowerCase().includes(q);
     const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-    
     return matchesSearch && matchesCategory;
   });
 
+  // Cart ops
   function addToCart(product) {
     const selectedUnit = getSelectedUnit(product);
     cartActions.addToCart(product, selectedUnit, 1);
   }
-
   function updateQuantity(product, change) {
     const selectedUnit = getSelectedUnit(product);
     const currentQuantity = cartActions.getItemQuantity(product.id, selectedUnit.id);
     const newQuantity = Math.max(0, currentQuantity + change);
-    
-    if (newQuantity === 0) {
-      cartActions.removeFromCart(product.id, selectedUnit.id);
-    } else {
-      cartActions.updateQuantity(product.id, selectedUnit.id, newQuantity);
-    }
+    if (newQuantity === 0) cartActions.removeFromCart(product.id, selectedUnit.id);
+    else cartActions.updateQuantity(product.id, selectedUnit.id, newQuantity);
   }
 
   // Language texts
@@ -262,7 +179,8 @@
     sar: 'ر.س',
     inStock: 'متوفر',
     lowStock: 'كمية قليلة',
-    outOfStock: 'نفد المخزون'
+    outOfStock: 'نفد المخزون',
+    unit: 'وحدة'
   } : {
     title: 'Products - Aqua Express',
     search: 'Search products...',
@@ -270,7 +188,8 @@
     sar: 'SAR',
     inStock: 'In Stock',
     lowStock: 'Low Stock',
-    outOfStock: 'Out of Stock'
+    outOfStock: 'Out of Stock',
+    unit: 'Unit'
   };
 </script>
 
@@ -278,9 +197,9 @@
   <title>{texts.title}</title>
 </svelte:head>
 
-<div class="products-container" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-  <!-- Search and Filters -->
-  <div class="search-section">
+<div class="page" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+  <!-- Search + Sticky Categories -->
+  <div class="top">
     <div class="search-bar">
       <input 
         type="text" 
@@ -288,46 +207,40 @@
         bind:value={searchQuery}
         class="search-input"
       />
-      <span class="search-icon">🔍</span>
+      <span class="search-icon">🔎</span>
     </div>
-    
-    <!-- Category Filter -->
+
     <div class="category-filter">
-      <div class="category-container">
-        <button class="nav-button nav-left" on:click={scrollLeft} aria-label="Scroll left">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M12 16L6 10L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        
-        <div class="category-tabs" bind:this={categoryTabsContainer}>
-          {#each categories as category}
-            <button 
-              class="category-tab" 
-              class:active={selectedCategory === category.id}
-              on:click={() => {
-                console.log('Category clicked:', category.id);
-                selectedCategory = category.id;
-              }}
-              type="button"
-              role="tab"
-              aria-selected={selectedCategory === category.id}
-            >
-              {currentLanguage === 'ar' ? category.name_ar : category.name_en}
-            </button>
-          {/each}
-        </div>
-        
-        <button class="nav-button nav-right" on:click={scrollRight} aria-label="Scroll right">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M8 4L14 10L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+      <button class="nav-button nav-left" on:click={scrollLeft} aria-label="Scroll left">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M12 16L6 10L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <div class="category-tabs" bind:this={categoryTabsContainer}>
+        {#each categories as category}
+          <button 
+            class="category-tab"
+            class:active={selectedCategory === category.id}
+            on:click={() => selectCategory(category.id)}
+            type="button"
+            role="tab"
+            aria-selected={selectedCategory === category.id}
+          >
+            {currentLanguage === 'ar' ? category.name_ar : category.name_en}
+          </button>
+        {/each}
       </div>
+
+      <button class="nav-button nav-right" on:click={scrollRight} aria-label="Scroll right">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M8 4L14 10L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
   </div>
 
-  <!-- Products Grid -->
+  <!-- Products -->
   <div class="products-grid">
     {#each filteredProducts as product}
       {#key `${$cartStore.length}-${selectedUnits.get(product.id)?.id || 'default'}`}
@@ -335,127 +248,116 @@
         {@const quantity = getItemQuantity(product)}
         {@const hasDiscount = selectedUnit.originalPrice && selectedUnit.originalPrice > selectedUnit.basePrice}
         {@const isLowStock = selectedUnit.stock <= selectedUnit.lowStockThreshold}
-      {@const isOutOfStock = selectedUnit.stock === 0}
-      
-      <div class="product-card">
-        <!-- Product Image -->
-        <div class="product-image">
-          {#if selectedUnit.image}
-            <img src={selectedUnit.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
-          {:else if product.image}
-            <img src={product.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
-          {:else}
-            <div class="image-placeholder">📦</div>
-          {/if}
-          
-          {#if hasDiscount}
-            <div class="discount-badge">
-              -{Math.round(((selectedUnit.originalPrice - selectedUnit.basePrice) / selectedUnit.originalPrice) * 100)}%
-            </div>
-          {/if}
-        </div>
+        {@const isOutOfStock = selectedUnit.stock === 0}
 
-        <!-- Product Info -->
-        <div class="product-info">
-          <h3 class="product-name">
-            {currentLanguage === 'ar' ? product.nameAr : product.nameEn}
-          </h3>
-          
-          <!-- Unit Selector -->
-          {#if product.additionalUnits && product.additionalUnits.length > 0}
-            <div class="unit-selector">
-              <select 
-                class="unit-dropdown"
-                value={selectedUnit.id}
-                on:change={(e) => {
-                  const allUnits = [product.baseUnit, ...product.additionalUnits];
-                  const newUnit = allUnits.find(u => u.id === e.target.value);
-                  if (newUnit) {
-                    selectedUnits.set(product.id, newUnit);
-                    selectedUnits = selectedUnits;
-                  }
-                }}
-                on:click={(e) => e.stopPropagation()}
-                on:touchstart={(e) => e.stopPropagation()}
-              >
-                <option value={product.baseUnit.id}>
-                  {currentLanguage === 'ar' ? product.baseUnit.nameAr : product.baseUnit.nameEn}
-                </option>
-                {#each product.additionalUnits as unit}
-                  <option value={unit.id}>
-                    {currentLanguage === 'ar' ? unit.nameAr : unit.nameEn}
-                  </option>
-                {/each}
-              </select>
-            </div>
-          {:else}
-            <div class="unit-info">
-              <span class="unit-size">
-                {currentLanguage === 'ar' ? selectedUnit.nameAr : selectedUnit.nameEn}
-              </span>
-            </div>
-          {/if}
-
-          <!-- Price -->
-          <div class="price-section">
-            <div class="current-price">
-              {selectedUnit.basePrice.toFixed(2)} {texts.sar}
-            </div>
+        <div class="product-card">
+          <!-- Image (uniform) -->
+          <div class="product-image">
+            {#if selectedUnit.image}
+              <img src={selectedUnit.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
+            {:else if product.image}
+              <img src={product.image} alt={currentLanguage === 'ar' ? product.nameAr : product.nameEn} />
+            {:else}
+              <div class="image-placeholder">📦</div>
+            {/if}
             {#if hasDiscount}
-              <div class="original-price">
-                {selectedUnit.originalPrice.toFixed(2)} {texts.sar}
+              <div class="discount-badge">
+                -{Math.round(((selectedUnit.originalPrice - selectedUnit.basePrice) / selectedUnit.originalPrice) * 100)}%
               </div>
             {/if}
           </div>
 
-          <!-- Stock Status -->
-          <div class="stock-status">
-            {#if isOutOfStock}
-              <span class="out-of-stock">{texts.outOfStock}</span>
-            {:else if isLowStock}
-              <span class="low-stock">{texts.lowStock}</span>
-            {:else}
-              <span class="in-stock">{texts.inStock}</span>
-            {/if}
-          </div>
+          <!-- Info -->
+          <div class="product-info">
+            <h3 class="product-name">
+              {currentLanguage === 'ar' ? product.nameAr : product.nameEn}
+            </h3>
 
-          <!-- Add to Cart / Quantity Controls -->
-          <div class="cart-controls">
-            {#if quantity === 0}
-              <button 
-                class="add-to-cart-btn" 
-                on:click={() => addToCart(product)}
-                disabled={isOutOfStock}
-                type="button"
-              >
-                {texts.addToCart}
-              </button>
-            {:else}
-              <div class="quantity-controls">
-                <button 
-                  class="quantity-btn decrease" 
-                  on:click={() => updateQuantity(product, -1)}
+            <!-- Unit (compact) -->
+            {#if product.additionalUnits && product.additionalUnits.length > 0}
+              <div class="unit-selector">
+                <select 
+                  class="unit-dropdown"
+                  value={selectedUnit.id}
+                  on:change={(e) => {
+                    const allUnits = [product.baseUnit, ...product.additionalUnits];
+                    const newUnit = allUnits.find(u => u.id === e.target.value);
+                    if (newUnit) {
+                      selectedUnits.set(product.id, newUnit);
+                      selectedUnits = selectedUnits;
+                    }
+                  }}
+                  on:click={(e) => e.stopPropagation()}
+                  on:touchstart={(e) => e.stopPropagation()}
                 >
-                  -
-                </button>
-                <span class="quantity-display">{quantity}</span>
+                  <option value={product.baseUnit.id}>
+                    {currentLanguage === 'ar' ? product.baseUnit.nameAr : product.baseUnit.nameEn}
+                  </option>
+                  {#each product.additionalUnits as unit}
+                    <option value={unit.id}>
+                      {currentLanguage === 'ar' ? unit.nameAr : unit.nameEn}
+                    </option>
+                  {/each}
+                </select>
+              </div>
+            {:else}
+              <div class="unit-info">
+                <span class="unit-size">
+                  {currentLanguage === 'ar' ? selectedUnit.nameAr : selectedUnit.nameEn}
+                </span>
+              </div>
+            {/if}
+
+            <!-- Price only (bold), currency small -->
+            <div class="price-row">
+              <div class="price-now">
+                {selectedUnit.basePrice.toFixed(2)}
+                <span class="currency">{texts.sar}</span>
+              </div>
+              {#if hasDiscount}
+                <div class="price-old">
+                  {selectedUnit.originalPrice.toFixed(2)} {texts.sar}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Stock (subtle) -->
+            <div class="stock-line">
+              {#if isOutOfStock}
+                <span class="stock out">{texts.outOfStock}</span>
+              {:else if isLowStock}
+                <span class="stock low">{texts.lowStock}</span>
+              {:else}
+                <span class="stock in">{texts.inStock}</span>
+              {/if}
+            </div>
+
+            <!-- Add / Quantity (floating compact) -->
+            <div class="cart-controls">
+              {#if quantity === 0}
                 <button 
-                  class="quantity-btn increase" 
-                  on:click={() => updateQuantity(product, 1)}
+                  class="fab-add" 
+                  on:click={() => addToCart(product)}
                   disabled={isOutOfStock}
-                >
-                  +
-                </button>
-              </div>
-            {/if}
+                  type="button"
+                  aria-label={texts.addToCart}
+                  title={texts.addToCart}
+                >+</button>
+              {:else}
+                <div class="qty-pill">
+                  <button class="pill-btn" on:click={() => updateQuantity(product, -1)} aria-label="Decrease">−</button>
+                  <span class="pill-q">{quantity}</span>
+                  <button class="pill-btn" on:click={() => updateQuantity(product, 1)} aria-label="Increase" disabled={isOutOfStock}>+</button>
+                </div>
+              {/if}
+            </div>
           </div>
         </div>
-      </div>
       {/key}
     {/each}
   </div>
-  
-  {#if filteredProducts.length === 0}
+
+  {#if !loading && filteredProducts.length === 0}
     <div class="no-products">
       <div class="no-products-icon">📦</div>
       <div class="no-products-text">
@@ -466,572 +368,185 @@
 </div>
 
 <style>
-  .products-container {
-    padding: 0.75rem;
+  :root{
+    --surface: #ffffff;
+    --bg: #f7f7f8;
+    --ink: #1a1a1a;
+    --ink-2:#5a5a5a;
+    --ink-3:#9aa0a6;
+    --primary:#16a34a; /* keep your green for actions only */
+    --primary-700:#15803d;
+    --danger:#e11d48;
+    --warn:#f59e0b;
+    --ok:#10b981;
+    --border:#e6e7ea;
+  }
+
+  .page{
     max-width: 1200px;
     margin: 0 auto;
+    padding: 0.75rem;
     min-height: 100vh;
-    width: 100%;
+    background: var(--bg);
     box-sizing: border-box;
   }
-  
-  @media (min-width: 768px) {
-    .products-container {
-      padding: 1rem;
-    }
+  @media (min-width:768px){ .page{ padding:1rem; } }
+
+  /* Sticky top area (search + categories) */
+  .top{
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    padding-top: 0.25rem;
+    padding-bottom: 0.5rem;
   }
 
-  .search-section {
-    margin-bottom: 1.25rem;
-  }
-  
-  @media (min-width: 768px) {
-    .search-section {
-      margin-bottom: 2rem;
-    }
-  }
-
-  .search-bar {
-    position: relative;
-    margin-bottom: 0.75rem;
-  }
-  
-  @media (min-width: 768px) {
-    .search-bar {
-      margin-bottom: 1rem;
-    }
-  }
-
-  .search-input {
+  /* Search */
+  .search-bar{ position: relative; margin-bottom: .5rem; }
+  .search-input{
     width: 100%;
-    padding: 0.875rem 2.5rem 0.875rem 1rem;
-    border: 2px solid var(--color-border);
-    border-radius: 12px;
-    font-size: 0.95rem;
-    background: white;
-    transition: border-color 0.2s ease;
-    box-sizing: border-box;
+    padding: .8rem 2.5rem .8rem 1rem;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    font-size: .95rem;
+    transition: border-color .2s ease, box-shadow .2s ease;
   }
-  
-  @media (min-width: 768px) {
-    .search-input {
-      padding: 1rem 3rem 1rem 1rem;
-      font-size: 1rem;
-    }
+  .search-input:focus{ outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
+  .search-icon{
+    position: absolute; right: .8rem; top: 50%; transform: translateY(-50%); font-size: 1.1rem; color: var(--ink-3); pointer-events: none;
   }
 
-  .search-input:focus {
-    outline: none;
-    border-color: var(--color-primary);
+  /* Categories */
+  .category-filter{ display: flex; align-items: center; gap: .5rem; margin: .5rem 0 1rem; }
+  .nav-button{
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--border); color: var(--ink);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; transition: all .2s;
   }
+  .nav-button:hover{ border-color: var(--primary); background: var(--primary); color: #fff; }
+  .category-tabs{
+    display:flex; gap:.5rem; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding: .25rem 0; flex:1;
+  }
+  .category-tabs::-webkit-scrollbar{ display:none; }
+  .category-tab{
+    padding: .6rem 1.1rem; background: var(--surface); border:2px solid var(--border);
+    border-radius: 999px; white-space: nowrap; color: var(--ink); cursor:pointer; transition: all .2s;
+    font-weight: 600; flex-shrink:0;
+  }
+  .category-tab:hover{ border-color: var(--primary); color: var(--primary); }
+  .category-tab.active{ background: var(--primary); color:#fff; border-color: var(--primary); }
 
-  .search-icon {
-    position: absolute;
-    right: 0.75rem;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 1.1rem;
-    color: var(--color-ink-light);
-    pointer-events: none;
-  }
-  
-  @media (min-width: 768px) {
-    .search-icon {
-      right: 1rem;
-      font-size: 1.2rem;
-    }
-  }
-
-  .category-filter {
-    margin-bottom: 1.25rem;
-  }
-  
-  @media (min-width: 768px) {
-    .category-filter {
-      margin-bottom: 2rem;
-    }
-  }
-
-  .category-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  @media (min-width: 768px) {
-    .category-container {
-      gap: 1rem;
-    }
-  }
-
-  .nav-button {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    background: white;
-    border: 2px solid var(--color-border);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    color: var(--color-ink);
-    z-index: 2;
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  @media (min-width: 768px) {
-    .nav-button {
-      width: 40px;
-      height: 40px;
-    }
-  }
-
-  .nav-button:hover {
-    border-color: var(--color-primary);
-    background: var(--color-primary);
-    color: white;
-  }
-
-  .category-tabs {
-    display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    padding: 0.5rem 0;
-    flex: 1;
-  }
-
-  .category-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .category-tab {
-    padding: 0.75rem 1.5rem;
-    background: white;
-    border: 2px solid var(--color-border);
-    border-radius: 25px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    font-weight: 500;
-    color: var(--color-ink);
-    user-select: none;
-    -webkit-user-select: none;
-    flex-shrink: 0;
-  }
-
-  .category-tab:hover {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  .category-tab.active {
-    background: var(--color-primary);
-    color: white;
-    border-color: var(--color-primary);
-  }
-
-  .category-tab:active {
-    transform: scale(0.98);
-  }
-
-  .category-tab.active {
-    background: var(--color-primary);
-    color: white;
-    border-color: var(--color-primary);
-  }
-
-  .category-tab:hover:not(.active) {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  .products-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* Grid */
+  .products-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
     gap: 1rem;
   }
-  
-  @media (min-width: 480px) {
-    .products-grid {
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 1.25rem;
-    }
+  @media (min-width:480px){
+    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap:1.25rem; }
   }
-  
-  @media (min-width: 768px) {
-    .products-grid {
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1.5rem;
-    }
+  @media (min-width:768px){
+    .products-grid{ grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:1.5rem; }
   }
 
-  .product-card {
-    background: white;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    transition: transform 0.2s ease;
-    border: 1px solid var(--color-border-light);
-    display: flex;
-    flex-direction: column;
-  }
-  
-  @media (min-width: 768px) {
-    .product-card {
-      border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-  }
-
-  .product-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-  }
-
-  .product-image {
-    position: relative;
-    height: 140px;
-    background: var(--color-background);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  
-  @media (min-width: 480px) {
-    .product-image {
-      height: 180px;
-    }
-  }
-  
-  @media (min-width: 768px) {
-    .product-image {
-      height: 200px;
-    }
-  }
-
-  .product-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .image-placeholder {
-    font-size: 4rem;
-    color: var(--color-ink-light);
-    opacity: 0.5;
-  }
-
-  .discount-badge {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    background: var(--color-danger);
-    color: white;
-    padding: 0.25rem 0.5rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-
-  .product-info {
-    padding: 0.875rem;
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-  }
-  
-  @media (min-width: 480px) {
-    .product-info {
-      padding: 1.25rem;
-    }
-  }
-  
-  @media (min-width: 768px) {
-    .product-info {
-      padding: 1.5rem;
-    }
-  }
-
-  .product-name {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--color-ink);
-    margin: 0 0 0.5rem 0;
-    line-height: 1.3;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  
-  @media (min-width: 480px) {
-    .product-name {
-      font-size: 1rem;
-    }
-  }
-  
-  @media (min-width: 768px) {
-    .product-name {
-      font-size: 1.1rem;
-    }
-  }
-
-  .unit-info {
-    margin-bottom: 1rem;
-  }
-
-  .unit-selector {
-    margin-bottom: 1rem;
-    position: relative;
-    z-index: 1;
-  }
-
-  .unit-dropdown {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
-    color: var(--color-ink);
-    background: var(--color-background);
-    border: 1px solid var(--color-border-light);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.75rem center;
-    padding-right: 2rem;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .unit-dropdown:hover {
-    border-color: var(--color-primary);
-    background-color: rgba(255, 152, 0, 0.05);
-  }
-
-  .unit-dropdown:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
-  }
-
-  .unit-dropdown:active {
-    transform: scale(0.98);
-  }
-
-  @media (min-width: 768px) {
-    .unit-dropdown {
-      font-size: 0.9rem;
-      padding: 0.6rem 0.875rem;
-      border-radius: 10px;
-    }
-  }
-
-  .unit-size {
-    font-size: 0.8rem;
-    color: var(--color-ink-light);
-    background: var(--color-background);
-    padding: 0.25rem 0.5rem;
+  /* Card */
+  .product-card{
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 16px;
-    display: inline-block;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    transition: transform .18s ease, box-shadow .18s ease;
   }
-  
-  @media (min-width: 768px) {
-    .unit-size {
-      font-size: 0.9rem;
-      padding: 0.25rem 0.75rem;
-      border-radius: 20px;
-    }
-  }
+  .product-card:hover{ transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,.12); }
 
-  .price-section {
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .current-price {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--color-primary);
-  }
-  
-  @media (min-width: 480px) {
-    .current-price {
-      font-size: 1.15rem;
-    }
-  }
-  
-  @media (min-width: 768px) {
-    .current-price {
-      font-size: 1.25rem;
-    }
-  }
-
-  .original-price {
-    font-size: 0.85rem;
-    color: var(--color-ink-light);
-    text-decoration: line-through;
-  }
-  
-  @media (min-width: 768px) {
-    .original-price {
-      font-size: 1rem;
-    }
-  }
-
-  .stock-status {
-    margin-bottom: 1rem;
-  }
-
-  .in-stock {
-    color: var(--color-success);
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .low-stock {
-    color: var(--color-warning);
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .out-of-stock {
-    color: var(--color-danger);
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .cart-controls {
-    margin-top: auto;
+  /* Uniform image area (square on phones, roomy on web) */
+  .product-image{
     position: relative;
-    z-index: 10;
-    pointer-events: auto;
+    padding-top: 100%; /* square */
+    background: #f1f3f5;
+  }
+  @media (min-width:768px){ .product-image{ padding-top: 75%; } } /* a bit wider on desktop */
+  .product-image img{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+  }
+  .image-placeholder{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:3rem; color:#c9cdd3;
+  }
+  .discount-badge{
+    position:absolute; top:.6rem; inset-inline-end:.6rem;
+    background: var(--danger); color:#fff; padding:.25rem .5rem; border-radius:10px; font-size:.75rem; font-weight:700;
   }
 
-  .add-to-cart-btn {
-    width: 100%;
-    padding: 0.625rem;
-    background: var(--color-primary);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease;
-    pointer-events: auto;
-    position: relative;
-    z-index: 10;
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  @media (min-width: 768px) {
-    .add-to-cart-btn {
-      padding: 0.75rem;
-      font-size: 1rem;
-    }
+  .product-info{ padding: .9rem 1rem 1.1rem; display:flex; flex-direction:column; gap:.55rem; flex:1; }
+  .product-name{
+    margin:0; color: var(--ink); font-weight: 700; font-size: .98rem; line-height: 1.3;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
 
-  .add-to-cart-btn:hover:not(:disabled) {
-    background: var(--color-primary-dark);
+  /* Unit */
+  .unit-info{ margin-top:.1rem; }
+  .unit-size{
+    font-size: .78rem; color: var(--ink-2); background:#f5f6f7; padding:.25rem .55rem; border-radius:999px; display:inline-block;
   }
+  .unit-selector{ margin-top:.1rem; }
+  .unit-dropdown{
+    width:100%; padding:.5rem .9rem; font-size:.85rem; color:var(--ink);
+    background:#f7f8f9; border:1px solid var(--border); border-radius:10px; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right .7rem center; padding-right:2rem;
+    transition:border-color .2s, box-shadow .2s;
+  }
+  .unit-dropdown:hover{ border-color:var(--primary); }
+  .unit-dropdown:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(22,163,74,.12) }
 
-  .add-to-cart-btn:disabled {
-    background: var(--color-ink-light);
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  /* Price */
+  .price-row{ display:flex; align-items:center; gap:.5rem; }
+  .price-now{ font-weight:800; font-size:1.06rem; color: var(--ink); }
+  .currency{ font-weight:600; font-size:.82rem; color: var(--ink-2); margin-inline-start:.25rem; }
+  .price-old{ font-size:.85rem; color: var(--ink-3); text-decoration: line-through; }
 
-  .quantity-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    background: var(--color-background);
-    border-radius: 8px;
-    padding: 0.5rem;
-  }
+  /* Stock */
+  .stock-line{ min-height: 1.1rem; }
+  .stock{ font-size:.82rem; font-weight:600; }
+  .stock.in{ color: var(--ok); }
+  .stock.low{ color: var(--warn); }
+  .stock.out{ color: var(--danger); }
 
-  .quantity-btn {
-    width: 36px;
-    height: 36px;
-    background: var(--color-primary);
-    color: white;
-    border: none;
-    border-radius: 50%;
-    font-size: 1.1rem;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s ease;
-    -webkit-tap-highlight-color: transparent;
-    flex-shrink: 0;
+  /* Cart controls */
+  .cart-controls{ margin-top:auto; position:relative; min-height:44px; }
+  /* Floating add button (bottom-end) */
+  .fab-add{
+    position:absolute; inset-inline-end:.25rem; bottom:.25rem;
+    width:40px; height:40px; border-radius:50%;
+    background: var(--primary); color:#fff; border:none; font-size:1.35rem; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    box-shadow: 0 6px 14px rgba(22,163,74,.25);
+    transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
   }
-  
-  @media (min-width: 768px) {
-    .quantity-btn {
-      width: 40px;
-      height: 40px;
-      font-size: 1.2rem;
-    }
-  }
+  .fab-add:hover{ transform: translateY(-1px); background: var(--primary-700); box-shadow: 0 10px 18px rgba(22,163,74,.3); }
+  .fab-add:disabled{ background:#cbd5e1; color:#fff; box-shadow:none; cursor:not-allowed; }
 
-  .quantity-btn:hover:not(:disabled) {
-    background: var(--color-primary-dark);
+  /* Quantity pill */
+  .qty-pill{
+    position:absolute; inset-inline-end:.25rem; bottom:.25rem;
+    display:flex; align-items:center; gap:.5rem;
+    background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.3rem .4rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,.06);
   }
+  .pill-btn{
+    width:32px; height:32px; border-radius:50%; border:none; background: var(--primary); color:#fff; font-weight:800;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; transition: background .15s ease;
+  }
+  .pill-btn:hover{ background: var(--primary-700); }
+  .pill-btn:disabled{ background:#cbd5e1; cursor:not-allowed; }
+  .pill-q{ min-width:28px; text-align:center; font-weight:800; color: var(--ink); }
 
-  .quantity-btn:disabled {
-    background: var(--color-ink-light);
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .quantity-display {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--color-ink);
-    min-width: 35px;
-    text-align: center;
-  }
-  
-  @media (min-width: 768px) {
-    .quantity-display {
-      font-size: 1.1rem;
-      min-width: 40px;
-    }
-  }
-
-  .no-products {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: var(--color-ink-light);
-  }
-
-  .no-products-icon {
-    font-size: 4rem;
-    margin-bottom: 1rem;
-    opacity: 0.5;
-  }
-
-  .no-products-text {
-    font-size: 1.2rem;
-  }
+  /* Empty state */
+  .no-products{ text-align:center; padding: 4rem 2rem; color: var(--ink-3); }
+  .no-products-icon{ font-size: 4rem; margin-bottom: .75rem; }
+  .no-products-text{ font-size:1.1rem; }
 </style>
