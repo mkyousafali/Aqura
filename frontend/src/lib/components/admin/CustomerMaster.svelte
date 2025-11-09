@@ -6,6 +6,7 @@
   import { t } from "$lib/i18n";
   import { openWindow } from '$lib/utils/windowManagerUtils';
   import CustomerAccountRecoveryManager from './CustomerAccountRecoveryManager.svelte';
+  import LocationPicker from '../LocationPicker.svelte';
 
   interface Customer {
     id: string;
@@ -20,6 +21,18 @@
     last_login_at: string;
     created_at: string;
     updated_at: string;
+    location1_name?: string;
+    location1_url?: string;
+    location1_lat?: number;
+    location1_lng?: number;
+    location2_name?: string;
+    location2_url?: string;
+    location2_lat?: number;
+    location2_lng?: number;
+    location3_name?: string;
+    location3_url?: string;
+    location3_lat?: number;
+    location3_lng?: number;
   }
 
   let customers: Customer[] = [];
@@ -35,6 +48,23 @@
   let showWhatsAppButton = false;
   let isGeneratingCode = false;
   let isSavingApproval = false;
+  // Location management state
+  let showLocationModal = false;
+  let locationCustomer: Customer | null = null;
+  let loc1_name = '';
+  let loc1_url = '';
+  let loc1_lat: number | null = null;
+  let loc1_lng: number | null = null;
+  let loc2_name = '';
+  let loc2_url = '';
+  let loc2_lat: number | null = null;
+  let loc2_lng: number | null = null;
+  let loc3_name = '';
+  let loc3_url = '';
+  let loc3_lat: number | null = null;
+  let loc3_lng: number | null = null;
+  let savingLocations = false;
+  let currentEditingLocation = 1; // Which location is being edited in the map
   
   // Statistics
   let pendingRegistrations = 0;
@@ -68,6 +98,88 @@
       alert("Error loading customers");
     } finally {
       loading = false;
+    }
+  }
+
+  function openLocationModal(customer: Customer) {
+    locationCustomer = customer;
+    loc1_name = customer.location1_name || '';
+    loc1_url = customer.location1_url || '';
+    loc1_lat = customer.location1_lat || null;
+    loc1_lng = customer.location1_lng || null;
+    loc2_name = customer.location2_name || '';
+    loc2_url = customer.location2_url || '';
+    loc2_lat = customer.location2_lat || null;
+    loc2_lng = customer.location2_lng || null;
+    loc3_name = customer.location3_name || '';
+    loc3_url = customer.location3_url || '';
+    loc3_lat = customer.location3_lat || null;
+    loc3_lng = customer.location3_lng || null;
+    currentEditingLocation = 1;
+    showLocationModal = true;
+  }
+
+  function closeLocationModal() {
+    showLocationModal = false;
+    locationCustomer = null;
+    savingLocations = false;
+  }
+
+  async function saveLocations() {
+    if (!locationCustomer) return;
+    try {
+      savingLocations = true;
+      const updates = {
+        location1_name: loc1_name || null,
+        location1_url: loc1_url || null,
+        location1_lat: loc1_lat,
+        location1_lng: loc1_lng,
+        location2_name: loc2_name || null,
+        location2_url: loc2_url || null,
+        location2_lat: loc2_lat,
+        location2_lng: loc2_lng,
+        location3_name: loc3_name || null,
+        location3_url: loc3_url || null,
+        location3_lat: loc3_lat,
+        location3_lng: loc3_lng,
+      };
+      const { error } = await supabase
+        .from('customers')
+        .update(updates)
+        .eq('id', locationCustomer.id);
+      if (error) {
+        console.error('❌ [CustomerMaster] Location update error:', error);
+        alert('Failed to save locations');
+      } else {
+        // Reflect changes locally
+        Object.assign(locationCustomer, updates);
+        customers = customers.map(c => c.id === locationCustomer.id ? { ...c, ...updates } : c);
+        closeLocationModal();
+      }
+    } catch (e) {
+      console.error('❌ [CustomerMaster] Exception saving locations:', e);
+      alert('Unexpected error');
+    } finally {
+      savingLocations = false;
+    }
+  }
+
+  function handleLocationSelect(locationNum: number, location: { name: string; lat: number; lng: number; url: string }) {
+    if (locationNum === 1) {
+      loc1_name = location.name;
+      loc1_url = location.url;
+      loc1_lat = location.lat;
+      loc1_lng = location.lng;
+    } else if (locationNum === 2) {
+      loc2_name = location.name;
+      loc2_url = location.url;
+      loc2_lat = location.lat;
+      loc2_lng = location.lng;
+    } else if (locationNum === 3) {
+      loc3_name = location.name;
+      loc3_url = location.url;
+      loc3_lat = location.lat;
+      loc3_lng = location.lng;
     }
   }
 
@@ -422,6 +534,7 @@ Welcome aboard! 🚀
             <th>Status</th>
             <th>Registration Date</th>
             <th>Last Login</th>
+            <th>Locations</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -441,6 +554,26 @@ Welcome aboard! 🚀
               </td>
               <td>{formatDate(customer.created_at)}</td>
               <td>{customer.last_login_at ? formatDate(customer.last_login_at) : 'Never'}</td>
+              <td>
+                <div class="locations-cell">
+                  {#if customer.location1_name || customer.location2_name || customer.location3_name}
+                    <ul class="location-list">
+                      {#if customer.location1_name}
+                        <li title={customer.location1_url || ''}>{customer.location1_name}</li>
+                      {/if}
+                      {#if customer.location2_name}
+                        <li title={customer.location2_url || ''}>{customer.location2_name}</li>
+                      {/if}
+                      {#if customer.location3_name}
+                        <li title={customer.location3_url || ''}>{customer.location3_name}</li>
+                      {/if}
+                    </ul>
+                  {:else}
+                    <span class="no-locations">None</span>
+                  {/if}
+                  <button class="manage-locations-btn" on:click={() => openLocationModal(customer)}>📍 Manage</button>
+                </div>
+              </td>
               <td>
                 <div class="actions">
                   {#if customer.registration_status === "pending"}
@@ -572,6 +705,79 @@ Welcome aboard! 🚀
             {/if}
           </button>
         {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Location Management Modal -->
+{#if showLocationModal && locationCustomer}
+  <div class="modal-overlay" on:click={closeLocationModal}>
+    <div class="modal-content location-modal-content" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>📍 Manage Locations</h3>
+        <button class="close-btn" on:click={closeLocationModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="customer-info">
+          <p><strong>Customer:</strong> {locationCustomer.name || 'Unknown Customer'}</p>
+          <p><strong>WhatsApp:</strong> {locationCustomer.whatsapp_number || 'Not Provided'}</p>
+        </div>
+        
+        <div class="locations-tabs">
+          <button class="location-tab {currentEditingLocation === 1 ? 'active' : ''}" on:click={() => currentEditingLocation = 1}>
+            📍 Location 1 {loc1_name ? `(${loc1_name})` : ''}
+          </button>
+          <button class="location-tab {currentEditingLocation === 2 ? 'active' : ''}" on:click={() => currentEditingLocation = 2}>
+            📍 Location 2 {loc2_name ? `(${loc2_name})` : ''}
+          </button>
+          <button class="location-tab {currentEditingLocation === 3 ? 'active' : ''}" on:click={() => currentEditingLocation = 3}>
+            📍 Location 3 {loc3_name ? `(${loc3_name})` : ''}
+          </button>
+        </div>
+
+        <div class="location-editor">
+          {#if currentEditingLocation === 1}
+            <div class="location-details">
+              <p><strong>Name:</strong> {loc1_name || 'Not set'}</p>
+              <p><strong>Coordinates:</strong> {loc1_lat && loc1_lng ? `${loc1_lat.toFixed(6)}, ${loc1_lng.toFixed(6)}` : 'Not set'}</p>
+            </div>
+            <LocationPicker
+              initialLat={loc1_lat || 24.7136}
+              initialLng={loc1_lng || 46.6753}
+              onLocationSelect={(loc) => handleLocationSelect(1, loc)}
+              language="en"
+            />
+          {:else if currentEditingLocation === 2}
+            <div class="location-details">
+              <p><strong>Name:</strong> {loc2_name || 'Not set'}</p>
+              <p><strong>Coordinates:</strong> {loc2_lat && loc2_lng ? `${loc2_lat.toFixed(6)}, ${loc2_lng.toFixed(6)}` : 'Not set'}</p>
+            </div>
+            <LocationPicker
+              initialLat={loc2_lat || 24.7136}
+              initialLng={loc2_lng || 46.6753}
+              onLocationSelect={(loc) => handleLocationSelect(2, loc)}
+              language="en"
+            />
+          {:else if currentEditingLocation === 3}
+            <div class="location-details">
+              <p><strong>Name:</strong> {loc3_name || 'Not set'}</p>
+              <p><strong>Coordinates:</strong> {loc3_lat && loc3_lng ? `${loc3_lat.toFixed(6)}, ${loc3_lng.toFixed(6)}` : 'Not set'}</p>
+            </div>
+            <LocationPicker
+              initialLat={loc3_lat || 24.7136}
+              initialLng={loc3_lng || 46.6753}
+              onLocationSelect={(loc) => handleLocationSelect(3, loc)}
+              language="en"
+            />
+          {/if}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeLocationModal}>Cancel</button>
+        <button class="confirm-btn approve" disabled={savingLocations} on:click={saveLocations}>
+          {savingLocations ? 'Saving...' : 'Save Locations'}
+        </button>
       </div>
     </div>
   </div>
@@ -895,6 +1101,78 @@ Welcome aboard! 🚀
     overflow-y: auto;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
   }
+  .locations-cell { display:flex; flex-direction:column; gap:0.5rem; }
+  .manage-locations-btn { padding:0.35rem 0.6rem; font-size:0.7rem; border:none; background:#3b82f6; color:#fff; border-radius:6px; cursor:pointer; }
+  .manage-locations-btn:hover { background:#2563eb; }
+  .location-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+  .location-list li { font-size:0.7rem; padding:2px 6px; background:#f3f4f6; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .no-locations { font-size:0.65rem; color:#6b7280; }
+  .locations-form { display:flex; flex-direction:column; gap:1rem; }
+  .location-group { display:grid; gap:0.4rem; }
+  .location-group label { font-size:0.75rem; font-weight:500; color:#374151; }
+  .location-group input { padding:0.6rem 0.7rem; border:1px solid #d1d5db; border-radius:8px; font-size:0.75rem; }
+  .location-group input:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.1); }
+
+  /* Location modal specific styles */
+  .location-modal-content {
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .locations-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #e5e7eb;
+  }
+
+  .location-tab {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+    transition: all 0.2s ease;
+  }
+
+  .location-tab:hover {
+    color: #374151;
+    background: rgba(59, 130, 246, 0.05);
+  }
+
+  .location-tab.active {
+    color: #16a34a;
+    border-bottom-color: #16a34a;
+    background: rgba(22, 163, 74, 0.05);
+  }
+
+  .location-editor {
+    margin-top: 1rem;
+  }
+
+  .location-details {
+    background: #f9fafb;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+  }
+
+  .location-details p {
+    margin: 0.5rem 0;
+    font-size: 0.875rem;
+    color: #374151;
+  }
+
+  .location-details strong {
+    color: #111827;
+    font-weight: 600;
+  }
+  .hint { font-size:0.65rem; color:#6b7280; }
 
   .modal-header {
     display: flex;

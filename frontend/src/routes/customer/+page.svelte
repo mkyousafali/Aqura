@@ -372,9 +372,6 @@
       <button class="action-btn primary" on:click={goStartShopping} type="button">
         🛒 {texts.shopNow}
       </button>
-      <button class="action-btn secondary" on:click={goSupport} type="button">
-        🆘 {texts.support}
-      </button>
     </div>
   </div>
 {/if}
@@ -412,8 +409,6 @@
     --brand-orange: #f59e0b; /* accent */
     --brand-orange-dark: #d97706;
     --brand-orange-light: #fbbf24;
-    --brand-yellow: #fef3c7;
-    --brand-blue: #dbeafe;
 
     /* Remap app variables for this page to brand colors */
     --color-primary: var(--brand-green);
@@ -423,46 +418,83 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start; /* start at top */
-    padding: 0 1rem 2rem 1rem;
-    max-width: 100%;
-    margin: 0 auto;
-    min-height: 100vh;
-    gap: 1.5rem;
+    justify-content: flex-start;
+    padding: 1rem 1rem 0 1rem;
+    width: 100%;
+    height: calc(100vh - 45px);
+    max-height: calc(100vh - 45px);
+    gap: 1rem;
     position: relative;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
 
-    /* Enhanced vibrant brand background with gradients */
-    background:
-      radial-gradient(circle at 20% 10%, rgba(22,163,74,0.15), transparent 40%),
-      radial-gradient(circle at 80% 20%, rgba(245,158,11,0.15), transparent 40%),
-      radial-gradient(circle at 50% 60%, rgba(34,197,94,0.08), transparent 50%),
-      radial-gradient(circle at 10% 90%, rgba(251,191,36,0.12), transparent 40%),
-      linear-gradient(135deg, #fef3c7 0%, #ffffff 30%, #dbeafe 70%, #f0fdf4 100%);
+    /* Base background - Light mint green */
+    background: linear-gradient(180deg, #86efac 0%, #6ee7b7 50%, #34d399 100%);
   }
 
-  /* Enhanced decorative overlay with animated gradient */
+  /* Orange wave - bottom layer with realistic wave animation */
   .home-container::before {
     content: '';
     position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(ellipse 800px 400px at 30% 20%, rgba(22,163,74,0.08), transparent 60%),
-      radial-gradient(ellipse 600px 500px at 70% 80%, rgba(245,158,11,0.10), transparent 70%),
-      radial-gradient(ellipse 700px 300px at 50% 50%, rgba(34,197,94,0.04), transparent 80%);
-    pointer-events: none;
+    width: 200%;
+    height: 120px;
+    bottom: 0;
+    left: -50%;
     z-index: 0;
-    animation: gradientShift 10s ease-in-out infinite alternate;
+    background: #FF5C00;
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    animation: wave 8s ease-in-out infinite;
   }
 
-  @keyframes gradientShift {
-    0% {
-      opacity: 0.8;
-      transform: scale(1) translateY(0);
+  /* Second wave layer - faster animation */
+  .home-container::after {
+    content: '';
+    position: absolute;
+    width: 200%;
+    height: 100px;
+    bottom: 0;
+    left: -50%;
+    z-index: 1;
+    background: rgba(255, 92, 0, 0.7);
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    animation: wave2 6s ease-in-out infinite;
+  }
+
+  @keyframes wave {
+    0%, 100% {
+      transform: translateX(0) translateY(0) rotate(0deg);
     }
-    100% {
-      opacity: 1;
-      transform: scale(1.02) translateY(-10px);
+    25% {
+      transform: translateX(5%) translateY(-10px) rotate(1deg);
     }
+    50% {
+      transform: translateX(0) translateY(0) rotate(0deg);
+    }
+    75% {
+      transform: translateX(-5%) translateY(-10px) rotate(-1deg);
+    }
+  }
+
+  @keyframes wave2 {
+    0%, 100% {
+      transform: translateX(-5%) translateY(0) rotate(0deg);
+    }
+    25% {
+      transform: translateX(0) translateY(-8px) rotate(-0.8deg);
+    }
+    50% {
+      transform: translateX(-5%) translateY(0) rotate(0deg);
+    }
+    75% {
+      transform: translateX(-10%) translateY(-8px) rotate(0.8deg);
+    }
+  }
+
+  /* Ensure full-width background coverage */
+  :global(body) {
+    background: linear-gradient(180deg, #86efac 0%, #6ee7b7 50%, #34d399 100%) !important;
   }
 
   /* Action Buttons */
@@ -473,6 +505,8 @@
     justify-content: center;
     width: 100%;
     max-width: 400px;
+    position: relative;
+    z-index: 10;
   }
   
   .action-btn {
@@ -518,6 +552,25 @@
     color: #fff;
     box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35),
                 0 0 30px rgba(22, 163, 74, 0.15);
+    animation: heartbeat 1.5s ease-in-out infinite;
+  }
+
+  @keyframes heartbeat {
+    0%, 100% {
+      transform: scale(1);
+    }
+    10% {
+      transform: scale(1.05);
+    }
+    20% {
+      transform: scale(1);
+    }
+    30% {
+      transform: scale(1.05);
+    }
+    40% {
+      transform: scale(1);
+    }
   }
   
   .action-btn.secondary {
@@ -554,12 +607,14 @@
     width: 100%;
     position: relative;
     top: 0;
+    z-index: 10;
+    flex-shrink: 0;
   }
 
   .led-screen-container {
     position: relative;
     width: 100%;
-    max-width: 300px;
+    max-width: 280px;
     margin: 0 auto;
   }
 
@@ -575,7 +630,7 @@
   .video-content {
     position: relative;
     width: 100%;
-    height: 480px;
+    height: 420px;
     aspect-ratio: 9/16;
     border-radius: 12px;
     overflow: hidden;
@@ -910,12 +965,42 @@
   /* Mobile optimizations */
   @media (max-width: 480px) {
     .home-container {
-      padding: 0 0.75rem 1.25rem 0.75rem; /* slightly less bottom */
-      gap: 1.25rem;
+      padding: 0.75rem 1rem 0 1rem;
+      gap: 0.75rem;
+      width: 100%;
+      height: calc(100vh - 45px);
+      max-height: calc(100vh - 45px);
+    }
+    
+    .home-container::before {
+      height: 100px;
+      bottom: 0;
+      width: 200%;
+      left: -50%;
+    }
+    
+    .home-container::after {
+      height: 80px;
+      bottom: 0;
+      width: 200%;
+      left: -50%;
+    }
+    
+    :global(body) {
+      background: linear-gradient(180deg, #86efac 0%, #6ee7b7 50%, #34d399 100%) !important;
+      overflow: hidden;
     }
 
     .advertisement-section {
       margin: 0;
+    }
+    
+    .led-screen-container {
+      max-width: 240px;
+    }
+    
+    .video-content {
+      height: 360px;
     }
 
     .led-screen-container {
@@ -973,8 +1058,31 @@
   /* Tablet and larger screens */
   @media (min-width: 768px) {
     .home-container {
-      max-width: 800px;
-      padding: 0 2rem 2rem 2rem; /* no top padding on desktop */
+      max-width: 1200px;
+      padding: 0 2rem;
+      gap: 2rem;
+      margin: 0 auto;
+      height: 100vh;
+      max-height: 100vh;
+    }
+    
+    .home-container::before {
+      height: 140px;
+      bottom: 0;
+      width: 200%;
+      left: -50%;
+    }
+    
+    .home-container::after {
+      height: 120px;
+      bottom: 0;
+      width: 200%;
+      left: -50%;
+    }
+    
+    :global(body) {
+      background: linear-gradient(180deg, #86efac 0%, #6ee7b7 50%, #34d399 100%) !important;
+      overflow: hidden;
     }
 
     .categories-grid {
