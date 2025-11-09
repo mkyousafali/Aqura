@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { browser } from '$app/environment';
   import { supabase } from "$lib/utils/supabase";
   import { currentUser } from "$lib/utils/persistentAuth";
   import { notificationManagement } from '$lib/utils/notificationManagement';
   import { t } from "$lib/i18n";
   import { openWindow } from '$lib/utils/windowManagerUtils';
   import CustomerAccountRecoveryManager from './CustomerAccountRecoveryManager.svelte';
-  import LocationPicker from '../LocationPicker.svelte';
+  import LocationMapDisplay from '../LocationMapDisplay.svelte';
 
   interface Customer {
     id: string;
@@ -66,6 +67,10 @@
   let savingLocations = false;
   let currentEditingLocation = 1; // Which location is being edited in the map
   
+  // Current user location for distance calculation
+  let userLat: number = 24.7136; // Initialize with Riyadh center as default
+  let userLng: number = 46.6753;
+  
   // Statistics
   let pendingRegistrations = 0;
   let pendingRecoveryRequests = 0;
@@ -73,7 +78,33 @@
   onMount(() => {
     loadCustomers();
     loadStatistics();
+    getUserLocation();
   });
+
+  // Get user's current location
+  function getUserLocation() {
+    if (browser && navigator.geolocation) {
+      console.log('📍 [CustomerMaster] Requesting user location...');
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          userLat = position.coords.latitude;
+          userLng = position.coords.longitude;
+          console.log('✅ [CustomerMaster] Got user location:', userLat, userLng);
+        },
+        (error) => {
+          console.warn('⚠️ [CustomerMaster] Could not get user location:', error.message);
+          console.log('📍 [CustomerMaster] Using default location (Riyadh center)');
+        },
+        {
+          timeout: 5000,
+          enableHighAccuracy: false,
+          maximumAge: 300000
+        }
+      );
+    } else {
+      console.log('📍 [CustomerMaster] Geolocation not available, using Riyadh center');
+    }
+  }
 
   async function loadCustomers() {
     try {
@@ -105,24 +136,49 @@
     locationCustomer = customer;
     loc1_name = customer.location1_name || '';
     loc1_url = customer.location1_url || '';
-    loc1_lat = customer.location1_lat || null;
-    loc1_lng = customer.location1_lng || null;
+    loc1_lat = customer.location1_lat ? Number(customer.location1_lat) : null;
+    loc1_lng = customer.location1_lng ? Number(customer.location1_lng) : null;
     loc2_name = customer.location2_name || '';
     loc2_url = customer.location2_url || '';
-    loc2_lat = customer.location2_lat || null;
-    loc2_lng = customer.location2_lng || null;
+    loc2_lat = customer.location2_lat ? Number(customer.location2_lat) : null;
+    loc2_lng = customer.location2_lng ? Number(customer.location2_lng) : null;
     loc3_name = customer.location3_name || '';
     loc3_url = customer.location3_url || '';
-    loc3_lat = customer.location3_lat || null;
-    loc3_lng = customer.location3_lng || null;
+    loc3_lat = customer.location3_lat ? Number(customer.location3_lat) : null;
+    loc3_lng = customer.location3_lng ? Number(customer.location3_lng) : null;
     currentEditingLocation = 1;
     showLocationModal = true;
+    
+    console.log('📍 [CustomerMaster] Opening location modal for:', customer.name);
+    console.log('📍 Location 1:', { name: loc1_name, lat: loc1_lat, lng: loc1_lng, type: typeof loc1_lat });
+    console.log('📍 Location 2:', { name: loc2_name, lat: loc2_lat, lng: loc2_lng });
+    console.log('📍 Location 3:', { name: loc3_name, lat: loc3_lat, lng: loc3_lng });
   }
 
   function closeLocationModal() {
     showLocationModal = false;
     locationCustomer = null;
     savingLocations = false;
+  }
+
+  // Calculate distance between two coordinates using Haversine formula
+  function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c; // Distance in km
+    return distance;
+  }
+
+  // Get current user location and calculate distance
+  function getDistanceToLocation(lat: number, lng: number): string {
+    const distance = calculateDistance(userLat, userLng, lat, lng);
+    return distance.toFixed(2) + ' km';
   }
 
   async function saveLocations() {
@@ -556,22 +612,7 @@ Welcome aboard! 🚀
               <td>{customer.last_login_at ? formatDate(customer.last_login_at) : 'Never'}</td>
               <td>
                 <div class="locations-cell">
-                  {#if customer.location1_name || customer.location2_name || customer.location3_name}
-                    <ul class="location-list">
-                      {#if customer.location1_name}
-                        <li title={customer.location1_url || ''}>{customer.location1_name}</li>
-                      {/if}
-                      {#if customer.location2_name}
-                        <li title={customer.location2_url || ''}>{customer.location2_name}</li>
-                      {/if}
-                      {#if customer.location3_name}
-                        <li title={customer.location3_url || ''}>{customer.location3_name}</li>
-                      {/if}
-                    </ul>
-                  {:else}
-                    <span class="no-locations">None</span>
-                  {/if}
-                  <button class="manage-locations-btn" on:click={() => openLocationModal(customer)}>📍 Manage</button>
+                  <button class="manage-locations-btn" on:click={() => openLocationModal(customer)}>📍 View</button>
                 </div>
               </td>
               <td>
@@ -715,7 +756,7 @@ Welcome aboard! 🚀
   <div class="modal-overlay" on:click={closeLocationModal}>
     <div class="modal-content location-modal-content" on:click|stopPropagation>
       <div class="modal-header">
-        <h3>📍 Manage Locations</h3>
+        <h3>📍 View Locations</h3>
         <button class="close-btn" on:click={closeLocationModal}>✕</button>
       </div>
       <div class="modal-body">
@@ -726,58 +767,97 @@ Welcome aboard! 🚀
         
         <div class="locations-tabs">
           <button class="location-tab {currentEditingLocation === 1 ? 'active' : ''}" on:click={() => currentEditingLocation = 1}>
-            📍 Location 1 {loc1_name ? `(${loc1_name})` : ''}
+            📍 Location 1
           </button>
           <button class="location-tab {currentEditingLocation === 2 ? 'active' : ''}" on:click={() => currentEditingLocation = 2}>
-            📍 Location 2 {loc2_name ? `(${loc2_name})` : ''}
+            📍 Location 2
           </button>
           <button class="location-tab {currentEditingLocation === 3 ? 'active' : ''}" on:click={() => currentEditingLocation = 3}>
-            📍 Location 3 {loc3_name ? `(${loc3_name})` : ''}
+            📍 Location 3
           </button>
         </div>
 
-        <div class="location-editor">
+        <div class="location-viewer">
           {#if currentEditingLocation === 1}
-            <div class="location-details">
-              <p><strong>Name:</strong> {loc1_name || 'Not set'}</p>
-              <p><strong>Coordinates:</strong> {loc1_lat && loc1_lng ? `${loc1_lat.toFixed(6)}, ${loc1_lng.toFixed(6)}` : 'Not set'}</p>
-            </div>
-            <LocationPicker
-              initialLat={loc1_lat || 24.7136}
-              initialLng={loc1_lng || 46.6753}
-              onLocationSelect={(loc) => handleLocationSelect(1, loc)}
-              language="en"
-            />
+            {#if loc1_lat && loc1_lng}
+              <div class="location-info-box">
+                <p><strong>Name:</strong> {loc1_name || 'Not set'}</p>
+                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc1_lat, loc1_lng)}</span></p>
+                <p><strong>Coordinates:</strong> {loc1_lat.toFixed(6)}, {loc1_lng.toFixed(6)}</p>
+              </div>
+              <div class="map-display-container">
+                {#key `loc1-${loc1_lat}-${loc1_lng}`}
+                  <LocationMapDisplay 
+                    locations={[{
+                      name: loc1_name || 'Location 1',
+                      lat: loc1_lat,
+                      lng: loc1_lng,
+                      url: loc1_url || ''
+                    }]}
+                    selectedIndex={0}
+                    height="400px"
+                    language="en"
+                  />
+                {/key}
+              </div>
+            {:else}
+              <p class="not-set-message">Location 1 is not set by the customer.</p>
+            {/if}
           {:else if currentEditingLocation === 2}
-            <div class="location-details">
-              <p><strong>Name:</strong> {loc2_name || 'Not set'}</p>
-              <p><strong>Coordinates:</strong> {loc2_lat && loc2_lng ? `${loc2_lat.toFixed(6)}, ${loc2_lng.toFixed(6)}` : 'Not set'}</p>
-            </div>
-            <LocationPicker
-              initialLat={loc2_lat || 24.7136}
-              initialLng={loc2_lng || 46.6753}
-              onLocationSelect={(loc) => handleLocationSelect(2, loc)}
-              language="en"
-            />
+            {#if loc2_lat && loc2_lng}
+              <div class="location-info-box">
+                <p><strong>Name:</strong> {loc2_name || 'Not set'}</p>
+                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc2_lat, loc2_lng)}</span></p>
+                <p><strong>Coordinates:</strong> {loc2_lat.toFixed(6)}, {loc2_lng.toFixed(6)}</p>
+              </div>
+              <div class="map-display-container">
+                {#key `loc2-${loc2_lat}-${loc2_lng}`}
+                  <LocationMapDisplay 
+                    locations={[{
+                      name: loc2_name || 'Location 2',
+                      lat: loc2_lat,
+                      lng: loc2_lng,
+                      url: loc2_url || ''
+                    }]}
+                    selectedIndex={0}
+                    height="400px"
+                    language="en"
+                  />
+                {/key}
+              </div>
+            {:else}
+              <p class="not-set-message">Location 2 is not set by the customer.</p>
+            {/if}
           {:else if currentEditingLocation === 3}
-            <div class="location-details">
-              <p><strong>Name:</strong> {loc3_name || 'Not set'}</p>
-              <p><strong>Coordinates:</strong> {loc3_lat && loc3_lng ? `${loc3_lat.toFixed(6)}, ${loc3_lng.toFixed(6)}` : 'Not set'}</p>
-            </div>
-            <LocationPicker
-              initialLat={loc3_lat || 24.7136}
-              initialLng={loc3_lng || 46.6753}
-              onLocationSelect={(loc) => handleLocationSelect(3, loc)}
-              language="en"
-            />
+            {#if loc3_lat && loc3_lng}
+              <div class="location-info-box">
+                <p><strong>Name:</strong> {loc3_name || 'Not set'}</p>
+                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc3_lat, loc3_lng)}</span></p>
+                <p><strong>Coordinates:</strong> {loc3_lat.toFixed(6)}, {loc3_lng.toFixed(6)}</p>
+              </div>
+              <div class="map-display-container">
+                {#key `loc3-${loc3_lat}-${loc3_lng}`}
+                  <LocationMapDisplay 
+                    locations={[{
+                      name: loc3_name || 'Location 3',
+                      lat: loc3_lat,
+                      lng: loc3_lng,
+                      url: loc3_url || ''
+                    }]}
+                    selectedIndex={0}
+                    height="400px"
+                    language="en"
+                  />
+                {/key}
+              </div>
+            {:else}
+              <p class="not-set-message">Location 3 is not set by the customer.</p>
+            {/if}
           {/if}
         </div>
       </div>
       <div class="modal-footer">
-        <button class="cancel-btn" on:click={closeLocationModal}>Cancel</button>
-        <button class="confirm-btn approve" disabled={savingLocations} on:click={saveLocations}>
-          {savingLocations ? 'Saving...' : 'Save Locations'}
-        </button>
+        <button class="cancel-btn" on:click={closeLocationModal}>Close</button>
       </div>
     </div>
   </div>
@@ -1100,6 +1180,8 @@ Welcome aboard! 🚀
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 1001;
   }
   .locations-cell { display:flex; flex-direction:column; gap:0.5rem; }
   .manage-locations-btn { padding:0.35rem 0.6rem; font-size:0.7rem; border:none; background:#3b82f6; color:#fff; border-radius:6px; cursor:pointer; }
@@ -1153,6 +1235,63 @@ Welcome aboard! 🚀
 
   .location-editor {
     margin-top: 1rem;
+  }
+
+  .location-viewer {
+    margin-top: 1rem;
+  }
+
+  .location-info-box {
+    background: #f9fafb;
+    padding: 1.5rem;
+    border-radius: 12px;
+    border: 2px solid #e5e7eb;
+  }
+
+  .location-info-box p {
+    margin: 0.75rem 0;
+    font-size: 0.95rem;
+    color: #374151;
+  }
+
+  .location-info-box strong {
+    color: #111827;
+    font-weight: 600;
+    margin-right: 0.5rem;
+  }
+
+  .distance-value {
+    color: #16a34a;
+    font-weight: 600;
+    font-size: 1rem;
+  }
+
+  .location-info-box a {
+    color: #16a34a;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .location-info-box a:hover {
+    text-decoration: underline;
+  }
+
+  .not-set-message {
+    color: #9ca3af;
+    font-style: italic;
+    text-align: center;
+    padding: 1rem;
+    background: #f3f4f6;
+    border-radius: 8px;
+    margin-top: 1rem;
+  }
+
+  .map-display-container {
+    margin-top: 1rem;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid rgba(22, 163, 74, 0.2);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   }
 
   .location-details {

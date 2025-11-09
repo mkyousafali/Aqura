@@ -17,7 +17,19 @@ RETURNS TABLE (
     access_code_generated_at TIMESTAMPTZ,
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ
+    updated_at TIMESTAMPTZ,
+    location1_name TEXT,
+    location1_url TEXT,
+    location1_lat DOUBLE PRECISION,
+    location1_lng DOUBLE PRECISION,
+    location2_name TEXT,
+    location2_url TEXT,
+    location2_lat DOUBLE PRECISION,
+    location2_lng DOUBLE PRECISION,
+    location3_name TEXT,
+    location3_url TEXT,
+    location3_lat DOUBLE PRECISION,
+    location3_lng DOUBLE PRECISION
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -37,7 +49,19 @@ BEGIN
         c.access_code_generated_at,
         c.last_login_at,
         c.created_at,
-        c.updated_at
+        c.updated_at,
+        c.location1_name,
+        c.location1_url,
+        c.location1_lat,
+        c.location1_lng,
+        c.location2_name,
+        c.location2_url,
+        c.location2_lat,
+        c.location2_lng,
+        c.location3_name,
+        c.location3_url,
+        c.location3_lat,
+        c.location3_lng
     FROM customers c
     ORDER BY 
         CASE 

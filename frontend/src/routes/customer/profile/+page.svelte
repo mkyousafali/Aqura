@@ -32,6 +32,7 @@
   let showLocationPickerModal = false;
   let editingLocationSlot = 1; // Which location slot (1, 2, or 3) is being edited
   let pickedLocation: { name: string; lat: number; lng: number; url: string } | null = null;
+  let customLocationName = ''; // User-provided name for the location
   let savingLocation = false;
 
   // Load language from localStorage
@@ -248,12 +249,14 @@
   function openLocationPicker(slotNumber: number) {
     editingLocationSlot = slotNumber;
     pickedLocation = null;
+    customLocationName = '';
     showLocationPickerModal = true;
   }
 
   function closeLocationPickerModal() {
     showLocationPickerModal = false;
     pickedLocation = null;
+    customLocationName = '';
     savingLocation = false;
   }
 
@@ -264,10 +267,13 @@
   async function savePickedLocation() {
     if (!pickedLocation || !customerRecord) return;
     
+    // Use custom name if provided, otherwise use the address from geocoding
+    const locationName = customLocationName.trim() || pickedLocation.name;
+    
     try {
       savingLocation = true;
       const updates = {
-        [`location${editingLocationSlot}_name`]: pickedLocation.name,
+        [`location${editingLocationSlot}_name`]: locationName,
         [`location${editingLocationSlot}_url`]: pickedLocation.url,
         [`location${editingLocationSlot}_lat`]: pickedLocation.lat,
         [`location${editingLocationSlot}_lng`]: pickedLocation.lng,
@@ -331,6 +337,8 @@
     addLocation: 'إضافة موقع جديد',
     editLocation: 'تعديل الموقع',
     pickLocation: 'اختر الموقع على الخريطة',
+    locationName: 'اسم الموقع (اختياري)',
+    locationNamePlaceholder: 'مثال: المنزل، العمل، الشقة',
     saveLocation: 'حفظ الموقع',
     cancel: 'إلغاء',
     saving: 'جاري الحفظ...',
@@ -371,6 +379,8 @@
     addLocation: 'Add New Location',
     editLocation: 'Edit Location',
     pickLocation: 'Pick Location on Map',
+    locationName: 'Location Name (Optional)',
+    locationNamePlaceholder: 'e.g., Home, Work, Apartment',
     saveLocation: 'Save Location',
     cancel: 'Cancel',
     saving: 'Saving...',
@@ -495,37 +505,13 @@
     <div class="section">
       <h2>{texts.addresses}</h2>
       <div class="location-section">
-        <div class="current-location">
-          <div class="location-info">
-            <div class="location-icon">📍</div>
-            <div class="location-details">
-              <label>{texts.currentLocation}:</label>
-              <span class="location-text">{currentLocation}</span>
-            </div>
-          </div>
-          <button class="change-location-btn" on:click={requestLocationChange}>
-            <span class="whatsapp-icon">📱</span>
-            {texts.changeLocation}
-          </button>
-        </div>
-        
         {#if locationOptions.length > 0}
-          <div class="map-display-container">
-            <LocationMapDisplay 
-              locations={locationOptions}
-              selectedIndex={selectedLocationIndex}
-              onLocationClick={handleMapLocationClick}
-              language={currentLanguage}
-              height="250px"
-            />
-          </div>
-          
           <div class="saved-locations">
             {#each locationOptions as loc, index}
               <div class="saved-location-item">
                 <button type="button" class="saved-location-btn {selectedLocationKey === loc.key ? 'active' : ''}" on:click={() => selectLocation(loc.key)}>
                   <span class="location-number">{index + 1}</span>
-                  {loc.name}
+                  <span class="location-name-display">{loc.name}</span>
                 </button>
                 <button class="edit-location-btn" on:click={() => openLocationPicker(index + 1)} title={texts.editLocation}>
                   ✏️
@@ -533,6 +519,10 @@
               </div>
             {/each}
           </div>
+        {:else}
+          <p class="no-locations-text">
+            {currentLanguage === 'ar' ? 'لا توجد مواقع محفوظة' : 'No saved locations'}
+          </p>
         {/if}
         
         <!-- Add location buttons for empty slots -->
@@ -619,7 +609,17 @@
         />
         {#if pickedLocation}
           <div class="picked-location-info">
-            <p><strong>{currentLanguage === 'ar' ? 'الموقع المحدد:' : 'Selected Location:'}</strong></p>
+            <label for="location-name-input" class="location-name-label">
+              {texts.locationName}
+            </label>
+            <input 
+              id="location-name-input"
+              type="text" 
+              bind:value={customLocationName}
+              placeholder={texts.locationNamePlaceholder}
+              class="location-name-input"
+            />
+            <p class="location-address-label"><strong>{currentLanguage === 'ar' ? 'العنوان:' : 'Address:'}</strong></p>
             <p class="location-address">{pickedLocation.name}</p>
             <p class="location-coords">{pickedLocation.lat.toFixed(6)}, {pickedLocation.lng.toFixed(6)}</p>
           </div>
@@ -1330,20 +1330,62 @@
     border-radius: 12px;
   }
 
+  .location-name-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #16a34a;
+    margin-bottom: 0.5rem;
+  }
+
+  .location-name-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid rgba(22, 163, 74, 0.3);
+    border-radius: 8px;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    box-sizing: border-box;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+
+  .location-name-input:focus {
+    border-color: #16a34a;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+  }
+
+  .location-address-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #374151;
+    margin: 0.5rem 0 0.25rem 0;
+  }
+
   .picked-location-info p {
     margin: 0.5rem 0;
   }
 
   .location-address {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #16a34a;
+    font-size: 0.9rem;
+    color: #6b7280;
   }
 
   .location-coords {
-    font-size: 0.85rem;
-    color: #6b7280;
+    font-size: 0.75rem;
+    color: #9ca3af;
     font-family: monospace;
+  }
+
+  .location-name-display {
+    font-weight: 600;
+  }
+
+  .no-locations-text {
+    text-align: center;
+    color: #9ca3af;
+    font-style: italic;
+    padding: 1rem;
   }
 
   .modal-footer {
