@@ -19,6 +19,19 @@
   let tierSavingsAmount = 0; // Store the savings when tier activates
   let nextTierAtActivation = null; // Store next tier info when tier activates
 
+  // Function to convert numbers to Arabic numerals
+  function toArabicNumerals(num) {
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return num.toString().replace(/\d/g, (digit) => arabicNumerals[digit]);
+  }
+
+  // Function to format price based on language
+  function formatPrice(price) {
+    // Only show decimals if there's a fractional part
+    const formatted = price % 1 === 0 ? price.toFixed(0) : price.toFixed(2);
+    return currentLanguage === 'ar' ? toArabicNumerals(formatted) : formatted;
+  }
+
   // Subscribe to cart updates using reactive syntax
   $: itemCount = $cartCount;
   $: total = $cartTotal;
@@ -107,6 +120,7 @@
     // Initialize delivery data
     await deliveryActions.initialize();
   });
+  
   // Reload tiers when branch selection changes
   $: if ($orderFlow?.branchId) {
     deliveryActions.loadTiers($orderFlow.branchId);
@@ -121,10 +135,16 @@
     }
   }
 
+  function handleLanguageChange(event) {
+    currentLanguage = event.detail || 'ar';
+  }
+
   onMount(() => {
     window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('languagechange', handleLanguageChange);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('languagechange', handleLanguageChange);
     };
   });
 
@@ -139,7 +159,8 @@
     sar: 'ر.س',
     freeDelivery: 'توصيل مجاني!',
     freeDeliveryUnlocked: 'تم فتح التوصيل المجاني! 🎉',
-    sadMessage: '😢 أوه لا! فقدت التوصيل المجاني'
+    sadMessage: '😢 أوه لا! فقدت التوصيل المجاني',
+    delivery: 'توصيل'
   } : {
     items: 'items',
     total: 'Total',
@@ -147,7 +168,8 @@
     sar: 'SAR',
     freeDelivery: 'Free Delivery!',
     freeDeliveryUnlocked: 'Free Delivery Unlocked! 🎉',
-    sadMessage: '😢 Oh no! You lost free delivery'
+    sadMessage: '😢 Oh no! You lost free delivery',
+    delivery: 'delivery'
   };
 
   function triggerFireworks() {
@@ -217,14 +239,14 @@
       <div class="tier-message">
         <div class="tier-title">
           {currentLanguage === 'ar' 
-            ? `رائع! وفرت ${tierSavingsAmount.toFixed(2)} ر.س على التوصيل` 
-            : `Great! Saved ${tierSavingsAmount.toFixed(2)} SAR on delivery`}
+            ? `رائع! وفرت ${formatPrice(tierSavingsAmount)} ر.س على التوصيل` 
+            : `Great! Saved ${formatPrice(tierSavingsAmount)} SAR on delivery`}
         </div>
         {#if nextTierAtActivation}
           <div class="next-tier-info">
             {currentLanguage === 'ar'
-              ? `المستوى التالي عند ${nextTierAtActivation.nextTierMinAmount.toFixed(0)} ر.س - وفر ${nextTierAtActivation.potentialSavings.toFixed(2)} ر.س إضافية`
-              : `Next tier at ${nextTierAtActivation.nextTierMinAmount.toFixed(0)} SAR - Save ${nextTierAtActivation.potentialSavings.toFixed(2)} SAR more`}
+              ? `المستوى التالي عند ${formatPrice(nextTierAtActivation.nextTierMinAmount)} ر.س - وفر ${formatPrice(nextTierAtActivation.potentialSavings)} ر.س إضافية`
+              : `Next tier at ${formatPrice(nextTierAtActivation.nextTierMinAmount)} SAR - Save ${formatPrice(nextTierAtActivation.potentialSavings)} SAR more`}
           </div>
         {/if}
       </div>
@@ -238,11 +260,23 @@
     </div>
     <div class="cart-total">
       <span class="total-label">{texts.total}:</span>
-      <span class="total-amount">{total.toFixed(2)} {texts.sar}</span>
+      <span class="total-amount">
+        {#if currentLanguage === 'ar'}
+          {formatPrice(total)}
+          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+        {:else}
+          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+          {formatPrice(total)}
+        {/if}
+      </span>
       {#if isFreeDelivery}
         <span class="free-delivery-badge">{texts.freeDelivery}</span>
       {:else if currentDeliveryFee > 0}
-        <small class="delivery-hint">+{currentDeliveryFee.toFixed(2)} {currentLanguage === 'ar' ? 'توصيل' : 'delivery'}</small>
+        {#key currentLanguage}
+          <small class="delivery-hint">
+            +{formatPrice(currentDeliveryFee)} {texts.delivery}
+          </small>
+        {/key}
       {/if}
     </div>
   </div>
@@ -351,14 +385,32 @@
     font-size: 0.8rem;
     font-weight: 700;
     color: var(--color-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .currency-icon {
+    height: 0.55rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  .currency-icon-tiny {
+    height: 0.45rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.1rem;
   }
 
   .delivery-hint {
     font-size: 0.6rem;
-    color: var(--color-ink-light);
+    color: #ef4444;
     margin-left: 0.2rem;
     font-style: italic;
-    opacity: 0.8;
+    font-weight: 600;
   }
 
   .free-delivery-badge {

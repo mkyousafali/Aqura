@@ -9,6 +9,19 @@
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
 
+  // Function to convert numbers to Arabic numerals
+  function toArabicNumerals(num) {
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return num.toString().replace(/\d/g, (digit) => arabicNumerals[digit]);
+  }
+
+  // Function to format price based on language
+  function formatPrice(price) {
+    // Only show decimals if there's a fractional part
+    const formatted = price % 1 === 0 ? price.toFixed(0) : price.toFixed(2);
+    return currentLanguage === 'ar' ? toArabicNumerals(formatted) : formatted;
+  }
+
   let searchQuery = '';
   let showSearch = false;
 
@@ -289,8 +302,26 @@
             {/if}
 
             <div class="price-row">
-              <div class="price-now">{u.basePrice.toFixed(2)} <span class="currency">{texts.sar}</span></div>
-              {#if hasDiscount}<div class="price-old">{u.originalPrice.toFixed(2)} {texts.sar}</div>{/if}
+              <div class="price-now" class:rtl={currentLanguage === 'ar'}>
+                {#if currentLanguage === 'ar'}
+                  {formatPrice(u.basePrice)}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {:else}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {formatPrice(u.basePrice)}
+                {/if}
+              </div>
+              {#if hasDiscount}
+                <div class="price-old" class:rtl={currentLanguage === 'ar'}>
+                  {#if currentLanguage === 'ar'}
+                    {formatPrice(u.originalPrice)}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                  {:else}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                    {formatPrice(u.originalPrice)}
+                  {/if}
+                </div>
+              {/if}
             </div>
 
             <div class="stock-line">
@@ -305,7 +336,7 @@
               {:else}
                 <div class="qty-pill">
                   <button class="pill-btn" on:click={() => updateQuantity(product, -1)} aria-label="Decrease">−</button>
-                  <span class="pill-q">{qty}</span>
+                  <span class="pill-q">{currentLanguage === 'ar' ? toArabicNumerals(qty) : qty}</span>
                   <button class="pill-btn" on:click={() => updateQuantity(product, 1)} aria-label="Increase" disabled={out}>+</button>
                 </div>
               {/if}
@@ -822,20 +853,21 @@
   }
 
   .price-row{ display:flex; align-items:center; gap:.35rem; }
-  .price-now{ font-weight:800; font-size:.9rem; color:var(--ink); }
-  .currency{ font-weight:600; font-size:.72rem; color:var(--ink-2); margin-inline-start:.15rem; }
-  .price-old{ font-size:.72rem; color:var(--ink-3); text-decoration:line-through; }
+  .price-now{ font-weight:800; font-size:.9rem; color:var(--ink); display:flex; align-items:center; gap:.25rem; }
+  .currency-icon{ height:0.55rem; width:auto; display:inline-block; vertical-align:middle; }
+  .currency-icon-small{ height:0.45rem; width:auto; display:inline-block; vertical-align:middle; margin-inline-start:.15rem; }
+  .price-old{ font-size:.72rem; color:var(--ink-3); text-decoration:line-through; display:flex; align-items:center; gap:.15rem; }
 
   .stock-line{ min-height:.9rem; }
   .stock{ font-size:.7rem; font-weight:600; }
   .stock.in{ color:var(--ok); } .stock.low{ color:var(--warn); } .stock.out{ color:var(--danger); }
 
   .cart-controls{ margin-top:auto; position:relative; min-height:32px; display:flex; justify-content:flex-end; align-items:center; }
-  .fab-add{ width:32px; height:32px; border-radius:50%; background:var(--primary); color:#fff; border:none; font-size:1.1rem; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 8px rgba(22,163,74,.3); }
+  .fab-add{ width:32px; height:32px; border-radius:50%; background:#f59e0b; color:#fff; border:none; font-size:1.1rem; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 8px rgba(245,158,11,.3); }
   .fab-add:disabled{ background:#cbd5e1; color:#fff; box-shadow:none; cursor:not-allowed; }
 
   .qty-pill{ display:flex; align-items:center; gap:.3rem; background:#f7f8f9; border:1px solid var(--border); border-radius:999px; padding:.2rem .3rem; box-shadow:0 2px 6px rgba(0,0,0,.08); }
-  .pill-btn{ width:26px; height:26px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-weight:800; font-size:.9rem; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .pill-btn{ width:26px; height:26px; border-radius:50%; border:none; background:#f59e0b; color:#fff; font-weight:800; font-size:.9rem; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .pill-btn:disabled{ background:#cbd5e1; cursor:not-allowed; }
   .pill-q{ min-width:24px; text-align:center; font-weight:800; color:var(--ink); font-size:.85rem; }
 

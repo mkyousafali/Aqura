@@ -4,6 +4,7 @@
   import { cartStore, cartActions, cartTotal, cartCount } from '$lib/stores/cart.js';
   
   let currentLanguage = 'ar';
+  let customerId = null;
   
   // Delivery fee calculation
   const deliveryFee = 15.00; // SAR
@@ -19,10 +20,23 @@
   $: finalDeliveryFee = isFreeDelivery ? 0 : deliveryFee;
   $: finalTotal = total + finalDeliveryFee;
 
-  onMount(() => {
+  onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
+    }
+
+    // Get customer ID if logged in
+    try {
+      const customerSessionRaw = localStorage.getItem('aqura-customer-session');
+      if (customerSessionRaw) {
+        const customerSession = JSON.parse(customerSessionRaw);
+        if (customerSession?.customer_id && customerSession?.registration_status === 'approved') {
+          customerId = customerSession.customer_id;
+        }
+      }
+    } catch (error) {
+      console.error('Error getting customer session:', error);
     }
   });
 
@@ -91,6 +105,20 @@
     almostFreeDelivery: `Add ${(freeDeliveryThreshold - total).toFixed(2)} SAR more for free delivery!`,
     freeDeliveryReached: 'Free delivery achieved! 🎉'
   };
+
+  // Helper function to convert numbers to Arabic numerals
+  function toArabicNumerals(num) {
+    if (currentLanguage !== 'ar') return num.toString();
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return num.toString().replace(/\d/g, (digit) => arabicNumerals[parseInt(digit)]);
+  }
+
+  // Helper function to format price with proper decimal handling
+  function formatPrice(price) {
+    const hasDecimals = price % 1 !== 0;
+    const formatted = hasDecimals ? price.toFixed(2) : price.toFixed(0);
+    return toArabicNumerals(formatted);
+  }
 </script>
 
 <svelte:head>
@@ -160,7 +188,13 @@
               {/if}
 
               <div class="item-price">
-                {item.price.toFixed(2)} {texts.sar}
+                {#if currentLanguage === 'ar'}
+                  {formatPrice(item.price)}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {:else}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {formatPrice(item.price)}
+                {/if}
               </div>
             </div>
 
@@ -174,7 +208,7 @@
                 >
                   −
                 </button>
-                <span class="quantity-display">{item.quantity}</span>
+                <span class="quantity-display">{toArabicNumerals(item.quantity)}</span>
                 <button 
                   class="quantity-btn increase" 
                   on:click={() => updateItemQuantity(item, 1)}
@@ -185,7 +219,13 @@
 
               <!-- Item Total -->
               <div class="item-total">
-                {(item.price * item.quantity).toFixed(2)} {texts.sar}
+                {#if currentLanguage === 'ar'}
+                  {formatPrice(item.price * item.quantity)}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {:else}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {formatPrice(item.price * item.quantity)}
+                {/if}
               </div>
 
               <!-- Remove Button -->
@@ -205,7 +245,11 @@
         <!-- Delivery Incentive Message -->
         {#if !isFreeDelivery && total > 0}
           <div class="delivery-incentive">
-            🚚 {texts.almostFreeDelivery}
+            {#if currentLanguage === 'ar'}
+              🚚 أضف {formatPrice(freeDeliveryThreshold - total)} <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" /> أكثر للحصول على توصيل مجاني!
+            {:else}
+              🚚 Add <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" /> {formatPrice(freeDeliveryThreshold - total)} more for free delivery!
+            {/if}
           </div>
         {:else if isFreeDelivery}
           <div class="delivery-achieved">
@@ -216,7 +260,15 @@
         <!-- Summary Breakdown -->
         <div class="summary-row">
           <span class="summary-label">{texts.subtotal}</span>
-          <span class="summary-value">{total.toFixed(2)} {texts.sar}</span>
+          <span class="summary-value">
+            {#if currentLanguage === 'ar'}
+              {formatPrice(total)}
+              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            {:else}
+              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              {formatPrice(total)}
+            {/if}
+          </span>
         </div>
 
         <div class="summary-row">
@@ -225,14 +277,28 @@
             {#if isFreeDelivery}
               {texts.freeDelivery}
             {:else}
-              {finalDeliveryFee.toFixed(2)} {texts.sar}
+              {#if currentLanguage === 'ar'}
+                {formatPrice(finalDeliveryFee)}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              {:else}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {formatPrice(finalDeliveryFee)}
+              {/if}
             {/if}
           </span>
         </div>
 
         <div class="summary-row total-row">
           <span class="summary-label">{texts.total}</span>
-          <span class="summary-value total-value">{finalTotal.toFixed(2)} {texts.sar}</span>
+          <span class="summary-value total-value">
+            {#if currentLanguage === 'ar'}
+              {formatPrice(finalTotal)}
+              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            {:else}
+              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              {formatPrice(finalTotal)}
+            {/if}
+          </span>
         </div>
 
         <!-- Action Buttons -->
@@ -249,6 +315,23 @@
 </div>
 
 <style>
+  /* Currency icon styles */
+  .currency-icon {
+    height: 0.55rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.15rem;
+  }
+
+  .currency-icon-small {
+    height: 0.45rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.1rem;
+  }
+
   /* Brand colors */
   .cart-container {
     --brand-green: #16a34a;

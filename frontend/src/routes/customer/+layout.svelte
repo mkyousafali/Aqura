@@ -9,12 +9,14 @@
                   !$page.url.pathname.includes('/customer-login') &&
                   !$page.url.pathname.includes('/login');
   
-  // Hide cart bar on cart and checkout pages
+  // Hide cart bar on cart, checkout, and home pages
   $: showCartBar = !$page.url.pathname.includes('/auth/') && 
                    !$page.url.pathname.includes('/customer-login') &&
                    !$page.url.pathname.includes('/login') &&
                    !$page.url.pathname.includes('/cart') && 
-                   !$page.url.pathname.includes('/checkout');
+                   !$page.url.pathname.includes('/checkout') &&
+                   $page.url.pathname !== '/customer' &&
+                   $page.url.pathname !== '/customer/';
 
   // Check if we're on the home page
   $: isHomePage = $page.url.pathname === '/customer' || $page.url.pathname === '/customer/';
