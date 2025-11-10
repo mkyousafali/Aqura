@@ -23,6 +23,7 @@ export async function POST({ request }) {
       .from("receiving_records")
       .update({
         erp_purchase_invoice_reference: erpReference.trim(),
+        erp_purchase_invoice_uploaded: true,
         updated_at: new Date().toISOString(),
       })
       .eq("id", receivingRecordId)
