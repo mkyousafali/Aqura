@@ -7,7 +7,6 @@
 
   let currentLanguage = 'ar';
   let notificationCount = 0;
-  let showFloatingMenu = false;
 
   // Subscribe to cart count updates using reactive syntax
   $: cartItemCount = $cartCount;
@@ -54,6 +53,10 @@
     goto('/customer/cart');
   }
   
+  function goToProfile() {
+    goto('/customer/profile');
+  }
+  
   function goBack() {
     // If coming from checkout, always go to home
     if ($page.url.pathname === '/customer/checkout') {
@@ -61,25 +64,6 @@
     } else {
       window.history.back();
     }
-  }
-  
-  function toggleFloatingMenu() {
-    showFloatingMenu = !showFloatingMenu;
-  }
-  
-  function goToHome() {
-    showFloatingMenu = false;
-    goto('/customer');
-  }
-  
-  function goToProfile() {
-    showFloatingMenu = false;
-    goto('/customer/profile');
-  }
-  
-  function handleLanguageToggle() {
-    toggleLanguage();
-    showFloatingMenu = false;
   }
 
   onMount(() => {
@@ -109,17 +93,32 @@
       </button>
     {/if}
     
-    <!-- Menu Button -->
-    <button class="menu-btn" on:click={toggleFloatingMenu}>
-      <span class="menu-icon">☰</span>
-    </button>
-    
     <!-- Right side actions -->
     <div class="top-actions" class:full-width={!showBackButton}>
-      <!-- Cart -->
-      <button class="action-btn" on:click={goToCart} on:touchend|preventDefault={goToCart}>
+      <!-- Language Toggle -->
+      <button class="action-btn lang-btn" on:click={toggleLanguage} on:touchend|preventDefault={toggleLanguage}>
         <div class="icon-container">
-          <span class="action-icon">🛒</span>
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/>
+          </svg>
+        </div>
+      </button>
+
+      <!-- Profile -->
+      <button class="action-btn profile-btn" on:click={goToProfile} on:touchend|preventDefault={goToProfile}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </div>
+      </button>
+
+      <!-- Cart -->
+      <button class="action-btn cart-btn" on:click={goToCart} on:touchend|preventDefault={goToCart}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
+          </svg>
           {#if cartItemCount > 0}
             <span class="action-badge">{cartItemCount}</span>
           {/if}
@@ -138,32 +137,6 @@
     </div>
   </div>
 </header>
-
-<!-- Floating Menu -->
-{#if showFloatingMenu}
-  <div class="floating-menu-overlay" on:click={toggleFloatingMenu}></div>
-  <div class="floating-menu">
-    <button class="floating-menu-btn home" on:click={goToHome}>
-      <span class="floating-icon">🏠</span>
-      <span class="floating-label">{currentLanguage === 'ar' ? 'الرئيسية' : 'Home'}</span>
-    </button>
-    
-    <button class="floating-menu-btn profile" on:click={goToProfile}>
-      <span class="floating-icon">👤</span>
-      <span class="floating-label">{currentLanguage === 'ar' ? 'الملف الشخصي' : 'Profile'}</span>
-    </button>
-    
-    <button class="floating-menu-btn language" on:click={handleLanguageToggle}>
-      <span class="floating-icon">🌐</span>
-      <span class="floating-label">{currentLanguage === 'ar' ? 'English' : 'العربية'}</span>
-    </button>
-    
-    <button class="floating-menu-btn close" on:click={toggleFloatingMenu}>
-      <span class="floating-icon">✕</span>
-      <span class="floating-label">{currentLanguage === 'ar' ? 'إغلاق' : 'Close'}</span>
-    </button>
-  </div>
-{/if}
 
 <style>
   .top-bar {
@@ -190,49 +163,33 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: none;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     border: none;
     cursor: pointer;
-    padding: 0.38rem 0.56rem;
-    color: var(--color-ink);
-    transition: color 0.2s ease;
+    padding: 0.5rem 0.75rem;
+    color: white;
+    transition: all 0.2s ease;
+    border-radius: 8px;
+    margin: 0 0.5rem;
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
   }
   
   .back-btn:hover {
-    color: var(--color-primary);
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    transform: translateX(-2px);
+    box-shadow: 0 3px 8px rgba(59, 130, 246, 0.4);
+  }
+
+  .back-btn:active {
+    transform: scale(0.95);
   }
   
   .back-icon {
-    font-size: 1.13rem;
+    font-size: 1.2rem;
     font-weight: bold;
     line-height: 1;
   }
   
-  .menu-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--color-primary);
-    border: none;
-    cursor: pointer;
-    padding: 0.38rem 0.56rem;
-    color: white;
-    transition: all 0.2s ease;
-    border-radius: 6px;
-    margin: 0 0.38rem;
-  }
-  
-  .menu-btn:hover {
-    background: var(--color-primary-dark);
-    transform: scale(1.05);
-  }
-  
-  .menu-icon {
-    font-size: 0.98rem;
-    font-weight: bold;
-    line-height: 1;
-  }
-
   .top-actions {
     display: flex;
     align-items: center;
@@ -270,6 +227,36 @@
 
   .action-btn:active {
     transform: scale(0.95);
+  }
+
+  .profile-btn {
+    color: #16a34a;
+  }
+
+  .profile-btn:hover {
+    color: #22c55e;
+  }
+
+  .cart-btn {
+    color: #f59e0b;
+  }
+
+  .cart-btn:hover {
+    color: #fbbf24;
+  }
+
+  .lang-btn {
+    color: #d4af37;
+  }
+
+  .lang-btn:hover {
+    color: #f1c40f;
+  }
+
+  .action-icon-svg {
+    width: 1.8rem;
+    height: 1.8rem;
+    display: block;
   }
 
   .icon-container {
@@ -316,138 +303,6 @@
       font-size: 0.55rem;
       padding: 0.12rem 0.3rem;
       min-width: 14px;
-    }
-  }
-  
-  /* Floating Menu Styles */
-  .floating-menu-overlay {
-    position: fixed;
-    top: 60px;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.3);
-    z-index: 999;
-    animation: fadeIn 0.2s ease;
-  }
-  
-  .floating-menu {
-    position: fixed;
-    top: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    z-index: 1001;
-    animation: slideDown 0.3s ease;
-  }
-  
-  .floating-menu-btn {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem 1.5rem;
-    background: white;
-    border: 2px solid var(--color-primary);
-    border-radius: 16px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    min-width: 200px;
-  }
-  
-  .floating-menu-btn:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-    background: var(--color-primary-light);
-  }
-  
-  .floating-menu-btn:active {
-    transform: translateY(-1px);
-  }
-  
-  .floating-menu-btn.home {
-    border-color: #16a34a;
-  }
-  
-  .floating-menu-btn.profile {
-    border-color: #3b82f6;
-  }
-  
-  .floating-menu-btn.language {
-    border-color: #f59e0b;
-  }
-  
-  .floating-menu-btn.close {
-    border-color: #ef4444;
-    background: #fee;
-  }
-  
-  .floating-menu-btn.close:hover {
-    background: #ef4444;
-  }
-  
-  .floating-menu-btn.close:hover .floating-label {
-    color: white;
-  }
-  
-  .floating-icon {
-    font-size: 1.5rem;
-    line-height: 1;
-  }
-  
-  .floating-label {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--color-ink);
-    text-align: left;
-    flex: 1;
-  }
-  
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-  
-  @media (max-width: 480px) {
-    .floating-menu {
-      flex-direction: column;
-      gap: 0.5rem;
-      padding: 0 1rem;
-      max-width: calc(100vw - 2rem);
-      left: 50%;
-      transform: translateX(-50%);
-    }
-    
-    .floating-menu-btn {
-      min-width: auto;
-      width: 100%;
-      padding: 0.75rem 1rem;
-    }
-    
-    .floating-icon {
-      font-size: 1.3rem;
-    }
-    
-    .floating-label {
-      font-size: 0.85rem;
     }
   }
 </style>

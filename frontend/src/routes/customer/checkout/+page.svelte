@@ -3,8 +3,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { cartStore, cartTotal, cartCount, cartActions } from '$lib/stores/cart.js';
-  import { deliveryActions, freeDeliveryThreshold as freeDeliveryThresholdStore } from '$lib/stores/delivery.js';
-  import { orderFlow } from '$lib/stores/orderFlow.js';
+  import { deliveryActions, deliveryTiers, freeDeliveryThreshold as freeDeliveryThresholdStore } from '$lib/stores/delivery.js';
+  import { orderFlow, orderFlowActions } from '$lib/stores/orderFlow.js';
   import { currentUser } from '$lib/utils/persistentAuth';
   import { supabase } from '$lib/utils/supabase';
   import LocationMapDisplay from '$lib/components/LocationMapDisplay.svelte';
@@ -25,6 +25,7 @@
   let canCancelOrder = false;
   let fulfillmentMethod = 'delivery'; // Default to delivery
   let locationOptions = [];
+  let currentBranchId = null; // Track branch ID locally
   let selectedLocationKey = '';
   let selectedLocationIndex = 0;
   let loadingLocations = true;
@@ -200,11 +201,40 @@
     selectLocationFirst: 'Please select a delivery location first'
   };
 
+  // Helper function to convert numbers to Arabic numerals
+  function toArabicNumerals(num) {
+    if (currentLanguage !== 'ar') return num.toString();
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return num.toString().replace(/\d/g, (digit) => arabicNumerals[parseInt(digit)]);
+  }
+
+  // Helper function to format price with proper decimal handling
+  function formatPrice(price) {
+    const hasDecimals = price % 1 !== 0;
+    const formatted = hasDecimals ? price.toFixed(2) : price.toFixed(0);
+    return toArabicNumerals(formatted);
+  }
+
   // Load language and cart data
   onMount(() => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
+    }
+
+    // Initialize branchId from orderFlow
+    const orderFlowData = orderFlowActions.get();
+    currentBranchId = orderFlowData?.branchId || null;
+    console.log('🏢 [Checkout] Initialized branchId:', currentBranchId);
+
+    // Load delivery tiers for the selected branch
+    if (currentBranchId) {
+      console.log('🏢 [Checkout] Loading delivery tiers for branch:', currentBranchId);
+      deliveryActions.loadTiers(currentBranchId).then(() => {
+        console.log('✅ [Checkout] Delivery tiers loaded');
+      }).catch(err => {
+        console.error('❌ [Checkout] Error loading delivery tiers:', err);
+      });
     }
 
     // Get fulfillment method from URL parameters (or orderFlow)
@@ -671,23 +701,37 @@
 
   function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
-    // Scroll to place order button after short delay to let it render
+    // Place order immediately after selecting payment method
     setTimeout(() => {
-      const placeOrderBtn = document.querySelector('.place-order-btn');
-      if (placeOrderBtn) {
-        placeOrderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      placeOrder();
     }, 100);
   }
 
   // Calculate delivery fee (branch-aware)
   $: freeDeliveryThreshold = $freeDeliveryThresholdStore;
   $: isFreeDelivery = total >= freeDeliveryThreshold;
+  
+  // Sync currentBranchId with orderFlow store
+  $: if ($orderFlow?.branchId && $orderFlow.branchId !== currentBranchId) {
+    currentBranchId = $orderFlow.branchId;
+    console.log('🏢 [Checkout] BranchId updated from store:', currentBranchId);
+    // Reload tiers when branch changes
+    deliveryActions.loadTiers(currentBranchId).then(() => {
+      console.log('✅ [Checkout] Delivery tiers reloaded for branch:', currentBranchId);
+    });
+  }
+  
   $: finalDeliveryFee = (() => {
     if (fulfillmentMethod === 'pickup') return 0;
-    const branchId = $orderFlow?.branchId;
-    if (!branchId) return 0;
-    return deliveryActions.getDeliveryFeeLocal(total || 0, branchId);
+    if (!currentBranchId) {
+      console.log('⚠️ [Checkout] No branchId available for delivery fee calculation');
+      return 0;
+    }
+    console.log('🔍 [Checkout] Delivery tiers available:', $deliveryTiers);
+    console.log('🔍 [Checkout] Calculating fee for branchId:', currentBranchId, 'total:', total);
+    const fee = deliveryActions.getDeliveryFeeLocal(total || 0, currentBranchId);
+    console.log('💰 [Checkout] Calculated delivery fee:', fee, 'for total:', total, 'branchId:', currentBranchId);
+    return fee;
   })();
   $: finalTotal = (total || 0) + finalDeliveryFee;
   $: amountForFreeDelivery = freeDeliveryThreshold > 0 ? (freeDeliveryThreshold - (total || 0)) : 0;
@@ -766,9 +810,27 @@
                 {currentLanguage === 'ar' ? item.selectedUnit?.nameAr : item.selectedUnit?.nameEn}
               </div>
               <div class="item-price">
-                {(item.price || 0).toFixed(2)} {texts.sar}
+                <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                  {#if currentLanguage === 'ar'}
+                    {formatPrice(item.price || 0)}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {:else}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {formatPrice(item.price || 0)}
+                  {/if}
+                </span>
                 {#if item.originalPrice && item.originalPrice > item.price}
-                  <span class="original-price">{(item.originalPrice || 0).toFixed(2)} {texts.sar}</span>
+                  <span class="original-price">
+                    <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                      {#if currentLanguage === 'ar'}
+                        {formatPrice(item.originalPrice || 0)}
+                        <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                      {:else}
+                        <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                        {formatPrice(item.originalPrice || 0)}
+                      {/if}
+                    </span>
+                  </span>
                 {/if}
               </div>
             </div>
@@ -776,12 +838,20 @@
             <div class="item-actions">
               <div class="quantity-controls">
                 <button class="quantity-btn" on:click={() => decreaseQuantity(item)}>−</button>
-                <span class="quantity-display">{item.quantity}</span>
+                <span class="quantity-display">{toArabicNumerals(item.quantity)}</span>
                 <button class="quantity-btn" on:click={() => increaseQuantity(item)}>+</button>
               </div>
               
               <div class="item-total">
-                {((item.price || 0) * (item.quantity || 1)).toFixed(2)} {texts.sar}
+                <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                  {#if currentLanguage === 'ar'}
+                    {formatPrice((item.price || 0) * (item.quantity || 1))}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {:else}
+                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {formatPrice((item.price || 0) * (item.quantity || 1))}
+                  {/if}
+                </span>
               </div>
               
               <button class="remove-btn" on:click={() => removeItem(item)}>
@@ -798,16 +868,40 @@
       <h2>{texts.orderSummary}</h2>
       <div class="summary-row">
         <span>{texts.subtotal}</span>
-        <span>{(total || 0).toFixed(2)} {texts.sar}</span>
+        <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+          {#if currentLanguage === 'ar'}
+            {formatPrice(total || 0)}
+            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+          {:else}
+            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            {formatPrice(total || 0)}
+          {/if}
+        </span>
       </div>
       {#if fulfillmentMethod === 'delivery'}
         <div class="summary-row">
           <span>{texts.deliveryFee}</span>
           <div class="delivery-fee-container">
-            <span>{isFreeDelivery ? texts.free : `${finalDeliveryFee.toFixed(2)} ${texts.sar}`}</span>
+            {#if isFreeDelivery}
+              <span>{texts.free}</span>
+            {:else}
+              <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                {#if currentLanguage === 'ar'}
+                  {formatPrice(finalDeliveryFee)}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {:else}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                  {formatPrice(finalDeliveryFee)}
+                {/if}
+              </span>
+            {/if}
             {#if !isFreeDelivery && amountForFreeDelivery > 0}
-              <small class="delivery-hint">
-                {texts.addMoreForFreeDelivery.replace('{amount}', amountForFreeDelivery.toFixed(2))}
+              <small class="delivery-hint" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                {#if currentLanguage === 'ar'}
+                  أضف {formatPrice(amountForFreeDelivery)} <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-tiny" /> للحصول على التوصيل المجاني
+                {:else}
+                  Add <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-tiny" /> {formatPrice(amountForFreeDelivery)} for free delivery
+                {/if}
               </small>
             {:else if isFreeDelivery}
               <small class="delivery-hint free-delivery">
@@ -819,7 +913,15 @@
       {/if}
       <div class="summary-row total-row">
         <span>{texts.total}</span>
-        <span>{finalTotal.toFixed(2)} {texts.sar}</span>
+        <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+          {#if currentLanguage === 'ar'}
+            {formatPrice(finalTotal)}
+            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+          {:else}
+            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            {formatPrice(finalTotal)}
+          {/if}
+        </span>
       </div>
     </div>
 
@@ -855,13 +957,10 @@
                     }
                   }}
                 >
-                  <div class="map-display-wrapper">
-                    <LocationMapDisplay 
-                      locations={[loc]}
-                      selectedIndex={0}
-                      language={currentLanguage}
-                      height="90px"
-                    />
+                  <div class="location-icon-wrapper">
+                    <svg class="location-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="currentColor"/>
+                    </svg>
                   </div>
                   <div class="location-info">
                     <span class="location-name">{loc.name}</span>
@@ -909,8 +1008,8 @@
       </div>
     {/if}
 
-    <!-- Payment Method Options - Show directly when location is selected -->
-    {#if selectedLocationKey}
+    <!-- Payment Method Options - Show directly when location is selected OR for pickup -->
+    {#if canProceedToPayment}
       <div class="payment-section">
         <h2>{texts.paymentMethod}</h2>
         <div class="payment-options">
@@ -927,15 +1026,6 @@
           </label>
         </div>
       </div>
-
-      <!-- Place Order Button -->
-      {#if selectedPaymentMethod !== ''}
-        <div class="order-button-section">
-          <button class="place-order-btn" on:click={placeOrder}>
-            {texts.placeOrder} • {finalTotal.toFixed(2)} {texts.sar}
-          </button>
-        </div>
-      {/if}
     {/if}
   {/if}
 </div>
@@ -1104,6 +1194,36 @@
 {/if}
 
 <style>
+  /* Currency icon styles */
+  .price-display {
+    display: inline-block;
+    white-space: nowrap;
+  }
+  
+  .currency-icon {
+    height: 0.55rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.15rem;
+  }
+
+  .currency-icon-small {
+    height: 0.45rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.1rem;
+  }
+
+  .currency-icon-tiny {
+    height: 0.45rem;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 0.1rem;
+  }
+
   * {
     box-sizing: border-box;
   }
@@ -1548,15 +1668,30 @@
     flex-direction: row;
     position: relative;
   }
-  .location-option .map-display-wrapper {
+  .location-option .location-icon-wrapper {
     flex-shrink: 0;
-    width: 90px;
-    height: 90px;
-    border-radius: 8px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
     overflow: hidden;
     border: 2px solid rgba(22, 163, 74, 0.2);
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    pointer-events: none;
+  }
+  .location-option .location-icon-svg {
+    width: 32px;
+    height: 32px;
+    color: #16a34a;
+  }
+  .location-option.selected .location-icon-wrapper {
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .location-option.selected .location-icon-svg {
+    color: white;
   }
   .location-option .location-info {
     display: flex;
@@ -1580,6 +1715,13 @@
     border-color: var(--color-primary); 
     background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
     box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+  }
+  .location-option.selected .location-icon-wrapper {
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .location-option.selected .location-icon-svg {
+    color: white;
   }
   .location-option.selected .location-name {
     color: white;

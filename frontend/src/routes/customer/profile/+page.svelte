@@ -494,6 +494,38 @@
     <div class="bubble bubble-pink bubble-20"></div>
   </div>
 
+  <!-- Language Selection -->
+  <div class="profile-card">
+    <div class="section">
+      <h2>{currentLanguage === 'ar' ? 'اللغة' : 'Language'}</h2>
+      <div class="language-section">
+        <button class="language-btn" on:click={() => {
+          const newLanguage = currentLanguage === 'ar' ? 'en' : 'ar';
+          currentLanguage = newLanguage;
+          localStorage.setItem('language', newLanguage);
+          document.documentElement.dir = newLanguage === 'ar' ? 'rtl' : 'ltr';
+          document.documentElement.lang = newLanguage;
+          
+          // Dispatch both storage event and custom event for same-window updates
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'language',
+            newValue: newLanguage
+          }));
+          window.dispatchEvent(new CustomEvent('languagechange', { detail: newLanguage }));
+        }}>
+          <div class="language-info">
+            <span class="language-icon">🌐</span>
+            <div class="language-details">
+              <span class="language-label">{currentLanguage === 'ar' ? 'اللغة الحالية' : 'Current Language'}</span>
+              <span class="language-value">{currentLanguage === 'ar' ? 'العربية' : 'English'}</span>
+            </div>
+          </div>
+          <span class="switch-label">{currentLanguage === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Personal Information -->
   <div class="profile-card">
     <div class="section">
@@ -1089,6 +1121,78 @@
     color: var(--color-ink);
     font-weight: 600;
     font-size: 0.7125rem; /* 25% reduction from 0.95rem */
+  }
+
+  /* Language Section Styles */
+  .language-section {
+    margin-top: 0.5rem;
+  }
+
+  .language-btn {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 197, 253, 0.05) 100%);
+    border: 2px solid rgba(59, 130, 246, 0.2);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .language-btn:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 197, 253, 0.1) 100%);
+    border-color: rgba(59, 130, 246, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  }
+
+  .language-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .language-icon {
+    font-size: 2rem;
+    filter: drop-shadow(0 2px 4px rgba(59, 130, 246, 0.3));
+  }
+
+  .language-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+    text-align: left;
+  }
+
+  .language-label {
+    font-size: 0.75rem;
+    color: #3b82f6;
+    font-weight: 600;
+  }
+
+  .language-value {
+    font-size: 0.95rem;
+    color: #1e40af;
+    font-weight: 700;
+  }
+
+  .switch-label {
+    padding: 0.625rem 1rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+    transition: all 0.2s ease;
+  }
+
+  .language-btn:hover .switch-label {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    transform: scale(1.02);
   }
 
   /* Location Section Styles */
