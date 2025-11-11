@@ -21,32 +21,62 @@ Comprehensive offer system for Aqura customer app with desktop admin management 
 
 ---
 
+## 1.1 Offer Scope & Targeting
+
+### A. Branch Scope
+- **Branch-Specific Offers** - Apply to specific branch only (e.g., Riyadh Branch Weekend Special)
+- **Global Offers** - Apply to all branches (branch_id = NULL, e.g., National Day Offer)
+
+### B. Service Type Targeting
+- **Delivery-Only Offers** - Apply only to delivery orders (e.g., Free Delivery on orders above 100 SAR)
+- **Store Pickup-Only Offers** - Apply only to store pickup orders (e.g., 15% off for self-pickup)
+- **Both Services** - Apply to both delivery and pickup (default)
+
+**Use Cases:**
+- Encourage store pickup during high-traffic delivery times
+- Promote delivery service in new areas
+- Branch-specific promotions based on inventory
+- Regional campaigns (e.g., Jeddah branch exclusive)
+
+---
+
 ## 2. Customer App Display Locations
 
 ### Product Page (`/customer/products`)
 - Discount badge on product card (top-right)
-- Strikethrough original price
+- **Price Display:**
+  - Original price: ~~25.00 SAR~~ (strikethrough, gray #9CA3AF, smaller 0.85rem)
+  - Offer price: **20.00 SAR** (bold 700, green #16a34a or red #DC2626, larger 1.1rem)
+  - Savings: "Save 5 SAR" or "20% OFF" badge
 - Offer labels: "BOGO", "Bundle", "Exclusive"
 - Expiry countdown
 - Personalized offer highlight
 
 ### Cart Page (`/customer/cart`)
 - Applied offers section with green checkmarks
+- **Item Price Display:** ~~25.00 SAR~~ → **20.00 SAR** (original crossed, offer green)
+- Offer name label per item: "Offer: Weekend Special"
 - Available offers section
-- Total savings summary
+- Total savings summary (highlighted in green)
 - Progress bars for min purchase offers
 - Bundle completion suggestions
 
 ### Checkout Page (`/customer/checkout`)
 - Order summary with itemized offer discounts
-- Total savings highlighted in green
+- **Price Breakdown:**
+  - Subtotal: 100.00 SAR
+  - Offer Discounts: -20.00 SAR (green)
+  - Delivery: 15.00 SAR
+  - **Total: 95.00 SAR**
+- Total savings highlighted in green: "💰 You saved 20.00 SAR with offers!"
 - Expandable offer details
 - Savings celebration message
 
 ### Bottom Cart Bar (Floating)
 - Offer badge indicator
-- "Saving X SAR" counter
-- Animated notifications when offer applies
+- "Saving X SAR" counter in green
+- **Total display:** 25.00 SAR ~~30.00 SAR~~ (offer price bold, original crossed)
+- Animated notifications when offer applies (similar to delivery tier fireworks)
 - Pulsing badge for time-sensitive offers
 
 ---
@@ -59,8 +89,8 @@ Comprehensive offer system for Aqura customer app with desktop admin management 
 
 ### Main Dashboard
 - **Stats Bar:** Active offers, total savings, most used, expiring soon
-- **Card Grid:** All offers with color-coded badges by type
-- **Filters:** Status, type, branch, date range
+- **Card Grid:** All offers with color-coded badges by type, branch, and service
+- **Filters:** Status, type, branch, service type (delivery/pickup/both), date range
 - **Search:** By name, type, status
 - **Quick Actions per card:** Edit, Analytics, Pause, Delete, Duplicate
 
@@ -76,7 +106,8 @@ Comprehensive offer system for Aqura customer app with desktop admin management 
 
 **Step 2: Offer Details**
 - Names (AR/EN), descriptions
-- Branch selection
+- **Branch selection:** Specific branch or "All Branches" (global)
+- **Service type:** Delivery only, Pickup only, or Both
 - Priority level (1-10)
 - Discount configuration (type-specific)
 - Product/customer selection
@@ -124,7 +155,8 @@ Comprehensive offer system for Aqura customer app with desktop admin management 
 id, type (enum), name_ar, name_en, description_ar, description_en
 discount_type, discount_value, start_date, end_date
 is_active, priority, min_quantity, min_amount
-branch_id (nullable), created_at, updated_at
+branch_id (nullable for global), service_type (delivery/pickup/both)
+created_at, updated_at
 ```
 
 **`offer_products`**
@@ -151,7 +183,51 @@ discount_applied, used_at
 
 ---
 
-## 5. Offer Priority & Stacking
+## 5.1 Offer Scope Examples
+
+### Branch & Service Targeting Examples
+
+**1. Global Delivery-Only Offer**
+- Type: Cart-level minimum purchase
+- Name: "Free Delivery on orders above 100 SAR"
+- Branch: All branches (NULL)
+- Service: Delivery only
+- Discount: Fixed 15 SAR (delivery fee waiver)
+
+**2. Branch-Specific Pickup Offer**
+- Type: Product discount
+- Name: "Riyadh Branch Pickup Special"
+- Branch: Riyadh Branch (ID: 1)
+- Service: Pickup only
+- Discount: 15% off all products
+- Goal: Reduce delivery load during peak hours
+
+**3. Global Multi-Service Bundle**
+- Type: Bundle offer
+- Name: "Water & Snacks Bundle"
+- Branch: All branches (NULL)
+- Service: Both delivery and pickup
+- Discount: Fixed 20 SAR on bundle
+
+**4. Customer-Specific VIP Offer**
+- Type: Customer-specific
+- Name: "VIP Exclusive Discount"
+- Branch: All branches (NULL)
+- Service: Both
+- Discount: 25% off entire order
+- Assigned to: High-value customers
+
+**5. Regional Campaign**
+- Type: Product discount
+- Name: "Jeddah Flash Sale"
+- Branch: Jeddah Branch (ID: 2)
+- Service: Both
+- Discount: 30% off selected items
+- Duration: 24 hours only
+
+---
+
+## 6. Offer Priority & Stacking
 
 **Application Order:**
 1. Customer-Specific Offers (highest priority)
@@ -168,7 +244,7 @@ discount_applied, used_at
 
 ---
 
-## 6. Implementation Priority
+## 7. Implementation Priority
 
 1. **Phase 1:** Database schema + Percentage discount (enhance existing)
 2. **Phase 2:** Admin dashboard + Create/edit form
@@ -180,7 +256,7 @@ discount_applied, used_at
 
 ---
 
-## 7. User Experience Flow
+## 8. User Experience Flow
 
 ### Customer Journey
 1. Browse products → See offer badges
@@ -201,7 +277,7 @@ discount_applied, used_at
 
 ---
 
-## 8. Technical Integration Points
+## 9. Technical Integration Points
 
 ### Frontend Components to Create/Modify
 - `OfferBadge.svelte` - Reusable badge component
@@ -214,14 +290,14 @@ discount_applied, used_at
 - `OfferAnalytics.svelte` - Admin analytics dashboard
 
 ### Backend API Endpoints
-- `GET /api/offers/active` - Get active offers for customer
-- `POST /api/offers/calculate` - Calculate offer discounts for cart
-- `GET /api/admin/offers` - List all offers (admin)
-- `POST /api/admin/offers` - Create new offer
-- `PUT /api/admin/offers/:id` - Update offer
+- `GET /api/offers/active` - Get active offers for customer (params: customer_id, branch_id, service_type)
+- `POST /api/offers/calculate` - Calculate offer discounts for cart (includes service_type validation)
+- `GET /api/admin/offers` - List all offers (admin) with branch and service filters
+- `POST /api/admin/offers` - Create new offer (requires branch_id and service_type)
+- `PUT /api/admin/offers/:id` - Update offer (can change branch and service targeting)
 - `DELETE /api/admin/offers/:id` - Delete offer
-- `GET /api/admin/offers/:id/analytics` - Get offer analytics
-- `POST /api/admin/offers/bulk` - Bulk operations
+- `GET /api/admin/offers/:id/analytics` - Get offer analytics (grouped by branch/service)
+- `POST /api/admin/offers/bulk` - Bulk operations (pause/activate by branch or service)
 
 ### Database Functions Needed
 - `calculate_product_offer_discount()` - Calculate product-level discounts
@@ -233,7 +309,7 @@ discount_applied, used_at
 
 ---
 
-## 9. i18n Requirements
+## 10. i18n Requirements
 
 **Arabic/English Translation Needed:**
 - Offer names, descriptions
@@ -245,7 +321,7 @@ discount_applied, used_at
 
 ---
 
-## 10. Success Metrics
+## 11. Success Metrics
 
 **Business Goals:**
 - Increase average order value by 20%
@@ -261,7 +337,7 @@ discount_applied, used_at
 
 ---
 
-## 11. Future Enhancements
+## 12. Future Enhancements
 
 - AI-powered offer recommendations
 - A/B testing for offers
