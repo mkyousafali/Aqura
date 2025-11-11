@@ -472,11 +472,21 @@
                 try {
                     photoUrl = await uploadPhoto();
                     if (!photoUrl) {
-                        console.warn('Photo upload failed, continuing without photo');
+                        throw new Error('Photo upload failed. Please try again.');
                     }
                 } catch (uploadError) {
                     console.error('Photo upload failed:', uploadError);
+                    throw new Error('Required photo upload failed. Please check your connection and try again.');
                 }
+            }
+            
+            // Validate all requirements before submission
+            if (resolvedRequirePhotoUpload && !photoUrl) {
+                throw new Error('Photo is required but was not uploaded successfully.');
+            }
+            
+            if (resolvedRequireErpReference && !completionData.erp_reference_number?.trim()) {
+                throw new Error('ERP reference is required but was not provided.');
             }
             
             // Validate assignment_id is a valid UUID

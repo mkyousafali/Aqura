@@ -7,6 +7,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
 	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
+	import QuickTaskCompletionDialog from './QuickTaskCompletionDialog.svelte';
 	import ReceivingTaskDetailsModal from './ReceivingTaskDetailsModal.svelte';
 	import ReceivingTaskCompletionDialog from '../receiving/ReceivingTaskCompletionDialog.svelte';
 	
@@ -441,27 +442,31 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	async function openQuickTaskCompletion(task) {
-		const confirmed = confirm(`Complete Quick Task: ${task.title}?\n\nThis will mark the task as completed.`);
-		if (!confirmed) return;
-
-		try {
-			// Use the proper completion function
-			const { data, error } = await supabase.rpc('submit_quick_task_completion', {
-				p_assignment_id: task.assignment_id,
-				p_user_id: $currentUser?.id,
-				p_completion_notes: 'Completed from desktop interface',
-				p_photos: null,
-				p_erp_reference: null
-			});
-
-			if (error) throw error;
-
-			alert('Quick Task completed successfully!');
-			removeCompletedTask(task.id); // Smoothly remove instead of full reload
-		} catch (error) {
-			console.error('Error completing quick task:', error);
-			alert('Error completing quick task. Please try again.');
-		}
+		// Open a proper completion modal instead of simple confirm
+		const windowId = `quick-task-completion-${task.assignment_id}`;
+		openWindow({
+			id: windowId,
+			title: `Complete Quick Task: ${task.title}`,
+			component: QuickTaskCompletionDialog,
+			props: {
+				task: task,
+				assignmentId: task.assignment_id,
+				onComplete: () => {
+					windowManager.closeWindow(windowId);
+					removeCompletedTask(task.id);
+				}
+			},
+			icon: '⚡',
+			size: { width: 600, height: 700 },
+			position: { 
+				x: window.innerWidth / 2 - 300, 
+				y: window.innerHeight / 2 - 350 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	async function openReceivingTaskCompletion(task) {
