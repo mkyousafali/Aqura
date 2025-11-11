@@ -32,7 +32,7 @@
 			nameAr: 'خصم على السلة',
 			descEn: 'Discount applied to entire cart based on total amount',
 			descAr: 'خصم على إجمالي السلة بناءً على المبلغ الكلي',
-			examples: ['10% off orders over 200 SAR']
+			examples: ['10% off orders over 200 SAR', 'Tiered discounts']
 		},
 		{
 			type: 'bogo',
@@ -42,24 +42,6 @@
 			descEn: 'Buy a certain quantity and get additional items free or discounted',
 			descAr: 'اشتري كمية معينة واحصل على منتجات إضافية مجاناً أو مخفضة',
 			examples: ['Buy 2 Get 1 Free', 'Buy 3 Save 50%']
-		},
-		{
-			type: 'min_purchase',
-			icon: '💰',
-			nameEn: 'Minimum Purchase',
-			nameAr: 'حد أدنى للشراء',
-			descEn: 'Discount when cart reaches minimum amount or quantity',
-			descAr: 'خصم عند الوصول لحد أدنى من المبلغ أو الكمية',
-			examples: ['Free delivery on 100 SAR', '15% off 5+ items']
-		},
-		{
-			type: 'customer',
-			icon: '⭐',
-			nameEn: 'Customer-Specific',
-			nameAr: 'خاص بالعملاء',
-			descEn: 'Exclusive offers for specific customers or customer groups',
-			descAr: 'عروض حصرية لعملاء محددين أو مجموعات عملاء',
-			examples: ['VIP customer 25% off', 'Loyalty reward']
 		}
 	];
 
