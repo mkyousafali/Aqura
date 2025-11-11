@@ -6,9 +6,11 @@
 	import OfferTypeSelector from './OfferTypeSelector.svelte';
 	import ProductSelectorWindow from './ProductSelectorWindow.svelte';
 	import TierManager from './TierManager.svelte';
+	import BundleCreator from './BundleCreator.svelte';
 
 	export let editMode = false;
 	export let offerId: number | null = null;
+	export let preselectedType: string | null = null;
 
 	const dispatch = createEventDispatcher();
 
@@ -18,7 +20,7 @@
 
 	// Form data
 	let offerData = {
-		type: null as string | null,
+		type: preselectedType as string | null,
 		name_ar: '',
 		name_en: '',
 		description_ar: '',
@@ -47,11 +49,13 @@
 	let productSearchTerm = '';
 	let showProductSelector = false;
 	let cartTiers: any[] = [];
+	let bundles: any[] = [];
+	let bundleCreatorRef: any;
 
 	$: isRTL = $currentLocale === 'ar';
 	$: totalSteps = offerData.type === 'bogo' || offerData.type === 'bundle' ? 4 : 3;
 	$: needsProductSelection = ['product', 'bogo', 'bundle'].includes(offerData.type || '');
-	$: needsTierConfiguration = ['cart', 'min_purchase'].includes(offerData.type || '');
+	$: needsTierConfiguration = offerData.type === 'cart';
 	$: filteredProducts = products.filter(p => 
 		p.name_ar.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
 		p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
@@ -63,6 +67,9 @@
 		await loadProducts();
 		if (editMode && offerId) {
 			await loadOfferData();
+		} else if (preselectedType) {
+			// Skip type selection step if type is preselected
+			currentStep = 2;
 		}
 	});
 
@@ -194,8 +201,8 @@
 			// Load selected products for this offer
 			await loadOfferProducts();
 			
-			// Load cart tiers if this is a cart/min_purchase offer
-			if (['cart', 'min_purchase'].includes(data.type)) {
+			// Load cart tiers if this is a cart offer
+			if (data.type === 'cart') {
 				await loadCartTiers();
 			}
 		}
@@ -208,40 +215,25 @@
 		
 		// Check if this is a bundle offer
 		if (offerData.type === 'bundle') {
-			// Load products from offer_bundles table (JSONB field)
-			const { data: bundleData, error: bundleErr } = await supabaseAdmin
+			// Load all bundles from offer_bundles table for this offer
+			const { data: bundlesData, error: bundleErr } = await supabaseAdmin
 				.from('offer_bundles')
-				.select('required_products')
-				.eq('offer_id', offerId)
-				.single();
+				.select('*')
+				.eq('offer_id', offerId);
 			
-			console.log('📦 Bundle data:', bundleData);
+			console.log('📦 Bundles data:', bundlesData);
 			console.log('❌ Bundle error:', bundleErr);
 			
-			if (!bundleErr && bundleData && bundleData.required_products) {
-				const productIds = bundleData.required_products.map(p => p.product_id);
-				console.log('🔑 Bundle Product IDs:', productIds);
-				
-				const { data: productsData, error: productsErr } = await supabaseAdmin
-					.from('products')
-					.select('id, product_name_ar, product_name_en, barcode, sale_price, unit_id, image_url, product_serial')
-					.in('id', productIds);
-				
-				console.log('🛒 Products data:', productsData);
-				
-				if (productsData) {
-					selectedProducts = productsData.map(p => ({
-						id: p.id,
-						name_ar: p.product_name_ar,
-						name_en: p.product_name_en,
-						barcode: p.barcode,
-						price: p.sale_price,
-						unit_id: p.unit_id,
-						image_url: p.image_url,
-						serial: p.product_serial
-					}));
-					console.log('✅ Bundle products loaded:', selectedProducts);
-				}
+			if (!bundleErr && bundlesData) {
+				bundles = bundlesData.map(bundle => ({
+					id: bundle.id,
+					bundle_name_ar: bundle.bundle_name_ar || '',
+					bundle_name_en: bundle.bundle_name_en || '',
+					discount_type: bundle.discount_type || 'amount',
+					discount_value: parseFloat(bundle.discount_value) || 0,
+					required_products: bundle.required_products || []
+				}));
+				console.log('✅ Bundles loaded:', bundles);
 			}
 		} else {
 			// Load products from offer_products table (for product/bogo offers)
@@ -419,10 +411,22 @@
 				error = isRTL ? 'تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء' : 'End date must be after start date';
 				return false;
 			}
-			// Validate product selection for product/bogo offers
-			if (needsProductSelection && selectedProducts.length === 0) {
+			// Validate product selection for product/bogo offers (not bundle)
+			if (needsProductSelection && offerData.type !== 'bundle' && selectedProducts.length === 0) {
 				error = isRTL ? 'يرجى اختيار منتج واحد على الأقل' : 'Please select at least one product';
 				return false;
+			}
+			
+			// Validate bundles for bundle offers
+			if (offerData.type === 'bundle') {
+				if (bundleCreatorRef && !bundleCreatorRef.validateAll()) {
+					// Error is set by BundleCreator component
+					return false;
+				}
+				if (bundles.length === 0) {
+					error = isRTL ? 'يرجى إضافة حزمة واحدة على الأقل' : 'Please add at least one bundle';
+					return false;
+				}
 			}
 		}
 
@@ -436,6 +440,27 @@
 		error = null;
 
 		try {
+			// Check if trying to create/activate a cart discount when one already exists
+			if (offerData.type === 'cart' && offerData.is_active) {
+				const { data: existingCartOffers, error: checkError } = await supabase
+					.from('offers')
+					.select('id, name_ar, name_en, is_active')
+					.eq('type', 'cart')
+					.eq('is_active', true)
+					.neq('id', offerId || 0); // Exclude current offer in edit mode
+				
+				if (checkError) throw checkError;
+				
+				if (existingCartOffers && existingCartOffers.length > 0) {
+					const existingOffer = existingCartOffers[0];
+					error = isRTL 
+						? `يوجد بالفعل خصم سلة نشط: "${existingOffer.name_ar}". لا يمكن تفعيل أكثر من خصم سلة في نفس الوقت.`
+						: `There is already an active cart discount: "${existingOffer.name_en}". You cannot activate more than one cart discount at a time.`;
+					loading = false;
+					return;
+				}
+			}
+			
 			const offerPayload = {
 				...offerData,
 				start_date: new Date(offerData.start_date).toISOString(),
@@ -452,10 +477,18 @@
 
 				if (updateError) throw updateError;
 
-				// Delete existing product associations
-				if (needsProductSelection) {
+				// Delete existing product associations for product/bogo offers
+				if (needsProductSelection && offerData.type !== 'bundle') {
 					await supabase
 						.from('offer_products')
+						.delete()
+						.eq('offer_id', offerId);
+				}
+				
+				// Delete existing bundles for bundle offers
+				if (offerData.type === 'bundle') {
+					await supabaseAdmin
+						.from('offer_bundles')
 						.delete()
 						.eq('offer_id', offerId);
 				}
@@ -478,8 +511,8 @@
 				savedOfferId = data.id;
 			}
 
-			// Insert product associations for product/bogo offers
-			if (needsProductSelection && selectedProducts.length > 0) {
+			// Insert product associations for product/bogo offers (not bundle)
+			if (needsProductSelection && offerData.type !== 'bundle' && selectedProducts.length > 0) {
 				const productAssociations = selectedProducts.map(product => ({
 					offer_id: savedOfferId,
 					product_id: product.id,
@@ -491,6 +524,24 @@
 					.insert(productAssociations);
 
 				if (productsError) throw productsError;
+			}
+			
+			// Insert bundles for bundle offers
+			if (offerData.type === 'bundle' && bundles.length > 0) {
+				const bundleInserts = bundles.map(bundle => ({
+					offer_id: savedOfferId,
+					bundle_name_ar: bundle.bundle_name_ar,
+					bundle_name_en: bundle.bundle_name_en,
+					discount_type: bundle.discount_type,
+					discount_value: bundle.discount_value,
+					required_products: bundle.required_products
+				}));
+
+				const { error: bundlesError } = await supabaseAdmin
+					.from('offer_bundles')
+					.insert(bundleInserts);
+
+				if (bundlesError) throw bundlesError;
 			}
 			
 			// Insert cart tiers for cart/min_purchase offers
@@ -683,7 +734,18 @@
 					</div>
 				{/if}
 
-				{#if needsProductSelection}
+				{#if offerData.type === 'bundle'}
+					<!-- Bundle Creator -->
+					<h3 class="section-title">{isRTL ? 'إدارة الحزم' : 'Manage Bundles'}</h3>
+					<BundleCreator 
+						bind:bundles={bundles}
+						bind:this={bundleCreatorRef}
+						{offerId}
+						editMode={editMode}
+						on:change={() => {}}
+					/>
+				{:else if needsProductSelection}
+					<!-- Product Selector (for product/bogo offers) -->
 					<h3 class="section-title">{isRTL ? 'المنتجات المشمولة في العرض' : 'Products Included in Offer'}</h3>
 					
 					<!-- Add Products Button -->
