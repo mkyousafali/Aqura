@@ -17,6 +17,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
 	let filterTaskType = 'all';
+	let filterDateRange = 'all'; // 'all', 'today', 'week', 'month', 'overdue'
 	let showCompleted = false;
 	
 	// Live countdown state
@@ -33,7 +34,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	// Reactive filtering when any filter changes
-	$: searchTerm, filterStatus, filterPriority, filterTaskType, showCompleted, filterTasks();
+	$: searchTerm, filterStatus, filterPriority, filterTaskType, filterDateRange, showCompleted, filterTasks();
 
 	onMount(() => {
 		// Try to load tasks on mount if user is available
@@ -49,6 +50,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			stopCountdownTimer();
 		};
 	});
+
+	// Function to smoothly remove a completed task from the list
+	function removeCompletedTask(taskId) {
+		console.log('✨ [MyTasks] Smoothly removing completed task:', taskId);
+		tasks = tasks.filter(t => t.id !== taskId);
+		filterTasks();
+	}
 
 	async function loadMyTasks() {
 		// Get the current user ID from persistent auth
@@ -368,7 +376,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				(filterTaskType === 'quick_task' && task.task_type === 'quick_task') ||
 				(filterTaskType === 'receiving' && task.task_type === 'receiving');
 			
-			return matchesSearch && matchesStatus && matchesPriority && matchesTaskType;
+			// Date range filtering
+			let matchesDateRange = true;
+			if (filterDateRange !== 'all' && task.deadline_datetime) {
+				const now = new Date();
+				const deadline = new Date(task.deadline_datetime);
+				const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+				const taskDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+				
+				if (filterDateRange === 'overdue') {
+					matchesDateRange = deadline < now;
+				} else if (filterDateRange === 'today') {
+					matchesDateRange = taskDate.getTime() === today.getTime();
+				} else if (filterDateRange === 'week') {
+					const weekFromNow = new Date(today);
+					weekFromNow.setDate(weekFromNow.getDate() + 7);
+					matchesDateRange = taskDate >= today && taskDate < weekFromNow;
+				} else if (filterDateRange === 'month') {
+					const monthFromNow = new Date(today);
+					monthFromNow.setMonth(monthFromNow.getMonth() + 1);
+					matchesDateRange = taskDate >= today && taskDate < monthFromNow;
+				}
+			}
+			
+			return matchesSearch && matchesStatus && matchesPriority && matchesTaskType && matchesDateRange;
 		});
 	}
 
@@ -391,7 +422,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					requirePhotoUpload: task.require_photo_upload ?? false,
 					requireErpReference: task.require_erp_reference ?? false,
 					onTaskCompleted: () => {
-						loadMyTasks();
+						removeCompletedTask(task.id);
 						windowManager.closeWindow(windowId);
 					}
 				},
@@ -426,7 +457,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			if (error) throw error;
 
 			alert('Quick Task completed successfully!');
-			loadMyTasks(); // Reload the tasks list
+			removeCompletedTask(task.id); // Smoothly remove instead of full reload
 		} catch (error) {
 			console.error('Error completing quick task:', error);
 			alert('Error completing quick task. Please try again.');
@@ -444,7 +475,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				receivingRecordId: task.receiving_record_id,
 				onComplete: () => {
 					windowManager.closeWindow(windowId);
-					loadMyTasks();
+					removeCompletedTask(task.id); // Smooth removal instead of full reload
 				}
 			},
 			icon: '✅',
@@ -475,7 +506,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					task: task,
 					windowId: windowId,
 					onTaskCompleted: () => {
-						loadMyTasks();
+						removeCompletedTask(task.id);
 					}
 				},
 				icon: '📋',
@@ -502,7 +533,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				task: task,
 				windowId: windowId,
 				onTaskCompleted: () => {
-					loadMyTasks();
+					removeCompletedTask(task.id);
 				}
 			},
 			icon: '⚡',
@@ -528,7 +559,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				task: task,
 				windowId: windowId,
 				onTaskCompleted: () => {
-					loadMyTasks();
+					removeCompletedTask(task.id);
 				}
 			},
 			icon: '📦',
@@ -788,6 +819,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<option value="regular">Regular Tasks</option>
 					<option value="quick">Quick Tasks</option>
 					<option value="receiving">Receiving Tasks</option>
+				</select>
+			</div>
+			<div>
+				<label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+				<select
+					bind:value={filterDateRange}
+					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="all">All Dates</option>
+					<option value="overdue">⚠️ Overdue</option>
+					<option value="today">📅 Today</option>
+					<option value="week">📆 This Week</option>
+					<option value="month">🗓️ This Month</option>
 				</select>
 			</div>
 		</div>
