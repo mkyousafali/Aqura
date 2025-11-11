@@ -545,34 +545,12 @@
 	// Special dependency check for accountant role
 	async function checkAccountantDependency() {
 		try {
-			console.log('🧾 [Mobile] Checking accountant dependency on inventory manager...');
+			console.log('🧾 [Mobile] Checking accountant dependency - verifying required uploads...');
 			
-			// Check if inventory manager task is completed
-			const { data: inventoryTask, error: inventoryError } = await supabase
-				.from('receiving_tasks')
-				.select('task_completed, completed_at')
-				.eq('receiving_record_id', taskDetails.receiving_record_id)
-				.eq('role_type', 'inventory_manager')
-				.maybeSingle();
-
-			if (inventoryError) {
-				console.error('❌ [Mobile] Error checking inventory task:', inventoryError);
-				// Allow completion if we can't check (don't block user)
-				return;
-			}
-
-			if (!inventoryTask?.task_completed) {
-				canComplete = false;
-				blockingRoles = ['Inventory Manager must complete their task first'];
-				errorMessage = 'The Inventory Manager must complete their task before the Accountant can proceed.';
-				console.log('❌ [Mobile] Inventory manager task not completed');
-				return;
-			}
-
-			// Check if original bill is uploaded
+			// Get receiving record to check file uploads
 			const { data: receivingRecord, error: recordError } = await supabase
 				.from('receiving_records')
-				.select('original_bill_uploaded, original_bill_url')
+				.select('original_bill_uploaded, original_bill_url, pr_excel_file_uploaded, pr_excel_file_url')
 				.eq('id', taskDetails.receiving_record_id)
 				.single();
 
@@ -583,20 +561,38 @@
 				return;
 			}
 
+			const missingFiles = [];
+
 			// Check original bill upload status
 			if (!receivingRecord.original_bill_uploaded || !receivingRecord.original_bill_url) {
+				missingFiles.push('Original Bill');
+				console.log('❌ [Mobile] Original bill not uploaded');
+			} else {
+				console.log('✅ [Mobile] Original bill uploaded');
+			}
+
+			// Check PR Excel upload status
+			if (!receivingRecord.pr_excel_file_uploaded || !receivingRecord.pr_excel_file_url) {
+				missingFiles.push('PR Excel File');
+				console.log('❌ [Mobile] PR Excel not uploaded');
+			} else {
+				console.log('✅ [Mobile] PR Excel uploaded');
+			}
+
+			// If any files are missing, block completion
+			if (missingFiles.length > 0) {
 				canComplete = false;
-				blockingRoles = ['Original bill upload required from Inventory Manager'];
-				errorMessage = 'Original bill not uploaded by the inventory manager – please follow up.';
-				console.log('❌ [Mobile] Original bill not uploaded by inventory manager');
+				blockingRoles = missingFiles.map(file => `${file} must be uploaded first`);
+				errorMessage = `Missing required files: ${missingFiles.join(', ')}. Please ensure all files are uploaded before completing this task.`;
+				console.log('❌ [Mobile] Missing required files:', missingFiles);
 				return;
 			}
 
-			// All good, accountant can proceed
+			// All files uploaded, accountant can proceed
 			canComplete = true;
 			blockingRoles = [];
 			errorMessage = '';
-			console.log('✅ [Mobile] Accountant dependency check passed - original bill uploaded');
+			console.log('✅ [Mobile] Accountant dependency check passed - all required files uploaded');
 			
 		} catch (error) {
 			console.error('❌ [Mobile] Error checking accountant dependency:', error);
