@@ -110,7 +110,11 @@
 
 	// Calculate totals by payment method for the current month
 	$: totalsByPaymentMethod = scheduledPayments.reduce((acc, payment) => {
-		const paymentDate = new Date(payment.due_date);
+		if (!payment.due_date) return acc;
+		
+		// Parse date manually to avoid timezone issues
+		const [year, month, day] = payment.due_date.split('-').map(Number);
+		const paymentDate = new Date(year, month - 1, day); // month is 0-indexed
 		const currentMonth = monthData?.month;
 		const currentYear = monthData?.year;
 		
@@ -142,7 +146,11 @@
 		
 		if (scheduledPayments && currentMonth !== undefined && currentYear !== undefined) {
 			scheduledPayments.forEach(payment => {
-				const paymentDate = new Date(payment.due_date);
+				if (!payment.due_date) return;
+				
+				// Parse date manually to avoid timezone issues
+				const [year, month, day] = payment.due_date.split('-').map(Number);
+				const paymentDate = new Date(year, month - 1, day); // month is 0-indexed
 				
 				// Check if payment is in the current month/year
 				if (paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear) {
@@ -221,18 +229,38 @@
 	// Load all branches from database
 	async function loadBranches() {
 		try {
-			const { data, error } = await supabase
-				.from('branches')
-				.select('name_en, name_ar')
-				.eq('is_active', true)
-				.order('name_en', { ascending: true });
+			// Load branches with pagination to handle large datasets
+			let allData = [];
+			let from = 0;
+			const pageSize = 1000;
+			let hasMore = true;
 
-			if (error) {
-				console.error('Error loading branches:', error);
-				return;
+			while (hasMore) {
+				const { data: pageData, error } = await supabase
+					.from('branches')
+					.select('name_en, name_ar')
+					.eq('is_active', true)
+					.order('name_en', { ascending: true })
+					.range(from, from + pageSize - 1);
+
+				if (error) {
+					console.error('Error loading branches:', error);
+					return;
+				}
+
+				if (pageData && pageData.length > 0) {
+					allData = [...allData, ...pageData];
+					from += pageSize;
+					
+					if (pageData.length < pageSize) {
+						hasMore = false;
+					}
+				} else {
+					hasMore = false;
+				}
 			}
 
-			branches = data?.map(b => b.name_en) || [];
+			branches = allData.map(b => b.name_en) || [];
 			console.log('Loaded branches:', branches);
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -242,17 +270,38 @@
 	// Load all payment methods (you can customize this list)
 	async function loadPaymentMethods() {
 		try {
-			// Get unique payment methods from vendor_payment_schedule
-			const { data, error } = await supabase
-				.from('vendor_payment_schedule')
-				.select('payment_method');
+			// Get unique payment methods from vendor_payment_schedule with pagination
+			let allData = [];
+			let from = 0;
+			const pageSize = 1000;
+			let hasMore = true;
 
-			if (error) {
-				console.error('Error loading payment methods:', error);
-				// Fallback to default list
-				paymentMethods = ['Cash on Delivery', 'Bank Credit'];
-				return;
+			while (hasMore) {
+				const { data: pageData, error } = await supabase
+					.from('vendor_payment_schedule')
+					.select('payment_method')
+					.range(from, from + pageSize - 1);
+
+				if (error) {
+					console.error('Error loading payment methods:', error);
+					// Fallback to default list
+					paymentMethods = ['Cash on Delivery', 'Bank Credit'];
+					return;
+				}
+
+				if (pageData && pageData.length > 0) {
+					allData = [...allData, ...pageData];
+					from += pageSize;
+					
+					if (pageData.length < pageSize) {
+						hasMore = false;
+					}
+				} else {
+					hasMore = false;
+				}
 			}
+
+			const data = allData;
 
 			// Extract unique payment methods
 			const methodSet = new Set();
@@ -292,40 +341,148 @@
 	// Load scheduled payments from database
 	async function loadScheduledPayments() {
 		try {
-			const { data: scheduleData, error } = await supabase
-				.from('vendor_payment_schedule')
-				.select(`
-					*,
-					receiving_records!receiving_record_id (
-						accountant_user_id,
-						bill_number,
-						vendor_id,
-						user_id,
-						original_bill_url,
-						users!user_id (
-							username
-						)
-					)
-				`)
-				.order('due_date', { ascending: true });
+			// Fetch all records using pagination to bypass Supabase's default 1000 row limit
+			let allData = [];
+			let from = 0;
+			const pageSize = 1000;
+			let hasMore = true;
 
-			if (error) {
-				console.error('Error loading scheduled payments:', error);
+			while (hasMore) {
+				const { data: pageData, error, count } = await supabase
+					.from('vendor_payment_schedule')
+					.select(`
+						*,
+						receiving_records!receiving_record_id (
+							accountant_user_id,
+							bill_number,
+							vendor_id,
+							user_id,
+							original_bill_url,
+							users!user_id (
+								username
+							)
+						)
+					`, { count: 'exact' })
+					.order('due_date', { ascending: true })
+					.range(from, from + pageSize - 1);
+
+				if (error) {
+					console.error('Error loading scheduled payments:', error);
+					return;
+				}
+
+				if (pageData && pageData.length > 0) {
+					allData = [...allData, ...pageData];
+					from += pageSize;
+					
+					// Check if there are more records
+					if (pageData.length < pageSize || (count && allData.length >= count)) {
+						hasMore = false;
+					}
+				} else {
+					hasMore = false;
+				}
+			}
+
+			const scheduleData = allData;
+			console.log(`✅ Loaded ${scheduleData.length} total scheduled payments using pagination`);
+
+			if (scheduleData.length === 0) {
+				console.warn('No scheduled payments loaded');
 				return;
 			}
+
+			// Test parsing on the specific payment
+			const testPayment = scheduleData?.find(p => p.bill_number === '2720057707');
+			if (testPayment) {
+				console.log('🧪 Testing payment 2720057707:', {
+					due_date: testPayment.due_date,
+					due_date_type: typeof testPayment.due_date,
+					split_test: testPayment.due_date?.split('-'),
+					manual_parse: (() => {
+						if (!testPayment.due_date) return null;
+						const [year, month, day] = testPayment.due_date.split('-').map(Number);
+						const date = new Date(year, month - 1, day);
+						return {
+							year: date.getFullYear(),
+							month: date.getMonth(),
+							day: date.getDate(),
+							dateString: date.toDateString()
+						};
+					})()
+				});
+			}
+
+			console.log('📊 Loaded scheduled payments:', {
+				total: scheduleData?.length || 0,
+				december: scheduleData?.filter(p => {
+					if (!p.due_date) return false;
+					// Parse date manually to avoid timezone issues
+					const [year, month, day] = p.due_date.split('-').map(Number);
+					const date = new Date(year, month - 1, day); // month is 0-indexed
+					const isDecember = date.getMonth() === 11 && date.getFullYear() === 2025;
+					return isDecember;
+				}).length || 0,
+				dec10: scheduleData?.filter(p => {
+					if (!p.due_date) return false;
+					// Parse date manually to avoid timezone issues
+					const [year, month, day] = p.due_date.split('-').map(Number);
+					const date = new Date(year, month - 1, day); // month is 0-indexed
+					const isDec10 = date.getMonth() === 11 && date.getDate() === 10 && date.getFullYear() === 2025;
+					if (isDec10) {
+						console.log('🔍 Dec 10 payment found:', {
+							id: p.id,
+							vendor: p.vendor_name,
+							bill: p.bill_number,
+							due_date: p.due_date,
+							due_date_type: typeof p.due_date,
+							parsed: date.toISOString(),
+							dateString: date.toDateString(),
+							month: date.getMonth(),
+							day: date.getDate(),
+							year: date.getFullYear()
+						});
+					}
+					return isDec10;
+				}).length || 0
+			});
 
 			// Get unique vendor IDs and branch IDs to fetch priorities
 			const vendorKeys = [...new Set(scheduleData.map(p => `${p.vendor_id}-${p.branch_id}`))].filter(k => k !== 'undefined-undefined');
 			
-			// Fetch vendor priorities
+			// Fetch vendor priorities with pagination
 			const vendorPriorities = {};
 			if (vendorKeys.length > 0) {
-				const { data: vendors } = await supabase
-					.from('vendors')
-					.select('erp_vendor_id, branch_id, payment_priority');
+				let allVendors = [];
+				let from = 0;
+				const pageSize = 1000;
+				let hasMore = true;
+
+				while (hasMore) {
+					const { data: pageData, error } = await supabase
+						.from('vendors')
+						.select('erp_vendor_id, branch_id, payment_priority')
+						.range(from, from + pageSize - 1);
+					
+					if (error) {
+						console.error('Error loading vendors:', error);
+						break;
+					}
+
+					if (pageData && pageData.length > 0) {
+						allVendors = [...allVendors, ...pageData];
+						from += pageSize;
+						
+						if (pageData.length < pageSize) {
+							hasMore = false;
+						}
+					} else {
+						hasMore = false;
+					}
+				}
 				
-				if (vendors) {
-					vendors.forEach(v => {
+				if (allVendors.length > 0) {
+					allVendors.forEach(v => {
 						vendorPriorities[`${v.erp_vendor_id}-${v.branch_id}`] = v.payment_priority;
 					});
 				}
@@ -372,27 +529,48 @@
 				year: monthData.year
 			});
 			
-			const { data, error } = await supabaseAdmin
-				.from('expense_scheduler')
-				.select(`
-					*,
-					creator:users!created_by (
-						username
-					),
-					requisition:expense_requisitions (
-						requester_name
-					)
-				`)
-				.gte('due_date', startDateStr)
-				.lte('due_date', endDateStr)
-				.order('due_date', { ascending: true });
+			// Load expense scheduler with pagination to handle large datasets
+			let allData = [];
+			let from = 0;
+			const pageSize = 1000;
+			let hasMore = true;
 
-			if (error) {
-				console.error('❌ Error loading expense scheduler payments:', error);
-				return;
+			while (hasMore) {
+				const { data: pageData, error } = await supabaseAdmin
+					.from('expense_scheduler')
+					.select(`
+						*,
+						creator:users!created_by (
+							username
+						),
+						requisition:expense_requisitions (
+							requester_name
+						)
+					`)
+					.gte('due_date', startDateStr)
+					.lte('due_date', endDateStr)
+					.order('due_date', { ascending: true })
+					.range(from, from + pageSize - 1);
+
+				if (error) {
+					console.error('❌ Error loading expense scheduler payments:', error);
+					return;
+				}
+
+				if (pageData && pageData.length > 0) {
+					allData = [...allData, ...pageData];
+					from += pageSize;
+					
+					if (pageData.length < pageSize) {
+						hasMore = false;
+					}
+				} else {
+					hasMore = false;
+				}
 			}
 
-			console.log('✅ Loaded expense scheduler payments WITH ADMIN:', data);
+			const data = allData;
+			console.log(`✅ Loaded ${data.length} expense scheduler payments WITH ADMIN using pagination`);
 			console.log('📊 Expense Scheduler Summary:', {
 				totalRecords: data?.length || 0,
 				byScheduleType: data?.reduce((acc, r) => {
@@ -667,8 +845,21 @@
 			// Find payments for this specific day (use filteredPayments)
 			const paymentsToUse = filteredPayments || scheduledPayments;
 			paymentsToUse.forEach(payment => {
-				const paymentDate = new Date(payment.due_date);
+				if (!payment.due_date) return; // Skip if no date available
+				
+				// Parse date manually to avoid timezone issues
+				const [year, month, day] = payment.due_date.split('-').map(Number);
+				const paymentDate = new Date(year, month - 1, day); // month is 0-indexed
+				
 				if (paymentDate.toDateString() === dayDate.toDateString()) {
+					// Log December 10 matches
+					if (day === 10 && month === 12 && year === 2025) {
+						console.log('✅ Dec 10 payment match:', {
+							vendor: payment.vendor_name,
+							amount: payment.final_bill_amount,
+							due_date: payment.due_date
+						});
+					}
 					dayInfo.payments.push(payment);
 					dayInfo.totalAmount += (payment.final_bill_amount || 0);
 					dayInfo.paymentCount++;

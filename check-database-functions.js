@@ -1,91 +1,179 @@
-// Script to check actual database functions using service role key
+// Check all database functions in Supabase// Script to check actual database functions using service role key
+
+import { readFileSync } from 'fs';import { createClient } from '@supabase/supabase-js';
+
 import { createClient } from '@supabase/supabase-js';
 
 // Hardcoded values from .env file
-const supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
 
-if (!supabaseServiceKey) {
+// Load environment variables from frontend/.envconst supabaseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co';
+
+const envPath = './frontend/.env';const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.RmkgY9IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ';
+
+const envContent = readFileSync(envPath, 'utf-8');
+
+const envVars = {};if (!supabaseServiceKey) {
+
     console.error('❌ VITE_SUPABASE_SERVICE_ROLE_KEY not found in environment variables');
-    process.exit(1);
-}
 
-// Create Supabase client with service role key
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+envContent.split('\n').forEach(line => {    process.exit(1);
 
-async function checkDatabaseFunctions() {
-    console.log('🔍 Checking database functions using service role key...\n');
-    console.log('🔑 Using Supabase URL:', supabaseUrl);
+  const trimmed = line.trim();}
+
+  if (trimmed && !trimmed.startsWith('#')) {
+
+    const match = trimmed.match(/^([^=]+)=(.*)$/);// Create Supabase client with service role key
+
+    if (match) {const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      envVars[match[1].trim()] = match[2].trim();
+
+    }async function checkDatabaseFunctions() {
+
+  }    console.log('🔍 Checking database functions using service role key...\n');
+
+});    console.log('🔑 Using Supabase URL:', supabaseUrl);
+
     console.log('🔑 Service Role Key (first 20 chars):', supabaseServiceKey.substring(0, 20) + '...\n');
 
-    try {
+const supabaseUrl = envVars.VITE_SUPABASE_URL;
+
+const supabaseServiceKey = envVars.VITE_SUPABASE_SERVICE_ROLE_KEY;    try {
+
         // Query to get all functions from information_schema
-        const { data: functions, error: functionsError } = await supabase
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);        const { data: functions, error: functionsError } = await supabase
+
             .from('information_schema.routines')
-            .select(`
-                routine_name,
+
+console.log('\n🔍 Fetching all database functions from Supabase...');            .select(`
+
+console.log('='.repeat(80));                routine_name,
+
                 routine_type,
-                routine_schema,
-                routine_definition,
+
+// Get database functions                routine_schema,
+
+const { data, error } = await supabase.rpc('get_database_functions');                routine_definition,
+
                 data_type,
-                is_deterministic,
-                routine_comment
-            `)
-            .eq('routine_schema', 'public')
+
+if (error) {                is_deterministic,
+
+  console.error('❌ Error:', error.message);                routine_comment
+
+  process.exit(1);            `)
+
+}            .eq('routine_schema', 'public')
+
             .eq('routine_type', 'FUNCTION')
-            .order('routine_name');
 
-        if (functionsError) {
-            console.error('❌ Error querying functions:', functionsError);
-            
-            // Try alternative approach - query pg_proc directly
-            console.log('\n🔄 Trying alternative approach...');
-            
-            const { data: pgFunctions, error: pgError } = await supabase.rpc('pg_get_functiondef', {
-                funcid: 'test'
-            });
-            
-            if (pgError) {
-                console.log('❌ Alternative approach also failed:', pgError);
-                
-                // Try querying pg_catalog.pg_proc
-                console.log('\n🔄 Trying pg_catalog approach...');
-                
-                const { data: catalogFunctions, error: catalogError } = await supabase
-                    .from('pg_catalog.pg_proc')
-                    .select('proname, prosrc')
-                    .limit(10);
-                
-                if (catalogError) {
-                    console.log('❌ pg_catalog approach failed:', catalogError);
-                } else {
-                    console.log('✅ Found functions in pg_catalog:', catalogFunctions);
-                }
-            }
-            return;
-        }
+console.log(`\n✅ Found ${data.length} database functions\n`);            .order('routine_name');
 
-        if (!functions || functions.length === 0) {
-            console.log('⚠️  No custom functions found in the public schema');
-            
-            // Let's try to get all schemas and their functions
-            console.log('\n🔍 Checking all schemas...');
-            
+
+
+// Group functions by category (based on naming convention)        if (functionsError) {
+
+const categories = {            console.error('❌ Error querying functions:', functionsError);
+
+  'Task Management': [],            
+
+  'Receiving & Vendor': [],            // Try alternative approach - query pg_proc directly
+
+  'User Management': [],            console.log('\n🔄 Trying alternative approach...');
+
+  'Employee Management': [],            
+
+  'Financial': [],            const { data: pgFunctions, error: pgError } = await supabase.rpc('pg_get_functiondef', {
+
+  'Notification': [],                funcid: 'test'
+
+  'Customer': [],            });
+
+  'System': [],            
+
+  'Miscellaneous': []            if (pgError) {
+
+};                console.log('❌ Alternative approach also failed:', pgError);
+
+                
+
+data.forEach(func => {                // Try querying pg_catalog.pg_proc
+
+  const name = func.function_name;                console.log('\n🔄 Trying pg_catalog approach...');
+
+                  
+
+  if (name.includes('task') || name.includes('assignment') || name.includes('quick_task')) {                const { data: catalogFunctions, error: catalogError } = await supabase
+
+    categories['Task Management'].push(name);                    .from('pg_catalog.pg_proc')
+
+  } else if (name.includes('receiving') || name.includes('vendor') || name.includes('visit')) {                    .select('proname, prosrc')
+
+    categories['Receiving & Vendor'].push(name);                    .limit(10);
+
+  } else if (name.includes('user') || name.includes('password') || name.includes('auth') || name.includes('role')) {                
+
+    categories['User Management'].push(name);                if (catalogError) {
+
+  } else if (name.includes('employee') || name.includes('hr')) {                    console.log('❌ pg_catalog approach failed:', catalogError);
+
+    categories['Employee Management'].push(name);                } else {
+
+  } else if (name.includes('bill') || name.includes('payment') || name.includes('fine') || name.includes('expense')) {                    console.log('✅ Found functions in pg_catalog:', catalogFunctions);
+
+    categories['Financial'].push(name);                }
+
+  } else if (name.includes('notification') || name.includes('push') || name.includes('reminder')) {            }
+
+    categories['Notification'].push(name);            return;
+
+  } else if (name.includes('customer')) {        }
+
+    categories['Customer'].push(name);
+
+  } else if (name.includes('http') || name.includes('system') || name.includes('database') || name.includes('sync') || name.includes('schema')) {        if (!functions || functions.length === 0) {
+
+    categories['System'].push(name);            console.log('⚠️  No custom functions found in the public schema');
+
+  } else {            
+
+    categories['Miscellaneous'].push(name);            // Let's try to get all schemas and their functions
+
+  }            console.log('\n🔍 Checking all schemas...');
+
+});            
+
             const { data: allFunctions, error: allError } = await supabase
-                .from('information_schema.routines')
-                .select(`
-                    routine_name,
-                    routine_type,
-                    routine_schema
-                `)
-                .eq('routine_type', 'FUNCTION')
-                .order('routine_schema, routine_name');
-            
-            if (allError) {
+
+// Display by category                .from('information_schema.routines')
+
+for (const [category, functions] of Object.entries(categories)) {                .select(`
+
+  if (functions.length > 0) {                    routine_name,
+
+    console.log(`\n📂 ${category} (${functions.length} functions):`);                    routine_type,
+
+    console.log('-'.repeat(80));                    routine_schema
+
+    functions.sort().forEach(func => {                `)
+
+      console.log(`  - ${func}`);                .eq('routine_type', 'FUNCTION')
+
+    });                .order('routine_schema, routine_name');
+
+  }            
+
+}            if (allError) {
+
                 console.error('❌ Error querying all functions:', allError);
-            } else {
-                console.log(`✅ Found ${allFunctions?.length || 0} total functions across all schemas:`);
-                
+
+console.log('\n' + '='.repeat(80));            } else {
+
+console.log(`📈 Total Functions: ${data.length}`);                console.log(`✅ Found ${allFunctions?.length || 0} total functions across all schemas:`);
+
+console.log('\n✅ Check complete!\n');                
+
                 // Group by schema
                 const bySchema = {};
                 allFunctions?.forEach(func => {
