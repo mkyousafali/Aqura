@@ -413,7 +413,10 @@
 					issue_type: issueType,
 					priority: priority,
 					assigned_by: $currentUser?.id,
-					assigned_to_branch_id: selectedBranch
+					assigned_to_branch_id: selectedBranch,
+					require_task_finished: true, // Always required
+					require_photo_upload: requirePhotoUpload,
+					require_erp_reference: requireErpReference
 				})
 				.select()
 				.single();
@@ -498,22 +501,31 @@
 				requireErpReference, 
 				requireFileUpload
 			});
+			
+			console.log('📋 [QuickTask] Assignment Objects to Insert:', assignments);
 
-			const { error: assignmentError } = await supabase
+			const { data: insertedAssignments, error: assignmentError } = await supabase
 				.from('quick_task_assignments')
-				.insert(assignments);
+				.insert(assignments)
+				.select();
 
 			if (assignmentError) {
-				console.error('Error creating assignments:', assignmentError);
+				console.error('❌ Error creating assignments:', assignmentError);
 				alert('Error assigning task to users. Please try again.');
 				return;
 			}
+			
+			console.log('✅ [QuickTask] Assignments created:', insertedAssignments);
+			console.log('🔍 [QuickTask] First assignment details:', JSON.stringify(insertedAssignments[0], null, 2));
 
 			// TODO: Send notifications
-			alert(`Task assigned successfully! ${uploadedFiles.length > 0 ? `${uploadedFiles.length} file(s) uploaded.` : ''}`);
+			console.log(`✅ Task assigned successfully! ${uploadedFiles.length > 0 ? `${uploadedFiles.length} file(s) uploaded.` : ''}`);
 			
-			// Reset form
-			resetForm();
+			// Don't reset form immediately so we can see the logs
+			setTimeout(() => {
+				alert(`Task assigned successfully! ${uploadedFiles.length > 0 ? `${uploadedFiles.length} file(s) uploaded.` : ''}`);
+				resetForm();
+			}, 100);
 
 		} catch (error) {
 			console.error('Error assigning task:', error);

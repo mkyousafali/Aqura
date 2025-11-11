@@ -516,10 +516,22 @@
 				requireErpReference, 
 				requireFileUpload
 			});
+			
+			console.log('📋 [QuickTask Mobile] Assignment Objects to Insert:', assignments);
 
-			const { error: assignmentError } = await supabase
+			const { data: insertedAssignments, error: assignmentError } = await supabase
 				.from('quick_task_assignments')
-				.insert(assignments);
+				.insert(assignments)
+				.select();
+
+			if (assignmentError) {
+				console.error('Error creating assignments:', assignmentError);
+				alert('Error assigning task to users. Please try again.');
+				return;
+			}
+			
+			console.log('✅ [QuickTask Mobile] Assignments created:', insertedAssignments);
+			console.log('🔍 [QuickTask Mobile] First assignment details:', JSON.stringify(insertedAssignments[0], null, 2));
 
 			if (assignmentError) {
 				console.error('Error creating assignments:', assignmentError);

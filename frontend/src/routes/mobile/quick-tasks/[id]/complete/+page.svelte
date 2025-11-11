@@ -81,7 +81,7 @@
 		
 		// Check completion requirements
 		const taskCheck = !resolvedRequireTaskFinished || completionData.task_finished_completed;
-		const photoCheck = !resolvedRequirePhotoUpload || !!photoFile;
+		const photoCheck = !resolvedRequirePhotoUpload || (!!photoFile && completionData.photo_uploaded_completed);
 		const erpCheck = !resolvedRequireErpReference || (!!completionData.erp_reference_number?.trim() && completionData.erp_reference_completed);
 		
 		return taskCheck && photoCheck && erpCheck;
@@ -129,6 +129,8 @@
 
 			taskDetails = taskData;
 			
+			console.log('📋 [Mobile Complete] Task Details:', taskDetails);
+			
 			// Load quick task files
 			const { data: filesData, error: filesError } = await supabase
 				.from('quick_task_files')
@@ -160,6 +162,13 @@
 				console.error('Error loading assignment:', assignmentError);
 			} else if (assignments && assignments.length > 0) {
 				assignmentDetails = assignments[0];
+				
+				console.log('📋 [Mobile Complete] Assignment Details:', assignmentDetails);
+				console.log('🎯 [Mobile Complete] Requirements from assignment:', {
+					require_photo_upload: assignmentDetails.require_photo_upload,
+					require_erp_reference: assignmentDetails.require_erp_reference,
+					require_task_finished: assignmentDetails.require_task_finished
+				});
 				
 				// Get assigned by user name
 				if (taskDetails.assigned_by) {
@@ -401,10 +410,10 @@
 		
 		try {
 			const fileExt = photoFile.name.split('.').pop();
-			const fileName = `quick-task-completion-${taskId}-${Date.now()}.${fileExt}`;
+			const fileName = `quick-task-completion-${assignmentDetails.id}-${Date.now()}.${fileExt}`;
 			
 			const { data, error } = await supabase.storage
-				.from('completion-photos')
+				.from('quick-task-files')
 				.upload(fileName, photoFile, {
 					cacheControl: '3600',
 					upsert: false
@@ -415,11 +424,8 @@
 				return null;
 			}
 			
-			const { data: urlData } = supabase.storage
-				.from('completion-photos')
-				.getPublicUrl(fileName);
-			
-			return urlData.publicUrl;
+			// Return just the file path, not the full URL
+			return data.path;
 		} catch (error) {
 			console.error('Error uploading photo:', error);
 			return null;
@@ -434,28 +440,31 @@
 		successMessage = '';
 		
 		try {
-			const now = new Date().toISOString();
-			let photoUrl = null;
+			let photoPath = null;
 			
 			// Upload photo if required and provided
 			if (resolvedRequirePhotoUpload && photoFile) {
 				try {
-					photoUrl = await uploadPhoto();
-					if (!photoUrl) {
-						console.warn('Photo upload failed, continuing without photo');
+					photoPath = await uploadPhoto();
+					if (!photoPath) {
+						errorMessage = 'Photo upload failed. Please try again.';
+						return;
 					}
 				} catch (uploadError) {
 					console.error('Photo upload failed:', uploadError);
+					errorMessage = 'Photo upload failed. Please try again.';
+					return;
 				}
 			}
 			
 			// Create completion record using the submit_quick_task_completion function
 			try {
 				const { data: completionId, error } = await supabase.rpc('submit_quick_task_completion', {
-					assignment_id_param: assignmentDetails.id,
-					completion_notes_param: completionData.completion_notes || null,
-					photo_path_param: photoUrl,
-					erp_reference_param: completionData.erp_reference_number || null
+					p_assignment_id: assignmentDetails.id,
+					p_user_id: currentUserData.id,
+					p_completion_notes: completionData.completion_notes || null,
+					p_photos: photoPath ? [photoPath] : null,
+					p_erp_reference: completionData.erp_reference_number || null
 				});
 				
 				if (error) {
@@ -467,31 +476,6 @@
 			} catch (completionError) {
 				console.error('Error creating quick task completion:', completionError);
 				throw completionError;
-			}
-			
-			// Check if all assignments for this quick task are now completed
-			const { data: allAssignments, error: checkError } = await supabase
-				.from('quick_task_assignments')
-				.select('status')
-				.eq('quick_task_id', taskId);
-
-			if (!checkError && allAssignments) {
-				const allCompleted = allAssignments.every(a => a.status === 'completed');
-				if (allCompleted) {
-					// Update the quick task itself to completed
-					const { error: taskError } = await supabase
-						.from('quick_tasks')
-						.update({
-							status: 'completed',
-							completed_at: now,
-							updated_at: now
-						})
-						.eq('id', taskId);
-
-					if (taskError) {
-						console.error('Error updating task status:', taskError);
-					}
-				}
 			}
 			
 			successMessage = 'Quick Task completed successfully!';
