@@ -35,6 +35,8 @@
 	import AdManager from '$lib/components/admin/AdManager.svelte';
 	import DeliverySettings from '$lib/components/admin/DeliverySettings.svelte';
 	import ProductsManager from '$lib/components/admin/ProductsManager.svelte';
+	import OfferManagement from '$lib/components/admin/OfferManagement.svelte';
+	import ProductSelectorWindow from '$lib/components/admin/ProductSelectorWindow.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -334,6 +336,28 @@
 			title: `Products Manager #${instanceNumber}`,
 			component: ProductsManager,
 			icon: '🛍️',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showCustomerAppSubmenu = false;
+	}
+
+	function openOfferManagement() {
+		const windowId = generateWindowId('offer-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: t('admin.offerManagement') || `Offer Management #${instanceNumber}`,
+			component: OfferManagement,
+			icon: '🎁',
 			size: { width: 1400, height: 900 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -700,6 +724,12 @@
 					<button class="submenu-item" on:click={openCustomerMaster}>
 						<span class="menu-icon">🤝</span>
 						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openOfferManagement}>
+						<span class="menu-icon">🎁</span>
+						<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">

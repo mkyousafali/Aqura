@@ -92,45 +92,91 @@
 				return;
 			}
 
-			// For each record, get the vendor info and payment schedule status IN PARALLEL
-			const recordsWithVendors = await Promise.all((records || []).map(async (record) => {
-				// Fetch vendor and payment schedule in parallel for each record
-				const [vendorResult, scheduleResult] = await Promise.all([
-					supabase
-						.from('vendors')
-						.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact')
-						.eq('erp_vendor_id', record.vendor_id)
-						.eq('branch_id', record.branch_id)
-						.single(),
-					supabase
-						.from('vendor_payment_schedule')
-						.select('id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
-						.eq('receiving_record_id', record.id)
-				]);
+			console.log(`📊 Loading data for ${records.length} receiving records...`);
 
-				const vendorData = vendorResult.data;
-				const vendorError = vendorResult.error;
-				
-				let scheduleData = null;
-				let hasMultipleSchedules = false;
-				
-				if (!scheduleResult.error && scheduleResult.data && scheduleResult.data.length > 0) {
-					scheduleData = scheduleResult.data[0];
-					hasMultipleSchedules = scheduleResult.data.length > 1;
-				}
+			// OPTIMIZATION: Fetch all vendors and payment schedules in BULK queries
+			const recordIds = records.map(r => r.id);
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
 
-				if (vendorError) {
-					return {
-						...record,
-						vendors: null,
-						schedule_status: null,
-						is_scheduled: false
-					};
+			console.log(`📦 Fetching vendors (${uniqueVendorIds.length} unique IDs) and payment schedules...`);
+
+			// Helper function to chunk array into smaller pieces
+			const chunkArray = (array, size) => {
+				const chunks = [];
+				for (let i = 0; i < array.length; i += size) {
+					chunks.push(array.slice(i, i + size));
 				}
+				return chunks;
+			};
+
+			// Fetch vendors (no chunking needed - only 146 IDs)
+			const vendorsPromise = supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id')
+				.in('erp_vendor_id', uniqueVendorIds)
+				.in('branch_id', uniqueBranchIds);
+
+			// Fetch payment schedules in chunks to avoid URL length limit
+			// PostgreSQL can handle ~500 UUIDs per query safely (future-proof for 100K+ records)
+			const scheduleChunks = chunkArray(recordIds, 500);
+			console.log(`📦 Fetching schedules in ${scheduleChunks.length} chunks...`);
+
+			const schedulesPromises = scheduleChunks.map(chunk =>
+				supabase
+					.from('vendor_payment_schedule')
+					.select('id, receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
+					.in('receiving_record_id', chunk)
+			);
+
+			// Execute all queries in parallel
+			const [vendorsResult, ...scheduleResults] = await Promise.all([
+				vendorsPromise,
+				...schedulesPromises
+			]);
+
+			if (vendorsResult.error) {
+				console.error('❌ Error fetching vendors:', vendorsResult.error);
+			}
+
+			// Combine all schedule results
+			const allSchedules = [];
+			scheduleResults.forEach((result, index) => {
+				if (result.error) {
+					console.error(`❌ Error fetching schedule chunk ${index + 1}:`, result.error);
+				} else {
+					allSchedules.push(...(result.data || []));
+				}
+			});
+
+			// Create lookup maps for O(1) access
+			const vendorMap = new Map();
+			(vendorsResult.data || []).forEach(vendor => {
+				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+				vendorMap.set(key, vendor);
+			});
+
+			const scheduleMap = new Map();
+			allSchedules.forEach(schedule => {
+				if (!scheduleMap.has(schedule.receiving_record_id)) {
+					scheduleMap.set(schedule.receiving_record_id, []);
+				}
+				scheduleMap.get(schedule.receiving_record_id).push(schedule);
+			});
+
+			console.log(`✅ Loaded ${vendorMap.size} vendors and ${scheduleMap.size} payment schedules`);
+
+			// Map records with their vendor and schedule data using the lookup maps
+			const recordsWithVendors = records.map(record => {
+				const vendorKey = `${record.vendor_id}_${record.branch_id}`;
+				const vendorData = vendorMap.get(vendorKey);
+				const schedules = scheduleMap.get(record.id) || [];
+				const scheduleData = schedules[0] || null;
+				const hasMultipleSchedules = schedules.length > 1;
 
 				return {
 					...record,
-					vendors: vendorData,
+					vendors: vendorData || null,
 					schedule_status: scheduleData,
 					is_scheduled: !!scheduleData,
 					has_multiple_schedules: hasMultipleSchedules,
@@ -138,9 +184,10 @@
 					pr_excel_verified_by: scheduleData?.pr_excel_verified_by,
 					pr_excel_verified_date: scheduleData?.pr_excel_verified_date
 				};
-			}));
+			});
 
 			receivingRecords = recordsWithVendors;
+			console.log(`✅ Successfully loaded ${recordsWithVendors.length} records with vendor data`);
 			
 			applyFilters();
 		} catch (err) {
