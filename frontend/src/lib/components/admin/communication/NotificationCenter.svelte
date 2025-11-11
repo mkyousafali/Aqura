@@ -104,41 +104,69 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			console.warn(`❌ [Notification] Failed to batch load attachments:`, error);
 		}
 
-		// Handle task attachments (keeping individual loading for now since these are conditional)
-		for (const transformed of transformedNotifications) {
-			const notification = apiNotifications.find(n => n.id === transformed.id);
-			
-			if (notification.metadata && notification.metadata.task_id) {
-				try {
-					const attachmentResult = await db.taskAttachments.getByTaskId(notification.metadata.task_id);
-					
-					if (attachmentResult.data && attachmentResult.data.length > 0) {
-						// Convert task attachments to FileDownload format
-						const taskAttachments = attachmentResult.data
-							.filter(attachment => attachment && attachment.file_name && attachment.file_path)
-							.map(attachment => ({
-								id: attachment.id,
-								fileName: attachment.file_name || 'Unknown File',
-								fileSize: attachment.file_size || 0,
-								fileType: attachment.file_type || 'application/octet-stream',
-								fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-									? attachment.file_path 
-									: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-								downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-									? attachment.file_path 
-									: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-								uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
-								uploadedAt: attachment.created_at
-							}));
-						
-						// Merge with existing attachments
-						transformed.attachments = [...transformed.attachments, ...taskAttachments];
-					} else {
-						console.log(`📭 [Notification] No attachments found for task ${notification.metadata.task_id}`);
+		// Handle task attachments (batch load for performance)
+		// Collect all task IDs first
+		const taskIds = transformedNotifications
+			.filter(transformed => {
+				const notification = apiNotifications.find(n => n.id === transformed.id);
+				return notification?.metadata?.task_id;
+			})
+			.map(transformed => {
+				const notification = apiNotifications.find(n => n.id === transformed.id);
+				return notification.metadata.task_id;
+			});
+
+		// Batch load all task attachments if we have any task IDs
+		if (taskIds.length > 0) {
+			try {
+				console.log(`🖼️ [Notification] Batch loading task attachments for ${taskIds.length} tasks`);
+				
+				// Query all task attachments at once
+				const { data: taskAttachments, error } = await supabase
+					.from('task_images')
+					.select('*')
+					.in('task_id', taskIds);
+
+				if (error) {
+					console.warn(`❌ [Notification] Failed to batch load task attachments:`, error);
+				} else if (taskAttachments && taskAttachments.length > 0) {
+					// Group attachments by task_id
+					const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
+						if (!acc[attachment.task_id]) {
+							acc[attachment.task_id] = [];
+						}
+						acc[attachment.task_id].push({
+							id: attachment.id,
+							fileName: attachment.file_name || 'Unknown File',
+							fileSize: attachment.file_size || 0,
+							fileType: attachment.file_type || 'application/octet-stream',
+							fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+								? attachment.file_path 
+								: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+								? attachment.file_path 
+								: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+							uploadedAt: attachment.created_at
+						});
+						return acc;
+					}, {});
+
+					// Assign task attachments to their respective notifications
+					for (const transformed of transformedNotifications) {
+						const notification = apiNotifications.find(n => n.id === transformed.id);
+						if (notification?.metadata?.task_id) {
+							const taskAttachmentsForNotification = attachmentsByTaskId[notification.metadata.task_id] || [];
+							transformed.attachments = [...transformed.attachments, ...taskAttachmentsForNotification];
+						}
 					}
-				} catch (error) {
-					console.warn(`❌ [Notification] Failed to load attachments for task ${notification.metadata.task_id}:`, error);
+					
+					console.log(`✅ [Notification] Batch loaded ${taskAttachments.length} task attachments`);
+				} else {
+					console.log(`📭 [Notification] No task attachments found`);
 				}
+			} catch (error) {
+				console.warn(`❌ [Notification] Exception during batch task attachment loading:`, error);
 			}
 		}
 
