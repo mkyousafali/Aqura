@@ -150,20 +150,30 @@ export class NotificationManagementService {
           throw error;
         }
 
-        // Get read states for all notifications in a single query
+        // Get read states for all notifications in batched queries to avoid URL length limits
         const notificationIds = data?.map((r) => r.notification_id) || [];
-        const { data: readStates } = await supabase
-          .from("notification_read_states")
-          .select("notification_id, is_read, read_at")
-          .eq("user_id", userId)
-          .in("notification_id", notificationIds);
+        const batchSize = 100;
+        let allReadStates: any[] = [];
+        
+        for (let i = 0; i < notificationIds.length; i += batchSize) {
+          const batch = notificationIds.slice(i, i + batchSize);
+          const { data: readStates } = await supabase
+            .from("notification_read_states")
+            .select("notification_id, is_read, read_at")
+            .eq("user_id", userId)
+            .in("notification_id", batch);
+          
+          if (readStates) {
+            allReadStates = allReadStates.concat(readStates);
+          }
+        }
 
         // Create a map of read states for quick lookup
         const readStatesMap = new Map<
           string,
           { is_read: boolean; read_at?: string }
         >(
-          readStates?.map((rs) => [
+          allReadStates?.map((rs) => [
             rs.notification_id,
             { is_read: rs.is_read, read_at: rs.read_at },
           ]) || [],
@@ -232,20 +242,30 @@ export class NotificationManagementService {
         throw error;
       }
 
-      // Get read states for all notifications in a single query
+      // Get read states for all notifications in batched queries to avoid URL length limits
       const notificationIds = data?.map((r) => r.notification_id) || [];
-      const { data: readStates } = await supabase
-        .from("notification_read_states")
-        .select("notification_id, is_read, read_at")
-        .eq("user_id", userId)
-        .in("notification_id", notificationIds);
+      const batchSize = 100;
+      let allReadStates: any[] = [];
+      
+      for (let i = 0; i < notificationIds.length; i += batchSize) {
+        const batch = notificationIds.slice(i, i + batchSize);
+        const { data: readStates } = await supabase
+          .from("notification_read_states")
+          .select("notification_id, is_read, read_at")
+          .eq("user_id", userId)
+          .in("notification_id", batch);
+        
+        if (readStates) {
+          allReadStates = allReadStates.concat(readStates);
+        }
+      }
 
       // Create a map of read states for quick lookup
       const readStatesMap = new Map<
         string,
         { is_read: boolean; read_at?: string }
       >(
-        readStates?.map((rs) => [
+        allReadStates?.map((rs) => [
           rs.notification_id,
           { is_read: rs.is_read, read_at: rs.read_at },
         ]) || [],

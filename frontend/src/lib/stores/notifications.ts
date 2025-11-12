@@ -110,15 +110,27 @@ export async function fetchNotificationCounts(userId?: string) {
 
     // Get read states for these notifications
     const notificationIds = recipients?.map((r) => r.notification_id) || [];
-    const { data: readStates } = await supabase
-      .from("notification_read_states")
-      .select("notification_id, read_at")
-      .eq("user_id", targetUserId)
-      .in("notification_id", notificationIds);
+    
+    // Batch the notification IDs to avoid URL length limits (max ~100 IDs per batch)
+    const batchSize = 100;
+    let allReadStates: any[] = [];
+    
+    for (let i = 0; i < notificationIds.length; i += batchSize) {
+      const batch = notificationIds.slice(i, i + batchSize);
+      const { data: readStates } = await supabase
+        .from("notification_read_states")
+        .select("notification_id, read_at")
+        .eq("user_id", targetUserId)
+        .in("notification_id", batch);
+      
+      if (readStates) {
+        allReadStates = allReadStates.concat(readStates);
+      }
+    }
 
     // Create a set of read notification IDs
     const readNotificationIds = new Set(
-      readStates?.filter((rs) => rs.read_at).map((rs) => rs.notification_id) ||
+      allReadStates?.filter((rs) => rs.read_at).map((rs) => rs.notification_id) ||
         [],
     );
 

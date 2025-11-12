@@ -317,6 +317,23 @@
 		closeAddBundleModal();
 	}
 
+	function editBundle(index: number) {
+		const bundle = bundles[index];
+		
+		// Load bundle data into form
+		currentBundle = {
+			name_ar: bundle.name_ar,
+			name_en: bundle.name_en
+		};
+		selectedProductsForBundle = [...bundle.products];
+		
+		// Remove the bundle from the list (will be re-added when saved)
+		bundles = bundles.filter((_, i) => i !== index);
+		
+		// Show the add bundle form
+		showAddBundleForm = true;
+	}
+
 	function deleteBundle(index: number) {
 		if (confirm(isRTL ? 'هل تريد حذف هذه الحزمة؟' : 'Do you want to delete this bundle?')) {
 			bundles = bundles.filter((_, i) => i !== index);
@@ -654,14 +671,24 @@
 								<div class="bundle-card-summary">
 									<div class="bundle-card-header">
 										<h4>{isRTL ? bundle.name_ar : bundle.name_en}</h4>
-										<button
-											type="button"
-											class="btn-delete-bundle"
-											on:click={() => deleteBundle(index)}
-											title={isRTL ? 'حذف' : 'Delete'}
-										>
-											🗑️
-										</button>
+										<div class="bundle-actions">
+											<button
+												type="button"
+												class="btn-edit-bundle"
+												on:click={() => editBundle(index)}
+												title={isRTL ? 'تعديل' : 'Edit'}
+											>
+												✏️
+											</button>
+											<button
+												type="button"
+												class="btn-delete-bundle"
+												on:click={() => deleteBundle(index)}
+												title={isRTL ? 'حذف' : 'Delete'}
+											>
+												🗑️
+											</button>
+										</div>
 									</div>
 									<div class="bundle-card-content">
 										<div class="product-count">
@@ -1267,14 +1294,33 @@
 		color: #1f2937;
 	}
 
+	.bundle-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-edit-bundle,
 	.btn-delete-bundle {
 		background: transparent;
-		border: 1px solid #ef4444;
+		border: 1px solid #3b82f6;
 		border-radius: 6px;
 		padding: 0.375rem 0.75rem;
 		cursor: pointer;
 		font-size: 1.1rem;
 		transition: all 0.2s;
+	}
+
+	.btn-edit-bundle {
+		border-color: #3b82f6;
+	}
+
+	.btn-delete-bundle {
+		border-color: #ef4444;
+	}
+
+	.btn-edit-bundle:hover {
+		background: #3b82f6;
+		transform: scale(1.1);
 	}
 
 	.btn-delete-bundle:hover {
