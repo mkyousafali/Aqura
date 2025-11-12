@@ -629,8 +629,9 @@ export const englishLocale: LocaleData = {
       financeMaster: "Finance Master",
       taskMaster: "Task Master",
       communicationCenter: "Communication Center",
-  // Delivery module
-  deliverySettings: "Delivery Settings",
+      // Delivery module
+      deliverySettings: "Delivery Settings",
+      offerManagement: "Offer Management",
       accountRecovery: "Account Recovery",
       hrMaster: "HR Master",
       customerManagement: "Customer Management",

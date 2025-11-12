@@ -5,6 +5,7 @@
   import { openWindow } from '$lib/utils/windowManagerUtils';
   import OfferForm from './OfferForm.svelte';
   import BundleOfferWindow from './BundleOfferWindow.svelte';
+  import BuyXGetYOfferWindow from './BuyXGetYOfferWindow.svelte';
   
   let loading = true;
   let offers = [];
@@ -348,6 +349,19 @@
         width: 1000,
         height: 700
       });
+    } else if (type === 'bogo') {
+      // Open Buy X Get Y offers in a window
+      openWindow({
+        id: `buy-x-get-y-create-${Date.now()}`,
+        title: locale === 'ar' ? '🎁 إنشاء عرض اشتري واحصل' : '🎁 Create Buy X Get Y Offer',
+        component: BuyXGetYOfferWindow,
+        props: {
+          editMode: false,
+          offerId: null
+        },
+        width: 1000,
+        height: 700
+      });
     } else {
       // Other offer types still open in modal
       preselectedOfferType = type;
@@ -366,6 +380,19 @@
         id: `bundle-offer-edit-${offerId}`,
         title: locale === 'ar' ? '📦 تعديل عرض حزمة' : '📦 Edit Bundle Offer',
         component: BundleOfferWindow,
+        props: {
+          editMode: true,
+          offerId: offerId
+        },
+        width: 1000,
+        height: 700
+      });
+    } else if (offer && offer.type === 'bogo') {
+      // Open Buy X Get Y offers in a window
+      openWindow({
+        id: `buy-x-get-y-edit-${offerId}`,
+        title: locale === 'ar' ? '🎁 تعديل عرض اشتري واحصل' : '🎁 Edit Buy X Get Y Offer',
+        component: BuyXGetYOfferWindow,
         props: {
           editMode: true,
           offerId: offerId

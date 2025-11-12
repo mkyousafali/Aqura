@@ -413,7 +413,7 @@
 			const fileName = `quick-task-completion-${assignmentDetails.id}-${Date.now()}.${fileExt}`;
 			
 			const { data, error } = await supabase.storage
-				.from('quick-task-files')
+				.from('completion-photos')
 				.upload(fileName, photoFile, {
 					cacheControl: '3600',
 					upsert: false
