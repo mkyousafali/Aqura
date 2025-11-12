@@ -596,6 +596,7 @@ export const arabicLocale: LocaleData = {
       importData: "استيراد البيانات",
       auditLog: "سجل المراجعة",
       communicationCenter: "مركز الاتصالات",
+      offerManagement: "إدارة العروض",
       accountRecovery: "استرداد الحساب",
       customerManagement: "إدارة العملاء",
       customerManagementDescription: "إدارة تسجيلات العملاء وموافقات الوصول",
