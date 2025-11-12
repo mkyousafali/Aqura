@@ -6,6 +6,8 @@
   import OfferForm from './OfferForm.svelte';
   import BundleOfferWindow from './BundleOfferWindow.svelte';
   import BuyXGetYOfferWindow from './BuyXGetYOfferWindow.svelte';
+  import PercentageOfferWindow from './PercentageOfferWindow.svelte';
+  import SpecialPriceOfferWindow from './SpecialPriceOfferWindow.svelte';
   
   let loading = true;
   let offers = [];
@@ -229,7 +231,9 @@
         };
       });
       
+      console.log('Loaded offers:', offers.length, offers);
       applyFilters();
+      console.log('Filtered offers:', filteredOffers.length, filteredOffers);
     } catch (error) {
       console.error('Error loading offers:', error);
       alert(texts.loadingError);
@@ -302,8 +306,8 @@
   function applyFilters() {
     filteredOffers = offers.filter(offer => {
       const matchesSearch = !searchQuery || 
-        offer.name_ar.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        offer.name_en.toLowerCase().includes(searchQuery.toLowerCase());
+        (offer.name_ar && offer.name_ar.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (offer.name_en && offer.name_en.toLowerCase().includes(searchQuery.toLowerCase()));
       
       const matchesStatus = statusFilter === 'all' || offer.status === statusFilter;
       const matchesType = typeFilter === 'all' || offer.type === typeFilter;
@@ -336,8 +340,42 @@
       }
     }
     
-    // Open bundle offers in a window
-    if (type === 'bundle') {
+    // Open percentage offer in a window
+    if (type === 'percentage') {
+      openWindow({
+        id: `percentage-offer-create-${Date.now()}`,
+        title: locale === 'ar' ? '📊 إنشاء خصم بالنسبة' : '📊 Create Percentage Offer',
+        component: PercentageOfferWindow,
+        props: {
+          editMode: false,
+          offerId: null
+        },
+        width: 1000,
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
+      });
+    } else if (type === 'special_price') {
+      // Open special price offer in a window
+      openWindow({
+        id: `special-price-offer-create-${Date.now()}`,
+        title: locale === 'ar' ? '💰 إنشاء سعر خاص' : '💰 Create Special Price Offer',
+        component: SpecialPriceOfferWindow,
+        props: {
+          editMode: false,
+          offerId: null
+        },
+        width: 1000,
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
+      });
+    } else if (type === 'bundle') {
+      // Open bundle offers in a window
       openWindow({
         id: `bundle-offer-create-${Date.now()}`,
         title: locale === 'ar' ? '📦 إنشاء عرض حزمة' : '📦 Create Bundle Offer',
@@ -347,7 +385,11 @@
           offerId: null
         },
         width: 1000,
-        height: 700
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
       });
     } else if (type === 'bogo') {
       // Open Buy X Get Y offers in a window
@@ -360,7 +402,11 @@
           offerId: null
         },
         width: 1000,
-        height: 700
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
       });
     } else {
       // Other offer types still open in modal
@@ -374,8 +420,50 @@
     // Find the offer to check its type
     const offer = offers.find(o => o.id === offerId);
     
-    // Open bundle offers in a window
-    if (offer && offer.type === 'bundle') {
+    // Open product discount offers in appropriate window based on discount_type
+    if (offer && offer.type === 'product') {
+      if (offer.discount_type === 'percentage') {
+        // Percentage offer
+        openWindow({
+          id: `percentage-offer-edit-${offerId}`,
+          title: locale === 'ar' ? '📊 تعديل خصم بالنسبة' : '📊 Edit Percentage Offer',
+          component: PercentageOfferWindow,
+          props: {
+            editMode: true,
+            offerId: offerId
+          },
+          width: 1000,
+          height: 700,
+          onClose: async () => {
+            await loadOffers();
+            await loadStats();
+          }
+        });
+      } else if (offer.discount_type === 'fixed') {
+        // Special price offer
+        openWindow({
+          id: `special-price-offer-edit-${offerId}`,
+          title: locale === 'ar' ? '💰 تعديل سعر خاص' : '💰 Edit Special Price Offer',
+          component: SpecialPriceOfferWindow,
+          props: {
+            editMode: true,
+            offerId: offerId
+          },
+          width: 1000,
+          height: 700,
+          onClose: async () => {
+            await loadOffers();
+            await loadStats();
+          }
+        });
+      } else {
+        // Fallback for any other product discount type
+        preselectedOfferType = null;
+        editingOfferId = offerId;
+        showForm = true;
+      }
+    } else if (offer && offer.type === 'bundle') {
+      // Open bundle offers in a window
       openWindow({
         id: `bundle-offer-edit-${offerId}`,
         title: locale === 'ar' ? '📦 تعديل عرض حزمة' : '📦 Edit Bundle Offer',
@@ -385,7 +473,11 @@
           offerId: offerId
         },
         width: 1000,
-        height: 700
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
       });
     } else if (offer && offer.type === 'bogo') {
       // Open Buy X Get Y offers in a window
@@ -398,7 +490,11 @@
           offerId: offerId
         },
         width: 1000,
-        height: 700
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
       });
     } else {
       // Other offer types still open in modal
@@ -720,8 +816,11 @@
       <button class="btn-refresh" on:click={refreshData} title={texts.refresh}>
         🔄 {texts.refresh}
       </button>
-      <button class="btn-create btn-product" on:click={() => createOfferWithType('product')}>
-        🏷️ {locale === 'ar' ? 'خصم منتج' : 'Product Discount'}
+      <button class="btn-create btn-percentage" on:click={() => createOfferWithType('percentage')}>
+        📊 {locale === 'ar' ? 'خصم بالنسبة' : 'Percentage Offer'}
+      </button>
+      <button class="btn-create btn-special-price" on:click={() => createOfferWithType('special_price')}>
+        💰 {locale === 'ar' ? 'سعر خاص' : 'Special Price Offer'}
       </button>
       <button class="btn-create btn-bogo" on:click={() => createOfferWithType('bogo')}>
         🎁 {locale === 'ar' ? 'اشتري واحصل' : 'Buy X Get Y'}
@@ -1063,12 +1162,20 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   }
   
-  .btn-product {
+  .btn-percentage {
     background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   }
   
-  .btn-product:hover {
+  .btn-percentage:hover {
     background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  }
+  
+  .btn-special-price {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  }
+  
+  .btn-special-price:hover {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
   }
   
   .btn-bogo {
