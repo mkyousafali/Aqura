@@ -161,7 +161,7 @@
   async function loadOffers() {
     loading = true;
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('offers')
         .select(`
           *,
@@ -193,6 +193,12 @@
         .select('*')
         .in('offer_id', offerIds);
       
+      // Load BOGO rules data separately
+      const { data: bogoRulesData } = await supabaseAdmin
+        .from('bogo_offer_rules')
+        .select('*')
+        .in('offer_id', offerIds);
+      
       // Create a map of offer_id to bundles
       const bundlesMap = new Map();
       bundlesData?.forEach(bundle => {
@@ -200,6 +206,15 @@
           bundlesMap.set(bundle.offer_id, []);
         }
         bundlesMap.get(bundle.offer_id).push(bundle);
+      });
+      
+      // Create a map of offer_id to BOGO rules
+      const bogoRulesMap = new Map();
+      bogoRulesData?.forEach(rule => {
+        if (!bogoRulesMap.has(rule.offer_id)) {
+          bogoRulesMap.set(rule.offer_id, []);
+        }
+        bogoRulesMap.get(rule.offer_id).push(rule);
       });
       
       // Transform data and determine status
@@ -218,6 +233,7 @@
         }
         
         const bundles = bundlesMap.get(offer.id) || [];
+        const bogoRules = bogoRulesMap.get(offer.id) || [];
         
         return {
           ...offer,
@@ -227,7 +243,9 @@
           tierCount: offer.offer_cart_tiers?.length || 0,
           tiers: offer.offer_cart_tiers || [],
           bundleCount: bundles.length,
-          bundles: bundles
+          bundles: bundles,
+          bogoRulesCount: bogoRules.length,
+          bogoRules: bogoRules
         };
       });
       
@@ -304,6 +322,11 @@
   }
   
   function applyFilters() {
+    console.log('🔍 applyFilters() called');
+    console.log('  - Total offers:', offers.length);
+    console.log('  - Status filter:', statusFilter);
+    console.log('  - Type filter:', typeFilter);
+    
     filteredOffers = offers.filter(offer => {
       const matchesSearch = !searchQuery || 
         (offer.name_ar && offer.name_ar.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -316,8 +339,22 @@
         (offer.branch_id && offer.branch_id.toString() === branchFilter);
       const matchesService = serviceFilter === 'all' || offer.service_type === serviceFilter;
       
-      return matchesSearch && matchesStatus && matchesType && matchesBranch && matchesService;
+      const passes = matchesSearch && matchesStatus && matchesType && matchesBranch && matchesService;
+      
+      if (!passes) {
+        console.log(`  ❌ Offer ${offer.id} (${offer.name_en}) filtered out:`, {
+          matchesSearch,
+          matchesStatus: `${matchesStatus} (status: ${offer.status}, filter: ${statusFilter})`,
+          matchesType,
+          matchesBranch,
+          matchesService
+        });
+      }
+      
+      return passes;
     });
+    
+    console.log('  - Filtered result:', filteredOffers.length, 'offers');
   }
   
   let preselectedOfferType = null;
@@ -535,9 +572,19 @@
     }
   }
   
+  function toggleOfferStatus(offerId, currentStatus) {
+    const message = currentStatus
+      ? (locale === 'ar' ? 'هل تريد إيقاف هذا العرض؟' : 'Do you want to pause this offer?')
+      : (locale === 'ar' ? 'هل تريد تفعيل هذا العرض؟' : 'Do you want to activate this offer?');
+    
+    if (confirm(message)) {
+      updateOfferStatus(offerId, !currentStatus);
+    }
+  }
+  
   async function updateOfferStatus(offerId, isActive) {
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('offers')
         .update({ is_active: isActive })
         .eq('id', offerId);
@@ -547,9 +594,15 @@
       // Refresh offers
       await loadOffers();
       await loadStats();
+      
+      // If pausing an offer, reset status filter to 'all' so user can see the paused offer
+      if (!isActive && statusFilter === 'active') {
+        statusFilter = 'all';
+        applyFilters();
+      }
     } catch (error) {
       console.error('Error updating offer status:', error);
-      alert(texts.loadingError);
+      alert(locale === 'ar' ? 'حدث خطأ أثناء تحديث حالة العرض' : 'Error updating offer status');
     }
   }
   
@@ -797,14 +850,17 @@
     });
   }
   
-  // Watch for filter changes
+  // Watch for filter changes and offers data changes
   $: {
     searchQuery;
     statusFilter;
     typeFilter;
     branchFilter;
     serviceFilter;
-    applyFilters();
+    offers; // Also trigger when offers array changes
+    if (offers.length >= 0) {
+      applyFilters();
+    }
   }
 </script>
 
@@ -935,136 +991,301 @@
         {@const serviceBadge = getServiceTypeBadge(offer.service_type)}
         
         <div class="offer-card">
-          <!-- Type Badge -->
-          <div class="offer-type-badge" style="background: {typeBadge.color};">
-            {typeBadge.icon} {typeBadge.label}
-          </div>
-          
-          <!-- Header -->
-          <div class="offer-header">
-            <h3 class="offer-name">{locale === 'ar' ? offer.name_ar : offer.name_en}</h3>
-            <div class="status-badge" style="color: {statusBadge.color};">
-              {statusBadge.icon} {statusBadge.label}
+          {#if offer.type === 'bundle'}
+            <!-- Bundle Offer Card - Simplified Layout -->
+            <!-- Type Badge -->
+            <div class="offer-type-badge" style="background: {typeBadge.color};">
+              {typeBadge.icon} {typeBadge.label}
             </div>
-          </div>
-          
-          <!-- Branch & Service Info -->
-          <div class="offer-meta">
-            <span class="meta-badge">
-              {offer.branch_id ? '🏢' : '🌍'} {getBranchName(offer.branch_id)}
-            </span>
-            <span class="meta-badge">
-              {serviceBadge.icon} {serviceBadge.label}
-            </span>
-          </div>
-          
-          <!-- Discount Info -->
-          <div class="offer-discount">
-            {#if offer.type === 'bundle' && offer.bundles && offer.bundles.length > 0}
-              <!-- Bundle-specific display -->
-              <div class="bundle-list">
-                {#each offer.bundles as bundle, index}
-                  <div class="bundle-item">
-                    <div class="bundle-name">
-                      📦 {locale === 'ar' ? bundle.bundle_name_ar : bundle.bundle_name_en}
-                    </div>
-                    <div class="bundle-price">
-                      {bundle.discount_value} {texts.sar}
-                    </div>
-                    {#if bundle.required_products && bundle.required_products.length > 0}
-                      <div class="bundle-products-count">
-                        {bundle.required_products.length} {locale === 'ar' ? 'منتجات' : 'products'}
-                      </div>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-            {:else if offer.tierCount > 0}
-              <!-- Tiered discount display -->
-              <div class="tiered-discount">
-                <span class="tier-badge">
-                  🎯 {offer.tierCount} {locale === 'ar' ? 'مستويات' : 'Tiers'}
-                </span>
-                <span class="tier-range">
-                  {#if offer.tiers.length > 0}
-                    {@const minTier = offer.tiers[0]}
-                    {@const maxTier = offer.tiers[offer.tiers.length - 1]}
-                    {minTier.discount_type === 'percentage'
-                      ? `${minTier.discount_value}% - ${maxTier.discount_value}%`
-                      : `${minTier.discount_value} - ${maxTier.discount_value} ${texts.sar}`}
-                    {locale === 'ar' ? 'خصم' : 'OFF'}
-                  {/if}
-                </span>
-              </div>
-            {:else if offer.discount_type === 'percentage'}
-              <span class="discount-value">{offer.discount_value}%</span>
-              <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
-            {:else if offer.discount_type === 'fixed'}
-              <span class="discount-value">{offer.discount_value} {texts.sar}</span>
-              <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
-            {:else}
-              <span class="discount-value">{offer.discount_value}</span>
-              <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
-            {/if}
-          </div>
-          
-          <!-- Date Range -->
-          <div class="offer-dates">
-            📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
-          </div>
-          
-          <!-- Stats -->
-          <div class="offer-stats">
-            <div class="stat-item">
-              <span class="stat-number">{offer.current_total_uses || 0}</span>
-              <span class="stat-text">{texts.usedTimes}</span>
+            
+            <!-- Offer Name -->
+            <div class="offer-header">
+              <h3 class="offer-name">{locale === 'ar' ? offer.name_ar : offer.name_en}</h3>
             </div>
-          </div>
-          
-          <!-- Applicable To -->
-          <div class="offer-applicable">
-            {texts.applicableTo}: 
-            {#if offer.type === 'product' || offer.type === 'bogo'}
-              {offer.productCount > 0 ? `${offer.productCount} ${texts.products}` : texts.allProducts}
-            {:else if offer.type === 'bundle'}
-              {#if offer.bundleCount > 0}
-                {locale === 'ar' 
-                  ? `${offer.bundleCount} ${offer.bundleCount === 1 ? 'حزمة' : 'حزم'}`
-                  : `${offer.bundleCount} ${offer.bundleCount === 1 ? 'Bundle' : 'Bundles'}`}
-              {:else}
-                {locale === 'ar' ? 'حزمة منتجات' : 'Product Bundle'}
-              {/if}
-            {:else if offer.type === 'cart'}
+            
+            <!-- Active Status -->
+            <div class="offer-status-row">
+              <div class="status-badge" style="color: {statusBadge.color};">
+                {statusBadge.icon} {statusBadge.label}
+              </div>
+            </div>
+            
+            <!-- Branch & Service -->
+            <div class="offer-meta">
+              <span class="meta-badge">
+                {offer.branch_id ? '🏢' : '🌍'} {getBranchName(offer.branch_id)}
+              </span>
+              <span class="meta-badge">
+                {serviceBadge.icon} {serviceBadge.label}
+              </span>
+            </div>
+            
+            <!-- Total Bundles -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'إجمالي الحزم:' : 'Total Bundles:'}</span>
+              <span class="info-value">{offer.bundleCount || 0}</span>
+            </div>
+            
+            <!-- Start Date - End Date -->
+            <div class="offer-dates">
+              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+            </div>
+            
+            <!-- Number of Customers Used the Offer -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'عدد العملاء:' : 'Customers Used:'}</span>
+              <span class="info-value">{offer.current_total_uses || 0}</span>
+            </div>
+            
+            <!-- Actions: Edit, Status Toggle, Delete -->
+            <div class="offer-actions">
+              <button class="action-btn btn-edit" on:click={() => editOffer(offer.id)} title={texts.edit}>
+                ✏️ {locale === 'ar' ? 'تعديل' : 'Edit'}
+              </button>
+              <button 
+                class="action-btn btn-status" 
+                on:click={() => toggleOfferStatus(offer.id, offer.is_active)} 
+                title={offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Deactivate') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              >
+                {offer.is_active ? '⏸️' : '▶️'} 
+                {offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Pause') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              </button>
+              <button class="action-btn btn-delete danger" on:click={() => deleteOffer(offer.id)} title={texts.delete}>
+                🗑️ {locale === 'ar' ? 'حذف' : 'Delete'}
+              </button>
+            </div>
+          {:else if offer.type === 'bogo'}
+            <!-- BOGO Offer Card - Simplified Layout -->
+            <!-- Type Badge -->
+            <div class="offer-type-badge" style="background: {typeBadge.color};">
+              {typeBadge.icon} {typeBadge.label}
+            </div>
+            
+            <!-- Offer Name -->
+            <div class="offer-header">
+              <h3 class="offer-name">{locale === 'ar' ? offer.name_ar : offer.name_en}</h3>
+            </div>
+            
+            <!-- Active Status -->
+            <div class="offer-status-row">
+              <div class="status-badge" style="color: {statusBadge.color};">
+                {statusBadge.icon} {statusBadge.label}
+              </div>
+            </div>
+            
+            <!-- Branch & Service -->
+            <div class="offer-meta">
+              <span class="meta-badge">
+                {offer.branch_id ? '🏢' : '🌍'} {getBranchName(offer.branch_id)}
+              </span>
+              <span class="meta-badge">
+                {serviceBadge.icon} {serviceBadge.label}
+              </span>
+            </div>
+            
+            <!-- Total BOGO Rules -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'إجمالي قواعد BOGO:' : 'Total BOGO Rules:'}</span>
+              <span class="info-value">{offer.bogoRulesCount || 0}</span>
+            </div>
+            
+            <!-- Start Date - End Date -->
+            <div class="offer-dates">
+              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+            </div>
+            
+            <!-- Number of Customers Used the Offer -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'عدد العملاء:' : 'Customers Used:'}</span>
+              <span class="info-value">{offer.current_total_uses || 0}</span>
+            </div>
+            
+            <!-- Actions: Edit, Status Toggle, Delete -->
+            <div class="offer-actions">
+              <button class="action-btn btn-edit" on:click={() => editOffer(offer.id)} title={texts.edit}>
+                ✏️ {locale === 'ar' ? 'تعديل' : 'Edit'}
+              </button>
+              <button 
+                class="action-btn btn-status" 
+                on:click={() => toggleOfferStatus(offer.id, offer.is_active)} 
+                title={offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Deactivate') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              >
+                {offer.is_active ? '⏸️' : '▶️'} 
+                {offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Pause') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              </button>
+              <button class="action-btn btn-delete danger" on:click={() => deleteOffer(offer.id)} title={texts.delete}>
+                🗑️ {locale === 'ar' ? 'حذف' : 'Delete'}
+              </button>
+            </div>
+          {:else if offer.type === 'product' && (offer.discount_type === 'percentage' || offer.discount_type === 'fixed')}
+            <!-- Percentage / Special Price Offer Card - Simplified Layout -->
+            <!-- Type Badge -->
+            <div class="offer-type-badge" style="background: {typeBadge.color};">
+              {typeBadge.icon} {typeBadge.label}
+            </div>
+            
+            <!-- Offer Name -->
+            <div class="offer-header">
+              <h3 class="offer-name">{locale === 'ar' ? offer.name_ar : offer.name_en}</h3>
+            </div>
+            
+            <!-- Active Status -->
+            <div class="offer-status-row">
+              <div class="status-badge" style="color: {statusBadge.color};">
+                {statusBadge.icon} {statusBadge.label}
+              </div>
+            </div>
+            
+            <!-- Branch & Service -->
+            <div class="offer-meta">
+              <span class="meta-badge">
+                {offer.branch_id ? '🏢' : '🌍'} {getBranchName(offer.branch_id)}
+              </span>
+              <span class="meta-badge">
+                {serviceBadge.icon} {serviceBadge.label}
+              </span>
+            </div>
+            
+            <!-- Total Products -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'إجمالي المنتجات:' : 'Total Products:'}</span>
+              <span class="info-value">{offer.productCount || 0}</span>
+            </div>
+            
+            <!-- Start Date - End Date -->
+            <div class="offer-dates">
+              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+            </div>
+            
+            <!-- Number of Customers Used the Offer -->
+            <div class="offer-info-row">
+              <span class="info-label">{locale === 'ar' ? 'عدد العملاء:' : 'Customers Used:'}</span>
+              <span class="info-value">{offer.current_total_uses || 0}</span>
+            </div>
+            
+            <!-- Actions: Edit, Status Toggle, Delete -->
+            <div class="offer-actions">
+              <button class="action-btn btn-edit" on:click={() => editOffer(offer.id)} title={texts.edit}>
+                ✏️ {locale === 'ar' ? 'تعديل' : 'Edit'}
+              </button>
+              <button 
+                class="action-btn btn-status" 
+                on:click={() => toggleOfferStatus(offer.id, offer.is_active)} 
+                title={offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Deactivate') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              >
+                {offer.is_active ? '⏸️' : '▶️'} 
+                {offer.is_active ? (locale === 'ar' ? 'إيقاف' : 'Pause') : (locale === 'ar' ? 'تفعيل' : 'Activate')}
+              </button>
+              <button class="action-btn btn-delete danger" on:click={() => deleteOffer(offer.id)} title={texts.delete}>
+                🗑️ {locale === 'ar' ? 'حذف' : 'Delete'}
+              </button>
+            </div>
+          {:else}
+            <!-- Other Offer Types - Original Layout -->
+            <!-- Type Badge -->
+            <div class="offer-type-badge" style="background: {typeBadge.color};">
+              {typeBadge.icon} {typeBadge.label}
+            </div>
+            
+            <!-- Header -->
+            <div class="offer-header">
+              <h3 class="offer-name">{locale === 'ar' ? offer.name_ar : offer.name_en}</h3>
+              <div class="status-badge" style="color: {statusBadge.color};">
+                {statusBadge.icon} {statusBadge.label}
+              </div>
+            </div>
+            
+            <!-- Branch & Service Info -->
+            <div class="offer-meta">
+              <span class="meta-badge">
+                {offer.branch_id ? '🏢' : '🌍'} {getBranchName(offer.branch_id)}
+              </span>
+              <span class="meta-badge">
+                {serviceBadge.icon} {serviceBadge.label}
+              </span>
+            </div>
+            
+            <!-- Discount Info -->
+            <div class="offer-discount">
               {#if offer.tierCount > 0}
-                🎯 {offer.tierCount} {locale === 'ar' ? (offer.tierCount === 1 ? 'مستوى' : 'مستويات') : (offer.tierCount === 1 ? 'Tier' : 'Tiers')}
-                {#if offer.tiers && offer.tiers.length > 0}
-                  {@const minTier = offer.tiers.reduce((min, t) => t.discount_value < min.discount_value ? t : min, offer.tiers[0])}
-                  {@const maxTier = offer.tiers.reduce((max, t) => t.discount_value > max.discount_value ? t : max, offer.tiers[0])}
-                  <span class="tier-range">
-                    ({minTier.discount_type === 'percentage' ? `${minTier.discount_value}%` : `${minTier.discount_value} ${locale === 'ar' ? 'ريال' : 'SAR'}`}
-                    - 
-                    {maxTier.discount_type === 'percentage' ? `${maxTier.discount_value}%` : `${maxTier.discount_value} ${locale === 'ar' ? 'ريال' : 'SAR'}`}
-                    {locale === 'ar' ? 'خصم' : 'OFF'})
+                <!-- Tiered discount display -->
+                <div class="tiered-discount">
+                  <span class="tier-badge">
+                    🎯 {offer.tierCount} {locale === 'ar' ? 'مستويات' : 'Tiers'}
                   </span>
-                {/if}
+                  <span class="tier-range">
+                    {#if offer.tiers.length > 0}
+                      {@const minTier = offer.tiers[0]}
+                      {@const maxTier = offer.tiers[offer.tiers.length - 1]}
+                      {minTier.discount_type === 'percentage'
+                        ? `${minTier.discount_value}% - ${maxTier.discount_value}%`
+                        : `${minTier.discount_value} - ${maxTier.discount_value} ${texts.sar}`}
+                      {locale === 'ar' ? 'خصم' : 'OFF'}
+                    {/if}
+                  </span>
+                </div>
+              {:else if offer.discount_type === 'percentage'}
+                <span class="discount-value">{offer.discount_value}%</span>
+                <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
+              {:else if offer.discount_type === 'fixed'}
+                <span class="discount-value">{offer.discount_value} {texts.sar}</span>
+                <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
               {:else}
-                {locale === 'ar' ? 'السلة بالكامل' : 'Entire Cart'}
+                <span class="discount-value">{offer.discount_value}</span>
+                <span class="discount-label">{locale === 'ar' ? 'خصم' : 'OFF'}</span>
               {/if}
-            {/if}
-          </div>
-          
-          <!-- Actions -->
-          <div class="offer-actions">
-            <button class="action-btn" on:click={() => editOffer(offer.id)} title={texts.edit}>
-              ✏️
-            </button>
-            <button class="action-btn" on:click={() => viewAnalytics(offer.id)} title={texts.analytics}>
-              📊
-            </button>
-            <button class="action-btn danger" on:click={() => deleteOffer(offer.id)} title={texts.delete}>
-              🗑️
-            </button>
-          </div>
+            </div>
+            
+            <!-- Date Range -->
+            <div class="offer-dates">
+              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+            </div>
+            
+            <!-- Stats -->
+            <div class="offer-stats">
+              <div class="stat-item">
+                <span class="stat-number">{offer.current_total_uses || 0}</span>
+                <span class="stat-text">{texts.usedTimes}</span>
+              </div>
+            </div>
+            
+            <!-- Applicable To -->
+            <div class="offer-applicable">
+              {texts.applicableTo}: 
+              {#if offer.type === 'product' || offer.type === 'bogo'}
+                {offer.productCount > 0 ? `${offer.productCount} ${texts.products}` : texts.allProducts}
+              {:else if offer.type === 'cart'}
+                {#if offer.tierCount > 0}
+                  🎯 {offer.tierCount} {locale === 'ar' ? (offer.tierCount === 1 ? 'مستوى' : 'مستويات') : (offer.tierCount === 1 ? 'Tier' : 'Tiers')}
+                  {#if offer.tiers && offer.tiers.length > 0}
+                    {@const minTier = offer.tiers.reduce((min, t) => t.discount_value < min.discount_value ? t : min, offer.tiers[0])}
+                    {@const maxTier = offer.tiers.reduce((max, t) => t.discount_value > max.discount_value ? t : max, offer.tiers[0])}
+                    <span class="tier-range">
+                      ({minTier.discount_type === 'percentage' ? `${minTier.discount_value}%` : `${minTier.discount_value} ${locale === 'ar' ? 'ريال' : 'SAR'}`}
+                      - 
+                      {maxTier.discount_type === 'percentage' ? `${maxTier.discount_value}%` : `${maxTier.discount_value} ${locale === 'ar' ? 'ريال' : 'SAR'}`}
+                      {locale === 'ar' ? 'خصم' : 'OFF'})
+                    </span>
+                  {/if}
+                {:else}
+                  {locale === 'ar' ? 'السلة بالكامل' : 'Entire Cart'}
+                {/if}
+              {/if}
+            </div>
+            
+            <!-- Actions -->
+            <div class="offer-actions">
+              <button class="action-btn" on:click={() => editOffer(offer.id)} title={texts.edit}>
+                ✏️
+              </button>
+              <button class="action-btn" on:click={() => viewAnalytics(offer.id)} title={texts.analytics}>
+                📊
+              </button>
+              <button class="action-btn danger" on:click={() => deleteOffer(offer.id)} title={texts.delete}>
+                🗑️
+              </button>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -1507,6 +1728,34 @@
     border-top: 1px solid #f3f4f6;
   }
   
+  /* Bundle Card Specific Styles */
+  .offer-status-row {
+    margin: 1rem 0 0.75rem 0;
+    text-align: center;
+  }
+  
+  .offer-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: #f9fafb;
+    border-radius: 8px;
+    margin: 0.5rem 0;
+  }
+  
+  .info-label {
+    font-size: 0.9rem;
+    color: #6b7280;
+    font-weight: 500;
+  }
+  
+  .info-value {
+    font-size: 1.1rem;
+    color: #1f2937;
+    font-weight: 700;
+  }
+  
   .offer-actions {
     display: flex;
     gap: 0.5rem;
@@ -1530,6 +1779,46 @@
     background: #f3f4f6;
     border-color: #d1d5db;
     transform: scale(1.05);
+  }
+  
+  /* Bundle Card Action Buttons */
+  .action-btn.btn-edit {
+    background: #EEF2FF;
+    color: #4F46E5;
+    border-color: #C7D2FE;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  
+  .action-btn.btn-edit:hover {
+    background: #C7D2FE;
+    border-color: #A5B4FC;
+  }
+  
+  .action-btn.btn-status {
+    background: #F0FDF4;
+    color: #16A34A;
+    border-color: #BBF7D0;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  
+  .action-btn.btn-status:hover {
+    background: #BBF7D0;
+    border-color: #86EFAC;
+  }
+  
+  .action-btn.btn-delete {
+    background: #FEF2F2;
+    color: #DC2626;
+    border-color: #FECACA;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  
+  .action-btn.btn-delete:hover {
+    background: #FEE2E2;
+    border-color: #FCA5A5;
   }
   
   .action-btn.danger:hover {

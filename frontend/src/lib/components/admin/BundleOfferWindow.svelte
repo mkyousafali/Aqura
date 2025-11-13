@@ -133,6 +133,23 @@
 				.gte('offers.end_date', new Date().toISOString())
 				.neq('offers.id', offerId || 0);
 
+			// Get products from BOGO offers
+			let bogoQuery = supabaseAdmin
+				.from('bogo_offer_rules')
+				.select(`
+					buy_product_id,
+					get_product_id,
+					offers!inner(id, is_active, end_date)
+				`)
+				.eq('offers.is_active', true)
+				.gte('offers.end_date', new Date().toISOString());
+			
+			if (editMode && offerId) {
+				bogoQuery = bogoQuery.neq('offers.id', offerId);
+			}
+
+			const { data: bogoData } = await bogoQuery;
+
 			const usedProductIds = new Set();
 			
 			// Add products from offer_products
@@ -146,6 +163,16 @@
 					bundle.required_products.forEach((p: any) => {
 						usedProductIds.add(p.product_id);
 					});
+				}
+			});
+
+			// Add products from BOGO offers
+			bogoData?.forEach((rule: any) => {
+				if (rule.buy_product_id) {
+					usedProductIds.add(rule.buy_product_id);
+				}
+				if (rule.get_product_id) {
+					usedProductIds.add(rule.get_product_id);
 				}
 			});
 

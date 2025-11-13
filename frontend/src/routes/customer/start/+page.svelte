@@ -119,7 +119,7 @@
   }
 
   $: texts = currentLanguage === 'ar' ? {
-    title: 'اختر الفرع والخدمة',
+    title: 'الرجاء اختيار الخدمة وأقرب فرع لك',
     selectBranch: 'اختر الفرع',
     services: 'الخدمات المتاحة',
     delivery: 'التوصيل',
@@ -130,7 +130,7 @@
     deliveryHours: 'ساعات التوصيل',
     pickupHours: 'ساعات الاستلام'
   } : {
-    title: 'Select Branch & Service',
+    title: 'Please choose your service and nearest branch',
     selectBranch: 'Select Branch',
     services: 'Available Services',
     delivery: 'Delivery',
@@ -207,69 +207,74 @@
     <div class="bubble bubble-pink bubble-20"></div>
   </div>
 
-  <h1 class="page-title">{texts.title}</h1>
+  <!-- Enhanced Page Title Header -->
+  <div class="page-header">
+    <div class="header-icon">🎯</div>
+    <h1 class="page-title">{texts.title}</h1>
+  </div>
 
   {#if loading}
     <div class="loading">{texts.loading}</div>
   {:else}
-    <div class="branches-list">
-      {#each branches as branch}
-        <div class="branch-card {selectedBranch?.branch_id === branch.branch_id ? 'expanded' : ''}">
-          <button 
-            class="branch-header" 
-            on:click|stopPropagation={() => toggleBranch(branch)}
-            type="button"
-          >
-            <div class="branch-info">
-              <h3>{currentLanguage === 'ar' ? branch.branch_name_ar : branch.branch_name_en}</h3>
-              <div class="service-badges">
-                {#if branch.delivery_service_enabled}<span class="badge delivery">🚚 {texts.delivery}</span>{/if}
-                {#if branch.pickup_service_enabled}<span class="badge pickup">🏪 {texts.pickup}</span>{/if}
-              </div>
-            </div>
-            <div class="expand">{selectedBranch?.branch_id === branch.branch_id ? '▲' : '▼'}</div>
-          </button>
-          {#if selectedBranch?.branch_id === branch.branch_id}
-            <div class="services">
-              {#if branch.delivery_service_enabled}
-                <button 
-                  class="service-card {!isServiceAvailable(branch, 'delivery') ? 'disabled' : ''}" 
-                  on:click|stopPropagation={() => chooseService(branch, 'delivery')}
-                  type="button"
-                >
-                  <div class="icon">🚚</div>
-                  <div class="content">
-                    <h4>{texts.delivery}</h4>
-                    <p class="hours">{formatHours(branch, 'delivery')}</p>
-                    {#if !isServiceAvailable(branch, 'delivery')}
-                      <p class="closed-msg">{currentLanguage === 'ar' ? '🔒 مغلق الآن' : '🔒 Closed Now'}</p>
-                    {/if}
-                  </div>
-                  <div class="arrow">→</div>
-                </button>
-              {/if}
-              {#if branch.pickup_service_enabled}
-                <button 
-                  class="service-card {!isServiceAvailable(branch, 'pickup') ? 'disabled' : ''}" 
-                  on:click|stopPropagation={() => chooseService(branch, 'pickup')}
-                  type="button"
-                >
-                  <div class="icon">🏪</div>
-                  <div class="content">
-                    <h4>{texts.pickup}</h4>
-                    <p class="hours">{formatHours(branch, 'pickup')}</p>
-                    {#if !isServiceAvailable(branch, 'pickup')}
-                      <p class="closed-msg">{currentLanguage === 'ar' ? '🔒 مغلق الآن' : '🔒 Closed Now'}</p>
-                    {/if}
-                  </div>
-                  <div class="arrow">→</div>
-                </button>
-              {/if}
-            </div>
-          {/if}
+    <!-- Delivery Service Section -->
+    {@const deliveryBranches = branches.filter(b => b.delivery_service_enabled)}
+    {#if deliveryBranches.length > 0}
+      <div class="service-section">
+        <div class="service-section-header">
+          <div class="service-section-icon">🚚</div>
+          <h2 class="service-section-title">{texts.delivery}</h2>
         </div>
-      {/each}
-    </div>
+        <div class="branches-list">
+          {#each deliveryBranches as branch}
+            <button 
+              class="branch-service-card {!isServiceAvailable(branch, 'delivery') ? 'disabled' : ''}" 
+              on:click={() => chooseService(branch, 'delivery')}
+              type="button"
+            >
+              <div class="branch-service-icon">🏪</div>
+              <div class="branch-service-content">
+                <h3>{currentLanguage === 'ar' ? branch.branch_name_ar : branch.branch_name_en}</h3>
+                <p class="branch-service-hours">{formatHours(branch, 'delivery')}</p>
+                {#if !isServiceAvailable(branch, 'delivery')}
+                  <p class="closed-msg">{currentLanguage === 'ar' ? '🔒 مغلق الآن' : '🔒 Closed Now'}</p>
+                {/if}
+              </div>
+              <div class="branch-service-arrow">→</div>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Pickup Service Section -->
+    {@const pickupBranches = branches.filter(b => b.pickup_service_enabled)}
+    {#if pickupBranches.length > 0}
+      <div class="service-section">
+        <div class="service-section-header">
+          <div class="service-section-icon">🏪</div>
+          <h2 class="service-section-title">{texts.pickup}</h2>
+        </div>
+        <div class="branches-list">
+          {#each pickupBranches as branch}
+            <button 
+              class="branch-service-card {!isServiceAvailable(branch, 'pickup') ? 'disabled' : ''}" 
+              on:click={() => chooseService(branch, 'pickup')}
+              type="button"
+            >
+              <div class="branch-service-icon">🏪</div>
+              <div class="branch-service-content">
+                <h3>{currentLanguage === 'ar' ? branch.branch_name_ar : branch.branch_name_en}</h3>
+                <p class="branch-service-hours">{formatHours(branch, 'pickup')}</p>
+                {#if !isServiceAvailable(branch, 'pickup')}
+                  <p class="closed-msg">{currentLanguage === 'ar' ? '🔒 مغلق الآن' : '🔒 Closed Now'}</p>
+                {/if}
+              </div>
+              <div class="branch-service-arrow">→</div>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -613,15 +618,54 @@
     70% { transform: translate(-30px, -25px) scale(0.9); }
   }
 
-  .page-title {
+  /* Enhanced Page Header Styling */
+  .page-header {
     text-align: center;
-    font-size: 0.975rem; /* 25% reduction from 1.3rem */
-    margin: 0 0 1.125rem; /* 25% reduction from 1.5rem */
-    color: #1f2937 !important; /* Dark gray instead of white/green */
-    font-weight: 700;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    margin-bottom: 2rem;
+    padding: 1.5rem 1rem;
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.15) 0%, rgba(245, 158, 11, 0.1) 100%);
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.5);
     position: relative;
     z-index: 10;
+    max-width: 360px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .header-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+
+  .page-title {
+    text-align: center;
+    font-size: 1.3rem;
+    margin: 0 0 0.5rem;
+    color: var(--brand-green);
+    font-weight: 800;
+    text-shadow: 0 2px 4px rgba(255, 255, 255, 0.8);
+    position: relative;
+    z-index: 10;
+    line-height: 1.3;
+  }
+
+  .header-subtitle {
+    font-size: 0.85rem;
+    color: #374151;
+    font-weight: 600;
+    margin-top: 0.5rem;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
   }
 
   .loading {
@@ -956,8 +1000,21 @@
         0 0 8px rgba(255, 255, 255, 0.3);
     }
 
+    .page-header {
+      padding: 1rem 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .header-icon {
+      font-size: 2.5rem;
+    }
+
     .page-title {
-      font-size: 0.825rem; /* Further reduction for mobile */
+      font-size: 1.1rem;
+    }
+
+    .header-subtitle {
+      font-size: 0.75rem;
     }
 
     .branches-list {
@@ -983,12 +1040,186 @@
       padding: 1.5rem 1.5rem 90px; /* 25% reduction from 2rem 2rem 120px */
     }
 
+    .page-header {
+      max-width: 480px;
+      padding: 2rem 1.5rem;
+    }
+
+    .header-icon {
+      font-size: 3.5rem;
+    }
+
     .page-title {
-      font-size: 1.125rem; /* 25% reduction from 1.5rem */
+      font-size: 1.5rem;
+    }
+
+    .header-subtitle {
+      font-size: 0.95rem;
     }
 
     .branch-card {
       border-radius: 18px; /* 25% reduction from 24px */
     }
   }
+
+  /* NEW DIRECT STYLES - Services Always Visible */
+  .service-section {
+    width: 100%;
+    max-width: 360px;
+    margin: 0 auto 1.5rem;
+    position: relative;
+    z-index: 10;
+  }
+
+  .service-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, var(--brand-green) 0%, var(--brand-green-light) 100%);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+    margin-bottom: 0.5rem;
+  }
+
+  .service-section-icon {
+    font-size: 2rem;
+    filter: drop-shadow(0 2px 4px rgba(255, 255, 255, 0.3));
+  }
+
+  .service-section-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: white;
+    font-weight: 700;
+    flex: 1;
+  }
+
+  .branches-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .branch-service-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.95);
+    border: 2px solid rgba(22, 163, 74, 0.2);
+    padding: 0.875rem 1rem;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    width: 100%;
+    text-align: left;
+  }
+
+  .branch-service-card:hover {
+    border-color: var(--brand-green);
+    box-shadow: 0 6px 16px rgba(22, 163, 74, 0.3);
+    transform: translateX(8px) scale(1.02);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(22, 163, 74, 0.08));
+  }
+
+  .branch-service-card:active {
+    transform: scale(0.98);
+  }
+
+  .branch-service-card.disabled {
+    background: rgba(200, 200, 200, 0.5);
+    border-color: rgba(150, 150, 150, 0.3);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .branch-service-card.disabled:hover {
+    transform: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .branch-service-icon {
+    font-size: 1.8rem;
+    transition: transform 0.3s ease;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+  }
+
+  .branch-service-card:hover .branch-service-icon {
+    transform: scale(1.15) rotate(5deg);
+  }
+
+  .branch-service-content {
+    flex: 1;
+  }
+
+  .branch-service-content h3 {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--brand-green);
+    font-weight: 700;
+  }
+
+  .branch-service-hours {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-weight: 500;
+  }
+
+  .branch-service-arrow {
+    font-size: 1.5rem;
+    color: var(--brand-green);
+    transition: all 0.3s ease;
+    font-weight: 700;
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.1) 0%, transparent 100%);
+    padding: 0.4rem;
+    border-radius: 50%;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .branch-service-card:hover .branch-service-arrow {
+    transform: translateX(6px) scale(1.3);
+    color: white;
+    background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-orange-light) 100%);
+    box-shadow: 0 3px 8px rgba(245, 158, 11, 0.5);
+  }
+
+  .closed-msg {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.7rem;
+    color: #dc2626;
+    font-weight: 600;
+  }
+
+  @media (max-width: 480px) {
+    .service-section {
+      max-width: 100%;
+    }
+
+    .service-section-header {
+      padding: 0.625rem 0.75rem;
+    }
+
+    .service-section-title {
+      font-size: 0.95rem;
+    }
+
+    .branch-service-card {
+      padding: 0.75rem 0.875rem;
+    }
+
+    .branch-service-content h3 {
+      font-size: 0.85rem;
+    }
+  }
 </style>
+```

@@ -708,8 +708,6 @@
 
     width: 100%;
     min-height: 100vh;
-    height: calc(100vh - 45px);
-    max-height: calc(100vh - 45px);
     margin: 0 auto;
     padding: 0.375rem; /* 25% reduction from 0.5rem */
     padding-bottom: 75px; /* 25% reduction from 100px */
@@ -1522,9 +1520,7 @@
       padding: 0.375rem; /* 25% reduction from 0.5rem */
       padding-bottom: 60px; /* 25% reduction from 80px */
       padding-top: 0.375rem; /* 25% reduction from 0.5rem */
-      height: calc(100vh - 60px);
-      max-height: calc(100vh - 60px);
-      min-height: calc(100vh - 60px); /* 25% reduction from 60px */
+      min-height: calc(100vh - 60px);
     }
 
     /* Smaller bubbles on mobile */

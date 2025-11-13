@@ -164,6 +164,33 @@
         });
       }
       
+      // 3. Load products from offer_products table (Percentage & Special Price offers)
+      let offerProductsQuery = supabaseAdmin
+        .from('offer_products')
+        .select(`
+          product_id,
+          offers!inner(id, is_active, end_date, type)
+        `)
+        .eq('offers.is_active', true)
+        .gte('offers.end_date', new Date().toISOString());
+      
+      // If editing, exclude products from the current offer
+      if (editMode && offerId) {
+        offerProductsQuery = offerProductsQuery.neq('offers.id', offerId);
+      }
+      
+      const { data: offerProducts, error: offerProductsError } = await offerProductsQuery;
+      
+      if (offerProductsError) {
+        console.error('Error loading offer products:', offerProductsError);
+      } else {
+        console.log('Offer products loaded:', offerProducts);
+        offerProducts?.forEach((op: any) => {
+          console.log('Adding product from offer_products:', op.product_id);
+          tempSet.add(op.product_id);
+        });
+      }
+      
       console.log('✅ Final used product IDs:', Array.from(tempSet));
       
       // Reassign to trigger reactivity
