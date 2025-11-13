@@ -246,6 +246,21 @@
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   }
   
+  // Convert Saudi time from datetime-local input to UTC for database storage
+  function toUTCFromSaudiInput(saudiTimeString) {
+    const [datePart, timePart] = saudiTimeString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = timePart.split(':').map(Number);
+    
+    // Create date in Saudi timezone (UTC+3)
+    const saudiDate = new Date(year, month - 1, day, hours, minutes);
+    
+    // Convert to UTC by subtracting 3 hours
+    const utcDate = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+    
+    return utcDate.toISOString();
+  }
+  
   async function loadOfferData() {
     if (!offerId) return;
     
@@ -458,15 +473,14 @@
     error = null;
     
     try {
-      // Step 1: Create the offer
       const offerPayload = {
         type: 'bogo',
         name_ar: offerData.name_ar,
         name_en: offerData.name_en,
         description_ar: offerData.description_ar,
         description_en: offerData.description_en,
-        start_date: offerData.start_date,
-        end_date: offerData.end_date,
+        start_date: toUTCFromSaudiInput(offerData.start_date),
+        end_date: toUTCFromSaudiInput(offerData.end_date),
         branch_id: offerData.branch_id,
         service_type: offerData.service_type,
         is_active: offerData.is_active,
@@ -476,13 +490,38 @@
         bogo_get_quantity: 1   // Dummy value to satisfy constraint
       };
       
-      const { data: offer, error: offerError } = await supabaseAdmin
-        .from('offers')
-        .insert(offerPayload)
-        .select()
-        .single();
+      let offer;
       
-      if (offerError) throw offerError;
+      if (editMode && offerId) {
+        // Update existing offer
+        const { data, error: offerError } = await supabaseAdmin
+          .from('offers')
+          .update(offerPayload)
+          .eq('id', offerId)
+          .select()
+          .single();
+        
+        if (offerError) throw offerError;
+        offer = data;
+        
+        // Delete existing BOGO rules before creating new ones
+        const { error: deleteError } = await supabaseAdmin
+          .from('bogo_offer_rules')
+          .delete()
+          .eq('offer_id', offerId);
+        
+        if (deleteError) throw deleteError;
+      } else {
+        // Create new offer
+        const { data, error: offerError } = await supabaseAdmin
+          .from('offers')
+          .insert(offerPayload)
+          .select()
+          .single();
+        
+        if (offerError) throw offerError;
+        offer = data;
+      }
       
       // Step 2: Create BOGO rules
       const rulesPayload = bogoRules.map(rule => ({
@@ -502,9 +541,13 @@
       if (rulesError) throw rulesError;
       
       // Success!
-      alert(isRTL 
-        ? '✅ تم إنشاء عرض اشتري واحصل بنجاح!'
-        : '✅ Buy X Get Y offer created successfully!'
+      alert(editMode
+        ? (isRTL 
+          ? '✅ تم تحديث عرض اشتري واحصل بنجاح!'
+          : '✅ Buy X Get Y offer updated successfully!')
+        : (isRTL 
+          ? '✅ تم إنشاء عرض اشتري واحصل بنجاح!'
+          : '✅ Buy X Get Y offer created successfully!')
       );
       
       // Dispatch success event to close window
