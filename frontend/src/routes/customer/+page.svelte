@@ -97,7 +97,11 @@
     isLoadingOffers = true;
     console.log('🎁 [Customer Offers] Starting to load featured offers...');
     try {
-      const response = await fetch('/api/customer/featured-offers?limit=5');
+      // Add cache busting timestamp to force fresh data
+      const cacheBuster = Date.now();
+      const response = await fetch(`/api/customer/featured-offers?limit=5&_t=${cacheBuster}`, {
+        cache: 'no-store' // Disable caching
+      });
       console.log('🎁 [Customer Offers] API Response status:', response.status);
       const data = await response.json();
       console.log('🎁 [Customer Offers] API Response data:', data);
@@ -385,6 +389,32 @@
     if (videoHiddenPref === 'true') {
       isVideoHidden = true;
     }
+    
+    // Reload offers when page becomes visible (user switches back to tab)
+    const handleVisibilityChange = async () => {
+      if (!document.hidden) {
+        console.log('🔄 [Customer Offers] Page visible again, reloading offers...');
+        await loadMediaItems();
+        await loadFeaturedOffers();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Auto-refresh offers every 30 seconds to keep data fresh
+    const refreshInterval = setInterval(async () => {
+      if (!document.hidden) {
+        console.log('🔄 [Customer Offers] Auto-refreshing offers...');
+        await loadMediaItems();
+        await loadFeaturedOffers();
+      }
+    }, 30000); // 30 seconds
+    
+    // Cleanup listeners
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(refreshInterval);
+    };
   });
 
   // Listen for language changes
