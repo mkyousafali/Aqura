@@ -28,6 +28,18 @@
   let touchStartX = 0;
   let isTouchMoving = false;
 
+  // Convert English numbers to Arabic numerals
+  function toArabicNumerals(num: number | string): string {
+    const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return String(num).replace(/\d/g, (digit) => arabicNumerals[parseInt(digit)]);
+  }
+
+  // Format price to hide .00 if no decimals
+  function formatPrice(price: number): string {
+    const formatted = price.toFixed(2);
+    return formatted.endsWith('.00') ? formatted.slice(0, -3) : formatted;
+  }
+
   // Product categories
   const categories = [
     { id: 'beverages', nameAr: 'المشروبات', nameEn: 'Beverages', icon: '🥤' },
@@ -99,13 +111,22 @@
         let slotNumber = 100; // Start slot numbers at 100
         
         featuredOffers.forEach((offer) => {
-          console.log(`🎁 [Offer ${offer.id}] ${offer.name_en} has ${offer.products?.length || 0} products`);
+          console.log(`🎁 [Offer ${offer.id}] Type: ${offer.type}, Name: ${offer.name_en}`);
+          console.log(`  📋 Offer data:`, {
+            products: offer.products?.length || 0,
+            bundles: offer.bundles?.length || 0,
+            bogo_rules: offer.bogo_rules?.length || 0
+          });
           
-          // Create a media item for each product in the offer
-          if (offer.products && offer.products.length > 0) {
+          // Handle product offers (percentage and special price)
+          if (offer.type === 'product' && offer.products && offer.products.length > 0) {
+            console.log(`🎁 [Offer ${offer.id}] ${offer.name_en} has ${offer.products.length} products`);
+            
             offer.products.forEach((offerProduct) => {
+              console.log(`  📦 Processing product:`, offerProduct);
               const product = offerProduct.products; // Product details are nested
               if (product) {
+                console.log(`  ✅ Product found:`, product.product_name_en);
                 // Calculate discounted price
                 // Priority: offer_percentage > offer_price
                 let finalPrice = product.sale_price;
@@ -120,7 +141,12 @@
                   finalPrice = offerProduct.offer_price;
                 }
                 
-                productMediaItems.push({
+                // If offer_qty > 1, multiply prices by quantity for total display
+                const offerQty = offerProduct.offer_qty || 1;
+                const displayOriginalPrice = product.sale_price * offerQty;
+                const displayFinalPrice = finalPrice * offerQty;
+                
+                const mediaItem = {
                   id: `offer-product-${offer.id}-${product.id}`,
                   src: product.image_url || '', // Product image
                   type: 'offer-product', // New type for offer products
@@ -135,12 +161,160 @@
                   discountInfo: {
                     type: offer.discount_type,
                     value: offer.discount_value,
-                    originalPrice: product.sale_price,
-                    finalPrice: finalPrice,
+                    originalPrice: displayOriginalPrice, // Total price for offer_qty
+                    finalPrice: displayFinalPrice, // Total discounted price
                     offerPercentage: discountPercentage,
                     offerPrice: offerProduct.offer_price && offerProduct.offer_price < product.sale_price ? offerProduct.offer_price : null
                   }
+                };
+                console.log(`  🎬 Created media item:`, mediaItem.id);
+                productMediaItems.push(mediaItem);
+              } else {
+                console.log(`  ❌ Product details missing for product_id:`, offerProduct.product_id);
+              }
+            });
+          }
+          
+          // Handle bundle offers - create ONE card with ALL products
+          if (offer.type === 'bundle' && offer.bundles && offer.bundles.length > 0) {
+            console.log(`🎁 [Offer ${offer.id}] Bundle offer with ${offer.bundles.length} bundles`);
+            
+            offer.bundles.forEach((bundle) => {
+              console.log(`  📦 Processing bundle:`, bundle);
+              if (bundle.items_with_details && bundle.items_with_details.length > 0) {
+                console.log(`  ✅ Bundle has ${bundle.items_with_details.length} items`);
+                
+                // Calculate original total and bundle final price
+                // Each product has individual discount applied
+                let originalTotal = 0;
+                let bundlePrice = 0;
+                
+                bundle.items_with_details.forEach(item => {
+                  const product = item.product;
+                  if (product) {
+                    const itemOriginal = product.sale_price * item.quantity;
+                    originalTotal += itemOriginal;
+                    
+                    // Apply individual product discount
+                    let itemFinal = itemOriginal;
+                    if (item.discount_type === 'percentage') {
+                      itemFinal = itemOriginal * (1 - item.discount_value / 100);
+                    } else if (item.discount_type === 'amount') {
+                      itemFinal = itemOriginal - item.discount_value;
+                    }
+                    bundlePrice += itemFinal;
+                  }
                 });
+                
+                // Bundle discount_value from database is the final price (already calculated)
+                // Use it if available, otherwise use our calculation
+                if (bundle.discount_value && bundle.discount_value > 0) {
+                  bundlePrice = bundle.discount_value;
+                }
+                
+                const totalDiscount = originalTotal - bundlePrice;
+                const bundleDiscountPercentage = Math.round((totalDiscount / originalTotal) * 100);
+                
+                console.log(`  💰 Bundle pricing: Original ${originalTotal} SAR → Final ${bundlePrice} SAR (${bundleDiscountPercentage}% off)`);
+                
+                // Create ONE media item for the entire bundle with all products
+                const mediaItem = {
+                  id: `offer-bundle-${offer.id}-${bundle.id}`,
+                  src: '', // Will show multiple images
+                  type: 'offer-bundle', // New type for bundle display
+                  title: currentLanguage === 'ar' ? bundle.bundle_name_ar : bundle.bundle_name_en,
+                  titleEn: bundle.bundle_name_en,
+                  titleAr: bundle.bundle_name_ar,
+                  duration: 5,
+                  slot_number: slotNumber++,
+                  bundleData: bundle,
+                  bundleProducts: bundle.items_with_details, // All products in bundle
+                  offerData: offer,
+                  discountInfo: {
+                    type: 'bundle',
+                    value: totalDiscount,
+                    originalPrice: originalTotal,
+                    finalPrice: bundlePrice,
+                    offerPercentage: bundleDiscountPercentage,
+                    offerPrice: bundlePrice
+                  }
+                };
+                console.log(`  🎬 Created bundle media item with ${bundle.items_with_details.length} products`);
+                productMediaItems.push(mediaItem);
+              } else {
+                console.log(`  ❌ Bundle missing items_with_details`);
+              }
+            });
+          }
+          
+          // Handle BOGO (Buy X Get Y) offers
+          if ((offer.type === 'bogo' || offer.type === 'buy_x_get_y') && offer.bogo_rules && offer.bogo_rules.length > 0) {
+            console.log(`🎁 [Offer ${offer.id}] BOGO offer with ${offer.bogo_rules.length} rules`);
+            
+            offer.bogo_rules.forEach((rule) => {
+              console.log(`  📦 Processing BOGO rule:`, rule);
+              const buyProduct = rule.buy_product;
+              const getProduct = rule.get_product;
+              
+              if (buyProduct && getProduct) {
+                console.log(`  ✅ BOGO products found: Buy ${buyProduct.product_name_en}, Get ${getProduct.product_name_en}`);
+                
+                // Calculate savings (discount_type can be 'free' or 'percentage')
+                let getDiscount = 100; // Default to free
+                if (rule.discount_type === 'percentage') {
+                  getDiscount = rule.discount_value || 100;
+                } else if (rule.discount_type === 'amount') {
+                  getDiscount = (rule.discount_value / getProduct.sale_price) * 100;
+                } else if (rule.discount_type === 'free') {
+                  getDiscount = 100; // Free = 100% discount
+                }
+                
+                const totalOriginal = (buyProduct.sale_price * rule.buy_quantity) + (getProduct.sale_price * rule.get_quantity);
+                const totalFinal = (buyProduct.sale_price * rule.buy_quantity) + (getProduct.sale_price * rule.get_quantity * (1 - getDiscount / 100));
+                
+                // Create BOGO products array for display
+                const bogoProducts = [
+                  {
+                    product: buyProduct,
+                    quantity: rule.buy_quantity,
+                    isBuyProduct: true,
+                    discount_value: 0 // No discount on buy product
+                  },
+                  {
+                    product: getProduct,
+                    quantity: rule.get_quantity,
+                    isBuyProduct: false,
+                    discount_value: getDiscount // Discount on get product
+                  }
+                ];
+                
+                const mediaItem = {
+                  id: `offer-bogo-${offer.id}-${rule.id}`,
+                  src: '', // Will show both products
+                  type: 'offer-bogo', // Special BOGO type
+                  title: currentLanguage === 'ar' 
+                    ? `${offer.name_ar || 'عرض اشتري واحصل'}`
+                    : `${offer.name_en || 'Buy & Get Offer'}`,
+                  titleEn: offer.name_en || `Buy ${rule.buy_quantity} Get ${rule.get_quantity}`,
+                  titleAr: offer.name_ar || `اشتري ${rule.buy_quantity} احصل ${rule.get_quantity}`,
+                  duration: 5,
+                  slot_number: slotNumber++,
+                  bogoData: rule,
+                  bogoProducts: bogoProducts, // Both buy and get products
+                  offerData: offer,
+                  discountInfo: {
+                    type: 'bogo',
+                    value: totalOriginal - totalFinal,
+                    originalPrice: totalOriginal,
+                    finalPrice: totalFinal,
+                    offerPercentage: getDiscount,
+                    offerPrice: totalFinal
+                  }
+                };
+                console.log(`  🎬 Created BOGO media item with Buy ${rule.buy_quantity} Get ${rule.get_quantity}`);
+                productMediaItems.push(mediaItem);
+              } else {
+                console.log(`  ❌ BOGO products missing:`, { buyProduct, getProduct });
               }
             });
           }
@@ -464,24 +638,44 @@
                 {:else if media.type === 'offer-product'}
                   <!-- Product Card Display (from offer) -->
                   <div 
-                    class="product-card-display"
+                    class="product-card-display {media.discountInfo.type === 'bundle' ? 'bundle-offer' : ''}"
                     style="display: {index === currentMediaIndex ? 'flex' : 'none'};"
                   >
+                    <!-- Moving Watermark Logo -->
+                    {#if index === currentMediaIndex}
+                      <div class="watermark-logo">
+                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                      </div>
+                    {/if}
+                    
                     <div class="product-card-content">
                       <!-- Product Image at Top -->
-                      <div class="product-image-wrapper">
-                        <!-- Discount Badge on Image -->
+                      <div class="product-image-wrapper {media.discountInfo.type === 'bundle' ? 'bundle-product' : ''}">
+                        <!-- Discount Badge on Image (Top Right) -->
                         <div class="discount-badge">
                           {#if media.discountInfo.offerPercentage}
-                            <span class="badge-text">{media.discountInfo.offerPercentage}%</span>
+                            <span class="badge-text">{currentLanguage === 'ar' ? toArabicNumerals(media.discountInfo.offerPercentage) : media.discountInfo.offerPercentage}%</span>
                           {:else if media.discountInfo.offerPrice && media.discountInfo.offerPrice < media.discountInfo.originalPrice}
                             <span class="badge-text">{currentLanguage === 'ar' ? 'سعر خاص' : 'SPECIAL PRICE'}</span>
                           {:else if media.discountInfo.type === 'percentage'}
-                            <span class="badge-text">{media.discountInfo.value}%</span>
+                            <span class="badge-text">{currentLanguage === 'ar' ? toArabicNumerals(media.discountInfo.value) : media.discountInfo.value}%</span>
                           {:else if media.discountInfo.type === 'fixed'}
-                            <span class="badge-text">{media.discountInfo.value} {currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                            <span class="badge-text">{currentLanguage === 'ar' ? toArabicNumerals(media.discountInfo.value) : media.discountInfo.value} {currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
                           {/if}
                         </div>
+                        
+                        <!-- Usage Limit Badge (Bottom Center) -->
+                        {#if media.offerProductData.max_uses}
+                          <div class="usage-limit-badge">
+                            <span class="usage-text">
+                              {#if currentLanguage === 'ar'}
+                                محدود: {toArabicNumerals(media.offerProductData.max_uses)} فقط
+                              {:else}
+                                Limited: {media.offerProductData.max_uses} only
+                              {/if}
+                            </span>
+                          </div>
+                        {/if}
                         
                         {#if media.src}
                           <img src={media.src} alt={media.title} class="product-image" />
@@ -500,14 +694,14 @@
                         {#if media.offerProductData.offer_qty || media.productData.unit_name_en}
                           <div class="unit-details">
                             {#if media.offerProductData.offer_qty && media.offerProductData.offer_qty > 1}
-                              <span>{media.offerProductData.offer_qty}</span>
+                              <span>{currentLanguage === 'ar' ? toArabicNumerals(media.offerProductData.offer_qty) : media.offerProductData.offer_qty}</span>
                               {#if media.productData.unit_qty && media.productData.unit_qty > 1}
-                                <span> × {media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                                <span> × {currentLanguage === 'ar' ? toArabicNumerals(media.productData.unit_qty) : media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
                               {:else if media.productData.unit_name_en}
                                 <span> {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
                               {/if}
                             {:else if media.productData.unit_qty && media.productData.unit_qty > 1}
-                              <span>{media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                              <span>{currentLanguage === 'ar' ? toArabicNumerals(media.productData.unit_qty) : media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
                             {:else if media.productData.unit_name_en}
                               <span>{currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
                             {/if}
@@ -516,17 +710,208 @@
                         
                         <!-- Sale Price (crossed out) -->
                         {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
-                          <span class="original-price">{media.discountInfo.originalPrice.toFixed(2)} {currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                          <span class="original-price">
+                            {#if currentLanguage === 'ar'}
+                              {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              {formatPrice(media.discountInfo.originalPrice)}
+                            {/if}
+                          </span>
                         {/if}
                         
                         <!-- Offer Price (large green) -->
                         <div class="offer-price">
                           {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
-                            <span class="discounted-price">{media.discountInfo.finalPrice.toFixed(2)}</span>
-                            <span class="currency">{currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                            {#if currentLanguage === 'ar'}
+                              <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                            {/if}
                           {:else}
-                            <span class="current-price">{media.discountInfo.originalPrice.toFixed(2)}</span>
-                            <span class="currency">{currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                            {#if currentLanguage === 'ar'}
+                              <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
+                            {/if}
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {:else if media.type === 'offer-bundle'}
+                  <!-- Bundle Card Display (multiple products) -->
+                  <div 
+                    class="product-card-display bundle-offer-card"
+                    style="display: {index === currentMediaIndex ? 'flex' : 'none'};"
+                  >
+                    <!-- Moving Watermark Logo -->
+                    {#if index === currentMediaIndex}
+                      <div class="watermark-logo">
+                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                      </div>
+                    {/if}
+                    
+                    <div class="bundle-card-content">
+                      <!-- Discount Badge (Top Right) -->
+                      <div class="discount-badge bundle-badge">
+                        <span class="badge-text">{currentLanguage === 'ar' ? 'عرض حزمة' : 'Bundle Offer'}</span>
+                      </div>
+                      
+                      <!-- Products Grid (No Bundle Title) -->
+                      <div class="bundle-products-grid">
+                        {#each media.bundleProducts as item}
+                          {#if item.product}
+                            <div class="bundle-product-item">
+                              <div class="bundle-product-image-wrapper">
+                                <!-- Individual Product Discount Badge -->
+                                {#if item.discount_type === 'percentage' && item.discount_value > 0}
+                                  <div class="product-discount-tag">
+                                    <span class="tag-text">
+                                      {currentLanguage === 'ar' ? toArabicNumerals(item.discount_value) : item.discount_value}%
+                                    </span>
+                                  </div>
+                                {/if}
+                                
+                                {#if item.product.image_url}
+                                  <img src={item.product.image_url} alt={item.product.product_name_en} class="bundle-product-image" />
+                                {:else}
+                                  <div class="product-placeholder-small">
+                                    <span class="product-emoji-small">📦</span>
+                                  </div>
+                                {/if}
+                              </div>
+                              <div class="bundle-product-info">
+                                <p class="bundle-product-name">{currentLanguage === 'ar' ? item.product.product_name_ar : item.product.product_name_en}</p>
+                                <p class="bundle-product-qty">
+                                  {currentLanguage === 'ar' ? toArabicNumerals(item.quantity || 1) : (item.quantity || 1)} × 
+                                  {#if item.product.unit_qty && item.product.unit_qty > 1}
+                                    {currentLanguage === 'ar' ? toArabicNumerals(item.product.unit_qty) : item.product.unit_qty}
+                                  {/if}
+                                  {currentLanguage === 'ar' ? (item.product.unit_name_ar || 'قطعة') : (item.product.unit_name_en || 'Piece')}
+                                </p>
+                              </div>
+                            </div>
+                          {/if}
+                        {/each}
+                      </div>
+                      
+                      <!-- Bundle Pricing -->
+                      <div class="bundle-pricing">
+                        {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                          <span class="bundle-original-price">
+                            {#if currentLanguage === 'ar'}
+                              {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              {formatPrice(media.discountInfo.originalPrice)}
+                            {/if}
+                          </span>
+                        {/if}
+                        <div class="bundle-final-price">
+                          {#if currentLanguage === 'ar'}
+                            <span class="bundle-discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
+                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                          {:else}
+                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            <span class="bundle-discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {:else if media.type === 'offer-bogo'}
+                  <!-- BOGO Card Display (Buy X Get Y) -->
+                  <div 
+                    class="product-card-display bogo-offer-card"
+                    style="display: {index === currentMediaIndex ? 'flex' : 'none'};"
+                  >
+                    <!-- Moving Watermark Logo -->
+                    {#if index === currentMediaIndex}
+                      <div class="watermark-logo">
+                        <img src="/icons/logo.png" alt="Aqura" class="watermark-image" />
+                      </div>
+                    {/if}
+                    
+                    <div class="bogo-card-content">
+                      <!-- BOGO Badge (Top Right) -->
+                      <div class="discount-badge bogo-badge">
+                        <span class="badge-text">{currentLanguage === 'ar' ? 'اشتري واحصل' : 'Buy & Get'}</span>
+                      </div>
+                      
+                      <!-- BOGO Products Display -->
+                      <div class="bogo-products-container">
+                        {#each media.bogoProducts as item}
+                          <div class="bogo-product-section {item.isBuyProduct ? 'buy-section' : 'get-section'}">
+                            <div class="bogo-label">
+                              {#if item.isBuyProduct}
+                                <span class="buy-label">{currentLanguage === 'ar' ? 'اشتري' : 'BUY'}</span>
+                              {:else}
+                                <span class="get-label">{currentLanguage === 'ar' ? 'احصل' : 'GET'}</span>
+                              {/if}
+                            </div>
+                            
+                            <div class="bogo-product-card">
+                              <div class="bogo-product-image-wrapper">
+                                <!-- Discount tag for GET product -->
+                                {#if !item.isBuyProduct && item.discount_value > 0}
+                                  <div class="product-discount-tag free-tag">
+                                    <span class="tag-text">
+                                      {item.discount_value === 100 ? (currentLanguage === 'ar' ? 'مجاني' : 'FREE') : `${currentLanguage === 'ar' ? toArabicNumerals(item.discount_value) : item.discount_value}%`}
+                                    </span>
+                                  </div>
+                                {/if}
+                                
+                                {#if item.product.image_url}
+                                  <img src={item.product.image_url} alt={item.product.product_name_en} class="bogo-product-image" />
+                                {:else}
+                                  <div class="product-placeholder-medium">
+                                    <span class="product-emoji-medium">🎁</span>
+                                  </div>
+                                {/if}
+                              </div>
+                              
+                              <div class="bogo-product-info">
+                                <p class="bogo-product-name">{currentLanguage === 'ar' ? item.product.product_name_ar : item.product.product_name_en}</p>
+                                <p class="bogo-product-qty">
+                                  {currentLanguage === 'ar' ? toArabicNumerals(item.quantity || 1) : (item.quantity || 1)} × 
+                                  {#if item.product.unit_qty && item.product.unit_qty > 1}
+                                    {currentLanguage === 'ar' ? toArabicNumerals(item.product.unit_qty) : item.product.unit_qty}
+                                  {/if}
+                                  {currentLanguage === 'ar' ? (item.product.unit_name_ar || 'قطعة') : (item.product.unit_name_en || 'Piece')}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                      
+                      <!-- BOGO Pricing -->
+                      <div class="bogo-pricing">
+                        {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                          <span class="bogo-original-price">
+                            {#if currentLanguage === 'ar'}
+                              {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                              {formatPrice(media.discountInfo.originalPrice)}
+                            {/if}
+                          </span>
+                        {/if}
+                        <div class="bogo-final-price">
+                          {#if currentLanguage === 'ar'}
+                            <span class="bogo-discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
+                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                          {:else}
+                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            <span class="bogo-discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
                           {/if}
                         </div>
                       </div>
@@ -1212,6 +1597,36 @@
     justify-content: center;
     background: white;
     z-index: 2;
+    overflow: hidden;
+  }
+
+  /* Moving Watermark Logo */
+  .watermark-logo {
+    position: absolute;
+    width: 120px;
+    height: auto;
+    opacity: 0.5;
+    z-index: 1;
+    pointer-events: none;
+    animation: floatUpward 10s infinite linear;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .watermark-image {
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+
+  @keyframes floatUpward {
+    0% {
+      bottom: -100px;
+    }
+    100% {
+      bottom: 100%;
+    }
   }
 
   .product-card-content {
@@ -1223,7 +1638,9 @@
     justify-content: center;
     padding: 2rem;
     gap: 1.5rem;
-    background: white;
+    background: transparent;
+    position: relative;
+    z-index: 2;
   }
 
   .product-image-wrapper {
@@ -1233,6 +1650,12 @@
     flex-shrink: 0;
   }
 
+  /* Smaller images for bundle products */
+  .product-image-wrapper.bundle-product {
+    width: 100px;
+    height: 100px;
+  }
+
   .product-image {
     width: 100%;
     height: 100%;
@@ -1240,6 +1663,11 @@
     background: white;
     border-radius: 16px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Bundle offer indicator */
+  .product-card-display.bundle-offer .product-card-content {
+    gap: 1rem;
   }
 
   .product-placeholder {
@@ -1266,18 +1694,38 @@
   .discount-badge {
     position: absolute;
     top: -0.5rem;
-    left: -0.5rem;
+    right: -0.5rem;
     background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
     color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
+    padding: 0.4rem 0.8rem;
+    border-radius: 16px;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.85rem;
     box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
     z-index: 10;
   }
 
   .badge-text {
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  .usage-limit-badge {
+    position: absolute;
+    bottom: -0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+    color: white;
+    padding: 0.35rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.75rem;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+    z-index: 10;
+    white-space: nowrap;
+  }
+
+  .usage-text {
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
   }
 
@@ -1317,7 +1765,7 @@
     font-size: 1.75rem;
     font-weight: 700;
     margin: 0;
-    color: #111827;
+    color: #059669;
     line-height: 1.3;
   }
 
@@ -1326,18 +1774,21 @@
     align-items: center;
     gap: 0.25rem;
     font-size: 1rem;
-    color: #6B7280;
+    color: #EA580C;
     font-weight: 500;
     padding: 0.5rem 1rem;
-    background: #F3F4F6;
+    background: #FFF7ED;
     border-radius: 8px;
   }
 
   .original-price {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 1.25rem;
-    color: #9CA3AF;
+    color: #EF4444;
     text-decoration: line-through;
-    text-decoration-color: #EF4444;
+    text-decoration-color: #059669;
     text-decoration-thickness: 2px;
     font-weight: 500;
   }
@@ -1345,27 +1796,377 @@
   .offer-price {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    padding: 0.75rem 1.5rem;
+    background: #F0FDF4;
+    border: 2px solid #059669;
+    border-radius: 12px;
   }
 
   .discounted-price {
-    font-size: 3rem;
+    font-size: 2rem;
     font-weight: 900;
     color: #059669;
     line-height: 1;
   }
 
   .current-price {
-    font-size: 3rem;
+    font-size: 2rem;
     font-weight: 900;
     color: #111827;
     line-height: 1;
   }
 
   .currency {
-    font-size: 1.5rem;
+    font-size: 1rem;
     font-weight: 600;
     color: #059669;
+  }
+
+  .currency-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+
+  .currency-icon-small {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+
+  /* Bundle Card Styles */
+  .bundle-offer-card {
+    background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%);
+  }
+
+  .bundle-card-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    gap: 1rem;
+    position: relative;
+    z-index: 2;
+  }
+
+  .bundle-products-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .bundle-product-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    background: white;
+    padding: 0.75rem;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .bundle-product-image-wrapper {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .product-discount-tag {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    background: #EF4444;
+    border-radius: 4px;
+    padding: 3px 5px;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .product-discount-tag .tag-text {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: white;
+    line-height: 1;
+    display: block;
+  }
+
+  .bundle-product-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .product-placeholder-small {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+  }
+
+  .product-emoji-small {
+    font-size: 2.5rem;
+  }
+
+  .bundle-product-info {
+    text-align: center;
+    width: 100%;
+  }
+
+  .bundle-product-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .bundle-product-qty {
+    font-size: 0.65rem;
+    color: #EA580C;
+    font-weight: 500;
+    margin: 0.2rem 0 0 0;
+    padding: 0.2rem 0.4rem;
+    background: #FFF7ED;
+    border-radius: 4px;
+    display: inline-block;
+    line-height: 1.2;
+  }
+
+  .bundle-pricing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.75rem 1.25rem;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .bundle-original-price {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.9rem;
+    color: #EF4444;
+    text-decoration: line-through;
+    text-decoration-color: #059669;
+    text-decoration-thickness: 2px;
+    font-weight: 500;
+  }
+
+  .bundle-final-price {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .bundle-discounted-price {
+    font-size: 1.75rem;
+    font-weight: 900;
+    color: #059669;
+    line-height: 1;
+  }
+
+  .bundle-badge {
+    top: 1rem;
+    right: 1rem;
+  }
+
+  /* BOGO Offer Styles */
+  .bogo-offer-card {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  }
+
+  .bogo-card-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    gap: 0.5rem;
+    position: relative;
+    z-index: 2;
+  }
+
+  .bogo-badge {
+    top: 0.75rem;
+    right: 0.75rem;
+    background: #F59E0B;
+  }
+
+  .bogo-products-container {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .bogo-product-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .bogo-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    text-align: center;
+  }
+
+  .buy-label {
+    color: #1F2937;
+    background: white;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    display: inline-block;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .get-label {
+    color: white;
+    background: #10B981;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    display: inline-block;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .bogo-product-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    background: white;
+    padding: 0.75rem;
+    border-radius: 10px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+    min-width: 110px;
+  }
+
+  .bogo-product-image-wrapper {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bogo-product-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .product-placeholder-medium {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+    border-radius: 8px;
+  }
+
+  .product-emoji-medium {
+    font-size: 2.5rem;
+  }
+
+  .free-tag {
+    background: #10B981;
+  }
+
+  .bogo-product-info {
+    text-align: center;
+    width: 100%;
+  }
+
+  .bogo-product-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .bogo-product-qty {
+    font-size: 0.65rem;
+    color: #EA580C;
+    font-weight: 500;
+    margin: 0.2rem 0 0 0;
+    padding: 0.2rem 0.4rem;
+    background: #FFF7ED;
+    border-radius: 4px;
+    display: inline-block;
+    line-height: 1.2;
+  }
+
+  .bogo-pricing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.6rem 1rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+  }
+
+  .bogo-original-price {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: #EF4444;
+    text-decoration: line-through;
+    text-decoration-color: #10B981;
+    text-decoration-thickness: 2px;
+    font-weight: 500;
+  }
+
+  .bogo-final-price {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .bogo-discounted-price {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: #10B981;
+    line-height: 1;
   }
 
   /* Media Image */
