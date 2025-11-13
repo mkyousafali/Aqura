@@ -8,6 +8,7 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
 	import { localeData } from '$lib/i18n';
+	
 	let currentUserData = null;
 	let stats = {
 		pendingTasks: 0,
@@ -17,6 +18,7 @@
 	};
 	let recentNotifications = [];
 	let isLoading = true;
+	
 	// Swipe gesture state
 	let swipeStartX = 0;
 	let swipeCurrentX = 0;
@@ -89,6 +91,16 @@
 				console.error('Error refreshing notification count:', error);
 			}
 		}
+	}
+
+	function handleViewOffer(event: CustomEvent) {
+		selectedOffer = event.detail;
+		showOfferModal = true;
+	}
+
+	function closeOfferModal() {
+		showOfferModal = false;
+		selectedOffer = null;
 	}
 	async function loadDashboardData() {
 		try {
@@ -685,6 +697,7 @@
 				</div>
 			</div>
 		</section>
+
 		<!-- Recent Notifications Section -->
 		<section class="recent-section">
 			<div class="section-header">
@@ -869,6 +882,7 @@
 		</div>
 	</div>
 {/if}
+
 <style>
 	.mobile-dashboard {
 		min-height: 100vh;
@@ -879,6 +893,68 @@
 		-webkit-overflow-scrolling: touch;
 		position: relative;
 	}
+
+	/* Featured Offers LED Screen - Top Section */
+	.offers-section.led-screen {
+		padding: 0;
+		margin: 0;
+		background: linear-gradient(180deg, #000000 0%, #1a1a1a 100%);
+		min-height: 180px;
+	}
+
+	.offers-loading {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem 2rem;
+		color: #9CA3AF;
+	}
+
+	.loading-spinner-small {
+		width: 24px;
+		height: 24px;
+		border: 3px solid rgba(255, 255, 255, 0.2);
+		border-top: 3px solid #3B82F6;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+		margin-bottom: 1rem;
+	}
+
+	.offers-loading p {
+		margin: 0;
+		font-size: 0.875rem;
+		color: rgba(255, 255, 255, 0.7);
+	}
+
+	.no-offers-message {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem 2rem;
+		text-align: center;
+		color: rgba(255, 255, 255, 0.7);
+	}
+
+	.no-offers-message .offer-icon {
+		font-size: 3rem;
+		margin-bottom: 0.75rem;
+		opacity: 0.5;
+	}
+
+	.no-offers-message p {
+		margin: 0 0 0.5rem 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.9);
+	}
+
+	.no-offers-message small {
+		font-size: 0.8125rem;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
 	/* Success Message */
 	.success-message {
 		position: fixed;
@@ -936,6 +1012,7 @@
 	.stats-section {
 		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
 	}
+
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);

@@ -3,6 +3,8 @@
   import { goto } from "$app/navigation";
   import { userStore, userActions } from '$lib/stores/user.js';
   import { supabase } from '$lib/utils/supabase';
+  import FeaturedOffers from '$lib/components/customer/FeaturedOffers.svelte';
+  import OfferDetailModal from '$lib/components/customer/OfferDetailModal.svelte';
 
   let currentLanguage = 'ar';
   let videoContainer;
@@ -14,6 +16,12 @@
   let loading = true;
   let mediaItems = []; // Combined video and image items from database
   let rotationTimer = null; // timer for auto-rotation
+  
+  // Featured offers state
+  let featuredOffers: any[] = [];
+  let isLoadingOffers = true;
+  let selectedOffer: any = null;
+  let showOfferModal = false;
   
   // Touch tracking for scroll vs click detection
   let touchStartY = 0;
@@ -72,6 +80,100 @@
     }
   }
 
+  // Load featured offers
+  async function loadFeaturedOffers() {
+    isLoadingOffers = true;
+    console.log('🎁 [Customer Offers] Starting to load featured offers...');
+    try {
+      const response = await fetch('/api/customer/featured-offers?limit=5');
+      console.log('🎁 [Customer Offers] API Response status:', response.status);
+      const data = await response.json();
+      console.log('🎁 [Customer Offers] API Response data:', data);
+      
+      if (data.success && data.offers) {
+        featuredOffers = data.offers;
+        console.log('🎁 [Customer Offers] Loaded offers:', featuredOffers.length, 'offers');
+        
+        // Convert each product in each offer to a media item
+        const productMediaItems = [];
+        let slotNumber = 100; // Start slot numbers at 100
+        
+        featuredOffers.forEach((offer) => {
+          console.log(`🎁 [Offer ${offer.id}] ${offer.name_en} has ${offer.products?.length || 0} products`);
+          
+          // Create a media item for each product in the offer
+          if (offer.products && offer.products.length > 0) {
+            offer.products.forEach((offerProduct) => {
+              const product = offerProduct.products; // Product details are nested
+              if (product) {
+                // Calculate discounted price
+                // Priority: offer_percentage > offer_price
+                let finalPrice = product.sale_price;
+                let discountPercentage = null;
+                
+                if (offerProduct.offer_percentage && offerProduct.offer_percentage > 0) {
+                  // Use percentage discount
+                  discountPercentage = offerProduct.offer_percentage;
+                  finalPrice = product.sale_price * (1 - discountPercentage / 100);
+                } else if (offerProduct.offer_price && offerProduct.offer_price < product.sale_price) {
+                  // Use special price only if it's lower than original
+                  finalPrice = offerProduct.offer_price;
+                }
+                
+                productMediaItems.push({
+                  id: `offer-product-${offer.id}-${product.id}`,
+                  src: product.image_url || '', // Product image
+                  type: 'offer-product', // New type for offer products
+                  title: currentLanguage === 'ar' ? product.product_name_ar : product.product_name_en,
+                  titleEn: product.product_name_en,
+                  titleAr: product.product_name_ar,
+                  duration: 5, // Show each product for 5 seconds
+                  slot_number: slotNumber++,
+                  productData: product,
+                  offerData: offer, // Keep offer data for modal
+                  offerProductData: offerProduct, // Keep offer_product data for pricing
+                  discountInfo: {
+                    type: offer.discount_type,
+                    value: offer.discount_value,
+                    originalPrice: product.sale_price,
+                    finalPrice: finalPrice,
+                    offerPercentage: discountPercentage,
+                    offerPrice: offerProduct.offer_price && offerProduct.offer_price < product.sale_price ? offerProduct.offer_price : null
+                  }
+                });
+              }
+            });
+          }
+        });
+        
+        console.log('🎁 [Customer Offers] Created', productMediaItems.length, 'product media items from offers');
+        
+        // Add product media items to mediaItems
+        mediaItems = [...mediaItems, ...productMediaItems];
+        console.log('🎁 [Customer Offers] Total media items:', mediaItems.length);
+      } else {
+        console.warn('🎁 [Customer Offers] No offers returned:', data);
+        featuredOffers = [];
+      }
+    } catch (error) {
+      console.error('🎁 [Customer Offers] Error loading offers:', error);
+      featuredOffers = [];
+    } finally {
+      isLoadingOffers = false;
+      console.log('🎁 [Customer Offers] Loading complete. Offers count:', featuredOffers.length);
+    }
+  }
+
+  function handleViewOffer(event: CustomEvent) {
+    selectedOffer = event.detail;
+    showOfferModal = true;
+  }
+
+  function closeOfferModal() {
+    showOfferModal = false;
+    selectedOffer = null;
+  }
+
   onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
@@ -87,6 +189,9 @@
 
     // Load media from database
     await loadMediaItems();
+    
+    // Load featured offers
+    await loadFeaturedOffers();
     
     loading = false;
 
@@ -352,15 +457,88 @@
                     src={media.src}
                     playsinline
                     muted
-                    loop={false}
-                    on:ended={advanceMediaNow}
-                    on:error={handleVideoError}
-                  ></video>
-                {:else if media.type === 'image'}
+                    loop
+                    preload="auto"
+                    class="media-video"
+                  />
+                {:else if media.type === 'offer-product'}
+                  <!-- Product Card Display (from offer) -->
+                  <div 
+                    class="product-card-display"
+                    style="display: {index === currentMediaIndex ? 'flex' : 'none'};"
+                  >
+                    <div class="product-card-content">
+                      <!-- Product Image at Top -->
+                      <div class="product-image-wrapper">
+                        <!-- Discount Badge on Image -->
+                        <div class="discount-badge">
+                          {#if media.discountInfo.offerPercentage}
+                            <span class="badge-text">{media.discountInfo.offerPercentage}%</span>
+                          {:else if media.discountInfo.offerPrice && media.discountInfo.offerPrice < media.discountInfo.originalPrice}
+                            <span class="badge-text">{currentLanguage === 'ar' ? 'سعر خاص' : 'SPECIAL PRICE'}</span>
+                          {:else if media.discountInfo.type === 'percentage'}
+                            <span class="badge-text">{media.discountInfo.value}%</span>
+                          {:else if media.discountInfo.type === 'fixed'}
+                            <span class="badge-text">{media.discountInfo.value} {currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                          {/if}
+                        </div>
+                        
+                        {#if media.src}
+                          <img src={media.src} alt={media.title} class="product-image" />
+                        {:else}
+                          <div class="product-placeholder">
+                            <span class="product-emoji">🛍️</span>
+                          </div>
+                        {/if}
+                      </div>
+                      
+                      <!-- Product Info Below Image -->
+                      <div class="product-info-overlay">
+                        <h3 class="product-title">{currentLanguage === 'ar' ? media.titleAr : media.titleEn}</h3>
+                        
+                        <!-- Unit Details -->
+                        {#if media.offerProductData.offer_qty || media.productData.unit_name_en}
+                          <div class="unit-details">
+                            {#if media.offerProductData.offer_qty && media.offerProductData.offer_qty > 1}
+                              <span>{media.offerProductData.offer_qty}</span>
+                              {#if media.productData.unit_qty && media.productData.unit_qty > 1}
+                                <span> × {media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                              {:else if media.productData.unit_name_en}
+                                <span> {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                              {/if}
+                            {:else if media.productData.unit_qty && media.productData.unit_qty > 1}
+                              <span>{media.productData.unit_qty} {currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                            {:else if media.productData.unit_name_en}
+                              <span>{currentLanguage === 'ar' ? (media.productData.unit_name_ar || 'قطعة') : (media.productData.unit_name_en || 'Unit')}</span>
+                            {/if}
+                          </div>
+                        {/if}
+                        
+                        <!-- Sale Price (crossed out) -->
+                        {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                          <span class="original-price">{media.discountInfo.originalPrice.toFixed(2)} {currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                        {/if}
+                        
+                        <!-- Offer Price (large green) -->
+                        <div class="offer-price">
+                          {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                            <span class="discounted-price">{media.discountInfo.finalPrice.toFixed(2)}</span>
+                            <span class="currency">{currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                          {:else}
+                            <span class="current-price">{media.discountInfo.originalPrice.toFixed(2)}</span>
+                            <span class="currency">{currentLanguage === 'ar' ? 'ريال' : 'SAR'}</span>
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <!-- Image Display -->
                   <img
                     style="display: {index === currentMediaIndex ? 'block' : 'none'};"
                     src={media.src}
                     alt={media.title}
+                    class="media-image"
                   />
                 {/if}
               {/each}
@@ -398,6 +576,14 @@
       </button>
     </div>
   </div>
+{/if}
+
+<!-- Offer Detail Modal -->
+{#if showOfferModal && selectedOffer}
+  <OfferDetailModal 
+    offer={selectedOffer}
+    onClose={closeOfferModal}
+  />
 {/if}
 
 <style>
@@ -912,6 +1098,281 @@
     object-fit: cover;
     cursor: pointer;
     transition: transform 0.3s ease;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    border-radius: 12px;
+  }
+
+  /* Offer Card in LED Screen */
+  .offer-card-display {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+    z-index: 2;
+  }
+
+  .offer-card-content {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .offer-image {
+    width: 100%;
+    height: 70%;
+    object-fit: cover;
+  }
+
+  .offer-placeholder {
+    width: 100%;
+    height: 70%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+  }
+
+  .offer-emoji {
+    font-size: 6rem;
+    animation: bounce 2s ease-in-out infinite;
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  .offer-info-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 1.5rem;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.7));
+    color: white;
+    text-align: center;
+  }
+
+  .offer-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: #FFD700;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .offer-desc {
+    font-size: 1rem;
+    margin: 0 0 1rem 0;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .shop-now-btn {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 2rem;
+    border-radius: 25px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+  }
+
+  .shop-now-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+  }
+
+  .shop-now-btn:active {
+    transform: translateY(0);
+  }
+
+  /* Product Card in LED Screen (from offers) */
+  .product-card-display {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    z-index: 2;
+  }
+
+  .product-card-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 1.5rem;
+    background: white;
+  }
+
+  .product-image-wrapper {
+    position: relative;
+    width: 150px;
+    height: 150px;
+    flex-shrink: 0;
+  }
+
+  .product-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .product-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .product-emoji {
+    font-size: 4rem;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+
+  .discount-badge {
+    position: absolute;
+    top: -0.5rem;
+    left: -0.5rem;
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 1rem;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+    z-index: 10;
+  }
+
+  .badge-text {
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  .product-info-overlay {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .offer-tag {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    background: #FEF3C7;
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    border: 2px solid #FCD34D;
+    align-self: flex-start;
+  }
+
+  .offer-tag .offer-emoji {
+    font-size: 1.3rem;
+    animation: none;
+  }
+
+  .offer-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #B45309;
+  }
+
+  .product-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+    color: #111827;
+    line-height: 1.3;
+  }
+
+  .unit-details {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 1rem;
+    color: #6B7280;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    background: #F3F4F6;
+    border-radius: 8px;
+  }
+
+  .original-price {
+    font-size: 1.25rem;
+    color: #9CA3AF;
+    text-decoration: line-through;
+    text-decoration-color: #EF4444;
+    text-decoration-thickness: 2px;
+    font-weight: 500;
+  }
+
+  .offer-price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  .discounted-price {
+    font-size: 3rem;
+    font-weight: 900;
+    color: #059669;
+    line-height: 1;
+  }
+
+  .current-price {
+    font-size: 3rem;
+    font-weight: 900;
+    color: #111827;
+    line-height: 1;
+  }
+
+  .currency {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #059669;
+  }
+
+  /* Media Image */
+  .media-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     position: absolute;
     top: 0;
     left: 0;
