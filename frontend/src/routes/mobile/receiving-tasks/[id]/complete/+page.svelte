@@ -187,18 +187,24 @@
 		try {
 			console.log('🔍 [Mobile] Loading purchase manager status...');
 			
-			const { data: paymentSchedule, error: scheduleError } = await supabase
-				.from('vendor_payment_schedule')
-				.select('pr_excel_verified')
-				.eq('receiving_record_id', receivingRecord.id)
+			// Check verification using receiving_records table directly instead of payment schedule
+			// This avoids RLS issues with vendor_payment_schedule
+			const { data: recordData, error: recordError } = await supabase
+				.from('receiving_records')
+				.select('pr_excel_file_uploaded, pr_excel_file_url, original_bill_uploaded, original_bill_url')
+				.eq('id', receivingRecord.id)
 				.single();
 
-			if (!scheduleError && paymentSchedule) {
-				verificationCompleted = paymentSchedule.pr_excel_verified === true;
+			if (!recordError && recordData) {
+				// Consider verified if both files are uploaded
+				verificationCompleted = recordData.pr_excel_file_uploaded && 
+									   recordData.pr_excel_file_url &&
+									   recordData.original_bill_uploaded &&
+									   recordData.original_bill_url;
 				console.log('✅ [Mobile] Verification status loaded:', verificationCompleted);
 			} else {
 				verificationCompleted = false;
-				console.log('⚠️ [Mobile] No payment schedule found or verification not completed');
+				console.log('⚠️ [Mobile] Could not load verification status');
 			}
 		} catch (err) {
 			console.error('❌ [Mobile] Error loading verification status:', err);
