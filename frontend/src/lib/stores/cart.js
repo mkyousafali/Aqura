@@ -34,8 +34,11 @@ export const cartActions = {
         bogoGetProductId: i.bogoGetProductId 
       })));
       
+      // For BOGO get products with free discount, find non-auto-added item
       const existingItem = cart.find(item => 
-        item.id === product.id && item.selectedUnit?.id === selectedUnit?.id
+        item.id === product.id && 
+        item.selectedUnit?.id === selectedUnit?.id &&
+        !item.isAutoAdded // Only find manually added items
       );
 
       if (existingItem) {
@@ -92,8 +95,60 @@ export const cartActions = {
       return cart;
     });
     
+    // Auto-add free BOGO items if this is a buy product with free discount
+    if (selectedUnit?.offerType === 'bogo' && 
+        selectedUnit?.bogoDiscountType === 'free' && 
+        selectedUnit?.bogoGetProductId) {
+      // Get the total buy quantity from cart (after update)
+      const cart = get(cartStore);
+      const buyProduct = cart.find(item => 
+        item.id === product.id && item.selectedUnit?.id === selectedUnit?.id
+      );
+      const totalBuyQuantity = buyProduct?.quantity || quantity;
+      
+      this.autoAddBOGOFreeItem(selectedUnit.bogoGetProductId, totalBuyQuantity, selectedUnit.bogoGetQuantity || 1);
+    }
+    
     this.updateCartSummary();
     this.saveToStorage();
+  },
+
+  // Automatically add free BOGO items when buy product is added
+  autoAddBOGOFreeItem(getProductUnitId, buyQuantity, getQuantityPerBuy) {
+    cartStore.update(cart => {
+      // Check if auto-added get product is already in cart
+      const existingGetProduct = cart.find(item => 
+        item.selectedUnit?.id === getProductUnitId && 
+        item.offerType === 'bogo_get' &&
+        item.isAutoAdded === true
+      );
+
+      const freeQuantityNeeded = buyQuantity * getQuantityPerBuy;
+
+      if (existingGetProduct) {
+        // Update quantity if already exists
+        existingGetProduct.quantity = freeQuantityNeeded;
+      } else {
+        // Add placeholder - will be enriched with product details
+        cart.push({
+          id: 'temp_bogo_' + getProductUnitId,
+          name: 'BOGO Free Item',
+          nameEn: 'BOGO Free Item',
+          selectedUnit: { id: getProductUnitId },
+          quantity: freeQuantityNeeded,
+          price: 0,
+          originalPrice: null,
+          image: null,
+          barcode: null,
+          offerType: 'bogo_get',
+          bogoDiscountType: 'free',
+          linkedToBuyProductId: getProductUnitId,
+          isAutoAdded: true
+        });
+      }
+
+      return cart;
+    });
   },
 
   // Check if a BOGO get product should be free based on cart state
@@ -109,6 +164,25 @@ export const cartActions = {
   // Remove item from cart
   removeFromCart(productId, unitId) {
     cartStore.update(cart => {
+      // Find the item being removed
+      const itemToRemove = cart.find(item => 
+        item.id === productId && item.selectedUnit?.id === unitId
+      );
+      
+      // If it's a BOGO buy product with free discount, remove auto-added free items
+      if (itemToRemove && 
+          itemToRemove.offerType === 'bogo' && 
+          itemToRemove.bogoDiscountType === 'free' && 
+          itemToRemove.bogoGetProductId) {
+        
+        const getProductUnitId = itemToRemove.bogoGetProductId;
+        
+        // Remove auto-added free items
+        cart = cart.filter(item => 
+          !(item.selectedUnit?.id === getProductUnitId && item.isAutoAdded === true)
+        );
+      }
+      
       // Remove the item
       const filtered = cart.filter(item => 
         !(item.id === productId && item.selectedUnit?.id === unitId)
@@ -122,6 +196,8 @@ export const cartActions = {
 
   // Update item quantity
   updateQuantity(productId, unitId, quantity) {
+    console.log('📝 Update quantity called:', { productId, unitId, quantity });
+    
     if (quantity <= 0) {
       this.removeFromCart(productId, unitId);
       return;
@@ -129,11 +205,38 @@ export const cartActions = {
 
     cartStore.update(cart => {
       const item = cart.find(item => 
-        item.id === productId && item.selectedUnit?.id === unitId
+        item.id === productId && 
+        item.selectedUnit?.id === unitId &&
+        !item.isAutoAdded // Explicitly exclude auto-added items
       );
+      
+      console.log('Found item:', item ? { 
+        id: item.id, 
+        name: item.name, 
+        isAutoAdded: item.isAutoAdded,
+        quantity: item.quantity 
+      } : 'NOT FOUND');
       
       if (item) {
         item.quantity = quantity;
+        
+        // If this is a BOGO buy product with free discount, update free item quantity
+        if (item.offerType === 'bogo' && 
+            item.bogoDiscountType === 'free' && 
+            item.bogoGetProductId) {
+          
+          const getProductUnitId = item.bogoGetProductId;
+          const getQuantityPerBuy = item.bogoGetQuantity || 1;
+          const newFreeQuantity = quantity * getQuantityPerBuy;
+          
+          const freeItem = cart.find(i => 
+            i.selectedUnit?.id === getProductUnitId && i.isAutoAdded === true
+          );
+          
+          if (freeItem) {
+            freeItem.quantity = newFreeQuantity;
+          }
+        }
       }
       
       return cart;
@@ -177,13 +280,18 @@ export const cartActions = {
     // Calculate total with BOGO pricing logic
     let total = 0;
     cart.forEach(item => {
-      if (item.offerType === 'bogo_get' && item.bogoDiscountType === 'free') {
-        // For BOGO get products, calculate how many are free
+      if (item.isAutoAdded && item.offerType === 'bogo_get') {
+        // Auto-added free items don't count toward total
+        return;
+      }
+      
+      if (item.offerType === 'bogo_get' && item.bogoDiscountType === 'percentage' && !item.isAutoAdded) {
+        // Manual BOGO with percentage discount - calculate free quantity
         const freeQuantity = this.calculateBOGOFreeQuantity(item.selectedUnit?.id);
         const paidQuantity = Math.max(0, item.quantity - freeQuantity);
         total += paidQuantity * item.price;
-      } else {
-        // Regular items - full price
+      } else if (!item.isAutoAdded) {
+        // Regular items or manually added BOGO get items - full price
         total += item.price * item.quantity;
       }
     });
@@ -213,11 +321,13 @@ export const cartActions = {
     }
   },
 
-  // Get item quantity in cart
+  // Get item quantity in cart (excludes auto-added items)
   getItemQuantity(productId, unitId) {
     const cart = get(cartStore);
     const item = cart.find(item => 
-      item.id === productId && item.selectedUnit?.id === unitId
+      item.id === productId && 
+      item.selectedUnit?.id === unitId &&
+      !item.isAutoAdded // Only count manually added items
     );
     return item ? item.quantity : 0;
   }

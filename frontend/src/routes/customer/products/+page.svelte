@@ -41,7 +41,7 @@
   let selectedBogoOffer = null;
   let bogoGetProduct = null;
 
-  // Check if a product qualifies for FREE based on cart state
+  // Check if a product qualifies for FREE/discount based on cart state
   function shouldShowFree(product, unit) {
     if (!unit.hasOffer || unit.offerType !== 'bogo_get') return false;
     
@@ -53,10 +53,13 @@
     
     if (!buyProduct) return false;
     
-    // Calculate how many free items customer is entitled to
+    // Don't show badge for free items (they're auto-added)
+    if (buyProduct.bogoDiscountType === 'free') return false;
+    
+    // For percentage discounts, show badge if within limit
     const buyQuantity = buyProduct.quantity || 0;
     const getQuantityPerBuy = buyProduct.bogoGetQuantity || 1;
-    const maxFreeQuantity = buyQuantity * getQuantityPerBuy;
+    const maxDiscountedQuantity = buyQuantity * getQuantityPerBuy;
     
     // Check how many get products are already in cart
     const getProduct = $cartStore.find(item => 
@@ -66,8 +69,8 @@
     
     const currentQuantity = getProduct?.quantity || 0;
     
-    // Show FREE badge only if customer hasn't reached the free limit
-    return currentQuantity < maxFreeQuantity;
+    // Show discount badge only if customer hasn't reached the limit
+    return currentQuantity < maxDiscountedQuantity;
   }
 
   async function showBogoDetails(unit) {
@@ -191,6 +194,11 @@
       }
 
       console.log(`📦 Loaded ${data.products?.length || 0} products (${data.offersCount} offers active)`);
+      
+      // Debug first product
+      if (data.products && data.products.length > 0) {
+        console.log('🔍 First product data:', data.products[0]);
+      }
 
       // Group products by serial (for multi-unit products)
       const productMap = new Map();
@@ -262,12 +270,51 @@
 
       products.forEach(p => selectedUnits.set(p.id, p.baseUnit));
       selectedUnits = selectedUnits;
+      
+      // Clean up expired BOGO offers from cart
+      cleanupExpiredBOGOItems();
     } catch (error) {
       console.error('Error loading products:', error);
       products = [];
     } finally {
       loading = false;
     }
+  }
+
+  // Remove auto-added BOGO items from cart if the buy product no longer has an active offer
+  function cleanupExpiredBOGOItems() {
+    cartStore.update(cart => {
+      // Find all auto-added BOGO items
+      const autoAddedItems = cart.filter(item => item.isAutoAdded && item.offerType === 'bogo_get');
+      
+      autoAddedItems.forEach(autoItem => {
+        // Find the corresponding buy product in cart
+        const buyProduct = cart.find(item => 
+          item.offerType === 'bogo' && 
+          item.bogoGetProductId === autoItem.selectedUnit?.id
+        );
+        
+        if (buyProduct) {
+          // Check if the buy product still has an active offer in loaded products
+          const buyProductData = products.find(p => p.id === buyProduct.id);
+          const buyUnitData = buyProductData?.units?.find(u => u.id === buyProduct.selectedUnit?.id);
+          
+          // If offer is expired or no longer exists, remove the auto-added item
+          if (!buyUnitData || !buyUnitData.hasOffer || buyUnitData.offerType !== 'bogo') {
+            console.log('🗑️ Removing expired BOGO free item:', autoItem.name);
+            cart = cart.filter(item => item !== autoItem);
+          }
+        } else {
+          // Buy product not in cart, remove the auto-added item
+          cart = cart.filter(item => item !== autoItem);
+        }
+      });
+      
+      return cart;
+    });
+    
+    cartActions.updateCartSummary();
+    cartActions.saveToStorage();
   }
 
   function selectCategory(id) {
@@ -303,8 +350,16 @@
     const u = getSelectedUnit(product);
     const cur = cartActions.getItemQuantity(product.id, u.id);
     const next = Math.max(0, cur + d);
-    if (next === 0) cartActions.removeFromCart(product.id, u.id);
-    else cartActions.updateQuantity(product.id, u.id, next);
+    
+    if (next === 0) {
+      cartActions.removeFromCart(product.id, u.id);
+    } else if (cur === 0 && next > 0) {
+      // Item doesn't exist in cart, add it
+      cartActions.addToCart(product, u, next);
+    } else {
+      // Item exists, update quantity
+      cartActions.updateQuantity(product.id, u.id, next);
+    }
     
     // Update BOGO free items if needed
     enrichBOGOFreeItems();
@@ -314,23 +369,27 @@
   function enrichBOGOFreeItems() {
     cartStore.update(cart => {
       cart.forEach(item => {
-        if (item.isBOGOFreeItem && item.name === 'BOGO Free Item') {
-          // Find the product in our loaded products
+        if (item.isAutoAdded && item.name === 'BOGO Free Item') {
+          // Find the product by unit ID
           const foundProduct = products.find(p => {
-            const unit = p.units?.find(u => u.id === item.id);
+            const unit = p.units?.find(u => u.id === item.selectedUnit?.id);
             return unit !== undefined;
           });
           
           if (foundProduct) {
-            const unit = foundProduct.units.find(u => u.id === item.id);
+            const unit = foundProduct.units.find(u => u.id === item.selectedUnit?.id);
             if (unit) {
+              item.id = foundProduct.id; // Set to product serial
               item.name = foundProduct.nameAr;
               item.nameEn = foundProduct.nameEn;
               item.image = unit.image || foundProduct.image;
+              // Keep price at 0 for free items, don't overwrite it
+              // item.price = 0; // Already set to 0 when created
               item.selectedUnit = {
                 id: unit.id,
                 nameAr: unit.nameAr,
-                nameEn: unit.nameEn
+                nameEn: unit.nameEn,
+                basePrice: unit.basePrice
               };
             }
           }

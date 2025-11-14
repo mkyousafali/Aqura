@@ -712,6 +712,44 @@
     }
   }
   
+  async function toggleOfferStatus(offerId, currentStatus) {
+    try {
+      const newStatus = !currentStatus;
+      
+      // Update offer status in database
+      const { error } = await supabaseAdmin
+        .from('offers')
+        .update({ is_active: newStatus })
+        .eq('id', offerId);
+      
+      if (error) throw error;
+      
+      // Show success message
+      const message = newStatus
+        ? (isRTL ? '✅ تم تفعيل العرض بنجاح!' : '✅ Offer activated successfully!')
+        : (isRTL ? '⏸️ تم إيقاف العرض مؤقتاً!' : '⏸️ Offer paused successfully!');
+      
+      alert(message);
+      
+      // Broadcast to customer displays to refresh offers
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('aqura-offers-update');
+        channel.postMessage('refresh-offers');
+        channel.close();
+      }
+      
+      // Refresh offers list
+      await loadOffers();
+      await loadStats();
+    } catch (error) {
+      console.error('Error toggling offer status:', error);
+      alert(isRTL 
+        ? `❌ حدث خطأ أثناء تغيير حالة العرض: ${error.message}` 
+        : `❌ Error toggling offer status: ${error.message}`
+      );
+    }
+  }
+  
   async function duplicateOffer(offerId) {
     try {
       // 1. Get the original offer data

@@ -10,6 +10,8 @@
   import LocationMapDisplay from '$lib/components/LocationMapDisplay.svelte';
   import LocationPicker from '$lib/components/LocationPicker.svelte';
   
+  let offersChannel = null;
+  
   let currentLanguage = 'ar';
   let cartItems = [];
   let total = 0;
@@ -92,6 +94,44 @@
     } catch (e) {
       console.error('❌ [Checkout] Error reading session:', e);
       return { customerId: null };
+    }
+  }
+
+  // Function to cleanup expired offers from cart
+  async function cleanupExpiredOffers() {
+    try {
+      // Get branchId from orderFlow
+      const orderFlowData = JSON.parse(localStorage.getItem('orderFlow') || '{}');
+      const branchId = orderFlowData?.branchId;
+      const serviceType = orderFlowData?.fulfillment || 'delivery';
+      
+      if (!branchId) {
+        console.log('⚠️ [Checkout] No branchId found, skipping cleanup');
+        return;
+      }
+      
+      // Get current active offers from API
+      const response = await fetch(`/api/customer/products-with-offers?branchId=${branchId}&serviceType=${serviceType}`);
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      const activeProducts = data.products || [];
+      
+      // Find all auto-added BOGO items in cart
+      const autoAddedItems = $cartStore.filter(item => item.isAutoAdded);
+      
+      for (const autoItem of autoAddedItems) {
+        // Find the buy product in active products
+        const buyProduct = activeProducts.find(p => p.id === autoItem.bogoBuyProductId);
+        
+        // If buy product not found or no longer has BOGO offer, remove the auto-added item
+        if (!buyProduct || buyProduct.offerType !== 'bogo' || !buyProduct.hasOffer) {
+          console.log(`🧹 [Checkout] Removing expired BOGO item: ${autoItem.name_en}`);
+          cartActions.removeFromCart(autoItem.id, autoItem.selectedUnit?.id, true);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [Checkout] Error cleaning up expired offers:', error);
     }
   }
 
@@ -358,6 +398,27 @@
       loadingLocations = false;
     });
 
+    // Real-time subscriptions for offers and products
+    offersChannel = supabase
+      .channel('checkout-offers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 [Checkout] Offers table changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 [Checkout] Offer products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 [Checkout] BOGO rules changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        console.log('🛍️ [Checkout] Products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .subscribe();
+
     return () => {
       unsubscribeCart();
       unsubscribeTotal();
@@ -369,6 +430,9 @@
   onDestroy(() => {
     if (cancellationTimer) {
       clearInterval(cancellationTimer);
+    }
+    if (offersChannel) {
+      supabase.removeChannel(offersChannel);
     }
   });
 
@@ -794,7 +858,7 @@
     <div class="cart-section">
       <h2>{texts.yourOrder}</h2>
       <div class="cart-items">
-        {#each cartItems as item (item.id + '-' + item.selectedUnit?.id)}
+        {#each cartItems as item (item.id + '-' + item.selectedUnit?.id + '-' + (item.isAutoAdded ? 'auto' : 'manual'))}
           <div class="cart-item">
             <div class="item-image">
               {#if item.image}
@@ -811,7 +875,11 @@
               </div>
               <div class="item-price">
                 <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-                  {#if currentLanguage === 'ar'}
+                  {#if item.isAutoAdded && item.price === 0}
+                    <span style="color: #10b981; font-weight: 600;">
+                      {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                    </span>
+                  {:else if currentLanguage === 'ar'}
                     {formatPrice(item.price || 0)}
                     <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
                   {:else}
@@ -837,14 +905,18 @@
             
             <div class="item-actions">
               <div class="quantity-controls">
-                <button class="quantity-btn" on:click={() => decreaseQuantity(item)}>−</button>
+                <button class="quantity-btn" on:click={() => decreaseQuantity(item)} disabled={item.isAutoAdded}>−</button>
                 <span class="quantity-display">{toArabicNumerals(item.quantity)}</span>
-                <button class="quantity-btn" on:click={() => increaseQuantity(item)}>+</button>
+                <button class="quantity-btn" on:click={() => increaseQuantity(item)} disabled={item.isAutoAdded}>+</button>
               </div>
               
               <div class="item-total">
                 <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-                  {#if currentLanguage === 'ar'}
+                  {#if item.isAutoAdded && item.price === 0}
+                    <span style="color: #10b981; font-weight: 600;">
+                      {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                    </span>
+                  {:else if currentLanguage === 'ar'}
                     {formatPrice((item.price || 0) * (item.quantity || 1))}
                     <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
                   {:else}
