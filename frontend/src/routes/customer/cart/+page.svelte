@@ -1,10 +1,12 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { cartStore, cartActions, cartTotal, cartCount } from '$lib/stores/cart.js';
+  import { supabase } from '$lib/utils/supabase';
   
   let currentLanguage = 'ar';
   let customerId = null;
+  let offersChannel = null;
   
   // Delivery fee calculation
   const deliveryFee = 15.00; // SAR
@@ -38,7 +40,72 @@
     } catch (error) {
       console.error('Error getting customer session:', error);
     }
+
+    // Real-time subscriptions for offers and products
+    offersChannel = supabase
+      .channel('cart-offers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 [Cart] Offers table changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 [Cart] Offer products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 [Cart] BOGO rules changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        console.log('🛍️ [Cart] Products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .subscribe();
   });
+
+  onDestroy(() => {
+    if (offersChannel) {
+      supabase.removeChannel(offersChannel);
+    }
+  });
+
+  // Function to cleanup expired offers from cart
+  async function cleanupExpiredOffers() {
+    try {
+      // Get branchId from orderFlow
+      const orderFlowData = JSON.parse(localStorage.getItem('orderFlow') || '{}');
+      const branchId = orderFlowData?.branchId;
+      const serviceType = orderFlowData?.fulfillment || 'delivery';
+      
+      if (!branchId) {
+        console.log('⚠️ [Cart] No branchId found, skipping cleanup');
+        return;
+      }
+      
+      // Get current active offers from API
+      const response = await fetch(`/api/customer/products-with-offers?branchId=${branchId}&serviceType=${serviceType}`);
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      const activeProducts = data.products || [];
+      
+      // Find all auto-added BOGO items in cart
+      const autoAddedItems = $cartStore.filter(item => item.isAutoAdded);
+      
+      for (const autoItem of autoAddedItems) {
+        // Find the buy product in active products
+        const buyProduct = activeProducts.find(p => p.id === autoItem.bogoBuyProductId);
+        
+        // If buy product not found or no longer has BOGO offer, remove the auto-added item
+        if (!buyProduct || buyProduct.offerType !== 'bogo' || !buyProduct.hasOffer) {
+          console.log(`🧹 [Cart] Removing expired BOGO item: ${autoItem.name_en}`);
+          cartActions.removeFromCart(autoItem.id, autoItem.selectedUnit?.id, true);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [Cart] Error cleaning up expired offers:', error);
+    }
+  }
 
   function updateItemQuantity(item, change) {
     const newQuantity = Math.max(0, item.quantity + change);
@@ -188,7 +255,11 @@
               {/if}
 
               <div class="item-price">
-                {#if currentLanguage === 'ar'}
+                {#if item.isAutoAdded && item.price === 0}
+                  <span style="color: #10b981; font-weight: 600;">
+                    {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                  </span>
+                {:else if currentLanguage === 'ar'}
                   {formatPrice(item.price)}
                   <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
                 {:else}
@@ -205,6 +276,7 @@
                 <button 
                   class="quantity-btn decrease" 
                   on:click={() => updateItemQuantity(item, -1)}
+                  disabled={item.isAutoAdded}
                 >
                   −
                 </button>
@@ -212,6 +284,7 @@
                 <button 
                   class="quantity-btn increase" 
                   on:click={() => updateItemQuantity(item, 1)}
+                  disabled={item.isAutoAdded}
                 >
                   +
                 </button>
@@ -219,7 +292,11 @@
 
               <!-- Item Total -->
               <div class="item-total">
-                {#if currentLanguage === 'ar'}
+                {#if item.isAutoAdded && item.price === 0}
+                  <span style="color: #10b981; font-weight: 600;">
+                    {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                  </span>
+                {:else if currentLanguage === 'ar'}
                   {formatPrice(item.price * item.quantity)}
                   <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
                 {:else}

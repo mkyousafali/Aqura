@@ -53,7 +53,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		const offerIds = filteredOffers.map((o) => o.id);
 		
 		if (offerIds.length === 0) {
-			// No offers, return regular products
+			// No offers, return regular products with proper field transformation
 			const { data: products, error: productsError } = await supabaseAdmin
 				.from('products')
 				.select('*')
@@ -65,7 +65,41 @@ export const GET: RequestHandler = async ({ url }) => {
 				return json({ error: 'Failed to fetch products' }, { status: 500 });
 			}
 
-			return json({ products: products || [], offersCount: 0 });
+			// Transform field names to match expected format
+			const transformedProducts = (products || []).map(product => ({
+				id: product.id,
+				product_serial: product.product_serial,
+				nameEn: product.product_name_en,
+				nameAr: product.product_name_ar,
+				category: product.category_id,
+				categoryNameEn: product.category_name_en,
+				categoryNameAr: product.category_name_ar,
+				image: product.image_url,
+				barcode: product.barcode,
+				stock: product.current_stock,
+				lowStockThreshold: product.minimum_qty_alert,
+				
+				unitEn: product.unit_name_en,
+				unitAr: product.unit_name_ar,
+				unitQty: product.unit_qty,
+				
+				originalPrice: parseFloat(product.sale_price),
+				offerPrice: null,
+				savings: 0,
+				discountPercentage: 0,
+				
+				hasOffer: false,
+				offerType: null,
+				offerId: null,
+				offerNameEn: null,
+				offerNameAr: null,
+				offerQty: null,
+				maxUses: null,
+				offerEndDate: null,
+				isExpiringSoon: false
+			}));
+
+			return json({ products: transformedProducts, offersCount: 0 });
 		}
 
 		// Get offer products with special price

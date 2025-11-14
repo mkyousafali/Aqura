@@ -1,10 +1,13 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { cartCount, cartTotal } from '$lib/stores/cart.js';
+  import { cartCount, cartTotal, cartStore, cartActions } from '$lib/stores/cart.js';
   import { deliveryTiers, deliveryActions, freeDeliveryThreshold } from '$lib/stores/delivery.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
+  import { supabase } from '$lib/utils/supabase';
+  
+  let offersChannel = null;
   
   let currentLanguage = 'ar';
   let showFireworks = false;
@@ -119,7 +122,72 @@
     
     // Initialize delivery data
     await deliveryActions.initialize();
+
+    // Real-time subscriptions for offers and products
+    offersChannel = supabase
+      .channel('bottom-cart-offers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 [BottomCart] Offers table changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 [BottomCart] Offer products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 [BottomCart] BOGO rules changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        console.log('🛍️ [BottomCart] Products changed, cleaning up cart...');
+        cleanupExpiredOffers();
+      })
+      .subscribe();
   });
+
+  onDestroy(() => {
+    if (offersChannel) {
+      supabase.removeChannel(offersChannel);
+    }
+  });
+
+  // Function to cleanup expired offers from cart
+  async function cleanupExpiredOffers() {
+    try {
+      // Get branchId from orderFlow
+      const orderFlowData = JSON.parse(localStorage.getItem('orderFlow') || '{}');
+      const branchId = orderFlowData?.branchId;
+      const serviceType = orderFlowData?.fulfillment || 'delivery';
+      
+      if (!branchId) {
+        console.log('⚠️ [BottomCart] No branchId found, skipping cleanup');
+        return;
+      }
+      
+      // Get current active offers from API
+      const response = await fetch(`/api/customer/products-with-offers?branchId=${branchId}&serviceType=${serviceType}`);
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      const activeProducts = data.products || [];
+      
+      // Find all auto-added BOGO items in cart
+      const autoAddedItems = $cartStore.filter(item => item.isAutoAdded);
+      
+      for (const autoItem of autoAddedItems) {
+        // Find the buy product in active products
+        const buyProduct = activeProducts.find(p => p.id === autoItem.bogoBuyProductId);
+        
+        // If buy product not found or no longer has BOGO offer, remove the auto-added item
+        if (!buyProduct || buyProduct.offerType !== 'bogo' || !buyProduct.hasOffer) {
+          console.log(`🧹 [BottomCart] Removing expired BOGO item: ${autoItem.name_en}`);
+          cartActions.removeFromCart(autoItem.id, autoItem.selectedUnit?.id, true);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [BottomCart] Error cleaning up expired offers:', error);
+    }
+  }
   
   // Reload tiers when branch selection changes
   $: if ($orderFlow?.branchId) {
