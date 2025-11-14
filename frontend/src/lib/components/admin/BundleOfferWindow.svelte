@@ -39,8 +39,13 @@
 		!productSearchTerm || 
 		p.barcode?.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
 		p.name_ar.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-		p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase())
-	);
+		p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+		p.product_serial?.toLowerCase().includes(productSearchTerm.toLowerCase())
+	).sort((a, b) => {
+		const serialA = a.product_serial || '';
+		const serialB = b.product_serial || '';
+		return serialA.localeCompare(serialB);
+	});
 
 	onMount(async () => {
 		await loadBranches();
@@ -76,6 +81,23 @@
 		return `${year}-${month}-${day}T${hours}:${minutes}`;
 	}
 
+	// Convert Saudi time from datetime-local input to UTC for database storage
+	function toUTCFromSaudiInput(saudiTimeString) {
+		// Parse the datetime-local input (assumed to be Saudi time)
+		const [datePart, timePart] = saudiTimeString.split('T');
+		const [year, month, day] = datePart.split('-').map(Number);
+		const [hours, minutes] = timePart.split(':').map(Number);
+		
+		// Create ISO string for Saudi timezone and parse it
+		const saudiISOString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+		
+		// Parse as if it's UTC, then subtract 3 hours (Saudi is UTC+3)
+		const tempDate = new Date(saudiISOString + 'Z');
+		const utcDate = new Date(tempDate.getTime() - (3 * 60 * 60 * 1000));
+		
+		return utcDate.toISOString();
+	}
+
 	async function loadOfferData() {
 		if (!offerId) return;
 
@@ -106,9 +128,9 @@
 	async function loadProducts() {
 		const { data, error: err } = await supabaseAdmin
 			.from('products')
-			.select('id, product_name_ar, product_name_en, barcode, sale_price, image_url, current_stock')
+			.select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock')
 			.eq('is_active', true)
-			.order('product_name_en');
+			.order('product_serial');
 
 		if (!err && data) {
 			// Get products already in active offers (product, bogo, bundle)
@@ -184,7 +206,12 @@
 					name_ar: p.product_name_ar,
 					name_en: p.product_name_en,
 					barcode: p.barcode,
+					product_serial: p.product_serial || '',
 					price: parseFloat(p.sale_price) || 0,
+					cost: parseFloat(p.cost) || 0,
+					unit_name_en: p.unit_name_en || '',
+					unit_name_ar: p.unit_name_ar || '',
+					unit_qty: p.unit_qty || 1,
 					image_url: p.image_url,
 					stock: p.current_stock || 0
 				}));
@@ -200,13 +227,31 @@
 			.eq('offer_id', offerId);
 
 		if (!err && data) {
-			bundles = data.map(b => ({
-				id: b.id,
-				name_ar: b.bundle_name_ar,
-				name_en: b.bundle_name_en,
-				products: b.required_products || [],
-				total_price: calculateBundleTotalPrice(b.required_products || [])
-			}));
+			bundles = data.map(b => {
+				// Enrich bundle products with full product details
+				const enrichedProducts = (b.required_products || []).map(bp => {
+					const product = products.find(p => p.id === bp.product_id);
+					if (!product) return bp;
+					
+					return {
+						...bp,
+						product_id: bp.product_id,
+						product_name_ar: product.product_name_ar || product.name_ar,
+						product_name_en: product.product_name_en || product.name_en,
+						product_barcode: product.barcode,
+						product_price: product.sale_price || product.price,
+						product_image: product.image_url
+					};
+				});
+				
+				return {
+					id: b.id,
+					name_ar: b.bundle_name_ar,
+					name_en: b.bundle_name_en,
+					products: enrichedProducts,
+					total_price: calculateBundleTotalPrice(b.required_products || [])
+				};
+			});
 		}
 	}
 
@@ -418,13 +463,14 @@
 				name_en: offerData.name_en,
 				description_ar: offerData.description_ar,
 				description_en: offerData.description_en,
-				start_date: new Date(offerData.start_date).toISOString(),
-				end_date: new Date(offerData.end_date).toISOString(),
+				start_date: toUTCFromSaudiInput(offerData.start_date),
+				end_date: toUTCFromSaudiInput(offerData.end_date),
 				branch_id: offerData.branch_id,
 				service_type: offerData.service_type,
 				is_active: offerData.is_active,
-				discount_type: 'fixed',
-				discount_value: 0
+				show_on_product_page: true,
+				show_in_carousel: true,
+				send_push_notification: false
 			};
 
 			let savedOfferId = offerId;
@@ -867,17 +913,24 @@
 								<table class="products-table">
 									<thead>
 										<tr>
-											<th>{isRTL ? 'الصورة' : 'Image'}</th>
-											<th>{isRTL ? 'اسم المنتج' : 'Product Name'}</th>
+											<th>{isRTL ? 'التسلسل' : 'Serial'}</th>
 											<th>{isRTL ? 'الباركود' : 'Barcode'}</th>
+											<th>{isRTL ? 'الصورة' : 'Image'}</th>
+											<th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
+											<th>{isRTL ? 'اسم المنتج (AR)' : 'Product Name (AR)'}</th>
 											<th>{isRTL ? 'المخزون' : 'Stock'}</th>
-											<th>{isRTL ? 'السعر' : 'Price'}</th>
+											<th>{isRTL ? 'اسم الوحدة' : 'Unit Name'}</th>
+											<th>{isRTL ? 'كمية الوحدة' : 'Unit Qty'}</th>
+											<th>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</th>
+											<th>{isRTL ? 'سعر البيع' : 'Sale Price'}</th>
 											<th>{isRTL ? 'إجراء' : 'Action'}</th>
 										</tr>
 									</thead>
 									<tbody>
 										{#each filteredProducts as product}
 											<tr>
+												<td>{product.product_serial}</td>
+												<td>{product.barcode || '-'}</td>
 												<td>
 													{#if product.image_url}
 														<img src={product.image_url} alt={product.name_en} class="table-product-img" />
@@ -885,9 +938,12 @@
 														<div class="table-product-placeholder">📦</div>
 													{/if}
 												</td>
-												<td>{isRTL ? product.name_ar : product.name_en}</td>
-												<td>{product.barcode || '-'}</td>
+												<td>{product.name_en}</td>
+												<td>{product.name_ar}</td>
 												<td>{product.stock}</td>
+												<td>{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
+												<td>{product.unit_qty}</td>
+												<td>{product.cost.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
 												<td>{product.price.toFixed(2)} {isRTL ? 'ريال' : 'SAR'}</td>
 												<td>
 													<button
@@ -1052,7 +1108,7 @@
 	}
 
 	.step-content {
-		max-width: 900px;
+		width: 100%;
 		margin: 0 auto;
 	}
 
@@ -1651,7 +1707,7 @@
 	}
 
 	.products-table-scroll {
-		max-height: 400px;
+		max-height: calc(100vh - 350px);
 		overflow-y: auto;
 		border: 2px solid #e5e7eb;
 		border-radius: 10px;

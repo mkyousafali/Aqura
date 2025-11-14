@@ -40,6 +40,47 @@
     return formatted.endsWith('.00') ? formatted.slice(0, -3) : formatted;
   }
 
+  // Calculate time remaining until offer expires
+  function getExpiryCountdown(endDate: string): string {
+    // Get current time in Saudi timezone
+    const now = new Date();
+    const saudiNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    
+    // Parse end date (stored in UTC) and convert to Saudi time
+    const endUTC = new Date(endDate);
+    const endSaudi = new Date(endUTC.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    
+    const diff = endSaudi.getTime() - saudiNow.getTime();
+    
+    if (diff <= 0) {
+      return currentLanguage === 'ar' ? 'انتهى العرض' : 'Expired';
+    }
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (days > 0) {
+      if (currentLanguage === 'ar') {
+        return `ينتهي خلال ${toArabicNumerals(days)} ${days === 1 ? 'يوم' : 'أيام'} ${toArabicNumerals(hours)} ${hours === 1 ? 'ساعة' : 'ساعات'}`;
+      } else {
+        return `Expires in ${days} ${days === 1 ? 'day' : 'days'} ${hours} ${hours === 1 ? 'hr' : 'hrs'}`;
+      }
+    } else if (hours > 0) {
+      if (currentLanguage === 'ar') {
+        return `ينتهي خلال ${toArabicNumerals(hours)} ${hours === 1 ? 'ساعة' : 'ساعات'} ${toArabicNumerals(minutes)} ${minutes === 1 ? 'دقيقة' : 'دقائق'}`;
+      } else {
+        return `Expires in ${hours} ${hours === 1 ? 'hr' : 'hrs'} ${minutes} ${minutes === 1 ? 'min' : 'mins'}`;
+      }
+    } else {
+      if (currentLanguage === 'ar') {
+        return `ينتهي خلال ${toArabicNumerals(minutes)} ${minutes === 1 ? 'دقيقة' : 'دقائق'}`;
+      } else {
+        return `Expires in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+      }
+    }
+  }
+
   // Product categories
   const categories = [
     { id: 'beverages', nameAr: 'المشروبات', nameEn: 'Beverages', icon: '🥤' },
@@ -150,6 +191,10 @@
                 const displayOriginalPrice = product.sale_price * offerQty;
                 const displayFinalPrice = finalPrice * offerQty;
                 
+                // Determine discount type based on offerProduct data
+                const discountType = offerProduct.offer_percentage ? 'percentage' : 'fixed';
+                const discountValue = offerProduct.offer_percentage || offerProduct.offer_price;
+                
                 const mediaItem = {
                   id: `offer-product-${offer.id}-${product.id}`,
                   src: product.image_url || '', // Product image
@@ -163,8 +208,8 @@
                   offerData: offer, // Keep offer data for modal
                   offerProductData: offerProduct, // Keep offer_product data for pricing
                   discountInfo: {
-                    type: offer.discount_type,
-                    value: offer.discount_value,
+                    type: discountType, // Get from offerProduct, not offer
+                    value: discountValue, // Get from offerProduct, not offer
                     originalPrice: displayOriginalPrice, // Total price for offer_qty
                     finalPrice: displayFinalPrice, // Total discounted price
                     offerPercentage: discountPercentage,
@@ -390,6 +435,27 @@
       isVideoHidden = true;
     }
     
+    // Subscribe to real-time offer changes
+    const offersChannel = supabase
+      .channel('offers-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'offers' },
+        async (payload) => {
+          console.log('🔄 [Real-time] Offer changed:', payload);
+          await loadMediaItems();
+          await loadFeaturedOffers();
+        }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'offer_products' },
+        async (payload) => {
+          console.log('🔄 [Real-time] Offer product changed:', payload);
+          await loadMediaItems();
+          await loadFeaturedOffers();
+        }
+      )
+      .subscribe();
+    
     // Reload offers when page becomes visible (user switches back to tab)
     const handleVisibilityChange = async () => {
       if (!document.hidden) {
@@ -401,19 +467,24 @@
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // Auto-refresh offers every 30 seconds to keep data fresh
-    const refreshInterval = setInterval(async () => {
-      if (!document.hidden) {
-        console.log('🔄 [Customer Offers] Auto-refreshing offers...');
-        await loadMediaItems();
-        await loadFeaturedOffers();
-      }
-    }, 30000); // 30 seconds
+    // Listen for broadcast messages from admin panel to refresh offers
+    let channel;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('aqura-offers-update');
+      channel.onmessage = async (event) => {
+        if (event.data === 'refresh-offers') {
+          console.log('🔄 [Customer Offers] Refresh triggered by admin...');
+          await loadMediaItems();
+          await loadFeaturedOffers();
+        }
+      };
+    }
     
-    // Cleanup listeners
+    // Cleanup function
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(refreshInterval);
+      offersChannel.unsubscribe();
+      if (channel) channel.close();
     };
   });
 
@@ -771,6 +842,13 @@
                             {/if}
                           {/if}
                         </div>
+                        
+                        <!-- Expiry Countdown -->
+                        {#if media.offerData.end_date}
+                          <div class="expiry-countdown">
+                            ⏰ {getExpiryCountdown(media.offerData.end_date)}
+                          </div>
+                        {/if}
                       </div>
                     </div>
                   </div>
@@ -831,10 +909,11 @@
                         {/each}
                       </div>
                       
-                      <!-- Bundle Pricing -->
-                      <div class="bundle-pricing">
+                      <!-- Bundle Pricing (Match percentage offer style) -->
+                      <div class="product-info-overlay">
+                        <!-- Sale Price (crossed out) -->
                         {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
-                          <span class="bundle-original-price">
+                          <span class="original-price">
                             {#if currentLanguage === 'ar'}
                               {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
                               <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
@@ -844,15 +923,34 @@
                             {/if}
                           </span>
                         {/if}
-                        <div class="bundle-final-price">
-                          {#if currentLanguage === 'ar'}
-                            <span class="bundle-discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
-                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                        
+                        <!-- Offer Price (large green) -->
+                        <div class="offer-price">
+                          {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                            {#if currentLanguage === 'ar'}
+                              <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                            {/if}
                           {:else}
-                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-                            <span class="bundle-discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                            {#if currentLanguage === 'ar'}
+                              <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
+                            {/if}
                           {/if}
                         </div>
+                        
+                        <!-- Expiry Countdown -->
+                        {#if media.offerData.end_date}
+                          <div class="expiry-countdown">
+                            ⏰ {getExpiryCountdown(media.offerData.end_date)}
+                          </div>
+                        {/if}
                       </div>
                     </div>
                   </div>
@@ -922,10 +1020,11 @@
                         {/each}
                       </div>
                       
-                      <!-- BOGO Pricing -->
-                      <div class="bogo-pricing">
+                      <!-- BOGO Pricing (Match percentage offer style) -->
+                      <div class="product-info-overlay">
+                        <!-- Sale Price (crossed out) -->
                         {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
-                          <span class="bogo-original-price">
+                          <span class="original-price">
                             {#if currentLanguage === 'ar'}
                               {toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}
                               <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
@@ -935,15 +1034,34 @@
                             {/if}
                           </span>
                         {/if}
-                        <div class="bogo-final-price">
-                          {#if currentLanguage === 'ar'}
-                            <span class="bogo-discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
-                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                        
+                        <!-- Offer Price (large green) -->
+                        <div class="offer-price">
+                          {#if media.discountInfo.finalPrice < media.discountInfo.originalPrice}
+                            {#if currentLanguage === 'ar'}
+                              <span class="discounted-price">{toArabicNumerals(formatPrice(media.discountInfo.finalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                            {/if}
                           {:else}
-                            <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-                            <span class="bogo-discounted-price">{formatPrice(media.discountInfo.finalPrice)}</span>
+                            {#if currentLanguage === 'ar'}
+                              <span class="current-price">{toArabicNumerals(formatPrice(media.discountInfo.originalPrice))}</span>
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                            {:else}
+                              <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                              <span class="current-price">{formatPrice(media.discountInfo.originalPrice)}</span>
+                            {/if}
                           {/if}
                         </div>
+                        
+                        <!-- Expiry Countdown -->
+                        {#if media.offerData.end_date}
+                          <div class="expiry-countdown">
+                            ⏰ {getExpiryCountdown(media.offerData.end_date)}
+                          </div>
+                        {/if}
                       </div>
                     </div>
                   </div>
@@ -1666,8 +1784,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
-    gap: 1.5rem;
+    padding: 1.5rem;
+    gap: 1rem;
     background: transparent;
     position: relative;
     z-index: 2;
@@ -1675,8 +1793,8 @@
 
   .product-image-wrapper {
     position: relative;
-    width: 150px;
-    height: 150px;
+    width: 120px;
+    height: 120px;
     flex-shrink: 0;
   }
 
@@ -1727,10 +1845,10 @@
     right: -0.5rem;
     background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
     color: white;
-    padding: 0.4rem 0.8rem;
-    border-radius: 16px;
+    padding: 0.3rem 0.6rem;
+    border-radius: 12px;
     font-weight: 700;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
     z-index: 10;
   }
@@ -1792,21 +1910,23 @@
   }
 
   .product-title {
-    font-size: 1.75rem;
+    font-size: 1.35rem;
     font-weight: 700;
     margin: 0;
     color: #059669;
-    line-height: 1.3;
+    line-height: 1.2;
+    max-width: 100%;
+    word-wrap: break-word;
   }
 
   .unit-details {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    font-size: 1rem;
+    font-size: 0.9rem;
     color: #EA580C;
     font-weight: 500;
-    padding: 0.5rem 1rem;
+    padding: 0.4rem 0.8rem;
     background: #FFF7ED;
     border-radius: 8px;
   }
@@ -1814,34 +1934,85 @@
   .original-price {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    font-size: 1.25rem;
+    gap: 0.3rem;
+    font-size: 1.3rem;
     color: #EF4444;
-    text-decoration: line-through;
-    text-decoration-color: #059669;
-    text-decoration-thickness: 2px;
-    font-weight: 500;
+    position: relative;
+    font-weight: 600;
+  }
+  
+  .original-price::after {
+    content: '';
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: 50%;
+    height: 1.5px;
+    background: linear-gradient(to bottom right, #EF4444 0%, #EF4444 100%);
+    transform: translateY(-50%) rotate(-10deg);
+    transform-origin: center;
   }
 
   .offer-price {
     display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    padding: 0.75rem 1.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.6rem 1.2rem;
     background: #F0FDF4;
     border: 2px solid #059669;
     border-radius: 12px;
   }
 
+  .expiry-countdown {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    font-size: 0.55rem;
+    font-weight: 600;
+    color: #DC2626;
+    background: linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%);
+    border: 1px solid #FCA5A5;
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
+    margin-top: 0.25rem;
+    animation: heartbeat 1.5s ease-in-out infinite;
+  }
+
+  @keyframes heartbeat {
+    0%, 100% { 
+      transform: scale(1);
+      box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
+    }
+    10% { 
+      transform: scale(1.05);
+      box-shadow: 0 2px 4px rgba(220, 38, 38, 0.15);
+    }
+    20% { 
+      transform: scale(1);
+      box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
+    }
+    30% { 
+      transform: scale(1.05);
+      box-shadow: 0 2px 4px rgba(220, 38, 38, 0.15);
+    }
+    40%, 100% { 
+      transform: scale(1);
+      box-shadow: 0 1px 2px rgba(220, 38, 38, 0.08);
+    }
+  }
+
   .discounted-price {
-    font-size: 2rem;
+    font-size: 1.75rem;
     font-weight: 900;
     color: #059669;
     line-height: 1;
   }
 
   .current-price {
-    font-size: 2rem;
+    font-size: 1.75rem;
     font-weight: 900;
     color: #111827;
     line-height: 1;
@@ -1854,15 +2025,15 @@
   }
 
   .currency-icon {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     object-fit: contain;
     vertical-align: middle;
   }
 
   .currency-icon-small {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     object-fit: contain;
     vertical-align: middle;
   }
@@ -1870,6 +2041,8 @@
   /* Bundle Card Styles */
   .bundle-offer-card {
     background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%);
+    max-height: 100%;
+    overflow: hidden;
   }
 
   .bundle-card-content {
@@ -1878,9 +2051,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 1.5rem;
-    gap: 1rem;
+    justify-content: space-between;
+    padding: 3rem 1rem 1rem 1rem;
+    gap: 0.6rem;
     position: relative;
     z-index: 2;
   }
@@ -1888,28 +2061,30 @@
   .bundle-products-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+    gap: 0.6rem;
     width: 100%;
     max-width: 100%;
     padding: 0;
+    flex-shrink: 0;
   }
 
   .bundle-product-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
     background: white;
-    padding: 0.75rem;
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 0.4rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    min-height: 0;
   }
 
   .bundle-product-image-wrapper {
-    width: 80px;
-    height: 80px;
+    width: 55px;
+    height: 55px;
     flex-shrink: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     overflow: hidden;
     position: relative;
   }
@@ -1955,49 +2130,51 @@
   .bundle-product-info {
     text-align: center;
     width: 100%;
+    min-height: 0;
   }
 
   .bundle-product-name {
-    font-size: 0.8rem;
+    font-size: 0.65rem;
     font-weight: 600;
     color: #111827;
     margin: 0;
-    line-height: 1.2;
+    line-height: 1.1;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    max-height: 2.2em;
   }
 
   .bundle-product-qty {
-    font-size: 0.65rem;
+    font-size: 0.5rem;
     color: #EA580C;
     font-weight: 500;
-    margin: 0.2rem 0 0 0;
-    padding: 0.2rem 0.4rem;
+    margin: 0.15rem 0 0 0;
+    padding: 0.12rem 0.3rem;
     background: #FFF7ED;
     border-radius: 4px;
     display: inline-block;
-    line-height: 1.2;
+    line-height: 1.1;
   }
 
   .bundle-pricing {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.75rem 1.25rem;
+    gap: 0.3rem;
+    padding: 0.5rem 0.9rem;
     background: white;
-    border-radius: 10px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1);
   }
 
   .bundle-original-price {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
-    font-size: 0.9rem;
+    gap: 0.25rem;
+    font-size: 0.75rem;
     color: #EF4444;
     text-decoration: line-through;
     text-decoration-color: #059669;
@@ -2008,11 +2185,11 @@
   .bundle-final-price {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.3rem;
   }
 
   .bundle-discounted-price {
-    font-size: 1.75rem;
+    font-size: 1.4rem;
     font-weight: 900;
     color: #059669;
     line-height: 1;
@@ -2036,7 +2213,7 @@
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    gap: 0.5rem;
+    gap: 0.4rem;
     position: relative;
     z-index: 2;
   }
@@ -2049,7 +2226,7 @@
 
   .bogo-products-container {
     display: flex;
-    gap: 1rem;
+    gap: 0.6rem;
     align-items: center;
     justify-content: center;
     width: 100%;
@@ -2059,22 +2236,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
   }
 
   .bogo-label {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     font-weight: 700;
-    padding: 0.3rem 0.75rem;
-    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    border-radius: 5px;
     text-align: center;
   }
 
   .buy-label {
     color: #1F2937;
     background: white;
-    padding: 0.3rem 0.75rem;
-    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    border-radius: 5px;
     display: inline-block;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
@@ -2082,8 +2259,8 @@
   .get-label {
     color: white;
     background: #10B981;
-    padding: 0.3rem 0.75rem;
-    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    border-radius: 5px;
     display: inline-block;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
@@ -2092,19 +2269,19 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.3rem;
     background: white;
-    padding: 0.75rem;
-    border-radius: 10px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-    min-width: 110px;
+    padding: 0.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    min-width: 90px;
   }
 
   .bogo-product-image-wrapper {
-    width: 80px;
-    height: 80px;
+    width: 60px;
+    height: 60px;
     flex-shrink: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     overflow: hidden;
     position: relative;
   }
@@ -2139,7 +2316,7 @@
   }
 
   .bogo-product-name {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     font-weight: 600;
     color: #111827;
     margin: 0;
@@ -2152,11 +2329,11 @@
   }
 
   .bogo-product-qty {
-    font-size: 0.65rem;
+    font-size: 0.55rem;
     color: #EA580C;
     font-weight: 500;
-    margin: 0.2rem 0 0 0;
-    padding: 0.2rem 0.4rem;
+    margin: 0.15rem 0 0 0;
+    padding: 0.15rem 0.35rem;
     background: #FFF7ED;
     border-radius: 4px;
     display: inline-block;
@@ -2167,18 +2344,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.6rem 1rem;
+    gap: 0.25rem;
+    padding: 0.5rem 0.8rem;
     background: white;
     border-radius: 8px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
 
   .bogo-original-price {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    font-size: 0.85rem;
+    gap: 0.2rem;
+    font-size: 0.7rem;
     color: #EF4444;
     text-decoration: line-through;
     text-decoration-color: #10B981;
@@ -2189,11 +2366,11 @@
   .bogo-final-price {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.3rem;
   }
 
   .bogo-discounted-price {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     font-weight: 900;
     color: #10B981;
     line-height: 1;
@@ -2264,29 +2441,29 @@
 
   .hide-btn {
     position: absolute;
-    top: 1rem;
-    left: 1rem;
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-    border: 2px solid #ef4444;
+    top: 0.5rem;
+    left: 0.5rem;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    border: none;
     border-radius: 50%;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     font-size: 1rem;
     cursor: pointer;
     transition: all 0.3s ease;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 5;
+    z-index: 100;
     backdrop-filter: blur(10px);
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
   }
 
   .hide-btn:hover {
-    background: rgba(239, 68, 68, 0.4);
+    background: rgba(220, 38, 38, 1);
     transform: scale(1.1);
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.7);
   }
 
   .hide-btn span {

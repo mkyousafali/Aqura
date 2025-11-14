@@ -1,0 +1,58 @@
+﻿{
+    "success":  true,
+    "offers":  [
+                   {
+                       "id":  41,
+                       "type":  "product",
+                       "name_ar":  "test%",
+                       "name_en":  "test%",
+                       "description_ar":  "test%",
+                       "description_en":  "test%",
+                       "start_date":  "2025-11-14T05:14:00+00:00",
+                       "end_date":  "2025-12-14T05:14:00+00:00",
+                       "is_active":  true,
+                       "max_total_uses":  null,
+                       "current_total_uses":  0,
+                       "max_uses_per_customer":  null,
+                       "branch_id":  null,
+                       "service_type":  "both",
+                       "show_on_product_page":  true,
+                       "show_in_carousel":  true,
+                       "products":  [
+                                        {
+                                            "id":  "3b0c213d-b978-41da-8ec8-062baec3d0ee",
+                                            "product_id":  "26c67368-5214-487b-bd65-a43abe1f4a8a",
+                                            "offer_qty":  2,
+                                            "offer_percentage":  10,
+                                            "offer_price":  25.2,
+                                            "max_uses":  1,
+                                            "products":  {
+                                                             "id":  "26c67368-5214-487b-bd65-a43abe1f4a8a",
+                                                             "barcode":  "0401574040400",
+                                                             "unit_qty":  4,
+                                                             "image_url":  "https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=500",
+                                                             "sale_price":  14,
+                                                             "category_id":  "5bd4f1e7-ce0d-4777-8dfb-85df5046fc6d",
+                                                             "unit_name_ar":  "????????",
+                                                             "unit_name_en":  "Piece",
+                                                             "product_name_ar":  "?????????????? ??????????????",
+                                                             "product_name_en":  "Butter Croissant",
+                                                             "category_name_ar":  "?????????????????? ????????????",
+                                                             "category_name_en":  "Bakery \u0026 Bread"
+                                                         }
+                                        }
+                                    ],
+                       "bundles":  [
+
+                                   ],
+                       "bogo_rules":  [
+
+                                      ],
+                       "total_uses_remaining":  null,
+                       "days_remaining":  29,
+                       "hours_remaining":  712,
+                       "is_expiring_soon":  false
+                   }
+               ],
+    "count":  1
+}

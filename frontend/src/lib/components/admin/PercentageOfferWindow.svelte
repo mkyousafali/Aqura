@@ -35,17 +35,22 @@
 
   $: isRTL = $currentLocale === 'ar';
   
-  // Filter products: exclude those already in this offer and in other active offers
+  // Filter products: exclude those already in this offer and in other active offers, sort by product_serial
   $: filteredProducts = products.filter(p => {
     const matchesSearch = !productSearchTerm ||
       p.barcode?.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
       p.name_ar.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-      p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase());
+      p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+      p.product_serial?.toLowerCase().includes(productSearchTerm.toLowerCase());
     
     const notInCurrentOffer = !percentageOffers.some(o => o.product.id === p.id);
     const notUsedInOtherOffers = !productsInOtherOffers.has(p.id);
     
     return matchesSearch && notInCurrentOffer && notUsedInOtherOffers;
+  }).sort((a, b) => {
+    const serialA = a.product_serial || '';
+    const serialB = b.product_serial || '';
+    return serialA.localeCompare(serialB);
   });
 
   onMount(async () => {
@@ -71,9 +76,9 @@
   async function loadProducts() {
     const { data, error: err } = await supabaseAdmin
       .from('products')
-      .select('id, product_name_ar, product_name_en, barcode, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock, minim_qty, minimum_qty_alert')
+      .select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock, minim_qty, minimum_qty_alert')
       .eq('is_active', true)
-      .order('product_name_en');
+      .order('product_serial');
 
     if (!err && data) {
       products = data.map(p => ({
@@ -81,6 +86,7 @@
         name_ar: p.product_name_ar,
         name_en: p.product_name_en,
         barcode: p.barcode,
+        product_serial: p.product_serial || '',
         price: parseFloat(p.sale_price) || 0,
         cost: parseFloat(p.cost) || 0,
         unit_name_en: p.unit_name_en || '',
@@ -170,16 +176,17 @@
   }
 
   function toUTCFromSaudiInput(saudiTimeString: string) {
-    // Parse the datetime-local input (Saudi time) and convert to UTC
+    // Parse the datetime-local input (assumed to be Saudi time)
     const [datePart, timePart] = saudiTimeString.split('T');
     const [year, month, day] = datePart.split('-').map(Number);
     const [hours, minutes] = timePart.split(':').map(Number);
     
-    // Create date in Saudi timezone (UTC+3)
-    const saudiDate = new Date(year, month - 1, day, hours, minutes);
+    // Create ISO string for Saudi timezone and parse it
+    const saudiISOString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
     
-    // Convert to UTC by subtracting 3 hours
-    const utcDate = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+    // Parse as if it's UTC, then subtract 3 hours (Saudi is UTC+3)
+    const tempDate = new Date(saudiISOString + 'Z');
+    const utcDate = new Date(tempDate.getTime() - (3 * 60 * 60 * 1000));
     
     return utcDate.toISOString();
   }
@@ -239,9 +246,7 @@
       }];
     }
 
-    if (percentageOffers.length > 0) {
-      currentStep = 2;
-    }
+    // Don't auto-skip to step 2 in edit mode - let user review step 1 first
   }
 
   function validateStep1(): boolean {
@@ -342,15 +347,13 @@
         name_en: offerData.name_en,
         description_ar: offerData.description_ar || '',
         description_en: offerData.description_en || '',
-        discount_type: 'percentage',
-        discount_value: 0,
         start_date: toUTCFromSaudiInput(offerData.start_date),
         end_date: toUTCFromSaudiInput(offerData.end_date),
         is_active: true,
         branch_id: offerData.branch_id || null,
         service_type: offerData.service_type,
         show_on_product_page: true,
-        show_in_carousel: false,
+        show_in_carousel: true,
         send_push_notification: false,
         created_by: null
       };
@@ -528,6 +531,7 @@
               type="datetime-local"
               id="start_date"
               bind:value={offerData.start_date}
+              placeholder={isRTL ? 'يوم-شهر-سنة ساعة:دقيقة' : 'dd-mm-yyyy hh:mm'}
             />
           </div>
           <div class="form-group">
@@ -539,6 +543,7 @@
               type="datetime-local"
               id="end_date"
               bind:value={offerData.end_date}
+              placeholder={isRTL ? 'يوم-شهر-سنة ساعة:دقيقة' : 'dd-mm-yyyy hh:mm'}
             />
           </div>
         </div>
@@ -587,6 +592,7 @@
               <table class="offers-table">
                 <thead>
                   <tr>
+                    <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
                     <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
                     <th>{isRTL ? 'الصورة' : 'Image'}</th>
                     <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
@@ -609,6 +615,7 @@
                     {@const offerPrice = calculateOfferPrice(offer.product.price, offer.offer_qty, offer.offer_percentage)}
                     {@const profitAfterOffer = offerPrice - (offer.product.cost * offer.offer_qty)}
                     <tr class="saved-offer-row">
+                      <td>{offer.product.product_serial}</td>
                       <td>{offer.product.barcode}</td>
                       <td>
                         <img src={offer.product.image_url || '/placeholder.png'} alt={offer.product.name_en} class="product-image" />
@@ -689,7 +696,7 @@
             <input
               type="text"
               bind:value={productSearchTerm}
-              placeholder={isRTL ? 'ابحث بالباركود أو اسم المنتج...' : 'Search by barcode or product name...'}
+              placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'}
               class="search-input"
             />
           </div>
@@ -697,6 +704,7 @@
             <table class="offers-table">
               <thead>
                 <tr>
+                  <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
                   <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
                   <th>{isRTL ? 'الصورة' : 'Image'}</th>
                   <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
@@ -712,6 +720,7 @@
               <tbody>
                 {#each filteredProducts as product}
                   <tr>
+                    <td>{product.product_serial}</td>
                     <td>{product.barcode}</td>
                     <td>
                       <img src={product.image_url || '/placeholder.png'} alt={product.name_en} class="product-image" />

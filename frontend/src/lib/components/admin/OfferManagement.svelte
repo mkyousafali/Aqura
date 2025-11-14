@@ -3,11 +3,11 @@
   import { currentLocale } from '$lib/i18n';
   import { supabase, supabaseAdmin } from '$lib/utils/supabase';
   import { openWindow } from '$lib/utils/windowManagerUtils';
-  import OfferForm from './OfferForm.svelte';
   import BundleOfferWindow from './BundleOfferWindow.svelte';
   import BuyXGetYOfferWindow from './BuyXGetYOfferWindow.svelte';
   import PercentageOfferWindow from './PercentageOfferWindow.svelte';
   import SpecialPriceOfferWindow from './SpecialPriceOfferWindow.svelte';
+  import CartDiscountWindow from './CartDiscountWindow.svelte';
   
   let loading = true;
   let offers = [];
@@ -18,10 +18,6 @@
   let typeFilter = 'all'; // all | product | bundle | cart | bogo
   let branchFilter = 'all'; // all | branch_id
   let serviceFilter = 'all'; // all | delivery | pickup | both
-  
-  // Form modal state
-  let showForm = false;
-  let editingOfferId = null;
   
   // Stats
   let stats = {
@@ -167,11 +163,9 @@
           *,
           offer_products (
             id,
-            product_id
-          ),
-          customer_offers (
-            id,
-            customer_id
+            product_id,
+            offer_percentage,
+            offer_price
           ),
           offer_cart_tiers (
             id,
@@ -239,7 +233,6 @@
           ...offer,
           status,
           productCount: offer.offer_products?.length || 0,
-          customerCount: offer.customer_offers?.length || 0,
           tierCount: offer.offer_cart_tiers?.length || 0,
           tiers: offer.offer_cart_tiers || [],
           bundleCount: bundles.length,
@@ -357,8 +350,6 @@
     console.log('  - Filtered result:', filteredOffers.length, 'offers');
   }
   
-  let preselectedOfferType = null;
-  
   function createOfferWithType(type) {
     // Check if cart discount and if there's already an active one
     if (type === 'cart') {
@@ -445,21 +436,47 @@
           await loadStats();
         }
       });
-    } else {
-      // Other offer types still open in modal
-      preselectedOfferType = type;
-      editingOfferId = null;
-      showForm = true;
+    } else if (type === 'cart') {
+      // Open Cart Discount in a window
+      openWindow({
+        id: `cart-discount-create-${Date.now()}`,
+        title: locale === 'ar' ? '🛒 إنشاء خصم السلة' : '🛒 Create Cart Discount',
+        component: CartDiscountWindow,
+        props: {
+          editMode: false,
+          offerId: null
+        },
+        width: 1000,
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
+      });
     }
   }
   
-  function editOffer(offerId) {
+  async function editOffer(offerId) {
     // Find the offer to check its type
     const offer = offers.find(o => o.id === offerId);
     
-    // Open product discount offers in appropriate window based on discount_type
+    // Open product discount offers - need to check offer_products to determine percentage vs special price
     if (offer && offer.type === 'product') {
-      if (offer.discount_type === 'percentage') {
+      // Query offer_products to determine if it's percentage or special price
+      const { data: offerProducts, error } = await supabaseAdmin
+        .from('offer_products')
+        .select('offer_percentage')
+        .eq('offer_id', offerId)
+        .limit(1)
+        .single();
+      
+      if (error) {
+        console.error('Error loading offer products:', error);
+        return;
+      }
+      
+      // Check if it's percentage (offer_percentage is not null) or special price
+      if (offerProducts && offerProducts.offer_percentage !== null) {
         // Percentage offer
         openWindow({
           id: `percentage-offer-edit-${offerId}`,
@@ -476,7 +493,7 @@
             await loadStats();
           }
         });
-      } else if (offer.discount_type === 'fixed') {
+      } else {
         // Special price offer
         openWindow({
           id: `special-price-offer-edit-${offerId}`,
@@ -493,11 +510,6 @@
             await loadStats();
           }
         });
-      } else {
-        // Fallback for any other product discount type
-        preselectedOfferType = null;
-        editingOfferId = offerId;
-        showForm = true;
       }
     } else if (offer && offer.type === 'bundle') {
       // Open bundle offers in a window
@@ -533,52 +545,26 @@
           await loadStats();
         }
       });
+    } else if (offer && offer.type === 'cart') {
+      // Open Cart Discount in a window
+      openWindow({
+        id: `cart-discount-edit-${offerId}`,
+        title: locale === 'ar' ? '🛒 تعديل خصم السلة' : '🛒 Edit Cart Discount',
+        component: CartDiscountWindow,
+        props: {
+          editMode: true,
+          offerId: offerId
+        },
+        width: 1000,
+        height: 700,
+        onClose: async () => {
+          await loadOffers();
+          await loadStats();
+        }
+      });
     } else {
-      // Other offer types still open in modal
-      preselectedOfferType = null;
-      editingOfferId = offerId;
-      showForm = true;
-    }
-  }
-  
-  function closeForm() {
-    showForm = false;
-    editingOfferId = null;
-    preselectedOfferType = null;
-  }
-  
-  async function handleFormSuccess() {
-    showForm = false;
-    editingOfferId = null;
-    preselectedOfferType = null;
-    await loadOffers();
-    await loadStats();
-  }
-  
-  function viewAnalytics(offerId) {
-    // TODO: Open analytics dashboard
-    console.log('View analytics:', offerId);
-  }
-  
-  function pauseOffer(offerId) {
-    if (confirm(locale === 'ar' ? 'هل تريد إيقاف هذا العرض مؤقتاً؟' : 'Do you want to pause this offer?')) {
-      updateOfferStatus(offerId, false);
-    }
-  }
-  
-  function resumeOffer(offerId) {
-    if (confirm(locale === 'ar' ? 'هل تريد تفعيل هذا العرض مرة أخرى؟' : 'Do you want to resume this offer?')) {
-      updateOfferStatus(offerId, true);
-    }
-  }
-  
-  function toggleOfferStatus(offerId, currentStatus) {
-    const message = currentStatus
-      ? (locale === 'ar' ? 'هل تريد إيقاف هذا العرض؟' : 'Do you want to pause this offer?')
-      : (locale === 'ar' ? 'هل تريد تفعيل هذا العرض؟' : 'Do you want to activate this offer?');
-    
-    if (confirm(message)) {
-      updateOfferStatus(offerId, !currentStatus);
+      // Other offer types - log warning
+      console.warn('Unknown offer type:', offer?.type);
     }
   }
   
@@ -705,7 +691,14 @@
         : '✅ Offer archived successfully!'
       );
       
-      // 9. Refresh offers
+      // 9. Broadcast to customer displays to refresh offers
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('aqura-offers-update');
+        channel.postMessage('refresh-offers');
+        channel.close();
+      }
+      
+      // 10. Refresh offers
       console.log('Refreshing offers list...');
       await loadOffers();
       await loadStats();
@@ -790,7 +783,14 @@
         : '✅ Offer duplicated successfully!'
       );
       
-      // 7. Refresh offers
+      // 7. Broadcast to customer displays to refresh offers
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('aqura-offers-update');
+        channel.postMessage('refresh-offers');
+        channel.close();
+      }
+      
+      // 8. Refresh offers
       await loadOffers();
       await loadStats();
     } catch (error) {
@@ -802,14 +802,35 @@
     }
   }
   
-  function getOfferTypeBadge(type) {
+  function getOfferTypeBadge(offer) {
+    // For product offers, determine if it's percentage or special price
+    if (offer.type === 'product' && offer.offer_products && offer.offer_products.length > 0) {
+      const firstProduct = offer.offer_products[0];
+      if (firstProduct.offer_percentage !== null && firstProduct.offer_percentage !== undefined) {
+        // Percentage offer
+        return {
+          color: '#22c55e',
+          icon: '📊',
+          label: locale === 'ar' ? 'خصم بالنسبة' : 'Percentage Offer'
+        };
+      } else {
+        // Special price offer
+        return {
+          color: '#10b981',
+          icon: '💰',
+          label: locale === 'ar' ? 'سعر خاص' : 'Special Price Offer'
+        };
+      }
+    }
+    
+    // Other offer types
     const badges = {
       product: { color: '#22c55e', icon: '🏷️', label: texts.product },
       bundle: { color: '#3b82f6', icon: '📦', label: texts.bundle },
       cart: { color: '#eab308', icon: '🛒', label: texts.cart },
       bogo: { color: '#ef4444', icon: '🎁', label: texts.bogo }
     };
-    return badges[type] || badges.product;
+    return badges[offer.type] || badges.product;
   }
   
   function getServiceTypeBadge(serviceType) {
@@ -839,15 +860,19 @@
   
   function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US', {
-      timeZone: 'Asia/Riyadh',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    
+    // Get time in 12-hour format
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // 0 should be 12
+    const formattedHours = String(hours).padStart(2, '0');
+    
+    return `${day}-${month}-${year} ${formattedHours}:${minutes} ${ampm}`;
   }
   
   // Watch for filter changes and offers data changes
@@ -986,7 +1011,7 @@
   {:else}
     <div class="offers-grid">
       {#each filteredOffers as offer (offer.id)}
-        {@const typeBadge = getOfferTypeBadge(offer.type)}
+        {@const typeBadge = getOfferTypeBadge(offer)}
         {@const statusBadge = getStatusBadge(offer.status)}
         {@const serviceBadge = getServiceTypeBadge(offer.service_type)}
         
@@ -1028,7 +1053,14 @@
             
             <!-- Start Date - End Date -->
             <div class="offer-dates">
-              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'يبدأ:' : 'Start:'}</span>
+                <span class="date-value">📅 {formatDate(offer.start_date)}</span>
+              </div>
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'ينتهي:' : 'End:'}</span>
+                <span class="date-value">📅 {formatDate(offer.end_date)}</span>
+              </div>
             </div>
             
             <!-- Number of Customers Used the Offer -->
@@ -1091,7 +1123,14 @@
             
             <!-- Start Date - End Date -->
             <div class="offer-dates">
-              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'يبدأ:' : 'Start:'}</span>
+                <span class="date-value">📅 {formatDate(offer.start_date)}</span>
+              </div>
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'ينتهي:' : 'End:'}</span>
+                <span class="date-value">📅 {formatDate(offer.end_date)}</span>
+              </div>
             </div>
             
             <!-- Number of Customers Used the Offer -->
@@ -1117,8 +1156,9 @@
                 🗑️ {locale === 'ar' ? 'حذف' : 'Delete'}
               </button>
             </div>
-          {:else if offer.type === 'product' && (offer.discount_type === 'percentage' || offer.discount_type === 'fixed')}
+          {:else if offer.type === 'product'}
             <!-- Percentage / Special Price Offer Card - Simplified Layout -->
+            
             <!-- Type Badge -->
             <div class="offer-type-badge" style="background: {typeBadge.color};">
               {typeBadge.icon} {typeBadge.label}
@@ -1154,7 +1194,14 @@
             
             <!-- Start Date - End Date -->
             <div class="offer-dates">
-              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'يبدأ:' : 'Start:'}</span>
+                <span class="date-value">📅 {formatDate(offer.start_date)}</span>
+              </div>
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'ينتهي:' : 'End:'}</span>
+                <span class="date-value">📅 {formatDate(offer.end_date)}</span>
+              </div>
             </div>
             
             <!-- Number of Customers Used the Offer -->
@@ -1238,7 +1285,14 @@
             
             <!-- Date Range -->
             <div class="offer-dates">
-              📅 {formatDate(offer.start_date)} - {formatDate(offer.end_date)}
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'يبدأ:' : 'Start:'}</span>
+                <span class="date-value">📅 {formatDate(offer.start_date)}</span>
+              </div>
+              <div class="date-item">
+                <span class="date-label">{locale === 'ar' ? 'ينتهي:' : 'End:'}</span>
+                <span class="date-value">📅 {formatDate(offer.end_date)}</span>
+              </div>
             </div>
             
             <!-- Stats -->
@@ -1291,21 +1345,6 @@
     </div>
   {/if}
 </div>
-
-<!-- Offer Form Modal -->
-{#if showForm}
-  <div class="modal-overlay" on:click={closeForm}>
-    <div class="modal-content" on:click|stopPropagation>
-      <OfferForm
-        editMode={!!editingOfferId}
-        offerId={editingOfferId}
-        preselectedType={preselectedOfferType}
-        on:success={handleFormSuccess}
-        on:cancel={closeForm}
-      />
-    </div>
-  </div>
-{/if}
 
 <style>
   .offer-management {
@@ -1549,19 +1588,17 @@
   }
   
   .offer-type-badge {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
+    display: inline-block;
     padding: 0.35rem 0.75rem;
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 600;
     color: white;
+    margin-bottom: 0.75rem;
   }
   
   .offer-header {
-    margin-bottom: 0.75rem;
-    padding-right: 80px; /* Space for type badge */
+    margin-bottom: 0.5rem;
   }
   
   .offer-name {
@@ -1680,11 +1717,29 @@
   }
   
   .offer-dates {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
     font-size: 0.85rem;
     color: #6b7280;
     margin-bottom: 1rem;
     padding: 0.5rem 0;
     border-bottom: 1px solid #f3f4f6;
+  }
+  
+  .date-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .date-label {
+    font-weight: 600;
+    color: #374151;
+  }
+  
+  .date-value {
+    color: #6b7280;
   }
   
   .offer-stats {
@@ -1874,12 +1929,11 @@
   
   [dir="rtl"] .offer-header {
     padding-right: 0;
-    padding-left: 80px;
+    padding-left: 0;
   }
   
   [dir="rtl"] .offer-type-badge {
-    right: auto;
-    left: 1rem;
+    /* No changes needed - not absolutely positioned anymore */
   }
 
   /* Modal Styles */
