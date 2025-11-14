@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 
-// Load environment variables
+// Load environment variables from frontend/.env
 const envPath = './frontend/.env';
 const envContent = readFileSync(envPath, 'utf-8');
 const envVars = {};
@@ -17,39 +17,40 @@ envContent.split('\n').forEach(line => {
 });
 
 const supabaseUrl = envVars.VITE_SUPABASE_URL;
-const supabaseKey = envVars.VITE_SUPABASE_ANON_KEY;
+const supabaseServiceKey = envVars.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-async function checkTable() {
-  try {
-    // Get one record to see all columns
-    const { data, error } = await supabase
+async function checkOffersTable() {
+  console.log('Checking offers table structure...\n');
+  
+  const { data, error } = await supabase
+    .from('offers')
+    .select('*')
+    .limit(1);
+
+  if (error) {
+    console.error('❌ Error:', error.message);
+    return;
+  }
+
+  if (data && data.length > 0) {
+    console.log('✅ Offers table columns:');
+    Object.keys(data[0]).forEach(col => {
+      console.log(`   - ${col}`);
+    });
+  } else {
+    console.log('⚠️ No data in offers table, fetching schema...');
+    // Try to insert empty object to see column requirements
+    const { error: insertError } = await supabase
       .from('offers')
-      .select('*')
-      .limit(1);
-
-    if (error) {
-      console.error('❌ Error:', error.message);
-      return;
+      .insert({})
+      .select();
+    
+    if (insertError) {
+      console.log('Schema info from error:', insertError.message);
     }
-
-    if (data && data.length > 0) {
-      console.log('✅ Offers table columns:');
-      const columns = Object.keys(data[0]);
-      columns.forEach(col => {
-        console.log(`   - ${col}: ${typeof data[0][col]}`);
-      });
-      
-      console.log('\n📋 Sample data:');
-      console.log(JSON.stringify(data[0], null, 2));
-    } else {
-      console.log('ℹ️ No offers found in table');
-    }
-
-  } catch (err) {
-    console.error('💥 Error:', err);
   }
 }
 
-checkTable();
+checkOffersTable().then(() => process.exit(0));

@@ -39,7 +39,7 @@
 		branch_id: null as number | null,
 		service_type: 'both' as 'delivery' | 'pickup' | 'both',
 		show_on_product_page: true,
-		show_in_carousel: false,
+		show_in_carousel: true,
 		send_push_notification: false
 	};
 
@@ -461,10 +461,25 @@
 				}
 			}
 			
+			// Prepare offer payload - exclude discount_type, discount_value, bogo quantities (stored in child tables)
 			const offerPayload = {
-				...offerData,
+				type: offerData.type,
+				name_ar: offerData.name_ar,
+				name_en: offerData.name_en,
+				description_ar: offerData.description_ar,
+				description_en: offerData.description_en,
 				start_date: new Date(offerData.start_date).toISOString(),
-				end_date: new Date(offerData.end_date).toISOString()
+				end_date: new Date(offerData.end_date).toISOString(),
+				is_active: offerData.is_active,
+				min_quantity: offerData.min_quantity,
+				min_amount: offerData.min_amount,
+				max_uses_per_customer: offerData.max_uses_per_customer,
+				max_total_uses: offerData.max_total_uses,
+				branch_id: offerData.branch_id,
+				service_type: offerData.service_type,
+				show_on_product_page: offerData.show_on_product_page,
+				show_in_carousel: offerData.show_in_carousel,
+				send_push_notification: offerData.send_push_notification
 			};
 
 			let savedOfferId = offerId;

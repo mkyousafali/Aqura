@@ -8,17 +8,20 @@ Transform the Aqura customer mobile app into a comprehensive offer-enabled shopp
 
  📱 1. CUSTOMER JOURNEY WITH OFFERS
 
- Step 1: Customer Opens App
-- Home Page led display, displays featured active offers each prdcut card separately 2 second
-- Personalized offers badge if customer has exclusive deals
+ Step 1: Customer Opens App ✅ COMPLETED
+- ✅ Home Page LED display implemented - displays featured active offers, each product card shown separately for 2 seconds
+- ✅ Featured offers API endpoint created and integrated
+- ✅ Personalized offers badge system ready for customer-specific exclusive deals
 
- Step 2: Customer Browses Products
-- Product Cards show offer badges (percentage, special price, BOGO, bundle)
-- Visual indicators: colored badges with icons
-- Original price with strikethrough + Offer price prominently displayed
-- "Save X SAR" message below price
-- Filter products by "On Offer" category
-- Sort by "Best Deals" (highest discount first)
+ Step 2: Customer Browses Products ✅ SPECIAL PRICE OFFERS COMPLETED
+- ✅ Product Cards show special price offer badges (orange colored)
+- ✅ Visual indicators: colored badges with icons using OfferBadge component
+- ✅ Original price with strikethrough + Offer price prominently displayed in green
+- ✅ "Save X SAR" message below price with green background
+- ✅ Filter products by "On Offer" toggle button
+- ✅ Sort by "Best Deals" (highest discount first)
+- ⏳ TODO: Add percentage, BOGO, and bundle offer badges (next phase)
+- ⏳ TODO: Add expiring soon countdown timer display
 
  Step 3: Customer Views Product Details
 - Expanded offer information popup when tapping offer badge
@@ -274,7 +277,6 @@ Existing Tables:
 - `bogo_offer_rules` - Buy X Get Y rules
 - `offer_bundles` - Bundle definitions
 - `bundle_items` - Items within bundles
-- `customer_offers` - Customer-specific offers
 - `offer_usage_logs` - Usage tracking
 - `customers` - Customer accounts
 
@@ -783,12 +785,6 @@ Testing:
 - Respect delivery/pickup restrictions
 - Global offers apply to all branches
 - Show applicable service type icons
-
- Customer-Specific Offers:
-- Check customer_offers table for personalized deals
-- Display "Exclusive for You" badge
-- Give priority over general offers
-- Track redemption separately
 
  Mobile Performance:
 - Lazy load offer images

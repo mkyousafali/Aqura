@@ -19,7 +19,7 @@
       "label": "🎨 Dev Frontend",
       "type": "shell",
       "command": "pnpm",
-      "args": ["--filter", "frontend", "dev"],
+      "args": ["--filter", "aqura-frontend", "dev"],
       "group": "build",
       "presentation": {
         "echo": true,

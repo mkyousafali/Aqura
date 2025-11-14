@@ -5,6 +5,7 @@
   import { scrollingContent, scrollingContentActions } from '$lib/stores/scrollingContent.js';
   import { orderFlow } from '$lib/stores/orderFlow.js';
   import { supabase } from '$lib/utils/supabase';
+  import OfferBadge from '$lib/components/customer/OfferBadge.svelte';
 
   let currentLanguage = 'ar';
   $: flow = $orderFlow;
@@ -17,6 +18,8 @@
 
   // Function to format price based on language
   function formatPrice(price) {
+    // Handle null or undefined prices
+    if (price == null) return currentLanguage === 'ar' ? '٠' : '0';
     // Only show decimals if there's a fractional part
     const formatted = price % 1 === 0 ? price.toFixed(0) : price.toFixed(2);
     return currentLanguage === 'ar' ? toArabicNumerals(formatted) : formatted;
@@ -34,6 +37,66 @@
   let loading = true;
 
   let showCategoryMenu = false;
+  let showBogoModal = false;
+  let selectedBogoOffer = null;
+  let bogoGetProduct = null;
+
+  // Check if a product qualifies for FREE based on cart state
+  function shouldShowFree(product, unit) {
+    if (!unit.hasOffer || unit.offerType !== 'bogo_get') return false;
+    
+    // Find the buy product in cart
+    const buyProduct = $cartStore.find(item => 
+      item.offerType === 'bogo' && 
+      item.bogoGetProductId === unit.id
+    );
+    
+    if (!buyProduct) return false;
+    
+    // Calculate how many free items customer is entitled to
+    const buyQuantity = buyProduct.quantity || 0;
+    const getQuantityPerBuy = buyProduct.bogoGetQuantity || 1;
+    const maxFreeQuantity = buyQuantity * getQuantityPerBuy;
+    
+    // Check how many get products are already in cart
+    const getProduct = $cartStore.find(item => 
+      item.selectedUnit?.id === unit.id && 
+      item.offerType === 'bogo_get'
+    );
+    
+    const currentQuantity = getProduct?.quantity || 0;
+    
+    // Show FREE badge only if customer hasn't reached the free limit
+    return currentQuantity < maxFreeQuantity;
+  }
+
+  async function showBogoDetails(unit) {
+    if (!unit.hasOffer || unit.offerType !== 'bogo') return;
+    
+    selectedBogoOffer = unit;
+    showBogoModal = true; // Show modal immediately
+    bogoGetProduct = null; // Reset
+    
+    console.log('BOGO Unit:', unit);
+    console.log('Get Product ID:', unit.bogoGetProductId);
+    
+    // Fetch the "get" product details
+    if (unit.bogoGetProductId) {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, product_name_en, product_name_ar, image_url, sale_price, unit_name_en, unit_name_ar, unit_qty')
+        .eq('id', unit.bogoGetProductId)
+        .single();
+      
+      console.log('Get Product Query Result:', { data, error });
+      
+      if (!error && data) {
+        bogoGetProduct = data;
+      } else if (error) {
+        console.error('Error fetching get product:', error);
+      }
+    }
+  }
 
   onMount(async () => {
     const saved = flow;
@@ -46,7 +109,32 @@
     if (savedLanguage) currentLanguage = savedLanguage;
     const onStorage = (e) => { if (e.key === 'language') currentLanguage = e.newValue || 'ar'; };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+
+    // Real-time subscriptions for offers and products
+    const offersChannel = supabase
+      .channel('offers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 Offers table changed, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 Offer products changed, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 BOGO rules changed, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        console.log('🛍️ Products changed, reloading products...');
+        loadProducts();
+      })
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      supabase.removeChannel(offersChannel);
+    };
   });
 
   // cart
@@ -87,52 +175,95 @@
   async function loadProducts() {
     loading = true;
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true)
-        .order('product_name_en');
-      if (error) throw error;
+      // Use new API endpoint that includes offer data
+      const apiUrl = `/api/customer/products-with-offers?branchId=${flow.branchId}&serviceType=${flow.fulfillment}`;
+      
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch products');
+      }
 
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      console.log(`📦 Loaded ${data.products?.length || 0} products (${data.offersCount} offers active)`);
+
+      // Group products by serial (for multi-unit products)
       const productMap = new Map();
-      (data || []).forEach(row => {
-        if (!productMap.has(row.product_serial)) {
-          productMap.set(row.product_serial, {
-            id: row.product_serial,
-            nameEn: row.product_name_en,
-            nameAr: row.product_name_ar,
-            category: row.category_id,
-            categoryNameEn: row.category_name_en,
-            categoryNameAr: row.category_name_ar,
-            image: row.image_url,
+      (data.products || []).forEach(product => {
+        if (!productMap.has(product.product_serial)) {
+          productMap.set(product.product_serial, {
+            id: product.product_serial,
+            nameEn: product.nameEn,
+            nameAr: product.nameAr,
+            category: product.category,
+            categoryNameEn: product.categoryNameEn,
+            categoryNameAr: product.categoryNameAr,
+            image: product.image,
             units: []
           });
         }
-        const p = productMap.get(row.product_serial);
+        
+        const p = productMap.get(product.product_serial);
         p.units.push({
-          id: row.id,
-          nameEn: `${row.unit_qty} ${row.unit_name_en}`,
-          nameAr: `${row.unit_qty} ${row.unit_name_ar}`,
-          unitEn: row.unit_name_en,
-          unitAr: row.unit_name_ar,
-          basePrice: parseFloat(row.sale_price),
-          originalPrice: row.cost > 0 ? parseFloat(row.cost) : null,
-          stock: row.current_stock,
-          lowStockThreshold: row.minimum_qty_alert,
-          barcode: row.barcode,
-          unitQty: row.unit_qty,
-          image: row.image_url
+          id: product.id,
+          nameEn: `${product.unitQty} ${product.unitEn}`,
+          nameAr: `${product.unitQty} ${product.unitAr}`,
+          unitEn: product.unitEn,
+          unitAr: product.unitAr,
+          basePrice: (product.hasOffer && product.offerPrice && product.offerType !== 'bogo_get') ? product.offerPrice : product.originalPrice,
+          originalPrice: (product.hasOffer && product.offerPrice && product.offerType !== 'bogo_get') ? product.originalPrice : null,
+          stock: product.stock,
+          lowStockThreshold: product.lowStockThreshold,
+          barcode: product.barcode,
+          unitQty: product.unitQty,
+          image: product.image,
+          
+          // Offer data
+          hasOffer: product.hasOffer || false,
+          offerType: product.offerType || null,
+          offerId: product.offerId || null,
+          offerNameEn: product.offerNameEn || null,
+          offerNameAr: product.offerNameAr || null,
+          offerQty: product.offerQty || null,
+          savings: product.savings || 0,
+          discountPercentage: product.discountPercentage || 0,
+          maxUses: product.maxUses || null,
+          offerEndDate: product.offerEndDate || null,
+          isExpiringSoon: product.isExpiringSoon || false,
+          
+          // BOGO specific data (for buy products)
+          bogoGetProductId: product.bogoGetProductId || null,
+          bogoGetQuantity: product.bogoGetQuantity || null,
+          bogoDiscountType: product.bogoDiscountType || null,
+          bogoDiscountValue: product.bogoDiscountValue || null,
+          
+          // BOGO get product data (for get products)
+          bogoBuyProductId: product.bogoBuyProductId || null,
+          bogoBuyQuantity: product.bogoBuyQuantity || null
         });
       });
 
       products = Array.from(productMap.values()).map(product => {
-        const sorted = product.units.sort((a, b) => a.unitQty - b.unitQty);
+        // Sort units: prioritize units with offers first, then by unit quantity
+        const sorted = product.units.sort((a, b) => {
+          // If one has offer and other doesn't, prioritize the one with offer
+          if (a.hasOffer && !b.hasOffer) return -1;
+          if (!a.hasOffer && b.hasOffer) return 1;
+          // If both have offers or both don't, sort by unit quantity (smallest first)
+          return a.unitQty - b.unitQty;
+        });
         return { ...product, baseUnit: sorted[0], additionalUnits: sorted.slice(1) };
       });
 
       products.forEach(p => selectedUnits.set(p.id, p.baseUnit));
       selectedUnits = selectedUnits;
-    } catch {
+    } catch (error) {
+      console.error('Error loading products:', error);
       products = [];
     } finally {
       loading = false;
@@ -155,6 +286,7 @@
     const q = (searchQuery || '').toLowerCase();
     const matchesSearch = !q || p.nameAr.toLowerCase().includes(q) || p.nameEn.toLowerCase().includes(q);
     const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
+    
     return matchesSearch && matchesCat;
   });
 
@@ -162,13 +294,51 @@
   function addToCart(product) {
     const u = getSelectedUnit(product);
     cartActions.addToCart(product, u, 1);
+    
+    // If BOGO free item was added, enrich it with product details
+    enrichBOGOFreeItems();
   }
+  
   function updateQuantity(product, d) {
     const u = getSelectedUnit(product);
     const cur = cartActions.getItemQuantity(product.id, u.id);
     const next = Math.max(0, cur + d);
     if (next === 0) cartActions.removeFromCart(product.id, u.id);
     else cartActions.updateQuantity(product.id, u.id, next);
+    
+    // Update BOGO free items if needed
+    enrichBOGOFreeItems();
+  }
+  
+  // Enrich BOGO free items with product details from loaded products
+  function enrichBOGOFreeItems() {
+    cartStore.update(cart => {
+      cart.forEach(item => {
+        if (item.isBOGOFreeItem && item.name === 'BOGO Free Item') {
+          // Find the product in our loaded products
+          const foundProduct = products.find(p => {
+            const unit = p.units?.find(u => u.id === item.id);
+            return unit !== undefined;
+          });
+          
+          if (foundProduct) {
+            const unit = foundProduct.units.find(u => u.id === item.id);
+            if (unit) {
+              item.name = foundProduct.nameAr;
+              item.nameEn = foundProduct.nameEn;
+              item.image = unit.image || foundProduct.image;
+              item.selectedUnit = {
+                id: unit.id,
+                nameAr: unit.nameAr,
+                nameEn: unit.nameEn
+              };
+            }
+          }
+        }
+      });
+      return cart;
+    });
+    cartActions.saveToStorage();
   }
 
   // i18n
@@ -182,7 +352,8 @@
     inStock: 'متوفر',
     lowStock: 'كمية قليلة',
     outOfStock: 'نفد المخزون',
-    unit: 'وحدة'
+    unit: 'وحدة',
+    save: 'وفر'
   } : {
     title: 'Products - Aqua Express',
     search: 'Search products...',
@@ -193,7 +364,8 @@
     inStock: 'In Stock',
     lowStock: 'Low Stock',
     outOfStock: 'Out of Stock',
-    unit: 'Unit'
+    unit: 'Unit',
+    save: 'Save'
   };
 </script>
 
@@ -254,7 +426,8 @@
       {#key `${cartKey}-${selectedUnits.get(product.id)?.id || 'default'}`}
         {@const u = getSelectedUnit(product)}
         {@const qty = getItemQuantity(product)}
-        {@const hasDiscount = u.originalPrice && u.originalPrice > u.basePrice}
+        {@const isFree = shouldShowFree(product, u)}
+        {@const hasDiscount = u.hasOffer && u.savings > 0 && u.offerType !== 'bogo_get'}
         {@const isLow = u.stock <= u.lowStockThreshold}
         {@const out = u.stock === 0}
 
@@ -267,9 +440,52 @@
             {:else}
               <div class="image-placeholder">📦</div>
             {/if}
-            {#if hasDiscount}
-              <div class="discount-badge">
-                -{Math.round(((u.originalPrice - u.basePrice) / u.originalPrice) * 100)}%
+            
+            <!-- Percentage Discount Badge (Top-Right Corner) -->
+            {#if u.hasOffer && u.offerType === 'percentage' && u.discountPercentage > 0}
+              <div class="discount-badge-corner">
+                <span class="discount-percentage">{Math.round(u.discountPercentage)}%</span>
+              </div>
+            {/if}
+            
+            <!-- Offer Badge for Special Price -->
+            {#if u.hasOffer && u.offerType === 'special_price'}
+              <div class="offer-badge-overlay">
+                <OfferBadge 
+                  offerType="special_price" 
+                  discountValue={u.discountPercentage}
+                  size="small"
+                  showIcon={false}
+                />
+              </div>
+            {/if}
+
+            <!-- BOGO Offer Badge (Buy Product) -->
+            {#if u.hasOffer && u.offerType === 'bogo'}
+              <div class="offer-badge-overlay">
+                <OfferBadge 
+                  offerType="bogo" 
+                  size="small"
+                  showIcon={true}
+                />
+              </div>
+            {/if}
+
+            <!-- BOGO Get - FREE Badge (shown when buy product is in cart) -->
+            {#if shouldShowFree(product, u)}
+              <div class="bogo-free-badge">
+                {#if u.discountPercentage === 100}
+                  <span class="free-text">{currentLanguage === 'ar' ? 'مجاناً!' : 'FREE!'}</span>
+                {:else if u.discountPercentage > 0}
+                  <span class="discount-text">{Math.round(u.discountPercentage)}% {currentLanguage === 'ar' ? 'خصم' : 'OFF'}</span>
+                {/if}
+              </div>
+            {/if}
+
+            <!-- Expiring Soon Badge -->
+            {#if u.isExpiringSoon}
+              <div class="expiring-badge">
+                <span>⏰</span>
               </div>
             {/if}
           </div>
@@ -302,8 +518,14 @@
             {/if}
 
             <div class="price-row">
-              <div class="price-now" class:rtl={currentLanguage === 'ar'}>
-                {#if currentLanguage === 'ar'}
+              <div class="price-now" class:rtl={currentLanguage === 'ar'} class:offer-price={hasDiscount || isFree}>
+                {#if isFree}
+                  {#if currentLanguage === 'ar'}
+                    {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                  {:else}
+                    {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+                  {/if}
+                {:else if currentLanguage === 'ar'}
                   {formatPrice(u.basePrice)}
                   <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
                 {:else}
@@ -311,14 +533,14 @@
                   {formatPrice(u.basePrice)}
                 {/if}
               </div>
-              {#if hasDiscount}
+              {#if hasDiscount || isFree}
                 <div class="price-old" class:rtl={currentLanguage === 'ar'}>
                   {#if currentLanguage === 'ar'}
-                    {formatPrice(u.originalPrice)}
+                    <span class="price-old-number">{formatPrice(isFree ? u.basePrice : u.originalPrice)}</span>
                     <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
                   {:else}
                     <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
-                    {formatPrice(u.originalPrice)}
+                    <span class="price-old-number">{formatPrice(isFree ? u.basePrice : u.originalPrice)}</span>
                   {/if}
                 </div>
               {/if}
@@ -329,6 +551,13 @@
               {:else if isLow}<span class="stock low">{texts.lowStock}</span>
               {:else}<span class="stock in">{texts.inStock}</span>{/if}
             </div>
+
+            {#if u.hasOffer && u.offerType === 'bogo'}
+              <button class="bogo-info-btn" on:click={() => showBogoDetails(u)} type="button">
+                <span class="bogo-icon">🎁</span>
+                <span>{currentLanguage === 'ar' ? 'تفاصيل العرض' : 'Offer Details'}</span>
+              </button>
+            {/if}
 
             <div class="cart-controls">
               {#if qty === 0}
@@ -374,6 +603,74 @@
               {currentLanguage === 'ar' ? category.name_ar : category.name_en}
             </button>
           {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- BOGO Offer Details Modal -->
+  {#if showBogoModal && selectedBogoOffer}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" on:click={() => { showBogoModal = false; selectedBogoOffer = null; bogoGetProduct = null; }}>
+      <div class="bogo-modal" on:click|stopPropagation>
+        <div class="bogo-modal-header">
+          <h3>{currentLanguage === 'ar' ? 'عرض اشتري واحصل' : 'Buy & Get Offer'}</h3>
+          <button class="modal-close" on:click={() => { showBogoModal = false; selectedBogoOffer = null; bogoGetProduct = null; }} aria-label={texts.close}>✕</button>
+        </div>
+        <div class="bogo-modal-body">
+          <div class="bogo-offer-name">
+            {currentLanguage === 'ar' ? selectedBogoOffer.offerNameAr : selectedBogoOffer.offerNameEn}
+          </div>
+          
+          <div class="bogo-details">
+            <div class="bogo-step">
+              <div class="step-badge buy">{currentLanguage === 'ar' ? 'اشتري' : 'Buy'}</div>
+              <div class="step-content">
+                {#if selectedBogoOffer.image}
+                  <div class="step-product-image">
+                    <img src={selectedBogoOffer.image} alt={currentLanguage === 'ar' ? selectedBogoOffer.nameAr : selectedBogoOffer.nameEn} />
+                  </div>
+                {:else}
+                  <div class="step-product-image placeholder">📦</div>
+                {/if}
+                <div class="step-quantity">{selectedBogoOffer.offerQty}x</div>
+                <div class="step-product-name">{currentLanguage === 'ar' ? selectedBogoOffer.nameAr : selectedBogoOffer.nameEn}</div>
+                <div class="step-unit-info">{currentLanguage === 'ar' ? selectedBogoOffer.unitAr : selectedBogoOffer.unitEn}</div>
+              </div>
+            </div>
+            
+            <div class="bogo-arrow">→</div>
+            
+            <div class="bogo-step">
+              <div class="step-badge get">{currentLanguage === 'ar' ? 'احصل على' : 'Get'}</div>
+              <div class="step-content">
+                {#if bogoGetProduct}
+                  {#if bogoGetProduct.image_url}
+                    <div class="step-product-image">
+                      <img src={bogoGetProduct.image_url} alt={currentLanguage === 'ar' ? bogoGetProduct.product_name_ar : bogoGetProduct.product_name_en} />
+                    </div>
+                  {:else}
+                    <div class="step-product-image placeholder">📦</div>
+                  {/if}
+                  <div class="step-quantity">{selectedBogoOffer.bogoGetQuantity}x</div>
+                  <div class="step-product-name">{currentLanguage === 'ar' ? bogoGetProduct.product_name_ar : bogoGetProduct.product_name_en}</div>
+                  <div class="step-unit-info">{bogoGetProduct.unit_qty} {currentLanguage === 'ar' ? bogoGetProduct.unit_name_ar : bogoGetProduct.unit_name_en}</div>
+                  
+                  {#if selectedBogoOffer.bogoDiscountType === 'free'}
+                    <div class="free-badge">{currentLanguage === 'ar' ? 'مجاناً!' : 'FREE!'}</div>
+                  {:else if selectedBogoOffer.bogoDiscountType === 'percentage' && selectedBogoOffer.bogoDiscountValue && selectedBogoOffer.bogoDiscountValue > 0}
+                    <div class="discount-badge-small">{selectedBogoOffer.bogoDiscountValue}% {currentLanguage === 'ar' ? 'خصم' : 'OFF'}</div>
+                  {/if}
+                {:else}
+                  <div class="loading-text">{currentLanguage === 'ar' ? 'جاري التحميل...' : 'Loading...'}</div>
+                {/if}
+              </div>
+            </div>
+          </div>
+          
+          <div class="bogo-note">
+            <span class="note-icon">ℹ️</span>
+            <span>{currentLanguage === 'ar' ? 'أضف المنتج إلى السلة للاستفادة من العرض' : 'Add product to cart to apply this offer'}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -715,6 +1012,68 @@
   .category-tab:hover{ border-color:var(--primary); color:var(--primary); }
   .category-tab.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 
+  /* Filter and Sort Row */
+  .filter-sort-row{ 
+    display:flex; 
+    gap:.5rem; 
+    margin-top:.5rem; 
+    align-items:center; 
+  }
+
+  .filter-btn{ 
+    display:flex; 
+    align-items:center; 
+    gap:.4rem; 
+    padding:.5rem .85rem; 
+    background:var(--surface); 
+    border:1.5px solid var(--border); 
+    border-radius:999px; 
+    cursor:pointer; 
+    font-weight:600; 
+    font-size:.85rem; 
+    color:var(--ink-2); 
+    transition:.2s; 
+    white-space:nowrap;
+  }
+
+  .filter-btn:hover{ 
+    border-color:#f59e0b; 
+    color:#f59e0b; 
+  }
+
+  .filter-btn.active{ 
+    background:linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); 
+    color:#fff; 
+    border-color:#f59e0b; 
+  }
+
+  .filter-icon{ 
+    font-size:1rem; 
+  }
+
+  .sort-select{ 
+    padding:.5rem .85rem; 
+    background:var(--surface); 
+    border:1.5px solid var(--border); 
+    border-radius:999px; 
+    font-weight:600; 
+    font-size:.85rem; 
+    color:var(--ink-2); 
+    cursor:pointer; 
+    appearance:none;
+    -webkit-appearance:none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; 
+    background-position:right .65rem center; 
+    padding-right:2rem;
+    min-width:120px;
+  }
+
+  .sort-select:focus{ 
+    outline:none; 
+    border-color:var(--primary); 
+  }
+
   /* ===== GRID LAYOUT (2-up on phones like Al Baik) ===== */
   .products-wrap{
     display: grid;
@@ -774,6 +1133,7 @@
     font-size: 2.5rem; 
     color: #d1d5db; 
   }
+  
   .discount-badge{ 
     position: absolute; 
     top: .5rem; 
@@ -784,6 +1144,100 @@
     border-radius: 6px; 
     font-size: .7rem; 
     font-weight: 700; 
+  }
+
+  /* Percentage Discount Badge - Top Right Corner */
+  .discount-badge-corner {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    color: #fff;
+    padding: .5rem .6rem;
+    border-radius: 0 0 0 12px;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+    z-index: 5;
+    animation: pulse-discount 2s ease-in-out infinite;
+  }
+
+  .discount-percentage {
+    font-size: .95rem;
+    font-weight: 900;
+    display: block;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  @keyframes pulse-discount {
+    0%, 100% { 
+      transform: scale(1); 
+      box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+    }
+    50% { 
+      transform: scale(1.05); 
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6);
+    }
+  }
+
+  /* Offer Badge Overlay */
+  .offer-badge-overlay{ 
+    position: absolute; 
+    top: .5rem; 
+    inset-inline-start: .5rem; 
+    z-index: 2;
+  }
+
+  /* BOGO GET - FREE Badge */
+  .bogo-free-badge {
+    position: absolute;
+    top: .5rem;
+    inset-inline-start: .5rem;
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    color: #fff;
+    padding: .4rem .7rem;
+    border-radius: 8px;
+    font-size: .85rem;
+    font-weight: 900;
+    box-shadow: 0 3px 10px rgba(239, 68, 68, 0.5);
+    z-index: 3;
+    animation: pulse-free-badge 2s ease-in-out infinite;
+    text-transform: uppercase;
+  }
+
+  @keyframes pulse-free-badge {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 3px 10px rgba(239, 68, 68, 0.5);
+    }
+    50% {
+      transform: scale(1.05);
+      box-shadow: 0 5px 15px rgba(239, 68, 68, 0.7);
+    }
+  }
+
+  .free-text, .discount-text {
+    display: block;
+    line-height: 1;
+    letter-spacing: 0.5px;
+  }
+
+  /* Expiring Soon Badge */
+  .expiring-badge{ 
+    position: absolute; 
+    top: .5rem; 
+    inset-inline-end: .5rem; 
+    background: #EF4444; 
+    color: #fff; 
+    padding: .25rem .4rem; 
+    border-radius: 6px; 
+    font-size: .8rem; 
+    animation: pulse-badge 1.5s ease-in-out infinite;
+    z-index: 3;
+  }
+
+  @keyframes pulse-badge {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.05); }
   }
 
   .product-info{ 
@@ -852,15 +1306,287 @@
     background: #f0f0f0;
   }
 
-  .price-row{ display:flex; align-items:center; gap:.35rem; }
-  .price-now{ font-weight:800; font-size:.9rem; color:var(--ink); display:flex; align-items:center; gap:.25rem; }
-  .currency-icon{ height:0.55rem; width:auto; display:inline-block; vertical-align:middle; }
+  .price-row{ display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; }
+  .price-now{ font-weight:900; font-size:1.1rem; color:var(--ink); display:flex; align-items:center; gap:.25rem; }
+  .price-now.offer-price{ color:#10b981; }
+  .currency-icon{ height:0.65rem; width:auto; display:inline-block; vertical-align:middle; }
   .currency-icon-small{ height:0.45rem; width:auto; display:inline-block; vertical-align:middle; margin-inline-start:.15rem; }
-  .price-old{ font-size:.72rem; color:var(--ink-3); text-decoration:line-through; display:flex; align-items:center; gap:.15rem; }
+  .price-old{ 
+    font-size:.72rem; 
+    color:#ef4444; 
+    display:flex; 
+    align-items:center; 
+    gap:.15rem; 
+  }
+  
+  .price-old-number {
+    position: relative;
+    display: inline-block;
+  }
+  
+  .price-old-number::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(to bottom right, transparent 49%, #ef4444 49%, #ef4444 51%, transparent 51%);
+    pointer-events: none;
+  }
+
+  /* Savings Display */
+  .savings-row{ 
+    display:flex; 
+    align-items:center; 
+    gap:.3rem; 
+    background:linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); 
+    padding:.25rem .5rem; 
+    border-radius:6px; 
+    margin-top:.1rem;
+  }
+
+  .savings-icon{ 
+    font-size:.9rem; 
+  }
+
+  .savings-text{ 
+    font-size:.72rem; 
+    font-weight:700; 
+    color:#065f46; 
+  }
 
   .stock-line{ min-height:.9rem; }
   .stock{ font-size:.7rem; font-weight:600; }
   .stock.in{ color:var(--ok); } .stock.low{ color:var(--warn); } .stock.out{ color:var(--danger); }
+
+  /* BOGO Info Button */
+  .bogo-info-btn {
+    width: 100%;
+    margin-top: .5rem;
+    padding: .5rem;
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: .75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    cursor: pointer;
+    transition: all .2s;
+    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.3);
+  }
+
+  .bogo-info-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(236, 72, 153, 0.4);
+  }
+
+  .bogo-info-btn:active {
+    transform: translateY(0);
+  }
+
+  .bogo-icon {
+    font-size: 1rem;
+  }
+
+  /* BOGO Modal */
+  .bogo-modal {
+    width: 100%;
+    max-width: 480px;
+    background: var(--surface);
+    border-radius: 16px 16px 0 0;
+    overflow: hidden;
+    box-shadow: 0 20px 40px rgba(0,0,0,.3);
+  }
+
+  @media (min-width:640px) {
+    .bogo-modal {
+      border-radius: 16px;
+    }
+  }
+
+  .bogo-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.2rem;
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+    color: #fff;
+  }
+
+  .bogo-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .bogo-modal-body {
+    padding: 1.5rem 1.2rem;
+  }
+
+  .bogo-offer-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 1.5rem;
+    text-align: center;
+  }
+
+  .bogo-details {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .bogo-step {
+    flex: 1;
+    background: #f8f9fb;
+    border-radius: 12px;
+    padding: 1rem;
+    border: 2px solid #e6e7ea;
+  }
+
+  .step-badge {
+    display: inline-block;
+    padding: .3rem .6rem;
+    border-radius: 6px;
+    font-size: .65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: .5rem;
+  }
+
+  .step-badge.buy {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: #fff;
+  }
+
+  .step-badge.get {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff;
+  }
+
+  .step-content {
+    margin-top: .5rem;
+  }
+
+  .step-product-image {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: .8rem;
+    background: #f5f5f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .step-product-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .step-product-image.placeholder {
+    font-size: 2.5rem;
+    color: #d1d5db;
+  }
+
+  .step-quantity {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--ink);
+    margin-bottom: .3rem;
+  }
+
+  .step-product-name {
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--ink-2);
+    line-height: 1.3;
+    margin-bottom: .3rem;
+  }
+
+  .step-unit-info {
+    font-size: .7rem;
+    color: var(--ink-3);
+    background: #f5f6f7;
+    padding: .2rem .4rem;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: .5rem;
+  }
+
+  .free-badge {
+    display: inline-block;
+    margin-top: .5rem;
+    padding: .3rem .6rem;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #fff;
+    font-size: .7rem;
+    font-weight: 800;
+    border-radius: 6px;
+    animation: pulse-free 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-free {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.05);
+      opacity: 0.9;
+    }
+  }
+
+  .discount-badge-small {
+    display: inline-block;
+    margin-top: .5rem;
+    padding: .3rem .6rem;
+    background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+    color: #fff;
+    font-size: .7rem;
+    font-weight: 800;
+    border-radius: 6px;
+  }
+
+  .bogo-arrow {
+    font-size: 1.5rem;
+    color: var(--ink-3);
+    font-weight: 900;
+  }
+
+  .bogo-note {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    padding: .8rem;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    font-size: .75rem;
+    color: #1e40af;
+    line-height: 1.4;
+  }
+
+  .note-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+
+  .loading-text {
+    font-size: .8rem;
+    color: var(--ink-3);
+    font-style: italic;
+  }
 
   .cart-controls{ margin-top:auto; position:relative; min-height:32px; display:flex; justify-content:flex-end; align-items:center; }
   .fab-add{ width:32px; height:32px; border-radius:50%; background:#f59e0b; color:#fff; border:none; font-size:1.1rem; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 2px 8px rgba(245,158,11,.3); }

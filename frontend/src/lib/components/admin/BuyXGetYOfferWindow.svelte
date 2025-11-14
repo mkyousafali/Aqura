@@ -74,7 +74,8 @@
     const matchesSearch = !productSearchTerm ||
       p.barcode?.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
       p.name_ar.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-      p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase());
+      p.name_en.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+      p.product_serial?.toLowerCase().includes(productSearchTerm.toLowerCase());
     
     // Exclude products used in OTHER offers
     const notUsedInOtherOffers = !usedProductIds.has(p.id);
@@ -91,6 +92,10 @@
     }
     
     return matchesSearch && notUsedInOtherOffers;
+  }).sort((a, b) => {
+    const serialA = a.product_serial || '';
+    const serialB = b.product_serial || '';
+    return serialA.localeCompare(serialB);
   });
   
   onMount(async () => {
@@ -215,9 +220,9 @@
   async function loadProducts() {
     const { data, error: err } = await supabaseAdmin
       .from('products')
-      .select('id, product_name_ar, product_name_en, barcode, sale_price, image_url, current_stock')
+      .select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock')
       .eq('is_active', true)
-      .order('product_name_en');
+      .order('product_serial');
     
     if (!err && data) {
       products = data.map(p => ({
@@ -225,7 +230,12 @@
         name_ar: p.product_name_ar,
         name_en: p.product_name_en,
         barcode: p.barcode,
+        product_serial: p.product_serial || '',
         price: parseFloat(p.sale_price) || 0,
+        cost: parseFloat(p.cost) || 0,
+        unit_name_en: p.unit_name_en || '',
+        unit_name_ar: p.unit_name_ar || '',
+        unit_qty: p.unit_qty || 1,
         image_url: p.image_url,
         stock: p.current_stock || 0
       }));
@@ -248,15 +258,17 @@
   
   // Convert Saudi time from datetime-local input to UTC for database storage
   function toUTCFromSaudiInput(saudiTimeString) {
+    // Parse the datetime-local input (assumed to be Saudi time)
     const [datePart, timePart] = saudiTimeString.split('T');
     const [year, month, day] = datePart.split('-').map(Number);
     const [hours, minutes] = timePart.split(':').map(Number);
     
-    // Create date in Saudi timezone (UTC+3)
-    const saudiDate = new Date(year, month - 1, day, hours, minutes);
+    // Create ISO string for Saudi timezone and parse it
+    const saudiISOString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
     
-    // Convert to UTC by subtracting 3 hours
-    const utcDate = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+    // Parse as if it's UTC, then subtract 3 hours (Saudi is UTC+3)
+    const tempDate = new Date(saudiISOString + 'Z');
+    const utcDate = new Date(tempDate.getTime() - (3 * 60 * 60 * 1000));
     
     return utcDate.toISOString();
   }
@@ -325,10 +337,7 @@
       }];
     }
 
-    // Move to step 2 if we have loaded rules
-    if (bogoRules.length > 0) {
-      currentStep = 2;
-    }
+    // Don't auto-skip to step 2 in edit mode - let user review step 1 first
   }
   
   function nextStep() {
@@ -484,10 +493,9 @@
         branch_id: offerData.branch_id,
         service_type: offerData.service_type,
         is_active: offerData.is_active,
-        discount_type: 'percentage', // Not used for BOGO but required
-        discount_value: 0,
-        bogo_buy_quantity: 1,  // Dummy value to satisfy constraint
-        bogo_get_quantity: 1   // Dummy value to satisfy constraint
+        show_on_product_page: true,
+        show_in_carousel: true,
+        send_push_notification: false
       };
       
       let offer;
@@ -549,6 +557,13 @@
           ? '✅ تم إنشاء عرض اشتري واحصل بنجاح!'
           : '✅ Buy X Get Y offer created successfully!')
       );
+      
+      // Broadcast to customer displays to refresh offers
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('aqura-offers-update');
+        channel.postMessage('refresh-offers');
+        channel.close();
+      }
       
       // Dispatch success event to close window
       dispatch('success');
@@ -1007,7 +1022,7 @@
           <input 
             type="text" 
             bind:value={productSearchTerm}
-            placeholder={isRTL ? 'ابحث عن منتج...' : 'Search products...'}
+            placeholder={isRTL ? 'ابحث بالتسلسل أو الباركود أو اسم المنتج...' : 'Search by serial, barcode or product name...'}
             class="search-input"
           />
         </div>
@@ -1016,27 +1031,38 @@
           <table class="products-table">
             <thead>
               <tr>
-                <th>{isRTL ? 'المنتج' : 'Product'}</th>
+                <th>{isRTL ? 'التسلسل' : 'Serial'}</th>
                 <th>{isRTL ? 'الباركود' : 'Barcode'}</th>
-                <th>{isRTL ? 'السعر' : 'Price'}</th>
+                <th>{isRTL ? 'الصورة' : 'Image'}</th>
+                <th>{isRTL ? 'اسم المنتج (EN)' : 'Product Name (EN)'}</th>
+                <th>{isRTL ? 'اسم المنتج (AR)' : 'Product Name (AR)'}</th>
                 <th>{isRTL ? 'المخزون' : 'Stock'}</th>
+                <th>{isRTL ? 'اسم الوحدة' : 'Unit Name'}</th>
+                <th>{isRTL ? 'كمية الوحدة' : 'Unit Qty'}</th>
+                <th>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</th>
+                <th>{isRTL ? 'سعر البيع' : 'Sale Price'}</th>
                 <th>{isRTL ? 'اختيار' : 'Select'}</th>
               </tr>
             </thead>
             <tbody>
               {#each filteredProducts as product}
                 <tr>
-                  <td>
-                    <div class="product-cell">
-                      {#if product.image_url}
-                        <img src={product.image_url} alt="" class="product-img" />
-                      {/if}
-                      <span>{isRTL ? product.name_ar : product.name_en}</span>
-                    </div>
-                  </td>
+                  <td>{product.product_serial}</td>
                   <td>{product.barcode || '-'}</td>
-                  <td>{product.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</td>
+                  <td>
+                    {#if product.image_url}
+                      <img src={product.image_url} alt="" class="product-img" />
+                    {:else}
+                      <div class="product-placeholder">📦</div>
+                    {/if}
+                  </td>
+                  <td>{product.name_en}</td>
+                  <td>{product.name_ar}</td>
                   <td>{product.stock}</td>
+                  <td>{isRTL ? product.unit_name_ar : product.unit_name_en}</td>
+                  <td>{product.unit_qty}</td>
+                  <td>{product.cost.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</td>
+                  <td>{product.price.toFixed(2)} {isRTL ? 'ر.س' : 'SAR'}</td>
                   <td>
                     <button 
                       type="button"
