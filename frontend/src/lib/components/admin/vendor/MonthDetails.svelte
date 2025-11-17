@@ -35,6 +35,9 @@
 	let refreshing = false;
 	let monthDetailsElement;
 	
+	// Check if current user is Master Admin
+	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	
 	// Filter state
 	let filterBranch = '';
 	let filterPaymentMethod = '';
@@ -1638,6 +1641,74 @@
 	}
 
 	/**
+	 * Delete vendor payment schedule record (Master Admin only)
+	 */
+	async function deleteVendorPayment(payment) {
+		if (!isMasterAdmin) {
+			alert('Only Master Admin can delete payment records');
+			return;
+		}
+
+		const confirmMessage = `Are you sure you want to delete this payment?\n\nVendor: ${payment.vendor_name}\nBill #: ${payment.bill_number}\nAmount: ${formatCurrency(payment.final_bill_amount)}\n\nThis action cannot be undone.`;
+		
+		if (!confirm(confirmMessage)) return;
+
+		try {
+			const { error } = await supabaseAdmin
+				.from('vendor_payment_schedule')
+				.delete()
+				.eq('id', payment.id);
+
+			if (error) {
+				console.error('Error deleting payment:', error);
+				alert('Failed to delete payment: ' + error.message);
+				return;
+			}
+
+			alert('Payment deleted successfully');
+			await loadScheduledPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error deleting payment:', error);
+			alert('Failed to delete payment');
+		}
+	}
+
+	/**
+	 * Delete expense scheduler payment record (Master Admin only)
+	 */
+	async function deleteExpensePayment(payment) {
+		if (!isMasterAdmin) {
+			alert('Only Master Admin can delete payment records');
+			return;
+		}
+
+		const confirmMessage = `Are you sure you want to delete this expense payment?\n\nRequester: ${payment.requester_name || payment.co_user_name || 'N/A'}\nRequest #: ${payment.requisition_number || 'N/A'}\nAmount: ${formatCurrency(payment.amount || 0)}\n\nThis action cannot be undone.`;
+		
+		if (!confirm(confirmMessage)) return;
+
+		try {
+			const { error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.delete()
+				.eq('id', payment.id);
+
+			if (error) {
+				console.error('Error deleting expense payment:', error);
+				alert('Failed to delete expense payment: ' + error.message);
+				return;
+			}
+
+			alert('Expense payment deleted successfully');
+			await loadExpenseSchedulerPayments();
+			generateAllDaysOfMonth(monthData);
+		} catch (error) {
+			console.error('Error deleting expense payment:', error);
+			alert('Failed to delete expense payment');
+		}
+	}
+
+	/**
 	 * Check if a payment needs approval (not approved yet)
 	 */
 	function needsApproval(payment) {
@@ -2018,40 +2089,47 @@
 															</span>
 														</td>
 														
-														<!-- Always visible: Actions -->
-														<td class="always-visible">
-															{#if needsApproval(payment)}
-																<ApprovalMask 
-																	approvalStatus={getApprovalStatus(payment)}
-																	onRequestApproval={() => handleRequestApproval(payment)}
-																	disabled={!$currentUser?.id}
-																/>
-															{:else if !payment.is_paid}
-																<button 
-																	class="reschedule-btn"
-																	on:click|stopPropagation={() => openRescheduleModal(payment)}
-																	title="Reschedule Payment"
-																>
-																	📅
-																</button>
-																<button 
-																	class="split-btn"
-																	on:click|stopPropagation={() => openSplitModal(payment)}
-																	title="Split Payment"
-																>
-																	✂️
-																</button>
-																<button 
-																	class="edit-amount-btn"
-																	on:click|stopPropagation={() => openEditAmountModal(payment)}
-																	title="Edit Amount (Discount/GRR/PRI)"
-																>
-																	💰
-																</button>
-															{/if}
-														</td>
-														
-													</tr>
+													<!-- Always visible: Actions -->
+													<td class="always-visible">
+														{#if needsApproval(payment)}
+															<ApprovalMask 
+																approvalStatus={getApprovalStatus(payment)}
+																onRequestApproval={() => handleRequestApproval(payment)}
+																disabled={!$currentUser?.id}
+															/>
+														{:else if !payment.is_paid}
+															<button 
+																class="reschedule-btn"
+																on:click|stopPropagation={() => openRescheduleModal(payment)}
+																title="Reschedule Payment"
+															>
+																📅
+															</button>
+															<button 
+																class="split-btn"
+																on:click|stopPropagation={() => openSplitModal(payment)}
+																title="Split Payment"
+															>
+																✂️
+															</button>
+															<button 
+																class="edit-amount-btn"
+																on:click|stopPropagation={() => openEditAmountModal(payment)}
+																title="Edit Amount (Discount/GRR/PRI)"
+															>
+																💰
+															</button>
+														{/if}
+														{#if isMasterAdmin}
+															<button 
+																class="delete-btn"
+																on:click|stopPropagation={() => deleteVendorPayment(payment)}
+																title="Delete Payment (Master Admin Only)"
+															>
+																🗑️
+															</button>
+														{/if}
+													</td>													</tr>
 												{/each}
 											{/each}
 										{:else}
@@ -2185,6 +2263,15 @@
 																	🔒
 																</button>
 															{/if}
+														{/if}
+														{#if isMasterAdmin}
+															<button 
+																class="delete-btn"
+																on:click|stopPropagation={() => deleteExpensePayment(payment)}
+																title="Delete Expense Payment (Master Admin Only)"
+															>
+																🗑️
+															</button>
 														{/if}
 													</td>
 												</tr>
@@ -5013,6 +5100,24 @@
 		background: linear-gradient(135deg, #059669 0%, #047857 100%);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.delete-btn {
+		padding: 6px 10px;
+		background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 16px;
+		transition: all 0.2s ease;
+		margin-left: 4px;
+	}
+
+	.delete-btn:hover {
+		background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(220, 38, 38, 0.3);
 	}
 
 	/* Edit Amount Modal */

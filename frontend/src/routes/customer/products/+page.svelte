@@ -35,6 +35,8 @@
   let products = [];
   let categories = [];
   let loading = true;
+  let bogoOffers = [];
+  let bundleOffers = [];
 
   let showCategoryMenu = false;
   let showBogoModal = false;
@@ -142,10 +144,15 @@
 
   // cart
   $: cartItems = $cartStore;
-  $: cartItemsMap = new Map(cartItems.map(item => [
-    `${item.id}-${item.selectedUnit?.id || 'base'}`,
-    item.quantity
-  ]));
+  // Only count non-BOGO items for regular product cards
+  $: cartItemsMap = new Map(
+    cartItems
+      .filter(item => !item.offerType || (item.offerType !== 'bogo' && item.offerType !== 'bogo_get'))
+      .map(item => [
+        `${item.id}-${item.selectedUnit?.id || 'base'}`,
+        item.quantity
+      ])
+  );
   
   // Create a reactive key that changes when any quantity changes
   $: cartKey = cartItems.map(item => `${item.id}-${item.selectedUnit?.id}-${item.quantity}`).join(',');
@@ -194,11 +201,17 @@
       }
 
       console.log(`📦 Loaded ${data.products?.length || 0} products (${data.offersCount} offers active)`);
+      console.log(`🎁 Loaded ${data.bogoOffers?.length || 0} BOGO offer cards`);
+      console.log(`📦 Loaded ${data.bundleOffers?.length || 0} bundle offer cards`);
       
       // Debug first product
       if (data.products && data.products.length > 0) {
         console.log('🔍 First product data:', data.products[0]);
       }
+      
+      // Store BOGO and bundle offers
+      bogoOffers = data.bogoOffers || [];
+      bundleOffers = data.bundleOffers || [];
 
       // Group products by serial (for multi-unit products)
       const productMap = new Map();
@@ -336,6 +349,21 @@
     
     return matchesSearch && matchesCat;
   });
+  
+  // Filter BOGO offers by category and search
+  $: filteredBogoOffers = bogoOffers.filter(offer => {
+    const q = (searchQuery || '').toLowerCase();
+    const matchesSearch = !q || 
+      offer.buyProduct.nameAr.toLowerCase().includes(q) || 
+      offer.buyProduct.nameEn.toLowerCase().includes(q) ||
+      offer.getProduct.nameAr.toLowerCase().includes(q) || 
+      offer.getProduct.nameEn.toLowerCase().includes(q);
+    const matchesCat = selectedCategory === 'all' || 
+      offer.buyProduct.category === selectedCategory || 
+      offer.getProduct.category === selectedCategory;
+    
+    return matchesSearch && matchesCat;
+  });
 
   // cart ops
   function addToCart(product) {
@@ -346,6 +374,107 @@
     enrichBOGOFreeItems();
   }
   
+  // Add BOGO offer to cart as a bundle
+  function addBogoToCart(bogoOffer) {
+    const buyProd = bogoOffer.buyProduct;
+    const getProd = bogoOffer.getProduct;
+    
+    // Calculate the price per buy item based on bundle price
+    const buyItemPrice = (bogoOffer.bundlePrice - (getProd.offerPrice * getProd.quantity)) / buyProd.quantity;
+    
+    // CRITICAL: Create completely separate BOGO selectedUnit objects (no shared references with regular products)
+    // Add buy product with adjusted price
+    const buyProduct = {
+      id: buyProd.product_serial,
+      name: buyProd.nameAr,
+      nameEn: buyProd.nameEn,
+      image: buyProd.image,
+      price: buyItemPrice,
+      originalPrice: buyProd.price,
+      selectedUnit: {
+        id: buyProd.id,
+        nameAr: `${buyProd.unitQty} ${buyProd.unitAr}`,
+        nameEn: `${buyProd.unitQty} ${buyProd.unitEn}`,
+        basePrice: buyItemPrice,
+        // BOGO-specific metadata (makes this a BOGO item, NOT a regular product)
+        offerType: 'bogo',
+        offerId: bogoOffer.offerId,
+        bogoGetProductId: getProd.id,
+        bogoGetQuantity: getProd.quantity,
+        isBOGOBundle: true  // Flag to ensure total independence from regular products
+      },
+      offerType: 'bogo',
+      offerId: bogoOffer.offerId,
+      bogoGetProductId: getProd.id,
+      bogoGetQuantity: getProd.quantity,
+      isBOGOBundle: true
+    };
+    
+    cartActions.addToCart(buyProduct, buyProduct.selectedUnit, buyProd.quantity);
+    
+    // Add get product (free or discounted)
+    const getProduct = {
+      id: getProd.product_serial,
+      name: getProd.nameAr,
+      nameEn: getProd.nameEn,
+      image: getProd.image,
+      price: getProd.offerPrice,
+      originalPrice: getProd.originalPrice,
+      selectedUnit: {
+        id: getProd.id,
+        nameAr: `${getProd.unitQty} ${getProd.unitAr}`,
+        nameEn: `${getProd.unitQty} ${getProd.unitEn}`,
+        basePrice: getProd.offerPrice,
+        // BOGO-specific metadata (makes this a BOGO item, NOT a regular product)
+        offerType: 'bogo_get',
+        offerId: bogoOffer.offerId,
+        bogoBuyProductId: buyProd.id,
+        isBOGOBundle: true  // Flag to ensure total independence from regular products
+      },
+      offerType: 'bogo_get',
+      offerId: bogoOffer.offerId,
+      bogoBuyProductId: buyProd.id,
+      isAutoAdded: true,
+      isBOGOBundle: true
+    };
+    
+    cartActions.addToCart(getProduct, getProduct.selectedUnit, getProd.quantity);
+  }
+  
+  // Add bundle offer to cart
+  function addBundleToCart(bundleOffer) {
+    // Add each product in the bundle with bundle-specific metadata
+    bundleOffer.bundleProducts.forEach((prod, index) => {
+      const bundleProduct = {
+        id: prod.product_serial,
+        name: prod.nameAr,
+        nameEn: prod.nameEn,
+        image: prod.image,
+        price: (bundleOffer.bundlePrice / bundleOffer.bundleProducts.length), // Split bundle price evenly
+        originalPrice: prod.price * prod.quantity,
+        selectedUnit: {
+          id: prod.unitId,
+          nameAr: `${prod.unitQty} ${prod.unitAr}`,
+          nameEn: `${prod.unitQty} ${prod.unitEn}`,
+          basePrice: (bundleOffer.bundlePrice / bundleOffer.bundleProducts.length),
+          // Bundle-specific metadata
+          offerType: 'bundle',
+          offerId: bundleOffer.offerId,
+          bundleId: bundleOffer.offerId + '-bundle',
+          bundleProductIndex: index,
+          isBundleItem: true
+        },
+        offerType: 'bundle',
+        offerId: bundleOffer.offerId,
+        bundleId: bundleOffer.offerId + '-bundle',
+        bundleProductIndex: index,
+        isBundleItem: true
+      };
+      
+      cartActions.addToCart(bundleProduct, bundleProduct.selectedUnit, prod.quantity);
+    });
+  }
+  
   function updateQuantity(product, d) {
     const u = getSelectedUnit(product);
     const cur = cartActions.getItemQuantity(product.id, u.id);
@@ -354,8 +483,33 @@
     if (next === 0) {
       cartActions.removeFromCart(product.id, u.id);
     } else if (cur === 0 && next > 0) {
-      // Item doesn't exist in cart, add it
-      cartActions.addToCart(product, u, next);
+      // Item doesn't exist in cart, add it as a regular product (strip ALL BOGO offer info)
+      const regularUnit = {
+        id: u.id,
+        nameAr: u.nameAr,
+        nameEn: u.nameEn,
+        basePrice: u.originalPrice || u.basePrice,  // Use original price, not offer price
+        originalPrice: u.originalPrice,
+        photo: u.photo || u.image,
+        barcode: u.barcode,
+        // CRITICAL: Regular products must have NO offer properties at all
+        offerType: null,
+        bogoGetProductId: null,
+        bogoGetQuantity: null,
+        bogoDiscountType: null,
+        bogoBuyProductId: null
+      };
+      
+      const regularProduct = {
+        id: product.id,
+        nameAr: product.nameAr,
+        nameEn: product.nameEn,
+        name: product.nameAr,
+        image: product.image,
+        basePrice: u.originalPrice || u.basePrice
+      };
+      
+      cartActions.addToCart(regularProduct, regularUnit, next);
     } else {
       // Item exists, update quantity
       cartActions.updateQuantity(product.id, u.id, next);
@@ -481,6 +635,216 @@
 
   <!-- PRODUCTS: Grid 2-up on phones -->
   <div class="products-wrap">
+    <!-- BOGO Offer Cards -->
+    {#each filteredBogoOffers as bogoOffer}
+      {@const buyProd = bogoOffer.buyProduct}
+      {@const getProd = bogoOffer.getProduct}
+      {@const outOfStock = buyProd.stock === 0 || getProd.stock === 0}
+      {@const lowStock = (buyProd.stock <= buyProd.lowStockThreshold) || (getProd.stock <= getProd.lowStockThreshold)}
+      
+      <div class="product-card bogo-card">
+        <div class="bogo-badge-header">
+          <span class="bogo-badge-text">{currentLanguage === 'ar' ? 'عرض خاص' : 'Special Offer'}</span>
+        </div>
+        
+        <div class="bogo-products-container">
+          <!-- Buy Product -->
+          <div class="bogo-product-half">
+            <div class="bogo-product-image">
+              {#if buyProd.image}
+                <img src={buyProd.image} alt={currentLanguage === 'ar' ? buyProd.nameAr : buyProd.nameEn} />
+              {:else}
+                <div class="image-placeholder">📦</div>
+              {/if}
+              <div class="bogo-quantity-badge buy">
+                {currentLanguage === 'ar' ? `اشتري ${toArabicNumerals(buyProd.quantity)}` : `Buy ${buyProd.quantity}`}
+              </div>
+            </div>
+            <div class="bogo-product-name">{currentLanguage === 'ar' ? buyProd.nameAr : buyProd.nameEn}</div>
+            <div class="bogo-product-unit">
+              {currentLanguage === 'ar' 
+                ? `${buyProd.unitAr} ${toArabicNumerals(buyProd.unitQty)}`
+                : `${buyProd.unitQty} ${buyProd.unitEn}`}
+            </div>
+          </div>
+          
+          <!-- Plus Sign -->
+          <div class="bogo-plus-sign">+</div>
+          
+          <!-- Get Product -->
+          <div class="bogo-product-half">
+            <div class="bogo-product-image">
+              {#if getProd.image}
+                <img src={getProd.image} alt={currentLanguage === 'ar' ? getProd.nameAr : getProd.nameEn} />
+              {:else}
+                <div class="image-placeholder">📦</div>
+              {/if}
+              <div class="bogo-quantity-badge get">
+                {currentLanguage === 'ar' ? `احصل ${toArabicNumerals(getProd.quantity)}` : `Get ${getProd.quantity}`}
+              </div>
+              {#if getProd.isFree}
+                <div class="free-badge-corner">{currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}</div>
+              {:else if getProd.discountPercentage > 0}
+                <div class="discount-badge-corner-bogo">{Math.round(getProd.discountPercentage)}%</div>
+              {/if}
+            </div>
+            <div class="bogo-product-name">{currentLanguage === 'ar' ? getProd.nameAr : getProd.nameEn}</div>
+            <div class="bogo-product-unit">
+              {currentLanguage === 'ar' 
+                ? `${getProd.unitAr} ${toArabicNumerals(getProd.unitQty)}`
+                : `${getProd.unitQty} ${getProd.unitEn}`}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Offer Details -->
+        <div class="bogo-offer-details">
+          <div class="bogo-offer-name">{currentLanguage === 'ar' ? bogoOffer.offerNameAr : bogoOffer.offerNameEn}</div>
+          
+          <div class="price-row bogo-price">
+            <div class="price-now" class:rtl={currentLanguage === 'ar'}>
+              {#if currentLanguage === 'ar'}
+                {formatPrice(bogoOffer.bundlePrice)}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              {:else}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {formatPrice(bogoOffer.bundlePrice)}
+              {/if}
+            </div>
+            {#if bogoOffer.savings > 0}
+              <div class="price-old" class:rtl={currentLanguage === 'ar'}>
+                {#if currentLanguage === 'ar'}
+                  <span class="price-old-number">{formatPrice(bogoOffer.originalBundlePrice)}</span>
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                {:else}
+                  <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                  <span class="price-old-number">{formatPrice(bogoOffer.originalBundlePrice)}</span>
+                {/if}
+              </div>
+            {/if}
+          </div>
+          
+          <div class="stock-line">
+            {#if outOfStock}
+              <span class="stock out">{texts.outOfStock}</span>
+            {:else if lowStock}
+              <span class="stock low">{texts.lowStock}</span>
+            {:else}
+              <span class="stock in">{texts.inStock}</span>
+            {/if}
+          </div>
+          
+          {#if bogoOffer.isExpiringSoon}
+            <div class="expiring-badge-inline">⏰ {currentLanguage === 'ar' ? 'ينتهي قريباً' : 'Expiring Soon'}</div>
+          {/if}
+        </div>
+        
+        <!-- Add to Cart Button -->
+        <div class="cart-controls bogo-cart-controls">
+          <button 
+            class="bogo-add-btn" 
+            on:click={() => addBogoToCart(bogoOffer)} 
+            disabled={outOfStock}
+            type="button"
+          >
+            <span class="bogo-icon">🎁</span>
+            <span>{currentLanguage === 'ar' ? 'أضف العرض للسلة' : 'Add Offer to Cart'}</span>
+          </button>
+        </div>
+      </div>
+    {/each}
+    
+    <!-- Bundle Offer Cards -->
+    {#each bundleOffers as bundleOffer}
+      {@const outOfStock = bundleOffer.bundleProducts.some(p => p.stock === 0)}
+      {@const lowStock = bundleOffer.bundleProducts.some(p => p.stock <= p.lowStockThreshold)}
+      {console.log('Bundle Offer FULL DATA:', JSON.stringify(bundleOffer, null, 2))}
+      {console.log('Bundle originalBundlePrice:', bundleOffer.originalBundlePrice)}
+      {console.log('Bundle bundlePrice:', bundleOffer.bundlePrice)}
+      {console.log('Bundle savings:', bundleOffer.savings)}
+      
+      <div class="product-card bundle-card">
+        <div class="bundle-badge-header">
+          <span class="bundle-badge-text">{currentLanguage === 'ar' ? 'باقة متكاملة' : 'Bundle Offer'}</span>
+        </div>
+        
+        <div class="bundle-products-grid grid-{bundleOffer.bundleProducts.length}">
+          {#each bundleOffer.bundleProducts as bundleProd, index}
+            <div class="bundle-product-item">
+              <div class="bundle-product-image">
+                {#if bundleProd.image}
+                  <img src={bundleProd.image} alt={currentLanguage === 'ar' ? bundleProd.nameAr : bundleProd.nameEn} />
+                {:else}
+                  <div class="image-placeholder">📦</div>
+                {/if}
+                <div class="bundle-quantity-badge">{currentLanguage === 'ar' ? toArabicNumerals(bundleProd.quantity) : bundleProd.quantity}×</div>
+              </div>
+              <div class="bundle-product-name">{currentLanguage === 'ar' ? bundleProd.nameAr : bundleProd.nameEn}</div>
+              <div class="bundle-product-unit">
+                {currentLanguage === 'ar' 
+                  ? `${bundleProd.unitAr} ${toArabicNumerals(bundleProd.unitQty)}`
+                  : `${bundleProd.unitQty} ${bundleProd.unitEn}`}
+              </div>
+            </div>
+          {/each}
+        </div>
+        
+        <!-- Offer Details -->
+        <div class="bundle-offer-details">
+          <div class="bundle-offer-name">{currentLanguage === 'ar' ? bundleOffer.offerNameAr : bundleOffer.offerNameEn}</div>
+          
+          <div class="price-row bundle-price">
+            <div class="price-now" class:rtl={currentLanguage === 'ar'}>
+              {#if currentLanguage === 'ar'}
+                {formatPrice(bundleOffer.bundlePrice)}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+              {:else}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                {formatPrice(bundleOffer.bundlePrice)}
+              {/if}
+            </div>
+            <div class="price-old" class:rtl={currentLanguage === 'ar'}>
+              {#if currentLanguage === 'ar'}
+                <span class="price-old-number">{formatPrice(bundleOffer.originalBundlePrice)}</span>
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+              {:else}
+                <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                <span class="price-old-number">{formatPrice(bundleOffer.originalBundlePrice)}</span>
+              {/if}
+            </div>
+          </div>
+          
+          <div class="stock-line">
+            {#if outOfStock}
+              <span class="stock out">{texts.outOfStock}</span>
+            {:else if lowStock}
+              <span class="stock low">{texts.lowStock}</span>
+            {:else}
+              <span class="stock in">{texts.inStock}</span>
+            {/if}
+          </div>
+          
+          {#if bundleOffer.isExpiringSoon}
+            <div class="expiring-badge-inline">⏰ {currentLanguage === 'ar' ? 'ينتهي قريباً' : 'Expiring Soon'}</div>
+          {/if}
+        </div>
+        
+        <!-- Add to Cart Button -->
+        <div class="cart-controls bundle-cart-controls">
+          <button 
+            class="bundle-add-btn" 
+            on:click={() => addBundleToCart(bundleOffer)} 
+            disabled={outOfStock}
+            type="button"
+          >
+            <span class="bundle-icon">📦</span>
+            <span>{currentLanguage === 'ar' ? 'أضف الباقة للسلة' : 'Add Bundle to Cart'}</span>
+          </button>
+        </div>
+      </div>
+    {/each}
+    
+    <!-- Regular Product Cards -->
     {#each filteredProducts as product}
       {#key `${cartKey}-${selectedUnits.get(product.id)?.id || 'default'}`}
         {@const u = getSelectedUnit(product)}
@@ -515,17 +879,6 @@
                   discountValue={u.discountPercentage}
                   size="small"
                   showIcon={false}
-                />
-              </div>
-            {/if}
-
-            <!-- BOGO Offer Badge (Buy Product) -->
-            {#if u.hasOffer && u.offerType === 'bogo'}
-              <div class="offer-badge-overlay">
-                <OfferBadge 
-                  offerType="bogo" 
-                  size="small"
-                  showIcon={true}
                 />
               </div>
             {/if}
@@ -610,13 +963,6 @@
               {:else if isLow}<span class="stock low">{texts.lowStock}</span>
               {:else}<span class="stock in">{texts.inStock}</span>{/if}
             </div>
-
-            {#if u.hasOffer && u.offerType === 'bogo'}
-              <button class="bogo-info-btn" on:click={() => showBogoDetails(u)} type="button">
-                <span class="bogo-icon">🎁</span>
-                <span>{currentLanguage === 'ar' ? 'تفاصيل العرض' : 'Offer Details'}</span>
-              </button>
-            {/if}
 
             <div class="cart-controls">
               {#if qty === 0}
@@ -1687,5 +2033,446 @@
         inset 3px 3px 6px rgba(0, 0, 0, 0.1),
         0 0 8px rgba(255, 255, 255, 0.3);
     }
+  }
+
+  /* BOGO Card Styles */
+  .bogo-card {
+    background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+    border: 2px solid #ec4899;
+    position: relative;
+    overflow: visible;
+  }
+
+  .bogo-badge-header {
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+    color: white;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: -1px -1px 0.5rem -1px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .bogo-products-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.3rem;
+    padding: 0 0.3rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .bogo-product-half {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .bogo-product-image {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #f5f5f5;
+    border-radius: 8px;
+    overflow: visible;
+    margin-bottom: 0.3rem;
+  }
+
+  .bogo-product-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+  }
+
+  .bogo-quantity-badge {
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    z-index: 2;
+  }
+
+  .bogo-quantity-badge.buy {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+  }
+
+  .bogo-quantity-badge.get {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+  }
+
+  .free-badge-corner {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+    color: #fff;
+    padding: 0.3rem 0.4rem;
+    border-radius: 0 8px 0 8px;
+    font-size: 0.65rem;
+    font-weight: 900;
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+    z-index: 3;
+    animation: pulse-free 1.5s ease-in-out infinite;
+  }
+
+  .discount-badge-corner-bogo {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+    color: #fff;
+    padding: 0.3rem 0.4rem;
+    border-radius: 0 8px 0 8px;
+    font-size: 0.65rem;
+    font-weight: 900;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.4);
+    z-index: 3;
+  }
+
+  .bogo-plus-sign {
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: #ec4899;
+    flex-shrink: 0;
+    margin: 0 0.2rem;
+  }
+
+  .bogo-product-name {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+    line-height: 1.2;
+    margin-bottom: 0.15rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2em;
+  }
+
+  .bogo-product-unit {
+    font-size: 0.55rem;
+    color: var(--ink-2);
+    background: #f5f6f7;
+    padding: 0.1rem 0.3rem;
+    border-radius: 999px;
+    text-align: center;
+  }
+
+  .bogo-offer-details {
+    padding: 0.5rem 0.65rem 0.3rem;
+    border-top: 1px dashed #ec4899;
+    margin-top: 0.5rem;
+  }
+
+  .bogo-offer-name {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #ec4899;
+    text-align: center;
+    margin-bottom: 0.4rem;
+    line-height: 1.3;
+  }
+
+  .price-row.bogo-price {
+    justify-content: center;
+    margin-bottom: 0.3rem;
+  }
+
+  .savings-row.bogo-savings {
+    justify-content: center;
+    margin-bottom: 0.3rem;
+  }
+
+  .expiring-badge-inline {
+    display: inline-block;
+    margin-top: 0.3rem;
+    padding: 0.2rem 0.4rem;
+    background: #FEE2E2;
+    color: #DC2626;
+    font-size: 0.6rem;
+    font-weight: 700;
+    border-radius: 6px;
+    text-align: center;
+    width: 100%;
+    animation: pulse-badge 1.5s ease-in-out infinite;
+  }
+
+  .bogo-cart-controls {
+    padding: 0 0.4rem 0.5rem;
+  }
+
+  .bogo-add-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+    color: white;
+    border: none;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.3);
+  }
+
+  .bogo-add-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(236, 72, 153, 0.4);
+  }
+
+  .bogo-add-btn:active {
+    transform: translateY(0);
+  }
+
+  .bogo-add-btn:disabled {
+    background: #cbd5e1;
+    color: #fff;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  .bogo-icon {
+    font-size: 1rem;
+  }
+
+  /* Bundle Offer Styles */
+  .bundle-card {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+    border: 2px solid #10b981;
+    position: relative;
+    overflow: visible;
+  }
+
+  .bundle-badge-header {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: -1px -1px 0.5rem -1px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .bundle-products-grid {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.3rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .bundle-products-grid.grid-1 {
+    grid-template-columns: 1fr;
+    max-width: 50%;
+    margin: 0 auto 0.3rem;
+  }
+
+  .bundle-products-grid.grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bundle-products-grid.grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bundle-products-grid.grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bundle-products-grid.grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bundle-products-grid.grid-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bundle-product-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .bundle-product-image {
+    position: relative;
+    width: 100%;
+    height: 65px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 0.2rem;
+  }
+
+  .bundle-product-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+  }
+
+  .bundle-quantity-badge {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    z-index: 2;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+  }
+
+  .bundle-product-name {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+    line-height: 1.2;
+    margin-bottom: 0.1rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 1em;
+  }
+
+  .bundle-product-unit {
+    font-size: 0.5rem;
+    color: var(--ink-2);
+    background: #f5f6f7;
+    padding: 0.05rem 0.25rem;
+    border-radius: 999px;
+    text-align: center;
+  }
+
+  .bundle-offer-details {
+    padding: 0.5rem 0.65rem 0.3rem;
+    border-top: 1px dashed #10b981;
+    margin-top: 0.5rem;
+  }
+
+  .bundle-offer-name {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #10b981;
+    text-align: center;
+    margin-bottom: 0.4rem;
+    line-height: 1.3;
+  }
+
+  .bundle-discount-badge {
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #fff;
+    padding: 0.3rem 0.4rem;
+    border-radius: 0 8px 0 8px;
+    font-size: 0.65rem;
+    font-weight: 900;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+    z-index: 3;
+  }
+
+  .price-row.bundle-price {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+    flex-wrap: wrap;
+  }
+
+  .price-row.bundle-price .price-now {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #10b981;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .price-row.bundle-price .price-old {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .price-row.bundle-price .price-old .price-old-number {
+    text-decoration: line-through;
+  }
+
+  .savings-row.bundle-savings {
+    justify-content: center;
+    margin-bottom: 0.3rem;
+  }
+
+  .bundle-cart-controls {
+    padding: 0 0.4rem 0.5rem;
+  }
+
+  .bundle-add-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+  }
+
+  .bundle-add-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
+  }
+
+  .bundle-add-btn:active {
+    transform: translateY(0);
+  }
+
+  .bundle-add-btn:disabled {
+    background: #cbd5e1;
+    color: #fff;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  .bundle-icon {
+    font-size: 1rem;
   }
 </style>

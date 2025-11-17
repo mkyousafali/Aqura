@@ -13,12 +13,12 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const now = new Date().toISOString();
 
-		// Step 1: Get all active offers (product and BOGO)
+		// Step 1: Get all active offers (product, BOGO, and bundle)
 		const { data: offers, error: offersError } = await supabaseAdmin
 			.from('offers')
 			.select('*')
 			.eq('is_active', true)
-			.in('type', ['product', 'bogo'])
+			.in('type', ['product', 'bogo', 'bundle'])
 			.lte('start_date', now)
 			.gte('end_date', now);
 
@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ error: 'Failed to fetch offers' }, { status: 500 });
 		}
 
-		console.log(`📊 Found ${offers?.length || 0} active offers (product + BOGO)`);
+		console.log(`📊 Found ${offers?.length || 0} active offers (product + BOGO + bundle)`);
 
 		// Filter offers by branch and service type
 		const filteredOffers = (offers || []).filter((offer) => {
@@ -291,131 +291,9 @@ export const GET: RequestHandler = async ({ url }) => {
 			const offer = filteredOffers.find((o) => o.id === rule.offer_id);
 			if (!offer) return;
 
-			// Add BOGO info to BUY product
-			const buyProductSerial = buyProduct.product_serial;
-			const buyProductId = buyProduct.id;
-			const buyKey = `${buyProductSerial}-${buyProductId}`;
-
-			// Check if product already has a better offer
-			const existingBuyProduct = productMap.get(buyKey);
-			if (!existingBuyProduct || !existingBuyProduct.hasOffer) {
-				// Add BOGO offer info to the buy product
-				const enrichedBuyProduct = {
-					id: buyProductId,
-					product_serial: buyProductSerial,
-					nameEn: buyProduct.product_name_en,
-					nameAr: buyProduct.product_name_ar,
-					category: buyProduct.category_id,
-					categoryNameEn: buyProduct.category_name_en,
-					categoryNameAr: buyProduct.category_name_ar,
-					image: buyProduct.image_url,
-					barcode: buyProduct.barcode,
-					stock: buyProduct.current_stock,
-					lowStockThreshold: buyProduct.minimum_qty_alert,
-					
-					// Unit info
-					unitEn: buyProduct.unit_name_en,
-					unitAr: buyProduct.unit_name_ar,
-					unitQty: buyProduct.unit_qty,
-					
-					// Pricing (no price change for BOGO buy product)
-					originalPrice: parseFloat(buyProduct.sale_price),
-					offerPrice: null,
-					savings: 0,
-					discountPercentage: 0,
-					
-					// Offer info
-					hasOffer: true,
-					offerType: 'bogo',
-					offerId: offer.id,
-					offerNameEn: offer.name_en,
-					offerNameAr: offer.name_ar,
-					offerQty: rule.buy_quantity,
-					maxUses: null,
-					
-					// BOGO specific info
-					bogoGetProductId: rule.get_product_id,
-					bogoGetQuantity: rule.get_quantity,
-					bogoDiscountType: rule.discount_type,
-					bogoDiscountValue: rule.discount_value,
-					
-					// Expiry info
-					offerEndDate: offer.end_date,
-					isExpiringSoon: isExpiringSoon(offer.end_date)
-				};
-
-				productMap.set(buyKey, enrichedBuyProduct);
-			}
-
-			// Mark GET product with BOGO free/discount info
-			if (getProduct && getProduct.is_active) {
-				const getProductSerial = getProduct.product_serial;
-				const getProductId = getProduct.id;
-				const getKey = `${getProductSerial}-${getProductId}`;
-
-				const existingGetProduct = productMap.get(getKey);
-				
-				// Calculate the effective price for the get product
-				const getProductPrice = parseFloat(getProduct.sale_price);
-				let effectivePrice = getProductPrice;
-				let discountPercentage = 0;
-				
-				if (rule.discount_type === 'free') {
-					effectivePrice = 0;
-					discountPercentage = 100;
-				} else if (rule.discount_type === 'percentage' && rule.discount_value) {
-					discountPercentage = parseFloat(rule.discount_value);
-					effectivePrice = getProductPrice - (getProductPrice * discountPercentage / 100);
-				}
-
-				if (!existingGetProduct || !existingGetProduct.hasOffer) {
-					const enrichedGetProduct = {
-						id: getProductId,
-						product_serial: getProductSerial,
-						nameEn: getProduct.product_name_en,
-						nameAr: getProduct.product_name_ar,
-						category: getProduct.category_id,
-						categoryNameEn: getProduct.category_name_en,
-						categoryNameAr: getProduct.category_name_ar,
-						image: getProduct.image_url,
-						barcode: getProduct.barcode,
-						stock: getProduct.current_stock,
-						lowStockThreshold: getProduct.minimum_qty_alert,
-						
-						// Unit info
-						unitEn: getProduct.unit_name_en,
-						unitAr: getProduct.unit_name_ar,
-						unitQty: getProduct.unit_qty,
-						
-						// Pricing for GET product (free or discounted)
-						originalPrice: getProductPrice,
-						offerPrice: effectivePrice,
-						savings: getProductPrice - effectivePrice,
-						discountPercentage: discountPercentage,
-						
-						// Offer info
-						hasOffer: true,
-						offerType: 'bogo_get', // Special type for get products
-						offerId: offer.id,
-						offerNameEn: offer.name_en,
-						offerNameAr: offer.name_ar,
-						offerQty: rule.get_quantity,
-						maxUses: null,
-						
-						// BOGO specific info - reference to buy product
-						bogoBuyProductId: rule.buy_product_id,
-						bogoBuyQuantity: rule.buy_quantity,
-						bogoDiscountType: rule.discount_type,
-						bogoDiscountValue: rule.discount_value,
-						
-						// Expiry info
-						offerEndDate: offer.end_date,
-						isExpiringSoon: isExpiringSoon(offer.end_date)
-					};
-
-					productMap.set(getKey, enrichedGetProduct);
-				}
-			}
+			// DON'T add BUY or GET products to productMap with offer info
+			// They should only appear as regular products
+			// BOGO offers are completely separate in the bogoOffers array
 		});
 
 		// Step 5: Also get regular products (without offers)
@@ -472,8 +350,184 @@ export const GET: RequestHandler = async ({ url }) => {
 		const products = Array.from(productMap.values());
 		console.log(`✅ Returning ${products.length} total products (${products.filter(p => p.hasOffer).length} with offers)`);
 
+		// Step 6: Create separate BOGO offer cards
+		const bogoOffers = (bogoRules || []).map((rule) => {
+			const buyProduct = rule.buy_product;
+			const getProduct = rule.get_product;
+			const offer = filteredOffers.find((o) => o.id === rule.offer_id);
+
+			if (!buyProduct || !getProduct || !offer) return null;
+			if (!buyProduct.is_active || !getProduct.is_active) return null;
+
+			// Calculate discount info for get product
+			const getProductPrice = parseFloat(getProduct.sale_price);
+			let effectivePrice = getProductPrice;
+			let discountPercentage = 0;
+			let isFree = false;
+			
+			if (rule.discount_type === 'free') {
+				effectivePrice = 0;
+				discountPercentage = 100;
+				isFree = true;
+			} else if (rule.discount_type === 'percentage' && rule.discount_value) {
+				discountPercentage = parseFloat(rule.discount_value);
+				effectivePrice = getProductPrice - (getProductPrice * discountPercentage / 100);
+			}
+
+			return {
+				id: `bogo-${rule.id}`,
+				type: 'bogo_offer',
+				offerId: offer.id,
+				offerNameEn: offer.name_en,
+				offerNameAr: offer.name_ar,
+				isExpiringSoon: isExpiringSoon(offer.end_date),
+				offerEndDate: offer.end_date,
+				
+				// Buy product details
+				buyProduct: {
+					id: buyProduct.id,
+					product_serial: buyProduct.product_serial,
+					nameEn: buyProduct.product_name_en,
+					nameAr: buyProduct.product_name_ar,
+					image: buyProduct.image_url,
+					unitEn: buyProduct.unit_name_en,
+					unitAr: buyProduct.unit_name_ar,
+					unitQty: buyProduct.unit_qty,
+					price: parseFloat(buyProduct.sale_price),
+					quantity: rule.buy_quantity,
+					stock: buyProduct.current_stock,
+					lowStockThreshold: buyProduct.minimum_qty_alert,
+					barcode: buyProduct.barcode,
+					category: buyProduct.category_id,
+					categoryNameEn: buyProduct.category_name_en,
+					categoryNameAr: buyProduct.category_name_ar
+				},
+				
+				// Get product details
+				getProduct: {
+					id: getProduct.id,
+					product_serial: getProduct.product_serial,
+					nameEn: getProduct.product_name_en,
+					nameAr: getProduct.product_name_ar,
+					image: getProduct.image_url,
+					unitEn: getProduct.unit_name_en,
+					unitAr: getProduct.unit_name_ar,
+					unitQty: getProduct.unit_qty,
+					originalPrice: getProductPrice,
+					offerPrice: effectivePrice,
+					quantity: rule.get_quantity,
+					isFree: isFree,
+					discountPercentage: discountPercentage,
+					stock: getProduct.current_stock,
+					lowStockThreshold: getProduct.minimum_qty_alert,
+					barcode: getProduct.barcode,
+					category: getProduct.category_id,
+					categoryNameEn: getProduct.category_name_en,
+					categoryNameAr: getProduct.category_name_ar
+				},
+				
+				// Bundle pricing
+				bundlePrice: parseFloat(buyProduct.sale_price) * rule.buy_quantity + effectivePrice * rule.get_quantity,
+				originalBundlePrice: parseFloat(buyProduct.sale_price) * rule.buy_quantity + getProductPrice * rule.get_quantity,
+				savings: (getProductPrice - effectivePrice) * rule.get_quantity
+			};
+		}).filter(offer => offer !== null);
+
+		console.log(`🎁 Created ${bogoOffers.length} separate BOGO offer cards`);
+
+		// Step 5: Process bundle offers
+		const bundleOfferIds = filteredOffers.filter(o => o.type === 'bundle').map(o => o.id);
+		let bundleOffers = [];
+
+		if (bundleOfferIds.length > 0) {
+			const { data: bundleRules, error: bundleError } = await supabaseAdmin
+				.from('offer_bundles')
+				.select('*')
+				.in('offer_id', bundleOfferIds);
+
+			if (bundleError) {
+				console.error('Error fetching bundle rules:', bundleError);
+			} else {
+				console.log(`📦 Found ${bundleRules?.length || 0} bundle rules`);
+
+				// Process each bundle
+				bundleOffers = await Promise.all(bundleRules.map(async (bundle) => {
+					const offer = filteredOffers.find(o => o.id === bundle.offer_id);
+					if (!offer) return null;
+
+					// Parse required products (array of {product_id, unit_id, quantity})
+					const requiredProducts = typeof bundle.required_products === 'string' 
+						? JSON.parse(bundle.required_products || '[]')
+						: (bundle.required_products || []);
+					if (requiredProducts.length === 0 || requiredProducts.length > 6) return null;
+
+					// Fetch all product details
+					const productPromises = requiredProducts.map(async (req) => {
+						const { data: prod, error: prodError } = await supabaseAdmin
+							.from('products')
+							.select('*')
+							.eq('id', req.product_id)
+							.single();
+
+						if (prodError || !prod) return null;
+
+						return {
+							id: req.product_id,
+							unitId: req.unit_id,
+							product_serial: prod.product_serial,
+							nameEn: prod.product_name_en,
+							nameAr: prod.product_name_ar,
+							image: prod.image_url,
+							price: parseFloat(prod.sale_price),
+							quantity: req.quantity || 1,
+							unitQty: prod.unit_qty,
+							unitEn: prod.unit_name_en,
+							unitAr: prod.unit_name_ar,
+							stock: prod.current_stock,
+							barcode: prod.barcode
+						};
+					});
+
+					const bundleProducts = (await Promise.all(productPromises)).filter(p => p !== null);
+					if (bundleProducts.length !== requiredProducts.length) return null;
+
+					// Calculate bundle pricing
+					const originalPrice = bundleProducts.reduce((sum, p) => sum + (p.price * p.quantity), 0);
+					const discountValue = parseFloat(bundle.discount_value) || 0;
+					let bundlePrice = originalPrice;
+
+					if (bundle.discount_type === 'percentage') {
+						bundlePrice = originalPrice * (1 - discountValue / 100);
+					} else if (bundle.discount_type === 'fixed') {
+						bundlePrice = Math.max(0, originalPrice - discountValue);
+					}
+
+					return {
+						offerId: offer.id,
+						offerNameEn: offer.name_en,
+						offerNameAr: offer.name_ar,
+						offerType: 'bundle',
+						bundleName: bundle.bundle_name,
+						bundleProducts: bundleProducts,
+						bundlePrice: bundlePrice,
+						originalBundlePrice: originalPrice,
+						savings: originalPrice - bundlePrice,
+						discountType: bundle.discount_type,
+						discountValue: discountValue,
+						offerEndDate: offer.end_date,
+						isExpiringSoon: isExpiringSoon(offer.end_date)
+					};
+				}));
+
+				bundleOffers = bundleOffers.filter(b => b !== null);
+				console.log(`📦 Created ${bundleOffers.length} bundle offer cards`);
+			}
+		}
+
 		return json({
 			products,
+			bogoOffers,
+			bundleOffers,
 			offersCount: filteredOffers.length
 		});
 	} catch (error) {
