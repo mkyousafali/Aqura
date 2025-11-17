@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { currentLocale } from '$lib/i18n';
   import { supabase, supabaseAdmin } from '$lib/utils/supabase';
   import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -138,6 +138,40 @@
     await loadBranches();
     await loadOffers();
     await loadStats();
+    
+    // Set up real-time subscriptions for offers
+    const offersChannel = supabase
+      .channel('offers-management-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, (payload) => {
+        console.log('📊 Offers table changed:', payload.eventType);
+        loadOffers();
+        loadStats();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, (payload) => {
+        console.log('📦 Offer products changed:', payload.eventType);
+        loadOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_bundles' }, (payload) => {
+        console.log('🎁 Offer bundles changed:', payload.eventType);
+        loadOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, (payload) => {
+        console.log('🎯 BOGO rules changed:', payload.eventType);
+        loadOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_cart_tiers' }, (payload) => {
+        console.log('🛒 Cart tiers changed:', payload.eventType);
+        loadOffers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_usage_logs' }, (payload) => {
+        console.log('📈 Usage logs changed:', payload.eventType);
+        loadStats();
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(offersChannel);
+    };
   });
   
   async function loadBranches() {

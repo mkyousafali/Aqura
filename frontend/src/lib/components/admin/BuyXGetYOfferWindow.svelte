@@ -481,6 +481,15 @@
     loading = true;
     error = null;
     
+    // DEBUG: Log editMode and offerId values
+    console.log('🔍 saveOffer called with:', {
+      editMode,
+      offerId,
+      editModeType: typeof editMode,
+      offerIdType: typeof offerId,
+      condition: editMode && offerId
+    });
+    
     try {
       const offerPayload = {
         type: 'bogo',
@@ -500,7 +509,11 @@
       
       let offer;
       
+      console.log('🔍 About to check condition - editMode:', editMode, 'offerId:', offerId);
+      
       if (editMode && offerId) {
+        console.log('✅ Taking UPDATE path');
+
         // Update existing offer
         const { data, error: offerError } = await supabaseAdmin
           .from('offers')
@@ -520,6 +533,7 @@
         
         if (deleteError) throw deleteError;
       } else {
+        console.log('❌ Taking CREATE path - creating new offer');
         // Create new offer
         const { data, error: offerError } = await supabaseAdmin
           .from('offers')

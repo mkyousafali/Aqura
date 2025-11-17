@@ -34,11 +34,16 @@ export const cartActions = {
         bogoGetProductId: i.bogoGetProductId 
       })));
       
-      // For BOGO get products with free discount, find non-auto-added item
+      // Find existing item - must match product, unit, AND offer type
+      // CRITICAL: Regular products (offerType=null) must NEVER match BOGO items (offerType='bogo'/'bogo_get')
       const existingItem = cart.find(item => 
         item.id === product.id && 
         item.selectedUnit?.id === selectedUnit?.id &&
-        !item.isAutoAdded // Only find manually added items
+        item.offerType === (selectedUnit?.offerType || null) && // Match offer type exactly
+        !item.isAutoAdded && // Only find manually added items
+        // Additional check: if adding regular product, ensure existing is also regular
+        ((selectedUnit?.offerType === null || selectedUnit?.offerType === undefined) ? 
+          (item.offerType === null || item.offerType === undefined) : true)
       );
 
       if (existingItem) {
@@ -162,11 +167,16 @@ export const cartActions = {
   },
 
   // Remove item from cart
-  removeFromCart(productId, unitId) {
+  removeFromCart(productId, unitId, removeOfferType = null) {
     cartStore.update(cart => {
-      // Find the item being removed
+      // Find the item being removed - need to check offerType to get the right one
       const itemToRemove = cart.find(item => 
-        item.id === productId && item.selectedUnit?.id === unitId
+        item.id === productId && 
+        item.selectedUnit?.id === unitId &&
+        // If removeOfferType specified, match it; otherwise match regular products only
+        (removeOfferType !== null ? 
+          item.offerType === removeOfferType : 
+          (item.offerType === null || item.offerType === undefined))
       );
       
       // If it's a BOGO buy product with free discount, remove auto-added free items
@@ -183,10 +193,20 @@ export const cartActions = {
         );
       }
       
-      // Remove the item
-      const filtered = cart.filter(item => 
-        !(item.id === productId && item.selectedUnit?.id === unitId)
-      );
+      // Remove the specific item (match by id, unit, and offerType)
+      const filtered = cart.filter(item => {
+        if (removeOfferType !== null) {
+          // When removing BOGO items, match the specific offerType
+          return !(item.id === productId && 
+                   item.selectedUnit?.id === unitId && 
+                   item.offerType === removeOfferType);
+        } else {
+          // When removing regular products, only remove items with no offerType
+          return !(item.id === productId && 
+                   item.selectedUnit?.id === unitId && 
+                   (item.offerType === null || item.offerType === undefined));
+        }
+      });
       
       return filtered;
     });
@@ -204,10 +224,12 @@ export const cartActions = {
     }
 
     cartStore.update(cart => {
+      // CRITICAL: Only find regular products (offerType=null/undefined), never BOGO items
       const item = cart.find(item => 
         item.id === productId && 
         item.selectedUnit?.id === unitId &&
-        !item.isAutoAdded // Explicitly exclude auto-added items
+        !item.isAutoAdded && // Explicitly exclude auto-added items
+        (item.offerType === null || item.offerType === undefined) // Only regular products
       );
       
       console.log('Found item:', item ? { 
@@ -324,10 +346,12 @@ export const cartActions = {
   // Get item quantity in cart (excludes auto-added items)
   getItemQuantity(productId, unitId) {
     const cart = get(cartStore);
+    // CRITICAL: Only find regular products (offerType=null/undefined), never BOGO items
     const item = cart.find(item => 
       item.id === productId && 
       item.selectedUnit?.id === unitId &&
-      !item.isAutoAdded // Only count manually added items
+      !item.isAutoAdded && // Only count manually added items
+      (item.offerType === null || item.offerType === undefined) // Only regular products
     );
     return item ? item.quantity : 0;
   }

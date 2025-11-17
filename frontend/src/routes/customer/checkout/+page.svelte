@@ -14,6 +14,7 @@
   
   let currentLanguage = 'ar';
   let cartItems = [];
+  let displayItems = []; // Combined BOGO display items
   let total = 0;
   let selectedPaymentMethod = '';
   let showOrderConfirmation = false;
@@ -248,6 +249,78 @@
     return num.toString().replace(/\d/g, (digit) => arabicNumerals[parseInt(digit)]);
   }
 
+  // Create display items that combine BOGO pairs
+  $: displayItems = (() => {
+    const items = [];
+    const processedGetIds = new Set();
+    const processedBundleIds = new Set();
+    
+    cartItems.forEach(item => {
+      // Skip if this is a get product that's already been combined
+      if ((item.offerType === 'bogo_get' || item.isAutoAdded) && processedGetIds.has(item.selectedUnit?.id)) {
+        return;
+      }
+      
+      // Skip if this is a bundle item that's already been combined
+      if (item.offerType === 'bundle' && item.bundleId && processedBundleIds.has(item.bundleId)) {
+        return;
+      }
+      
+      // If this is a BOGO buy product, find and combine with get product
+      if (item.offerType === 'bogo' && item.bogoGetProductId) {
+        const getProduct = cartItems.find(i => 
+          i.selectedUnit?.id === item.bogoGetProductId && 
+          (i.offerType === 'bogo_get' || i.isAutoAdded)
+        );
+        
+        if (getProduct) {
+          // Mark this get product as processed
+          processedGetIds.add(getProduct.selectedUnit?.id);
+          
+          // Create combined BOGO item
+          items.push({
+            ...item,
+            isCombinedBOGO: true,
+            buyProduct: item,
+            getProduct: getProduct,
+            combinedPrice: (item.price * item.quantity) + (getProduct.price * getProduct.quantity)
+          });
+        } else {
+          // Buy product without get product (shouldn't happen, but handle it)
+          items.push(item);
+        }
+      } else if (item.offerType === 'bundle' && item.bundleId) {
+        // Find all products in this bundle
+        const bundleProducts = cartItems.filter(i => 
+          i.offerType === 'bundle' && i.bundleId === item.bundleId
+        );
+        
+        if (bundleProducts.length > 0) {
+          // Mark this bundle as processed
+          processedBundleIds.add(item.bundleId);
+          
+          // Calculate total price for all bundle items
+          const combinedPrice = bundleProducts.reduce((sum, prod) => 
+            sum + (prod.price * prod.quantity), 0
+          );
+          
+          // Create combined bundle item (use first item as base)
+          items.push({
+            ...item,
+            isCombinedBundle: true,
+            bundleProducts: bundleProducts,
+            combinedPrice: combinedPrice
+          });
+        }
+      } else if (item.offerType !== 'bogo_get' && !item.isAutoAdded && item.offerType !== 'bundle') {
+        // Regular product
+        items.push(item);
+      }
+    });
+    
+    return items;
+  })();
+
   // Helper function to format price with proper decimal handling
   function formatPrice(price) {
     const hasDecimals = price % 1 !== 0;
@@ -292,6 +365,14 @@
     // Subscribe to cart store
     const unsubscribeCart = cartStore.subscribe(items => {
       cartItems = items;
+      console.log('🛒 [Checkout] Cart updated:', items.length, 'items');
+      console.log('🛒 [Checkout] Cart items:', items.map(i => ({
+        name: i.nameEn,
+        qty: i.quantity,
+        price: i.price,
+        offerType: i.offerType,
+        unitId: i.selectedUnit?.id
+      })));
     });
 
     const unsubscribeTotal = cartTotal.subscribe(value => {
@@ -460,21 +541,70 @@
   }
 
   function increaseQuantity(item) {
+    // Prevent quantity changes for BOGO bundle items
+    if (item.offerType === 'bogo' || item.offerType === 'bogo_get') {
+      return;
+    }
     const newQuantity = (item.quantity || 1) + 1;
     updateQuantity(item.id, item.selectedUnit?.id, newQuantity);
   }
 
   function decreaseQuantity(item) {
+    // Prevent quantity changes for BOGO bundle items
+    if (item.offerType === 'bogo' || item.offerType === 'bogo_get') {
+      return;
+    }
     const newQuantity = (item.quantity || 1) - 1;
     if (newQuantity > 0) {
       updateQuantity(item.id, item.selectedUnit?.id, newQuantity);
     } else {
-      cartActions.removeFromCart(item.id, item.selectedUnit?.id);
+      removeItem(item);
     }
   }
 
   function removeItem(item) {
-    cartActions.removeFromCart(item.id, item.selectedUnit?.id);
+    // Handle combined BOGO items
+    if (item.isCombinedBOGO) {
+      // Remove both buy and get products
+      cartActions.removeFromCart(item.buyProduct.id, item.buyProduct.selectedUnit?.id, 'bogo');
+      cartActions.removeFromCart(item.getProduct.id, item.getProduct.selectedUnit?.id, 'bogo_get');
+      return;
+    }
+    
+    // Handle combined bundle items
+    if (item.isCombinedBundle && item.bundleProducts) {
+      // Remove all bundle products
+      item.bundleProducts.forEach(bundleProduct => {
+        cartActions.removeFromCart(bundleProduct.id, bundleProduct.selectedUnit?.id, 'bundle');
+      });
+      return;
+    }
+    
+    // Handle regular BOGO buy product
+    if (item.offerType === 'bogo' && item.bogoGetProductId) {
+      const getProduct = $cartStore.find(i => 
+        i.selectedUnit?.id === item.bogoGetProductId && 
+        (i.offerType === 'bogo_get' || i.isAutoAdded)
+      );
+      if (getProduct) {
+        cartActions.removeFromCart(getProduct.id, getProduct.selectedUnit?.id, 'bogo_get');
+      }
+    }
+    
+    // Handle BOGO get product
+    if ((item.offerType === 'bogo_get' || item.isAutoAdded) && item.bogoBuyProductId) {
+      const buyProduct = $cartStore.find(i => 
+        i.selectedUnit?.id === item.bogoBuyProductId && 
+        i.offerType === 'bogo'
+      );
+      if (buyProduct) {
+        cartActions.removeFromCart(buyProduct.id, buyProduct.selectedUnit?.id, 'bogo');
+      }
+    }
+    
+    // Remove the item itself
+    const offerType = item.offerType || null;
+    cartActions.removeFromCart(item.id, item.selectedUnit?.id, offerType);
   }
 
   // Location Picker Functions
@@ -858,78 +988,184 @@
     <div class="cart-section">
       <h2>{texts.yourOrder}</h2>
       <div class="cart-items">
-        {#each cartItems as item (item.id + '-' + item.selectedUnit?.id + '-' + (item.isAutoAdded ? 'auto' : 'manual'))}
+        {#each displayItems as item (item.isCombinedBOGO ? `bogo-${item.buyProduct.id}-${item.buyProduct.selectedUnit?.id}` : item.isCombinedBundle ? `bundle-${item.bundleId}` : `${item.id}-${item.selectedUnit?.id}-${item.offerType || 'regular'}`)}
           <div class="cart-item">
-            <div class="item-image">
-              {#if item.image}
-                <img src={item.image} alt={item.name} />
-              {:else}
-                <div class="item-placeholder">📦</div>
-              {/if}
-            </div>
-            
-            <div class="item-details">
-              <h3>{currentLanguage === 'ar' ? item.name : item.nameEn}</h3>
-              <div class="item-unit">
-                {currentLanguage === 'ar' ? item.selectedUnit?.nameAr : item.selectedUnit?.nameEn}
-              </div>
-              <div class="item-price">
-                <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-                  {#if item.isAutoAdded && item.price === 0}
-                    <span style="color: #10b981; font-weight: 600;">
-                      {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
-                    </span>
-                  {:else if currentLanguage === 'ar'}
-                    {formatPrice(item.price || 0)}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+            {#if item.isCombinedBOGO}
+              <!-- Combined BOGO Display -->
+              <div class="bogo-combined-images">
+                <div class="bogo-image-wrapper">
+                  {#if item.buyProduct.image}
+                    <img src={item.buyProduct.image} alt={item.buyProduct.name} class="bogo-image" />
                   {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-                    {formatPrice(item.price || 0)}
+                    <div class="item-placeholder">📦</div>
                   {/if}
-                </span>
-                {#if item.originalPrice && item.originalPrice > item.price}
-                  <span class="original-price">
-                    <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-                      {#if currentLanguage === 'ar'}
-                        {formatPrice(item.originalPrice || 0)}
-                        <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
-                      {:else}
-                        <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
-                        {formatPrice(item.originalPrice || 0)}
-                      {/if}
+                  <div class="bogo-quantity-badge">{item.buyProduct.quantity}</div>
+                </div>
+                <div class="bogo-plus">+</div>
+                <div class="bogo-image-wrapper">
+                  {#if item.getProduct.image}
+                    <img src={item.getProduct.image} alt={item.getProduct.name} class="bogo-image" />
+                  {:else}
+                    <div class="item-placeholder">📦</div>
+                  {/if}
+                  <div class="bogo-quantity-badge">{item.getProduct.quantity}</div>
+                  {#if item.getProduct.price === 0}
+                    <div class="bogo-free-badge">{currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}</div>
+                  {/if}
+                </div>
+              </div>
+              
+              <div class="item-details">
+                <h3 class="bogo-title">🎁 {currentLanguage === 'ar' ? 'عرض اشترِ واحصل' : 'BOGO Offer'}</h3>
+                <div class="bogo-products-info">
+                  <div class="bogo-product-line">
+                    {currentLanguage === 'ar' ? item.buyProduct.name : (item.buyProduct.nameEn || item.buyProduct.name)}
+                    <span class="bogo-unit-inline">
+                      ({currentLanguage === 'ar' ? item.buyProduct.selectedUnit?.nameAr : item.buyProduct.selectedUnit?.nameEn})
                     </span>
+                  </div>
+                  <div class="bogo-product-line">
+                    + {currentLanguage === 'ar' ? item.getProduct.name : (item.getProduct.nameEn || item.getProduct.name)}
+                    <span class="bogo-unit-inline">
+                      ({currentLanguage === 'ar' ? item.getProduct.selectedUnit?.nameAr : item.getProduct.selectedUnit?.nameEn})
+                    </span>
+                  </div>
+                </div>
+                <div class="item-price">
+                  <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                    {#if currentLanguage === 'ar'}
+                      {formatPrice(item.combinedPrice)}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {:else}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      {formatPrice(item.combinedPrice)}
+                    {/if}
                   </span>
+                </div>
+              </div>
+              
+              <div class="item-actions">
+                <button class="remove-btn bogo-remove" on:click={() => removeItem(item)}>
+                  🗑️
+                </button>
+              </div>
+            {:else if item.isCombinedBundle}
+              <!-- Combined Bundle Display -->
+              <div class="bundle-combined-images grid-{item.bundleProducts.length}">
+                {#each item.bundleProducts as bundleProduct, idx}
+                  <div class="bundle-image-wrapper">
+                    {#if bundleProduct.image}
+                      <img src={bundleProduct.image} alt={bundleProduct.name} class="bundle-image" />
+                    {:else}
+                      <div class="item-placeholder">📦</div>
+                    {/if}
+                    <div class="bundle-quantity-badge">{bundleProduct.quantity}</div>
+                  </div>
+                {/each}
+              </div>
+              
+              <div class="item-details">
+                <h3 class="bundle-title">📦 {currentLanguage === 'ar' ? 'عرض حزمة' : 'Bundle Offer'}</h3>
+                <div class="bundle-products-info">
+                  {#each item.bundleProducts as bundleProduct, idx}
+                    <div class="bundle-product-line">
+                      {#if idx > 0}+ {/if}
+                      {currentLanguage === 'ar' ? bundleProduct.name : (bundleProduct.nameEn || bundleProduct.name)}
+                      <span class="bundle-unit-inline">
+                        ({currentLanguage === 'ar' ? bundleProduct.selectedUnit?.nameAr : bundleProduct.selectedUnit?.nameEn})
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+                <div class="item-price">
+                  <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                    {#if currentLanguage === 'ar'}
+                      {formatPrice(item.combinedPrice)}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {:else}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      {formatPrice(item.combinedPrice)}
+                    {/if}
+                  </span>
+                </div>
+              </div>
+              
+              <div class="item-actions">
+                <button class="remove-btn bundle-remove" on:click={() => removeItem(item)}>
+                  🗑️
+                </button>
+              </div>
+            {:else}
+              <!-- Regular Product Display -->
+              <div class="item-image">
+                {#if item.image}
+                  <img src={item.image} alt={item.name} />
+                {:else}
+                  <div class="item-placeholder">📦</div>
                 {/if}
               </div>
-            </div>
-            
-            <div class="item-actions">
-              <div class="quantity-controls">
-                <button class="quantity-btn" on:click={() => decreaseQuantity(item)} disabled={item.isAutoAdded}>−</button>
-                <span class="quantity-display">{toArabicNumerals(item.quantity)}</span>
-                <button class="quantity-btn" on:click={() => increaseQuantity(item)} disabled={item.isAutoAdded}>+</button>
-              </div>
               
-              <div class="item-total">
-                <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
-                  {#if item.isAutoAdded && item.price === 0}
-                    <span style="color: #10b981; font-weight: 600;">
-                      {currentLanguage === 'ar' ? 'مجاناً' : 'FREE'}
+              <div class="item-details">
+                <h3>{currentLanguage === 'ar' ? item.name : item.nameEn}</h3>
+                <div class="item-unit">
+                  {currentLanguage === 'ar' ? item.selectedUnit?.nameAr : item.selectedUnit?.nameEn}
+                </div>
+                <div class="item-price">
+                  <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                    {#if currentLanguage === 'ar'}
+                      {formatPrice(item.price || 0)}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {:else}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      {formatPrice(item.price || 0)}
+                    {/if}
+                  </span>
+                  {#if item.originalPrice && item.originalPrice > item.price}
+                    <span class="original-price">
+                      <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                        {#if currentLanguage === 'ar'}
+                          {formatPrice(item.originalPrice || 0)}
+                          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                        {:else}
+                          <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />
+                          {formatPrice(item.originalPrice || 0)}
+                        {/if}
+                      </span>
                     </span>
-                  {:else if currentLanguage === 'ar'}
-                    {formatPrice((item.price || 0) * (item.quantity || 1))}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-                  {:else}
-                    <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-                    {formatPrice((item.price || 0) * (item.quantity || 1))}
                   {/if}
-                </span>
+                </div>
               </div>
               
-              <button class="remove-btn" on:click={() => removeItem(item)}>
-                🗑️
-              </button>
-            </div>
+              <div class="item-actions">
+                <div class="quantity-controls">
+                  <button 
+                    class="quantity-btn" 
+                    on:click={() => decreaseQuantity(item)}
+                  >−</button>
+                  <span class="quantity-display">{toArabicNumerals(item.quantity)}</span>
+                  <button 
+                    class="quantity-btn" 
+                    on:click={() => increaseQuantity(item)}
+                  >+</button>
+                </div>
+                
+                <div class="item-total">
+                  <span class="price-display" dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                    {#if currentLanguage === 'ar'}
+                      {formatPrice((item.price || 0) * (item.quantity || 1))}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                    {:else}
+                      <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+                      {formatPrice((item.price || 0) * (item.quantity || 1))}
+                    {/if}
+                  </span>
+                </div>
+                
+                <button class="remove-btn" on:click={() => removeItem(item)}>
+                  🗑️
+                </button>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -2301,10 +2537,18 @@
     justify-content: center;
   }
 
-  .quantity-btn:hover {
+  .quantity-btn:hover:not(:disabled) {
     border-color: var(--color-primary);
     background: var(--color-primary);
     color: white;
+  }
+  
+  .quantity-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #f3f4f6;
+    border-color: #e5e7eb;
+    color: #9ca3af;
   }
 
   .quantity-display {
@@ -2336,6 +2580,253 @@
   .remove-btn:hover {
     background: var(--color-danger);
     color: white;
+  }
+
+  /* Combined BOGO Item Styles */
+  .bogo-combined-images {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem;
+  }
+
+  .bogo-image-wrapper {
+    position: relative;
+    width: 50px;
+    height: 50px;
+  }
+
+  .bogo-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #f59e0b;
+  }
+
+  .bogo-quantity-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #16a34a;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    border: 2px solid white;
+  }
+
+  .bogo-free-badge {
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #10b981;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .bogo-plus {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #f59e0b;
+  }
+
+  .bogo-title {
+    color: #f59e0b;
+    font-size: 0.75rem !important;
+  }
+
+  .bogo-products-info {
+    font-size: 0.65rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+    line-height: 1.4;
+  }
+
+  .bogo-product-line {
+    margin-bottom: 0.15rem;
+  }
+
+  .bogo-unit-inline {
+    font-size: 0.6rem;
+    color: #94a3b8;
+  }
+
+  .bogo-remove {
+    margin-top: auto;
+  }
+
+  /* Combined BOGO Item Styles */
+  .bogo-combined-images {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem;
+  }
+
+  .bogo-image-wrapper {
+    position: relative;
+    width: 50px;
+    height: 50px;
+  }
+
+  .bogo-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #f59e0b;
+  }
+
+  .bogo-quantity-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #16a34a;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    border: 2px solid white;
+  }
+
+  .bogo-free-badge {
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #10b981;
+    color: white;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .bogo-plus {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #f59e0b;
+  }
+
+  .bogo-title {
+    color: #f59e0b !important;
+    font-size: 0.75rem !important;
+  }
+
+  .bogo-products-info {
+    font-size: 0.65rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+    line-height: 1.4;
+  }
+
+  .bogo-product-line {
+    margin-bottom: 0.15rem;
+  }
+
+  .bogo-remove {
+    margin-top: auto;
+  }
+
+  /* Bundle Offer Styles */
+  .bundle-combined-images {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.35rem;
+  }
+
+  .bundle-combined-images.grid-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .bundle-combined-images.grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bundle-combined-images.grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bundle-combined-images.grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bundle-combined-images.grid-5,
+  .bundle-combined-images.grid-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bundle-image-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+  }
+
+  .bundle-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #10b981;
+  }
+
+  .bundle-quantity-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #10b981;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    border: 2px solid white;
+  }
+
+  .bundle-title {
+    color: #10b981 !important;
+    font-size: 0.75rem !important;
+  }
+
+  .bundle-products-info {
+    font-size: 0.65rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+    line-height: 1.4;
+  }
+
+  .bundle-product-line {
+    margin-bottom: 0.15rem;
+  }
+
+  .bundle-unit-inline {
+    font-size: 0.6rem;
+    color: #94a3b8;
+  }
+
+  .bundle-remove {
+    margin-top: auto;
   }
 
   .payment-options {
