@@ -5,41 +5,20 @@
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
-	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import CreateNotification from '$lib/components/admin/communication/CreateNotification.svelte';
 	import { localeData } from '$lib/i18n';
 	
 	let currentUserData = null;
 	let stats = {
-		pendingTasks: 0,
-		completedTasks: 0,
-		unreadNotifications: 0,
-		totalTasks: 0
+		pendingTasks: 0
 	};
-	let recentNotifications = [];
 	let isLoading = true;
+	let currentTime = new Date();
 	
-	// Swipe gesture state
-	let swipeStartX = 0;
-	let swipeCurrentX = 0;
-	let swipeThreshold = 100; // Minimum distance for swipe
-	let isSwipeActive = false;
-	let swipeTargetNotification = null;
-	// Success message state
-	let showSuccessMessage = false;
-	let successMessage = '';
-	// Image preview modal
-	let showImagePreview = false;
-	let previewImage = null;
-	// Create notification modal
-	let showCreateNotificationModal = false;
+	// Update time every second
+	let timeInterval: ReturnType<typeof setInterval>;
 	// Computed role check
 	$: userRole = currentUserData?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
-	// Reactive refresh when returning to dashboard
-	$: if ($page.url.pathname === '/mobile' && currentUserData) {
-		refreshNotificationCount(true); // Silent refresh
-	}
 	// Helper function to get translations
 	function getTranslation(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -59,40 +38,17 @@
 			await loadDashboardData();
 		}
 		isLoading = false;
-		// Set up automatic refresh for notification count every 30 seconds
-		const refreshInterval = setInterval(async () => {
-			if (currentUserData) {
-				await refreshNotificationCount(true); // Silent refresh
-			}
-		}, 30000);
-		// Refresh when page becomes visible (user returns to dashboard)
-		const handleVisibilityChange = async () => {
-			if (!document.hidden && currentUserData) {
-				await refreshNotificationCount(true); // Silent refresh
-			}
-		};
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-		// Cleanup on component destroy
+		
+		// Update time every second
+		timeInterval = setInterval(() => {
+			currentTime = new Date();
+		}, 1000);
+		
+		// Cleanup on destroy
 		return () => {
-			clearInterval(refreshInterval);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			if (timeInterval) clearInterval(timeInterval);
 		};
 	});
-	async function refreshNotificationCount(silent = false) {
-		try {
-			const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
-			if (userNotifications && userNotifications.length > 0) {
-				stats.unreadNotifications = userNotifications.filter(n => !n.is_read).length;
-			} else {
-				stats.unreadNotifications = 0;
-			}
-		} catch (error) {
-			if (!silent) {
-				console.error('Error refreshing notification count:', error);
-			}
-		}
-	}
-
 	function handleViewOffer(event: CustomEvent) {
 		selectedOffer = event.detail;
 		showOfferModal = true;
@@ -104,341 +60,41 @@
 	}
 	async function loadDashboardData() {
 		try {
-			console.log('🔍 Loading mobile dashboard data in parallel for better performance...');
-			// Run all queries in parallel for better mobile performance
-			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
-				// Load task assignments
+			console.log('🔍 Loading mobile dashboard stats (optimized for speed)...');
+			// Optimized: Load only counts in parallel, no joins, filter at database level
+		const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+				// Count pending regular tasks only (no joins, no data fetching)
 				supabase
 					.from('task_assignments')
-					.select(`
-						*,
-						task:tasks!inner(
-							id,
-							title,
-							description,
-							priority,
-							due_date,
-							status,
-							created_at
-						)
-					`)
-					.or(`assigned_to_user_id.eq.${currentUserData.id},and(assigned_by.eq.${currentUserData.id},assigned_to_user_id.eq.${currentUserData.id})`)
-					.order('assigned_at', { ascending: false }),
-				// Load quick task assignments
+					.select('status', { count: 'exact', head: false })
+					.eq('assigned_to_user_id', currentUserData.id)
+					.not('status', 'in', '(completed,cancelled)'),
+				// Count pending quick tasks only
 				supabase
 					.from('quick_task_assignments')
-					.select(`
-						*,
-						quick_task:quick_tasks!inner(
-							id,
-							title,
-							description,
-							priority,
-							deadline_datetime,
-							status,
-							created_at
-						)
-					`)
+					.select('status', { count: 'exact', head: false })
 					.eq('assigned_to_user_id', currentUserData.id)
-					.order('created_at', { ascending: false }),
-				// Load receiving tasks (direct table, no assignments table)
+					.not('status', 'in', '(completed,cancelled)'),
+				// Count pending receiving tasks only
 				supabase
 					.from('receiving_tasks')
-					.select(`
-						id,
-						title,
-						description,
-						priority,
-						due_date,
-						task_status,
-						created_at,
-						updated_at,
-						assigned_user_id,
-						receiving_record_id,
-						role_type,
-						task_completed,
-						completed_at
-					`)
+					.select('task_status', { count: 'exact', head: false })
 					.eq('assigned_user_id', currentUserData.id)
-					.order('created_at', { ascending: false })
+					.not('task_status', 'in', '(completed,cancelled)')
 			]);
-			// Process task assignment results
-			const { data: taskAssignments, error: taskError } = taskAssignmentsResult;
-			const { data: quickTaskAssignments, error: quickTaskError } = quickTaskAssignmentsResult;
-			const { data: receivingTasks, error: receivingTaskError } = receivingTasksResult;
-			// Calculate task statistics from all task types
-			let totalTasks = 0;
-			let pendingTasks = 0;
-			let completedTasks = 0;
-			if (!taskError && taskAssignments) {
-				totalTasks += taskAssignments.length;
-				pendingTasks += taskAssignments.filter(t => 
-					t.status !== 'completed' && t.status !== 'cancelled'
-				).length;
-				completedTasks += taskAssignments.filter(t => 
-					t.status === 'completed'
-				).length;
-			}
-			if (!quickTaskError && quickTaskAssignments) {
-				totalTasks += quickTaskAssignments.length;
-				pendingTasks += quickTaskAssignments.filter(t => 
-					t.status !== 'completed' && t.status !== 'cancelled'
-				).length;
-				completedTasks += quickTaskAssignments.filter(t => 
-					t.status === 'completed'
-				).length;
-			}
-			if (!receivingTaskError && receivingTasks) {
-				totalTasks += receivingTasks.length;
-				pendingTasks += receivingTasks.filter(t => 
-					t.task_status !== 'completed' && t.task_status !== 'cancelled'
-				).length;
-				completedTasks += receivingTasks.filter(t => 
-					t.task_status === 'completed'
-				).length;
-			}
-			stats.totalTasks = totalTasks;
-			stats.pendingTasks = pendingTasks;
-			stats.completedTasks = completedTasks;
-			// Load notification statistics and recent notifications in parallel
-			const [notificationStatsResult, recentNotificationsResult] = await Promise.all([
-				// Load notification statistics
-				(async () => {
-					try {
-						const userNotifications = await notificationManagement.getUserNotifications(currentUserData.id);
-						if (userNotifications && userNotifications.length > 0) {
-							return userNotifications.filter(n => !n.is_read).length;
-						}
-						return 0;
-					} catch (error) {
-						console.error('❌ [Mobile Dashboard] Error loading notifications:', error);
-						return 0;
-					}
-				})(),
-				// Load recent notifications
-				(async () => {
-					try {
-						const result = await notificationManagement.getAllNotifications(currentUserData.id);
-						return result || [];
-					} catch (error) {
-						console.error('Error loading recent notifications:', error);
-						return [];
-					}
-				})()
-			]);
-			// Set notification statistics
-			stats.unreadNotifications = notificationStatsResult;
-			// Process recent notifications
-			const notifications = recentNotificationsResult;
-			// Filter to recent notifications (yesterday, today, and overdue)
-			const today = new Date();
-			const yesterday = new Date(today);
-			yesterday.setDate(yesterday.getDate() - 1);
-			yesterday.setHours(0, 0, 0, 0);
-			const filteredNotifications = notifications.filter(notification => {
-				const notificationDate = new Date(notification.created_at);
-				return notificationDate >= yesterday;
-			}).slice(0, 20); // Limit to 20 recent notifications
-			// For each notification, get recipients info, process attachments, and check read state
-			if (filteredNotifications) {
-				const notificationsWithRecipients = await Promise.all(
-					filteredNotifications.map(async (notification) => {
-						const notificationId = notification.notification_id || notification.id;
-						// Check read state for current user
-						let isRead = false;
-						// First try to get read state from the notification object (for regular users)
-						if (notification.is_read !== undefined) {
-							isRead = notification.is_read;
-						} else {
-							// For admin users or when read state is not included, check directly
-							try {
-								const { data: readState, error: readError } = await supabase
-									.from('notification_read_states')
-									.select('is_read')
-									.eq('notification_id', notificationId)
-									.eq('user_id', currentUserData.id)
-									.single();
-								if (readError) {
-									// Default to unread if we can't check
-									isRead = false;
-								} else {
-									isRead = readState ? readState.is_read : false;
-								}
-							} catch (readError) {
-								// If no read state exists or permission denied, notification is unread
-								isRead = false;
-							}
-						}
-						// Try multiple approaches to get recipient information
-						let recipients = [];
-						let recipientsError = null;
-						// Try to get recipients from notification_recipients table
-						try {
-							const { data: recipientData, error: recipientError } = await supabase
-								.from('notification_recipients')
-								.select(`
-									role,
-									branch_id,
-									user_id
-								`)
-								.eq('notification_id', notificationId);
-							if (recipientError) {
-								recipientsError = recipientError;
-							} else {
-								recipients = recipientData || [];
-							}
-						} catch (error) {
-							recipientsError = error;
-						}
-						// Process attachments (same logic as before)
-						let attachments = [];
-						if (notification.attachments) {
-							try {
-								// Parse attachments if it's a string
-								const parsedAttachments = typeof notification.attachments === 'string' 
-									? JSON.parse(notification.attachments) 
-									: notification.attachments;
-								// Ensure attachments is an array
-								if (Array.isArray(parsedAttachments)) {
-									attachments = parsedAttachments.map(attachment => ({
-										...attachment,
-										url: getFileUrl(attachment)
-									}));
-								}
-							} catch (parseError) {
-								console.warn('Failed to parse attachments for notification:', notificationId, parseError);
-								attachments = [];
-							}
-						}
-						return {
-							...notification,
-							id: notificationId,
-							recipients: recipients,
-							attachments: attachments,
-							recipientsError: recipientsError,
-							read: isRead
-						};
-					})
-				);
-				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
-			} else {
-				recentNotifications = [];
-			}
+			
+			// Calculate pending tasks from counts
+			const taskCount = taskAssignmentsResult.count || 0;
+			const quickTaskCount = quickTaskAssignmentsResult.count || 0;
+			const receivingTaskCount = receivingTasksResult.count || 0;
+			
+			stats.pendingTasks = taskCount + quickTaskCount + receivingTaskCount;
+			
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
 		}
 	}
-	// Load recent notifications
-	async function loadRecentNotifications() {
-		try {
-			const { data: notifications, error: notificationError } = await supabase
-				.from('notifications')
-				.select('*')
-				.order('created_at', { ascending: false })
-				.limit(20);
-			if (notificationError) {
-				console.error('Error loading recent notifications:', notificationError);
-				recentNotifications = [];
-				return;
-			}
-			// Get yesterday's date for filtering recent notifications
-			const yesterday = new Date();
-			yesterday.setDate(yesterday.getDate() - 1);
-			yesterday.setHours(0, 0, 0, 0);
-			const filteredNotifications = notifications.filter(notification => {
-				const notificationDate = new Date(notification.created_at);
-				return notificationDate >= yesterday;
-			}).slice(0, 20); // Limit to 20 recent notifications
-			// For each notification, get recipients info, process attachments, and check read state
-			if (filteredNotifications) {
-				const notificationsWithRecipients = await Promise.all(
-					filteredNotifications.map(async (notification) => {
-						const notificationId = notification.notification_id || notification.id;
-						// Check read state for current user
-						let isRead = false;
-						// First try to get read state from the notification object (for regular users)
-						if (notification.is_read !== undefined) {
-							isRead = notification.is_read;
-						} else {
-							// For admin users or when read state is not included, check directly
-							try {
-								const { data: readState, error: readError } = await supabase
-									.from('notification_read_states')
-									.select('is_read')
-									.eq('notification_id', notificationId)
-									.eq('user_id', currentUserData.id)
-									.single();
-								if (readError) {
-									// Default to unread if we can't check
-									isRead = false;
-								} else {
-									isRead = readState ? readState.is_read : false;
-								}
-							} catch (readError) {
-								// If no read state exists or permission denied, notification is unread
-								isRead = false;
-							}
-						}
-						// Try multiple approaches to get recipient information
-						let recipients = [];
-						let recipientsError = null;
-						// Try to get recipients from notification_recipients table
-						try {
-							const { data: recipientData, error: recipientError } = await supabase
-								.from('notification_recipients')
-								.select(`
-									role,
-									branch_id,
-									user_id
-								`)
-								.eq('notification_id', notificationId);
-							if (recipientError) {
-								recipientsError = recipientError;
-							} else {
-								recipients = recipientData || [];
-							}
-						} catch (error) {
-							recipientsError = error;
-						}
-						// Process attachments (same logic as before)
-						let attachments = [];
-						if (notification.attachments) {
-							try {
-								// Parse attachments if it's a string
-								const parsedAttachments = typeof notification.attachments === 'string' 
-									? JSON.parse(notification.attachments) 
-									: notification.attachments;
-								// Ensure attachments is an array
-								if (Array.isArray(parsedAttachments)) {
-									attachments = parsedAttachments.map(attachment => ({
-										...attachment,
-										url: getFileUrl(attachment)
-									}));
-								}
-							} catch (parseError) {
-								console.warn('Failed to parse attachments for notification:', notificationId, parseError);
-								attachments = [];
-							}
-						}
-						return {
-							...notification,
-							id: notificationId,
-							recipients: recipients,
-							attachments: attachments,
-							recipientsError: recipientsError,
-							read: isRead
-						};
-					})
-				);
-				recentNotifications = notificationsWithRecipients.filter(n => !n.read); // Only show unread notifications in recent section
-			} else {
-				recentNotifications = [];
-			}
-		} catch (error) {
-			console.error('Error loading recent notifications:', error);
-			recentNotifications = [];
-		}
-	}
+
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
 		const baseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public';
@@ -537,107 +193,11 @@
 		// Refresh notifications after creating a new one
 		loadDashboardData();
 	}
-	// Swipe gesture functions
-	function handleTouchStart(event, notification) {
-		if (notification.read) return; // Only allow swipe on unread notifications
-		swipeStartX = event.touches[0].clientX;
-		swipeCurrentX = swipeStartX;
-		isSwipeActive = true;
-		swipeTargetNotification = notification;
-	}
-	function handleTouchMove(event) {
-		if (!isSwipeActive || !swipeTargetNotification) return;
-		swipeCurrentX = event.touches[0].clientX;
-		const deltaX = swipeCurrentX - swipeStartX;
-		// Only allow left swipe (negative delta)
-		if (deltaX < 0) {
-			event.preventDefault();
-			// Apply transform to show visual feedback
-			const element = event.currentTarget;
-			element.style.transform = `translateX(${Math.max(deltaX, -120)}px)`;
-			element.style.opacity = Math.max(0.5, 1 + deltaX / 200);
-		}
-	}
-	function handleTouchEnd(event) {
-		if (!isSwipeActive || !swipeTargetNotification) return;
-		const deltaX = swipeCurrentX - swipeStartX;
-		const element = event.currentTarget;
-		// Reset transform
-		element.style.transform = '';
-		element.style.opacity = '';
-		// Check if swipe distance meets threshold for mark as read
-		if (deltaX < -swipeThreshold) {
-			markNotificationAsRead(swipeTargetNotification.id);
-		}
-		// Reset swipe state
-		isSwipeActive = false;
-		swipeTargetNotification = null;
-		swipeStartX = 0;
-		swipeCurrentX = 0;
-	}
-	// Mark individual notification as read
-	async function markNotificationAsRead(notificationId) {
-		if (!currentUserData?.id) return;
-		try {
-			const result = await notificationManagement.markAsRead(notificationId, currentUserData.id);
-			if (result.success) {
-				// Remove notification from recent list since it's now read
-				recentNotifications = recentNotifications.filter(n => n.id !== notificationId);
-				// Update stats
-				if (stats.unreadNotifications > 0) {
-					stats.unreadNotifications--;
-				}
-				// Show success message
-				showSuccess('Notification marked as read');
-				// Refresh notification count to sync with other components
-				await refreshNotificationCount(true);
-			}
-		} catch (error) {
-			console.error('Error marking notification as read:', error);
-		}
-	}
-	// Mark all notifications as read
-	async function markAllNotificationsAsRead() {
-		if (!currentUserData?.id || recentNotifications.length === 0) return;
-		try {
-			const result = await notificationManagement.markAllAsRead(currentUserData.id);
-			if (result.success) {
-				const count = recentNotifications.length;
-				// Clear all notifications from recent list
-				recentNotifications = [];
-				// Reset unread count
-				stats.unreadNotifications = 0;
-				// Show success message
-				showSuccess(`${count} notifications marked as read`);
-				// Refresh notification count to sync with other components
-				await refreshNotificationCount(true);
-			}
-		} catch (error) {
-			console.error('Error marking all notifications as read:', error);
-		}
-	}
-	// Show success message
-	function showSuccess(message) {
-		successMessage = message;
-		showSuccessMessage = true;
-		// Auto hide after 3 seconds
-		setTimeout(() => {
-			showSuccessMessage = false;
-		}, 3000);
-	}
 </script>
 <svelte:head>
 	<title>Dashboard - Aqura Mobile</title>
 </svelte:head>
 <div class="mobile-dashboard">
-	{#if showSuccessMessage}
-		<div class="success-message">
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M20 6L9 17l-5-5"/>
-			</svg>
-			{successMessage}
-		</div>
-	{/if}
 	{#if isLoading}
 		<div class="loading-content">
 			<div class="loading-spinner"></div>
@@ -647,241 +207,36 @@
 		<!-- Stats Grid -->
 		<section class="stats-section">
 			<div class="stats-grid">
-				<div class="stat-card pending">
-					<div class="stat-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<polyline points="12,6 12,12 16,14"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<h3>{stats.pendingTasks}</h3>
-						<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
-					</div>
-				</div>
-				<div class="stat-card completed">
-					<div class="stat-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-							<polyline points="22,4 12,14.01 9,11.01"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<h3>{stats.completedTasks}</h3>
-						<p>{getTranslation('mobile.dashboardContent.stats.completed')}</p>
-					</div>
-				</div>
-				<div class="stat-card notifications" on:click={() => goto('/mobile/notifications')} role="button" tabindex="0">
-					<div class="stat-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-							<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<h3>{stats.unreadNotifications}</h3>
-						<p>{getTranslation('mobile.dashboardContent.stats.notifications')}</p>
-					</div>
-				</div>
-				<div class="stat-card total">
-					<div class="stat-icon">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
-							<rect x="9" y="7" width="6" height="5"/>
-						</svg>
-					</div>
-					<div class="stat-info">
-						<h3>{stats.totalTasks}</h3>
-						<p>{getTranslation('mobile.dashboardContent.stats.totalTasks')}</p>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Recent Notifications Section -->
-		<section class="recent-section">
-			<div class="section-header">
-				<div class="section-title-row">
-					<h2>{getTranslation('mobile.dashboardContent.recentNotifications.title')}</h2>
-					{#if recentNotifications.length > 0}
-						<button class="mark-all-read-btn" on:click={markAllNotificationsAsRead}>
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M20 6L9 17l-5-5"/>
-							</svg>
-							Mark all read
-						</button>
-					{/if}
-				</div>
-				<span class="section-subtitle">
-					{getTranslation('mobile.dashboardContent.recentNotifications.allInSystem')}
-					{#if recentNotifications.filter(n => !n.read).length > 0}
-						• Swipe left to mark as read
-					{/if}
-				</span>
-			</div>
-			{#if recentNotifications.length > 0}
-				<div class="notifications-list">
-					{#each recentNotifications as notification}
-						<div class="notification-card {notification.read ? 'read' : 'unread'}" 
-							 data-notification-id={notification.id}
-							 on:touchstart={!notification.read ? (e) => handleTouchStart(e, notification) : null}
-							 on:touchmove={handleTouchMove}
-							 on:touchend={handleTouchEnd}>
-							<div class="notification-header">
-								<h4>{notification.title}</h4>
-								<div class="notification-actions">
-									<span class="notification-time">{formatDate(notification.created_at)}</span>
-									{#if !notification.read}
-										<button class="mark-read-btn" on:click={() => markNotificationAsRead(notification.id)} title="Mark as read">
-											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M20 6L9 17l-5-5"/>
-											</svg>
-										</button>
-									{/if}
-								</div>
-							</div>
-							<p class="notification-message">{notification.message}</p>
-							<div class="notification-meta">
-								<div class="notification-sender">
-									<span class="meta-label">{getTranslation('mobile.dashboardContent.labels.sentBy')}</span>
-									<span class="meta-value">
-										{notification.created_by_name || getTranslation('mobile.dashboardContent.labels.system')}
-									</span>
-								</div>
-								<div class="notification-recipients">
-									<span class="meta-label">{getTranslation('mobile.dashboardContent.labels.sentTo')}</span>
-									<span class="meta-value">{notification.recipients_text}</span>
-								</div>
-							</div>
-							<!-- Attachments Section -->
-							{#if notification.all_attachments && notification.all_attachments.length > 0}
-								<div class="notification-attachments">
-									<h5>{getTranslation('mobile.dashboardContent.labels.attachments')} ({notification.all_attachments.length})</h5>
-									<div class="attachments-grid">
-										{#each notification.all_attachments as attachment}
-											<div class="attachment-item">
-												{#if attachment.is_image}
-													<!-- Image Preview -->
-													<div class="attachment-image" on:click={() => openImagePreview(attachment)} role="button" tabindex="0">
-														<img src={getFileUrl(attachment)} alt={attachment.file_name} loading="lazy" />
-														<div class="preview-overlay">
-															<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-																<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-																<circle cx="12" cy="12" r="3"/>
-															</svg>
-														</div>
-													</div>
-													<div class="attachment-info">
-														<span class="attachment-name">{attachment.file_name}</span>
-														{#if attachment.source}
-															<span class="attachment-source">{getTranslation('mobile.dashboardContent.labels.from')} {attachment.source}</span>
-														{/if}
-														<button class="download-btn-small" on:click|stopPropagation={() => downloadFile(attachment)} title="Download">
-															<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-																<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-																<polyline points="7,10 12,15 17,10"/>
-																<line x1="12" y1="15" x2="12" y2="3"/>
-															</svg>
-															Download
-														</button>
-													</div>
-												{:else}
-													<!-- File Item -->
-													<div class="attachment-file">
-														<div class="file-icon">
-															<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-																<path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
-															</svg>
-														</div>
-														<div class="file-info">
-															<span class="file-name">{attachment.file_name}</span>
-															<span class="file-type">{attachment.file_type || 'Unknown'}</span>
-															{#if attachment.source}
-																<span class="file-source">{getTranslation('mobile.dashboardContent.labels.from')} {attachment.source}</span>
-															{/if}
-														</div>
-														<button class="download-btn" on:click={() => downloadFile(attachment)} title="Download">
-															<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-																<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-																<polyline points="7,10 12,15 17,10"/>
-																<line x1="12" y1="15" x2="12" y2="3"/>
-															</svg>
-														</button>
-													</div>
-												{/if}
-											</div>
-										{/each}
-									</div>
-								</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{:else}
-				<div class="empty-state">
-					<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-						<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-						<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+			<div class="stat-card date-time">
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+						<line x1="16" y1="2" x2="16" y2="6"/>
+						<line x1="8" y1="2" x2="8" y2="6"/>
+						<line x1="3" y1="10" x2="21" y2="10"/>
 					</svg>
-					<p>{getTranslation('mobile.dashboardContent.recentNotifications.noNotifications')}</p>
 				</div>
-			{/if}
-		</section>
+				<div class="stat-info">
+					<h3>{currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</h3>
+					<p>{currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+				</div>
+			</div>
+			<div class="stat-card pending">
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<polyline points="12,6 12,12 16,14"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<h3>{stats.pendingTasks}</h3>
+					<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
+				</div>
+			</div>
+		</div>
+	</section>
 	{/if}
 </div>
-<!-- Create Notification Modal -->
-{#if showCreateNotificationModal}
-	<div class="modal-overlay">
-		<div class="modal-container">
-			<div class="modal-header">
-				<h2>{getTranslation('mobile.dashboardContent.actions.createNotification')}</h2>
-				<button class="close-btn" on:click={closeCreateNotification} aria-label="Close">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<line x1="18" y1="6" x2="6" y2="18"/>
-						<line x1="6" y1="6" x2="18" y2="18"/>
-					</svg>
-				</button>
-			</div>
-			<div class="modal-content">
-				<CreateNotification />
-			</div>
-		</div>
-	</div>
-{/if}
-<!-- Image Preview Modal -->
-{#if showImagePreview && previewImage}
-	<div class="image-preview-modal" on:click={closeImagePreview} role="button" tabindex="0">
-		<div class="modal-backdrop">
-			<div class="image-preview-container" on:click|stopPropagation>
-				<div class="preview-header">
-					<h3>{previewImage.name}</h3>
-					<div class="preview-actions">
-						<button class="download-btn-modal" on:click={() => downloadFile({...previewImage, file_name: previewImage.name})}>
-							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="7,10 12,15 17,10"/>
-								<line x1="12" y1="15" x2="12" y2="3"/>
-							</svg>
-							{getTranslation('mobile.dashboardContent.actions.download')}
-						</button>
-						<button class="close-btn" on:click={closeImagePreview} aria-label="Close">
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<line x1="18" y1="6" x2="6" y2="18"/>
-								<line x1="6" y1="6" x2="18" y2="18"/>
-							</svg>
-						</button>
-					</div>
-				</div>
-				<div class="preview-image-wrapper">
-					<img src={previewImage.url} alt={previewImage.name} />
-				</div>
-				<div class="preview-footer">
-					<span class="image-source">{getTranslation('mobile.dashboardContent.actions.source')}: {previewImage.source}</span>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.mobile-dashboard {
@@ -955,35 +310,6 @@
 		color: rgba(255, 255, 255, 0.5);
 	}
 
-	/* Success Message */
-	.success-message {
-		position: fixed;
-		top: 1rem;
-		left: 50%;
-		transform: translateX(-50%);
-		background: #10B981;
-		color: white;
-		padding: 0.75rem 1.5rem;
-		border-radius: 8px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-		z-index: 1000;
-		animation: slideDown 0.3s ease-out;
-	}
-	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateX(-50%) translateY(-100%);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(-50%) translateY(0);
-		}
-	}
 	/* Loading */
 	.loading-content {
 		display: flex;
@@ -1045,10 +371,6 @@
 		background: rgba(59, 130, 246, 0.1);
 		color: #3B82F6;
 	}
-	.stat-card.completed .stat-icon {
-		background: rgba(16, 185, 129, 0.1);
-		color: #10B981;
-	}
 	.stat-card.notifications .stat-icon {
 		background: rgba(245, 158, 11, 0.1);
 		color: #F59E0B;
@@ -1077,399 +399,6 @@
 		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
 		color: #6B7280;
 		margin: 0;
-	}
-	/* Recent Notifications Section */
-	.recent-section {
-		padding: 0 1.2rem 1.2rem 1.2rem;
-	}
-	.section-header {
-		margin-bottom: 1rem;
-	}
-	.section-title-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.25rem;
-	}
-	.section-header h2 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #1F2937;
-		margin: 0;
-	}
-	.mark-all-read-btn {
-		background: #3B82F6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		padding: 0.5rem 0.75rem;
-		font-size: 0.75rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		white-space: nowrap;
-	}
-	.mark-all-read-btn:hover {
-		background: #2563EB;
-		transform: translateY(-1px);
-	}
-	.mark-all-read-btn:active {
-		transform: translateY(0);
-	}
-	.section-subtitle {
-		font-size: 0.75rem;
-		color: #6B7280;
-		font-weight: 400;
-	}
-	.swipe-hint {
-		font-size: 0.7rem;
-		color: #10B981;
-		margin-top: 0.25rem;
-		font-style: italic;
-	}
-	.notifications-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-	.notification-card {
-		background: white;
-		border-radius: 12px;
-		padding: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		border-left: 4px solid #3B82F6;
-		transition: all 0.3s ease;
-		touch-action: pan-y; /* Allow vertical scrolling but handle horizontal swipes */
-		position: relative;
-		overflow: hidden;
-	}
-	.notification-card.unread {
-		border-left-color: #10B981;
-		background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
-	}
-	.notification-card.read {
-		border-left-color: #D1D5DB;
-		opacity: 0.8;
-	}
-	.notification-card:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-	}
-	.notification-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-bottom: 0.5rem;
-		gap: 0.75rem;
-	}
-	.notification-header h4 {
-		font-size: 0.9rem;
-		font-weight: 600;
-		color: #1F2937;
-		margin: 0;
-		line-height: 1.3;
-		flex: 1;
-	}
-	.notification-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-shrink: 0;
-	}
-	.notification-time {
-		font-size: 0.7rem;
-		color: #9CA3AF;
-		font-weight: 400;
-	}
-	.mark-read-btn {
-		background: #10B981;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		padding: 0.375rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 0.8;
-	}
-	.mark-read-btn:hover {
-		background: #059669;
-		opacity: 1;
-		transform: scale(1.05);
-	}
-	.mark-read-btn:active {
-		transform: scale(0.95);
-	}
-	.notification-message {
-		font-size: 0.8rem;
-		color: #4B5563;
-		line-height: 1.4;
-		margin: 0 0 0.75rem 0;
-	}
-	.notification-meta {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		padding-top: 0.5rem;
-		border-top: 1px solid #F3F4F6;
-	}
-	.notification-sender,
-	.notification-recipients {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-	.meta-label {
-		font-size: 0.65rem;
-		color: #9CA3AF;
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		min-width: 45px;
-	}
-	.meta-value {
-		font-size: 0.7rem;
-		color: #6B7280;
-		font-weight: 400;
-	}
-	/* Notification Attachments Styles */
-	.notification-attachments {
-		margin-top: 0.75rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid #F3F4F6;
-	}
-	.notification-attachments h5 {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: #374151;
-		margin: 0 0 0.5rem 0;
-		text-transform: uppercase;
-		letter-spacing: 0.025em;
-	}
-	.attachments-grid {
-		display: grid;
-		gap: 0.5rem;
-		grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-	}
-	.attachment-item {
-		position: relative;
-	}
-	.attachment-info {
-		margin-top: 0.25rem;
-		text-align: center;
-	}
-	.attachment-name {
-		display: block;
-		font-size: 0.75rem;
-		font-weight: 500;
-		color: #374151;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.attachment-source {
-		display: block;
-		font-size: 0.625rem;
-		color: #6B7280;
-		margin-top: 0.125rem;
-		font-style: italic;
-	}
-	.file-source {
-		display: block;
-		font-size: 0.625rem;
-		color: #6B7280;
-		margin-top: 0.125rem;
-		font-style: italic;
-	}
-	.attachment-image {
-		position: relative;
-		width: 80px;
-		height: 80px;
-		border-radius: 8px;
-		overflow: hidden;
-		background: #F9FAFB;
-		border: 1px solid #E5E7EB;
-		flex-shrink: 0;
-		cursor: pointer;
-		transition: transform 0.2s ease;
-	}
-	.attachment-image:hover {
-		transform: scale(1.05);
-	}
-	.attachment-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-	.preview-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.3);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 0;
-		transition: opacity 0.2s ease;
-		color: white;
-	}
-	.attachment-image:hover .preview-overlay {
-		opacity: 1;
-	}
-	.download-btn-small {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 4px 8px;
-		border: 1px solid #E5E7EB;
-		border-radius: 6px;
-		background: white;
-		color: #6B7280;
-		font-size: 12px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		margin-top: 4px;
-	}
-	.download-btn-small:hover {
-		background: #F3F4F6;
-		color: #374151;
-		border-color: #D1D5DB;
-	}
-	.attachment-file {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem;
-		background: #F9FAFB;
-		border: 1px solid #E5E7EB;
-		border-radius: 8px;
-		min-height: 60px;
-	}
-	.file-icon {
-		flex-shrink: 0;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: #E5E7EB;
-		border-radius: 6px;
-		color: #6B7280;
-	}
-	.file-info {
-		flex: 1;
-		min-width: 0;
-	}
-	.file-name {
-		display: block;
-		font-size: 0.7rem;
-		font-weight: 500;
-		color: #374151;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.file-type {
-		display: block;
-		font-size: 0.6rem;
-		color: #9CA3AF;
-		text-transform: uppercase;
-	}
-	.download-btn {
-		background: #3B82F6;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		padding: 0.5rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: background-color 0.2s ease;
-		flex-shrink: 0;
-	}
-	.download-btn:hover {
-		background: #2563EB;
-	}
-	.download-btn:active {
-		background: #1D4ED8;
-	}
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem;
-		text-align: center;
-		color: #9CA3AF;
-	}
-	.empty-state svg {
-		margin-bottom: 0.75rem;
-		opacity: 0.5;
-	}
-	.empty-state p {
-		font-size: 0.875rem;
-		margin: 0;
-	}
-	/* Responsive adjustments */
-	@media (max-width: 480px) {
-		.mobile-header {
-			padding: 1rem;
-			padding-top: calc(1rem + env(safe-area-inset-top));
-		}
-		.stats-section,
-		.recent-section {
-			padding-left: 1rem;
-			padding-right: 1rem;
-		}
-		.stat-card {
-			padding: 1rem;
-		}
-		.stat-icon {
-			width: 40px;
-			height: 40px;
-		}
-		.stat-info h3 {
-			font-size: 1.5rem;
-		}
-		.notification-card {
-			padding: 0.875rem;
-		}
-		.attachment-image {
-			width: 60px;
-			height: 60px;
-		}
-		.attachments-grid {
-			gap: 0.5rem;
-			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-		}
-		.notification-header h4 {
-			font-size: 0.85rem;
-		}
-		.notification-message {
-			font-size: 0.75rem;
-		}
-		.attachments-grid {
-			grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-		}
-		.attachment-file {
-			padding: 0.375rem;
-			min-height: 50px;
-		}
-		.file-icon {
-			width: 24px;
-			height: 24px;
-		}
-		.download-btn {
-			padding: 0.375rem;
-		}
 	}
 	/* Safe area handling for iOS */
 	@supports (padding: max(0px)) {
@@ -1532,142 +461,7 @@
 		overflow-y: auto;
 		max-height: calc(90vh - 80px);
 	}
-	/* Image Preview Modal */
-	.image-preview-modal {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.modal-backdrop {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.8);
-		backdrop-filter: blur(4px);
-	}
-	.image-preview-container {
-		position: relative;
-		max-width: 90vw;
-		max-height: 90vh;
-		background: white;
-		border-radius: 12px;
-		overflow: hidden;
-		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-		z-index: 1001;
-	}
-	.preview-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem 1.5rem;
-		background: #F8FAFC;
-		border-bottom: 1px solid #E5E7EB;
-	}
-	.preview-header h3 {
-		margin: 0;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #111827;
-		max-width: 200px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.preview-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-	.download-btn-modal {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		background: #3B82F6;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background 0.2s ease;
-	}
-	.download-btn-modal:hover {
-		background: #2563EB;
-	}
-	.close-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 40px;
-		height: 40px;
-		background: #F3F4F6;
-		border: none;
-		border-radius: 6px;
-		color: #6B7280;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-	.close-btn:hover {
-		background: #E5E7EB;
-		color: #374151;
-	}
-	.preview-image-wrapper {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		max-height: 70vh;
-		overflow: hidden;
-	}
-	.preview-image-wrapper img {
-		max-width: 100%;
-		max-height: 100%;
-		object-fit: contain;
-	}
-	.preview-footer {
-		padding: 1rem 1.5rem;
-		background: #F8FAFC;
-		border-top: 1px solid #E5E7EB;
-	}
-	.image-source {
-		font-size: 0.875rem;
-		color: #6B7280;
-	}
-	@media (max-width: 768px) {
-		.image-preview-container {
-			max-width: 95vw;
-			max-height: 95vh;
-		}
-		.preview-header {
-			padding: 0.75rem 1rem;
-		}
-		.preview-header h3 {
-			font-size: 1rem;
-			max-width: 150px;
-		}
-		.download-btn-modal {
-			padding: 0.375rem 0.75rem;
-			font-size: 0.8rem;
-		}
-		.close-btn {
-			width: 36px;
-			height: 36px;
-		}
-		.preview-footer {
-			padding: 0.75rem 1rem;
-		}
-		.image-source {
-			font-size: 0.8rem;
-		}
-	}
 </style>
+
 
 

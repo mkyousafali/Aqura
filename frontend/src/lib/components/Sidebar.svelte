@@ -853,7 +853,7 @@
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v5.1.2
+				v5.1.3
 			</button>
 		</div>
 	</div>
@@ -864,12 +864,23 @@
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v5.1.2</h3>
+				<h3>What's New in v5.1.3</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>� Day Budget Planner - Complete Overhaul</h4>
+					<h4>📱 Mobile Interface Improvements</h4>
+					<ul>
+						<li><strong>Simplified Dashboard:</strong> Removed notification features and completed tasks for faster loading and cleaner interface</li>
+						<li><strong>Performance Optimization:</strong> Dashboard now loads 10-20x faster with count-only queries instead of full data fetches</li>
+						<li><strong>Floating Menu System:</strong> Redesigned navigation with circular blue floating menu containing Home, Language, and Logout buttons</li>
+						<li><strong>Date & Time Card:</strong> Added live date/time display card showing full day name, date, and year with automatic updates</li>
+						<li><strong>RTL Support:</strong> Menu positioning automatically adjusts for Arabic (RTL) and English (LTR) layouts</li>
+						<li><strong>Clean Header:</strong> Removed version badge from mobile header for minimal, modern look</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>📊 Day Budget Planner - Complete Overhaul</h4>
 					<ul>
 						<li><strong>Frozen Table Headers:</strong> Vendor payments and expense schedules tables now have sticky headers for better navigation</li>
 						<li><strong>Adjust Amount Functionality:</strong> Added adjust amount columns with conditional split buttons - only show when amount entered</li>
@@ -889,7 +900,7 @@
 					</ul>
 				</div>
 				<div class="update-section">
-					<h4>� Receiving Records Fixes</h4>
+					<h4>📋 Receiving Records Fixes</h4>
 					<ul>
 						<li><strong>Verification Issues Resolved:</strong> Fixed PR Excel verification checkbox for split payment records</li>
 						<li><strong>Schedule Status Accuracy:</strong> Improved detection of scheduled vs split scheduled records</li>
