@@ -32,6 +32,9 @@
 	// Refresh state for notifications
 	let isRefreshing = false;
 	
+	// Menu state
+	let showMenu = false;
+	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
 
@@ -498,28 +501,19 @@
 							</svg>
 						</button>
 					{/if}
-					<div class="user-avatar">
+					<button class="menu-btn" on:click={() => showMenu = !showMenu} aria-label="Menu">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-							<circle cx="12" cy="7" r="4"/>
+							<line x1="3" y1="6" x2="21" y2="6"/>
+							<line x1="3" y1="12" x2="21" y2="12"/>
+							<line x1="3" y1="18" x2="21" y2="18"/>
 						</svg>
-					</div>
+					</button>
 					<div class="user-details">
 						<h1>{pageTitle}</h1>
 						<p>{currentUserData?.name || currentUserData?.username || 'User'}</p>
 					</div>
 				</div>
-				<!-- Version Number -->
-				<div class="version-badge">
-					<span class="version-text">v5.1.2</span>
-				</div>
 				<div class="header-actions">
-					<a href="/mobile" class="header-nav-btn" class:active={$page.url.pathname === '/mobile'} aria-label={getTranslation('nav.goToDashboard')}>
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-							<polyline points="9,22 9,12 15,12 15,22"/>
-						</svg>
-					</a>
 					<a href="/mobile/notifications" class="header-nav-btn" class:active={$page.url.pathname.startsWith('/mobile/notifications')} aria-label={getTranslation('nav.viewNotifications')}>
 						<div class="nav-icon-container">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -540,21 +534,35 @@
 							</svg>
 						</button>
 					{/if}
-					<!-- Language Toggle -->
-					<LanguageToggle />
-					<button class="logout-btn" on:click={logout} aria-label={getTranslation('nav.logout')}>
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-							<polyline points="16,17 21,12 16,7"/>
-							<line x1="21" y1="12" x2="9" y2="12"/>
-						</svg>
-					</button>
 				</div>
 			</div>
 		</header>
 		
-		<!-- Mobile content goes here -->
-		<main class="mobile-content">
+		<!-- Menu Dropdown -->
+	{#if showMenu}
+		<div class="menu-overlay" on:click={() => showMenu = false}></div>
+		<div class="menu-dropdown">
+			<a href="/mobile" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.home')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+					<polyline points="9 22 9 12 15 12 15 22"/>
+				</svg>
+			</a>
+			<div class="menu-item menu-language" title={getTranslation('mobile.language')}>
+				<LanguageToggle />
+			</div>
+			<button class="menu-item" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+					<polyline points="16 17 21 12 16 7"/>
+					<line x1="21" y1="12" x2="9" y2="12"/>
+				</svg>
+			</button>
+		</div>
+	{/if}
+	
+	<!-- Mobile content goes here -->
+	<main class="mobile-content">
 			<slot />
 		</main>
 		
@@ -818,15 +826,135 @@
 		background: rgba(255, 255, 255, 0.15);
 	}
 
-	.user-avatar {
+	.menu-btn {
 		width: 30px;
 		height: 30px;
 		background: rgba(255, 255, 255, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.1);
 		border-radius: 8px;
+		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		backdrop-filter: blur(10px);
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+		color: white;
+	}
+
+	.menu-btn:hover {
+		background: rgba(255, 255, 255, 0.3);
+		border-color: rgba(255, 255, 255, 0.2);
+		transform: scale(1.05);
+	}
+
+	.menu-btn:active {
+		transform: scale(0.95);
+		background: rgba(255, 255, 255, 0.25);
+	}
+
+	/* Menu Dropdown */
+	.menu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 999;
+		animation: fadeIn 0.2s ease;
+	}
+
+	.menu-dropdown {
+		position: fixed;
+		top: 60px;
+		left: 10px;
+		background: transparent;
+		z-index: 1000;
+		animation: slideDown 0.2s ease;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.menu-item {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		background: #3B82F6;
+		border: none;
+		width: 48px;
+		height: 48px;
+		border-radius: 50%;
+		color: white;
+		cursor: pointer;
+		transition: all 0.25s ease;
+		text-decoration: none;
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	.menu-item:last-child {
+		border-bottom: none;
+	}
+
+	.menu-item:hover {
+		background: #2563EB;
+		transform: scale(1.1);
+		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+	}
+
+	.menu-item:active {
+		transform: scale(0.95);
+	}
+
+	.menu-item svg {
+		color: white;
+		transition: all 0.25s ease;
+	}
+
+	.menu-item:hover svg {
+		color: white;
+	}
+
+	.menu-language {
+		padding: 0;
+		background: #3B82F6;
+		width: 48px;
+		height: 48px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	.menu-language:hover {
+		background: #2563EB;
+		transform: scale(1.1);
+		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+	}
+
+	/* RTL Support for Menu */
+	:global([dir="rtl"]) .menu-dropdown {
+		left: auto;
+		right: 10px;
+	}
+
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.user-details h1 {
