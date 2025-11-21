@@ -865,19 +865,20 @@
 
       // Extract order number from response
       orderNumber = orderData.order_number;
+      orderId = orderData.order_id;
       
-      // Record order placed time
-      orderPlacedTime = new Date();
-      canCancelOrder = true;
-      timeRemaining = 60; // 60 seconds
+      // Order saved successfully - close popup and show success
+      showOrderConfirmation = false;
+      showOrderSuccess = true;
       
-      // Start cancellation timer
-      startCancellationTimer();
+      // Clear cart
+      cartActions.clearCart();
       
-      // Show confirmation popup
-      showOrderConfirmation = true;
-      
-      // Order will be cleared when timer expires or user confirms
+      // Hide success popup after 2 seconds and redirect
+      setTimeout(() => {
+        showOrderSuccess = false;
+        goto('/customer/products');
+      }, 2000);
       
     } catch (err) {
       console.error('Order placement error:', err);
@@ -894,20 +895,8 @@
         canCancelOrder = false;
         timeRemaining = 0;
         
-        // Timer expired - finalize the order and clear cart// Close order confirmation popup
-        showOrderConfirmation = false;
-        
-        // Show success popup
-        showOrderSuccess = true;
-        
-        // Clear cart
-        cartActions.clearCart();
-        
-        // Hide success popup after 2 seconds and redirect
-        setTimeout(() => {
-          showOrderSuccess = false;
-          goto('/customer/products');
-        }, 2000);
+        // Timer expired - NOW save the order to database
+        placeOrder();
       }
     }, 1000);
   }
@@ -920,19 +909,8 @@
       clearInterval(cancellationTimer);
     }
     
-    // Call cancel_order RPC function if order was created
-    if (orderId) {
-      const { customerId } = getLocalCustomerSession();
-      if (customerId) {
-        supabase.rpc('cancel_order', {
-          p_order_id: orderId,
-          p_user_id: customerId,
-          p_cancellation_reason: 'Customer cancelled within 60 seconds'
-        }).then(({ error }) => {
-          if (error) console.error('Failed to cancel order:', error);
-        });
-      }
-    }
+    // Since order wasn't saved yet, just close popup and reset
+    // No need to call cancel_order RPC function
     
     // Reset states
     canCancelOrder = false;
@@ -952,10 +930,7 @@
   }
   
   function confirmOrder() {
-    confirmOrderImmediately();
-  }
-
-  function confirmOrderImmediately() {// Clear timer
+    // User clicked "Place Order" button - save immediately
     if (cancellationTimer) {
       clearInterval(cancellationTimer);
     }
@@ -964,20 +939,8 @@
     canCancelOrder = false;
     timeRemaining = 0;
     
-    // Close order confirmation popup
-    showOrderConfirmation = false;
-    
-    // Show success popup
-    showOrderSuccess = true;
-    
-    // Clear cart
-    cartActions.clearCart();
-    
-    // Hide success popup after 2 seconds and redirect
-    setTimeout(() => {
-      showOrderSuccess = false;
-      goto('/customer/products');
-    }, 2000);
+    // Save order to database
+    placeOrder();
   }
 
   function formatTime(seconds) {
@@ -1058,10 +1021,23 @@
 
   function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
-    // Place order immediately after selecting payment method
-    setTimeout(() => {
-      placeOrder();
-    }, 100);
+    // Show order confirmation popup with timer (order not saved yet)
+    showOrderConfirmationPopup();
+  }
+  
+  function showOrderConfirmationPopup() {
+    // Generate order number for display (but don't save to DB yet)
+    const timestamp = Date.now();
+    orderNumber = `ORD-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${timestamp.toString().slice(-4)}`;
+    
+    // Show confirmation popup with timer
+    showOrderConfirmation = true;
+    canCancelOrder = true;
+    timeRemaining = 60;
+    orderPlacedTime = new Date();
+    
+    // Start timer - when it reaches 0, save order to database
+    startCancellationTimer();
   }
 
   // Calculate delivery fee (branch-aware)
@@ -1496,6 +1472,7 @@
             <span>{texts.card}</span>
           </label>
         </div>
+        
       </div>
     {/if}
   {/if}
