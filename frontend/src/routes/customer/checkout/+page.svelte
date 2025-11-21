@@ -22,6 +22,7 @@
   let showOrderSuccess = false;
   let showPaymentMethods = false;
   let orderNumber = '';
+  let orderId = null; // Store the order UUID
   let orderPlacedTime = null;
   let cancellationTimer = null;
   let timeRemaining = 60; // 60 seconds for order cancellation
@@ -698,44 +699,190 @@
   }
 
   // Order placement
-  function placeOrder() {
+  async function placeOrder() {
     if (cartItems.length === 0) return;
     
-    // Generate order number
-    orderNumber = 'AQE' + Date.now().toString().slice(-6);
-    
-    // Record order placed time
-    orderPlacedTime = new Date();
-    canCancelOrder = true;
-    timeRemaining = 60; // 60 seconds
-    
-    // Save order to active orders for tracking
-    const newOrder = {
-      orderNumber: orderNumber,
-      placedAt: orderPlacedTime.getTime(),
-      total: finalTotal,
-      items: cartItems.length,
-      paymentMethod: selectedPaymentMethod,
-      canCancel: canCancelOrder,
-      timeRemaining: timeRemaining
-    };
-    
-    // Load existing active orders and add new one
-    const existingOrders = JSON.parse(localStorage.getItem('activeOrders') || '[]');
-    existingOrders.unshift(newOrder); // Add to beginning
-    localStorage.setItem('activeOrders', JSON.stringify(existingOrders));
-    
-    // Start cancellation timer
-    startCancellationTimer();
-    
-    // Show confirmation popup
-    showOrderConfirmation = true;
-    
-    // Don't clear cart immediately - wait for timer or user action
-    // Cart will be cleared when:
-    // 1. Timer expires and order is finalized
-    // 2. User clicks "Continue Shopping"
-    // 3. User cancels the order (cart stays)
+    // Get customer ID
+    const { customerId } = getLocalCustomerSession();
+    if (!customerId) {
+      alert(currentLanguage === 'ar' ? 'يرجى تسجيل الدخول أولاً' : 'Please log in first');
+      goto('/customer-login');
+      return;
+    }
+
+    // Validate fulfillment method and location
+    if (fulfillmentMethod === 'delivery') {
+      if (!selectedLocationKey || selectedLocationIndex < 0) {
+        alert(currentLanguage === 'ar' ? 'يرجى اختيار موقع التوصيل' : 'Please select delivery location');
+        return;
+      }
+    }
+
+    // Validate payment method
+    if (!selectedPaymentMethod) {
+      alert(currentLanguage === 'ar' ? 'يرجى اختيار طريقة الدفع' : 'Please select payment method');
+      return;
+    }
+
+    try {
+      // Prepare selected location
+      const selectedLocation = locationOptions[selectedLocationIndex];
+      const locationData = selectedLocation ? {
+        name: selectedLocation.name,
+        url: selectedLocation.url || '',
+        lat: selectedLocation.lat,
+        lng: selectedLocation.lng
+      } : null;
+
+      // Calculate totals
+      const totalItems = cartItems.length;
+      const totalQuantity = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalDiscount = cartItems.reduce((sum, item) => sum + ((item.originalPrice || item.price) - item.price) * item.quantity, 0);
+      const taxAmount = 0; // TODO: Calculate tax if applicable
+
+      console.log('📦 [Order Creation] Preparing order data...', {
+        customerId,
+        branchId: currentBranchId,
+        fulfillmentMethod,
+        paymentMethod: selectedPaymentMethod,
+        locationData,
+        totals: {
+          subtotal: total,
+          deliveryFee: fulfillmentMethod === 'delivery' ? finalDeliveryFee : 0,
+          discount: totalDiscount,
+          tax: taxAmount,
+          total: finalTotal
+        },
+        items: {
+          count: totalItems,
+          quantity: totalQuantity
+        }
+      });
+
+      // Call create_customer_order RPC function
+      const { data: orderResult, error: orderError } = await supabase.rpc('create_customer_order', {
+        p_customer_id: customerId,
+        p_branch_id: currentBranchId || 1,
+        p_selected_location: locationData,
+        p_fulfillment_method: fulfillmentMethod,
+        p_payment_method: selectedPaymentMethod,
+        p_subtotal_amount: total,
+        p_delivery_fee: fulfillmentMethod === 'delivery' ? finalDeliveryFee : 0,
+        p_discount_amount: totalDiscount,
+        p_tax_amount: taxAmount,
+        p_total_amount: finalTotal,
+        p_total_items: totalItems,
+        p_total_quantity: totalQuantity,
+        p_customer_notes: null
+      });
+
+      console.log('🔍 [Order Creation] Response:', { data: orderResult, error: orderError });
+
+      if (orderError || !orderResult || orderResult.length === 0) {
+        console.error('❌ [Order Creation] Error details:', {
+          error: orderError,
+          message: orderError?.message,
+          details: orderError?.details,
+          hint: orderError?.hint,
+          code: orderError?.code
+        });
+        alert(currentLanguage === 'ar' ? 'فشل إنشاء الطلب: ' + (orderError?.message || 'خطأ غير معروف') : 'Failed to create order: ' + (orderError?.message || 'Unknown error'));
+        return;
+      }
+
+      const orderData = orderResult[0];
+      
+      if (!orderData.success) {
+        alert(currentLanguage === 'ar' ? 'فشل إنشاء الطلب: ' + orderData.message : 'Failed to create order: ' + orderData.message);
+        return;
+      }
+
+      console.log('Order created successfully:', orderData);
+      
+      // Store order ID and number
+      orderId = orderData.order_id;
+      orderNumber = orderData.order_number;
+      
+      // Lookup product UUIDs for cart items (cart uses product_serial, DB needs UUID)
+      console.log('Looking up product UUIDs for cart items...');
+      const productSerials = cartItems.map(item => item.id);
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('id, product_serial, unit_id')
+        .in('product_serial', productSerials);
+      
+      if (productsError) {
+        console.error('Error looking up products:', productsError);
+        throw new Error('Failed to lookup product UUIDs');
+      }
+      
+      // Create a map of product_serial -> {UUID, unit_id}
+      const productDataMap = {};
+      productsData.forEach(p => {
+        productDataMap[p.product_serial] = {
+          id: p.id,
+          unit_id: p.unit_id
+        };
+      });
+      console.log('Product data map:', productDataMap);
+      
+      // Now insert order items with proper UUIDs
+      const orderItems = cartItems.map(item => {
+        const productData = productDataMap[item.id];
+        if (!productData) {
+          console.warn('⚠️ Product data not found for:', item.id);
+        }
+        
+        return {
+          order_id: orderData.order_id,
+          product_id: productData?.id,
+          unit_id: productData?.unit_id || null,
+          product_name_ar: item.name,
+          product_name_en: item.nameEn,
+          unit_name_ar: item.selectedUnit?.nameAr || '',
+          unit_name_en: item.selectedUnit?.nameEn || '',
+          quantity: item.quantity,
+          unit_price: item.originalPrice || item.price,
+          original_price: item.originalPrice || item.price,
+          discount_amount: (item.originalPrice || item.price) - item.price,
+          final_price: item.price,
+          line_total: item.price * item.quantity,
+          has_offer: !!item.offerId,
+          offer_id: item.offerId || null,
+          item_type: item.offerType === 'bogo' ? 'bogo_buy' : (item.offerType === 'bogo_get' ? 'bogo_get' : 'regular'),
+          bundle_id: item.bundleId || null
+        };
+      });
+
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsError) {
+        console.error('Error inserting order items:', itemsError);
+        // Order was created but items failed - log this but continue
+      }
+
+      // Extract order number from response
+      orderNumber = orderData.order_number;
+      
+      // Record order placed time
+      orderPlacedTime = new Date();
+      canCancelOrder = true;
+      timeRemaining = 60; // 60 seconds
+      
+      // Start cancellation timer
+      startCancellationTimer();
+      
+      // Show confirmation popup
+      showOrderConfirmation = true;
+      
+      // Order will be cleared when timer expires or user confirms
+      
+    } catch (err) {
+      console.error('Order placement error:', err);
+      alert(currentLanguage === 'ar' ? 'حدث خطأ أثناء إنشاء الطلب' : 'An error occurred while creating the order');
+    }
   }
 
   function startCancellationTimer() {
@@ -773,11 +920,27 @@
       clearInterval(cancellationTimer);
     }
     
+    // Call cancel_order RPC function if order was created
+    if (orderId) {
+      const { customerId } = getLocalCustomerSession();
+      if (customerId) {
+        supabase.rpc('cancel_order', {
+          p_order_id: orderId,
+          p_user_id: customerId,
+          p_cancellation_reason: 'Customer cancelled within 60 seconds'
+        }).then(({ error }) => {
+          if (error) console.error('Failed to cancel order:', error);
+        });
+      }
+    }
+    
     // Reset states
     canCancelOrder = false;
     showOrderConfirmation = false;
     orderPlacedTime = null;
     timeRemaining = 60;
+    orderId = null;
+    orderNumber = '';
     
     // Show cancellation success message
     showCancellationSuccess = true;

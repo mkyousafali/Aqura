@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { supabase } from '$lib/utils/supabase';
   
   let currentLanguage = 'ar';
   let orderNumber = '';
@@ -12,7 +13,7 @@
     title: 'تتبع الطلب - أكوا إكسبرس',
     trackOrder: 'تتبع الطلب',
     enterOrderNumber: 'أدخل رقم الطلب',
-    orderNumberPlaceholder: 'مثال: AQE736927',
+    orderNumberPlaceholder: 'مثال: ORD-20251120-0001',
     trackButton: 'تتبع',
     backToProfile: 'العودة للملف الشخصي',
     orderNotFound: 'لم يتم العثور على الطلب',
@@ -22,18 +23,18 @@
     totalAmount: 'المبلغ الإجمالي',
     items: 'المنتجات',
     sar: 'ر.س',
-    pending: 'قيد المعالجة',
-    confirmed: 'مؤكد',
-    preparing: 'قيد التحضير',
-    ready: 'جاهز للاستلام',
-    outForDelivery: 'في طريق التوصيل',
+    new: 'جديد',
+    accepted: 'مقبول',
+    in_picking: 'قيد التحضير',
+    ready: 'جاهز',
+    out_for_delivery: 'قيد التوصيل',
     delivered: 'تم التوصيل',
     cancelled: 'ملغي'
   } : {
     title: 'Track Order - Aqua Express',
     trackOrder: 'Track Order',
     enterOrderNumber: 'Enter Order Number',
-    orderNumberPlaceholder: 'e.g., AQE736927',
+    orderNumberPlaceholder: 'e.g., ORD-20251120-0001',
     trackButton: 'Track',
     backToProfile: 'Back to Profile',
     orderNotFound: 'Order not found',
@@ -43,11 +44,11 @@
     totalAmount: 'Total Amount',
     items: 'Items',
     sar: 'SAR',
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    preparing: 'Preparing',
-    ready: 'Ready for Pickup',
-    outForDelivery: 'Out for Delivery',
+    new: 'New',
+    accepted: 'Accepted',
+    in_picking: 'In Picking',
+    ready: 'Ready',
+    out_for_delivery: 'Out for Delivery',
     delivered: 'Delivered',
     cancelled: 'Cancelled'
   };
@@ -73,22 +74,52 @@
     error = '';
     trackingResult = null;
 
-    // TODO: Replace with actual API call
-    setTimeout(() => {
-      // Mock data - replace with real API
-      trackingResult = null; // No order found for demo
-      error = texts.orderNotFound;
+    try {
+      // Query orders table by order_number
+      const { data, error: queryError } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          order_status,
+          total_amount,
+          created_at,
+          branch:branches(name_ar, name_en),
+          customer:customers(name)
+        `)
+        .eq('order_number', orderNumber.trim())
+        .single();
+
+      if (queryError || !data) {
+        error = texts.orderNotFound;
+        trackingResult = null;
+      } else {
+        // Transform data to match UI
+        trackingResult = {
+          orderNumber: data.order_number,
+          status: data.order_status,
+          date: new Date(data.created_at).toLocaleDateString(currentLanguage === 'ar' ? 'ar-SA' : 'en-US'),
+          total: data.total_amount,
+          customer: data.customer?.name || '',
+          branch: currentLanguage === 'ar' ? data.branch?.name_ar : data.branch?.name_en
+        };
+      }
+    } catch (err) {
+      console.error('Error tracking order:', err);
+      error = currentLanguage === 'ar' ? 'حدث خطأ أثناء البحث' : 'An error occurred';
+      trackingResult = null;
+    } finally {
       loading = false;
-    }, 1000);
+    }
   }
 
   function getStatusClass(status) {
     const statusMap = {
-      'pending': 'status-pending',
-      'confirmed': 'status-confirmed',
-      'preparing': 'status-preparing',
+      'new': 'status-pending',
+      'accepted': 'status-confirmed',
+      'in_picking': 'status-preparing',
       'ready': 'status-ready',
-      'outForDelivery': 'status-delivery',
+      'out_for_delivery': 'status-delivery',
       'delivered': 'status-delivered',
       'cancelled': 'status-cancelled'
     };

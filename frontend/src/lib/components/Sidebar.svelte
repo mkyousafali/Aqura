@@ -37,6 +37,7 @@
 	import ProductsManager from '$lib/components/admin/ProductsManager.svelte';
 	import OfferManagement from '$lib/components/admin/OfferManagement.svelte';
 	import ProductSelectorWindow from '$lib/components/admin/ProductSelectorWindow.svelte';
+	import OrdersManager from '$lib/components/admin/OrdersManager.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -371,11 +372,31 @@
 		showCustomerAppSubmenu = false;
 	}
 
-	function openApprovalCenter() {
-		const windowId = generateWindowId('approval-center');
+	function openOrdersManager() {
+		const windowId = generateWindowId('orders-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
+			id: windowId,
+			title: `Orders Manager #${instanceNumber}`,
+			component: OrdersManager,
+			icon: '🛒',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+		closable: true
+	});
+	showCustomerAppSubmenu = false;
+}
+
+function openApprovalCenter() {
+	const windowId = generateWindowId('approval-center');
+	const instanceNumber = Math.floor(Math.random() * 1000) + 1;		openWindow({
 			id: windowId,
 			title: `Approval Center #${instanceNumber}`,
 			component: ApprovalCenter,
@@ -724,6 +745,12 @@
 					<button class="submenu-item" on:click={openCustomerMaster}>
 						<span class="menu-icon">🤝</span>
 						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openOrdersManager}>
+						<span class="menu-icon">🛒</span>
+						<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">
