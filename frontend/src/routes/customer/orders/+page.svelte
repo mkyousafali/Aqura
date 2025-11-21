@@ -1,10 +1,40 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { supabase } from '$lib/utils/supabase';
   
   let currentLanguage = 'ar';
   let orders = [];
   let loading = true;
+
+  // Get customer session
+  function getLocalCustomerSession() {
+    try {
+      // Try customer_session first
+      const customerSessionRaw = localStorage.getItem('customer_session');
+      if (customerSessionRaw) {
+        const customerSession = JSON.parse(customerSessionRaw);
+        if (customerSession?.customer_id && customerSession?.registration_status === 'approved') {
+          return { customerId: customerSession.customer_id };
+        }
+      }
+
+      // Fallback to aqura-device-session
+      const raw = localStorage.getItem('aqura-device-session');
+      if (!raw) return { customerId: null };
+      
+      const session = JSON.parse(raw);
+      const currentId = session?.currentUserId;
+      const user = Array.isArray(session?.users)
+        ? session.users.find((u) => u.id === currentId && u.isActive)
+        : null;
+      
+      return { customerId: user?.customerId || null };
+    } catch (e) {
+      console.error('Error reading session:', e);
+      return { customerId: null };
+    }
+  }
 
   $: texts = currentLanguage === 'ar' ? {
     title: 'سجل الطلبات - أكوا إكسبرس',
@@ -17,10 +47,11 @@
     status: 'الحالة',
     items: 'منتج',
     sar: 'ر.س',
-    pending: 'قيد المعالجة',
-    confirmed: 'مؤكد',
-    preparing: 'قيد التحضير',
+    new: 'جديد',
+    accepted: 'مقبول',
+    in_picking: 'قيد التحضير',
     ready: 'جاهز',
+    out_for_delivery: 'قيد التوصيل',
     delivered: 'تم التوصيل',
     cancelled: 'ملغي',
     viewDetails: 'عرض التفاصيل',
@@ -36,26 +67,68 @@
     status: 'Status',
     items: 'items',
     sar: 'SAR',
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    preparing: 'Preparing',
+    new: 'New',
+    accepted: 'Accepted',
+    in_picking: 'In Picking',
     ready: 'Ready',
+    out_for_delivery: 'Out for Delivery',
     delivered: 'Delivered',
     cancelled: 'Cancelled',
     viewDetails: 'View Details',
     backToProfile: 'Back to Profile'
   };
 
-  onMount(() => {
+  onMount(async () => {
     const savedLanguage = localStorage.getItem('language');
     if (savedLanguage) {
       currentLanguage = savedLanguage;
     }
 
-    // TODO: Load real orders from API
-    // For now, show empty state
-    loading = false;
-    orders = [];
+    // Load real orders from database
+    const { customerId } = getLocalCustomerSession();
+    
+    if (!customerId) {
+      console.log('No customer ID found');
+      loading = false;
+      orders = [];
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          order_status,
+          total_amount,
+          created_at,
+          branch:branches(name_ar, name_en)
+        `)
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading orders:', error);
+        orders = [];
+      } else {
+        // Transform data to match UI expectations
+        orders = (data || []).map(order => ({
+          id: order.id,
+          orderNumber: order.order_number,
+          status: order.order_status,
+          total: order.total_amount,
+          date: new Date(order.created_at).toLocaleDateString(currentLanguage === 'ar' ? 'ar-SA' : 'en-US'),
+          itemCount: 0, // Would need to join order_items for accurate count
+          branch: order.branch
+        }));
+      }
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      orders = [];
+    } finally {
+      loading = false;
+    }
   });
 
   function goToProfile() {
@@ -76,10 +149,11 @@
 
   function getStatusClass(status) {
     const statusMap = {
-      'pending': 'status-pending',
-      'confirmed': 'status-confirmed',
-      'preparing': 'status-preparing',
+      'new': 'status-pending',
+      'accepted': 'status-confirmed',
+      'in_picking': 'status-preparing',
       'ready': 'status-ready',
+      'out_for_delivery': 'status-delivery',
       'delivered': 'status-delivered',
       'cancelled': 'status-cancelled'
     };
