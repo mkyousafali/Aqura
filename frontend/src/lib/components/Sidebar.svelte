@@ -39,12 +39,14 @@
 	import ProductSelectorWindow from '$lib/components/admin/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/admin/OrdersManager.svelte';
 	import FlyerMasterDashboard from '$lib/components/admin/flyer/FlyerMasterDashboard.svelte';
+	import ExpenseTracker from '$lib/components/admin/reports/ExpenseTracker.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
 	let showCustomerAppSubmenu = false;
 	let showMarketingSubmenu = false;
+	let showReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -608,6 +610,29 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Expense Tracker window
+	function openExpenseTracker() {
+		const windowId = generateWindowId('expense-tracker');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `💰 Expense Tracker #${instanceNumber}`,
+			component: ExpenseTracker,
+			icon: '💰',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showReportsSubmenu = false;
+	}
+
 	// Open Flyer Master window
 	function openFlyerMaster() {
 		const windowId = generateWindowId('flyer-master');
@@ -833,12 +858,25 @@ function openApprovalCenter() {
 		<div class="menu-section">
 			<button 
 				class="section-button"
-				on:click={() => showComingSoon(t('nav.reports') || 'Reports')}
+				on:click={() => showReportsSubmenu = !showReportsSubmenu}
 			>
 				<span class="section-icon">📊</span>
 				<span class="section-text">{t('nav.reports') || 'Reports'}</span>
+				<span class="arrow" class:expanded={showReportsSubmenu}>▼</span>
 			</button>
 		</div>
+
+		<!-- Reports Submenu - Inline below Reports button -->
+		{#if showReportsSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openExpenseTracker}>
+						<span class="menu-icon">💰</span>
+						<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
+					</button>
+				</div>
+			</div>
+		{/if}
 
 
 	<!-- Approval Center Section (Visible to all users) -->
