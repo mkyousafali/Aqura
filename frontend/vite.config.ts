@@ -211,6 +211,10 @@ export default defineConfig(({ mode }) => ({
         ]
       : []),
   ],
+  optimizeDeps: {
+    exclude: ['@imgly/background-removal'],
+    include: ['onnxruntime-web']
+  },
   server: {
     port: 5173,
     host: true,

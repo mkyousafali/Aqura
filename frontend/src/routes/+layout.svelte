@@ -232,16 +232,18 @@
 					const { default: DocumentManagement } = await import('$lib/components/admin/hr/DocumentManagement.svelte');
 					component = DocumentManagement;
 					break;
-				case 'ProductSelectorWindow':
-					const { default: ProductSelectorWindow } = await import('$lib/components/admin/ProductSelectorWindow.svelte');
-					component = ProductSelectorWindow;
-					break;
-				default:
-					console.error('🪟 Unknown component name:', componentName);
-					return;
-			}
-			
-			console.log('🪟 Component loaded successfully:', component);
+			case 'ProductSelectorWindow':
+				const { default: ProductSelectorWindow } = await import('$lib/components/admin/ProductSelectorWindow.svelte');
+				component = ProductSelectorWindow;
+				break;
+			case 'FlyerMasterDashboard':
+				const { default: FlyerMasterDashboard } = await import('$lib/components/admin/flyer/FlyerMasterDashboard.svelte');
+				component = FlyerMasterDashboard;
+				break;
+			default:
+				console.error('🪟 Unknown component name:', componentName);
+				return;
+		}			console.log('🪟 Component loaded successfully:', component);
 			
 		} catch (error) {
 			console.error('🪟 Failed to load component:', componentName, error);

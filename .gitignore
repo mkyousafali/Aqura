@@ -94,3 +94,6 @@ frontend/generate-icons.ps1
 package-lock.json
 yarn.lock
 .vercel
+
+# Flyer Master standalone app (not part of Aqura)
+Flyer Master/

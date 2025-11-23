@@ -38,11 +38,13 @@
 	import OfferManagement from '$lib/components/admin/OfferManagement.svelte';
 	import ProductSelectorWindow from '$lib/components/admin/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/admin/OrdersManager.svelte';
+	import FlyerMasterDashboard from '$lib/components/admin/flyer/FlyerMasterDashboard.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
 	let showWorkSubmenu = false;
 	let showCustomerAppSubmenu = false;
+	let showMarketingSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -606,6 +608,29 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Flyer Master window
+	function openFlyerMaster() {
+		const windowId = generateWindowId('flyer-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Flyer Master #${instanceNumber}`,
+			component: FlyerMasterDashboard,
+			icon: '🏷️',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMarketingSubmenu = false;
+	}
+
 	// Show version popup with update information
 	function showVersionInfo() {
 		showVersionPopup = true;
@@ -780,6 +805,30 @@ function openApprovalCenter() {
 			</div>
 		{/if}
 
+		<!-- Marketing Master Section -->
+		<div class="menu-section">
+			<button 
+				class="section-button"
+				on:click={() => showMarketingSubmenu = !showMarketingSubmenu}
+			>
+				<span class="section-icon">📢</span>
+				<span class="section-text">{t('nav.marketingMaster') || 'Marketing'}</span>
+				<span class="arrow" class:expanded={showMarketingSubmenu}>▼</span>
+			</button>
+		</div>
+
+		<!-- Marketing Submenu - Inline below Marketing button -->
+		{#if showMarketingSubmenu}
+			<div class="submenu-inline">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openFlyerMaster}>
+						<span class="menu-icon">🏷️</span>
+						<span class="menu-text">{t('admin.flyerMaster') || 'Flyer Master'}</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
 		<!-- Reports Section -->
 		<div class="menu-section">
 			<button 
@@ -880,7 +929,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v5.1.3
+				v5.1.4
 			</button>
 		</div>
 	</div>
@@ -891,7 +940,7 @@ function openApprovalCenter() {
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v5.1.3</h3>
+				<h3>What's New in v5.1.4</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
