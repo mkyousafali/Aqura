@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { t } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let expenses: any[] = [];
 	let filteredExpenses: any[] = [];
@@ -16,8 +17,39 @@
 	
 	let branches: Array<{id: number, name_en: string, name_ar: string}> = [];
 	let categories: string[] = [];
+	let subCategories: Array<{id: number, name_en: string, name_ar: string}> = [];
+
+	// Edit modal state
+	let showEditModal = false;
+	let editingExpense: any = null;
+	let editForm = {
+		category: '',
+		bill_type: '',
+		description: '',
+		due_date: ''
+	};
+
+	// Check if current user can edit
+	$: canEdit = $currentUser?.role === 'Admin' || $currentUser?.role === 'Master Admin';
+
+	async function loadSubCategories() {
+		try {
+			const { data, error } = await supabaseAdmin
+				.from('expense_sub_categories')
+				.select('id, name_en, name_ar')
+				.eq('is_active', true)
+				.order('name_en');
+
+			if (error) throw error;
+			subCategories = data || [];
+			console.log('✅ Loaded sub-categories:', subCategories.length);
+		} catch (err: any) {
+			console.error('❌ Error loading sub-categories:', err);
+		}
+	}
 
 	onMount(async () => {
+		await loadSubCategories();
 		await loadExpenses();
 	});
 
@@ -150,6 +182,50 @@
 			paid: 'status-paid'
 		};
 		return statusMap[status] || 'status-default';
+	}
+
+	function openEditModal(expense: any) {
+		editingExpense = expense;
+		console.log('📝 Opening edit modal with expense:', expense);
+		console.log('📝 Bill type from DB:', expense.bill_type);
+		editForm = {
+			category: expense.expense_category_name_en || '',
+			bill_type: expense.bill_type || '',
+			description: expense.description || '',
+			due_date: expense.due_date || ''
+		};
+		console.log('📝 Edit form:', editForm);
+		showEditModal = true;
+	}
+
+	function closeEditModal() {
+		showEditModal = false;
+		editingExpense = null;
+	}
+
+	async function saveEdit() {
+		if (!editingExpense) return;
+
+		try {
+			const { error: updateError } = await supabaseAdmin
+				.from('expense_scheduler')
+				.update({
+					expense_category_name_en: editForm.category,
+					bill_type: editForm.bill_type,
+					description: editForm.description,
+					due_date: editForm.due_date
+				})
+				.eq('id', editingExpense.id);
+
+			if (updateError) throw updateError;
+
+			// Refresh the data
+			await loadExpenses();
+			closeEditModal();
+		} catch (err: any) {
+			console.error('Error updating expense:', err);
+			alert('Failed to update expense: ' + err.message);
+		}
 	}
 
 	$: if (searchTerm !== undefined || filterBranch !== undefined || 
@@ -305,8 +381,14 @@
 									{expense.is_paid ? '✓ Paid' : '✗ Unpaid'}
 								</span>
 							</td>
-							<td class="description">{expense.description || '-'}</td>
-							<td class="actions">
+						<td class="description">{expense.description || '-'}</td>
+						<td class="actions">
+							<div class="action-buttons">
+								{#if canEdit}
+									<button class="edit-btn" on:click={() => openEditModal(expense)}>
+										✏️ Edit
+									</button>
+								{/if}
 								{#if expense.bill_file_url}
 									<button class="view-bill-btn" on:click={() => window.open(expense.bill_file_url, '_blank')}>
 										📄 View Bill
@@ -314,7 +396,8 @@
 								{:else}
 									<span class="no-bill">No Bill</span>
 								{/if}
-							</td>
+							</div>
+						</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -322,6 +405,59 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Edit Modal -->
+{#if showEditModal}
+	<div class="modal-overlay" on:click={closeEditModal}>
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>✏️ Edit Expense</h3>
+				<button class="close-btn" on:click={closeEditModal}>✕</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group">
+					<label for="category">Category</label>
+					<select id="category" bind:value={editForm.category}>
+						<option value="" disabled>Select Category</option>
+						{#each subCategories as subCategory}
+							<option value="{subCategory.name_en}">{subCategory.name_en}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="bill_type">Bill Type</label>
+					<select id="bill_type" bind:value={editForm.bill_type}>
+						<option value="" disabled>Select Bill Type</option>
+						<option value="vat_applicable">Vat Applicable</option>
+						<option value="no_vat">No Vat</option>
+						<option value="no_bill">No Bill</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="description">Description</label>
+					<textarea
+						id="description"
+						bind:value={editForm.description}
+						placeholder="Enter description"
+						rows="3"
+					></textarea>
+				</div>
+				<div class="form-group">
+					<label for="due_date">Due Date</label>
+					<input
+						type="date"
+						id="due_date"
+						bind:value={editForm.due_date}
+					/>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="cancel-btn" on:click={closeEditModal}>Cancel</button>
+				<button class="save-btn" on:click={saveEdit}>Save Changes</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.expense-tracker {
@@ -588,6 +724,28 @@
 		white-space: nowrap;
 	}
 
+	.action-buttons {
+		display: flex;
+		gap: 8px;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.edit-btn {
+		padding: 6px 12px;
+		background: #28a745;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 12px;
+		transition: background 0.2s;
+	}
+
+	.edit-btn:hover {
+		background: #218838;
+	}
+
 	.view-bill-btn {
 		padding: 6px 12px;
 		background: #007bff;
@@ -606,6 +764,129 @@
 	.no-bill {
 		font-size: 12px;
 		color: #999;
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		z-index: 1000;
+	}
+
+	.modal-content {
+		background: white;
+		border-radius: 8px;
+		width: 90%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 20px;
+		border-bottom: 1px solid #dee2e6;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 20px;
+		color: #333;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		font-size: 24px;
+		cursor: pointer;
+		color: #999;
+		padding: 0;
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-btn:hover {
+		color: #333;
+	}
+
+	.modal-body {
+		padding: 20px;
+	}
+
+	.form-group {
+		margin-bottom: 20px;
+	}
+
+	.form-group label {
+		display: block;
+		margin-bottom: 8px;
+		font-weight: 600;
+		color: #333;
+		font-size: 14px;
+	}
+
+	.form-group input,
+	.form-group select,
+	.form-group textarea {
+		width: 100%;
+		padding: 10px;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-size: 14px;
+		font-family: inherit;
+	}
+
+	.form-group textarea {
+		resize: vertical;
+	}
+
+	.modal-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 10px;
+		padding: 20px;
+		border-top: 1px solid #dee2e6;
+	}
+
+	.cancel-btn {
+		padding: 10px 20px;
+		background: #6c757d;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 14px;
+	}
+
+	.cancel-btn:hover {
+		background: #5a6268;
+	}
+
+	.save-btn {
+		padding: 10px 20px;
+		background: #28a745;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 14px;
+	}
+
+	.save-btn:hover {
+		background: #218838;
 	}
 
 	.loading,
