@@ -18,11 +18,15 @@ export default defineConfig(({ mode }) => ({
             injectRegister: "auto",
             selfDestroying: false,
             injectManifest: {
-              // Increase the file size limit to 5MB (default is 2MB)
-              maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+              // Increase the file size limit to 30MB to accommodate WASM files from background-removal
+              maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
+              // Exclude large WASM files from precaching (they'll be loaded on-demand)
+              globIgnores: ['**/*.wasm'],
             },
             workbox: {
               globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+              // Don't precache large WASM files - they're loaded on-demand
+              globIgnores: ['**/*.wasm'],
               navigateFallback: "/",
               navigateFallbackDenylist: [
                 /^\/api\//,
