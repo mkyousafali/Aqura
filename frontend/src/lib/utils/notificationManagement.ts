@@ -106,6 +106,14 @@ interface UserNotificationItem {
 }
 
 export class NotificationManagementService {
+  // Exponential backoff for realtime reconnection
+  private realtimeRetryCount: number = 0;
+  private maxRealtimeRetries: number = 5;
+  private realtimeBaseDelay: number = 1000; // Start with 1 second
+  private realtimeMaxDelay: number = 60000; // Max 60 seconds
+  private isRealtimeConnecting: boolean = false;
+  private lastRealtimeAttempt: number = 0;
+  
   constructor() {
     // Using Supabase directly, no backend URL needed
   }
@@ -1344,12 +1352,41 @@ export class NotificationManagementService {
    * Listen for real-time notifications and show push notifications with error handling
    */
   async startRealtimeNotificationListener(): Promise<void> {
+    // Prevent concurrent connection attempts
+    if (this.isRealtimeConnecting) {
+      console.warn("⚠️ Realtime connection attempt already in progress");
+      return;
+    }
+
+    // Check if we've exceeded max retries
+    if (this.realtimeRetryCount >= this.maxRealtimeRetries) {
+      const timeSinceLastAttempt = Date.now() - this.lastRealtimeAttempt;
+      const resetTime = this.realtimeMaxDelay;
+      
+      if (timeSinceLastAttempt < resetTime) {
+        const waitSeconds = Math.ceil((resetTime - timeSinceLastAttempt) / 1000);
+        console.warn(
+          `🚫 Max realtime retry attempts (${this.maxRealtimeRetries}) reached. ` +
+          `Wait ${waitSeconds}s before next attempt.`
+        );
+        return;
+      } else {
+        // Reset retry counter after cooldown period
+        console.log("🔄 Retry cooldown expired. Resetting retry counter.");
+        this.realtimeRetryCount = 0;
+      }
+    }
+
+    this.isRealtimeConnecting = true;
+    this.lastRealtimeAttempt = Date.now();
+
     try {
       const currentUser = await this.getCurrentUser();
       if (!currentUser) {
         console.warn(
           "⚠️ No current user found, skipping real-time notification setup",
         );
+        this.isRealtimeConnecting = false;
         return;
       }
 
@@ -1440,17 +1477,62 @@ export class NotificationManagementService {
             console.log(
               "✅ Real-time notification listener started successfully",
             );
+            // Reset retry counter on successful connection
+            this.realtimeRetryCount = 0;
+            this.isRealtimeConnecting = false;
           } else if (status === "CHANNEL_ERROR") {
             console.error(
               "❌ Real-time channel error - network connectivity issue",
             );
-            // Don't retry immediately to avoid spam
+            this.isRealtimeConnecting = false;
+            
+            // Increment retry counter
+            this.realtimeRetryCount++;
+            
+            // Calculate exponential backoff delay
+            const delay = Math.min(
+              this.realtimeBaseDelay * Math.pow(2, this.realtimeRetryCount - 1),
+              this.realtimeMaxDelay
+            );
+            
+            console.warn(
+              `⏱️ Will retry realtime connection in ${delay / 1000}s ` +
+              `(attempt ${this.realtimeRetryCount}/${this.maxRealtimeRetries})`
+            );
+            
+            // Schedule retry with exponential backoff (only if not at max retries)
+            if (this.realtimeRetryCount < this.maxRealtimeRetries) {
+              setTimeout(() => {
+                console.log(`🔄 Retrying realtime connection (attempt ${this.realtimeRetryCount + 1})...`);
+                this.startRealtimeNotificationListener();
+              }, delay);
+            } else {
+              console.error(
+                `🚫 Max realtime retry attempts reached (${this.maxRealtimeRetries}). ` +
+                `Will wait ${this.realtimeMaxDelay / 1000}s before allowing new attempts.`
+              );
+            }
           } else if (status === "TIMED_OUT") {
             console.error(
               "❌ Real-time connection timed out - check network connection",
             );
+            this.isRealtimeConnecting = false;
+            this.realtimeRetryCount++;
+            
+            // Use same exponential backoff for timeouts
+            const delay = Math.min(
+              this.realtimeBaseDelay * Math.pow(2, this.realtimeRetryCount - 1),
+              this.realtimeMaxDelay
+            );
+            
+            if (this.realtimeRetryCount < this.maxRealtimeRetries) {
+              setTimeout(() => {
+                this.startRealtimeNotificationListener();
+              }, delay);
+            }
           } else if (status === "CLOSED") {
             console.warn("⚠️ Real-time connection closed");
+            this.isRealtimeConnecting = false;
           }
         });
     } catch (error) {
@@ -1461,6 +1543,22 @@ export class NotificationManagementService {
       console.warn(
         "🔔 Real-time notifications will not work, but app functionality remains intact",
       );
+      this.isRealtimeConnecting = false;
+      
+      // Increment retry counter on error
+      this.realtimeRetryCount++;
+      
+      // Schedule retry with exponential backoff
+      if (this.realtimeRetryCount < this.maxRealtimeRetries) {
+        const delay = Math.min(
+          this.realtimeBaseDelay * Math.pow(2, this.realtimeRetryCount - 1),
+          this.realtimeMaxDelay
+        );
+        
+        setTimeout(() => {
+          this.startRealtimeNotificationListener();
+        }, delay);
+      }
     }
   }
 

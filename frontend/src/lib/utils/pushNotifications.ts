@@ -48,6 +48,21 @@ interface NotificationPayload {
 export class PushNotificationService {
   private swRegistration: ServiceWorkerRegistration | null = null;
   private subscription: PushSubscription | null = null;
+  private registrationRetries: number = 0;
+  private maxRetries: number = 3;
+  private retryDelay: number = 5000; // 5 seconds
+  private isRegistering: boolean = false;
+  
+  // Circuit breaker for device registration
+  private deviceRegistrationFailures: number = 0;
+  private maxConsecutiveFailures: number = 5;
+  private isCircuitBreakerOpen: boolean = false;
+  private circuitBreakerResetTime: number = 0;
+  private circuitBreakerTimeout: number = 300000; // 5 minutes
+  
+  // Track last registration attempt to prevent rapid retries
+  private lastRegistrationAttempt: number = 0;
+  private minTimeBetweenRetries: number = 10000; // 10 seconds minimum
 
   /**
    * Initialize push notification service
@@ -365,6 +380,36 @@ export class PushNotificationService {
    * Register device with backend
    */
   async registerDevice(): Promise<void> {
+    // Circuit breaker check
+    if (this.isCircuitBreakerOpen) {
+      const now = Date.now();
+      if (now < this.circuitBreakerResetTime) {
+        const waitTime = Math.ceil((this.circuitBreakerResetTime - now) / 1000);
+        console.warn(
+          `🚫 Circuit breaker is OPEN. Device registration blocked for ${waitTime} more seconds due to repeated failures.`
+        );
+        return;
+      } else {
+        // Reset circuit breaker after timeout
+        console.log("🔄 Circuit breaker timeout expired. Resetting and allowing retry...");
+        this.isCircuitBreakerOpen = false;
+        this.deviceRegistrationFailures = 0;
+      }
+    }
+
+    // Rate limiting check - prevent rapid retries
+    const now = Date.now();
+    const timeSinceLastAttempt = now - this.lastRegistrationAttempt;
+    if (timeSinceLastAttempt < this.minTimeBetweenRetries) {
+      const waitTime = Math.ceil((this.minTimeBetweenRetries - timeSinceLastAttempt) / 1000);
+      console.warn(
+        `⏱️ Rate limit: Last registration attempt was ${Math.ceil(timeSinceLastAttempt / 1000)}s ago. Wait ${waitTime}s before retrying.`
+      );
+      return;
+    }
+
+    this.lastRegistrationAttempt = now;
+
     if (!this.subscription) {
       console.error("No push subscription available");
       return;
@@ -486,8 +531,44 @@ export class PushNotificationService {
       console.log(
         "✅ [PushNotifications] Device registered for push notifications",
       );
+      
+      // Reset failure counter on success
+      this.deviceRegistrationFailures = 0;
+      this.isCircuitBreakerOpen = false;
     } catch (error) {
       console.error("❌ [PushNotifications] Failed to register device:", error);
+      
+      // Increment failure counter
+      this.deviceRegistrationFailures++;
+      console.warn(
+        `⚠️ Device registration failure ${this.deviceRegistrationFailures}/${this.maxConsecutiveFailures}`
+      );
+      
+      // Check if we should open the circuit breaker
+      if (this.deviceRegistrationFailures >= this.maxConsecutiveFailures) {
+        this.isCircuitBreakerOpen = true;
+        this.circuitBreakerResetTime = Date.now() + this.circuitBreakerTimeout;
+        console.error(
+          `🚫 CIRCUIT BREAKER OPENED: Too many consecutive failures (${this.deviceRegistrationFailures}). ` +
+          `Device registration blocked for ${this.circuitBreakerTimeout / 60000} minutes. ` +
+          `This prevents infinite retry loops. Error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        
+        // Show user-friendly notification about the issue
+        if (typeof window !== "undefined") {
+          try {
+            const { notifications } = await import("$lib/stores/notifications");
+            notifications.add({
+              type: "error",
+              message: "⚠️ Push notification registration temporarily disabled due to server errors. Will retry automatically later.",
+              duration: 10000,
+            });
+          } catch (notifError) {
+            console.warn("Could not show user notification:", notifError);
+          }
+        }
+      }
+      
       // Don't throw error - allow login to continue without push notifications
     }
   }

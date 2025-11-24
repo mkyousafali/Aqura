@@ -3,6 +3,8 @@
 	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { t } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import ExpenseComparisonWindow from './ExpenseComparisonWindow.svelte';
 
 	let expenses: any[] = [];
 	let filteredExpenses: any[] = [];
@@ -242,14 +244,38 @@
 	$: unpaidAmount = filteredExpenses
 		.filter(exp => !exp.is_paid)
 		.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+
+	function openComparisonWindow() {
+		const windowId = `expense-comparison-${Date.now()}`;
+		openWindow({
+			id: windowId,
+			title: '📊 Expense Comparison',
+			component: ExpenseComparisonWindow,
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 100 + (Math.random() * 50),
+				y: 100 + (Math.random() * 50) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 </script>
 
 <div class="expense-tracker">
 	<div class="header">
 		<h2>💰 Expense Tracker</h2>
-		<button class="refresh-btn" on:click={loadExpenses} disabled={loading}>
-			🔄 Refresh
-		</button>
+		<div class="header-buttons">
+			<button class="compare-btn" on:click={openComparisonWindow}>
+				📊 Compare
+			</button>
+			<button class="refresh-btn" on:click={loadExpenses} disabled={loading}>
+				🔄 Refresh
+			</button>
+		</div>
 	</div>
 
 	<!-- Summary Cards -->
@@ -479,6 +505,27 @@
 		margin: 0;
 		font-size: 24px;
 		color: #333;
+	}
+
+	.header-buttons {
+		display: flex;
+		gap: 10px;
+	}
+
+	.compare-btn {
+		padding: 8px 16px;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 14px;
+		transition: background 0.2s;
+		font-weight: 500;
+	}
+
+	.compare-btn:hover {
+		background: #059669;
 	}
 
 	.refresh-btn {
