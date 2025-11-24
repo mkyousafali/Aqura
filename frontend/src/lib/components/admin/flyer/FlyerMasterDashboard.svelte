@@ -10,6 +10,8 @@
   import FlyerGenerator from './FlyerGenerator.svelte';
   import FlyerTemplates from './FlyerTemplates.svelte';
   import FlyerSettings from './FlyerSettings.svelte';
+  import DesignPlanner from './DesignPlanner.svelte';
+  import ShelfPaperTemplateDesigner from './ShelfPaperTemplateDesigner.svelte';
   
   interface NavCard {
     id: string;
@@ -91,6 +93,22 @@
       icon: '⚙️',
       color: 'from-gray-500 to-slate-500',
       component: FlyerSettings
+    },
+    {
+      id: 'design-planner',
+      title: 'Design Planner',
+      description: 'Plan and design offer layouts',
+      icon: '🏷️',
+      color: 'from-teal-500 to-cyan-500',
+      component: DesignPlanner
+    },
+    {
+      id: 'shelf-template-designer',
+      title: 'Shelf Paper Template Designer',
+      description: 'Design custom shelf paper templates',
+      icon: '🎨',
+      color: 'from-violet-500 to-purple-500',
+      component: ShelfPaperTemplateDesigner
     }
   ];
   

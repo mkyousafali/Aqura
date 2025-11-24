@@ -469,45 +469,63 @@
 		
 		// Check if current profit is MORE than target profit
 		if (currentProfitPercent > targetProfit) {
-			// Calculate offer price = cost + target profit % amount
+			// Option 1: Calculate offer with target profit
 			const targetProfitAmount = cost * (targetProfit / 100);
-			const offerPrice = cost + targetProfitAmount;
+			let offerWithTargetProfit = cost + targetProfitAmount;
+			offerWithTargetProfit = roundDownTo95(offerWithTargetProfit);
 			
-			// Round to .95 ending
-			let offerPriceRounded = roundDownTo95(offerPrice);
+			// Option 2: Calculate offer with 2.05 decrease
+			// Start with price - 2.05, then round DOWN to nearest .95
+			const priceAfter205 = priceUnit - 2.05;
+			let offerWith205Decrease = Math.floor(priceAfter205) + 0.95;
 			
-			// Make sure rounded price still gives profit and is less than sales price
-			if (offerPriceRounded <= cost) {
-				offerPriceRounded = Math.floor(cost) + 1.95;
+			// If that's higher than the target, go down by 1
+			if (offerWith205Decrease > priceAfter205) {
+				offerWith205Decrease = Math.floor(priceAfter205) - 1 + 0.95;
 			}
 			
-			// If rounded price is >= sales price, try one level down
-			if (offerPriceRounded >= priceUnit) {
-				offerPriceRounded = Math.floor(offerPriceRounded - 1) + 0.95;
-				
-				// Check again - if still invalid, no offer possible
-				if (offerPriceRounded <= cost || offerPriceRounded >= priceUnit) {
-					return {
-						...product,
-						offer_qty: 1,
-						offer_price: 0,
-						free_qty: 0,
-						limit_qty: null,
-						generation_status: 'B1 Not Applicable (cannot round to valid .95 price)'
-					};
-				}
+			// Choose the LOWER price (bigger discount) that still maintains target profit
+			let finalOfferPrice;
+			
+			// Check if 2.05 decrease maintains target profit (allow up to 1% below target)
+			const profitWith205 = ((offerWith205Decrease - cost) / cost) * 100;
+			const minAcceptableProfit = targetProfit - 1; // Allow 1% below target
+			
+			if (profitWith205 >= minAcceptableProfit && offerWith205Decrease > cost) {
+				// Can achieve 2.05 decrease within acceptable profit range - use it
+				finalOfferPrice = offerWith205Decrease;
+			} else {
+				// 2.05 decrease would go too far below target profit - use target profit price
+				finalOfferPrice = offerWithTargetProfit;
 			}
 			
-			// Calculate actual profit after rounding
-			const actualProfit = ((offerPriceRounded - cost) / cost) * 100;
+			// Final validations
+			if (finalOfferPrice <= cost) {
+				finalOfferPrice = Math.floor(cost) + 1.95;
+			}
+			
+			if (finalOfferPrice >= priceUnit) {
+				return {
+					...product,
+					offer_qty: 1,
+					offer_price: 0,
+					free_qty: 0,
+					limit_qty: null,
+					generation_status: 'B1 Not Applicable (cannot create valid offer)'
+				};
+			}
+			
+			// Calculate final metrics
+			const actualProfit = ((finalOfferPrice - cost) / cost) * 100;
+			const finalDecrease = priceUnit - finalOfferPrice;
 			
 			return {
 				...product,
 				offer_qty: 1,
-				offer_price: offerPriceRounded,
+				offer_price: finalOfferPrice,
 				free_qty: 0,
 				limit_qty: null,
-				generation_status: `B1 Success (${actualProfit.toFixed(2)}%)`
+				generation_status: `B1 Success (Profit: ${actualProfit.toFixed(2)}%, Decrease: ${finalDecrease.toFixed(2)})`
 			};
 		} else {
 			// Current profit is NOT more than target - no offer
@@ -616,109 +634,64 @@
 		const offerPrice = product.offer_price || 0;
 		const offerQty = product.offer_qty || 1;
 		
+		console.log(`B3 for ${product.barcode}: cost=${cost}, priceUnit=${priceUnit}, offerPrice=${offerPrice}, offerQty=${offerQty}`);
+		
 		// Validation
 		if (cost <= 0 || priceUnit <= 0) {
+			console.log(`B3 ${product.barcode}: Invalid cost or price`);
 			return product;
 		}
 		
 		if (cost >= priceUnit) {
+			console.log(`B3 ${product.barcode}: Cost >= price`);
 			return product;
 		}
 		
-		// Case 1: No offer exists (offer_price = 0) - create offer with minimum 1.55 difference
-		if (offerPrice <= 0) {
-			// Try all possible offer prices ending in .95
-			const candidates: any[] = [];
-			
-			for (let offerInt = Math.floor(cost); offerInt < Math.floor(priceUnit); offerInt++) {
-				const testOfferPrice = offerInt + 0.95;
-				
-				// Must be above cost
-				if (testOfferPrice <= cost) continue;
-				
-				// Must be below price
-				if (testOfferPrice >= priceUnit) continue;
-				
-				// Calculate actual decrease
-				const actualDecrease = priceUnit - testOfferPrice;
-				
-				// Must have at least 1.55 decrease
-				if (actualDecrease >= 1.55) {
-					const profitPercent = ((testOfferPrice - cost) / cost) * 100;
-					
-					// Must have profit (no loss)
-					if (profitPercent >= 0) {
-						candidates.push({
-							offerPrice: testOfferPrice,
-							decrease: actualDecrease,
-							profit: profitPercent
-						});
-					}
-				}
-			}
-			
-			// Select the one with minimum decrease (closest to 1.55 but >= 1.55)
-			if (candidates.length > 0) {
-				candidates.sort((a, b) => a.decrease - b.decrease); // Smallest decrease first
-				const best = candidates[0];
-				
-				return {
-					...product,
-					offer_qty: 1,
-					offer_price: best.offerPrice,
-					generation_status: `B3 Created (Decrease: ${best.decrease.toFixed(2)}, Profit: ${best.profit.toFixed(2)}%)`
-				};
-			} else {
-				// Cannot achieve 1.55 decrease above cost
-				return {
-					...product,
-					offer_qty: 1,
-					offer_price: 0,
-					generation_status: `B3 Not Applicable (cannot achieve 1.55 decrease above cost)`
-				};
-			}
-		}
-		
-		// Case 2: Offer exists - check if decrease amount is less than 2.05
+		// Calculate current decrease amount (works for both existing and non-existing offers)
 		const priceTotal = priceUnit * offerQty;
 		const offerTotal = offerPrice * offerQty;
 		const currentDecreaseAmount = priceTotal - offerTotal;
 		
-		// Check if decrease amount is less than 2.05
-		if (currentDecreaseAmount < 2.05) {
-			// Need to adjust offer price to get at least 2.05 decrease
-			const targetOfferTotal = priceTotal - 2.05;
-			const targetOfferUnit = targetOfferTotal / offerQty;
-			
-			// Round to .95 ending
-			let newOfferPrice = roundDownTo95(targetOfferUnit);
-			
-			// Make sure it's still above cost
-			if (newOfferPrice <= cost) {
-				// Can't achieve 2.05 decrease without going below cost - mark as B3 Not Applicable
-				return {
-					...product,
-					generation_status: `B3 Not Applicable (would go below cost)`
-				};
-			}
-			
-			// Calculate actual decrease amount and profit with new price
-			const newOfferTotal = newOfferPrice * offerQty;
-			const newDecreaseAmount = priceTotal - newOfferTotal;
-			const newProfitPercent = ((newOfferTotal - (cost * offerQty)) / (cost * offerQty)) * 100;
-			
-			return {
-				...product,
-				offer_price: newOfferPrice,
-				generation_status: `B3 Adjusted (Decrease: ${newDecreaseAmount.toFixed(2)}, Profit: ${newProfitPercent.toFixed(2)}%)`
-			};
-		} else {
-			// Already has at least 2.05 decrease - no change needed
+		console.log(`B3 ${product.barcode}: priceTotal=${priceTotal}, offerTotal=${offerTotal}, currentDecreaseAmount=${currentDecreaseAmount}`);
+		
+		// If decrease is already 2.05 or more, skip
+		if (offerPrice > 0 && currentDecreaseAmount >= 2.05) {
 			return {
 				...product,
 				generation_status: `B3 Skip (Already ${currentDecreaseAmount.toFixed(2)} decrease)`
 			};
 		}
+		
+		// Need to create or adjust offer to get at least 2.05 decrease
+		const targetOfferTotal = priceTotal - 2.05;
+		const targetOfferUnit = targetOfferTotal / offerQty;
+		
+		// Round to .95 ending
+		let newOfferPrice = roundDownTo95(targetOfferUnit);
+		
+		// Make sure it's still above cost
+		if (newOfferPrice <= cost) {
+			// Can't achieve 2.05 decrease without going below cost
+			return {
+				...product,
+				generation_status: `B3 Not Applicable (would go below cost)`
+			};
+		}
+		
+		// Calculate actual decrease amount and profit with new price
+		const newOfferTotal = newOfferPrice * offerQty;
+		const newDecreaseAmount = priceTotal - newOfferTotal;
+		const newProfitPercent = ((newOfferTotal - (cost * offerQty)) / (cost * offerQty)) * 100;
+		
+		// Determine if this was a creation or adjustment
+		const statusLabel = offerPrice <= 0 ? 'Created' : 'Adjusted';
+		
+		return {
+			...product,
+			offer_qty: offerQty,
+			offer_price: newOfferPrice,
+			generation_status: `B3 ${statusLabel} (Decrease: ${newDecreaseAmount.toFixed(2)}, Profit: ${newProfitPercent.toFixed(2)}%)`
+		};
 	}
 	
 	// Auto-generate offer price for a single product with target profit percentage
@@ -938,10 +911,16 @@
 				currentTotalOfferPrice
 			});
 			
-			// Skip if no valid offer price or if total offer price is already >= 10
-			if (offerPricePerUnit <= 0 || currentTotalOfferPrice >= 10) {
-				console.log(`B4: Skipping ${product.barcode} - total offer price >= 10 or no offer price`);
-				return { ...product, generation_status: 'B4 Skip (>= 10 SAR)' };
+			// Skip if no valid offer price
+			if (offerPricePerUnit <= 0) {
+				console.log(`B4: Skipping ${product.barcode} - no offer price`);
+				return { ...product, generation_status: 'B4 Skip (No Offer)' };
+			}
+			
+			// Skip if unit price is NOT less than 10
+			if (priceUnit >= 10) {
+				console.log(`B4: Skipping ${product.barcode} - unit price >= 10`);
+				return { ...product, generation_status: 'B4 Skip (Price >= 10 SAR)' };
 			}
 			
 			// Skip if cost/price invalid
@@ -1115,7 +1094,91 @@
 		console.log(`B5 Complete - Recalculated: ${recalculated}, No Valid Price: ${noValidPrice}, Not Applicable: ${notApplicable}`);
 	}
 	
-	// NEW: Single button to run all steps B1→B2→B3→B4→B5 in sequence
+	// BUTTON 6: Adjust high profit offers (qty=1, profit > 3x target) to target+10%
+	function generateOfferPriceButton6(product: any, targetProfit: number): any {
+		const cost = product.cost || 0;
+		const priceUnit = product.sales_price || 0;
+		const offerPrice = product.offer_price || 0;
+		const offerQty = product.offer_qty || 1;
+		
+		// Only process products with qty=1 and existing offer
+		if (offerQty !== 1 || offerPrice <= 0) {
+			return product;
+		}
+		
+		// Validation
+		if (cost <= 0 || priceUnit <= 0) {
+			return product;
+		}
+		
+		// Calculate current profit % after offer
+		const currentProfitPercent = ((offerPrice - cost) / cost) * 100;
+		
+		// Check if profit is 3x higher than target
+		const threeTimesTarget = targetProfit * 3;
+		
+		if (currentProfitPercent >= threeTimesTarget) {
+			// Adjust to target + 10%
+			const newTargetProfit = targetProfit + 10;
+			const newProfitAmount = cost * (newTargetProfit / 100);
+			let newOfferPrice = cost + newProfitAmount;
+			
+			// Round to .95 ending
+			newOfferPrice = roundDownTo95(newOfferPrice);
+			
+			// Make sure it's still below sales price and above cost
+			if (newOfferPrice <= cost) {
+				newOfferPrice = Math.floor(cost) + 1.95;
+			}
+			
+			if (newOfferPrice >= priceUnit) {
+				return {
+					...product,
+					generation_status: `B6 Not Applicable (new price >= sales price)`
+				};
+			}
+			
+			// Calculate final profit
+			const finalProfit = ((newOfferPrice - cost) / cost) * 100;
+			const decrease = priceUnit - newOfferPrice;
+			
+			return {
+				...product,
+				offer_price: newOfferPrice,
+				generation_status: `B6 Adjusted (Profit: ${finalProfit.toFixed(2)}%, Decrease: ${decrease.toFixed(2)})`
+			};
+		} else {
+			return {
+				...product,
+				generation_status: `B6 Skip (Profit ${currentProfitPercent.toFixed(2)}% < ${threeTimesTarget}%)`
+			};
+		}
+	}
+	
+	// Generate all offer prices with B6
+	function generateAllOfferPricesButton6() {
+		if (!selectedProducts.length) {
+			console.log('B6: No products to adjust');
+			return;
+		}
+		
+		if (!allProductsHaveCostAndPrice()) {
+			console.log('B6: Not all products have Cost and Price');
+			return;
+		}
+		
+		selectedProducts = selectedProducts.map(product => generateOfferPriceButton6(product, targetProfitPercent));
+		hasUnsavedChanges = true;
+		
+		// Count results
+		const adjusted = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B6 Adjusted')).length;
+		const skipped = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B6 Skip')).length;
+		const notApplicable = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B6 Not Applicable')).length;
+		
+		console.log(`B6 Complete - Adjusted: ${adjusted}, Skipped: ${skipped}, Not Applicable: ${notApplicable}`);
+	}
+	
+	// NEW: Single button to run all steps B1→B2→B3→B4→B5→B6 in sequence
 	async function generateOffersAllSteps() {
 		if (!selectedProducts.length) {
 			alert('No products to generate offers for');
@@ -1147,6 +1210,9 @@
 			
 			// Run B5
 			await generateAllOfferPricesButton5();
+			
+			// Run B6
+			await generateAllOfferPricesButton6();
 			
 			// Wait for all updates to complete
 			await tick();
@@ -1426,51 +1492,62 @@
 						Generate Offers
 					</button>
 					
-					<!-- Individual B1-B5 buttons (HIDDEN) -->
-					{#if false}
-					<!-- Button 1: Discount-based (1.55-1.95 SAR) -->
+					<!-- Individual B1-B6 buttons - Hidden by default, uncomment for debugging -->
+					<!-- 
 					<button
 						on:click={generateAllOfferPricesButton1}
 						disabled={!selectedProducts.length || !allProductsHaveCostAndPrice()}
 						class="px-3 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-						title={!allProductsHaveCostAndPrice() ? 'All products must have Cost (Unit) and Price (Unit)' : 'Button 1: Discount 1.55-1.95 SAR, increase qty to meet target'}
+						title={!allProductsHaveCostAndPrice() ? 'All products must have Cost (Unit) and Price (Unit)' : 'Button 1: Target profit based pricing'}
 					>
 						B1
-					</button>					<!-- Button 2: Increase quantity for low profit products -->
+					</button>
+					
 					<button
 						on:click={generateAllOfferPricesButton2}
-						disabled={!selectedProducts.length || !selectedProducts.some(p => p.offer_price > 0) || !b1Executed}
+						disabled={!selectedProducts.length || !b1Executed}
 						class="px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-						title={!b1Executed ? 'Run B1 first' : (!selectedProducts.some(p => p.offer_price > 0) ? 'Run B1 first to generate offers' : 'Button 2: Increase qty for low profit (< 5%) and price < 10')}
+						title={!b1Executed ? 'Run B1 first' : 'Button 2: Increase qty for low profit (< 5%) and price < 10'}
 					>
 						B2
-					</button>						<!-- Button 3: Adjust to minimum 2.05 decrease -->
-						<button
-							on:click={generateAllOfferPricesButton3}
+					</button>
+					
+					<button
+						on:click={generateAllOfferPricesButton3}
 						disabled={!selectedProducts.length || !allProductsHaveCostAndPrice() || !b2Executed}
 						class="px-3 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-						title={!b2Executed ? 'Run B2 first' : (!allProductsHaveCostAndPrice() ? 'All products must have Cost and Price' : 'Button 3: Creates offers with 1.55 min decrease OR adjusts to 2.05 decrease')}
+						title={!b2Executed ? 'Run B2 first' : (!allProductsHaveCostAndPrice() ? 'All products must have Cost and Price' : 'Button 3: Ensure minimum 2.05 SAR decrease')}
 					>
 						B3
-					</button>					<!-- Button 4: Increase qty if offer price < 10 -->
+					</button>
+					
 					<button
 						on:click={generateAllOfferPricesButton4}
-						disabled={!selectedProducts.length || !selectedProducts.some(p => p.offer_price > 0) || !b3Executed}
+						disabled={!selectedProducts.length || !b3Executed}
 						class="px-3 py-2 bg-gradient-to-r from-orange-600 to-orange-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-						title={!b3Executed ? 'Run B3 first' : (!selectedProducts.some(p => p.offer_price > 0) ? 'Run B1/B3 first to generate offers' : 'Button 4: Increase qty if total offer price < 10 (max total 19.95)')}
+						title={!b3Executed ? 'Run B3 first' : 'Button 4: Increase qty if unit price < 10 (max 19.95)'}
 					>
-					B4
-				</button>						<!-- Button 5: Recalculate based on current quantity -->
+						B4
+					</button>
+					
 					<button
 						on:click={generateAllOfferPricesButton5}
 						disabled={!selectedProducts.length || !allProductsHaveCostAndPrice() || !b4Executed}
 						class="px-3 py-2 bg-gradient-to-r from-pink-600 to-pink-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-						title={!b4Executed ? 'Run B4 first' : (!allProductsHaveCostAndPrice() ? 'All products must have Cost and Price' : 'Button 5: Recalculate offer price for current quantity (total - 2.05)')}
+						title={!b4Executed ? 'Run B4 first' : (!allProductsHaveCostAndPrice() ? 'All products must have Cost and Price' : 'Button 5: Recalculate for current qty (total - 2.05)')}
 					>
 						B5
-				</button>
-					{/if}
-					<!-- End of hidden B1-B5 buttons -->
+					</button>
+					
+					<button
+						on:click={generateAllOfferPricesButton6}
+						disabled={!selectedProducts.length || !allProductsHaveCostAndPrice()}
+						class="px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
+						title={!allProductsHaveCostAndPrice() ? 'All products must have Cost and Price' : 'Button 6: Adjust high profit offers (qty=1, profit > 3x target) to target+10%'}
+					>
+						B6
+					</button>
+					-->
 				</div>
 					
 				<button
@@ -1736,13 +1813,13 @@
 									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAmount(product.cost, product.sales_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitAmount(product.cost, product.sales_price, product.offer_qty).toFixed(2)}
 									</td>
-									<td class="w-24 px-4 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
+									<td class="w-24 px-4 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) < 27.5 ? 'text-white bg-red-600' : calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitPercentage(product.cost, product.sales_price).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
+									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) < targetProfitPercent ? 'text-white bg-red-600' : calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50'}">
+									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 3 ? 'text-green-700 bg-yellow-100' : (calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50')}">
 										{calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty).toFixed(2)}
 									</td>
 								</tr>

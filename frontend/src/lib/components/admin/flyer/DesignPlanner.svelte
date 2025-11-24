@@ -1,0 +1,1076 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { supabaseAdmin } from '$lib/utils/supabase';
+
+  interface Offer {
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_active: boolean;
+  }
+
+  interface Product {
+    barcode: string;
+    product_name_en: string;
+    product_name_ar: string;
+    unit_name: string;
+    sales_price: number;
+    offer_price: number;
+    offer_qty: number;
+    limit_qty: number | null;
+    image_url?: string;
+    pdfSizes: ('a4' | 'a5' | 'a6' | 'a7')[];
+    offer_end_date: string;
+  }
+
+  interface FieldSelector {
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fontSize: number;
+    alignment: 'left' | 'center' | 'right';
+    color: string;
+  }
+
+  interface SavedTemplate {
+    id: string;
+    name: string;
+    description: string | null;
+    template_image_url: string;
+    field_configuration: FieldSelector[];
+    metadata: { preview_width: number; preview_height: number } | null;
+    created_at: string;
+  }
+
+  let offers: Offer[] = [];
+  let selectedOfferId: string | null = null;
+  let selectedOffer: Offer | null = null;
+  let products: Product[] = [];
+  let isLoadingOffers = true;
+  let isLoadingProducts = false;
+  let savedTemplates: SavedTemplate[] = [];
+  let selectedTemplateId: string | null = null;
+  let isLoadingTemplates = false;
+
+  onMount(async () => {
+    await loadActiveOffers();
+    await loadTemplates();
+  });
+
+  async function loadTemplates() {
+    try {
+      isLoadingTemplates = true;
+      const { data, error } = await supabaseAdmin
+        .from('shelf_paper_templates')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      savedTemplates = data || [];
+    } catch (error) {
+      console.error('Error loading templates:', error);
+    } finally {
+      isLoadingTemplates = false;
+    }
+  }
+
+  async function loadActiveOffers() {
+    try {
+      isLoadingOffers = true;
+      const { data, error } = await supabaseAdmin
+        .from('flyer_offers')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      offers = (data || []).map(offer => ({
+        id: offer.id,
+        name: offer.name_en || offer.name_ar,
+        start_date: offer.start_date,
+        end_date: offer.end_date,
+        is_active: true
+      }));
+    } catch (error) {
+      console.error('Error loading offers:', error);
+      alert('Failed to load offers');
+    } finally {
+      isLoadingOffers = false;
+    }
+  }
+
+  async function loadOfferProducts(offerId: string) {
+    try {
+      isLoadingProducts = true;
+      selectedOfferId = offerId;
+      selectedOffer = offers.find(o => o.id === offerId) || null;
+      
+      // Get offer products
+      const { data: offerProducts, error: offerError } = await supabaseAdmin
+        .from('flyer_offer_products')
+        .select('*')
+        .eq('offer_id', offerId);
+
+      if (offerError) throw offerError;
+
+      if (!offerProducts || offerProducts.length === 0) {
+        products = [];
+        return;
+      }
+
+      // Get barcodes
+      const barcodes = offerProducts.map(p => p.product_barcode);
+
+      // Get product details from flyer_products
+      const { data: productDetails, error: productError } = await supabaseAdmin
+        .from('flyer_products')
+        .select('barcode, product_name_en, product_name_ar, unit_name, image_url')
+        .in('barcode', barcodes);
+
+      if (productError) throw productError;
+
+      // Combine offer data with product details
+      products = offerProducts.map(offerProduct => {
+        const productDetail = productDetails?.find(p => p.barcode === offerProduct.product_barcode);
+        return {
+          barcode: offerProduct.product_barcode,
+          product_name_en: productDetail?.product_name_en || '',
+          product_name_ar: productDetail?.product_name_ar || '',
+          unit_name: productDetail?.unit_name || '',
+          sales_price: offerProduct.sales_price || 0,
+          offer_price: offerProduct.offer_price || 0,
+          offer_qty: offerProduct.offer_qty || 1,
+          limit_qty: offerProduct.limit_qty,
+          image_url: productDetail?.image_url,
+          pdfSizes: [],
+          offer_end_date: selectedOffer?.end_date || ''
+        };
+      }).sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
+
+    } catch (error) {
+      console.error('Error loading products:', error);
+      alert('Failed to load products');
+    } finally {
+      isLoadingProducts = false;
+    }
+  }
+
+  function togglePdfSize(barcode: string, size: 'a4' | 'a5' | 'a6' | 'a7', checked: boolean) {
+    products = products.map(p => {
+      if (p.barcode === barcode) {
+        const sizes = checked 
+          ? [...p.pdfSizes, size]
+          : p.pdfSizes.filter(s => s !== size);
+        return { ...p, pdfSizes: sizes };
+      }
+      return p;
+    });
+  }
+
+  function generatePDF(product: Product) {
+    if (product.pdfSizes.length === 0) {
+      alert('Please select at least one PDF size');
+      return;
+    }
+
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      alert('Please allow popups to generate PDF');
+      return;
+    }
+
+    const layouts = {
+      a4: { cols: 1, rows: 1, count: 1 },
+      a5: { cols: 1, rows: 2, count: 2 },
+      a6: { cols: 2, rows: 2, count: 4 },
+      a7: { cols: 2, rows: 4, count: 8 }
+    };
+
+    const fonts = {
+      a4: { n: 24, na: 22, rp: 18, op: 32, q: 20, l: 14, b: 14 },
+      a5: { n: 18, na: 16, rp: 14, op: 24, q: 16, l: 12, b: 12 },
+      a6: { n: 14, na: 12, rp: 12, op: 18, q: 12, l: 10, b: 10 },
+      a7: { n: 12, na: 10, rp: 10, op: 14, q: 10, l: 8, b: 8 }
+    };
+
+    const layout = layouts[product.pdfSize];
+    const font = fonts[product.pdfSize];
+
+    const doc = printWindow.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><title>Print</title></head><body><div id="root"></div></body></html>');
+    doc.close();
+
+    let allPagesHtml = '';
+
+    // Generate a page for each selected size
+    product.pdfSizes.forEach((pdfSize, pageIndex) => {
+      const layout = layouts[pdfSize];
+      const font = fonts[pdfSize];
+
+      // Format end date for display
+      const endDate = new Date(product.offer_end_date);
+      const expireDateEn = 'Expires: ' + endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const expireDateAr = 'ينتهي في: ' + endDate.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
+
+      let cardsHtml = '';
+      for (let i = 0; i < layout.count; i++) {
+        const imgHtml = product.image_url 
+          ? '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">'
+          : '<div style="width:100%;height:40%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:48px">📦</div>';
+        
+        const qtyHtml = product.offer_qty > 1 ? '<div class="oq">Buy ' + product.offer_qty + '</div>' : '';
+        const limHtml = product.limit_qty ? '<div class="lq">Limit: ' + product.limit_qty + '</div>' : '';
+        
+        cardsHtml += '<div class="pc sz-' + pdfSize + '">' + imgHtml + '<div class="pne sz-' + pdfSize + '">' + product.product_name_en + '</div><div class="pna sz-' + pdfSize + '">' + product.product_name_ar + '</div><div class="ps"><div class="rp sz-' + pdfSize + '">' + product.sales_price.toFixed(2) + ' SAR</div><div class="op sz-' + pdfSize + '">' + product.offer_price.toFixed(2) + ' SAR</div>' + qtyHtml + limHtml + '<div class="bc sz-' + pdfSize + '">' + product.barcode + '</div><div class="exp-en sz-' + pdfSize + '">' + expireDateEn + '</div><div class="exp-ar sz-' + pdfSize + '">' + expireDateAr + '</div></div></div>';
+      }
+
+      const pageBreak = pageIndex < product.pdfSizes.length - 1 ? ' style="page-break-after:always"' : '';
+      allPagesHtml += '<div class="cnt"' + pageBreak + '>' + cardsHtml + '</div>';
+    });
+
+    const styleEl = doc.createElement('style');
+    let cssText = '@page{size:A4;margin:0}@media print{html,body{width:210mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;overflow:hidden}.cnt{width:210mm;height:297mm;display:grid;gap:0;padding:0;page-break-inside:avoid;overflow:hidden}.pc{border:2px solid #333;border-radius:8px;padding:5px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:white;margin:2mm;overflow:hidden;page-break-inside:avoid}.pi{width:90%;max-width:90%;height:35%;max-height:35%;object-fit:contain;margin-bottom:5px}.ps{width:100%;text-align:center;margin-top:auto}';
+    
+    // Add size-specific styles
+    Object.keys(fonts).forEach(size => {
+      const f = fonts[size];
+      const l = layouts[size];
+      cssText += '.cnt:has(.sz-' + size + '){grid-template-columns:repeat(' + l.cols + ',1fr);grid-template-rows:repeat(' + l.rows + ',1fr)}';
+      cssText += '.pne.sz-' + size + '{font-size:' + f.n + 'px;font-weight:bold;text-align:center;margin-bottom:3px;line-height:1.2}';
+      cssText += '.pna.sz-' + size + '{font-size:' + f.na + 'px;font-weight:bold;text-align:center;direction:rtl;margin-bottom:5px;line-height:1.2}';
+      cssText += '.rp.sz-' + size + '{text-decoration:line-through;color:#666;font-size:' + f.rp + 'px;line-height:1.2}';
+      cssText += '.op.sz-' + size + '{color:#e53e3e;font-size:' + f.op + 'px;font-weight:bold;margin:3px 0;line-height:1.2}';
+      cssText += '.bc.sz-' + size + '{font-size:' + f.b + 'px;color:#666;margin-top:3px}';
+      cssText += '.exp-en.sz-' + size + '{font-size:' + f.b + 'px;color:#d97706;margin-top:3px;font-weight:600}';
+      cssText += '.exp-ar.sz-' + size + '{font-size:' + f.b + 'px;color:#d97706;margin-top:2px;direction:rtl;font-weight:600}';
+    });
+    
+    cssText += '.oq{background:#48bb78;color:white;padding:3px 8px;border-radius:5px;font-weight:bold;display:inline-block;margin-top:3px}.lq{background:#ed8936;color:white;padding:2px 6px;border-radius:3px;margin-top:3px}';
+    
+    styleEl.textContent = cssText;
+    doc.head.appendChild(styleEl);
+
+    const rootEl = doc.getElementById('root');
+    if (rootEl) {
+      rootEl.innerHTML = allPagesHtml;
+    }
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  }
+
+  function generatePDFWithTemplate(product: Product) {
+    if (!selectedTemplateId) {
+      alert('Please select a template first');
+      return;
+    }
+
+    const template = savedTemplates.find(t => t.id === selectedTemplateId);
+    if (!template) {
+      alert('Template not found');
+      return;
+    }
+
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      alert('Please allow popups to generate PDF');
+      return;
+    }
+
+    const doc = printWindow.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><title>Print - ' + product.product_name_en + '</title></head><body><div id="root"></div></body></html>');
+    doc.close();
+
+    // Load template image to get its actual dimensions
+    const tempImg = new Image();
+    tempImg.onload = function() {
+      const originalWidth = tempImg.width;
+      const originalHeight = tempImg.height;
+      
+      console.log('Original image dimensions:', originalWidth, 'x', originalHeight);
+      
+      // A4 dimensions in pixels at 96 DPI
+      const a4Width = 794;
+      const a4Height = 1123;
+      
+      // Use stored preview dimensions if available, otherwise use original image dimensions
+      const previewWidth = template.metadata?.preview_width || originalWidth;
+      const previewHeight = template.metadata?.preview_height || originalHeight;
+      
+      console.log('Preview dimensions used for positioning:', previewWidth, 'x', previewHeight);
+      
+      // Calculate scale from preview to A4
+      const scaleX = a4Width / previewWidth;
+      const scaleY = a4Height / previewHeight;
+      
+      console.log('Scale factors - X:', scaleX, 'Y:', scaleY);
+
+      // Create the page with template background
+      let pageHtml = '<div class="template-page">';
+      pageHtml += '<img src="' + template.template_image_url + '" class="template-bg" alt="Template">';
+      
+      let debugInfo = 'Preview:' + previewWidth + 'x' + previewHeight + ' Scale:' + scaleX.toFixed(2) + ',' + scaleY.toFixed(2) + ' | ';
+      
+      // Add fields based on template configuration with scaling
+      template.field_configuration.forEach((field, index) => {
+        console.log('Processing field:', field.label, 'original pos:', field.x, ',', field.y);
+        
+        let value = '';
+        const endDate = new Date(product.offer_end_date);
+        
+        switch(field.label) {
+          case 'product_name_en':
+            value = product.product_name_en;
+            break;
+          case 'product_name_ar':
+            value = product.product_name_ar;
+            break;
+          case 'barcode':
+            value = product.barcode;
+            break;
+          case 'serial_number':
+            value = product.barcode;
+            break;
+          case 'unit_name':
+            value = product.unit_name;
+            break;
+          case 'price':
+            value = product.sales_price.toFixed(2) + ' SAR';
+            break;
+          case 'offer_price':
+            value = product.offer_price.toFixed(2) + ' SAR';
+            break;
+          case 'offer_qty':
+            value = product.offer_qty > 1 ? 'Buy ' + product.offer_qty : '';
+            break;
+          case 'limit_qty':
+            value = product.limit_qty ? 'Limit: ' + product.limit_qty : '';
+            break;
+          case 'expire_date':
+            value = 'Expires: ' + endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            break;
+          case 'image':
+            if (product.image_url) {
+              const scaledX = Math.round(field.x * scaleX);
+              const scaledY = Math.round(field.y * scaleY);
+              const scaledWidth = Math.round(field.width * scaleX);
+              const scaledHeight = Math.round(field.height * scaleY);
+              console.log('Image field scaled to:', scaledX, scaledY, scaledWidth, scaledHeight);
+              debugInfo += field.label + '(' + scaledX + ',' + scaledY + ') ';
+              pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:100;overflow:hidden;border:2px solid red;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+            }
+            return;
+        }
+        
+        if (value) {
+          const scaledX = Math.round(field.x * scaleX);
+          const scaledY = Math.round(field.y * scaleY);
+          const scaledWidth = Math.round(field.width * scaleX);
+          const scaledHeight = Math.round(field.height * scaleY);
+          const scaledFontSize = Math.round(field.fontSize * Math.min(scaleX, scaleY));
+          
+          console.log(field.label, 'scaled to:', scaledX, scaledY, 'fontSize:', scaledFontSize);
+          debugInfo += field.label + '(' + scaledX + ',' + scaledY + ') ';
+          
+          const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
+          const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
+          const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
+          pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:100;overflow:hidden;border:2px solid blue;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + dirAttr + '">' + value + '</div></div>';
+        }
+      });
+      
+      pageHtml += '<div style="position:absolute;top:0;left:0;background:yellow;padding:5px;font-size:10px;z-index:1000;">' + debugInfo + '</div>';
+      pageHtml += '</div>';
+
+      const styleEl = doc.createElement('style');
+      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box}.field-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+      
+      styleEl.textContent = cssText;
+      doc.head.appendChild(styleEl);
+      doc.getElementById('root').innerHTML = pageHtml;
+      
+      setTimeout(() => {
+        printWindow.print();
+      }, 1000);
+    };
+    
+    tempImg.src = template.template_image_url;
+  }
+</script>
+
+<div class="shelf-paper-generator">
+  <div class="header">
+    <h2 class="text-2xl font-bold text-gray-800">Design Planner</h2>
+    <p class="text-sm text-gray-600 mt-1">Select an active offer to view and plan product layouts</p>
+  </div>
+
+  <div class="content">
+    <!-- Offers List -->
+    <div class="offers-section">
+      <h3 class="section-title">Active Offer Templates</h3>
+      
+      {#if isLoadingOffers}
+        <div class="loading">Loading offers...</div>
+      {:else if offers.length === 0}
+        <div class="empty-state">No active offers found</div>
+      {:else}
+        <div class="offers-list">
+          {#each offers as offer}
+            <button
+              class="offer-card {selectedOfferId === offer.id ? 'selected' : ''}"
+              on:click={() => loadOfferProducts(offer.id)}
+            >
+              <div class="offer-icon">📋</div>
+              <div class="offer-info">
+                <div class="offer-name">{offer.name}</div>
+                <div class="offer-dates">
+                  {new Date(offer.start_date).toLocaleDateString()} - {new Date(offer.end_date).toLocaleDateString()}
+                </div>
+              </div>
+              {#if selectedOfferId === offer.id}
+                <div class="selected-badge">✓</div>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Products List -->
+    {#if selectedOfferId}
+      <div class="products-section">
+        <div class="products-header">
+          <h3 class="section-title">Products in Selected Offer</h3>
+          
+          <!-- Template Selector -->
+          <div class="template-selector">
+            <label for="template-select" class="template-label">📐 Choose Template:</label>
+            <select 
+              id="template-select"
+              bind:value={selectedTemplateId}
+              class="template-select"
+              disabled={isLoadingTemplates}
+            >
+              <option value={null}>-- No Template (Default Layout) --</option>
+              {#each savedTemplates as template}
+                <option value={template.id}>{template.name}</option>
+              {/each}
+            </select>
+            {#if selectedTemplateId}
+              <span class="template-badge">✓ Template Selected</span>
+            {/if}
+          </div>
+        </div>
+        
+        {#if isLoadingProducts}
+          <div class="loading">Loading products...</div>
+        {:else if products.length === 0}
+          <div class="empty-state">No products found in this offer</div>
+        {:else}
+          <div class="products-table-container">
+            <table class="products-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Image</th>
+                  <th>Barcode</th>
+                  <th>Product Name (EN)</th>
+                  <th>Product Name (AR)</th>
+                  <th>Unit</th>
+                  <th>Regular Price</th>
+                  <th>Offer Price</th>
+                  <th>Qty</th>
+                  <th>Limit</th>
+                  <th>Savings</th>
+                  <th>PDF Size</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each products as product, index}
+                  <tr>
+                    <td class="serial-cell">{index + 1}</td>
+                    <td class="image-cell">
+                      <div class="product-image-small">
+                        {#if product.image_url}
+                          <img src={product.image_url} alt={product.product_name_en} />
+                        {:else}
+                          <div class="no-image-small">📦</div>
+                        {/if}
+                      </div>
+                    </td>
+                    <td class="barcode-cell">{product.barcode}</td>
+                    <td class="name-cell">{product.product_name_en}</td>
+                    <td class="name-ar-cell" dir="rtl">{product.product_name_ar}</td>
+                    <td class="unit-cell">{product.unit_name}</td>
+                    <td class="price-cell">
+                      <span class="regular-price">{product.sales_price.toFixed(2)} SAR</span>
+                    </td>
+                    <td class="price-cell">
+                      <span class="offer-price">{product.offer_price.toFixed(2)} SAR</span>
+                    </td>
+                    <td class="qty-cell">
+                      {#if product.offer_qty > 1}
+                        <span class="qty-badge">{product.offer_qty}</span>
+                      {:else}
+                        1
+                      {/if}
+                    </td>
+                    <td class="limit-cell">
+                      {#if product.limit_qty}
+                        <span class="limit-badge">{product.limit_qty}</span>
+                      {:else}
+                        <span class="no-limit">No Limit</span>
+                      {/if}
+                    </td>
+                    <td class="savings-cell">
+                      <span class="savings-amount">
+                        {((product.sales_price - product.offer_price) * product.offer_qty).toFixed(2)} SAR
+                      </span>
+                    </td>
+                    <td class="pdf-size-cell">
+                      <div class="pdf-size-options">
+                        <label class="pdf-checkbox">
+                          <input 
+                            type="checkbox" 
+                            value="a4"
+                            checked={product.pdfSizes.includes('a4')}
+                            on:change={(e) => togglePdfSize(product.barcode, 'a4', e.currentTarget.checked)}
+                          />
+                          <span>A4 (1)</span>
+                        </label>
+                        <label class="pdf-checkbox">
+                          <input 
+                            type="checkbox" 
+                            value="a5"
+                            checked={product.pdfSizes.includes('a5')}
+                            on:change={(e) => togglePdfSize(product.barcode, 'a5', e.currentTarget.checked)}
+                          />
+                          <span>A5 (2)</span>
+                        </label>
+                        <label class="pdf-checkbox">
+                          <input 
+                            type="checkbox" 
+                            value="a6"
+                            checked={product.pdfSizes.includes('a6')}
+                            on:change={(e) => togglePdfSize(product.barcode, 'a6', e.currentTarget.checked)}
+                          />
+                          <span>A6 (4)</span>
+                        </label>
+                        <label class="pdf-checkbox">
+                          <input 
+                            type="checkbox" 
+                            value="a7"
+                            checked={product.pdfSizes.includes('a7')}
+                            on:change={(e) => togglePdfSize(product.barcode, 'a7', e.currentTarget.checked)}
+                          />
+                          <span>A7 (8)</span>
+                        </label>
+                      </div>
+                    </td>
+                    <td class="action-cell">
+                      {#if selectedTemplateId}
+                        <button class="template-btn" on:click={() => generatePDFWithTemplate(product)} title="Generate using selected template">
+                          📐 Use Template
+                        </button>
+                      {/if}
+                      <button class="generate-btn" on:click={() => generatePDF(product)}>
+                        📄 Generate
+                      </button>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .shelf-paper-generator {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #f9fafb;
+  }
+
+  .header {
+    padding: 1.5rem;
+    background: white;
+    border-bottom: 2px solid #e5e7eb;
+  }
+
+  .content {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    overflow: hidden;
+  }
+
+  .offers-section,
+  .products-section {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+  }
+
+  .section-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+  }
+
+  .offers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .offer-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: #f9fafb;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    width: 100%;
+  }
+
+  .offer-card:hover {
+    background: #f3f4f6;
+    border-color: #14b8a6;
+    transform: translateX(4px);
+  }
+
+  .offer-card.selected {
+    background: #f0fdfa;
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+  }
+
+  .offer-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+  }
+
+  .offer-info {
+    flex: 1;
+  }
+
+  .offer-name {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+  }
+
+  .offer-dates {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+
+  .selected-badge {
+    width: 28px;
+    height: 28px;
+    background: #14b8a6;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+
+  .products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .products-table-container {
+    overflow-x: auto;
+  }
+
+  .products-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .products-table thead {
+    background: #f9fafb;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .products-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+    white-space: nowrap;
+  }
+
+  .products-table tbody tr {
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.2s;
+  }
+
+  .products-table tbody tr:hover {
+    background-color: #f9fafb;
+  }
+
+  .products-table td {
+    padding: 0.75rem 1rem;
+    vertical-align: middle;
+  }
+
+  .image-cell {
+    width: 80px;
+  }
+
+  .product-image-small {
+    width: 60px;
+    height: 60px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .product-image-small img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .no-image-small {
+    font-size: 1.5rem;
+    opacity: 0.3;
+  }
+
+  .barcode-cell {
+    font-family: monospace;
+    font-weight: 600;
+    color: #6b7280;
+  }
+
+  .name-cell {
+    font-weight: 500;
+    color: #1f2937;
+  }
+
+  .name-ar-cell {
+    color: #6b7280;
+  }
+
+  .price-cell {
+    font-weight: 600;
+  }
+
+  .regular-price {
+    color: #6b7280;
+    text-decoration: line-through;
+  }
+
+  .offer-price {
+    color: #14b8a6;
+    font-size: 1rem;
+  }
+
+  .qty-cell {
+    text-align: center;
+  }
+
+  .qty-badge {
+    display: inline-block;
+    background: #14b8a6;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .savings-cell {
+    font-weight: 700;
+  }
+
+  .savings-amount {
+    color: #059669;
+  }
+
+  .product-card {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.2s;
+  }
+
+  .product-card:hover {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+  }
+
+  .product-image {
+    width: 100%;
+    height: 150px;
+    background: white;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .product-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .no-image {
+    font-size: 3rem;
+    opacity: 0.3;
+  }
+
+  .product-barcode {
+    font-family: monospace;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+  }
+
+  .product-name {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .product-name-ar {
+    color: #6b7280;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    direction: rtl;
+  }
+
+  .product-prices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+  }
+
+  .price-label {
+    color: #6b7280;
+  }
+
+  .regular-price {
+    color: #6b7280;
+    text-decoration: line-through;
+  }
+
+  .offer-price {
+    color: #14b8a6;
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  .qty-badge {
+    display: inline-block;
+    background: #14b8a6;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .loading,
+  .empty-state {
+    padding: 3rem;
+    text-align: center;
+    color: #6b7280;
+  }
+
+  .pdf-size-cell {
+    padding: 0.5rem;
+  }
+
+  .pdf-size-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .pdf-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: #374151;
+  }
+
+  .pdf-checkbox input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+  }
+
+  .pdf-checkbox span {
+    user-select: none;
+  }
+
+  .action-cell {
+    padding: 0.5rem;
+  }
+
+  .template-btn {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+    border: none;
+    padding: 0.625rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-right: 0.5rem;
+  }
+
+  .template-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  }
+
+  .generate-btn {
+    background: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%);
+    color: white;
+    border: none;
+    padding: 0.625rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .generate-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(20, 184, 166, 0.4);
+  }
+
+  .generate-btn:active {
+    transform: translateY(0);
+  }
+
+  .products-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .template-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .template-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+    white-space: nowrap;
+  }
+
+  .template-select {
+    padding: 0.5rem 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 250px;
+  }
+
+  .template-select:hover {
+    border-color: #8b5cf6;
+  }
+
+  .template-select:focus {
+    outline: none;
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+  }
+
+  .template-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #8b5cf6;
+    color: white;
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .serial-cell {
+    font-weight: 600;
+    color: #6b7280;
+  }
+
+  @media (max-width: 1024px) {
+    .content {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
