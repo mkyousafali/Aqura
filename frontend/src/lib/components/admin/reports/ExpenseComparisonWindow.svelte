@@ -4,6 +4,8 @@
 
 	let expenses: any[] = [];
 	let allCategories: { name: string; color: string }[] = [];
+	let branches: Array<{id: number, name_en: string, name_ar: string}> = [];
+	let selectedBranch: string = 'all';
 	let loading = true;
 	let error: string | null = null;
 
@@ -38,8 +40,24 @@
 
 	onMount(async () => {
 		await loadCategories();
+		await loadBranches();
 		await loadExpenses();
 	});
+
+	async function loadBranches() {
+		try {
+			const { data, error: fetchError } = await supabaseAdmin
+				.from('branches')
+				.select('id, name_en, name_ar')
+				.order('name_en');
+
+			if (fetchError) throw fetchError;
+			branches = data || [];
+			console.log('✅ Loaded branches:', branches.length);
+		} catch (err: any) {
+			console.error('❌ Error loading branches:', err);
+		}
+	}
 
 	async function loadCategories() {
 		try {
@@ -101,12 +119,17 @@
 		const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
 		const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
+		// Filter expenses by branch if selected
+		const filteredExpenses = selectedBranch === 'all' 
+			? expenses 
+			: expenses.filter(exp => exp.branch_id === parseInt(selectedBranch));
+
 		// Group all expenses by category
 		const totalByCategory = new Map<string, number>();
 		const previousMonthByCategory = new Map<string, number>();
 		const currentMonthByCategory = new Map<string, number>();
 
-		expenses.forEach(expense => {
+		filteredExpenses.forEach(expense => {
 			const category = expense.expense_category_name_en || 'Uncategorized';
 			const amount = Number(expense.amount || 0);
 			const expenseDate = new Date(expense.due_date || expense.bill_date || expense.created_at);
@@ -131,6 +154,11 @@
 		totalExpensesByCategory = convertToChartData(totalByCategory);
 		previousMonthExpensesByCategory = convertToChartData(previousMonthByCategory);
 		currentMonthExpensesByCategory = convertToChartData(currentMonthByCategory);
+		
+		// Update custom periods if they exist
+		if (showCustomPeriods) {
+			applyCustomPeriodsWithoutClosing();
+		}
 	}
 
 	function convertToChartData(dataMap: Map<string, number>) {
@@ -176,8 +204,13 @@
 		const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
 		const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 		
-		// Filter expenses based on period
+		// Filter expenses based on category and branch
 		let filteredExpenses = expenses.filter(exp => exp.expense_category_name_en === category);
+		
+		// Apply branch filter if selected
+		if (selectedBranch !== 'all') {
+			filteredExpenses = filteredExpenses.filter(exp => exp.branch_id === parseInt(selectedBranch));
+		}
 		
 		if (period === 'previous') {
 			filteredExpenses = filteredExpenses.filter(exp => {
@@ -239,9 +272,20 @@
 			return;
 		}
 
+		applyCustomPeriodsWithoutClosing();
+		showCustomPeriods = true;
+		closeCustomPeriodModal();
+	}
+
+	function applyCustomPeriodsWithoutClosing() {
+		// Filter expenses by branch if selected
+		const filteredExpenses = selectedBranch === 'all' 
+			? expenses 
+			: expenses.filter(exp => exp.branch_id === parseInt(selectedBranch));
+
 		// Process custom period 1
 		const period1ByCategory = new Map<string, number>();
-		expenses.forEach(expense => {
+		filteredExpenses.forEach(expense => {
 			const category = expense.expense_category_name_en || 'Uncategorized';
 			const amount = Number(expense.amount || 0);
 			const expenseDate = new Date(expense.due_date || expense.bill_date || expense.created_at);
@@ -255,7 +299,7 @@
 
 		// Process custom period 2
 		const period2ByCategory = new Map<string, number>();
-		expenses.forEach(expense => {
+		filteredExpenses.forEach(expense => {
 			const category = expense.expense_category_name_en || 'Uncategorized';
 			const amount = Number(expense.amount || 0);
 			const expenseDate = new Date(expense.due_date || expense.bill_date || expense.created_at);
@@ -269,8 +313,6 @@
 
 		period1ExpensesByCategory = convertToChartData(period1ByCategory);
 		period2ExpensesByCategory = convertToChartData(period2ByCategory);
-		showCustomPeriods = true;
-		closeCustomPeriodModal();
 	}
 
 	function formatPeriodLabel(startDate: string, endDate: string): string {
@@ -283,9 +325,17 @@
 <div class="comparison-window">
 	<div class="header">
 		<h2>📊 Expense Comparison by Category</h2>
-		<button class="custom-period-btn" on:click={openCustomPeriodModal}>
-			📅 Custom Period
-		</button>
+		<div class="header-controls">
+			<select class="branch-filter" bind:value={selectedBranch} on:change={processChartData}>
+				<option value="all">All Branches</option>
+				{#each branches as branch}
+					<option value={branch.id}>{branch.name_en}</option>
+				{/each}
+			</select>
+			<button class="custom-period-btn" on:click={openCustomPeriodModal}>
+				📅 Custom Period
+			</button>
+		</div>
 	</div>
 
 	{#if loading}
@@ -604,6 +654,36 @@
 		font-size: 24px;
 		color: #333;
 		font-weight: 600;
+	}
+
+	.header-controls {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
+	.branch-filter {
+		padding: 10px 16px;
+		background: white;
+		border: 2px solid #667eea;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #333;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 180px;
+	}
+
+	.branch-filter:hover {
+		border-color: #5568d3;
+		box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+	}
+
+	.branch-filter:focus {
+		outline: none;
+		border-color: #667eea;
+		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 	}
 
 	.custom-period-btn {
