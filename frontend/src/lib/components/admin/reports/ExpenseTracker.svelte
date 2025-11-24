@@ -14,12 +14,14 @@
 	let filterBranch = '';
 	let filterCategory = '';
 	let filterPaymentStatus = '';
+	let filterBillType = '';
 	let filterDateFrom = '';
 	let filterDateTo = '';
 	
 	let branches: Array<{id: number, name_en: string, name_ar: string}> = [];
 	let categories: string[] = [];
 	let subCategories: Array<{id: number, name_en: string, name_ar: string}> = [];
+	let billTypes: string[] = [];
 
 	// Edit modal state
 	let showEditModal = false;
@@ -107,8 +109,14 @@
 		const categoryNames = expenses.map(e => e.expense_category_name_en?.trim()).filter(Boolean);
 		categories = [...new Set(categoryNames)].sort();
 		
+		// Extract unique bill types
+		const billTypeNames = expenses.map(e => e.bill_type?.trim()).filter(Boolean);
+		billTypes = [...new Set(billTypeNames)].sort();
+		
 		console.log('🏢 Branches found:', branches);
-		console.log('📋 Categories found:', categories);			applyFilters();
+		console.log('📋 Categories found:', categories);
+		console.log('📄 Bill types found:', billTypes);
+		applyFilters();
 		} catch (err: any) {
 			console.error('❌ Error loading expenses:', err);
 			error = err.message || 'Failed to load expenses';
@@ -135,6 +143,9 @@
 			// Category filter
 			const matchesCategory = !filterCategory || expense.expense_category_name_en === filterCategory;
 
+			// Bill type filter
+			const matchesBillType = !filterBillType || expense.bill_type === filterBillType;
+
 			// Payment status filter
 			const matchesPaymentStatus = !filterPaymentStatus || 
 				(filterPaymentStatus === 'paid' && expense.is_paid) ||
@@ -149,7 +160,7 @@
 				!expense.bill_date || 
 				new Date(expense.bill_date) <= new Date(filterDateTo);
 
-			return matchesSearch && matchesBranch && matchesCategory && 
+			return matchesSearch && matchesBranch && matchesCategory && matchesBillType &&
 				   matchesPaymentStatus && matchesDateFrom && matchesDateTo;
 		});
 	}
@@ -158,6 +169,7 @@
 		searchTerm = '';
 		filterBranch = '';
 		filterCategory = '';
+		filterBillType = '';
 		filterPaymentStatus = '';
 		filterDateFrom = '';
 		filterDateTo = '';
@@ -231,7 +243,8 @@
 	}
 
 	$: if (searchTerm !== undefined || filterBranch !== undefined || 
-		   filterCategory !== undefined || filterPaymentStatus !== undefined ||
+		   filterCategory !== undefined || filterBillType !== undefined ||
+		   filterPaymentStatus !== undefined ||
 		   filterDateFrom !== undefined || filterDateTo !== undefined) {
 		applyFilters();
 	}
@@ -318,6 +331,13 @@
 				<option value="">All Categories</option>
 				{#each categories as category}
 					<option value={category}>{category}</option>
+				{/each}
+			</select>
+
+			<select class="filter-select" bind:value={filterBillType}>
+				<option value="">All Bill Types</option>
+				{#each billTypes as type}
+					<option value={type}>{type}</option>
 				{/each}
 			</select>
 
