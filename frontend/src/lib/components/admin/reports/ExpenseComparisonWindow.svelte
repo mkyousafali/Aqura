@@ -69,10 +69,17 @@
 
 			if (fetchError) throw fetchError;
 
-			// Create a color map for all categories
-			allCategories = (data || []).map((cat, index) => ({
-				name: cat.name_en,
-				color: colors[index % colors.length]
+			// Create a color map for all categories and remove duplicates
+			const uniqueCategories = new Map<string, string>();
+			(data || []).forEach((cat, index) => {
+				if (!uniqueCategories.has(cat.name_en)) {
+					uniqueCategories.set(cat.name_en, colors[uniqueCategories.size % colors.length]);
+				}
+			});
+
+			allCategories = Array.from(uniqueCategories.entries()).map(([name, color]) => ({
+				name,
+				color
 			}));
 
 			console.log('✅ Loaded categories:', allCategories.length);
