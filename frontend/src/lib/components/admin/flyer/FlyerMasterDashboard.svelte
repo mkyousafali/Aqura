@@ -1,5 +1,7 @@
 <script lang="ts">
   import { openWindow } from '$lib/utils/windowManagerUtils';
+  import { supabaseAdmin } from '$lib/utils/supabase';
+  import { onMount } from 'svelte';
   import ProductMaster from './ProductMaster.svelte';
   import OfferTemplates from './OfferTemplates.svelte';
   import OfferProductSelector from './OfferProductSelector.svelte';
@@ -18,6 +20,13 @@
     component: any;
   }
   
+  // Stats
+  let totalProducts = 0;
+  let activeOffers = 0;
+  let generatedFlyers = 0;
+  let templates = 0;
+  let isLoadingStats = true;
+  
   const navCards: NavCard[] = [
     {
       id: 'products',
@@ -29,18 +38,18 @@
     },
     {
       id: 'offers',
-      title: 'Offer Templates',
-      description: 'Create and manage offer templates',
-      icon: '🏷️',
-      color: 'from-green-500 to-emerald-500',
+      title: 'Offer Product Editor',
+      description: 'Add/remove products for offer templates',
+      icon: '✅',
+      color: 'from-purple-500 to-pink-500',
       component: OfferTemplates
     },
     {
       id: 'offer-selector',
-      title: 'Offer Product Selector',
-      description: 'Select products for specific offers',
-      icon: '✅',
-      color: 'from-purple-500 to-pink-500',
+      title: 'Create New Offer',
+      description: 'Create new offer template with products',
+      icon: '🏷️',
+      color: 'from-green-500 to-emerald-500',
       component: OfferProductSelector
     },
     {
@@ -109,6 +118,47 @@
       closable: true
     });
   }
+  
+  // Load stats
+  async function loadStats() {
+    isLoadingStats = true;
+    try {
+      // Count total products
+      const { count: productsCount, error: productsError } = await supabaseAdmin
+        .from('flyer_products')
+        .select('*', { count: 'exact', head: true });
+      
+      if (!productsError) {
+        totalProducts = productsCount || 0;
+      }
+      
+      // Count active offers
+      const { count: offersCount, error: offersError } = await supabaseAdmin
+        .from('flyer_offers')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+      
+      if (!offersError) {
+        activeOffers = offersCount || 0;
+      }
+      
+      // Count generated flyers (if you have a flyers table)
+      // For now, set to 0
+      generatedFlyers = 0;
+      
+      // Count templates (flyer templates)
+      // For now, set to 0
+      templates = 0;
+      
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+    isLoadingStats = false;
+  }
+  
+  onMount(() => {
+    loadStats();
+  });
 </script>
 
 <div class="flyer-master-dashboard h-full overflow-auto bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-8">
@@ -165,19 +215,55 @@
   <div class="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
     <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
       <div class="text-sm text-gray-600">Total Products</div>
-      <div class="text-2xl font-bold text-blue-600">0</div>
+      <div class="text-2xl font-bold text-blue-600">
+        {#if isLoadingStats}
+          <svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {:else}
+          {totalProducts}
+        {/if}
+      </div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
       <div class="text-sm text-gray-600">Active Offers</div>
-      <div class="text-2xl font-bold text-green-600">0</div>
+      <div class="text-2xl font-bold text-green-600">
+        {#if isLoadingStats}
+          <svg class="animate-spin w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {:else}
+          {activeOffers}
+        {/if}
+      </div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
       <div class="text-sm text-gray-600">Generated Flyers</div>
-      <div class="text-2xl font-bold text-purple-600">0</div>
+      <div class="text-2xl font-bold text-purple-600">
+        {#if isLoadingStats}
+          <svg class="animate-spin w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {:else}
+          {generatedFlyers}
+        {/if}
+      </div>
     </div>
     <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
       <div class="text-sm text-gray-600">Templates</div>
-      <div class="text-2xl font-bold text-orange-600">0</div>
+      <div class="text-2xl font-bold text-orange-600">
+        {#if isLoadingStats}
+          <svg class="animate-spin w-6 h-6 text-orange-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {:else}
+          {templates}
+        {/if}
+      </div>
     </div>
   </div>
 </div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabase } from '\$lib/utils/supabase';
+	import { supabaseAdmin } from '\$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	
 	let products: any[] = [];
@@ -149,7 +149,7 @@
 			// Save each template as a separate offer
 			for (const template of templates) {
 				// Insert offer with template_id
-				const { data: offerData, error: offerError } = await supabase
+				const { data: offerData, error: offerError } = await supabaseAdmin
 					.from('flyer_offers')
 					.insert({
 						template_id: template.templateId,
@@ -173,7 +173,7 @@
 						product_barcode: barcode
 					}));
 					
-					const { error: productsError } = await supabase
+					const { error: productsError } = await supabaseAdmin
 						.from('flyer_offer_products')
 						.insert(offerProducts);
 					
@@ -204,8 +204,8 @@
 		isLoading = true;
 		
 		try {
-			const { data, error } = await supabase
-				.from('products')
+			const { data, error } = await supabaseAdmin
+				.from('flyer_products')
 				.select('*')
 				.order('product_name_en', { ascending: true });
 			
@@ -292,40 +292,38 @@
 	});
 </script>
 
-<div class="space-y-6">
+<div class="space-y-4">
 	<!-- Wizard Header -->
-	<div class="bg-white rounded-lg shadow-md p-6">
-		<h1 class="text-3xl font-bold text-gray-800 mb-4">Create Offer - Wizard</h1>
-		
+	<div class="bg-white rounded-lg shadow-sm p-3">
 		<!-- Step Indicator -->
-		<div class="flex items-center justify-between mb-6">
+		<div class="flex items-center justify-between">
 			<div class="flex items-center flex-1">
 				<!-- Step 1 -->
 				<div class="flex items-center">
-					<div class="flex items-center justify-center w-10 h-10 rounded-full {currentStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-bold">
+					<div class="flex items-center justify-center w-8 h-8 rounded-full {currentStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-semibold text-sm">
 						1
 					</div>
-					<span class="ml-2 text-sm font-medium {currentStep >= 1 ? 'text-blue-600' : 'text-gray-500'}">Offer Info</span>
+					<span class="ml-2 text-xs font-medium {currentStep >= 1 ? 'text-blue-600' : 'text-gray-500'}">Offer Info</span>
 				</div>
 				
-				<div class="flex-1 h-1 mx-4 {currentStep >= 2 ? 'bg-blue-600' : 'bg-gray-300'}"></div>
+				<div class="flex-1 h-0.5 mx-3 {currentStep >= 2 ? 'bg-blue-600' : 'bg-gray-300'}"></div>
 				
 				<!-- Step 2 -->
 				<div class="flex items-center">
-					<div class="flex items-center justify-center w-10 h-10 rounded-full {currentStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-bold">
+					<div class="flex items-center justify-center w-8 h-8 rounded-full {currentStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-semibold text-sm">
 						2
 					</div>
-					<span class="ml-2 text-sm font-medium {currentStep >= 2 ? 'text-blue-600' : 'text-gray-500'}">Select Products</span>
+					<span class="ml-2 text-xs font-medium {currentStep >= 2 ? 'text-blue-600' : 'text-gray-500'}">Select Products</span>
 				</div>
 				
-				<div class="flex-1 h-1 mx-4 {currentStep >= 3 ? 'bg-blue-600' : 'bg-gray-300'}"></div>
+				<div class="flex-1 h-0.5 mx-3 {currentStep >= 3 ? 'bg-blue-600' : 'bg-gray-300'}"></div>
 				
 				<!-- Step 3 -->
 				<div class="flex items-center">
-					<div class="flex items-center justify-center w-10 h-10 rounded-full {currentStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-bold">
+					<div class="flex items-center justify-center w-8 h-8 rounded-full {currentStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'} font-semibold text-sm">
 						3
 					</div>
-					<span class="ml-2 text-sm font-medium {currentStep >= 3 ? 'text-blue-600' : 'text-gray-500'}">Review & Save</span>
+					<span class="ml-2 text-xs font-medium {currentStep >= 3 ? 'text-blue-600' : 'text-gray-500'}">Review & Save</span>
 				</div>
 			</div>
 		</div>
@@ -333,10 +331,21 @@
 
 	<!-- Step 1: Offer Templates -->
 	{#if currentStep === 1}
+		<!-- Navigation -->
+		<div class="bg-white rounded-lg shadow-sm p-3 flex justify-end">
+			<button 
+				on:click={nextStep}
+				disabled={templates.length === 0}
+				class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+			>
+				Next: Select Products
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+				</svg>
+			</button>
+		</div>
+		
 		<div class="bg-white rounded-lg shadow-md p-6 space-y-6">
-			<h2 class="text-2xl font-bold text-gray-800">Step 1: Create Offer Templates</h2>
-			<p class="text-gray-600">Each template will have a unique ID and can contain different products.</p>
-			
 			<!-- Templates Section -->
 			<div class="border-t pt-6">
 				<div class="flex items-center justify-between mb-4">
@@ -402,31 +411,35 @@
 					</div>
 				{/if}
 			</div>
-			
-			<!-- Navigation -->
-			<div class="flex justify-end pt-4 border-t">
-				<button 
-					on:click={nextStep}
-					disabled={templates.length === 0}
-					class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-				>
-					Next: Select Products
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-					</svg>
-				</button>
-			</div>
 		</div>
 	{/if}
 
 	<!-- Step 2: Select Products -->
 	{#if currentStep === 2}
+		<!-- Navigation -->
+		<div class="bg-white rounded-lg shadow-sm p-3 flex justify-between">
+			<button 
+				on:click={previousStep}
+				class="px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+				</svg>
+				Previous
+			</button>
+			
+			<button 
+				on:click={nextStep}
+				class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+			>
+				Next: Review
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+				</svg>
+			</button>
+		</div>
+		
 		<div class="space-y-4">
-			<div class="bg-white rounded-lg shadow-md p-6">
-				<h2 class="text-2xl font-bold text-gray-800 mb-4">Step 2: Select Products for Each Template</h2>
-				<p class="text-gray-600">Select products for your {templates.length} template{templates.length > 1 ? 's' : ''}</p>
-			</div>
-
 			<!-- Search Bar and Filters -->
 			<div class="bg-white rounded-lg shadow-md p-4 space-y-4">
 				<!-- Search Bar -->
@@ -519,7 +532,7 @@
 				</div>
 			{:else}
 				<div class="bg-white rounded-lg shadow-lg overflow-hidden">
-					<div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+					<div class="overflow-x-auto" style="max-height: calc(100vh - 350px); overflow-y: auto;">
 						<table class="min-w-full divide-y divide-gray-200">
 							<thead class="bg-gray-100 sticky top-0 z-10">
 								<tr>
@@ -573,14 +586,12 @@
 										<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
 											{product.barcode}
 										</td>
-										<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
-											{product.product_name_en || '-'}
-										</td>
-										<td class="px-6 py-4 text-sm text-gray-900">
-											{product.parent_category || '-'}
-										</td>
-										
-										<!-- Dynamic Template Checkboxes -->
+									<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
+										{product.product_name_en || '-'}
+									</td>
+									<td class="px-6 py-4 text-sm text-gray-900">
+										{product.parent_sub_category || '-'}
+									</td>										<!-- Dynamic Template Checkboxes -->
 										{#each templates as template (template.id)}
 											<td class="px-4 py-4 text-center bg-blue-50 border-l-2 border-blue-200">
 												<input 
@@ -598,40 +609,36 @@
 					</div>
 				</div>
 			{/if}
-			
-			<!-- Navigation -->
-			<div class="bg-white rounded-lg shadow-md p-4 flex justify-between">
-				<button 
-					on:click={previousStep}
-					class="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-					</svg>
-					Previous
-				</button>
-				
-				<button 
-					on:click={nextStep}
-					class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-				>
-					Next: Review
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-					</svg>
-				</button>
-			</div>
 		</div>
 	{/if}
 
 	<!-- Step 3: Review and Save -->
 	{#if currentStep === 3}
+		<!-- Navigation -->
+		<div class="bg-white rounded-lg shadow-sm p-3 flex justify-between">
+			<button 
+				on:click={previousStep}
+				class="px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+				</svg>
+				Previous
+			</button>
+			
+			<button 
+				on:click={saveOffers}
+				disabled={isLoading}
+				class="px-8 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+			>
+				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+				</svg>
+				{isLoading ? 'Saving...' : 'Save Offers'}
+			</button>
+		</div>
+		
 		<div class="space-y-4">
-			<div class="bg-white rounded-lg shadow-md p-6">
-				<h2 class="text-2xl font-bold text-gray-800 mb-4">Step 3: Review & Save</h2>
-				<p class="text-gray-600">Review your {templates.length} template{templates.length > 1 ? 's' : ''} before saving</p>
-			</div>
-
 			<!-- Summary Cards -->
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 				{#each templates as template (template.id)}
@@ -664,57 +671,8 @@
 								<span class="font-bold text-green-600 text-lg">{template.selectedProducts.size}</span>
 							</div>
 						</div>
-						
-						{#if template.selectedProducts.size > 0}
-							<div class="mt-4 pt-4 border-t">
-								<p class="text-xs text-gray-500 mb-2">Selected Barcodes:</p>
-								<div class="max-h-32 overflow-y-auto text-xs text-gray-600 space-y-1">
-									{#each Array.from(template.selectedProducts) as barcode}
-										<div class="bg-gray-50 px-2 py-1 rounded">{barcode}</div>
-									{/each}
-								</div>
-							</div>
-						{/if}
 					</div>
 				{/each}
-			</div>
-			
-			<!-- Total Summary -->
-			<div class="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg shadow-lg p-6">
-				<div class="flex items-center justify-between">
-					<div>
-						<h3 class="text-2xl font-bold mb-2">Total Summary</h3>
-						<p class="text-blue-100">Ready to save {templates.length} template(s)</p>
-					</div>
-					<div class="text-right">
-						<div class="text-4xl font-bold">{templates.reduce((sum, t) => sum + t.selectedProducts.size, 0)}</div>
-						<div class="text-blue-100">Total Products Selected</div>
-					</div>
-				</div>
-			</div>
-			
-			<!-- Navigation -->
-			<div class="bg-white rounded-lg shadow-md p-4 flex justify-between">
-				<button 
-					on:click={previousStep}
-					class="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-					</svg>
-					Previous
-				</button>
-				
-				<button 
-					on:click={saveOffers}
-					disabled={isLoading}
-					class="px-8 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-lg"
-				>
-					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-					</svg>
-					{isLoading ? 'Saving...' : 'Save Offers'}
-				</button>
 			</div>
 		</div>
 	{/if}

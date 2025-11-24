@@ -1,11 +1,36 @@
 <script>
   import { onMount } from 'svelte';
   import { supabase } from '$lib/utils/supabase';
+  import { currentUser } from '$lib/utils/persistentAuth';
+  import { notifications } from '$lib/stores/notifications';
 
   let branches = [];
   let selectedBranch = 'all';
   let loading = false;
   let error = null;
+  
+  // Filter options
+  let filterType = 'today'; // 'today', 'week', 'date', 'month'
+  let customDate = '';
+  let selectedMonth = '';
+  let showDatePicker = false;
+  let showMonthPicker = false;
+  
+  // Date labels for charts
+  let currentPeriodLabel = '';
+  let previousPeriodLabel = '';
+  
+  // Task data storage for detail view
+  let allTasksData = {
+    current: [],
+    previous: [],
+    total: []
+  };
+  
+  // Detail window state
+  let showDetailWindow = false;
+  let detailWindowTasks = [];
+  let detailWindowTitle = '';
 
   // Bilingual text content
   const text = {
@@ -92,6 +117,150 @@
     quickTasksPending: {
       ar: 'المهام السريعة المعلقة:',
       en: 'Quick Tasks Pending:'
+    },
+    filterType: {
+      ar: 'نوع الفلتر:',
+      en: 'Filter Type:'
+    },
+    today: {
+      ar: 'اليوم والأمس',
+      en: 'Today & Yesterday'
+    },
+    thisWeek: {
+      ar: 'هذا الأسبوع',
+      en: 'This Week'
+    },
+    customDate: {
+      ar: 'تاريخ محدد',
+      en: 'Custom Date'
+    },
+    customMonth: {
+      ar: 'شهر محدد',
+      en: 'Custom Month'
+    },
+    selectDate: {
+      ar: 'اختر التاريخ:',
+      en: 'Select Date:'
+    },
+    selectMonth: {
+      ar: 'اختر الشهر:',
+      en: 'Select Month:'
+    },
+    apply: {
+      ar: 'تطبيق',
+      en: 'Apply'
+    },
+    currentPeriod: {
+      ar: 'الفترة الحالية',
+      en: 'Current Period'
+    },
+    previousPeriod: {
+      ar: 'الفترة السابقة',
+      en: 'Previous Period'
+    },
+    thisWeekLabel: {
+      ar: 'هذا الأسبوع',
+      en: 'THIS WEEK'
+    },
+    lastWeekLabel: {
+      ar: 'الأسبوع الماضي',
+      en: 'LAST WEEK'
+    },
+    selectedDateLabel: {
+      ar: 'التاريخ المحدد',
+      en: 'SELECTED DATE'
+    },
+    previousDayLabel: {
+      ar: 'اليوم السابق',
+      en: 'PREVIOUS DAY'
+    },
+    selectedMonthLabel: {
+      ar: 'الشهر المحدد',
+      en: 'SELECTED MONTH'
+    },
+    previousMonthLabel: {
+      ar: 'الشهر السابق',
+      en: 'PREVIOUS MONTH'
+    },
+    taskDetails: {
+      ar: 'تفاصيل المهام',
+      en: 'Task Details'
+    },
+    close: {
+      ar: 'إغلاق',
+      en: 'Close'
+    },
+    taskType: {
+      ar: 'نوع المهمة',
+      en: 'Task Type'
+    },
+    status: {
+      ar: 'الحالة',
+      en: 'Status'
+    },
+    date: {
+      ar: 'التاريخ',
+      en: 'Date'
+    },
+    branch: {
+      ar: 'الفرع',
+      en: 'Branch'
+    },
+    taskId: {
+      ar: 'رقم المهمة',
+      en: 'Task ID'
+    },
+    completed: {
+      ar: 'مكتمل',
+      en: 'Completed'
+    },
+    pending: {
+      ar: 'معلق',
+      en: 'Pending'
+    },
+    receiving: {
+      ar: 'استلام',
+      en: 'Receiving'
+    },
+    taskAssignment: {
+      ar: 'تعيين مهمة',
+      en: 'Task Assignment'
+    },
+    quickTask: {
+      ar: 'مهمة سريعة',
+      en: 'Quick Task'
+    },
+    clickToViewDetails: {
+      ar: 'انقر لعرض التفاصيل',
+      en: 'Click to view details'
+    },
+    assignedBy: {
+      ar: 'تم التعيين بواسطة',
+      en: 'Assigned By'
+    },
+    assignedTo: {
+      ar: 'تم التعيين إلى',
+      en: 'Assigned To'
+    },
+    delete: {
+      ar: 'حذف',
+      en: 'Delete'
+    },
+    confirmDelete: {
+      ar: 'هل أنت متأكد من حذف هذه المهمة؟',
+      en: 'Are you sure you want to delete this task?'
+    },
+    deleteSuccess: {
+      ar: 'تم حذف المهمة بنجاح',
+      en: 'Task deleted successfully'
+    },
+    deleteFailed: {
+      ar: 'فشل حذف المهمة',
+      en: 'Failed to delete task'
+    },
+    actions: {
+      ar: 'الإجراءات',
+      en: 'Actions'
     }
   };
 
@@ -121,6 +290,45 @@
     loadStats();
   });
 
+  // Helper function to fetch all data with pagination
+  async function fetchAllData(table, selectQuery, filters = null) {
+    const BATCH_SIZE = 1000;
+    let allData = [];
+    let from = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      let query = supabase
+        .from(table)
+        .select(selectQuery, { count: 'exact' })
+        .range(from, from + BATCH_SIZE - 1);
+
+      // Apply filters if provided
+      if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+          query = query.eq(key, value);
+        });
+      }
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        console.error(`Error fetching ${table}:`, error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allData = allData.concat(data);
+        from += BATCH_SIZE;
+        hasMore = data.length === BATCH_SIZE;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allData;
+  }
+
   async function loadBranches() {
     try {
       const { data, error: err } = await supabase.from('branches').select('id, name_ar, name_en').order('name_en');
@@ -140,47 +348,103 @@
     error = null;
 
     try {
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
+      let currentPeriodStr, previousPeriodStr;
+      let currentPeriodStart, currentPeriodEnd, previousPeriodStart, previousPeriodEnd;
 
-      const todayStr = today.toISOString().split('T')[0];
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-      let receivingQuery = supabase.from('receiving_tasks').select('id, task_status, created_at, receiving_records!inner(branch_id)');
-      let taskQuery = supabase.from('task_assignments').select('id, status, assigned_at, assigned_to_branch_id');
-      let quickQuery = supabase.from('quick_task_assignments').select('id, status, created_at, quick_tasks!inner(assigned_to_branch_id)');
-
-      if (selectedBranch !== 'all') {
-        const branchId = parseInt(selectedBranch);
-        receivingQuery = receivingQuery.eq('receiving_records.branch_id', branchId);
-        taskQuery = taskQuery.eq('assigned_to_branch_id', branchId);
-        quickQuery = quickQuery.eq('quick_tasks.assigned_to_branch_id', branchId);
+      // Calculate date ranges based on filter type
+      if (filterType === 'today') {
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        currentPeriodStr = today.toISOString().split('T')[0];
+        previousPeriodStr = yesterday.toISOString().split('T')[0];
+        currentPeriodStart = currentPeriodEnd = currentPeriodStr;
+        previousPeriodStart = previousPeriodEnd = previousPeriodStr;
+        
+        currentPeriodLabel = formatDate(today);
+        previousPeriodLabel = formatDate(yesterday);
+      } else if (filterType === 'week') {
+        const today = new Date();
+        const currentWeekStart = new Date(today);
+        currentWeekStart.setDate(today.getDate() - today.getDay()); // Start of this week (Sunday)
+        const currentWeekEnd = new Date(currentWeekStart);
+        currentWeekEnd.setDate(currentWeekStart.getDate() + 6); // End of this week (Saturday)
+        
+        const lastWeekStart = new Date(currentWeekStart);
+        lastWeekStart.setDate(currentWeekStart.getDate() - 7);
+        const lastWeekEnd = new Date(lastWeekStart);
+        lastWeekEnd.setDate(lastWeekStart.getDate() + 6);
+        
+        currentPeriodStart = currentWeekStart.toISOString().split('T')[0];
+        currentPeriodEnd = currentWeekEnd.toISOString().split('T')[0];
+        previousPeriodStart = lastWeekStart.toISOString().split('T')[0];
+        previousPeriodEnd = lastWeekEnd.toISOString().split('T')[0];
+        
+        currentPeriodLabel = `${formatDate(currentWeekStart)} - ${formatDate(currentWeekEnd)}`;
+        previousPeriodLabel = `${formatDate(lastWeekStart)} - ${formatDate(lastWeekEnd)}`;
+      } else if (filterType === 'date') {
+        if (!customDate) {
+          error = 'Please select a date';
+          loading = false;
+          return;
+        }
+        const selectedDate = new Date(customDate + 'T00:00:00');
+        const previousDate = new Date(selectedDate);
+        previousDate.setDate(selectedDate.getDate() - 1);
+        
+        currentPeriodStart = currentPeriodEnd = customDate;
+        previousPeriodStart = previousPeriodEnd = previousDate.toISOString().split('T')[0];
+        
+        currentPeriodLabel = formatDate(selectedDate);
+        previousPeriodLabel = formatDate(previousDate);
+      } else if (filterType === 'month') {
+        if (!selectedMonth) {
+          error = 'Please select a month';
+          loading = false;
+          return;
+        }
+        const [year, month] = selectedMonth.split('-').map(Number);
+        const currentMonthStart = new Date(year, month - 1, 1);
+        const currentMonthEnd = new Date(year, month, 0);
+        
+        const previousMonthStart = new Date(year, month - 2, 1);
+        const previousMonthEnd = new Date(year, month - 1, 0);
+        
+        currentPeriodStart = currentMonthStart.toISOString().split('T')[0];
+        currentPeriodEnd = currentMonthEnd.toISOString().split('T')[0];
+        previousPeriodStart = previousMonthStart.toISOString().split('T')[0];
+        previousPeriodEnd = previousMonthEnd.toISOString().split('T')[0];
+        
+        currentPeriodLabel = formatMonth(currentMonthStart);
+        previousPeriodLabel = formatMonth(previousMonthStart);
       }
 
-      const [recRes, taskRes, quickRes] = await Promise.all([
-        receivingQuery,
-        taskQuery,
-        quickQuery
-      ]);
-
-      if (recRes.error) throw recRes.error;
-      if (taskRes.error) throw taskRes.error;
-      if (quickRes.error) throw quickRes.error;
-
-      const receiving = recRes.data || [];
-      const tasks = taskRes.data || [];
-      const quick = (quickRes.data || []).filter(q => q.quick_tasks && q.quick_tasks.assigned_to_branch_id);
-
-      // Filter by date
-      const todayReceiving = receiving.filter(r => r.created_at?.startsWith(todayStr));
-      const yesterdayReceiving = receiving.filter(r => r.created_at?.startsWith(yesterdayStr));
+      // Fetch all data with pagination to avoid Supabase limits
+      let receiving, tasks, quick;
       
-      const todayTasks = tasks.filter(t => t.assigned_at?.startsWith(todayStr));
-      const yesterdayTasks = tasks.filter(t => t.assigned_at?.startsWith(yesterdayStr));
+      if (selectedBranch !== 'all') {
+        const branchId = parseInt(selectedBranch);
+        receiving = await fetchAllData('receiving_tasks', 'id, task_status, created_at, assigned_user_id, receiving_records!inner(branch_id, user_id)', { 'receiving_records.branch_id': branchId });
+        tasks = await fetchAllData('task_assignments', 'id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id', { 'assigned_to_branch_id': branchId });
+        quick = (await fetchAllData('quick_task_assignments', 'id, status, created_at, assigned_to_user_id, quick_tasks!inner(assigned_to_branch_id, assigned_by)', { 'quick_tasks.assigned_to_branch_id': branchId })).filter(q => q.quick_tasks && q.quick_tasks.assigned_to_branch_id);
+      } else {
+        receiving = await fetchAllData('receiving_tasks', 'id, task_status, created_at, assigned_user_id, receiving_records!inner(branch_id, user_id)', null);
+        tasks = await fetchAllData('task_assignments', 'id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id', null);
+        quick = (await fetchAllData('quick_task_assignments', 'id, status, created_at, assigned_to_user_id, quick_tasks!inner(assigned_to_branch_id, assigned_by)', null)).filter(q => q.quick_tasks && q.quick_tasks.assigned_to_branch_id);
+      }
+
+      // Filter by date ranges
+      const isInCurrentPeriod = (dateStr) => dateStr >= currentPeriodStart && dateStr <= currentPeriodEnd;
+      const isInPreviousPeriod = (dateStr) => dateStr >= previousPeriodStart && dateStr <= previousPeriodEnd;
       
-      const todayQuick = quick.filter(q => q.created_at?.startsWith(todayStr));
-      const yesterdayQuick = quick.filter(q => q.created_at?.startsWith(yesterdayStr));
+      const todayReceiving = receiving.filter(r => r.created_at && isInCurrentPeriod(r.created_at.split('T')[0]));
+      const yesterdayReceiving = receiving.filter(r => r.created_at && isInPreviousPeriod(r.created_at.split('T')[0]));
+      
+      const todayTasks = tasks.filter(t => t.assigned_at && isInCurrentPeriod(t.assigned_at.split('T')[0]));
+      const yesterdayTasks = tasks.filter(t => t.assigned_at && isInPreviousPeriod(t.assigned_at.split('T')[0]));
+      
+      const todayQuick = quick.filter(q => q.created_at && isInCurrentPeriod(q.created_at.split('T')[0]));
+      const yesterdayQuick = quick.filter(q => q.created_at && isInPreviousPeriod(q.created_at.split('T')[0]));
 
       // Calculate total counts
       const recCount = receiving.length;
@@ -210,6 +474,25 @@
       const yesterdayQuickCompleted = yesterdayQuick.filter(q => q.status === 'completed').length;
       const yesterdayTotalCompleted = yesterdayRecCompleted + yesterdayTaskCompleted + yesterdayQuickCompleted;
       const yesterdayTotal = yesterdayReceiving.length + yesterdayTasks.length + yesterdayQuick.length;
+
+      // Store task data for detail view
+      allTasksData = {
+        current: [
+          ...todayReceiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
+          ...todayTasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
+          ...todayQuick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
+        ],
+        previous: [
+          ...yesterdayReceiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
+          ...yesterdayTasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
+          ...yesterdayQuick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
+        ],
+        total: [
+          ...receiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
+          ...tasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
+          ...quick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
+        ]
+      };
 
       stats = {
         receiving: recCount,
@@ -251,6 +534,201 @@
     selectedBranch = e.target.value;
     console.log('Selected branch:', selectedBranch, typeof selectedBranch);
     loadStats();
+  }
+
+  function onFilterTypeChange(e) {
+    filterType = e.target.value;
+    showDatePicker = filterType === 'date';
+    showMonthPicker = filterType === 'month';
+    
+    // Auto-load for 'today' and 'week', wait for user input for 'date' and 'month'
+    if (filterType === 'today' || filterType === 'week') {
+      loadStats();
+    }
+  }
+
+  function onApplyCustomFilter() {
+    loadStats();
+  }
+
+  function getCurrentLabel() {
+    if (filterType === 'today') return text.today.ar;
+    if (filterType === 'week') return text.thisWeekLabel.ar;
+    if (filterType === 'date') return text.selectedDateLabel.ar;
+    if (filterType === 'month') return text.selectedMonthLabel.ar;
+    return text.today.ar;
+  }
+
+  function getPreviousLabel() {
+    if (filterType === 'today') return text.yesterday.ar;
+    if (filterType === 'week') return text.lastWeekLabel.ar;
+    if (filterType === 'date') return text.previousDayLabel.ar;
+    if (filterType === 'month') return text.previousMonthLabel.ar;
+    return text.yesterday.ar;
+  }
+
+  // Format date as DD/MM/YYYY
+  function formatDate(date) {
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // Format month name and year
+  function formatMonth(date) {
+    const d = new Date(date);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNamesAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    return `${monthNamesAr[d.getMonth()]} ${d.getFullYear()} / ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  // Show task details in a window
+  function showTaskDetails(period) {
+    const tasks = allTasksData[period] || [];
+    
+    // Sort: incomplete tasks first, then completed
+    const sortedTasks = [...tasks].sort((a, b) => {
+      const aCompleted = getTaskStatus(a) === 'completed';
+      const bCompleted = getTaskStatus(b) === 'completed';
+      if (aCompleted === bCompleted) return 0;
+      return aCompleted ? 1 : -1;
+    });
+    
+    detailWindowTasks = sortedTasks;
+    
+    if (period === 'current') {
+      detailWindowTitle = `${text.currentPeriod.ar} - ${currentPeriodLabel}`;
+    } else if (period === 'previous') {
+      detailWindowTitle = `${text.previousPeriod.ar} - ${previousPeriodLabel}`;
+    } else {
+      detailWindowTitle = `${text.totalPerformance.ar}`;
+    }
+    
+    showDetailWindow = true;
+    
+    // Fetch user names for the tasks
+    fetchUserNames(sortedTasks);
+  }
+
+  async function fetchUserNames(tasks) {
+    const userIds = new Set();
+    tasks.forEach(task => {
+      if (task.assigned_by) userIds.add(task.assigned_by);
+      if (task.assigned_to) userIds.add(task.assigned_to);
+    });
+
+    if (userIds.size === 0) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, username, employee_id')
+        .in('id', Array.from(userIds));
+
+      if (error) throw error;
+
+      const userMap = {};
+      (data || []).forEach(user => {
+        userMap[user.id] = user.username || `User ${user.id}`;
+      });
+
+      // Update tasks with user names
+      detailWindowTasks = detailWindowTasks.map(task => ({
+        ...task,
+        assigned_by_name: task.assigned_by ? userMap[task.assigned_by] : null,
+        assigned_to_name: task.assigned_to ? userMap[task.assigned_to] : null
+      }));
+    } catch (e) {
+      console.error('Failed to fetch user names', e);
+    }
+  }
+
+  function getTaskStatus(task) {
+    if (task.taskType === 'receiving') return task.task_status;
+    return task.status;
+  }
+
+  function getTaskTypeLabel(type) {
+    if (type === 'receiving') return text.receiving;
+    if (type === 'task_assignment') return text.taskAssignment;
+    if (type === 'quick_task') return text.quickTask;
+    return { ar: type, en: type };
+  }
+
+  function getStatusLabel(status) {
+    return status === 'completed' ? text.completed : text.pending;
+  }
+
+  function closeDetailWindow() {
+    showDetailWindow = false;
+    detailWindowTasks = [];
+    detailWindowTitle = '';
+  }
+
+  // Check if current user is master admin
+  function isMasterAdmin() {
+    console.log('Checking master admin:', {
+      currentUser: $currentUser,
+      roleType: $currentUser?.roleType,
+      check: $currentUser && $currentUser.roleType === 'Master Admin'
+    });
+    return $currentUser && $currentUser.roleType === 'Master Admin';
+  }
+
+  // Delete task
+  async function deleteTask(task) {
+    if (!confirm(`${text.confirmDelete.ar}\n${text.confirmDelete.en}`)) {
+      return;
+    }
+
+    try {
+      let deleteError = null;
+
+      if (task.taskType === 'receiving') {
+        const { error } = await supabase
+          .from('receiving_tasks')
+          .delete()
+          .eq('id', task.id);
+        deleteError = error;
+      } else if (task.taskType === 'task_assignment') {
+        const { error } = await supabase
+          .from('task_assignments')
+          .delete()
+          .eq('id', task.id);
+        deleteError = error;
+      } else if (task.taskType === 'quick_task') {
+        const { error } = await supabase
+          .from('quick_task_assignments')
+          .delete()
+          .eq('id', task.id);
+        deleteError = error;
+      }
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      // Remove from display
+      detailWindowTasks = detailWindowTasks.filter(t => t.id !== task.id);
+      
+      // Reload stats to update charts
+      loadStats();
+
+      notifications.add({
+        message: `${text.deleteSuccess.ar} / ${text.deleteSuccess.en}`,
+        type: 'success',
+        duration: 3000
+      });
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+      notifications.add({
+        message: `${text.deleteFailed.ar} / ${text.deleteFailed.en}`,
+        type: 'error',
+        duration: 5000
+      });
+    }
   }
 
   // Calculate percentage
@@ -390,6 +868,7 @@
     border-radius: 8px;
     border: 1px solid #e5e7eb;
     direction: ltr;
+    flex-wrap: wrap;
   }
 
   .controls label {
@@ -398,7 +877,9 @@
     direction: rtl;
   }
 
-  .controls select {
+  .controls select,
+  .controls input[type="date"],
+  .controls input[type="month"] {
     padding: 8px 12px;
     border: 1px solid #d1d5db;
     border-radius: 6px;
@@ -419,6 +900,24 @@
 
   .controls button:hover {
     background: #2563eb;
+  }
+
+  .controls button.apply-btn {
+    background: #10b981;
+  }
+
+  .controls button.apply-btn:hover {
+    background: #059669;
+  }
+
+  .filter-group {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
   }
 
   .chart-container {
@@ -461,6 +960,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+
+  .pie-chart:hover {
+    transform: scale(1.02);
   }
 
   .pie-svg {
@@ -631,6 +1136,188 @@
     color: #6b7280;
     font-style: italic;
   }
+
+  .detail-window-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 20px;
+  }
+
+  .detail-window {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-width: 1200px;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    direction: rtl;
+  }
+
+  .detail-window-header {
+    padding: 20px 24px;
+    border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    color: white;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .detail-window-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .detail-window-header button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s ease;
+  }
+
+  .detail-window-header button:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .detail-window-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .task-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+
+  .task-table thead {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .task-table th {
+    padding: 12px 16px;
+    text-align: right;
+    font-weight: 600;
+    color: #1f2937;
+    border-bottom: 2px solid #d1d5db;
+    font-size: 14px;
+  }
+
+  .task-table td {
+    padding: 12px 16px;
+    text-align: right;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+    color: #374151;
+  }
+
+  .task-table tbody tr {
+    transition: background 0.2s ease;
+  }
+
+  .task-table tbody tr:hover {
+    background: #f9fafb;
+  }
+
+  .task-table tbody tr.incomplete {
+    background: #fef2f2;
+  }
+
+  .task-table tbody tr.incomplete:hover {
+    background: #fee2e2;
+  }
+
+  .task-table tbody tr.completed {
+    opacity: 0.7;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .status-badge.completed {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .status-badge.pending {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .task-type-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .no-tasks {
+    text-align: center;
+    padding: 40px;
+    color: #6b7280;
+    font-size: 16px;
+  }
+
+  .click-hint {
+    font-size: 11px;
+    color: #6b7280;
+    text-align: center;
+    margin-top: 8px;
+    font-style: italic;
+  }
+
+  .delete-btn {
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background 0.2s ease;
+  }
+
+  .delete-btn:hover {
+    background: #dc2626;
+  }
+
+  .delete-btn:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+  }
 </style>
 
 <div class="bp-container">
@@ -642,16 +1329,54 @@
   </div>
 
   <div class="controls">
-    <label for="branch-select" class="bilingual-text">
-      <span class="arabic-text">{text.filterBy.ar}</span>
-      <span class="english-text">({text.filterBy.en})</span>
-    </label>
-    <select id="branch-select" on:change={onBranchChange} bind:value={selectedBranch}>
-      <option value="all">{text.allBranches.ar} ({text.allBranches.en})</option>
-      {#each branches as b}
-        <option value={String(b.id)}>{b.name}</option>
-      {/each}
-    </select>
+    <div class="filter-group">
+      <label for="branch-select" class="bilingual-text">
+        <span class="arabic-text">{text.filterBy.ar}</span>
+        <span class="english-text">({text.filterBy.en})</span>
+      </label>
+      <select id="branch-select" on:change={onBranchChange} bind:value={selectedBranch}>
+        <option value="all">{text.allBranches.ar} ({text.allBranches.en})</option>
+        {#each branches as b}
+          <option value={String(b.id)}>{b.name}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="filter-type" class="bilingual-text">
+        <span class="arabic-text">{text.filterType.ar}</span>
+        <span class="english-text">({text.filterType.en})</span>
+      </label>
+      <select id="filter-type" on:change={onFilterTypeChange} bind:value={filterType}>
+        <option value="today">{text.today.ar} ({text.today.en})</option>
+        <option value="week">{text.thisWeek.ar} ({text.thisWeek.en})</option>
+        <option value="date">{text.customDate.ar} ({text.customDate.en})</option>
+        <option value="month">{text.customMonth.ar} ({text.customMonth.en})</option>
+      </select>
+    </div>
+
+    {#if showDatePicker}
+      <div class="filter-group">
+        <label for="custom-date" class="bilingual-text">
+          <span class="arabic-text">{text.selectDate.ar}</span>
+          <span class="english-text">({text.selectDate.en})</span>
+        </label>
+        <input type="date" id="custom-date" bind:value={customDate} />
+        <button class="apply-btn" on:click={onApplyCustomFilter}>✓ {text.apply.ar}</button>
+      </div>
+    {/if}
+
+    {#if showMonthPicker}
+      <div class="filter-group">
+        <label for="custom-month" class="bilingual-text">
+          <span class="arabic-text">{text.selectMonth.ar}</span>
+          <span class="english-text">({text.selectMonth.en})</span>
+        </label>
+        <input type="month" id="custom-month" bind:value={selectedMonth} />
+        <button class="apply-btn" on:click={onApplyCustomFilter}>✓ {text.apply.ar}</button>
+      </div>
+    {/if}
+
     <button on:click={loadStats}>🔄 {text.refresh.ar} ({text.refresh.en})</button>
     {#if loading}
       <span class="loading">{text.loading.ar} ({text.loading.en})</span>
@@ -665,13 +1390,18 @@
   {#if stats.total > 0 || todayStats.total > 0 || yesterdayStats.total > 0}
     <div class="chart-container">
       <div class="charts-row">
-        <!-- Today's Chart -->
+        <!-- Current Period Chart -->
         <div class="chart-section">
           <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📅 {text.todayPerformance.ar}</span>
-            <span class="english-text">({text.todayPerformance.en})</span>
+            <span class="arabic-text">📅 {text.currentPeriod.ar}</span>
+            <span class="english-text">({text.currentPeriod.en})</span>
           </h4>
-          <div class="pie-chart">
+          {#if currentPeriodLabel}
+            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
+              {currentPeriodLabel}
+            </div>
+          {/if}
+          <div class="pie-chart" on:click={() => showTaskDetails('current')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <defs>
                 {#each todaySegments as segment, i}
@@ -706,18 +1436,24 @@
             </svg>
             <div class="chart-center">
               <div class="total-number">{todayStats.total}</div>
-              <div class="total-label">{text.today.ar}</div>
+              <div class="total-label">{getCurrentLabel()}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
 
-        <!-- Yesterday's Chart -->
+        <!-- Previous Period Chart -->
         <div class="chart-section">
           <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📆 {text.yesterdayPerformance.ar}</span>
-            <span class="english-text">({text.yesterdayPerformance.en})</span>
+            <span class="arabic-text">📆 {text.previousPeriod.ar}</span>
+            <span class="english-text">({text.previousPeriod.en})</span>
           </h4>
-          <div class="pie-chart">
+          {#if previousPeriodLabel}
+            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
+              {previousPeriodLabel}
+            </div>
+          {/if}
+          <div class="pie-chart" on:click={() => showTaskDetails('previous')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <defs>
                 {#each yesterdaySegments as segment, i}
@@ -752,18 +1488,19 @@
             </svg>
             <div class="chart-center">
               <div class="total-number">{yesterdayStats.total}</div>
-              <div class="total-label">{text.yesterday.ar}</div>
+              <div class="total-label">{getPreviousLabel()}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
 
-        <!-- Total Chart -->
+        <!-- Combined Total Chart -->
         <div class="chart-section">
           <h4 class="chart-title bilingual-text">
             <span class="arabic-text">📊 {text.totalPerformance.ar}</span>
             <span class="english-text">({text.totalPerformance.en})</span>
           </h4>
-          <div class="pie-chart">
+          <div class="pie-chart" on:click={() => showTaskDetails('total')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <defs>
                 {#each totalSegments as segment, i}
@@ -801,6 +1538,7 @@
               <div class="total-label">{text.total.ar}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
       </div>
 
@@ -815,7 +1553,7 @@
                 <span class="english-text">({item.label.en})</span>
               </div>
               <div class="legend-stats">
-                {text.total.ar}: {item.value} | {text.today.ar}: {todayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']} | {text.yesterday.ar}: {yesterdayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']}
+                {text.total.ar}: {item.value} | {getCurrentLabel()}: {todayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']} | {getPreviousLabel()}: {yesterdayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']}
               </div>
             </div>
             <div class="legend-percentage">{item.percentage}%</div>
@@ -828,34 +1566,46 @@
       <div class="charts-row">
         <div class="chart-section">
           <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📅 {text.todayPerformance.ar}</span>
-            <span class="english-text">({text.todayPerformance.en})</span>
+            <span class="arabic-text">📅 {text.currentPeriod.ar}</span>
+            <span class="english-text">({text.currentPeriod.en})</span>
           </h4>
-          <div class="pie-chart">
+          {#if currentPeriodLabel}
+            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
+              {currentPeriodLabel}
+            </div>
+          {/if}
+          <div class="pie-chart" on:click={() => showTaskDetails('current')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
             </svg>
             <div class="chart-center">
               <div class="total-number">0</div>
-              <div class="total-label">{text.today.ar}</div>
+              <div class="total-label">{getCurrentLabel()}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
         
         <div class="chart-section">
           <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📆 {text.yesterdayPerformance.ar}</span>
-            <span class="english-text">({text.yesterdayPerformance.en})</span>
+            <span class="arabic-text">📆 {text.previousPeriod.ar}</span>
+            <span class="english-text">({text.previousPeriod.en})</span>
           </h4>
-          <div class="pie-chart">
+          {#if previousPeriodLabel}
+            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
+              {previousPeriodLabel}
+            </div>
+          {/if}
+          <div class="pie-chart" on:click={() => showTaskDetails('previous')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
             </svg>
             <div class="chart-center">
               <div class="total-number">0</div>
-              <div class="total-label">{text.yesterday.ar}</div>
+              <div class="total-label">{getPreviousLabel()}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
         
         <div class="chart-section">
@@ -863,7 +1613,7 @@
             <span class="arabic-text">📊 {text.totalPerformance.ar}</span>
             <span class="english-text">({text.totalPerformance.en})</span>
           </h4>
-          <div class="pie-chart">
+          <div class="pie-chart" on:click={() => showTaskDetails('total')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
             <svg class="pie-svg" viewBox="0 0 300 300">
               <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
             </svg>
@@ -872,6 +1622,7 @@
               <div class="total-label">{text.total.ar}</div>
             </div>
           </div>
+          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
         </div>
       </div>
     </div>
@@ -935,3 +1686,69 @@
     </div>
   </div>
 </div>
+
+{#if showDetailWindow}
+  <div class="detail-window-overlay" on:click={closeDetailWindow}>
+    <div class="detail-window" on:click|stopPropagation>
+      <div class="detail-window-header">
+        <h3 class="bilingual-text">
+          <span class="arabic-text">📋 {text.taskDetails.ar} - {detailWindowTitle}</span>
+        </h3>
+        <button on:click={closeDetailWindow}>✕ {text.close.ar} ({text.close.en})</button>
+      </div>
+      <div class="detail-window-body">
+        {#if detailWindowTasks.length > 0}
+          <table class="task-table">
+            <thead>
+              <tr>
+                <th>{text.taskId.ar} ({text.taskId.en})</th>
+                <th>{text.taskType.ar} ({text.taskType.en})</th>
+                <th>{text.status.ar} ({text.status.en})</th>
+                <th>{text.assignedBy.ar} ({text.assignedBy.en})</th>
+                <th>{text.assignedTo.ar} ({text.assignedTo.en})</th>
+                <th>{text.date.ar} ({text.date.en})</th>
+                {#if isMasterAdmin()}
+                  <th>{text.actions.ar} ({text.actions.en})</th>
+                {/if}
+              </tr>
+            </thead>
+            <tbody>
+              {#each detailWindowTasks as task}
+                {@const taskStatus = getTaskStatus(task)}
+                {@const isCompleted = taskStatus === 'completed'}
+                <tr class={isCompleted ? 'completed' : 'incomplete'}>
+                  <td>#{task.id}</td>
+                  <td>
+                    <span class="task-type-badge">
+                      {getTaskTypeLabel(task.taskType).ar} ({getTaskTypeLabel(task.taskType).en})
+                    </span>
+                  </td>
+                  <td>
+                    <span class="status-badge {taskStatus}">
+                      {getStatusLabel(taskStatus).ar} ({getStatusLabel(taskStatus).en})
+                    </span>
+                  </td>
+                  <td>{task.assigned_by_name || '-'}</td>
+                  <td>{task.assigned_to_name || '-'}</td>
+                  <td>{task.date ? formatDate(new Date(task.date)) : '-'}</td>
+                  {#if isMasterAdmin()}
+                    <td>
+                      <button class="delete-btn" on:click={() => deleteTask(task)} title="{text.delete.ar} ({text.delete.en})">
+                        🗑️ {text.delete.ar}
+                      </button>
+                    </td>
+                  {/if}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="no-tasks">
+            لا توجد مهام لعرضها<br>
+            <span style="font-size: 14px; color: #9ca3af;">(No tasks to display)</span>
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}

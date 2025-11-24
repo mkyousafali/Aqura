@@ -878,20 +878,20 @@ function openApprovalCenter() {
 			</div>
 		{/if}
 
+		<!-- Approval Center Section (Visible to all users) -->
+		<div class="menu-section">
+			<button 
+				class="section-button approval-button"
+				on:click={openApprovalCenter}
+			>
+				<span class="section-icon">✅</span>
+				<span class="section-text">{t('nav.approvals') || 'Approvals'}</span>
+				{#if pendingApprovalsCount > 0}
+					<span class="approval-badge">{pendingApprovalsCount}</span>
+				{/if}
+			</button>
+		</div>
 
-	<!-- Approval Center Section (Visible to all users) -->
-	<div class="menu-section">
-		<button 
-			class="section-button approval-button"
-			on:click={openApprovalCenter}
-		>
-			<span class="section-icon">✅</span>
-			<span class="section-text">{t('nav.approvals') || 'Approvals'}</span>
-			{#if pendingApprovalsCount > 0}
-				<span class="approval-badge">{pendingApprovalsCount}</span>
-			{/if}
-		</button>
-	</div>
 		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 

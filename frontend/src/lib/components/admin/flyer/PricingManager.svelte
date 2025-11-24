@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabase } from '\$lib/utils/supabase';
+	import { supabaseAdmin } from '\$lib/utils/supabase';
 	import { onMount, tick } from 'svelte';
 	import * as XLSX from 'xlsx';
 	import JsBarcode from 'jsbarcode';
@@ -41,7 +41,7 @@
 				const profitAfterOffer = calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty);
 				const decreaseAmount = calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty);
 				
-				const { error } = await supabase
+				const { error } = await supabaseAdmin
 					.from('flyer_offer_products')
 					.update({
 						cost: product.cost,
@@ -1187,7 +1187,7 @@
 		isLoading = true;
 		
 		try {
-			const { data, error } = await supabase
+			const { data, error } = await supabaseAdmin
 				.from('flyer_offers')
 				.select('*')
 				.eq('is_active', true)
@@ -1223,7 +1223,7 @@
 		
 		try {
 			// Get offer products with product details, cost, sales_price, qty, limit, free_qty, offer_price, profit_after_offer, decrease_amount
-			const { data, error } = await supabase
+			const { data, error } = await supabaseAdmin
 				.from('flyer_offer_products')
 				.select(`
 					id,
@@ -1238,7 +1238,7 @@
 					offer_price,
 					profit_after_offer,
 					decrease_amount,
-					products (
+					flyer_products (
 						barcode,
 						product_name_en,
 						product_name_ar,
@@ -1256,7 +1256,7 @@
 				alert('Error loading products. Please try again.');
 			} else {
 				selectedProducts = data?.map(item => ({
-					...item.products,
+					...item.flyer_products,
 					offer_product_id: item.id,
 					cost: item.cost,
 					sales_price: item.sales_price,

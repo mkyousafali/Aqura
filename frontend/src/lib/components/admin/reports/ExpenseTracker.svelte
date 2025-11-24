@@ -15,6 +15,7 @@
 	let filterCategory = '';
 	let filterPaymentStatus = '';
 	let filterBillType = '';
+	let filterDatePreset = '';
 	let filterDateFrom = '';
 	let filterDateTo = '';
 	
@@ -151,14 +152,15 @@
 				(filterPaymentStatus === 'paid' && expense.is_paid) ||
 				(filterPaymentStatus === 'unpaid' && !expense.is_paid);
 
-			// Date range filter
+			// Date range filter based on due_date
+			const expenseDueDate = expense.due_date || expense.bill_date;
 			const matchesDateFrom = !filterDateFrom || 
-				!expense.bill_date || 
-				new Date(expense.bill_date) >= new Date(filterDateFrom);
+				!expenseDueDate || 
+				new Date(expenseDueDate) >= new Date(filterDateFrom);
 
 			const matchesDateTo = !filterDateTo || 
-				!expense.bill_date || 
-				new Date(expense.bill_date) <= new Date(filterDateTo);
+				!expenseDueDate || 
+				new Date(expenseDueDate) <= new Date(filterDateTo);
 
 			return matchesSearch && matchesBranch && matchesCategory && matchesBillType &&
 				   matchesPaymentStatus && matchesDateFrom && matchesDateTo;
@@ -171,8 +173,35 @@
 		filterCategory = '';
 		filterBillType = '';
 		filterPaymentStatus = '';
+		filterDatePreset = '';
 		filterDateFrom = '';
 		filterDateTo = '';
+		applyFilters();
+	}
+
+	function handleDatePresetChange() {
+		const today = new Date();
+		const todayStr = today.toISOString().split('T')[0];
+		
+		if (filterDatePreset === 'today') {
+			filterDateFrom = todayStr;
+			filterDateTo = todayStr;
+		} else if (filterDatePreset === 'yesterday') {
+			const yesterday = new Date(today);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const yesterdayStr = yesterday.toISOString().split('T')[0];
+			filterDateFrom = yesterdayStr;
+			filterDateTo = yesterdayStr;
+		} else if (filterDatePreset === 'custom') {
+			// Keep existing date values or clear them
+			if (!filterDateFrom && !filterDateTo) {
+				filterDateFrom = '';
+				filterDateTo = '';
+			}
+		} else {
+			filterDateFrom = '';
+			filterDateTo = '';
+		}
 		applyFilters();
 	}
 
@@ -244,9 +273,13 @@
 
 	$: if (searchTerm !== undefined || filterBranch !== undefined || 
 		   filterCategory !== undefined || filterBillType !== undefined ||
-		   filterPaymentStatus !== undefined ||
+		   filterPaymentStatus !== undefined || filterDatePreset !== undefined ||
 		   filterDateFrom !== undefined || filterDateTo !== undefined) {
 		applyFilters();
+	}
+
+	$: if (filterDatePreset !== undefined) {
+		handleDatePresetChange();
 	}
 
 	// Calculate totals
@@ -346,8 +379,16 @@
 				<option value="paid">Paid</option>
 				<option value="unpaid">Unpaid</option>
 			</select>
+
+			<select class="filter-select" bind:value={filterDatePreset}>
+				<option value="">Date Filter</option>
+				<option value="today">Today</option>
+				<option value="yesterday">Yesterday</option>
+				<option value="custom">Custom</option>
+			</select>
 		</div>
 
+		{#if filterDatePreset === 'custom'}
 		<div class="filters-row">
 			<input
 				type="date"
@@ -365,6 +406,13 @@
 				Clear Filters
 			</button>
 		</div>
+		{:else}
+		<div class="filters-row">
+			<button class="reset-btn" on:click={resetFilters}>
+				Clear Filters
+			</button>
+		</div>
+		{/if}
 	</div>
 
 	<!-- Table -->

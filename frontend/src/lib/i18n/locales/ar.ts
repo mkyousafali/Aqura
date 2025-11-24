@@ -571,6 +571,10 @@ export const arabicLocale: LocaleData = {
       mustChangePassword: "يجب تغيير كلمة المرور قبل المتابعة",
     },
 
+    reports: {
+      expenseTracker: "متتبع المصروفات",
+    },
+
     // Admin Modules
     admin: {
       title: "الإدارة",
@@ -582,11 +586,15 @@ export const arabicLocale: LocaleData = {
       invoiceMaster: "إدارة الفواتير",
       operationsMaster: "إدارة العمليات",
       financeMaster: "الإدارة المالية",
+      communicationCenter: "مركز الاتصالات",
       // Delivery module
       deliverySettings: "إعدادات التوصيل",
       customerMaster: "إدارة العملاء",
+      ordersManager: "إدارة الطلبات",
+      offerManagement: "إدارة العروض",
       adManager: "إدارة الإعلانات",
       productsManager: "إدارة المنتجات",
+      flyerMaster: "إدارة النشرات",
       employeeMaster: "إدارة الموظفين",
       userMaster: "إدارة المستخدمين",
       categoriesMaster: "إدارة الفئات",

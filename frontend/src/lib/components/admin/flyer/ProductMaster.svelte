@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as XLSX from 'xlsx';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabaseAdmin as supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import { removeBackground } from '@imgly/background-removal';
 	
@@ -42,6 +42,7 @@
 	// All products view
 	let showAllProducts: boolean = false;
 	let allProductsList: any[] = [];
+	let allProductsForDropdowns: any[] = [];
 	let isLoadingAllProducts: boolean = false;
 	let allProductsSearch: string = '';
 	let filteredAllProducts: any[] = [];
@@ -64,6 +65,17 @@
 	let previewImageUrl: string = '';
 	let previewImageBlob: Blob | null = null;
 	let previewBarcode: string = '';
+	
+	// Edit product popup
+	let showEditPopup: boolean = false;
+	let editingProduct: any = null;
+	let isSavingEdit: boolean = false;
+	
+	// Extract unique values for dropdowns
+	$: uniqueUnits = [...new Set(allProductsForDropdowns.map(p => p.unit_name).filter(Boolean))].sort();
+	$: uniqueParentCategories = [...new Set(allProductsForDropdowns.map(p => p.parent_category).filter(Boolean))].sort();
+	$: uniqueParentSubCategories = [...new Set(allProductsForDropdowns.map(p => p.parent_sub_category).filter(Boolean))].sort();
+	$: uniqueSubCategories = [...new Set(allProductsForDropdowns.map(p => p.sub_category).filter(Boolean))].sort();
 	
 	// Quota tracking
 	interface QuotaData {
@@ -529,6 +541,28 @@
 		allProductsSearch = '';
 	}
 	
+	// Load all products for dropdown data (without showing the view)
+	async function loadAllProductsForDropdowns() {
+		try {
+			const { data, error } = await supabase
+				.from('flyer_products')
+				.select('unit_name, parent_category, parent_sub_category, sub_category');
+			
+			if (!error && data) {
+				allProductsForDropdowns = data;
+				console.log('Loaded dropdown data:', {
+					total: data.length,
+					units: [...new Set(data.map(p => p.unit_name).filter(Boolean))],
+					parentCategories: [...new Set(data.map(p => p.parent_category).filter(Boolean))],
+					parentSubCategories: [...new Set(data.map(p => p.parent_sub_category).filter(Boolean))],
+					subCategories: [...new Set(data.map(p => p.sub_category).filter(Boolean))]
+				});
+			}
+		} catch (error) {
+			console.error('Error loading products for dropdowns:', error);
+		}
+	}
+	
 	// Filter all products based on search
 	$: {
 		if (allProductsSearch.trim() === '') {
@@ -833,6 +867,60 @@
 		previewImageUrl = '';
 		previewImageBlob = null;
 		previewBarcode = '';
+	}
+	
+	// Edit product functions
+	function openEditPopup(product: any) {
+		editingProduct = { ...product };
+		showEditPopup = true;
+	}
+	
+	function closeEditPopup() {
+		showEditPopup = false;
+		editingProduct = null;
+		isSavingEdit = false;
+	}
+	
+	async function saveProductEdit() {
+		if (!editingProduct) return;
+		
+		isSavingEdit = true;
+		try {
+			const { error } = await supabase
+				.from('flyer_products')
+				.update({
+					product_name_en: editingProduct.product_name_en,
+					product_name_ar: editingProduct.product_name_ar,
+					unit_name: editingProduct.unit_name,
+					parent_category: editingProduct.parent_category || null,
+					parent_sub_category: editingProduct.parent_sub_category || null,
+					sub_category: editingProduct.sub_category || null,
+					updated_at: new Date().toISOString()
+				})
+				.eq('barcode', editingProduct.barcode);
+			
+			if (error) {
+				console.error('Error updating product:', error);
+				alert('Failed to update product: ' + error.message);
+			} else {
+				alert('Product updated successfully!');
+				
+				// Reload the appropriate view
+				if (showNoImageProducts) {
+					await loadNoImageProducts();
+				}
+				if (showAllProducts) {
+					await loadAllProducts();
+				}
+				
+				closeEditPopup();
+			}
+		} catch (error) {
+			console.error('Error saving product:', error);
+			alert('Error saving product. Please try again.');
+		} finally {
+			isSavingEdit = false;
+		}
 	}
 
 	async function handleImageUpload(event: Event) {
@@ -1182,10 +1270,190 @@
 	// Load quota data on mount
 	onMount(() => {
 		loadQuotaData();
+		loadAllProductsForDropdowns();
 	});
 </script>
 
 <div class="space-y-6">
+	<!-- Edit Product Popup -->
+	{#if showEditPopup && editingProduct}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeEditPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Edit Product</h3>
+							<p class="text-xs text-blue-100">Barcode: {editingProduct.barcode}</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeEditPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+					<div class="space-y-4">
+						<!-- Product Name English -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (English)
+							</label>
+							<input
+								type="text"
+								bind:value={editingProduct.product_name_en}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Enter product name in English"
+							/>
+						</div>
+						
+						<!-- Product Name Arabic -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (Arabic)
+							</label>
+							<input
+								type="text"
+								bind:value={editingProduct.product_name_ar}
+								dir="rtl"
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="أدخل اسم المنتج بالعربية"
+							/>
+						</div>
+						
+						<!-- Unit Name -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Unit ({uniqueUnits.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.unit_name}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueUnits as unit}
+									<option value={unit}>{unit}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.unit_name}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom unit"
+							/>
+						</div>
+						
+						<!-- Parent Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Parent Category ({uniqueParentCategories.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.parent_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentCategories as category}
+									<option value={category}>{category}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.parent_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom category"
+							/>
+						</div>
+						
+						<!-- Parent Sub Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Parent Sub Category ({uniqueParentSubCategories.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.parent_sub_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentSubCategories as subCategory}
+									<option value={subCategory}>{subCategory}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.parent_sub_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom sub category"
+							/>
+						</div>
+						
+						<!-- Sub Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Sub Category ({uniqueSubCategories.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.sub_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueSubCategories as subCategory}
+									<option value={subCategory}>{subCategory}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.sub_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom sub category"
+							/>
+						</div>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeEditPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingEdit}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveProductEdit}
+						disabled={isSavingEdit}
+						class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingEdit}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Saving...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Save Changes
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Success Popup -->
 	{#if showUploadSuccessPopup}
 		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" on:click={() => showUploadSuccessPopup = false}>
@@ -1543,70 +1811,90 @@
 	</div>
 
 	<!-- Database Statistics Cards -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 		<!-- Total Products in Database Card -->
-		<button 
-			on:click={loadAllProducts}
-			disabled={isLoadingDbStats || dbTotalProducts === 0}
-			class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 text-white hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-left w-full"
-		>
-			<div class="flex items-center justify-between">
-				<div>
-					<p class="text-blue-100 text-sm font-medium mb-1">Total Products in Database</p>
-					{#if isLoadingDbStats}
-						<div class="flex items-center gap-2">
-							<svg class="animate-spin w-8 h-8" fill="none" viewBox="0 0 24 24">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+		<div class="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+			<div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
 							</svg>
-							<span class="text-sm">Loading...</span>
 						</div>
-					{:else}
-						<h2 class="text-4xl font-bold">{dbTotalProducts.toLocaleString()}</h2>
-						{#if dbTotalProducts > 0}
-							<p class="text-blue-100 text-xs mt-2">Click to view all products</p>
-						{/if}
-					{/if}
-				</div>
-				<div class="bg-white bg-opacity-20 rounded-full p-4">
-					<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-					</svg>
+						<h3 class="text-white font-bold text-lg">Total Products</h3>
+					</div>
 				</div>
 			</div>
-		</button>
+			<div class="p-5 bg-gradient-to-br from-gray-50 to-white">
+				{#if isLoadingDbStats}
+					<div class="flex items-center justify-center gap-2 py-4">
+						<svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						<span class="text-sm text-gray-600">Loading...</span>
+					</div>
+				{:else}
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="text-4xl font-bold text-gray-900 mb-1">{dbTotalProducts.toLocaleString()}</p>
+							<p class="text-sm text-gray-500">Products in database</p>
+						</div>
+						{#if dbTotalProducts > 0}
+							<button
+								on:click={loadAllProducts}
+								class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors"
+							>
+								View All
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
 
 		<!-- Products Without Images Card -->
-		<button 
-			on:click={loadNoImageProducts}
-			disabled={isLoadingDbStats || dbProductsWithoutImages === 0}
-			class="bg-gradient-to-br from-red-500 to-red-600 rounded-lg shadow-lg p-6 text-white hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-left w-full"
-		>
-			<div class="flex items-center justify-between">
-				<div>
-					<p class="text-red-100 text-sm font-medium mb-1">Products Without Images</p>
-					{#if isLoadingDbStats}
-						<div class="flex items-center gap-2">
-							<svg class="animate-spin w-8 h-8" fill="none" viewBox="0 0 24 24">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+		<div class="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+			<div class="bg-gradient-to-r from-orange-600 to-red-600 p-4">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
 							</svg>
-							<span class="text-sm">Loading...</span>
 						</div>
-					{:else}
-						<h2 class="text-4xl font-bold">{dbProductsWithoutImages.toLocaleString()}</h2>
-						{#if dbProductsWithoutImages > 0}
-							<p class="text-red-100 text-xs mt-2">Click to view and upload images</p>
-						{/if}
-					{/if}
-				</div>
-				<div class="bg-white bg-opacity-20 rounded-full p-4">
-					<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-					</svg>
+						<h3 class="text-white font-bold text-lg">Missing Images</h3>
+					</div>
 				</div>
 			</div>
-		</button>
+			<div class="p-5 bg-gradient-to-br from-gray-50 to-white">
+				{#if isLoadingDbStats}
+					<div class="flex items-center justify-center gap-2 py-4">
+						<svg class="animate-spin w-6 h-6 text-orange-600" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						<span class="text-sm text-gray-600">Loading...</span>
+					</div>
+				{:else}
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="text-4xl font-bold text-gray-900 mb-1">{dbProductsWithoutImages.toLocaleString()}</p>
+							<p class="text-sm text-gray-500">Products without images</p>
+						</div>
+						{#if dbProductsWithoutImages > 0}
+							<button
+								on:click={loadNoImageProducts}
+								class="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-md transition-colors"
+							>
+								Upload
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
 	</div>
 	
 	<!-- Hidden file inputs -->
@@ -1631,18 +1919,27 @@
 	
 	<!-- Products Without Images View -->
 	{#if showNoImageProducts}
-		<div class="bg-white rounded-lg shadow-lg overflow-hidden">
-			<div class="bg-gradient-to-r from-red-500 to-red-600 p-6 flex items-center justify-between">
-				<div>
-					<h2 class="text-2xl font-bold text-white">Products Without Images</h2>
-					<p class="text-red-100 mt-1">Upload images for products below</p>
+		<div class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
+			<div class="bg-white border-b border-gray-200">
+				<div class="flex items-center justify-between p-4">
+					<div class="flex items-center gap-3">
+						<div class="bg-gradient-to-br from-orange-600 to-red-600 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</div>
+						<div>
+							<h2 class="text-xl font-bold text-gray-900">Products Without Images</h2>
+							<p class="text-sm text-gray-500 mt-0.5">Upload images for products below</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeNoImageView}
+						class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+					>
+						Close
+					</button>
 				</div>
-				<button 
-					on:click={closeNoImageView}
-					class="px-4 py-2 bg-white text-red-600 font-semibold rounded-lg hover:bg-red-50 transition-colors"
-				>
-					Close
-				</button>
 			</div>
 			
 			{#if isLoadingNoImageProducts}
@@ -1683,6 +1980,9 @@
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 									Web Search
+								</th>
+								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Edit
 								</th>
 							</tr>
 						</thead>
@@ -1764,6 +2064,18 @@
 											</button>
 										</div>
 									</td>
+									<td class="px-6 py-4 whitespace-nowrap text-center">
+										<button
+											on:click={() => openEditPopup(product)}
+											class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-1.5 mx-auto"
+											title="Edit product details"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
+											Edit
+										</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1781,18 +2093,27 @@
 	
 	<!-- All Products View -->
 	{#if showAllProducts}
-		<div class="bg-white rounded-lg shadow-lg overflow-hidden">
-			<div class="bg-gradient-to-r from-blue-500 to-blue-600 p-6 flex items-center justify-between">
-				<div>
-					<h2 class="text-2xl font-bold text-white">All Products in Database</h2>
-					<p class="text-blue-100 mt-1">Browse and search all products</p>
+		<div class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
+			<div class="bg-white border-b border-gray-200">
+				<div class="flex items-center justify-between p-4">
+					<div class="flex items-center gap-3">
+						<div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+							</svg>
+						</div>
+						<div>
+							<h2 class="text-xl font-bold text-gray-900">All Products in Database</h2>
+							<p class="text-sm text-gray-500 mt-0.5">Browse and search all products</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeAllProductsView}
+						class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+					>
+						Close
+					</button>
 				</div>
-				<button 
-					on:click={closeAllProductsView}
-					class="px-4 py-2 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors"
-				>
-					Close
-				</button>
 			</div>
 			
 			{#if isLoadingAllProducts}
@@ -1813,19 +2134,19 @@
 				</div>
 			{:else}
 				<!-- Stats Cards -->
-				<div class="bg-gray-50 p-4 border-b border-gray-200">
-					<div class="flex gap-6 justify-center mb-4">
-						<div class="text-center">
-							<p class="text-3xl font-bold text-blue-600">{allProductsList.length}</p>
-							<p class="text-sm text-gray-600">Total Products</p>
+				<div class="bg-white p-6 border-b border-gray-200">
+					<div class="flex gap-8 justify-center">
+						<div class="text-center bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 min-w-[150px]">
+							<p class="text-4xl font-bold text-blue-700 mb-1">{allProductsList.length}</p>
+							<p class="text-sm font-semibold text-gray-700">Total Products</p>
 						</div>
-						<div class="text-center">
-							<p class="text-3xl font-bold text-green-600">{dbProductsWithImages}</p>
-							<p class="text-sm text-gray-600">With Images</p>
+						<div class="text-center bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 min-w-[150px]">
+							<p class="text-4xl font-bold text-green-700 mb-1">{dbProductsWithImages}</p>
+							<p class="text-sm font-semibold text-gray-700">With Images</p>
 						</div>
-						<div class="text-center">
-							<p class="text-3xl font-bold text-red-600">{dbProductsWithoutImages}</p>
-							<p class="text-sm text-gray-600">Without Images</p>
+						<div class="text-center bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4 min-w-[150px]">
+							<p class="text-4xl font-bold text-red-700 mb-1">{dbProductsWithoutImages}</p>
+							<p class="text-sm font-semibold text-gray-700">Without Images</p>
 						</div>
 					</div>
 				</div>
@@ -1939,6 +2260,16 @@
 												</svg>
 												Update Image
 											{/if}
+										</button>
+										<button
+											on:click={() => openEditPopup(product)}
+											class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-1.5 mx-auto"
+											title="Edit product details"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
+											Edit
 										</button>
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
