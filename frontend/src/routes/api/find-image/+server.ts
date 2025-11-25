@@ -9,63 +9,64 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: 'Barcode is required', images: [] }, { status: 400 });
 		}
 		
-		console.log('[DuckDuckGo] Starting search for:', { barcode, productNameEn, productNameAr });
+		console.log('[Image Search] Starting search for:', { barcode, productNameEn, productNameAr });
 		
 		const allImages: any[] = [];
 		const seenUrls = new Set<string>();
 		
-		// Helper function to search using DuckDuckGo's public API
+		// Helper function to search using HTML scraping (simpler approach)
 		async function searchAndGetImages(query: string, limit: number, searchType: string) {
 			try {
-				console.log(`[DuckDuckGo] Searching for: "${query}" (${searchType})`);
+				console.log(`[Image Search] Searching for: "${query}" (${searchType})`);
 				
-				// Use DuckDuckGo's instant answer API (more reliable than scraping)
-				const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query + ' product image')}&format=json&no_html=1&skip_disambig=1`;
+				// Use DuckDuckGo HTML search page (more reliable than API)
+				const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`;
 				
 				const response = await fetch(searchUrl, {
 					headers: {
-						'User-Agent': 'AquraApp/1.0',
+						'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+						'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+						'Accept-Language': 'en-US,en;q=0.9',
+						'Cache-Control': 'no-cache',
+						'Pragma': 'no-cache',
 					}
 				});
 				
 				if (!response.ok) {
-					console.error(`[DuckDuckGo] Search failed: ${response.status}`);
+					console.error(`[Image Search] Search failed: ${response.status}`);
 					return [];
 				}
 				
-				const data = await response.json();
-				const images: any[] = [];
+				const html = await response.text();
+				console.log(`[Image Search] Received HTML length: ${html.length}`);
 				
-				// Extract images from various sources in the response
-				if (data.Image) {
-					images.push({
-						url: data.Image,
-						thumbnail: data.Image,
-						title: data.Heading || query,
-						source: data.AbstractURL || 'DuckDuckGo',
+				// Extract image URLs from HTML using regex
+				const imageRegex = /https?:\/\/[^"\s]+?\.(?:jpg|jpeg|png|gif|webp)/gi;
+				const matches = html.match(imageRegex) || [];
+				
+				// Filter and deduplicate images
+				const images = Array.from(new Set(matches))
+					.filter(url => {
+						// Filter out tiny icons, buttons, and logos
+						return !url.includes('icon') && 
+						       !url.includes('logo') && 
+						       !url.includes('favicon') &&
+						       !url.includes('button') &&
+						       url.length < 500; // Avoid data URLs
+					})
+					.slice(0, limit)
+					.map(url => ({
+						url: url,
+						thumbnail: url,
+						title: query,
+						source: 'Web Search',
 						searchType: searchType
-					});
-				}
+					}));
 				
-				// Check RelatedTopics for images
-				if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
-					data.RelatedTopics.slice(0, limit).forEach((topic: any) => {
-						if (topic.Icon && topic.Icon.URL) {
-							images.push({
-								url: topic.Icon.URL,
-								thumbnail: topic.Icon.URL,
-								title: topic.Text || query,
-								source: topic.FirstURL || 'DuckDuckGo',
-								searchType: searchType
-							});
-						}
-					});
-				}
-				
-				console.log(`[DuckDuckGo] Found ${images.length} images for: ${query}`);
-				return images.slice(0, limit);
+				console.log(`[Image Search] Found ${images.length} images for: ${query}`);
+				return images;
 			} catch (error) {
-				console.error(`[DuckDuckGo] Error searching for "${query}":`, error);
+				console.error(`[Image Search] Error searching for "${query}":`, error);
 				return [];
 			}
 		}
@@ -101,11 +102,24 @@ export const POST: RequestHandler = async ({ request }) => {
 			});
 		}
 		
-		console.log(`[DuckDuckGo] Total unique images found: ${allImages.length}`);
+		console.log(`[Image Search] Total unique images found: ${allImages.length}`);
+		
+		// If no images found, return a helpful message
+		if (allImages.length === 0) {
+			return json({ 
+				error: 'No images found. Try using Google search instead.',
+				images: [],
+				barcode 
+			});
+		}
+		
 		return json({ images: allImages, barcode });
 			
 	} catch (error) {
-		console.error('[DuckDuckGo] Error finding image:', error);
-		return json({ error: 'Failed to search for images', images: [] }, { status: 500 });
+		console.error('[Image Search] Error finding image:', error);
+		return json({ 
+			error: 'Search service temporarily unavailable. Please use Google search.',
+			images: [] 
+		}, { status: 500 });
 	}
 };
