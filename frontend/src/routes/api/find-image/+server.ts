@@ -11,11 +11,11 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 		
 		console.log('Searching DuckDuckGo for:', { barcode, productNameEn, productNameAr });
 		
-		const allImages: string[] = [];
+		const allImages: any[] = [];
 		const seenUrls = new Set<string>();
 		
 		// Helper function to search and get images
-		async function searchAndGetImages(query: string, limit: number) {
+		async function searchAndGetImages(query: string, limit: number, searchType: string) {
 			try {
 				const searchQuery = encodeURIComponent(query);
 				const vqd = await getVqd(searchQuery, fetch);
@@ -41,7 +41,13 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 				
 				const data = await imageResponse.json();
 				const images = data.results
-					? data.results.slice(0, limit).map((result: any) => result.image)
+					? data.results.slice(0, limit).map((result: any) => ({
+						url: result.image,
+						thumbnail: result.thumbnail || result.image,
+						title: result.title || query,
+						source: result.url || 'DuckDuckGo',
+						searchType: searchType
+					}))
 					: [];
 				
 				console.log(`Found ${images.length} images for: ${query}`);
@@ -53,32 +59,32 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 		}
 		
 		// 1. Search with barcode (6 best matches)
-		const barcodeImages = await searchAndGetImages(`${barcode} product`, 6);
-		barcodeImages.forEach((url: string) => {
-			if (!seenUrls.has(url)) {
-				seenUrls.add(url);
-				allImages.push(url);
+		const barcodeImages = await searchAndGetImages(`${barcode} product`, 6, 'barcode');
+		barcodeImages.forEach((img: any) => {
+			if (!seenUrls.has(img.url)) {
+				seenUrls.add(img.url);
+				allImages.push(img);
 			}
 		});
 		
 		// 2. Search with English product name (3 best matches)
 		if (productNameEn && productNameEn.trim()) {
-			const enImages = await searchAndGetImages(`${productNameEn} product`, 3);
-			enImages.forEach((url: string) => {
-				if (!seenUrls.has(url)) {
-					seenUrls.add(url);
-					allImages.push(url);
+			const enImages = await searchAndGetImages(`${productNameEn} product`, 3, 'english_name');
+			enImages.forEach((img: any) => {
+				if (!seenUrls.has(img.url)) {
+					seenUrls.add(img.url);
+					allImages.push(img);
 				}
 			});
 		}
 		
 		// 3. Search with Arabic product name (3 best matches)
 		if (productNameAr && productNameAr.trim()) {
-			const arImages = await searchAndGetImages(`${productNameAr} منتج`, 3);
-			arImages.forEach((url: string) => {
-				if (!seenUrls.has(url)) {
-					seenUrls.add(url);
-					allImages.push(url);
+			const arImages = await searchAndGetImages(`${productNameAr} منتج`, 3, 'arabic_name');
+			arImages.forEach((img: any) => {
+				if (!seenUrls.has(img.url)) {
+					seenUrls.add(img.url);
+					allImages.push(img);
 				}
 			});
 		}
