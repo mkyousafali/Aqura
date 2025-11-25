@@ -1,11 +1,24 @@
 <script lang="ts">
-	import { supabaseAdmin } from '\$lib/utils/supabase';
+	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
+	import VariationSelectionModal from './VariationSelectionModal.svelte';
+	import PriceValidationWarning from './PriceValidationWarning.svelte';
 	
 	let products: any[] = [];
 	let filteredProducts: any[] = [];
 	let isLoading: boolean = true;
 	let searchQuery: string = '';
+	
+	// Variation modal state
+	let showVariationModal: boolean = false;
+	let currentVariationGroup: any = null;
+	let currentVariations: any[] = [];
+	let currentTemplateForVariation: string = '';
+	
+	// Price validation state
+	let showPriceValidationModal: boolean = false;
+	let priceValidationIssues: any[] = [];
+	let pendingSaveData: any = null;
 	
 	// Filter selections
 	let selectedParentCategory: string = '';
@@ -90,8 +103,23 @@
 		templates = templates.filter(t => t.id !== templateId);
 	}
 	
-	// Toggle product selection for a template
-	function toggleProductSelection(templateId: string, barcode: string) {
+	// Toggle product selection for a template (with variation detection)
+	async function toggleProductSelection(templateId: string, barcode: string) {
+		// Find the product
+		const product = products.find(p => p.barcode === barcode);
+		if (!product) return;
+		
+		// Check if product is part of a variation group
+		if (product.is_variation) {
+			// Determine parent barcode
+			const parentBarcode = product.parent_product_barcode || product.barcode;
+			
+			// Load all variations in the group
+			await loadVariationGroup(templateId, parentBarcode);
+			return;
+		}
+		
+		// Normal product selection (not a variation)
 		templates = templates.map(t => {
 			if (t.id === templateId) {
 				const newSet = new Set(t.selectedProducts);
@@ -104,6 +132,175 @@
 			}
 			return t;
 		});
+	}
+	
+	// Load variation group and show modal
+	async function loadVariationGroup(templateId: string, parentBarcode: string) {
+		try {
+			// Call database function to get all variations
+			const { data, error } = await supabaseAdmin.rpc('get_product_variations', {
+				p_barcode: parentBarcode
+			});
+			
+			if (error) {
+				console.error('Error loading variations:', error);
+				alert('Error loading variation group. Please try again.');
+				return;
+			}
+			
+			// Separate parent from variations
+			const parentProduct = data.find(p => p.is_parent);
+			const variations = data.filter(p => !p.is_parent);
+			
+			if (!parentProduct) {
+				console.error('Parent product not found in variation group');
+				return;
+			}
+			
+			// Get currently selected products in this template
+			const template = templates.find(t => t.id === templateId);
+			const preSelected = new Set(
+				data.filter(p => template?.selectedProducts.has(p.barcode)).map(p => p.barcode)
+			);
+			
+			// Show variation selection modal
+			currentVariationGroup = parentProduct;
+			currentVariations = variations;
+			currentTemplateForVariation = templateId;
+			showVariationModal = true;
+		} catch (error) {
+			console.error('Error loading variation group:', error);
+			alert('Error loading variation group. Please try again.');
+		}
+	}
+	
+	// Handle variation selection confirmation
+	function handleVariationConfirm(event: CustomEvent) {
+		const { templateId, selectedBarcodes } = event.detail;
+		
+		// Update template with selected variations
+		templates = templates.map(t => {
+			if (t.id === templateId) {
+				const newSet = new Set(t.selectedProducts);
+				
+				// Remove all products from this group first
+				const groupBarcodes = [currentVariationGroup.barcode, ...currentVariations.map(v => v.barcode)];
+				groupBarcodes.forEach(barcode => newSet.delete(barcode));
+				
+				// Add selected products
+				selectedBarcodes.forEach(barcode => newSet.add(barcode));
+				
+				return { ...t, selectedProducts: newSet };
+			}
+			return t;
+		});
+		
+		// Close modal
+		showVariationModal = false;
+		currentVariationGroup = null;
+		currentVariations = [];
+		currentTemplateForVariation = '';
+	}
+	
+	// Handle variation modal cancel
+	function handleVariationCancel() {
+		showVariationModal = false;
+		currentVariationGroup = null;
+		currentVariations = [];
+		currentTemplateForVariation = '';
+	}
+	
+	// Price validation modal handlers
+	function handlePriceValidationContinue() {
+		// User acknowledged and wants to continue with different prices
+		showPriceValidationModal = false;
+		priceValidationIssues = [];
+		// Proceed with save without validation
+		continueSaveWithoutValidation();
+	}
+	
+	function handleSetUniformPrice(event: CustomEvent) {
+		// Apply uniform price to all variations in groups with issues
+		const { price } = event.detail;
+		console.log('Setting uniform price:', price);
+		// TODO: Update prices in database when price capture is implemented
+		alert(`Uniform price feature will be implemented when price input is added to the selector.\nSelected price: ${price} SAR`);
+		showPriceValidationModal = false;
+		priceValidationIssues = [];
+	}
+	
+	function handleRemovePriceMismatches() {
+		// Remove variations with different prices, keep most common
+		console.log('Removing price mismatches');
+		// TODO: Implement when price capture is added
+		alert('Remove mismatches feature will be implemented when price input is added.');
+		showPriceValidationModal = false;
+		priceValidationIssues = [];
+	}
+	
+	function handlePriceValidationCancel() {
+		// Cancel the save operation
+		showPriceValidationModal = false;
+		priceValidationIssues = [];
+	}
+	
+	async function continueSaveWithoutValidation() {
+		// Bypass validation and save directly
+		// This is the original saveOffers logic without validation
+		isLoading = true;
+		
+		try {
+			// Save each template as a separate offer
+			for (const template of templates) {
+				// Insert offer with template_id
+				const { data: offerData, error: offerError } = await supabaseAdmin
+					.from('flyer_offers')
+					.insert({
+						template_id: template.templateId,
+						template_name: template.name,
+						start_date: template.startDate,
+						end_date: template.endDate
+					})
+					.select()
+					.single();
+				
+				if (offerError) {
+					console.error('Error saving offer:', offerError);
+					alert(`Error saving ${template.name}: ${offerError.message}`);
+					continue;
+				}
+				
+				// Insert selected products for this offer
+				if (template.selectedProducts.size > 0) {
+					const offerProducts = Array.from(template.selectedProducts).map(barcode => ({
+						offer_id: offerData.id,
+						product_barcode: barcode
+					}));
+					
+					const { error: productsError } = await supabaseAdmin
+						.from('flyer_offer_products')
+						.insert(offerProducts);
+					
+					if (productsError) {
+						console.error('Error saving offer products:', productsError);
+						alert(`Error saving products for ${template.name}: ${productsError.message}`);
+					}
+				}
+			}
+			
+			alert('Offers saved successfully!');
+			
+			// Reset wizard
+			currentStep = 1;
+			templates = [];
+			nextTemplateId = 1;
+			
+		} catch (error) {
+			console.error('Error saving offers:', error);
+			alert('Error saving offers. Please try again.');
+		}
+		
+		isLoading = false;
 	}
 	
 	// Check if product is selected in a template
@@ -141,8 +338,71 @@
 		}
 	}
 	
+	// Validate variation group prices
+	async function validateVariationPrices(): Promise<{ valid: boolean; issues: any[] }> {
+		const issues = [];
+		
+		// For now, since we don't capture prices during selection,
+		// this is a placeholder that will be expanded when price input is added
+		// In the future, this will check if variations in same group have matching offer_price
+		
+		// Iterate through templates and check for variation groups
+		for (const template of templates) {
+			const selectedBarcodes = Array.from(template.selectedProducts);
+			
+			// Get products data
+			const selectedProducts = products.filter(p => selectedBarcodes.includes(p.barcode));
+			
+			// Group by variation_group (products with same parent_product_barcode)
+			const variationGroups = new Map<string, any[]>();
+			
+			selectedProducts.forEach(product => {
+				if (product.is_variation && product.parent_product_barcode) {
+					const groupKey = product.parent_product_barcode;
+					if (!variationGroups.has(groupKey)) {
+						variationGroups.set(groupKey, []);
+					}
+					variationGroups.get(groupKey)?.push(product);
+				}
+			});
+			
+			// Check each group (placeholder for future price validation)
+			variationGroups.forEach((groupProducts, parentBarcode) => {
+				// Future: Check if all products have same offer_price
+				// For now, just log that we found a group
+				console.log(`Found variation group ${parentBarcode} with ${groupProducts.length} products`);
+				
+				// Placeholder validation - would check prices here
+				// Example structure for price issues:
+				// issues.push({
+				//   groupName: groupProducts[0].variation_group_name_en,
+				//   variations: groupProducts.map(p => ({
+				//     barcode: p.barcode,
+				//     name: p.product_name_en,
+				//     offerPrice: p.offer_price // Would need to be captured during selection
+				//   }))
+				// });
+			});
+		}
+		
+		return {
+			valid: issues.length === 0,
+			issues
+		};
+	}
+	
 	// Save offers to database
 	async function saveOffers() {
+		// Validate prices first
+		const validation = await validateVariationPrices();
+		
+		if (!validation.valid && validation.issues.length > 0) {
+			// Show price validation warning
+			priceValidationIssues = validation.issues;
+			showPriceValidationModal = true;
+			return;
+		}
+		
 		isLoading = true;
 		
 		try {
@@ -587,7 +847,12 @@
 											{product.barcode}
 										</td>
 									<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
-										{product.product_name_en || '-'}
+										<div class="flex items-center gap-2">
+											<span>{product.product_name_en || '-'}</span>
+											{#if product.is_variation}
+												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-semibold">🔗 Grouped</span>
+											{/if}
+										</div>
 									</td>
 									<td class="px-6 py-4 text-sm text-gray-900">
 										{product.parent_sub_category || '-'}
@@ -677,3 +942,26 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Variation Selection Modal -->
+{#if showVariationModal && currentVariationGroup}
+	<VariationSelectionModal
+		parentProduct={currentVariationGroup}
+		variations={currentVariations}
+		templateId={currentTemplateForVariation}
+		preSelectedBarcodes={templates.find(t => t.id === currentTemplateForVariation)?.selectedProducts || new Set()}
+		on:confirm={handleVariationConfirm}
+		on:cancel={handleVariationCancel}
+	/>
+{/if}
+
+<!-- Price Validation Warning Modal -->
+{#if showPriceValidationModal && priceValidationIssues.length > 0}
+	<PriceValidationWarning
+		priceIssues={priceValidationIssues}
+		on:continue={handlePriceValidationContinue}
+		on:setUniformPrice={handleSetUniformPrice}
+		on:removeMismatches={handleRemovePriceMismatches}
+		on:cancel={handlePriceValidationCancel}
+	/>
+{/if}

@@ -478,15 +478,18 @@
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Product Name (AR)
 									</th>
-									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-										Parent Category
-									</th>
-									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-										Parent Sub Category
-									</th>
-									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-										Sub Category
-									</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Variation Group
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Parent Category
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Parent Sub Category
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Sub Category
+								</th>
 								</tr>
 							</thead>
 							<tbody class="bg-white divide-y divide-gray-200">
@@ -525,12 +528,21 @@
 										<td class="px-6 py-4 text-sm text-gray-900">
 											{product.product_name_en || '-'}
 										</td>
-										<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-											{product.product_name_ar || '-'}
-										</td>
-										<td class="px-6 py-4 text-sm text-gray-900">
-											{product.parent_category || '-'}
-										</td>
+									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
+										{product.product_name_ar || '-'}
+									</td>
+									<td class="px-6 py-4 text-sm">
+										{#if product.is_variation && product.variation_group_name_en}
+											<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1">
+												🔗 {product.variation_group_name_en}
+											</span>
+										{:else}
+											<span class="text-gray-400">—</span>
+										{/if}
+									</td>
+									<td class="px-6 py-4 text-sm text-gray-900">
+										{product.parent_category || '-'}
+									</td>
 										<td class="px-6 py-4 text-sm text-gray-900">
 											{product.parent_sub_category || '-'}
 										</td>

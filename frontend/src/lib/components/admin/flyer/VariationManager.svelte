@@ -15,8 +15,9 @@
 	let currentPage: number = 1;
 	let itemsPerPage: number = 50;
 	
-	// Group creation modal
+	// Group creation/edit modal
 	let showGroupModal: boolean = false;
+	let isEditMode: boolean = false;
 	let groupParentBarcode: string = '';
 	let groupNameEn: string = '';
 	let groupNameAr: string = '';
@@ -91,12 +92,12 @@
 	async function loadVariationGroups() {
 		isLoadingGroups = true;
 		try {
-			// Get all parent products (is_variation=true and parent_product_barcode is null)
+			// Get all parent products (is_variation=true and variation_order=0, meaning they are parents)
 			const { data, error } = await supabase
 				.from('flyer_products')
 				.select('*')
 				.eq('is_variation', true)
-				.is('parent_product_barcode', null)
+				.eq('variation_order', 0)
 				.order('variation_group_name_en', { ascending: true });
 			
 			if (error) throw error;
@@ -207,14 +208,59 @@
 			return;
 		}
 		
+		// If not in edit mode, initialize new group creation
+		if (!isEditMode) {
+			// Pre-select first product as parent
+			const firstBarcode = Array.from(selectedProducts)[0];
+			groupParentBarcode = firstBarcode;
+		}
+		// If in edit mode, preserve existing groupNameEn, groupNameAr, and groupParentBarcode
+		
 		showGroupModal = true;
-		// Pre-select first product as parent
-		const firstBarcode = Array.from(selectedProducts)[0];
-		groupParentBarcode = firstBarcode;
+	}
+	
+	async function openEditGroupModal(parentBarcode: string, groupName: string, groupNameArParam: string) {
+		// Switch to Products View
+		showGroupsView = false;
+		
+		// Load all products in this group
+		const { data: groupProducts, error } = await supabase
+			.from('flyer_products')
+			.select('barcode')
+			.eq('parent_product_barcode', parentBarcode);
+		
+		if (error) {
+			notifications.add({
+				message: 'Failed to load group products',
+				type: 'error',
+				duration: 3000
+			});
+			return;
+		}
+		
+		// Pre-select all products in the group
+		selectedProducts.clear();
+		groupProducts?.forEach(p => selectedProducts.add(p.barcode));
+		selectedProducts = selectedProducts; // Trigger reactivity
+		
+		// Set edit mode state
+		isEditMode = true;
+		groupParentBarcode = parentBarcode;
+		groupNameEn = groupName;
+		groupNameAr = groupNameArParam;
+		
+		console.log('🔧 Edit mode set:', { groupNameEn, groupNameAr: groupNameArParam });
+		
+		notifications.add({
+			message: `Editing "${groupName}" - Select or deselect products, then click Update Group`,
+			type: 'info',
+			duration: 5000
+		});
 	}
 	
 	function closeGroupModal() {
 		showGroupModal = false;
+		isEditMode = false;
 		groupParentBarcode = '';
 		groupNameEn = '';
 		groupNameAr = '';
@@ -235,6 +281,111 @@
 		
 		isCreatingGroup = true;
 		try {
+			if (isEditMode) {
+				// EDIT MODE: Update group membership based on selected products
+				
+				// Step 1: Ensure parent product has correct variation_order = 0 and group names
+				await supabase
+					.from('flyer_products')
+					.update({
+						is_variation: true,
+						parent_product_barcode: groupParentBarcode,
+						variation_group_name_en: groupNameEn,
+						variation_group_name_ar: groupNameAr,
+						variation_order: 0,
+						modified_at: new Date().toISOString()
+					})
+					.eq('barcode', groupParentBarcode);
+				
+				// Step 2: Get all existing variations in this group
+				const { data: existingVariations } = await supabase
+					.from('flyer_products')
+					.select('barcode')
+					.eq('parent_product_barcode', groupParentBarcode)
+					.neq('barcode', groupParentBarcode); // Exclude parent itself
+				
+				const existingBarcodes = new Set(existingVariations?.map(v => v.barcode) || []);
+				const selectedBarcodes = new Set(
+					Array.from(selectedProducts).filter(b => b !== groupParentBarcode)
+				);
+				
+				// Step 3: Find products to remove (were in group but not selected anymore)
+				const barcodesToRemove = Array.from(existingBarcodes).filter(
+					barcode => !selectedBarcodes.has(barcode)
+				);
+				
+				// Step 4: Find products to add (selected but not in group yet)
+				const barcodesToAdd = Array.from(selectedBarcodes).filter(
+					barcode => !existingBarcodes.has(barcode)
+				);
+				
+				// Step 5: Remove unselected products from group
+				for (const barcode of barcodesToRemove) {
+					await supabase
+						.from('flyer_products')
+						.update({
+							is_variation: false,
+							parent_product_barcode: null,
+							variation_group_name_en: null,
+							variation_group_name_ar: null,
+							variation_order: null,
+							modified_at: new Date().toISOString()
+						})
+						.eq('barcode', barcode);
+				}
+				
+				// Step 6: Add new selected products to group
+				for (const barcode of barcodesToAdd) {
+					await supabase
+						.from('flyer_products')
+						.update({
+							is_variation: true,
+							parent_product_barcode: groupParentBarcode,
+							variation_group_name_en: groupNameEn,
+							variation_group_name_ar: groupNameAr,
+							variation_order: 999, // Temporary, will be fixed in Step 7
+							modified_at: new Date().toISOString()
+						})
+						.eq('barcode', barcode);
+				}
+				
+				// Step 7: Re-number all remaining variations sequentially (1, 2, 3...)
+				const { data: finalVariations } = await supabase
+					.from('flyer_products')
+					.select('barcode')
+					.eq('parent_product_barcode', groupParentBarcode)
+					.neq('barcode', groupParentBarcode)
+					.order('product_name_en', { ascending: true });
+				
+				let orderCounter = 1;
+				for (const variation of (finalVariations || [])) {
+					await supabase
+						.from('flyer_products')
+						.update({
+							variation_order: orderCounter++,
+							variation_group_name_en: groupNameEn,
+							variation_group_name_ar: groupNameAr,
+							modified_at: new Date().toISOString()
+						})
+						.eq('barcode', variation.barcode);
+				}
+				
+				const changesMsg = [];
+				if (barcodesToAdd.length > 0) changesMsg.push(`Added ${barcodesToAdd.length}`);
+				if (barcodesToRemove.length > 0) changesMsg.push(`Removed ${barcodesToRemove.length}`);
+				
+				notifications.add({
+					message: `Group updated: ${changesMsg.join(', ') || 'No changes'}`,
+					type: 'success',
+					duration: 3000
+				});
+				
+				await loadVariationGroups();
+				await loadStats();
+				deselectAll();
+				closeGroupModal();
+			} else {
+				// CREATE MODE: Create new group
 			// Get selected barcodes excluding parent
 			const variationBarcodes = Array.from(selectedProducts).filter(
 				b => b !== groupParentBarcode
@@ -276,10 +427,11 @@
 			} else {
 				throw new Error(data?.[0]?.message || 'Failed to create group');
 			}
+			}
 		} catch (error) {
-			console.error('Error creating group:', error);
+			console.error('Error creating/editing group:', error);
 			notifications.add({
-				message: `Failed to create group: ${error.message}`,
+				message: `Failed to ${isEditMode ? 'edit' : 'create'} group: ${error.message}`,
 				type: 'error',
 				duration: 5000
 			});
@@ -444,9 +596,16 @@
 		<!-- Selection actions -->
 		{#if selectedProducts.size > 0 && !showGroupsView}
 			<div class="mt-3 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
-				<span class="text-sm font-medium text-blue-800">
-					{selectedProducts.size} product{selectedProducts.size !== 1 ? 's' : ''} selected
-				</span>
+				<div class="flex items-center gap-3">
+					<span class="text-sm font-medium text-blue-800">
+						{selectedProducts.size} product{selectedProducts.size !== 1 ? 's' : ''} selected
+					</span>
+					{#if isEditMode}
+						<span class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold">
+							Editing: {groupNameEn}
+						</span>
+					{/if}
+				</div>
 				<div class="flex gap-2">
 					<button
 						on:click={deselectAll}
@@ -454,13 +613,35 @@
 					>
 						Deselect All
 					</button>
-					<button
-						on:click={openGroupModal}
-						disabled={selectedProducts.size < 2}
-						class="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-					>
-						Create Group ({selectedProducts.size})
-					</button>
+					{#if isEditMode}
+						<button
+							on:click={openGroupModal}
+							disabled={selectedProducts.size < 2}
+							class="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+						>
+							Update Group ({selectedProducts.size})
+						</button>
+						<button
+							on:click={() => {
+								isEditMode = false;
+								groupParentBarcode = '';
+								groupNameEn = '';
+								groupNameAr = '';
+								deselectAll();
+							}}
+							class="px-3 py-1 text-sm bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors"
+						>
+							Cancel Edit
+						</button>
+					{:else}
+						<button
+							on:click={openGroupModal}
+							disabled={selectedProducts.size < 2}
+							class="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							Create Group ({selectedProducts.size})
+						</button>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -533,15 +714,21 @@
 									</div>
 								</div>
 								
-								<!-- Actions -->
-								<div class="flex gap-2" on:click|stopPropagation>
-									<button
-										on:click={() => deleteGroup(group.parent.barcode, group.parent.variation_group_name_en)}
-										class="px-3 py-1 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
-									>
-										Delete Group
-									</button>
-								</div>
+							<!-- Actions -->
+							<div class="flex gap-2" on:click|stopPropagation>
+								<button
+									on:click={() => openEditGroupModal(group.parent.barcode, group.parent.variation_group_name_en, group.parent.variation_group_name_ar)}
+									class="px-3 py-1 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+								>
+									Edit Group
+								</button>
+								<button
+									on:click={() => deleteGroup(group.parent.barcode, group.parent.variation_group_name_en)}
+									class="px-3 py-1 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+								>
+									Delete Group
+								</button>
+							</div>
 							</div>
 							
 							<!-- Expanded Variations -->
@@ -589,7 +776,7 @@
 				</div>
 			{/if}
 		{:else}
-			<!-- Products Grid View -->
+			<!-- Products Table View -->
 			{#if filteredProducts.length === 0}
 				<div class="flex items-center justify-center h-full">
 					<div class="text-center">
@@ -612,67 +799,91 @@
 					</button>
 				</div>
 				
-				<!-- Products Grid -->
-				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
-					{#each paginatedProducts as product}
-						<div
-							class="bg-white rounded-lg border-2 transition-all cursor-pointer hover:shadow-md
-								{selectedProducts.has(product.barcode) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}"
-							on:click={() => toggleProductSelection(product.barcode)}
-						>
-							<div class="p-4">
-								<!-- Selection checkbox -->
-								<div class="flex items-start justify-between mb-3">
-									<input
-										type="checkbox"
-										checked={selectedProducts.has(product.barcode)}
-										on:click|stopPropagation
-										on:change={() => toggleProductSelection(product.barcode)}
-										class="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-									/>
-									{#if product.is_variation}
-										<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
-											🔗 Grouped
-										</span>
-									{/if}
-								</div>
-								
-								<!-- Product Image -->
-								<div class="mb-3 flex items-center justify-center h-32">
-									{#if product.image_url}
-										<img
-											src={product.image_url}
-											alt={product.product_name_en}
-											class="max-w-full max-h-full object-contain cursor-zoom-in"
-											on:click|stopPropagation={() => previewImage(product.image_url)}
+				<!-- Products Table -->
+				<div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden mb-6">
+					<div class="overflow-x-auto">
+						<table class="w-full">
+							<thead class="bg-gray-50 border-b border-gray-200">
+								<tr>
+									<th class="px-4 py-3 text-left w-12">
+										<input
+											type="checkbox"
+											on:change={selectAll}
+											class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
 										/>
-									{:else}
-										<div class="w-full h-full bg-gray-100 rounded flex items-center justify-center text-gray-400">
-											No Image
-										</div>
-									{/if}
-								</div>
-								
-								<!-- Product Info -->
-								<div class="space-y-2">
-									<div class="font-medium text-sm text-gray-800 line-clamp-2">
-										{product.product_name_en}
-									</div>
-									<div class="text-xs text-gray-600 font-arabic line-clamp-1">
-										{product.product_name_ar}
-									</div>
-									<div class="text-xs text-gray-500 font-mono">
-										{product.barcode}
-									</div>
-									{#if product.is_variation && product.variation_group_name_en}
-										<div class="text-xs text-green-600 bg-green-50 rounded px-2 py-1 truncate">
-											Group: {product.variation_group_name_en}
-										</div>
-									{/if}
-								</div>
-							</div>
-						</div>
-					{/each}
+									</th>
+									<th class="px-4 py-3 text-left w-20">Image</th>
+									<th class="px-4 py-3 text-left">Product Name (EN)</th>
+									<th class="px-4 py-3 text-left">Product Name (AR)</th>
+									<th class="px-4 py-3 text-left w-32">Barcode</th>
+									<th class="px-4 py-3 text-left w-32">Status</th>
+									<th class="px-4 py-3 text-left">Group</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray-200">
+								{#each paginatedProducts as product}
+									<tr
+										class="hover:bg-gray-50 cursor-pointer transition-colors
+											{selectedProducts.has(product.barcode) ? 'bg-blue-50' : ''}"
+										on:click={() => toggleProductSelection(product.barcode)}
+									>
+										<td class="px-4 py-3">
+											<input
+												type="checkbox"
+												checked={selectedProducts.has(product.barcode)}
+												on:click|stopPropagation
+												on:change={() => toggleProductSelection(product.barcode)}
+												class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+											/>
+										</td>
+										<td class="px-4 py-3">
+											{#if product.image_url}
+												<img
+													src={product.image_url}
+													alt={product.product_name_en}
+													class="w-16 h-16 object-contain cursor-zoom-in"
+													on:click|stopPropagation={() => previewImage(product.image_url)}
+												/>
+											{:else}
+												<div class="w-16 h-16 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-xs">
+													No Image
+												</div>
+											{/if}
+										</td>
+										<td class="px-4 py-3 text-sm text-gray-800">
+											{product.product_name_en}
+										</td>
+										<td class="px-4 py-3 text-sm text-gray-600 font-arabic">
+											{product.product_name_ar}
+										</td>
+										<td class="px-4 py-3 text-sm text-gray-500 font-mono">
+											{product.barcode}
+										</td>
+										<td class="px-4 py-3">
+											{#if product.is_variation}
+												<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
+													🔗 Grouped
+												</span>
+											{:else}
+												<span class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+													Ungrouped
+												</span>
+											{/if}
+										</td>
+										<td class="px-4 py-3 text-sm text-gray-600">
+											{#if product.is_variation && product.variation_group_name_en}
+												<div class="text-xs text-green-700 font-medium truncate max-w-xs">
+													{product.variation_group_name_en}
+												</div>
+											{:else}
+												<span class="text-gray-400">—</span>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
 				</div>
 				
 				<!-- Pagination -->
@@ -720,9 +931,13 @@
 	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
 		<div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
 			<div class="p-6 border-b border-gray-200">
-				<h2 class="text-2xl font-bold text-gray-800">Create Variation Group</h2>
+				<h2 class="text-2xl font-bold text-gray-800">{isEditMode ? 'Update Variation Group' : 'Create Variation Group'}</h2>
 				<p class="text-sm text-gray-600 mt-1">
-					Grouping {selectedProducts.size} products together
+					{#if isEditMode}
+						Updating: {groupNameEn}
+					{:else}
+						Grouping {selectedProducts.size} products together
+					{/if}
 				</p>
 			</div>
 			
@@ -848,9 +1063,9 @@
 				>
 					{#if isCreatingGroup}
 						<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-						Creating...
+						{isEditMode ? 'Updating...' : 'Creating...'}
 					{:else}
-						Create Group
+						{isEditMode ? 'Update Group' : 'Create Group'}
 					{/if}
 				</button>
 			</div>

@@ -272,11 +272,11 @@ BEGIN
     p_variation_barcodes := array_remove(p_variation_barcodes, p_parent_barcode);
   END IF;
 
-  -- Update parent product
+  -- Update parent product (set parent_product_barcode to itself for query consistency)
   UPDATE flyer_products
   SET 
     is_variation = true,
-    parent_product_barcode = NULL,
+    parent_product_barcode = p_parent_barcode,  -- Parent references itself
     variation_group_name_en = p_group_name_en,
     variation_group_name_ar = p_group_name_ar,
     variation_order = 0,

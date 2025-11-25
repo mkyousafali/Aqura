@@ -28,6 +28,13 @@
     copiesA5: number;
     copiesA6: number;
     copiesA7: number;
+    // Variation group fields
+    is_variation_group?: boolean;
+    variation_count?: number;
+    variation_barcodes?: string[];
+    parent_product_barcode?: string;
+    variation_group_name_en?: string;
+    variation_group_name_ar?: string;
   }
 
   interface FieldSelector {
@@ -136,16 +143,16 @@
       // Get barcodes
       const barcodes = offerProducts.map(p => p.product_barcode);
 
-      // Get product details from flyer_products
+      // Get product details from flyer_products (including variation fields)
       const { data: productDetails, error: productError } = await supabaseAdmin
         .from('flyer_products')
-        .select('barcode, product_name_en, product_name_ar, unit_name, image_url')
+        .select('barcode, product_name_en, product_name_ar, unit_name, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override')
         .in('barcode', barcodes);
 
       if (productError) throw productError;
 
       // Combine offer data with product details
-      products = offerProducts.map(offerProduct => {
+      const allProducts = offerProducts.map(offerProduct => {
         const productDetail = productDetails?.find(p => p.barcode === offerProduct.product_barcode);
         return {
           barcode: offerProduct.product_barcode,
@@ -156,15 +163,74 @@
           offer_price: offerProduct.offer_price || 0,
           offer_qty: offerProduct.offer_qty || 1,
           limit_qty: offerProduct.limit_qty,
-          image_url: productDetail?.image_url,
+          image_url: productDetail?.image_url || productDetail?.variation_image_override,
           pdfSizes: [],
           offer_end_date: selectedOffer?.end_date || '',
           copiesA4: 1,
           copiesA5: 1,
           copiesA6: 1,
-          copiesA7: 1
+          copiesA7: 1,
+          is_variation: productDetail?.is_variation,
+          parent_product_barcode: productDetail?.parent_product_barcode,
+          variation_group_name_en: productDetail?.variation_group_name_en,
+          variation_group_name_ar: productDetail?.variation_group_name_ar
         };
-      }).sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
+      });
+
+      // Group products by variation groups
+      const variationGroups = new Map<string, typeof allProducts>();
+      const standaloneProducts: typeof allProducts = [];
+
+      allProducts.forEach(product => {
+        if (product.is_variation && product.parent_product_barcode) {
+          const groupKey = product.parent_product_barcode;
+          if (!variationGroups.has(groupKey)) {
+            variationGroups.set(groupKey, []);
+          }
+          variationGroups.get(groupKey)?.push(product);
+        } else {
+          standaloneProducts.push(product);
+        }
+      });
+
+      // Consolidate variation groups into single entries
+      const consolidatedProducts: Product[] = [];
+
+      // Add standalone products
+      consolidatedProducts.push(...standaloneProducts);
+
+      // Add consolidated variation groups
+      for (const [parentBarcode, groupProducts] of variationGroups.entries()) {
+        if (groupProducts.length > 0) {
+          const firstProduct = groupProducts[0];
+          
+          // ONLY use variations that are actually selected in the offer
+          const offerVariationBarcodes = groupProducts.map(p => p.barcode);
+          
+          console.log(`🔍 Using only selected variations for parent ${parentBarcode}:`, offerVariationBarcodes.length, 'selected in offer');
+          
+          // Use group name if available, fallback to first product name
+          const groupNameEn = firstProduct.variation_group_name_en || firstProduct.product_name_en;
+          const groupNameAr = firstProduct.variation_group_name_ar || firstProduct.product_name_ar;
+          
+          // Find parent product or use first variation's data
+          const parentProduct = groupProducts.find(p => p.barcode === parentBarcode) || firstProduct;
+          
+          consolidatedProducts.push({
+            ...parentProduct,
+            barcode: parentBarcode,
+            product_name_en: groupNameEn,
+            product_name_ar: groupNameAr,
+            is_variation_group: true,
+            variation_count: offerVariationBarcodes.length,
+            variation_barcodes: offerVariationBarcodes,
+            // Use parent's image or first variation's image
+            image_url: parentProduct.image_url || firstProduct.image_url
+          });
+        }
+      }
+
+      products = consolidatedProducts.sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
 
       // Initialize filtered products
       filteredProducts = products;
@@ -223,10 +289,41 @@
     filterProducts(); // Re-filter after update
   }
 
-  function generatePDF(product: Product) {
+  async function generatePDF(product: Product) {
+    console.log('🔵 generatePDF called for product:', product.barcode);
+    
     if (product.pdfSizes.length === 0) {
       alert('Please select at least one PDF size');
       return;
+    }
+
+    // If it's a variation group, fetch all variation images
+    let variationImages: string[] = [];
+    if (product.is_variation_group && product.variation_barcodes && product.variation_barcodes.length > 0) {
+      console.log('🔍 Fetching variation images for barcodes:', product.variation_barcodes);
+      
+      try {
+        const { data: variationProducts, error } = await supabaseAdmin
+          .from('flyer_products')
+          .select('image_url, variation_order')
+          .in('barcode', product.variation_barcodes)
+          .order('variation_order', { ascending: true });
+        
+        console.log('📦 Variation products fetched:', variationProducts?.length || 0);
+        
+        if (!error && variationProducts) {
+          variationImages = variationProducts
+            .filter(p => p.image_url)
+            .map(p => p.image_url);
+          console.log('🖼️ Variation images extracted:', variationImages.length, 'images');
+        } else if (error) {
+          console.error('❌ Error fetching variation images:', error);
+        }
+      } catch (error) {
+        console.error('💥 Exception fetching variation images:', error);
+      }
+    } else {
+      console.log('ℹ️ Not a variation group, using single product image');
     }
 
     const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -269,18 +366,49 @@
       const expireDateEn = 'Expires: ' + endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       const expireDateAr = 'ينتهي في: ' + endDate.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
 
+      // Variation group indicator text
+      const isVariationGroup = product.is_variation_group && product.variation_count;
+      const variationTextEn = isVariationGroup ? 'Multiple varieties available' : '';
+      const variationTextAr = isVariationGroup ? 'أصناف متعددة متوفرة' : '';
+
       let cardsHtml = '';
       const copiesMap = { a4: product.copiesA4, a5: product.copiesA5, a6: product.copiesA6, a7: product.copiesA7 };
       const totalCopies = layout.count * (copiesMap[pdfSize] || 1);
       for (let i = 0; i < totalCopies; i++) {
-        const imgHtml = product.image_url 
-          ? '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">'
-          : '<div style="width:100%;height:40%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:48px">📦</div>';
+        // Create layered images for variation groups
+        let imgHtml = '';
+        if (isVariationGroup && variationImages.length > 0) {
+          console.log('🎨 Generating layered images for variation group');
+          console.log('   - isVariationGroup:', isVariationGroup);
+          console.log('   - variationImages.length:', variationImages.length);
+          console.log('   - variationImages:', variationImages);
+          
+          // Create layered image container
+          imgHtml = '<div class="img-stack">';
+          
+          // Add up to 3 images in stack (main + 2 behind)
+          const imagesToShow = variationImages.slice(0, 3);
+          imagesToShow.forEach((imgUrl, imgIndex) => {
+            const zIndex = imagesToShow.length - imgIndex;
+            const offset = imgIndex * 5; // 5px offset for each layer (reduced from 8px)
+            const opacity = imgIndex === 0 ? '1' : '0.6'; // Main image full opacity, others semi-transparent
+            console.log('   - Adding image', imgIndex + 1, ':', imgUrl);
+            imgHtml += '<img src="' + imgUrl + '" class="pi-stacked" style="z-index:' + zIndex + ';left:' + offset + 'px;top:' + offset + 'px;opacity:' + opacity + '" alt="Variation ' + (imgIndex + 1) + '">';
+          });
+          
+          imgHtml += '</div>';
+          console.log('✅ Generated imgHtml:', imgHtml.substring(0, 200));
+        } else if (product.image_url) {
+          imgHtml = '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">';
+        } else {
+          imgHtml = '<div style="width:100%;height:40%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:48px">📦</div>';
+        }
         
         const qtyHtml = product.offer_qty > 1 ? '<div class="oq">Buy ' + product.offer_qty + '</div>' : '';
         const limHtml = product.limit_qty ? '<div class="lq">Limit: ' + product.limit_qty + '</div>' : '';
+        const varHtml = isVariationGroup ? '<div class="vg-en sz-' + pdfSize + '">' + variationTextEn + '</div><div class="vg-ar sz-' + pdfSize + '">' + variationTextAr + '</div>' : '';
         
-        cardsHtml += '<div class="pc sz-' + pdfSize + '">' + imgHtml + '<div class="pne sz-' + pdfSize + '">' + product.product_name_en + '</div><div class="pna sz-' + pdfSize + '">' + product.product_name_ar + '</div><div class="ps"><div class="rp sz-' + pdfSize + '">' + product.sales_price.toFixed(2) + ' SAR</div><div class="op sz-' + pdfSize + '">' + product.offer_price.toFixed(2) + ' SAR</div>' + qtyHtml + limHtml + '<div class="bc sz-' + pdfSize + '">' + product.barcode + '</div><div class="exp-en sz-' + pdfSize + '">' + expireDateEn + '</div><div class="exp-ar sz-' + pdfSize + '">' + expireDateAr + '</div></div></div>';
+        cardsHtml += '<div class="pc sz-' + pdfSize + '">' + imgHtml + '<div class="pne sz-' + pdfSize + '">' + product.product_name_en + '</div><div class="pna sz-' + pdfSize + '">' + product.product_name_ar + '</div>' + varHtml + '<div class="ps"><div class="rp sz-' + pdfSize + '">' + product.sales_price.toFixed(2) + ' SAR</div><div class="op sz-' + pdfSize + '">' + product.offer_price.toFixed(2) + ' SAR</div>' + qtyHtml + limHtml + '<div class="bc sz-' + pdfSize + '">' + product.barcode + '</div><div class="exp-en sz-' + pdfSize + '">' + expireDateEn + '</div><div class="exp-ar sz-' + pdfSize + '">' + expireDateAr + '</div></div></div>';
       }
 
       const pageBreak = pageIndex < product.pdfSizes.length - 1 ? ' style="page-break-after:always"' : '';
@@ -288,7 +416,7 @@
     });
 
     const styleEl = doc.createElement('style');
-    let cssText = '@page{size:A4;margin:0}@media print{html,body{width:210mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;overflow:hidden}.cnt{width:210mm;height:297mm;display:grid;gap:0;padding:0;page-break-inside:avoid;overflow:hidden}.pc{border:2px solid #333;border-radius:8px;padding:5px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:white;margin:2mm;overflow:hidden;page-break-inside:avoid}.pi{width:90%;max-width:90%;height:35%;max-height:35%;object-fit:contain;margin-bottom:5px}.ps{width:100%;text-align:center;margin-top:auto}';
+    let cssText = '@page{size:A4;margin:0}@media print{html,body{width:210mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;overflow:hidden}.cnt{width:210mm;height:297mm;display:grid;gap:0;padding:0;page-break-inside:avoid;overflow:hidden}.pc{border:2px solid #333;border-radius:8px;padding:5px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:white;margin:2mm;overflow:hidden;page-break-inside:avoid}.pi{width:90%;max-width:90%;height:35%;max-height:35%;object-fit:contain;margin-bottom:5px}.img-stack{position:relative;width:90%;height:35%;margin-bottom:5px;display:flex;align-items:center;justify-content:center;overflow:hidden}.pi-stacked{position:absolute;width:75%;height:75%;object-fit:contain;border:2px solid #e5e7eb;border-radius:8px;background:white;max-width:75%;max-height:75%}.ps{width:100%;text-align:center;margin-top:auto}';
     
     // Add size-specific styles
     Object.keys(fonts).forEach(size => {
@@ -302,9 +430,12 @@
       cssText += '.bc.sz-' + size + '{font-size:' + f.b + 'px;color:#666;margin-top:3px}';
       cssText += '.exp-en.sz-' + size + '{font-size:' + f.b + 'px;color:#d97706;margin-top:3px;font-weight:600}';
       cssText += '.exp-ar.sz-' + size + '{font-size:' + f.b + 'px;color:#d97706;margin-top:2px;direction:rtl;font-weight:600}';
+      cssText += '.vg-en.sz-' + size + '{font-size:' + (f.b - 1) + 'px;color:#059669;font-style:italic;margin:2px 0;font-weight:500}';
+      cssText += '.vg-ar.sz-' + size + '{font-size:' + (f.b - 1) + 'px;color:#059669;font-style:italic;margin:2px 0;direction:rtl;font-weight:500}';
     });
     
     cssText += '.oq{background:#48bb78;color:white;padding:3px 8px;border-radius:5px;font-weight:bold;display:inline-block;margin-top:3px}.lq{background:#ed8936;color:white;padding:2px 6px;border-radius:3px;margin-top:3px}';
+
     
     styleEl.textContent = cssText;
     doc.head.appendChild(styleEl);
@@ -319,7 +450,9 @@
     }, 500);
   }
 
-  function generatePDFWithTemplate(product: Product) {
+  async function generatePDFWithTemplate(product: Product) {
+    console.log('🔵 generatePDFWithTemplate called for product:', product.barcode);
+    
     if (!selectedTemplateId) {
       alert('Please select a template first');
       return;
@@ -329,6 +462,35 @@
     if (!template) {
       alert('Template not found');
       return;
+    }
+
+    // If it's a variation group, fetch all variation images
+    let variationImages: string[] = [];
+    if (product.is_variation_group && product.variation_barcodes && product.variation_barcodes.length > 0) {
+      console.log('🔍 Fetching variation images for barcodes:', product.variation_barcodes);
+      
+      try {
+        const { data: variationProducts, error } = await supabaseAdmin
+          .from('flyer_products')
+          .select('image_url, variation_order')
+          .in('barcode', product.variation_barcodes)
+          .order('variation_order', { ascending: true });
+        
+        console.log('📦 Variation products fetched:', variationProducts?.length || 0);
+        
+        if (!error && variationProducts) {
+          variationImages = variationProducts
+            .filter(p => p.image_url)
+            .map(p => p.image_url);
+          console.log('🖼️ Variation images extracted:', variationImages.length, 'images');
+        } else if (error) {
+          console.error('❌ Error fetching variation images:', error);
+        }
+      } catch (error) {
+        console.error('💥 Exception fetching variation images:', error);
+      }
+    } else {
+      console.log('ℹ️ Not a variation group, using single product image');
     }
 
     const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -518,7 +680,9 @@
     });
   }
 
-  function generateSizePDF(targetSize: string) {
+  async function generateSizePDF(targetSize: string) {
+    console.log('🔵 generateSizePDF called for size:', targetSize.toUpperCase());
+    
     if (!selectedTemplateId) {
       alert('Please select a template first');
       return;
@@ -536,6 +700,14 @@
     if (productsForThisSize.length === 0) {
       alert('No products have ' + targetSize.toUpperCase() + ' size selected.');
       return;
+    }
+    
+    console.log(`📋 Found ${productsForThisSize.length} products for ${targetSize.toUpperCase()}`);
+    
+    // Check for variation groups
+    const variationGroups = productsForThisSize.filter(p => p.is_variation_group);
+    if (variationGroups.length > 0) {
+      console.log(`🔗 ${variationGroups.length} variation groups detected`);
     }
 
     // Build filename with offer name, dates, and size
@@ -573,7 +745,7 @@
     doc.close();
 
     const tempImg = new Image();
-    tempImg.onload = function() {
+    tempImg.onload = async function() {
       const originalWidth = tempImg.width;
       const originalHeight = tempImg.height;
       
@@ -590,8 +762,42 @@
       
       const copiesPerPage = targetSize === 'a4' ? 1 : targetSize === 'a5' ? 2 : targetSize === 'a6' ? 4 : 8;
 
-      productsForThisSize.forEach((product) => {
+      // Process products sequentially to handle async image fetching
+      for (const product of productsForThisSize) {
         const endDate = new Date(product.offer_end_date);
+        
+        // Fetch variation images if this is a variation group
+        let variationImages: string[] = [];
+        if (product.is_variation_group && product.variation_barcodes && product.variation_barcodes.length > 0) {
+          console.log(`🔍 Fetching images for variation group: ${product.product_name_en}`);
+          console.log(`📦 Variation barcodes array:`, product.variation_barcodes);
+          console.log(`📊 Expected ${product.variation_count} variations`);
+          
+          try {
+            const { data: variationProducts, error } = await supabaseAdmin
+              .from('flyer_products')
+              .select('image_url, variation_order, barcode')
+              .in('barcode', product.variation_barcodes)
+              .order('variation_order', { ascending: true });
+            
+            if (!error && variationProducts) {
+              console.log(`📥 Database returned ${variationProducts.length} products:`, variationProducts);
+              
+              variationImages = variationProducts
+                .filter(p => p.image_url)
+                .map(p => p.image_url);
+              console.log(`🖼️ Found ${variationImages.length} images for variation group`);
+              
+              if (variationImages.length < product.variation_count) {
+                console.warn(`⚠️ Expected ${product.variation_count} images but only found ${variationImages.length}`);
+              }
+            } else if (error) {
+              console.error(`❌ Database error:`, error);
+            }
+          } catch (error) {
+            console.error('💥 Error fetching variation images:', error);
+          }
+        }
         
         let productFieldsHtml = '';
         
@@ -632,11 +838,84 @@
               value = 'ينتهي: ' + dateArabic + '<br>Expires: ' + dateEnglish;
               break;
             case 'image':
-              if (product.image_url) {
-                const scaledX = Math.round(field.x * scaleX);
-                const scaledY = Math.round(field.y * scaleY);
-                const scaledWidth = Math.round(field.width * scaleX);
-                const scaledHeight = Math.round(field.height * scaleY);
+              const scaledX = Math.round(field.x * scaleX);
+              const scaledY = Math.round(field.y * scaleY);
+              const scaledWidth = Math.round(field.width * scaleX);
+              const scaledHeight = Math.round(field.height * scaleY);
+              
+              // Check if this is a variation group with multiple images
+              if (variationImages.length > 0) {
+                console.log(`🎨 Rendering ${variationImages.length} layered images`);
+                // Create layered images container
+                productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;">';
+                productFieldsHtml += '<div style="position:relative;width:100%;height:100%;overflow:hidden;">';
+                
+                // Support up to 12 variations - show only first 4 for best visibility
+                const maxVisibleImages = Math.min(variationImages.length, 4);
+                const imagesToShow = variationImages.slice(0, maxVisibleImages);
+                
+                if (maxVisibleImages === 2) {
+                  // TWO IMAGES: Back image smaller and offset, front image full size but contained
+                  
+                  // BACK IMAGE - smaller (65% size) and positioned to left/top
+                  const backImgUrl = imagesToShow[1];
+                  const backWidth = scaledWidth * 0.65;
+                  const backHeight = scaledHeight * 0.65;
+                  productFieldsHtml += '<img src="' + backImgUrl + '" style="position:absolute;left:0px;top:0px;width:' + backWidth + 'px;height:' + backHeight + 'px;object-fit:contain;z-index:1;opacity:0.85;filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + backWidth + 'px;max-height:' + backHeight + 'px;" alt="Back variation">';
+                  
+                  // FRONT IMAGE - 85% size, offset to right/bottom to reveal back image
+                  const frontImgUrl = imagesToShow[0];
+                  const frontWidth = scaledWidth * 0.85;
+                  const frontHeight = scaledHeight * 0.85;
+                  const frontOffset = scaledWidth * 0.12; // 12% offset
+                  productFieldsHtml += '<img src="' + frontImgUrl + '" style="position:absolute;left:' + frontOffset + 'px;top:' + frontOffset + 'px;width:' + frontWidth + 'px;height:' + frontHeight + 'px;object-fit:contain;z-index:2;opacity:1;filter:drop-shadow(3px 3px 6px rgba(0,0,0,0.4));max-width:' + frontWidth + 'px;max-height:' + frontHeight + 'px;" alt="Front variation">';
+                  
+                } else if (maxVisibleImages === 3) {
+                  // THREE IMAGES: Optimized stacking for exactly 3 variations
+                  // Back image (60%), middle (72%), front (85%)
+                  const sizes = [0.60, 0.72, 0.85];
+                  const baseWidth = scaledWidth;
+                  const baseHeight = scaledHeight;
+                  const offsetStep = baseWidth * 0.09; // Tighter spacing to stay in bounds
+                  
+                  for (let i = 0; i < 3; i++) {
+                    const imgUrl = imagesToShow[i];
+                    const zIndex = i + 1;
+                    const imgWidth = baseWidth * sizes[i];
+                    const imgHeight = baseHeight * sizes[i];
+                    const offset = i * offsetStep;
+                    const opacity = i === 2 ? '1' : '0.88';
+                    
+                    productFieldsHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + offset + 'px;top:' + offset + 'px;width:' + imgWidth + 'px;height:' + imgHeight + 'px;object-fit:contain;z-index:' + zIndex + ';opacity:' + opacity + ';filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + imgWidth + 'px;max-height:' + imgHeight + 'px;" alt="Variation ' + (i + 1) + '">';
+                  }
+                  
+                } else {
+                  // 4+ IMAGES: Stack with decreasing sizes (shows first 4)
+                  for (let i = 0; i < maxVisibleImages; i++) {
+                    const imgUrl = imagesToShow[i];
+                    const zIndex = i + 1;
+                    // Size progression: back=55%, next=68%, next=80%, front=90%
+                    const sizeMultiplier = 0.55 + (i * (0.35 / (maxVisibleImages - 1)));
+                    const imgWidth = scaledWidth * sizeMultiplier;
+                    const imgHeight = scaledHeight * sizeMultiplier;
+                    const offset = i * (scaledWidth * 0.08); // Reduced from 0.13 to 0.08
+                    const opacity = i === maxVisibleImages - 1 ? '1' : '0.85';
+                    
+                    productFieldsHtml += '<img src="' + imgUrl + '" style="position:absolute;left:' + offset + 'px;top:' + offset + 'px;width:' + imgWidth + 'px;height:' + imgHeight + 'px;object-fit:contain;z-index:' + zIndex + ';opacity:' + opacity + ';filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.3));max-width:' + imgWidth + 'px;max-height:' + imgHeight + 'px;" alt="Variation ' + (i + 1) + '">';
+                  }
+                  
+                  // If more than 4 variations exist, show count badge
+                  if (variationImages.length > 4) {
+                    const badgeRight = 5; // Position from right edge
+                    const badgeTop = 5; // Position from top edge
+                    productFieldsHtml += '<div style="position:absolute;right:' + badgeRight + 'px;top:' + badgeTop + 'px;background:#ef4444;color:white;font-size:11px;font-weight:bold;padding:3px 6px;border-radius:10px;z-index:100;box-shadow:0 2px 4px rgba(0,0,0,0.3);">+' + (variationImages.length - 4) + '</div>';
+                  }
+                }
+                
+                productFieldsHtml += '</div>';
+                productFieldsHtml += '</div>';
+              } else if (product.image_url) {
+                // Single product image
                 productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
               }
               return;
@@ -686,7 +965,7 @@
         }
         
         serialCounter++;
-      });
+      } // End of for loop (was forEach)
 
       const styleEl = doc.createElement('style');
       let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute}.field-text{white-space:normal;overflow:hidden;line-height:1.2}';
@@ -858,8 +1137,26 @@
                       </div>
                     </td>
                     <td class="barcode-cell">{product.barcode}</td>
-                    <td class="name-cell">{product.product_name_en}</td>
-                    <td class="name-ar-cell" dir="rtl">{product.product_name_ar}</td>
+                    <td class="name-cell">
+                      <div class="product-name-wrapper">
+                        <span>{product.product_name_en}</span>
+                        {#if product.is_variation_group}
+                          <span class="variation-group-badge" title="{product.variation_count} variations in group">
+                            🔗 Group ({product.variation_count})
+                          </span>
+                        {/if}
+                      </div>
+                    </td>
+                    <td class="name-ar-cell" dir="rtl">
+                      <div class="product-name-wrapper">
+                        <span>{product.product_name_ar}</span>
+                        {#if product.is_variation_group}
+                          <span class="variation-group-badge-ar" title="{product.variation_count} منتجات في المجموعة">
+                            مجموعة ({product.variation_count})
+                          </span>
+                        {/if}
+                      </div>
+                    </td>
                     <td class="unit-cell">{product.unit_name}</td>
                     <td class="price-cell">
                       <span class="regular-price">{product.sales_price.toFixed(2)} SAR</span>
@@ -1211,6 +1508,40 @@
   .name-cell {
     font-weight: 500;
     color: #1f2937;
+  }
+
+  .product-name-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .variation-group-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #10b981;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .variation-group-badge-ar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #10b981;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    direction: rtl;
   }
 
   .name-ar-cell {

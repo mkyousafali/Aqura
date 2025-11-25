@@ -80,6 +80,32 @@
 		hasUnsavedChanges = true;
 	}
 	
+	// Sync offer price across variation group
+	function syncGroupOfferPrice(product: any, newOfferPricePerUnit: number) {
+		// If product belongs to a variation group, update all products in that group
+		if (product.is_variation && product.variation_group_name_en) {
+			const groupName = product.variation_group_name_en;
+			
+			selectedProducts = selectedProducts.map(p => {
+				// Update all products in the same variation group
+				if (p.is_variation && p.variation_group_name_en === groupName) {
+					return { ...p, offer_price: newOfferPricePerUnit };
+				}
+				return p;
+			});
+			
+			productsVersion++; // Force UI update
+			markAsChanged();
+			
+			// Count how many products were updated
+			const updatedCount = selectedProducts.filter(
+				p => p.is_variation && p.variation_group_name_en === groupName
+			).length;
+			
+			console.log(`✓ Synced offer price across ${updatedCount} products in group "${groupName}"`);
+		}
+	}
+	
 	// Recalculate offer price when quantity changes
 	function recalculateOfferPriceForQty(product: any, newQty: number) {
 		const cost = product.cost || 0;
@@ -1312,7 +1338,10 @@
 						image_url,
 						parent_category,
 						parent_sub_category,
-						sub_category
+						sub_category,
+						is_variation,
+						variation_group_name_en,
+						variation_group_name_ar
 					)
 				`)
 				.eq('offer_id', offerId);
@@ -1697,10 +1726,24 @@
 										{product.barcode}
 									</td>
 									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900">
-										{product.product_name_en || '-'}
+										<div class="flex flex-col gap-1">
+											<div>{product.product_name_en || '-'}</div>
+											{#if product.is_variation && product.variation_group_name_en}
+												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit">
+													🔗 {product.variation_group_name_en}
+												</span>
+											{/if}
+										</div>
 									</td>
 									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900" dir="rtl">
-										{product.product_name_ar || '-'}
+										<div class="flex flex-col gap-1">
+											<div>{product.product_name_ar || '-'}</div>
+											{#if product.is_variation && product.variation_group_name_ar}
+												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit">
+													🔗 {product.variation_group_name_ar}
+												</span>
+											{/if}
+										</div>
 									</td>
 									<td class="w-24 px-4 py-4 align-middle text-xs text-gray-900">
 										{product.unit_name || '-'}
@@ -1799,9 +1842,10 @@
 																? { ...p, offer_price: perUnitPrice }
 																: p
 														);
-														productsVersion++; // Force update
+														
+														// Sync price across variation group if applicable
+														syncGroupOfferPrice(product, perUnitPrice);
 													}
-													markAsChanged();
 												}}
 												step="0.01"
 												min="0"
