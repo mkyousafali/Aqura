@@ -880,6 +880,7 @@
     object-fit: fill;
     position: relative;
     z-index: 1;
+    pointer-events: none;
   }
 
   .field-overlay {
@@ -892,6 +893,7 @@
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
+    z-index: 10;
   }
 
   .field-overlay:hover {

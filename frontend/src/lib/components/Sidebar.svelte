@@ -967,7 +967,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v5.1.5
+				v5.2.0
 			</button>
 		</div>
 	</div>
@@ -978,19 +978,50 @@ function openApprovalCenter() {
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v5.1.5</h3>
+				<h3>What's New in v5.2.0</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>📱 Mobile Interface Improvements</h4>
+					<h4>🔗 Product Variation System (NEW FEATURE)</h4>
 					<ul>
-						<li><strong>Simplified Dashboard:</strong> Removed notification features and completed tasks for faster loading and cleaner interface</li>
-						<li><strong>Performance Optimization:</strong> Dashboard now loads 10-20x faster with count-only queries instead of full data fetches</li>
-						<li><strong>Floating Menu System:</strong> Redesigned navigation with circular blue floating menu containing Home, Language, and Logout buttons</li>
-						<li><strong>Date & Time Card:</strong> Added live date/time display card showing full day name, date, and year with automatic updates</li>
-						<li><strong>RTL Support:</strong> Menu positioning automatically adjusts for Arabic (RTL) and English (LTR) layouts</li>
-						<li><strong>Clean Header:</strong> Removed version badge from mobile header for minimal, modern look</li>
+						<li><strong>Variation Manager:</strong> New interface to group similar products (different sizes/variants) for unified management</li>
+						<li><strong>Smart Grouping:</strong> Select multiple products and create variation groups with parent-child relationships</li>
+						<li><strong>Bilingual Support:</strong> Set group names in both English and Arabic for seamless localization</li>
+						<li><strong>Image Override:</strong> Choose which product image to display for the entire group</li>
+						<li><strong>Database Foundation:</strong> Added 14 new columns, 1 audit table, and 6 helper functions for variation management</li>
+						<li><strong>Offer Integration Ready:</strong> Foundation laid for automatic variation detection in offers (Day 3 feature)</li>
+						<li><strong>Shelf Paper Ready:</strong> Database prepared for consolidating variations into single shelf papers (Day 4 feature)</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>📊 Variation Manager Features</h4>
+					<ul>
+						<li><strong>Product Grid View:</strong> Browse all 792 products with search, filters, and pagination (50 items/page)</li>
+						<li><strong>Multi-Select System:</strong> Select multiple products with checkboxes to create variation groups</li>
+						<li><strong>Group Creation Modal:</strong> Choose parent product, set bilingual names, and configure display image</li>
+						<li><strong>Groups View:</strong> See all variation groups with expandable cards showing parent and variations</li>
+						<li><strong>Real-time Stats:</strong> Dashboard shows total products, groups created, and grouped products count</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🎯 Database & Technical Implementation</h4>
+					<ul>
+						<li><strong>9 New Columns:</strong> Added variation tracking to flyer_products (is_variation, parent_barcode, group names, order, image override)</li>
+						<li><strong>6 Helper Functions:</strong> get_product_variations, get_variation_group_info, validate_prices, check_orphaned, create_group</li>
+						<li><strong>Audit Log System:</strong> Complete tracking of all variation operations with user attribution and timestamps</li>
+						<li><strong>Performance Indexes:</strong> 12 new database indexes for fast variation queries and parent-child relationships</li>
+						<li><strong>Atomic Operations:</strong> Transaction-based group creation ensures data integrity and prevents corruption</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>📋 Coming Soon (Days 3-5)</h4>
+					<ul>
+						<li><strong>Day 3 - Offer Integration:</strong> Automatic variation detection when adding products to offers</li>
+						<li><strong>Variation Selection Modal:</strong> Choose specific variations to include in each offer</li>
+						<li><strong>Price Validation:</strong> System will verify price consistency across selected variations</li>
+						<li><strong>Day 4 - Shelf Paper Updates:</strong> Consolidate variations into single shelf paper per group</li>
+						<li><strong>Day 5 - Testing & Polish:</strong> Edge case handling, performance optimization, user documentation</li>
 					</ul>
 				</div>
 				<div class="update-section">
@@ -1054,7 +1085,7 @@ function openApprovalCenter() {
 					</ul>
 				</div>
 				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> November 5, 2025</p>
+					<p><strong>Release Date:</strong> November 25, 2025</p>
 					<p><strong>Build:</strong> Production Ready</p>
 					<p><strong>Version:</strong> 5.0.0 - Budget Management Revolution & Filter System Overhaul</p>
 					<p><strong>Focus:</strong> Day Budget Planner Enhancement, Advanced Filtering, Split Payment Management, User Experience</p>

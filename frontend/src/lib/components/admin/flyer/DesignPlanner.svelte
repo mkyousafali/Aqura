@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { supabaseAdmin } from '$lib/utils/supabase';
+  import { windowManager } from '$lib/stores/windowManager';
+  import ShelfPaperTemplateDesigner from './ShelfPaperTemplateDesigner.svelte';
 
   interface Offer {
     id: string;
@@ -22,6 +24,10 @@
     image_url?: string;
     pdfSizes: ('a4' | 'a5' | 'a6' | 'a7')[];
     offer_end_date: string;
+    copiesA4: number;
+    copiesA5: number;
+    copiesA6: number;
+    copiesA7: number;
   }
 
   interface FieldSelector {
@@ -50,11 +56,15 @@
   let selectedOfferId: string | null = null;
   let selectedOffer: Offer | null = null;
   let products: Product[] = [];
+  let filteredProducts: Product[] = [];
   let isLoadingOffers = true;
   let isLoadingProducts = false;
   let savedTemplates: SavedTemplate[] = [];
   let selectedTemplateId: string | null = null;
   let isLoadingTemplates = false;
+  let serialCounter = 1;
+  let searchQuery = '';
+  let searchBy: 'barcode' | 'name_en' | 'name_ar' | 'serial' = 'barcode';
 
   onMount(async () => {
     await loadActiveOffers();
@@ -148,16 +158,56 @@
           limit_qty: offerProduct.limit_qty,
           image_url: productDetail?.image_url,
           pdfSizes: [],
-          offer_end_date: selectedOffer?.end_date || ''
+          offer_end_date: selectedOffer?.end_date || '',
+          copiesA4: 1,
+          copiesA5: 1,
+          copiesA6: 1,
+          copiesA7: 1
         };
       }).sort((a, b) => a.product_name_en.localeCompare(b.product_name_en));
 
+      // Initialize filtered products
+      filteredProducts = products;
+      searchQuery = '';
     } catch (error) {
       console.error('Error loading products:', error);
       alert('Failed to load products');
     } finally {
       isLoadingProducts = false;
     }
+  }
+
+  function filterProducts() {
+    if (!searchQuery.trim()) {
+      filteredProducts = products;
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    
+    filteredProducts = products.filter(product => {
+      switch(searchBy) {
+        case 'barcode':
+          return product.barcode.toLowerCase().includes(query);
+        case 'name_en':
+          return product.product_name_en.toLowerCase().includes(query);
+        case 'name_ar':
+          return product.product_name_ar.includes(query);
+        case 'serial':
+          // Serial number search - find the product's index (serial)
+          const serialNum = (products.indexOf(product) + 1).toString();
+          return serialNum.includes(query);
+        default:
+          return true;
+      }
+    });
+  }
+
+  // Reactive statement to filter products when search changes
+  $: {
+    searchQuery;
+    searchBy;
+    filterProducts();
   }
 
   function togglePdfSize(barcode: string, size: 'a4' | 'a5' | 'a6' | 'a7', checked: boolean) {
@@ -170,6 +220,7 @@
       }
       return p;
     });
+    filterProducts(); // Re-filter after update
   }
 
   function generatePDF(product: Product) {
@@ -219,7 +270,9 @@
       const expireDateAr = 'ينتهي في: ' + endDate.toLocaleDateString('ar-SA', { month: 'long', day: 'numeric', year: 'numeric' });
 
       let cardsHtml = '';
-      for (let i = 0; i < layout.count; i++) {
+      const copiesMap = { a4: product.copiesA4, a5: product.copiesA5, a6: product.copiesA6, a7: product.copiesA7 };
+      const totalCopies = layout.count * (copiesMap[pdfSize] || 1);
+      for (let i = 0; i < totalCopies; i++) {
         const imgHtml = product.image_url 
           ? '<img src="' + product.image_url + '" class="pi" alt="' + product.product_name_en + '">'
           : '<div style="width:100%;height:40%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:48px">📦</div>';
@@ -305,23 +358,16 @@
       const previewWidth = template.metadata?.preview_width || originalWidth;
       const previewHeight = template.metadata?.preview_height || originalHeight;
       
-      console.log('Preview dimensions used for positioning:', previewWidth, 'x', previewHeight);
-      
       // Calculate scale from preview to A4
       const scaleX = a4Width / previewWidth;
       const scaleY = a4Height / previewHeight;
-      
-      console.log('Scale factors - X:', scaleX, 'Y:', scaleY);
 
       // Create the page with template background
       let pageHtml = '<div class="template-page">';
       pageHtml += '<img src="' + template.template_image_url + '" class="template-bg" alt="Template">';
       
-      let debugInfo = 'Preview:' + previewWidth + 'x' + previewHeight + ' Scale:' + scaleX.toFixed(2) + ',' + scaleY.toFixed(2) + ' | ';
-      
       // Add fields based on template configuration with scaling
       template.field_configuration.forEach((field, index) => {
-        console.log('Processing field:', field.label, 'original pos:', field.x, ',', field.y);
         
         let value = '';
         const endDate = new Date(product.offer_end_date);
@@ -337,25 +383,27 @@
             value = product.barcode;
             break;
           case 'serial_number':
-            value = product.barcode;
+            value = serialCounter.toString();
             break;
           case 'unit_name':
             value = product.unit_name;
             break;
           case 'price':
-            value = product.sales_price.toFixed(2) + ' SAR';
+            value = product.sales_price.toFixed(2);
             break;
           case 'offer_price':
-            value = product.offer_price.toFixed(2) + ' SAR';
+            value = product.offer_price.toFixed(2);
             break;
           case 'offer_qty':
-            value = product.offer_qty > 1 ? 'Buy ' + product.offer_qty : '';
+            value = product.offer_qty ? product.offer_qty.toString() : '1';
             break;
           case 'limit_qty':
-            value = product.limit_qty ? 'Limit: ' + product.limit_qty : '';
+            value = product.limit_qty ? 'لكل عميل: ' + product.limit_qty + '<br>For each customer: ' + product.limit_qty : '';
             break;
           case 'expire_date':
-            value = 'Expires: ' + endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const dateEnglish = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const dateArabic = endDate.toLocaleDateString('ar-SA', { month: 'short', day: 'numeric', year: 'numeric' });
+            value = 'ينتهي: ' + dateArabic + '<br>Expires: ' + dateEnglish;
             break;
           case 'image':
             if (product.image_url) {
@@ -363,9 +411,7 @@
               const scaledY = Math.round(field.y * scaleY);
               const scaledWidth = Math.round(field.width * scaleX);
               const scaledHeight = Math.round(field.height * scaleY);
-              console.log('Image field scaled to:', scaledX, scaledY, scaledWidth, scaledHeight);
-              debugInfo += field.label + '(' + scaledX + ',' + scaledY + ') ';
-              pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:100;overflow:hidden;border:2px solid red;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+              pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
             }
             return;
         }
@@ -375,27 +421,279 @@
           const scaledY = Math.round(field.y * scaleY);
           const scaledWidth = Math.round(field.width * scaleX);
           const scaledHeight = Math.round(field.height * scaleY);
-          const scaledFontSize = Math.round(field.fontSize * Math.min(scaleX, scaleY));
-          
-          console.log(field.label, 'scaled to:', scaledX, scaledY, 'fontSize:', scaledFontSize);
-          debugInfo += field.label + '(' + scaledX + ',' + scaledY + ') ';
+          const scaledFontSize = Math.round(field.fontSize * scaleX);
           
           const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
           const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
           const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
-          pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:100;overflow:hidden;border:2px solid blue;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + dirAttr + '">' + value + '</div></div>';
+          
+          // Add strikethrough for regular price
+          const strikethrough = field.label === 'price' ? 'text-decoration:line-through;' : '';
+          
+          // Format offer_price with smaller decimal using flexbox baseline alignment
+          let contentHtml = '';
+          if (field.label === 'offer_price' && value.includes('.')) {
+            const parts = value.split('.');
+            const halfFontSize = Math.round(scaledFontSize * 0.5);
+            // Use flexbox with baseline alignment for proper vertical alignment
+            contentHtml = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+          } else {
+            // Add currency symbol for regular price field
+            const currencySymbol = field.label === 'price' 
+              ? '<img src="/icons/saudi-currency.png" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
+              : '';
+            contentHtml = currencySymbol + value;
+          }
+          
+          pageHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + '">' + contentHtml + '</div></div>';
         }
       });
       
-      pageHtml += '<div style="position:absolute;top:0;left:0;background:yellow;padding:5px;font-size:10px;z-index:1000;">' + debugInfo + '</div>';
       pageHtml += '</div>';
 
       const styleEl = doc.createElement('style');
-      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box}.field-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0;width:' + a4Width + 'px;height:' + a4Height + 'px}.template-page{position:relative;width:' + a4Width + 'px;height:' + a4Height + 'px;overflow:hidden;page-break-inside:avoid;background:white;display:block}.template-bg{width:' + a4Width + 'px;height:' + a4Height + 'px;object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute}.field-text{white-space:normal;overflow:hidden;line-height:1.2}';
       
       styleEl.textContent = cssText;
       doc.head.appendChild(styleEl);
       doc.getElementById('root').innerHTML = pageHtml;
+      
+      setTimeout(() => {
+        printWindow.print();
+        // Increment serial counter after successful generation
+        serialCounter++;
+      }, 1000);
+    };
+    
+    tempImg.src = template.template_image_url;
+  }
+
+  function generateMasterPDF() {
+    if (!selectedTemplateId) {
+      alert('Please select a template first');
+      return;
+    }
+
+    if (products.length === 0) {
+      alert('No products to generate');
+      return;
+    }
+
+    // Filter products that have at least one size selected
+    const productsToGenerate = products.filter(p => p.pdfSizes && p.pdfSizes.length > 0);
+    
+    if (productsToGenerate.length === 0) {
+      alert('No products with selected sizes found. Please select at least one size for products.');
+      return;
+    }
+
+    // Collect all unique sizes selected across all products
+    const allSizes = new Set();
+    productsToGenerate.forEach(product => {
+      product.pdfSizes.forEach(size => allSizes.add(size));
+    });
+    
+    const sizesArray = Array.from(allSizes).sort();
+    
+    // Show dialog with buttons for each size
+    const sizeButtons = sizesArray.map(size => size.toUpperCase()).join(', ');
+    alert('Sizes to generate: ' + sizeButtons + '\n\nUse the size buttons (A4, A5, A6, A7) below to generate each size separately.');
+  }
+
+  function openTemplateDesigner() {
+    const windowId = `shelf-template-designer-${Date.now()}`;
+    windowManager.openWindow({
+      id: windowId,
+      title: 'Shelf Paper Template Designer',
+      component: ShelfPaperTemplateDesigner,
+      icon: '🎨',
+      size: { width: 1400, height: 900 },
+      position: { 
+        x: 60 + (Math.random() * 50),
+        y: 60 + (Math.random() * 50) 
+      },
+      resizable: true,
+      minimizable: true,
+      maximizable: true
+    });
+  }
+
+  function generateSizePDF(targetSize: string) {
+    if (!selectedTemplateId) {
+      alert('Please select a template first');
+      return;
+    }
+
+    const template = savedTemplates.find(t => t.id === selectedTemplateId);
+    if (!template) {
+      alert('Template not found');
+      return;
+    }
+
+    // Filter products that have this specific size selected
+    const productsForThisSize = products.filter(p => p.pdfSizes && p.pdfSizes.includes(targetSize));
+    
+    if (productsForThisSize.length === 0) {
+      alert('No products have ' + targetSize.toUpperCase() + ' size selected.');
+      return;
+    }
+
+    // Build filename with offer name, dates, and size
+    let filename = 'Shelf_Paper_' + targetSize.toUpperCase();
+    
+    // Try to get offer info from selectedOffer or from the first product
+    const offerInfo = selectedOffer || (productsForThisSize.length > 0 && productsForThisSize[0].offer_end_date ? {
+      name: 'Offer',
+      start_date: null,
+      end_date: productsForThisSize[0].offer_end_date
+    } : null);
+    
+    if (offerInfo) {
+      try {
+        const offerName = offerInfo.name ? offerInfo.name.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_') : 'Offer';
+        const startDate = offerInfo.start_date ? new Date(offerInfo.start_date).toISOString().split('T')[0] : 'Start';
+        const endDate = offerInfo.end_date ? new Date(offerInfo.end_date).toISOString().split('T')[0] : 'End';
+        filename = offerName + '_' + startDate + '_to_' + endDate + '_' + targetSize.toUpperCase();
+      } catch (e) {
+        console.error('Error building filename:', e, offerInfo);
+      }
+    } else {
+      console.log('No offer info available. selectedOffer:', selectedOffer, 'products:', productsForThisSize.length);
+    }
+
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      alert('Please allow popups to generate PDF');
+      return;
+    }
+
+    const doc = printWindow.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><title>' + filename + '</title></head><body><div id="root"></div></body></html>');
+    doc.close();
+
+    const tempImg = new Image();
+    tempImg.onload = function() {
+      const originalWidth = tempImg.width;
+      const originalHeight = tempImg.height;
+      
+      const a4Width = 794;
+      const a4Height = 1123;
+      
+      const previewWidth = template.metadata?.preview_width || originalWidth;
+      const previewHeight = template.metadata?.preview_height || originalHeight;
+      
+      const scaleX = a4Width / previewWidth;
+      const scaleY = a4Height / previewHeight;
+
+      let allPagesHtml = '';
+      
+      const copiesPerPage = targetSize === 'a4' ? 1 : targetSize === 'a5' ? 2 : targetSize === 'a6' ? 4 : 8;
+
+      productsForThisSize.forEach((product) => {
+        const endDate = new Date(product.offer_end_date);
+        
+        let productFieldsHtml = '';
+        
+        template.field_configuration.forEach((field) => {
+          let value = '';
+          
+          switch(field.label) {
+            case 'product_name_en':
+              value = product.product_name_en;
+              break;
+            case 'product_name_ar':
+              value = product.product_name_ar;
+              break;
+            case 'barcode':
+              value = product.barcode;
+              break;
+            case 'serial_number':
+              value = serialCounter.toString();
+              break;
+            case 'unit_name':
+              value = product.unit_name;
+              break;
+            case 'price':
+              value = product.sales_price.toFixed(2);
+              break;
+            case 'offer_price':
+              value = product.offer_price.toFixed(2);
+              break;
+            case 'offer_qty':
+              value = product.offer_qty ? product.offer_qty.toString() : '1';
+              break;
+            case 'limit_qty':
+              value = product.limit_qty ? 'لكل عميل: ' + product.limit_qty + '<br>For each customer: ' + product.limit_qty : '';
+              break;
+            case 'expire_date':
+              const dateEnglish = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              const dateArabic = endDate.toLocaleDateString('ar-SA', { month: 'short', day: 'numeric', year: 'numeric' });
+              value = 'ينتهي: ' + dateArabic + '<br>Expires: ' + dateEnglish;
+              break;
+            case 'image':
+              if (product.image_url) {
+                const scaledX = Math.round(field.x * scaleX);
+                const scaledY = Math.round(field.y * scaleY);
+                const scaledWidth = Math.round(field.width * scaleX);
+                const scaledHeight = Math.round(field.height * scaleY);
+                productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><img src="' + product.image_url + '" style="width:100%;height:100%;object-fit:contain;"></div>';
+              }
+              return;
+          }
+          
+          if (value) {
+            const scaledX = Math.round(field.x * scaleX);
+            const scaledY = Math.round(field.y * scaleY);
+            const scaledWidth = Math.round(field.width * scaleX);
+            const scaledHeight = Math.round(field.height * scaleY);
+            const scaledFontSize = Math.round(field.fontSize * scaleX);
+            
+            const justifyContent = field.alignment === 'center' ? 'center' : field.alignment === 'right' ? 'flex-end' : 'flex-start';
+            const dirAttr = field.label === 'product_name_ar' ? 'direction:rtl;' : '';
+            const fontWeight = field.label.includes('price') || field.label.includes('offer') ? 'font-weight:bold;' : 'font-weight:600;';
+            const strikethrough = field.label === 'price' ? 'text-decoration:line-through;' : '';
+            
+            let contentHtml = '';
+            if (field.label === 'offer_price' && value.includes('.')) {
+              const parts = value.split('.');
+              const halfFontSize = Math.round(scaledFontSize * 0.5);
+              contentHtml = '<div style="display:flex;align-items:baseline;"><img src="/icons/saudi-currency.png" style="width:auto;height:' + halfFontSize + 'px;margin-right:4px;" alt="SAR"><span style="font-size:' + scaledFontSize + 'px;">' + parts[0] + '</span><span style="font-size:' + halfFontSize + 'px;">.' + parts[1] + '</span></div>';
+            } else {
+              const currencySymbol = field.label === 'price' 
+                ? '<img src="/icons/saudi-currency.png" style="width:auto;height:' + Math.round(scaledFontSize * 0.5) + 'px;margin-right:4px;" alt="SAR">' 
+                : '';
+              contentHtml = currencySymbol + value;
+            }
+            
+            productFieldsHtml += '<div class="field-container" style="position:absolute;left:' + scaledX + 'px;top:' + scaledY + 'px;width:' + scaledWidth + 'px;height:' + scaledHeight + 'px;z-index:10;overflow:hidden;"><div class="field-text" style="width:100%;height:100%;font-size:' + scaledFontSize + 'px;text-align:' + field.alignment + ';color:' + field.color + ';display:flex;align-items:center;justify-content:' + justifyContent + ';' + fontWeight + strikethrough + dirAttr + '">' + contentHtml + '</div></div>';
+          }
+        });
+        
+        // Generate copies based on size-specific copies value
+        const copiesMap = { a4: product.copiesA4, a5: product.copiesA5, a6: product.copiesA6, a7: product.copiesA7 };
+        const copiesToGenerate = copiesMap[targetSize] || 1;
+        
+        for (let copyIndex = 0; copyIndex < copiesToGenerate; copyIndex++) {
+          // Create a separate page for each copy
+          let pageHtml = '<div class="template-page" style="width:794px;height:1123px;">';
+          pageHtml += '<div class="copy-container" style="position:relative;width:794px;height:1123px;">';
+          pageHtml += '<img src="' + template.template_image_url + '" class="template-bg" style="width:794px;height:1123px;" alt="Template">';
+          pageHtml += productFieldsHtml;
+          pageHtml += '</div>';
+          pageHtml += '</div>';
+          allPagesHtml += pageHtml;
+        }
+        
+        serialCounter++;
+      });
+
+      const styleEl = doc.createElement('style');
+      let cssText = '@page{size:A4 portrait;margin:0}@media print{html,body{width:210mm;height:297mm;margin:0;padding:0}}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;padding:0}.template-page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:white;display:block;margin:0 auto}.template-page:last-child{page-break-after:auto}.copy-container{position:relative}.template-bg{object-fit:fill;display:block;position:absolute;top:0;left:0;z-index:1}.field-container{box-sizing:border-box;z-index:10;position:absolute}.field-text{white-space:normal;overflow:hidden;line-height:1.2}';
+      
+      styleEl.textContent = cssText;
+      doc.head.appendChild(styleEl);
+      doc.getElementById('root').innerHTML = allPagesHtml;
       
       setTimeout(() => {
         printWindow.print();
@@ -408,8 +706,13 @@
 
 <div class="shelf-paper-generator">
   <div class="header">
-    <h2 class="text-2xl font-bold text-gray-800">Design Planner</h2>
-    <p class="text-sm text-gray-600 mt-1">Select an active offer to view and plan product layouts</p>
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800">Shelf Paper Manager</h2>
+      <p class="text-sm text-gray-600 mt-1">Select an active offer to view and plan shelf paper layouts</p>
+    </div>
+    <button class="template-designer-btn" on:click={openTemplateDesigner} title="Open Template Designer">
+      🎨 Template Designer
+    </button>
   </div>
 
   <div class="content">
@@ -466,7 +769,54 @@
             </select>
             {#if selectedTemplateId}
               <span class="template-badge">✓ Template Selected</span>
+              <div class="size-buttons-group" style="display:inline-flex;gap:8px;margin-left:12px;">
+                <button class="size-btn" on:click={() => generateSizePDF('a4')} title="Generate A4 PDFs for all selected products">
+                  A4
+                </button>
+                <button class="size-btn" on:click={() => generateSizePDF('a5')} title="Generate A5 PDFs for all selected products">
+                  A5
+                </button>
+                <button class="size-btn" on:click={() => generateSizePDF('a6')} title="Generate A6 PDFs for all selected products">
+                  A6
+                </button>
+                <button class="size-btn" on:click={() => generateSizePDF('a7')} title="Generate A7 PDFs for all selected products">
+                  A7
+                </button>
+              </div>
             {/if}
+          </div>
+        </div>
+        
+        <!-- Search Bar -->
+        <div class="search-section">
+          <div class="search-controls">
+            <input 
+              type="text" 
+              bind:value={searchQuery}
+              placeholder="Search products..."
+              class="search-input"
+            />
+            <div class="search-radio-group">
+              <label class="radio-label">
+                <input type="radio" bind:group={searchBy} value="barcode" />
+                Barcode
+              </label>
+              <label class="radio-label">
+                <input type="radio" bind:group={searchBy} value="name_en" />
+                English Name
+              </label>
+              <label class="radio-label">
+                <input type="radio" bind:group={searchBy} value="name_ar" />
+                Arabic Name
+              </label>
+              <label class="radio-label">
+                <input type="radio" bind:group={searchBy} value="serial" />
+                Serial Number
+              </label>
+            </div>
+            <span class="search-results-count">
+              {filteredProducts.length} of {products.length} products
+            </span>
           </div>
         </div>
         
@@ -490,14 +840,14 @@
                   <th>Qty</th>
                   <th>Limit</th>
                   <th>Savings</th>
-                  <th>PDF Size</th>
+                  <th>PDF Size & Copies</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {#each products as product, index}
+                {#each filteredProducts as product, index}
                   <tr>
-                    <td class="serial-cell">{index + 1}</td>
+                    <td class="serial-cell">{products.indexOf(product) + 1}</td>
                     <td class="image-cell">
                       <div class="product-image-small">
                         {#if product.image_url}
@@ -538,52 +888,96 @@
                     </td>
                     <td class="pdf-size-cell">
                       <div class="pdf-size-options">
-                        <label class="pdf-checkbox">
+                        <div class="size-row">
+                          <label class="pdf-checkbox">
+                            <input 
+                              type="checkbox" 
+                              value="a4"
+                              checked={product.pdfSizes.includes('a4')}
+                              on:change={(e) => togglePdfSize(product.barcode, 'a4', e.currentTarget.checked)}
+                            />
+                            <span>A4 (1)</span>
+                          </label>
                           <input 
-                            type="checkbox" 
-                            value="a4"
-                            checked={product.pdfSizes.includes('a4')}
-                            on:change={(e) => togglePdfSize(product.barcode, 'a4', e.currentTarget.checked)}
+                            type="number" 
+                            min="1" 
+                            max="10" 
+                            bind:value={product.copiesA4}
+                            class="copies-input-inline"
+                            on:change={() => filterProducts()}
+                            title="Copies for A4"
                           />
-                          <span>A4 (1)</span>
-                        </label>
-                        <label class="pdf-checkbox">
+                        </div>
+                        <div class="size-row">
+                          <label class="pdf-checkbox">
+                            <input 
+                              type="checkbox" 
+                              value="a5"
+                              checked={product.pdfSizes.includes('a5')}
+                              on:change={(e) => togglePdfSize(product.barcode, 'a5', e.currentTarget.checked)}
+                            />
+                            <span>A5 (2)</span>
+                          </label>
                           <input 
-                            type="checkbox" 
-                            value="a5"
-                            checked={product.pdfSizes.includes('a5')}
-                            on:change={(e) => togglePdfSize(product.barcode, 'a5', e.currentTarget.checked)}
+                            type="number" 
+                            min="1" 
+                            max="10" 
+                            bind:value={product.copiesA5}
+                            class="copies-input-inline"
+                            on:change={() => filterProducts()}
+                            title="Copies for A5"
                           />
-                          <span>A5 (2)</span>
-                        </label>
-                        <label class="pdf-checkbox">
+                        </div>
+                        <div class="size-row">
+                          <label class="pdf-checkbox">
+                            <input 
+                              type="checkbox" 
+                              value="a6"
+                              checked={product.pdfSizes.includes('a6')}
+                              on:change={(e) => togglePdfSize(product.barcode, 'a6', e.currentTarget.checked)}
+                            />
+                            <span>A6 (4)</span>
+                          </label>
                           <input 
-                            type="checkbox" 
-                            value="a6"
-                            checked={product.pdfSizes.includes('a6')}
-                            on:change={(e) => togglePdfSize(product.barcode, 'a6', e.currentTarget.checked)}
+                            type="number" 
+                            min="1" 
+                            max="10" 
+                            bind:value={product.copiesA6}
+                            class="copies-input-inline"
+                            on:change={() => filterProducts()}
+                            title="Copies for A6"
                           />
-                          <span>A6 (4)</span>
-                        </label>
-                        <label class="pdf-checkbox">
+                        </div>
+                        <div class="size-row">
+                          <label class="pdf-checkbox">
+                            <input 
+                              type="checkbox" 
+                              value="a7"
+                              checked={product.pdfSizes.includes('a7')}
+                              on:change={(e) => togglePdfSize(product.barcode, 'a7', e.currentTarget.checked)}
+                            />
+                            <span>A7 (8)</span>
+                          </label>
                           <input 
-                            type="checkbox" 
-                            value="a7"
-                            checked={product.pdfSizes.includes('a7')}
-                            on:change={(e) => togglePdfSize(product.barcode, 'a7', e.currentTarget.checked)}
+                            type="number" 
+                            min="1" 
+                            max="10" 
+                            bind:value={product.copiesA7}
+                            class="copies-input-inline"
+                            on:change={() => filterProducts()}
+                            title="Copies for A7"
                           />
-                          <span>A7 (8)</span>
-                        </label>
+                        </div>
                       </div>
                     </td>
                     <td class="action-cell">
                       {#if selectedTemplateId}
                         <button class="template-btn" on:click={() => generatePDFWithTemplate(product)} title="Generate using selected template">
-                          📐 Use Template
+                          Use Template
                         </button>
                       {/if}
                       <button class="generate-btn" on:click={() => generatePDF(product)}>
-                        📄 Generate
+                        Generate
                       </button>
                     </td>
                   </tr>
@@ -609,6 +1003,38 @@
     padding: 1.5rem;
     background: white;
     border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .template-designer-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .template-designer-btn:hover {
+    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+    box-shadow: 0 4px 8px rgba(139, 92, 246, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .template-designer-btn:active {
+    transform: translateY(0);
   }
 
   .content {
@@ -940,6 +1366,12 @@
     gap: 0.5rem;
   }
 
+  .size-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .pdf-checkbox {
     display: flex;
     align-items: center;
@@ -947,6 +1379,7 @@
     cursor: pointer;
     font-size: 0.875rem;
     color: #374151;
+    min-width: 80px;
   }
 
   .pdf-checkbox input[type="checkbox"] {
@@ -959,6 +1392,53 @@
     user-select: none;
   }
 
+  .copies-input-inline {
+    width: 50px;
+    padding: 0.25rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    text-align: center;
+    transition: all 0.2s;
+  }
+
+  .copies-input-inline:focus {
+    outline: none;
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.1);
+  }
+
+  .copies-input-inline::-webkit-inner-spin-button,
+  .copies-input-inline::-webkit-outer-spin-button {
+    opacity: 1;
+  }
+
+  .copies-cell {
+    padding: 0.5rem;
+    text-align: center;
+  }
+
+  .copies-input {
+    width: 60px;
+    padding: 0.375rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    text-align: center;
+    transition: all 0.2s;
+  }
+
+  .copies-input:focus {
+    outline: none;
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+  }
+
+  .copies-input::-webkit-inner-spin-button,
+  .copies-input::-webkit-outer-spin-button {
+    opacity: 1;
+  }
+
   .action-cell {
     padding: 0.5rem;
   }
@@ -967,16 +1447,15 @@
     background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
     color: white;
     border: none;
-    padding: 0.625rem 1rem;
-    border-radius: 6px;
-    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
     margin-right: 0.5rem;
   }
 
@@ -989,16 +1468,15 @@
     background: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%);
     color: white;
     border: none;
-    padding: 0.625rem 1rem;
-    border-radius: 6px;
-    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
   }
 
   .generate-btn:hover {
@@ -1015,6 +1493,61 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
+  }
+
+  .search-section {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: #f9fafb;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .search-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .search-input {
+    padding: 0.75rem 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: white;
+    transition: all 0.2s;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+  }
+
+  .search-radio-group {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #374151;
+    cursor: pointer;
+  }
+
+  .radio-label input[type="radio"] {
+    cursor: pointer;
+    accent-color: #14b8a6;
+  }
+
+  .search-results-count {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 500;
   }
 
   .template-selector {
@@ -1061,6 +1594,57 @@
     border-radius: 6px;
     font-size: 0.75rem;
     font-weight: 600;
+  }
+
+  .master-generate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2);
+  }
+
+  .master-generate-btn:hover {
+    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+    box-shadow: 0 4px 8px rgba(139, 92, 246, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .master-generate-btn:active {
+    transform: translateY(0);
+  }
+
+  .size-btn {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    padding: 0.375rem 0.75rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+  }
+
+  .size-btn:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .size-btn:active {
+    transform: translateY(0);
   }
 
   .serial-cell {
