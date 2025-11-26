@@ -38,8 +38,8 @@
 		left: ${isMaximized ? '0px !important' : window.position.x + 'px'};
 		top: ${isMaximized ? '0px !important' : window.position.y + 'px'};
 		width: ${isMaximized ? '100% !important' : window.size.width + 'px'};
-		height: ${isMaximized ? 'calc(100vh - 48px) !important' : window.size.height + 'px'};
-		z-index: ${window.zIndex};
+		height: ${isMaximized ? '100% !important' : window.size.height + 'px'};
+		z-index: ${Math.min(window.zIndex, 9998)};
 		display: ${isMinimized ? 'none' : 'flex'};
 	`;
 
@@ -91,8 +91,16 @@
 
 	function handleMouseMove(event: MouseEvent) {
 		if (isDragging) {
-			const newX = event.clientX - dragStart.x;
-			const newY = Math.max(0, event.clientY - dragStart.y); // Prevent dragging above viewport
+			// Check if we're in a container with offset (like cashier interface)
+			const container = windowElement?.closest('.cashier-main, .desktop-main');
+			const containerLeft = container ? container.getBoundingClientRect().left : 0;
+			const containerRect = container?.getBoundingClientRect();
+			
+			// Calculate maximum Y position to prevent overlap with taskbar (56px)
+			const maxY = containerRect ? containerRect.height - windowElement.offsetHeight : window.innerHeight - 56 - windowElement.offsetHeight;
+			
+			const newX = Math.max(containerLeft, event.clientX - dragStart.x);
+			const newY = Math.max(0, Math.min(maxY, event.clientY - dragStart.y));
 			
 			windowManager.updateWindowPosition(window.id, { x: newX, y: newY });
 		} else if (isResizing) {
@@ -113,7 +121,11 @@
 				newX = window.position.x + (resizeStart.width - newWidth);
 			}
 			if (resizeDirection.includes('s')) {
-				newHeight = Math.max(window.minSize?.height || 150, resizeStart.height + deltaY);
+				const container = windowElement?.closest('.cashier-main, .desktop-main');
+				const containerRect = container?.getBoundingClientRect();
+				const maxHeight = containerRect ? containerRect.height - window.position.y : (window.innerHeight - 56) - window.position.y;
+				
+				newHeight = Math.max(window.minSize?.height || 150, Math.min(maxHeight, resizeStart.height + deltaY));
 			}
 			if (resizeDirection.includes('n')) {
 				newHeight = Math.max(window.minSize?.height || 150, resizeStart.height - deltaY);

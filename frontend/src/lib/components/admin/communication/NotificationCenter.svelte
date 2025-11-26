@@ -3,6 +3,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { cashierUser } from '$lib/stores/cashierAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
@@ -12,8 +13,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
 
-	// Current user for role-based access
-	$: userRole = $currentUser?.role || 'Position-based';
+	// Current user for role-based access (check cashier user first, then desktop user)
+	$: activeUser = $cashierUser || $currentUser;
+	$: userRole = activeUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
 	// User cache for displaying usernames
@@ -313,16 +315,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			isLoading = true;
 			errorMessage = '';
 			
+			console.log('🔔 [NotificationCenter] Loading notifications for user:', activeUser);
+			
 			// Store previous notification IDs to detect new ones
 			const previousIds = new Set(allNotifications.map(n => n.id));
 			
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				console.log('👑 [NotificationCenter] Loading as admin/master');
+				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
 				allNotifications = await transformNotificationData(apiNotifications);
-			} else if ($currentUser?.id) {
+			} else if (activeUser?.id) {
 				// Regular users see only their targeted notifications
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
+				console.log('👤 [NotificationCenter] Loading as regular user');
+				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -336,6 +342,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					targetBranch: 'user-specific',
 					recipientId: notification.recipient_id
 				}));
+			} else {
+				console.warn('⚠️ [NotificationCenter] No active user found');
 			}
 			
 			// Check for new notifications and play sound
@@ -418,13 +426,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Force clear any browser cache by adding timestamp to requests
 			if (isAdminOrMaster) {
 				// Force fresh data by bypassing any cache
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
 				allNotifications = await transformNotificationData(apiNotifications);
 				
 				// Load user cache after getting notifications
 				await loadUserCache();
-			} else if ($currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
+			} else if (activeUser?.id) {
+				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -488,11 +496,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: unreadCount = notifications.filter(n => !n.read).length;
 
 	async function markAsRead(id: string) {
-		if (!$currentUser?.id) return;
+		if (!activeUser?.id) return;
 		
 		try {
 			console.log('🔴 [NotificationCenter] Marking notification as read:', id);
-			const result = await notificationManagement.markAsRead(id, $currentUser.id);
+			const result = await notificationManagement.markAsRead(id, activeUser.id);
 			console.log('🔴 [NotificationCenter] Mark as read result:', result);
 			if (result.success) {
 				// Update local state
@@ -509,10 +517,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	async function markAllAsRead() {
-		if (!$currentUser?.id) return;
-		
+		if (!activeUser?.id) return;
+
 		try {
-			const result = await notificationManagement.markAllAsRead($currentUser.id);
+			const result = await notificationManagement.markAllAsRead(activeUser.id);
 			if (result.success) {
 				// Update local state
 				allNotifications = allNotifications.map(n => ({ ...n, read: true }));
@@ -831,15 +839,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const previousNotifications = [...allNotifications];
 			
 			if (isAdminOrMaster) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
 				const newNotifications = await transformNotificationData(apiNotifications);
 				
 				// Only update if there are actual changes
 				if (JSON.stringify(newNotifications) !== JSON.stringify(previousNotifications)) {
 					allNotifications = newNotifications;
 				}
-			} else if ($currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
+			} else if (activeUser?.id) {
+				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
 				const newNotifications = await transformNotificationData(userNotifications);
 				
 				// Only update if there are actual changes

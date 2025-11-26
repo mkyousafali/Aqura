@@ -1,6 +1,7 @@
 import { writable } from "svelte/store";
 import { supabase } from "$lib/utils/supabase";
 import { currentUser } from "$lib/utils/persistentAuth";
+import { cashierUser } from "$lib/stores/cashierAuth";
 import { get } from "svelte/store";
 
 // Import notification sound manager for playing sounds when new notifications arrive
@@ -71,9 +72,10 @@ export const notifications = {
 
 // Function to fetch notification counts from Supabase
 export async function fetchNotificationCounts(userId?: string) {
-  // Get userId from parameter or current user
+  // Get userId from parameter, cashier user, or current user
   const user = get(currentUser);
-  const targetUserId = userId || user?.id;
+  const cashier = get(cashierUser);
+  const targetUserId = userId || cashier?.id || user?.id;
 
   if (!targetUserId) {
     console.warn("No user ID available for fetching notification counts");
@@ -233,7 +235,10 @@ export function refreshNotificationCounts(userId?: string, silent = true) {
 // Real-time notification listener for immediate sound playing
 export function startNotificationListener() {
   const user = get(currentUser);
-  if (!user?.id) {
+  const cashier = get(cashierUser);
+  const activeUser = cashier || user;
+  
+  if (!activeUser?.id) {
     console.warn("🔔 [NotificationStore] Cannot start listener - no user ID");
     return;
   }

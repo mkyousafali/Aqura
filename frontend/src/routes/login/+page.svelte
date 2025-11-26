@@ -376,6 +376,25 @@
 									</div>
 									<span class="interface-label">{$_('common.customer')}</span>
 								</button>
+
+								<!-- Cashier Login Button -->
+								<button 
+									class="interface-btn cashier-btn"
+									on:click={() => goto('/cashier')}
+									disabled={isLoading}
+									type="button"
+									title={$_('coupon.cashier') || 'Cashier'}
+								>
+									<div class="interface-icon">
+										<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+											<circle cx="8.5" cy="8.5" r="1.5"/>
+											<polyline points="21 15 16 10 5 21"/>
+											<line x1="10" y1="18" x2="18" y2="10"/>
+										</svg>
+									</div>
+									<span class="interface-label">{$_('coupon.cashier') || 'Cashier'}</span>
+								</button>
 							</div>
 						</div>
 					{:else}
@@ -833,7 +852,7 @@
 
 	.interface-options {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(4, 1fr);
 		gap: 1.5rem;
 		margin-top: 2rem;
 		justify-items: center;
@@ -893,6 +912,15 @@
 
 	.customer-btn .interface-icon {
 		background: linear-gradient(135deg, #F59E0B 0%, #FCD34D 100%);
+	}
+
+	.cashier-btn:hover:not(:disabled) {
+		border-color: #6b7280;
+		box-shadow: 0 12px 30px rgba(107, 114, 128, 0.25);
+	}
+
+	.cashier-btn .interface-icon {
+		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
 	}
 
 	.interface-icon {

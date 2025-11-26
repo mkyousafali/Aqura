@@ -33,7 +33,7 @@
 </script>
 
 <!-- Window Container -->
-<div class="window-manager" class:popout-mode={!!popoutOnly} style="left: {popoutOnly ? '0px' : $sidebar.width + 'px'}; width: {popoutOnly ? '100vw' : `calc(100vw - ${$sidebar.width}px)`};">
+<div class="window-manager" class:popout-mode={!!popoutOnly}>
 	{#each filteredWindows as window (window.id)}
 		<Window {window} />
 	{/each}
@@ -46,12 +46,13 @@
 
 <style>
 	.window-manager {
-		position: fixed;
+		position: absolute;
 		top: 0;
-		height: 100vh;
+		left: 0;
+		right: 0;
+		bottom: 0;
 		pointer-events: none;
 		z-index: 1000;
-		transition: left 0.3s ease, width 0.3s ease;
 	}
 
 	.window-manager.popout-mode {

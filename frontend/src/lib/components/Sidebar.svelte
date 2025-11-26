@@ -40,6 +40,7 @@
 	import OrdersManager from '$lib/components/admin/OrdersManager.svelte';
 	import FlyerMasterDashboard from '$lib/components/admin/flyer/FlyerMasterDashboard.svelte';
 	import ExpenseTracker from '$lib/components/admin/reports/ExpenseTracker.svelte';
+	import CouponDashboard from '$lib/components/admin/coupon/CouponDashboard.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -656,6 +657,28 @@ function openApprovalCenter() {
 		showMarketingSubmenu = false;
 	}
 
+	function openCouponManagement() {
+		const windowId = generateWindowId('coupon-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Coupon Management #${instanceNumber}`,
+			component: CouponDashboard,
+			icon: '🎁',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMarketingSubmenu = false;
+	}
+
 	// Show version popup with update information
 	function showVersionInfo() {
 		showVersionPopup = true;
@@ -849,6 +872,12 @@ function openApprovalCenter() {
 					<button class="submenu-item" on:click={openFlyerMaster}>
 						<span class="menu-icon">🏷️</span>
 						<span class="menu-text">{t('admin.flyerMaster') || 'Flyer Master'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCouponManagement}>
+						<span class="menu-icon">🎁</span>
+						<span class="menu-text">{t('coupon.title') || 'Coupon Management'}</span>
 					</button>
 				</div>
 			</div>

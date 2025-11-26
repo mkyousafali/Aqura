@@ -1,6 +1,7 @@
 import { writable } from "svelte/store";
 import { supabase } from "$lib/utils/supabase";
 import { currentUser } from "$lib/utils/persistentAuth";
+import { cashierUser } from "$lib/stores/cashierAuth";
 import { get } from "svelte/store";
 import { browser } from "$app/environment";
 
@@ -38,7 +39,10 @@ export const taskCountService = {
   // Fetch task counts for current user
   async fetchTaskCounts(silent = false): Promise<void> {
     const user = get(currentUser);
-    if (!user || !browser) {
+    const cashier = get(cashierUser);
+    const activeUser = cashier || user;
+    
+    if (!activeUser || !browser) {
       return;
     }
 
@@ -53,7 +57,7 @@ export const taskCountService = {
       const { data: regularTasks, error: regularError } = await supabase
         .from("task_assignments")
         .select("id, status, deadline_date, deadline_time, assigned_at")
-        .eq("assigned_to_user_id", user.id)
+        .eq("assigned_to_user_id", activeUser.id)
         .in("status", ["assigned", "in_progress", "pending"]);
 
       // Fetch quick task assignments (simplified query like mobile layout)
@@ -69,14 +73,14 @@ export const taskCountService = {
 					)
 				`,
         )
-        .eq("assigned_to_user_id", user.id)
+        .eq("assigned_to_user_id", activeUser.id)
         .in("status", ["assigned", "in_progress", "pending"]);
 
       // Fetch receiving tasks
       const { data: receivingTasks, error: receivingError } = await supabase
         .from("receiving_tasks")
         .select("id, task_status, due_date")
-        .eq("assigned_user_id", user.id)
+        .eq("assigned_user_id", activeUser.id)
         .eq("task_status", "pending");
 
       if (regularError) {
@@ -232,7 +236,10 @@ export const taskCountService = {
   // Subscribe to real-time task updates
   subscribeToTaskUpdates() {
     const user = get(currentUser);
-    if (!user || !browser) return null;
+    const cashier = get(cashierUser);
+    const activeUser = cashier || user;
+    
+    if (!activeUser || !browser) return null;
 
     // Subscribe to regular task assignments
     const regularTaskChannel = supabase
@@ -243,7 +250,7 @@ export const taskCountService = {
           event: "*",
           schema: "public",
           table: "task_assignments",
-          filter: `assigned_to_user_id=eq.${user.id}`,
+          filter: `assigned_to_user_id=eq.${activeUser.id}`,
         },
         () => {
           console.log(
@@ -263,7 +270,7 @@ export const taskCountService = {
           event: "*",
           schema: "public",
           table: "quick_task_assignments",
-          filter: `assigned_to_user_id=eq.${user.id}`,
+          filter: `assigned_to_user_id=eq.${activeUser.id}`,
         },
         () => {
           console.log("⚡ Quick task assignment changed, refreshing counts...");
@@ -281,7 +288,7 @@ export const taskCountService = {
           event: "*",
           schema: "public",
           table: "receiving_tasks",
-          filter: `assigned_user_id=eq.${user.id}`,
+          filter: `assigned_user_id=eq.${activeUser.id}`,
         },
         () => {
           console.log("📦 Receiving task changed, refreshing counts...");
@@ -325,9 +332,19 @@ export const taskCountService = {
 
 // Start monitoring when the store is imported (browser only)
 if (browser) {
-  // Wait for current user to be available
+  // Wait for current user or cashier user to be available
+  let hasInitialized = false;
+  
   currentUser.subscribe((user) => {
-    if (user) {
+    if (user && !hasInitialized) {
+      hasInitialized = true;
+      taskCountService.initTaskCountMonitoring();
+    }
+  });
+  
+  cashierUser.subscribe((cashier) => {
+    if (cashier && !hasInitialized) {
+      hasInitialized = true;
       taskCountService.initTaskCountMonitoring();
     }
   });

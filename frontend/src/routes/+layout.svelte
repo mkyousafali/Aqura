@@ -567,19 +567,21 @@
 				const userId = currentUserState.id;
 				const currentPath = $page.url.pathname;
 				
-				// Check if user has mobile preference and isn't already on mobile routes
+				// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
 				if (interfacePreferenceService.isMobilePreferred(userId) && 
 					!currentPath.startsWith('/mobile') && 
-					!currentPath.startsWith('/mobile-login')) {
+					!currentPath.startsWith('/mobile-login') &&
+					!currentPath.startsWith('/cashier')) {
 					
 					console.log('🔐 User has mobile preference, redirecting to mobile interface');
 					goto('/mobile');
 					return;
 				}
 				
-				// Check if user doesn't have mobile preference but is on mobile routes
+				// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
 				if (!interfacePreferenceService.isMobilePreferred(userId) && 
-					currentPath.startsWith('/mobile')) {
+					currentPath.startsWith('/mobile') &&
+					!currentPath.startsWith('/cashier')) {
 					
 					console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
 					goto('/');
@@ -592,9 +594,10 @@
 			currentUserData = currentUserState;
 			
 			// Only redirect if necessary and avoid loops
-			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-login') {
+			const isCashier = $page.url.pathname.startsWith('/cashier');
+			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-login' && !isCashier) {
 				console.log('🔐 Initial check: Not authenticated, will redirect to login');
-			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-login')) {
+			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-login') && !isCashier) {
 				console.log('🔐 Initial check: Already authenticated, will redirect to appropriate dashboard');
 				
 				// Redirect to appropriate interface based on preference
@@ -747,15 +750,16 @@
 				updateBodyClass();
 				
 				// Only redirect if we're not already on the target page to prevent loops
-				// Also exclude customer routes from employee authentication checks
+				// Also exclude customer and cashier routes from employee authentication checks
 				const isCustomerRoute = $page.url.pathname.startsWith('/customer');
-				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute) {
+				const isCashierRoute = $page.url.pathname.startsWith('/cashier');
+				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute) {
 					console.log('🔐 Not authenticated, redirecting to login');
 					goto('/login', { replaceState: true });
 				}
 				
-				// Redirect authenticated users away from login page
-				if (authenticated && $page.url.pathname === '/login') {
+				// Redirect authenticated users away from login page (except cashier)
+				if (authenticated && $page.url.pathname === '/login' && !isCashierRoute) {
 					console.log('🔐 Already authenticated, redirecting to dashboard');
 					goto('/', { replaceState: true });
 				}
@@ -783,9 +787,10 @@
 					console.warn('⚠️ Loading timeout reached, forcing loading state to false');
 					isLoading = false;
 					
-					// If still not authenticated after timeout, redirect to login (exclude mobile and customer routes)
+					// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
 					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout) {
+					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -1026,10 +1031,11 @@
 	$: isLoginPage = $page.url.pathname === '/login';
 	$: isMobileRoute = $page.url.pathname.startsWith('/mobile');
 	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-login');
+	$: isCashierRoute = $page.url.pathname.startsWith('/cashier');
 
-	// Update body class when authentication or page state changes (exclude mobile routes)
+	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {
-		if (isAuthenticated && !isLoginPage && !isMobileRoute && !isMobileLoginRoute) {
+		if (isAuthenticated && !isLoginPage && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute) {
 			document.body.classList.add('desktop-mode');
 		} else {
 			document.body.classList.remove('desktop-mode');
@@ -1050,13 +1056,13 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute}
+{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<p>Loading...</p>
 	</div>
-{:else if isMobileRoute || isMobileLoginRoute}
-	<!-- Mobile routes get no desktop layout - completely independent -->
+{:else if isMobileRoute || isMobileLoginRoute || isCashierRoute}
+	<!-- Mobile and cashier routes get no desktop layout - completely independent -->
 	<slot />
 {:else}
 	<div class="app {directionClass}" dir={$localeData?.direction || 'ltr'}>

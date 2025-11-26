@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { cashierUser, isCashierAuthenticated } from '$lib/stores/cashierAuth';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import TaskCompletionModal from './TaskCompletionModal.svelte';
@@ -24,13 +25,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Live countdown state
 	let countdownInterval = null;
 	
-	// Get current user from persistent auth service
-	$: currentUserData = $currentUser;
-	$: authenticated = $isAuthenticated;
-	$: console.log('🔍 [MyTasks] Auth state:', { authenticated, currentUserData });
+	// Get current user from persistent auth service (check cashier first, then desktop)
+	$: activeUser = $cashierUser || $currentUser;
+	$: authenticated = $isCashierAuthenticated || $isAuthenticated;
+	$: currentUserData = activeUser;
+	$: console.log('🔍 [MyTasks] Auth state:', { authenticated, currentUserData, isCashier: !!$cashierUser });
 
 	// Subscribe to auth changes and reload tasks when user changes
-	$: if (authenticated && currentUserData?.id) {
+	$: if (authenticated && activeUser?.id) {
 		loadMyTasks();
 	}
 
@@ -39,7 +41,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	onMount(() => {
 		// Try to load tasks on mount if user is available
-		if (authenticated && currentUserData?.id) {
+		if (authenticated && activeUser?.id) {
 			loadMyTasks();
 		}
 		
@@ -60,13 +62,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	async function loadMyTasks() {
-		// Get the current user ID from persistent auth
-		let userId = currentUserData?.id;
+		// Get the current user ID from persistent auth or cashier auth
+		let userId = activeUser?.id;
 		
 		console.log('🔍 [MyTasks] Attempting to get user ID:', {
-			currentUserData,
+			activeUser,
 			authenticated,
-			userId
+			userId,
+			isCashier: !!$cashierUser
 		});
 		
 		if (!authenticated || !userId) {
