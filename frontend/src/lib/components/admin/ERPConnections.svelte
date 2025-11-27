@@ -260,37 +260,55 @@
 
 		try {
 			fetchingSales = true;
-			const response = await fetch('/api/erp/get-sales', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					server_ip: config.server_ip,
-					database_name: config.database_name,
-					username: config.username,
-					password: config.password,
-					date: selectedDate,
-					branch_name: config.branch_name
-				})
-			});
+			
+			// Fetch from Supabase erp_daily_sales table (synced by desktop app)
+			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { data, error } = await supabaseAdmin
+				.from('erp_daily_sales')
+				.select('*')
+				.eq('branch_id', selectedBranch)
+				.eq('sale_date', selectedDate)
+				.single();
 
-			const result = await response.json();
+			if (error && error.code !== 'PGRST116') {
+				// PGRST116 is "no rows found" error
+				throw new Error(error.message);
+			}
 
-			if (result.success) {
-				salesData = result.data;
+			if (data) {
+				// Transform Supabase data to match expected format
+				salesData = {
+					branch_name: config.branch_name,
+					date: data.sale_date,
+					gross_sales: data.gross_amount,
+					gross_bills: data.total_bills,
+					gross_tax: data.tax_amount,
+					returns: data.return_amount,
+					return_bills: data.total_returns,
+					return_tax: data.return_tax,
+					net_sales: data.net_amount,
+					net_bills: data.net_bills,
+					net_tax: data.net_tax,
+					discount: data.discount_amount
+				};
+				
 				notifications.add({
-					message: '✅ Sales data fetched successfully',
+					message: '✅ Sales data loaded from synced database',
 					type: 'success'
 				});
 			} else {
+				salesData = null;
 				notifications.add({
-					message: `❌ Failed to fetch sales: ${result.error}`,
-					type: 'error'
+					message: '⚠️ No sales data available for this date. Make sure the desktop sync app is running.',
+					type: 'warning'
 				});
 			}
+
 		} catch (error: any) {
 			console.error('Error fetching sales:', error);
+			salesData = null;
 			notifications.add({
-				message: 'Error fetching sales data',
+				message: `❌ Error loading sales data: ${error.message}`,
 				type: 'error'
 			});
 		} finally {

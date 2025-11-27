@@ -38,6 +38,12 @@ dist/
 .cache/
 .parcel-cache/
 
+# Electron deployment packages
+erp-sync-app/Aqura-tunnel-*/
+erp-sync-app/*.asar
+erp-sync-app/build/
+erp-sync-app/temp-*/
+
 # SvelteKit
 .svelte-kit/
 vite.config.js.timestamp-*
