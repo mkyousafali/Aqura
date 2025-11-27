@@ -377,20 +377,20 @@
 	<div class="header">
 		<h2>🔌 {t('erp.connections') || 'ERP Connections'}</h2>
 		<button class="btn-primary" on:click={() => showConfigForm = !showConfigForm}>
-			{showConfigForm ? '❌ Cancel' : '➕ Add Configuration'}
+			{showConfigForm ? `❌ ${t('actions.cancel') || 'Cancel'}` : `➕ ${t('erp.addConfiguration') || 'Add Configuration'}`}
 		</button>
 	</div>
 
 	<!-- Configuration Form -->
 	{#if showConfigForm}
 		<div class="config-form">
-			<h3>{formData.id ? 'Edit Configuration' : 'New Configuration'}</h3>
+			<h3>{formData.id ? t('erp.editConfiguration') || 'Edit Configuration' : t('erp.newConfiguration') || 'New Configuration'}</h3>
 			
 			<div class="form-grid">
 				<div class="form-group">
-					<label for="branch">Branch *</label>
+					<label for="branch">{t('erp.branch') || 'Branch'} *</label>
 					<select id="branch" bind:value={formData.branch_id} required>
-						<option value="">Select Branch</option>
+						<option value="">{t('erp.selectBranch') || 'Select Branch'}</option>
 						{#each branches as branch}
 							<option value={branch.id}>{branch.name_en} - {branch.name_ar}</option>
 						{/each}
@@ -398,7 +398,7 @@
 				</div>
 
 				<div class="form-group">
-					<label for="device_id">Device ID (Auto-detected)</label>
+					<label for="device_id">{t('erp.deviceId') || 'Device ID'} ({t('common.autoDetected') || 'Auto-detected'})</label>
 					<input 
 						id="device_id"
 						type="text" 
@@ -407,11 +407,11 @@
 						class="readonly"
 						title="Unique device identifier - auto-generated"
 					/>
-					<small>🔒 This device will be authorized to sync sales data</small>
+					<small>🔒 {t('erp.deviceIdHint') || 'This device will be authorized to sync sales data'}</small>
 				</div>
 
 				<div class="form-group">
-					<label for="server_ip">Server IP *</label>
+					<label for="server_ip">{t('erp.serverIp') || 'Server IP'} *</label>
 					<input 
 						id="server_ip"
 						type="text" 
@@ -423,7 +423,7 @@
 				</div>
 
 				<div class="form-group">
-					<label for="server_name">Server Name *</label>
+					<label for="server_name">{t('erp.serverName') || 'Server Name'} *</label>
 					<input 
 						id="server_name"
 						type="text" 
@@ -435,7 +435,7 @@
 				</div>
 
 				<div class="form-group">
-					<label for="database_name">Database Name *</label>
+					<label for="database_name">{t('erp.databaseName') || 'Database Name'} *</label>
 					<input 
 						id="database_name"
 						type="text" 
@@ -446,7 +446,7 @@
 				</div>
 
 				<div class="form-group">
-					<label for="username">Username *</label>
+					<label for="username">{t('erp.username') || 'Username'} *</label>
 					<input 
 						id="username"
 						type="text" 
@@ -457,7 +457,7 @@
 				</div>
 
 				<div class="form-group">
-					<label for="password">Password *</label>
+					<label for="password">{t('erp.password') || 'Password'} *</label>
 					<input 
 						id="password"
 						type="password" 
@@ -470,15 +470,15 @@
 				<div class="form-group">
 					<label>
 						<input type="checkbox" bind:checked={formData.is_active} />
-						Active
+						{t('erp.isActive') || 'Active'}
 					</label>
 				</div>
 			</div>
 
 			<div class="form-actions">
-				<button class="btn-secondary" on:click={resetForm}>Cancel</button>
+				<button class="btn-secondary" on:click={resetForm}>{t('actions.cancel') || 'Cancel'}</button>
 				<button class="btn-primary" on:click={saveConfig} disabled={saving}>
-					{saving ? '💾 Saving...' : '💾 Save Configuration'}
+					{saving ? `💾 ${t('erp.saving') || 'Saving...'}` : `💾 ${t('erp.saveConfiguration') || 'Save Configuration'}`}
 				</button>
 			</div>
 		</div>
@@ -543,11 +543,11 @@
 
 	<!-- Sales Fetcher -->
 	<div class="sales-section">
-		<h3>📊 Get Sales Data</h3>
+		<h3>📊 {t('erp.salesData') || 'Get Sales Data'}</h3>
 		
 		<div class="sales-controls">
 			<div class="form-group">
-				<label for="sales-branch">Select Branch</label>
+				<label for="sales-branch">{t('erp.selectBranch') || 'Select Branch'}</label>
 				<select id="sales-branch" bind:value={selectedBranch}>
 					<option value={0}>Choose a branch...</option>
 					{#each erpConfigs.filter(c => c.is_active) as config}
@@ -557,7 +557,7 @@
 			</div>
 
 			<div class="form-group">
-				<label for="sales-date">Select Date</label>
+				<label for="sales-date">{t('erp.selectDate') || 'Select Date'}</label>
 				<input 
 					id="sales-date"
 					type="date" 
@@ -570,7 +570,7 @@
 				on:click={fetchSales}
 				disabled={fetchingSales || !selectedBranch}
 			>
-				{fetchingSales ? '⏳ Fetching...' : '📥 Get Sales'}
+				{fetchingSales ? `⏳ ${t('erp.fetching') || 'Fetching...'}` : `📥 ${t('erp.fetchSales') || 'Get Sales'}`}
 			</button>
 		</div>
 
@@ -582,32 +582,32 @@
 				
 				<div class="sales-grid">
 					<div class="sales-card gross">
-						<h5>💰 Gross Sales</h5>
+						<h5>💰 {t('erp.grossSales') || 'Gross Sales'}</h5>
 						<div class="amount">{formatCurrency(salesData.gross_sales)}</div>
 						<div class="details">
-							<span>Bills: {salesData.gross_bills}</span>
-							<span>Tax: {formatCurrency(salesData.gross_tax)}</span>
+							<span>{t('erp.grossBills') || 'Bills'}: {salesData.gross_bills}</span>
+							<span>{t('erp.grossTax') || 'Tax'}: {formatCurrency(salesData.gross_tax)}</span>
 							{#if salesData.discount > 0}
-								<span>Discount: {formatCurrency(salesData.discount)}</span>
+								<span>{t('erp.discount') || 'Discount'}: {formatCurrency(salesData.discount)}</span>
 							{/if}
 						</div>
 					</div>
 
 					<div class="sales-card returns">
-						<h5>🔄 Returns</h5>
+						<h5>🔄 {t('erp.returns') || 'Returns'}</h5>
 						<div class="amount">{formatCurrency(salesData.returns)}</div>
 						<div class="details">
-							<span>Bills: {salesData.return_bills}</span>
-							<span>Tax: {formatCurrency(salesData.return_tax)}</span>
+							<span>{t('erp.returnBills') || 'Bills'}: {salesData.return_bills}</span>
+							<span>{t('erp.returnTax') || 'Tax'}: {formatCurrency(salesData.return_tax)}</span>
 						</div>
 					</div>
 
 					<div class="sales-card net">
-						<h5>✅ Net Sales</h5>
+						<h5>✅ {t('erp.netSales') || 'Net Sales'}</h5>
 						<div class="amount">{formatCurrency(salesData.net_sales)}</div>
 						<div class="details">
-							<span>Net Bills: {salesData.net_bills}</span>
-							<span>Net Tax: {formatCurrency(salesData.net_tax)}</span>
+							<span>{t('erp.netBills') || 'Net Bills'}: {salesData.net_bills}</span>
+							<span>{t('erp.netTax') || 'Net Tax'}: {formatCurrency(salesData.net_tax)}</span>
 						</div>
 					</div>
 				</div>
