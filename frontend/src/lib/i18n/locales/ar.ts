@@ -584,6 +584,14 @@ export const arabicLocale: LocaleData = {
 
     reports: {
       expenseTracker: "متتبع المصروفات",
+      salesReport: "تقرير المبيعات",
+      dailySalesOverview: "نظرة عامة على المبيعات اليومية",
+      bills: "فواتير",
+      basket: "السلة",
+      return: "المرتجعات",
+      today: "اليوم",
+      yesterday: "أمس",
+      twoDaysAgo: "منذ يومين",
     },
 
     // Admin Modules
@@ -1138,6 +1146,7 @@ export const arabicLocale: LocaleData = {
       tryAgain: "حاول مرة أخرى",
       back: "رجوع",
       backToLogin: "العودة لتسجيل الدخول",
+      refresh: "تحديث",
     },
 
     // Status Messages
@@ -1545,7 +1554,21 @@ export const arabicLocale: LocaleData = {
 
     // التقارير
     reports: {
-      expenseTracker: "تتبع المصروفات",
+      expenseTracker: "متتبع المصروفات",
+      salesReport: "تقرير المبيعات",
+      dailySalesOverview: "نظرة عامة على المبيعات اليومية",
+      todayBranchSales: "مبيعات الفروع اليوم",
+      yesterdayBranchSales: "مبيعات الفروع أمس",
+      bills: "فواتير",
+      basket: "السلة",
+      return: "المرتجعات",
+      today: "اليوم",
+      yesterday: "أمس",
+      twoDaysAgo: "منذ يومين",
+      currentMonth: "الشهر الحالي",
+      previousMonth: "الشهر السابق",
+      averagePerDay: "متوسط يومي",
+      days: "أيام",
     },
   },
 };

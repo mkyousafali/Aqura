@@ -1,4 +1,8 @@
 <script lang="ts">
+	// IMPORTANT: When adding new menu items or UI text, ALWAYS update translations:
+	// - frontend/src/lib/i18n/locales/en.ts (English)
+	// - frontend/src/lib/i18n/locales/ar.ts (Arabic)
+	
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { windowManager } from '$lib/stores/windowManager';
@@ -40,6 +44,7 @@
 	import OrdersManager from '$lib/components/admin/OrdersManager.svelte';
 	import FlyerMasterDashboard from '$lib/components/admin/flyer/FlyerMasterDashboard.svelte';
 	import ExpenseTracker from '$lib/components/admin/reports/ExpenseTracker.svelte';
+	import SalesReport from '$lib/components/admin/reports/SalesReport.svelte';
 	import CouponDashboard from '$lib/components/admin/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/admin/ERPConnections.svelte';
 
@@ -635,6 +640,29 @@ function openApprovalCenter() {
 		showReportsSubmenu = false;
 	}
 
+	// Open Sales Report window
+	function openSalesReport() {
+		const windowId = generateWindowId('sales-report');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Sales Report #${instanceNumber}`,
+			component: SalesReport,
+			icon: '📊',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showReportsSubmenu = false;
+	}
+
 	// Open Flyer Master window
 	function openFlyerMaster() {
 		const windowId = generateWindowId('flyer-master');
@@ -931,6 +959,12 @@ function openApprovalCenter() {
 					<button class="submenu-item" on:click={openExpenseTracker}>
 						<span class="menu-icon">💰</span>
 						<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openSalesReport}>
+						<span class="menu-icon">📊</span>
+						<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
 					</button>
 				</div>
 			</div>

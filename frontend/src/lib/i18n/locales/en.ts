@@ -636,6 +636,15 @@ export const englishLocale: LocaleData = {
 
     reports: {
       expenseTracker: "Expense Tracker",
+      salesReport: "Sales Report",
+      dailySalesOverview: "Daily Sales Overview",
+      todayBranchSales: "Today's Branch Sales",
+      bills: "bills",
+      basket: "Basket",
+      return: "Return",
+      today: "Today",
+      yesterday: "Yesterday",
+      twoDaysAgo: "2 Days Ago",
     },
 
     // Orders Manager
@@ -1158,6 +1167,7 @@ export const englishLocale: LocaleData = {
       tryAgain: "Try Again",
       back: "Back",
       backToLogin: "Back to Login",
+      refresh: "Refresh",
     },
 
     // Status Messages
@@ -1565,6 +1575,20 @@ export const englishLocale: LocaleData = {
     // Reports
     reports: {
       expenseTracker: "Expense Tracker",
+      salesReport: "Sales Report",
+      dailySalesOverview: "Daily Sales Overview",
+      todayBranchSales: "Today's Branch Sales",
+      yesterdayBranchSales: "Yesterday's Branch Sales",
+      bills: "bills",
+      basket: "Basket",
+      return: "Return",
+      today: "Today",
+      yesterday: "Yesterday",
+      twoDaysAgo: "2 Days Ago",
+      currentMonth: "Current Month",
+      previousMonth: "Previous Month",
+      averagePerDay: "Average per day",
+      days: "days",
     },
   },
 };
