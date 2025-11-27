@@ -579,6 +579,7 @@ export const arabicLocale: LocaleData = {
       quickAccess: "الوصول السريع",
       accessCode: "رمز الوصول",
       continueLogin: "المتابعة إلى النظام",
+      cashierAccessDenied: "تم رفض الوصول. صلاحية الكاشير معطلة لهذا المستخدم.",
     },
 
     reports: {

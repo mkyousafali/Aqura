@@ -608,6 +608,7 @@ export const englishLocale: LocaleData = {
       quickAccess: "Quick Access",
       accessCode: "Access Code",
       continueLogin: "Continue to System",
+      cashierAccessDenied: "Access denied. Cashier permission is disabled for this user.",
     },
 
     // Admin

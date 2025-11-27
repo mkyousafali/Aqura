@@ -65,6 +65,20 @@
 				return;
 			}
 
+			// Check cashier permission
+			const { data: permissionData, error: permissionError } = await supabaseAdmin
+				.from('interface_permissions')
+				.select('cashier_enabled')
+				.eq('user_id', userData.id)
+				.single();
+
+			if (permissionError || !permissionData || permissionData.cashier_enabled !== true) {
+				error = t('auth.cashierAccessDenied') || 'Access denied. Cashier permission is disabled for this user.';
+				accessDigits = ['', '', '', '', '', ''];
+				accessCode = '';
+				return;
+			}
+
 			// Get employee details if employee_id exists
 			let fullName = userData.username;
 			if (userData.employee_id) {
@@ -552,7 +566,8 @@
 
 	.back-btn {
 		position: absolute;
-		left: 0;
+		left: -2rem;
+		right: auto;
 		top: 0;
 		display: flex;
 		align-items: center;
@@ -564,6 +579,13 @@
 		cursor: pointer;
 		padding: 0.5rem;
 		transition: color 0.2s ease;
+	}
+
+	/* RTL support for back button */
+	[dir="rtl"] .back-btn {
+		left: auto;
+		right: -2rem;
+		flex-direction: row-reverse;
 	}
 
 	.back-btn:hover {

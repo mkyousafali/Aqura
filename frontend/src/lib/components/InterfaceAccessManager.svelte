@@ -87,6 +87,7 @@
 					desktop_enabled,
 					mobile_enabled,
 					customer_enabled,
+					cashier_enabled,
 					updated_at,
 					notes
 				`)
@@ -171,6 +172,7 @@
 					desktop_enabled,
 					mobile_enabled,
 					customer_enabled,
+					cashier_enabled,
 					updated_at
 				`)
 				.in('user_id', userIds);
@@ -412,7 +414,8 @@
 		permissionChanges = {
 			desktop_enabled: user.interface_permissions[0]?.desktop_enabled ?? true,
 			mobile_enabled: user.interface_permissions[0]?.mobile_enabled ?? true,
-			customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false
+			customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false,
+			cashier_enabled: user.interface_permissions[0]?.cashier_enabled ?? false
 		};
 		showPermissionModal = true;
 	}
@@ -581,6 +584,7 @@
 							<th>Desktop</th>
 							<th>Mobile</th>
 							<th>Customer</th>
+							<th>Cashier</th>
 							<th>Last Updated</th>
 							<th>Actions</th>
 						</tr>
@@ -615,7 +619,8 @@
 											on:change={(e) => updateUserPermissions(user.id, {
 												desktop_enabled: e.target.checked,
 												mobile_enabled: user.interface_permissions[0]?.mobile_enabled ?? true,
-												customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false
+												customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false,
+												cashier_enabled: user.interface_permissions[0]?.cashier_enabled ?? false
 											})}
 											disabled={isLoading}
 										/>
@@ -630,7 +635,8 @@
 											on:change={(e) => updateUserPermissions(user.id, {
 												desktop_enabled: user.interface_permissions[0]?.desktop_enabled ?? true,
 												mobile_enabled: e.target.checked,
-												customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false
+												customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false,
+												cashier_enabled: user.interface_permissions[0]?.cashier_enabled ?? false
 											})}
 											disabled={isLoading}
 										/>
@@ -645,7 +651,24 @@
 											on:change={(e) => updateUserPermissions(user.id, {
 												desktop_enabled: user.interface_permissions[0]?.desktop_enabled ?? true,
 												mobile_enabled: user.interface_permissions[0]?.mobile_enabled ?? true,
-												customer_enabled: e.target.checked
+												customer_enabled: e.target.checked,
+												cashier_enabled: user.interface_permissions[0]?.cashier_enabled ?? false
+											})}
+											disabled={isLoading}
+										/>
+										<span class="toggle-slider"></span>
+									</label>
+								</td>
+								<td>
+									<label class="toggle-switch">
+										<input 
+											type="checkbox" 
+											checked={user.interface_permissions[0]?.cashier_enabled ?? false}
+											on:change={(e) => updateUserPermissions(user.id, {
+												desktop_enabled: user.interface_permissions[0]?.desktop_enabled ?? true,
+												mobile_enabled: user.interface_permissions[0]?.mobile_enabled ?? true,
+												customer_enabled: user.interface_permissions[0]?.customer_enabled ?? false,
+												cashier_enabled: e.target.checked
 											})}
 											disabled={isLoading}
 										/>
@@ -1178,6 +1201,20 @@
 							<input 
 								type="checkbox" 
 								bind:checked={permissionChanges.customer_enabled}
+							/>
+							<span class="toggle-slider"></span>
+						</label>
+					</label>
+
+					<label class="permission-item">
+						<div class="permission-info">
+							<div class="permission-title">Cashier Interface</div>
+							<div class="permission-description">POS/Cashier application access</div>
+						</div>
+						<label class="toggle-switch">
+							<input 
+								type="checkbox" 
+								bind:checked={permissionChanges.cashier_enabled}
 							/>
 							<span class="toggle-slider"></span>
 						</label>
