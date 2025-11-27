@@ -41,6 +41,7 @@
 	import FlyerMasterDashboard from '$lib/components/admin/flyer/FlyerMasterDashboard.svelte';
 	import ExpenseTracker from '$lib/components/admin/reports/ExpenseTracker.svelte';
 	import CouponDashboard from '$lib/components/admin/coupon/CouponDashboard.svelte';
+	import ERPConnections from '$lib/components/admin/ERPConnections.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -679,6 +680,28 @@ function openApprovalCenter() {
 		showMarketingSubmenu = false;
 	}
 
+	function openERPConnections() {
+		const windowId = generateWindowId('erp-connections');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `ERP Connections #${instanceNumber}`,
+			component: ERPConnections,
+			icon: '🔌',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
 	// Show version popup with update information
 	function showVersionInfo() {
 		showVersionPopup = true;
@@ -940,6 +963,12 @@ function openApprovalCenter() {
 					<button class="submenu-item" on:click={openSettings}>
 						<span class="menu-icon">🔊</span>
 						<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openERPConnections}>
+						<span class="menu-icon">🔌</span>
+						<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">

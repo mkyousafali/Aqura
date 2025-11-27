@@ -1,0 +1,14 @@
+{
+  "name": "aqura-erp-sync",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ERP Sales Sync Service for Aqura",
+  "main": "erp-sales-sync-service.js",
+  "scripts": {
+    "start": "node erp-sales-sync-service.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1",
+    "@supabase/supabase-js": "^2.58.0"
+  }
+}
