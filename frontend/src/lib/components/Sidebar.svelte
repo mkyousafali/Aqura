@@ -741,12 +741,14 @@ function openApprovalCenter() {
 		<!-- Master Submenu - Inline below Master button -->
 		{#if showMasterSubmenu}
 			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openBranches}>
-						<span class="menu-icon">🏢</span>
-						<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-					</button>
-				</div>
+				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBranches}>
+							<span class="menu-icon">🏢</span>
+							<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+						</button>
+					</div>
+				{/if}
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openVendorMaster}>
 						<span class="menu-icon">🏪</span>
@@ -837,42 +839,44 @@ function openApprovalCenter() {
 		<!-- Customer App Submenu - Inline below Customer App button -->
 		{#if showCustomerAppSubmenu}
 			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCustomerMaster}>
-						<span class="menu-icon">🤝</span>
-						<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openOrdersManager}>
-						<span class="menu-icon">🛒</span>
-						<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openOfferManagement}>
-						<span class="menu-icon">🎁</span>
-						<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openAdManager}>
-						<span class="menu-icon">📢</span>
-						<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openProductsManager}>
-						<span class="menu-icon">🛍️</span>
-						<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openDeliverySettings}>
-						<span class="menu-icon">📦</span>
-						<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
-					</button>
-				</div>
+				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCustomerMaster}>
+							<span class="menu-icon">🤝</span>
+							<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOrdersManager}>
+							<span class="menu-icon">🛒</span>
+							<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOfferManagement}>
+							<span class="menu-icon">🎁</span>
+							<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openAdManager}>
+							<span class="menu-icon">📢</span>
+							<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openProductsManager}>
+							<span class="menu-icon">🛍️</span>
+							<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openDeliverySettings}>
+							<span class="menu-icon">📦</span>
+							<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -897,12 +901,14 @@ function openApprovalCenter() {
 						<span class="menu-text">{t('admin.flyerMaster') || 'Flyer Master'}</span>
 					</button>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCouponManagement}>
-						<span class="menu-icon">🎁</span>
-						<span class="menu-text">{t('coupon.title') || 'Coupon Management'}</span>
-					</button>
-				</div>
+				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCouponManagement}>
+							<span class="menu-icon">🎁</span>
+							<span class="menu-text">{t('coupon.title') || 'Coupon Management'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -959,31 +965,31 @@ function openApprovalCenter() {
 		<!-- Settings Submenu - Inline below Settings button -->
 		{#if showSettingsSubmenu}
 			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openSettings}>
-						<span class="menu-icon">🔊</span>
-						<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openERPConnections}>
-						<span class="menu-icon">🔌</span>
-						<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openUserManagement}>
-						<span class="menu-icon">👤</span>
-						<span class="menu-text">{t('nav.users') || 'Users'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openInterfaceAccessManager}>
-						<span class="menu-icon">🔧</span>
-						<span class="menu-text">{t('nav.interfaceAccess') || 'Interface Access'}</span>
-					</button>
-				</div>
-				{#if $currentUser?.roleType === 'Master Admin'}
+				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openUserManagement}>
+							<span class="menu-icon">👤</span>
+							<span class="menu-text">{t('nav.users') || 'Users'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openSettings}>
+							<span class="menu-icon">🔊</span>
+							<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openERPConnections}>
+							<span class="menu-icon">🔌</span>
+							<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openInterfaceAccessManager}>
+							<span class="menu-icon">🔧</span>
+							<span class="menu-text">{t('nav.interfaceAccess') || 'Interface Access'}</span>
+						</button>
+					</div>
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openApprovalPermissions}>
 							<span class="menu-icon">🔐</span>

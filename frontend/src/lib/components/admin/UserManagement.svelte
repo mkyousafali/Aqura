@@ -354,6 +354,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<th>Employee</th>
 								<th>Position</th>
 								<th>Branch</th>
+								<th>Quick Access</th>
 								<th>Role Type</th>
 								<th>Status</th>
 								<th>Last Login</th>
@@ -385,6 +386,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									</td>
 									<td class="branch-cell">
 										{user.branch_name || 'Not Assigned'}
+									</td>
+									<td class="access-code-cell">
+										{#if user.quick_access_code}
+											<code class="access-code">{user.quick_access_code}</code>
+										{:else}
+											<span class="no-code">None</span>
+										{/if}
 									</td>
 									<td class="role-cell">
 										<span class="role-badge role-{user.role_type.toLowerCase().replace(/\s+/g, '-')}">

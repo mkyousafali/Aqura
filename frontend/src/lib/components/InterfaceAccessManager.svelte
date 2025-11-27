@@ -123,17 +123,17 @@
 		try {
 			console.log('🔄 Loading customers...');
 			
-			// Load all customers first
+			// Load all customers - customers don't link to users table, they use access_code
 			const { data: customersData, error: customersError } = await supabase
 				.from('customers')
 				.select(`
 					id,
 					access_code,
+					name,
 					whatsapp_number,
 					registration_status,
 					approved_at,
-					last_login_at,
-					user_id
+					last_login_at
 				`);
 
 			if (customersError) {
@@ -147,67 +147,18 @@
 				return;
 			}
 
-			// Get all unique user IDs
-			const userIds = [...new Set(customersData.map(c => c.user_id).filter(Boolean))];
-
-			// Load all user data in one query
-			const { data: usersData, error: usersError } = await supabase
-				.from('users')
-				.select(`
-					id,
-					username,
-					status
-				`)
-				.in('id', userIds);
-
-			if (usersError) {
-				console.error('❌ Users query error:', usersError);
-			}
-
-			// Load all permissions in one query
-			const { data: permissionsData, error: permissionsError } = await supabase
-				.from('interface_permissions')
-				.select(`
-					user_id,
-					desktop_enabled,
-					mobile_enabled,
-					customer_enabled,
-					cashier_enabled,
-					updated_at
-				`)
-				.in('user_id', userIds);
-
-			if (permissionsError) {
-				console.error('❌ Permissions query error:', permissionsError);
-			}
-
-			// Create lookup maps
-			const usersMap = {};
-			(usersData || []).forEach(user => {
-				usersMap[user.id] = {
-					...user,
-					name: user.username // Use username as name
-				};
-			});
-
-			const permissionsMap = {};
-			(permissionsData || []).forEach(perm => {
-				permissionsMap[perm.user_id] = perm;
-			});
-
-			// Combine all data
-			const customersWithData = customersData.map(customer => ({
+			// Customers don't have interface permissions like users do
+			// They only have access through the customer app via access_code
+			customers = customersData.map(customer => ({
 				...customer,
-				users: usersMap[customer.user_id] || null,
-				interface_permissions: permissionsMap[customer.user_id] || null
+				// Customers always have customer_enabled=true if they're approved
+				customer_enabled: customer.registration_status === 'approved'
 			}));
-
-			customers = customersWithData;
 			
-			// Sort customers by user name client-side
+			// Sort customers by name
 			customers.sort((a, b) => {
-				const nameA = a.users?.name || '';
-				const nameB = b.users?.name || '';
+				const nameA = a.name || '';
+				const nameB = b.name || '';
 				return nameA.localeCompare(nameB);
 			});
 
@@ -450,8 +401,9 @@
 		: customers.filter(customer => {
 			const searchLower = customerSearchTerm.toLowerCase().trim();
 			return (
-				customer.users?.name?.toLowerCase().includes(searchLower) ||
-				customer.whatsapp_number?.includes(customerSearchTerm)
+				customer.name?.toLowerCase().includes(searchLower) ||
+				customer.whatsapp_number?.includes(customerSearchTerm) ||
+				customer.access_code?.includes(customerSearchTerm)
 			);
 		});
 
@@ -460,6 +412,14 @@
 		console.log('🔍 User search term:', userSearchTerm);
 		console.log('👥 Total users:', users.length);
 		console.log('🔍 Filtered users:', filteredUsers.length);
+	}
+
+	// Debug customer data
+	$: {
+		console.log('🛒 Customer search term:', customerSearchTerm);
+		console.log('👥 Total customers:', customers.length);
+		console.log('🔍 Filtered customers:', filteredCustomers.length);
+		console.log('📄 Paginated customers:', paginatedCustomers.length);
 	}
 
 	// Pagination
@@ -731,7 +691,7 @@
 			{/if}
 		</div>
 
-	{:else}
+	{:else if activeTab === 'customers'}
 		<!-- Customers Tab -->
 		<div class="tab-content">
 			<div class="content-header">
@@ -795,11 +755,11 @@
 								<td>
 									<div class="user-info">
 										<div class="user-avatar">
-											{customer.users?.name?.charAt(0)?.toUpperCase() || 'C'}
+											{customer.name?.charAt(0)?.toUpperCase() || 'C'}
 										</div>
 										<div class="user-details">
-											<div class="user-name">{customer.users?.name || 'Unknown'}</div>
-											<div class="user-username">@{customer.users?.username || 'unknown'}</div>
+											<div class="user-name">{customer.name || 'Unknown'}</div>
+											<div class="user-username">{customer.whatsapp_number || 'No contact'}</div>
 										</div>
 									</div>
 								</td>
@@ -828,7 +788,7 @@
 									<label class="toggle-switch">
 										<input 
 											type="checkbox" 
-											checked={customer.interface_permissions?.customer_enabled ?? false}
+											checked={customer.customer_enabled ?? false}
 											on:change={(e) => updateCustomerPermissions(customer.id, e.target.checked)}
 											disabled={isLoading || !customerMasterAccess}
 										/>
