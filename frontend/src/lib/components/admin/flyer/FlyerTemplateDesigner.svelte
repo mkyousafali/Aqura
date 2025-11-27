@@ -48,7 +48,7 @@
   interface FieldData {
     id?: string;
     label?: string; // Field type label from configurator
-    type?: 'product_name_en' | 'product_name_ar' | 'barcode' | 'price' | 'offer_price' | 'offer_qty' | 'unit_name' | 'image' | 'expire_date' | 'serial_number' | 'special_symbol';
+    type?: 'product_name_en' | 'product_name_ar' | 'barcode' | 'price' | 'offer_price' | 'offer_qty' | 'limit_qty' | 'free_qty' | 'unit_name' | 'image' | 'expire_date' | 'serial_number' | 'special_symbol';
     fontSize?: number;
     alignment?: 'left' | 'center' | 'right';
     color?: string;

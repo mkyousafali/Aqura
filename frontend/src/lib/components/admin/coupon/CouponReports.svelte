@@ -7,7 +7,7 @@
 	interface CampaignStats {
 		total_eligible_customers: number;
 		total_claims: number;
-		remaining_claims: number;
+		remaining_potential_claims: number;
 		total_stock_limit: number;
 		total_stock_remaining: number;
 		products: ProductStats[];
@@ -61,18 +61,18 @@
 	}
 
 	function getClaimRate(): number {
-		if (!stats || stats.total_eligible_customers === 0) return 0;
-		return (stats.total_claims / stats.total_eligible_customers) * 100;
+		if (!stats || (stats.total_eligible_customers ?? 0) === 0) return 0;
+		return ((stats.total_claims ?? 0) / (stats.total_eligible_customers ?? 0)) * 100;
 	}
 
 	function getStockUsage(): number {
-		if (!stats || stats.total_stock_limit === 0) return 0;
-		return ((stats.total_stock_limit - stats.total_stock_remaining) / stats.total_stock_limit) * 100;
+		if (!stats || (stats.total_stock_limit ?? 0) === 0) return 0;
+		return (((stats.total_stock_limit ?? 0) - (stats.total_stock_remaining ?? 0)) / (stats.total_stock_limit ?? 0)) * 100;
 	}
 
 	function getProductClaimRate(product: ProductStats): number {
-		if (product.stock_limit === 0) return 0;
-		return (product.claims_count / product.stock_limit) * 100;
+		if ((product.stock_limit ?? 0) === 0) return 0;
+		return ((product.claims_count ?? 0) / (product.stock_limit ?? 0)) * 100;
 	}
 
 	function exportToCSV() {
@@ -87,7 +87,7 @@
 			['Overview'],
 			['Total Eligible Customers', stats.total_eligible_customers],
 			['Total Claims', stats.total_claims],
-			['Remaining Claims', stats.remaining_claims],
+			['Remaining Claims', stats.remaining_potential_claims],
 			['Claim Rate', `${getClaimRate().toFixed(1)}%`],
 			[''],
 			['Product Performance'],
@@ -173,7 +173,7 @@
 			<div class="stat-card customers">
 				<div class="stat-icon">👥</div>
 				<div class="stat-content">
-					<div class="stat-value">{stats.total_eligible_customers.toLocaleString()}</div>
+					<div class="stat-value">{(stats.total_eligible_customers ?? 0).toLocaleString()}</div>
 					<div class="stat-label">{t('coupon.eligibleCustomers') || 'Eligible Customers'}</div>
 				</div>
 			</div>
@@ -181,7 +181,7 @@
 			<div class="stat-card claims">
 				<div class="stat-icon">🎟️</div>
 				<div class="stat-content">
-					<div class="stat-value">{stats.total_claims.toLocaleString()}</div>
+					<div class="stat-value">{(stats.total_claims ?? 0).toLocaleString()}</div>
 					<div class="stat-label">{t('coupon.totalClaims') || 'Total Claims'}</div>
 				</div>
 			</div>
@@ -189,7 +189,7 @@
 			<div class="stat-card remaining">
 				<div class="stat-icon">⏳</div>
 				<div class="stat-content">
-					<div class="stat-value">{stats.remaining_claims.toLocaleString()}</div>
+					<div class="stat-value">{(stats.remaining_potential_claims ?? 0).toLocaleString()}</div>
 					<div class="stat-label">{t('coupon.remainingClaims') || 'Remaining Claims'}</div>
 				</div>
 			</div>
@@ -211,7 +211,7 @@
 					<div class="progress-fill" style="width: {getClaimRate()}%"></div>
 				</div>
 				<div class="progress-text">
-					{stats.total_claims} / {stats.total_eligible_customers} 
+					{stats.total_claims ?? 0} / {stats.total_eligible_customers ?? 0} 
 					{t('coupon.customers') || 'customers'} ({getClaimRate().toFixed(1)}%)
 				</div>
 			</div>
@@ -222,7 +222,7 @@
 					<div class="progress-fill stock" style="width: {getStockUsage()}%"></div>
 				</div>
 				<div class="progress-text">
-					{stats.total_stock_limit - stats.total_stock_remaining} / {stats.total_stock_limit} 
+					{(stats.total_stock_limit ?? 0) - (stats.total_stock_remaining ?? 0)} / {stats.total_stock_limit ?? 0} 
 					{t('coupon.products') || 'products'} ({getStockUsage().toFixed(1)}%)
 				</div>
 			</div>
@@ -249,11 +249,11 @@
 						<tbody>
 							{#each stats.products as product}
 								<tr>
-									<td>{product.product_name_en}</td>
-									<td class="rtl">{product.product_name_ar}</td>
-									<td>{product.stock_limit.toLocaleString()}</td>
-									<td>{product.stock_remaining.toLocaleString()}</td>
-									<td>{product.claims_count.toLocaleString()}</td>
+									<td>{product.product_name_en || 'N/A'}</td>
+									<td class="rtl">{product.product_name_ar || 'غير متوفر'}</td>
+									<td>{(product.stock_limit ?? 0).toLocaleString()}</td>
+									<td>{(product.stock_remaining ?? 0).toLocaleString()}</td>
+									<td>{(product.claims_count ?? 0).toLocaleString()}</td>
 									<td>{getProductClaimRate(product).toFixed(1)}%</td>
 									<td>
 										<div class="mini-progress">

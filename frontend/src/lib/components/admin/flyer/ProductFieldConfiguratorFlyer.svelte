@@ -74,6 +74,7 @@
     { value: 'offer_price', label: 'Offer Price' },
     { value: 'offer_qty', label: 'Offer Quantity' },
     { value: 'limit_qty', label: 'Limit Quantity' },
+    { value: 'free_qty', label: 'Free Quantity' },
     { value: 'image', label: 'Product Image' },
     { value: 'special_symbol', label: '🎨 Special Symbol (Image)' }
   ];
