@@ -38,11 +38,8 @@ dist/
 .cache/
 .parcel-cache/
 
-# Electron deployment packages
-erp-sync-app/Aqura-tunnel-*/
-erp-sync-app/*.asar
-erp-sync-app/build/
-erp-sync-app/temp-*/
+# Electron app - keep local only (large size, not needed for Vercel)
+erp-sync-app/
 
 # SvelteKit
 .svelte-kit/
