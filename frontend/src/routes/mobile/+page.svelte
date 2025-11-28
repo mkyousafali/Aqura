@@ -14,6 +14,15 @@
 	let isLoading = true;
 	let currentTime = new Date();
 	
+	// Punch/Fingerprint Data
+	let lastPunch = {
+		time: null,
+		date: null,
+		status: null, // 'check-in' or 'check-out'
+		loading: false,
+		error: ''
+	};
+	
 	// Branch Performance Stats
 	let branchPerformance = {
 		branches: [],
@@ -45,6 +54,7 @@
 		if (currentUserData) {
 			await loadDashboardData();
 			await loadBranchPerformance();
+			await loadLastPunch();
 		}
 		isLoading = false;
 		
@@ -101,6 +111,70 @@
 			
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
+		}
+	}
+
+	async function loadLastPunch() {
+		try {
+			lastPunch.loading = true;
+			lastPunch.error = '';
+			
+			if (!currentUserData?.employee_id) {
+				console.log('⚠️ User has no employee_id, skipping punch data load');
+				lastPunch.loading = false;
+				return;
+			}
+			
+			// Query hr_fingerprint_transactions for last punch
+			// Note: employee_id is stored as varchar in hr_fingerprint_transactions, but users.employee_id is UUID
+			// We need to get the actual employee_id from hr_employees table using the UUID
+			const { data: empData, error: empError } = await supabase
+				.from('hr_employees')
+				.select('employee_id')
+				.eq('id', currentUserData.employee_id)
+				.single();
+			
+			if (empError || !empData?.employee_id) {
+				console.log('⚠️ Could not find employee_id for user');
+				lastPunch.loading = false;
+				return;
+			}
+			
+			// Now query fingerprint transactions using the varchar employee_id
+			const { data, error } = await supabase
+				.from('hr_fingerprint_transactions')
+				.select('date, time, status, branch_id, created_at')
+				.eq('employee_id', empData.employee_id)
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.single();
+			
+			if (error) {
+				if (error.code === 'PGRST116') {
+					// No rows returned - user has no punch records yet
+					console.log('ℹ️ No punch records found for user');
+				} else {
+					console.error('❌ Error loading punch data:', error);
+					lastPunch.error = 'Failed to load punch data';
+				}
+			} else if (data) {
+				// Combine date and time
+				// The time stored in hr_fingerprint_transactions is in Saudi timezone (UTC+3)
+				// We need to convert it to UTC by subtracting 3 hours
+				const saudiDate = new Date(`${data.date}T${data.time}`);
+				// Convert from Saudi time (UTC+3) to UTC by subtracting 3 hours
+				const utcTime = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+				lastPunch.time = utcTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+				lastPunch.date = utcTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+				// Status is either "Check In" or "Check Out"
+				lastPunch.status = data.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out';
+				console.log('✅ Last punch loaded:', lastPunch);
+			}
+		} catch (error) {
+			console.error('Error loading last punch:', error);
+			lastPunch.error = 'Error loading punch data';
+		} finally {
+			lastPunch.loading = false;
 		}
 	}
 
@@ -415,6 +489,33 @@
 					<p>{getTranslation('mobile.dashboardContent.stats.pendingTasks')}</p>
 				</div>
 			</div>
+			<div class="stat-card punch">
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<polyline points="12,6 12,12 16,14"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					{#if lastPunch.loading}
+						<div class="loading-text">Loading...</div>
+					{:else if lastPunch.error}
+						<h3 style="color: #ef4444;">—</h3>
+						<p>{lastPunch.error}</p>
+					{:else if lastPunch.time}
+						<div class="punch-detail">
+							<h3>{lastPunch.time}</h3>
+							<p class="punch-date">{lastPunch.date}</p>
+							<p class="punch-status" class:checkin={lastPunch.status === 'check-in'} class:checkout={lastPunch.status === 'check-out'}>
+								{lastPunch.status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
+							</p>
+						</div>
+					{:else}
+						<h3>—</h3>
+						<p>{getTranslation('mobile.dashboardContent.stats.noPunch')}</p>
+					{/if}
+				</div>
+			</div>
 		</div>
 	</section>
 
@@ -720,6 +821,10 @@
 		background: rgba(107, 114, 128, 0.1);
 		color: #6B7280;
 	}
+	.stat-card.punch .stat-icon {
+		background: rgba(239, 68, 68, 0.1);
+		color: #EF4444;
+	}
 	.stat-info h3 {
 		font-size: 1rem;
 		font-weight: 700;
@@ -730,6 +835,30 @@
 		font-size: 0.625rem;
 		color: #6B7280;
 		margin: 0;
+	}
+	.punch-detail {
+		width: 100%;
+	}
+	.punch-date {
+		font-size: 0.5rem;
+		color: #9CA3AF;
+		margin-top: 0.2rem;
+	}
+	.punch-status {
+		font-size: 0.5rem;
+		margin-top: 0.2rem;
+		font-weight: 600;
+		text-transform: capitalize;
+	}
+	.punch-status.checkin {
+		color: #10B981;
+	}
+	.punch-status.checkout {
+		color: #EF4444;
+	}
+	.loading-text {
+		font-size: 0.625rem;
+		color: #6B7280;
 	}
 
 	/* Branch Performance Section */

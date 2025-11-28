@@ -115,6 +115,10 @@ export const englishLocale: LocaleData = {
           completed: "Completed",
           notifications: "Notifications",
           totalTasks: "Total Tasks",
+          checkIn: "Check In",
+          checkOut: "Check Out",
+          lastPunch: "Last Punch",
+          noPunch: "No Punch Records",
         },
         recentNotifications: {
           title: "Recent Notifications",

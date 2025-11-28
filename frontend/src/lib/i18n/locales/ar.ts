@@ -117,6 +117,10 @@ export const arabicLocale: LocaleData = {
           completed: "مكتمل",
           notifications: "الإشعارات",
           totalTasks: "إجمالي المهام",
+          checkIn: "حضور",
+          checkOut: "غياب",
+          lastPunch: "آخر ختم",
+          noPunch: "لا توجد سجلات ختم",
         },
         recentNotifications: {
           title: "الإشعارات الأخيرة",

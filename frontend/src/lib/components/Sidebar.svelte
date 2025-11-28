@@ -1065,7 +1065,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v5.2.2
+				v5.2.4
 			</button>
 		</div>
 	</div>
@@ -1076,78 +1076,34 @@ function openApprovalCenter() {
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v5.2.2</h3>
+				<h3>What's New in v5.2.4</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">
 				<div class="update-section">
-					<h4>🔗 Product Variation System (NEW FEATURE)</h4>
+					<h4>👤 Mobile Dashboard - Last Punch Card (NEW)</h4>
+					<ul>
+						<li><strong>Punch Time Display:</strong> Shows user's last check-in or check-out time on mobile home page</li>
+						<li><strong>Date & Time:</strong> Displays punch date and time converted from Saudi timezone (UTC+3) to UTC</li>
+						<li><strong>Status Indicator:</strong> Green for Check In, Red for Check Out with clear visual distinction</li>
+						<li><strong>Database Integration:</strong> Queries hr_fingerprint_transactions table for accurate punch records</li>
+						<li><strong>Error Handling:</strong> Gracefully handles missing punch records and displays user-friendly messages</li>
+						<li><strong>Bilingual Support:</strong> Translations available in both English and Arabic</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🐛 Bug Fixes</h4>
+					<ul>
+						<li><strong>HR Master Component:</strong> Fixed undefined showComingSoon variable that caused ReferenceError on button clicks</li>
+						<li><strong>Version Update Script:</strong> Removed mobile layout version update to streamline desktop-only versioning</li>
+					</ul>
+				</div>
+				<div class="update-section">
+					<h4>🔗 Product Variation System (Previously in v5.2.3)</h4>
 					<ul>
 						<li><strong>Variation Manager:</strong> New interface to group similar products (different sizes/variants) for unified management</li>
 						<li><strong>Smart Grouping:</strong> Select multiple products and create variation groups with parent-child relationships</li>
-						<li><strong>Bilingual Support:</strong> Set group names in both English and Arabic for seamless localization</li>
-						<li><strong>Image Override:</strong> Choose which product image to display for the entire group</li>
 						<li><strong>Database Foundation:</strong> Added 14 new columns, 1 audit table, and 6 helper functions for variation management</li>
-						<li><strong>Offer Integration Ready:</strong> Foundation laid for automatic variation detection in offers (Day 3 feature)</li>
-						<li><strong>Shelf Paper Ready:</strong> Database prepared for consolidating variations into single shelf papers (Day 4 feature)</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>📊 Variation Manager Features</h4>
-					<ul>
-						<li><strong>Product Grid View:</strong> Browse all 792 products with search, filters, and pagination (50 items/page)</li>
-						<li><strong>Multi-Select System:</strong> Select multiple products with checkboxes to create variation groups</li>
-						<li><strong>Group Creation Modal:</strong> Choose parent product, set bilingual names, and configure display image</li>
-						<li><strong>Groups View:</strong> See all variation groups with expandable cards showing parent and variations</li>
-						<li><strong>Real-time Stats:</strong> Dashboard shows total products, groups created, and grouped products count</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🎯 Database & Technical Implementation</h4>
-					<ul>
-						<li><strong>9 New Columns:</strong> Added variation tracking to flyer_products (is_variation, parent_barcode, group names, order, image override)</li>
-						<li><strong>6 Helper Functions:</strong> get_product_variations, get_variation_group_info, validate_prices, check_orphaned, create_group</li>
-						<li><strong>Audit Log System:</strong> Complete tracking of all variation operations with user attribution and timestamps</li>
-						<li><strong>Performance Indexes:</strong> 12 new database indexes for fast variation queries and parent-child relationships</li>
-						<li><strong>Atomic Operations:</strong> Transaction-based group creation ensures data integrity and prevents corruption</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>📋 Coming Soon (Days 3-5)</h4>
-					<ul>
-						<li><strong>Day 3 - Offer Integration:</strong> Automatic variation detection when adding products to offers</li>
-						<li><strong>Variation Selection Modal:</strong> Choose specific variations to include in each offer</li>
-						<li><strong>Price Validation:</strong> System will verify price consistency across selected variations</li>
-						<li><strong>Day 4 - Shelf Paper Updates:</strong> Consolidate variations into single shelf paper per group</li>
-						<li><strong>Day 5 - Testing & Polish:</strong> Edge case handling, performance optimization, user documentation</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>📊 Day Budget Planner - Complete Overhaul</h4>
-					<ul>
-						<li><strong>Frozen Table Headers:</strong> Vendor payments and expense schedules tables now have sticky headers for better navigation</li>
-						<li><strong>Adjust Amount Functionality:</strong> Added adjust amount columns with conditional split buttons - only show when amount entered</li>
-						<li><strong>Enhanced Split Modal:</strong> Split functionality now shows original amount as total, pre-fills split amount as (original - adjustment), remaining shows adjustment amount</li>
-						<li><strong>Payment Method Breakdown:</strong> Budget status now calculated per payment method with individual over-budget detection</li>
-						<li><strong>Smart Budget Calculations:</strong> Fixed budget status to detect when any payment method exceeds its limit, not just total</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🔍 Advanced Filter System</h4>
-					<ul>
-						<li><strong>Main Header Filters:</strong> Moved all filters to main section headers for better visibility and usability</li>
-						<li><strong>Dropdown Filters:</strong> Branch and Payment Method filters converted to searchable dropdowns with "All" options</li>
-						<li><strong>Real-time Filtering:</strong> Vendor payments and expense schedules filter instantly with filtered count display</li>
-						<li><strong>Professional Styling:</strong> Enhanced filter UI with proper labels, responsive design, and clear filters functionality</li>
-						<li><strong>Comprehensive Coverage:</strong> Vendor, Branch, Payment Method for vendor payments; Description, Category, Branch, Payment Method for expenses</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>📋 Receiving Records Fixes</h4>
-					<ul>
-						<li><strong>Verification Issues Resolved:</strong> Fixed PR Excel verification checkbox for split payment records</li>
-						<li><strong>Schedule Status Accuracy:</strong> Improved detection of scheduled vs split scheduled records</li>
-						<li><strong>Multi-Schedule Support:</strong> Enhanced handling of split payments with multiple payment schedules</li>
 						<li><strong>Better Error Handling:</strong> Added validation and clearer error messages for verification failures</li>
 						<li><strong>Split Status Display:</strong> Shows "Split Scheduled" when multiple payment schedules exist</li>
 					</ul>

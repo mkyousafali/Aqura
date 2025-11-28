@@ -217,12 +217,7 @@ import { onDestroy } from 'svelte';
 			case 'warning-master':
 				component = WarningMaster;
 				break;
-			default:
-				return;
-		}
-
-		if (showComingSoon) {
-			alert(`${t(button.titleKey)} - Coming Soon!\nThis will open as a separate window component.`);
+		default:
 			return;
 		}
 

@@ -1,6 +1,6 @@
 {
   "name": "aqura-frontend",
-  "version": "5.2.2",
+  "version": "5.2.4",
   "private": true,
   "type": "module",
   "scripts": {
