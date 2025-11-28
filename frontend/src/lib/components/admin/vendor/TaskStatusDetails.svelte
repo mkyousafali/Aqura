@@ -50,37 +50,57 @@
 				return;
 			}
 
-			// Step 2: Get task completion data for the task_ids we found
-			const taskIds = paymentTasks.map(t => t.task_id).filter(Boolean);
-			console.log('TaskStatusDetails: Extracted task IDs:', taskIds);
+		// Step 2: Get task completion data for the task_ids we found (using parallel batching)
+		const taskIds = paymentTasks.map(t => t.task_id).filter(Boolean);
+		console.log('TaskStatusDetails: Extracted task IDs:', taskIds.length);
+		
+		let taskCompletionsMap = {};
+		if (taskIds.length > 0) {
+			// Batch into chunks to avoid URL length limit
+			const BATCH_SIZE = 200;
+			const batches = [];
 			
-			let taskCompletionsMap = {};
-			if (taskIds.length > 0) {
-				const { data: completions, error: completionError } = await supabase
-					.from('task_completions')
-					.select('*')
-					.in('task_id', taskIds);
-
-				console.log('TaskStatusDetails: Task completions query result:', { 
-					data: completions, 
-					error: completionError,
-					count: completions?.length || 0
-				});
-
-				if (!completionError && completions) {
-					// Create map of task_id to completion data
-					completions.forEach(completion => {
-						taskCompletionsMap[completion.task_id] = completion;
-					});
-				}
+			// Create batch promises
+			for (let i = 0; i < taskIds.length; i += BATCH_SIZE) {
+				const batch = taskIds.slice(i, i + BATCH_SIZE);
+				batches.push(
+					supabase
+						.from('task_completions')
+						.select('*')
+						.in('task_id', batch)
+				);
 			}
 
-			// Step 3: Get additional data (receiving records, branches) separately
-			const receivingRecordIds = [...new Set(paymentTasks.map(t => t.receiving_record_id).filter(Boolean))];
-			let receivingRecordsMap = {};
+			// Execute all batches in parallel
+			const results = await Promise.allSettled(batches);
 			
-			if (receivingRecordIds.length > 0) {
-				const { data: receivingRecords, error: receivingError } = await supabase
+			// Collect all successful results
+			results.forEach((result, index) => {
+				if (result.status === 'fulfilled' && result.value.data) {
+					result.value.data.forEach(completion => {
+						taskCompletionsMap[completion.task_id] = completion;
+					});
+				} else if (result.status === 'rejected') {
+					console.error(`Error loading task completions batch ${index}:`, result.reason);
+				}
+			});
+
+		console.log('TaskStatusDetails: Task completions loaded:', Object.keys(taskCompletionsMap).length);
+	}
+
+	// Step 3: Get additional data (receiving records, branches) using parallel batching
+	const receivingRecordIds = [...new Set(paymentTasks.map(t => t.receiving_record_id).filter(Boolean))];
+	let receivingRecordsMap = {};
+	
+	if (receivingRecordIds.length > 0) {
+		// Batch receiving records query
+		const BATCH_SIZE = 200;
+		const batches = [];
+		
+		for (let i = 0; i < receivingRecordIds.length; i += BATCH_SIZE) {
+			const batch = receivingRecordIds.slice(i, i + BATCH_SIZE);
+			batches.push(
+				supabase
 					.from('receiving_records')
 					.select(`
 						id,
@@ -94,46 +114,72 @@
 							name_ar
 						)
 					`)
-					.in('id', receivingRecordIds);
+					.in('id', batch)
+			);
+		}
 
-				if (!receivingError && receivingRecords) {
-					// Get vendor information
-					const vendorIds = [...new Set(receivingRecords.map(r => r.vendor_id).filter(Boolean))];
-					let vendorsMap = {};
-					
-					if (vendorIds.length > 0) {
-						const { data: vendors, error: vendorError } = await supabase
+		// Execute all batches in parallel
+		const results = await Promise.allSettled(batches);
+		
+		// Collect all successful results
+		const receivingRecords = [];
+		results.forEach((result, index) => {
+			if (result.status === 'fulfilled' && result.value.data) {
+				receivingRecords.push(...result.value.data);
+			} else if (result.status === 'rejected') {
+				console.error(`Error loading receiving records batch ${index}:`, result.reason);
+			}
+		});
+
+		if (receivingRecords.length > 0) {
+			// Get vendor information (also batched)
+			const vendorIds = [...new Set(receivingRecords.map(r => r.vendor_id).filter(Boolean))];
+			let vendorsMap = {};
+			
+			if (vendorIds.length > 0) {
+				const vendorBatches = [];
+				
+				for (let i = 0; i < vendorIds.length; i += BATCH_SIZE) {
+					const batch = vendorIds.slice(i, i + BATCH_SIZE);
+					vendorBatches.push(
+						supabase
 							.from('vendors')
 							.select('erp_vendor_id, vendor_name, branch_id')
-							.in('erp_vendor_id', vendorIds);
-
-						if (!vendorError && vendors) {
-							vendors.forEach(vendor => {
-								const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
-								vendorsMap[key] = vendor.vendor_name;
-							});
-						}
-					}
-
-					// Add vendor names to receiving records
-					receivingRecords.forEach(record => {
-						if (record.vendor_id && record.branch_id) {
-							const key = `${record.vendor_id}_${record.branch_id}`;
-							record.vendor_name = vendorsMap[key] || 'Unknown Vendor';
-						}
-						receivingRecordsMap[record.id] = record;
-					});
+							.in('erp_vendor_id', batch)
+					);
 				}
+
+				const vendorResults = await Promise.allSettled(vendorBatches);
+				
+				vendorResults.forEach((result, index) => {
+					if (result.status === 'fulfilled' && result.value.data) {
+						result.value.data.forEach(vendor => {
+							const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+							vendorsMap[key] = vendor.vendor_name;
+						});
+					} else if (result.status === 'rejected') {
+						console.error(`Error loading vendors batch ${index}:`, result.reason);
+					}
+				});
 			}
 
-			// Step 4: Combine all the data
-			tasks = paymentTasks.map(transaction => ({
-				...transaction,
-				task_completion: taskCompletionsMap[transaction.task_id] || null,
-				receiving_record_data: receivingRecordsMap[transaction.receiving_record_id] || null
-			}));
+			// Add vendor names to receiving records
+			receivingRecords.forEach(record => {
+				if (record.vendor_id && record.branch_id) {
+					const key = `${record.vendor_id}_${record.branch_id}`;
+					record.vendor_name = vendorsMap[key] || 'Unknown Vendor';
+				}
+				receivingRecordsMap[record.id] = record;
+			});
+		}
+	}
 
-			console.log(`TaskStatusDetails: Final tasks loaded:`, tasks.length);
+	// Step 4: Combine all the data
+	tasks = paymentTasks.map(transaction => ({
+		...transaction,
+		task_completion: taskCompletionsMap[transaction.task_id] || null,
+		receiving_record_data: receivingRecordsMap[transaction.receiving_record_id] || null
+	}));			console.log(`TaskStatusDetails: Final tasks loaded:`, tasks.length);
 
 			// Update filter options
 			uniqueBranches = [...new Set(tasks.map(t => t.receiving_record_data?.branches?.name_en).filter(Boolean))].sort();
