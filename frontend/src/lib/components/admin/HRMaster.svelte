@@ -4,6 +4,9 @@
 	import SalaryManagement from './hr/SalaryManagement.svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
+import { t, currentLocale } from '$lib/i18n';
+import { get } from 'svelte/store';
+import { onDestroy } from 'svelte';
 	
 	// Import window components (will create these)
 	import UploadEmployees from './hr/UploadEmployees.svelte';
@@ -12,86 +15,145 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CreatePosition from './hr/CreatePosition.svelte';
 	import ReportingMap from './hr/ReportingMap.svelte';
 	import AssignPositions from './hr/AssignPositions.svelte';
-	import UploadFingerprint from './hr/UploadFingerprint.svelte';
+	import BiometricData from './hr/BiometricData.svelte';
 	import WarningMaster from './warnings/WarningMaster.svelte';
 
-	// Dashboard buttons configuration
+	// Track opened windows to update their titles when language changes
+	let hrMasterWindowId = null; // Track the HR Master window itself
+	let openedWindowIds = [];
+	let locale = ''; // Track locale for reactivity
+
+	// Subscribe to window list to track HR Master windows
+	let windows = [];
+	const unsubscribe = windowManager.windowList.subscribe(w => {
+		windows = w;
+		console.log('📋 HR Master - windows updated from store:', w.length, 'windows');
+		
+		// If we haven't found our own window ID yet, look for an HR Master window
+		if (!hrMasterWindowId && w.length > 0) {
+			const hrWindow = w.find(window => window.title?.startsWith('HR Master'));
+			if (hrWindow) {
+				hrMasterWindowId = hrWindow.id;
+				console.log('🎯 Found HR Master window ID:', hrMasterWindowId);
+			}
+		}
+	});
+
+	// Force reactivity when locale changes (same pattern as Sidebar)
+	$: locale = $currentLocale;
+
+	// Update window titles whenever locale changes
+	$: {
+		if (locale) {
+			console.log('📢 Locale changed to:', locale);
+			
+			// Update the main HR Master window title
+			if (hrMasterWindowId) {
+				const hrWindow = windows.find(w => w.id === hrMasterWindowId);
+				if (hrWindow) {
+					// Extract the instance number from the current title
+					const match = hrWindow.title.match(/#(\d+)$/);
+					const instanceNumber = match ? match[1] : '0';
+					const newTitle = `${t('hr.masterTitle')} #${instanceNumber}`;
+					console.log('🔄 Updating HR Master window title:', { windowId: hrMasterWindowId, newTitle, locale });
+					windowManager.updateWindowTitle(hrMasterWindowId, newTitle);
+				}
+			}
+			
+			// Update titles for all tracked subwindows
+			console.log('🔍 Checking openedWindowIds:', openedWindowIds.length);
+			openedWindowIds.forEach(({ windowId, getTitle }) => {
+				const window = windows.find(w => w.id === windowId);
+				if (window) {
+					const newTitle = getTitle();
+					console.log('🔄 Updating window title:', { windowId, newTitle, locale });
+					windowManager.updateWindowTitle(windowId, newTitle);
+				} else {
+					console.log('❌ Window not found in store:', windowId);
+				}
+			});
+		}
+	}
+	
+	onDestroy(() => {
+		unsubscribe();
+	});
 	const dashboardButtons = [
 		{
 			id: 'upload-employees',
-			title: 'Upload Employees',
+			titleKey: 'hr.masterUploadEmployees',
+			descriptionKey: 'hr.masterUploadEmployeesDesc',
 			icon: '👥',
-			description: 'Import employees from Excel file',
 			color: 'bg-green-500'
 		},
 		{
 			id: 'create-department',
-			title: 'Create Department',
+			titleKey: 'hr.masterCreateDepartment',
+			descriptionKey: 'hr.masterCreateDepartmentDesc',
 			icon: '🏢',
-			description: 'Add new organizational departments',
 			color: 'bg-blue-500'
 		},
 		{
 			id: 'create-level',
-			title: 'Create Level',
+			titleKey: 'hr.masterCreateLevel',
+			descriptionKey: 'hr.masterCreateLevelDesc',
 			icon: '📊',
-			description: 'Define organizational hierarchy levels',
 			color: 'bg-purple-500'
 		},
 		{
 			id: 'create-position',
-			title: 'Create Position',
+			titleKey: 'hr.masterCreatePosition',
+			descriptionKey: 'hr.masterCreatePositionDesc',
 			icon: '💼',
-			description: 'Set up job positions and roles',
 			color: 'bg-orange-500'
 		},
 		{
 			id: 'reporting-map',
-			title: 'Reporting Map',
+			titleKey: 'hr.masterReportingMap',
+			descriptionKey: 'hr.masterReportingMapDesc',
 			icon: '📈',
-			description: 'Define reporting relationships and hierarchy',
 			color: 'bg-indigo-500'
 		},
 		{
 			id: 'assign-positions',
-			title: 'Assign Positions',
+			titleKey: 'hr.masterAssignPositions',
+			descriptionKey: 'hr.masterAssignPositionsDesc',
 			icon: '🎯',
-			description: 'Assign positions to employees',
 			color: 'bg-teal-500'
 		},
 		{
 			id: 'upload-fingerprint',
-			title: 'Upload Fingerprint Transactions',
+			titleKey: 'hr.masterBiometricData',
+			descriptionKey: 'hr.masterBiometricDataDesc',
 			icon: '👆',
-			description: 'Import fingerprint attendance data',
 			color: 'bg-red-500'
 		},
 		{
 			id: 'contact-management',
-			title: 'Contact Management',
+			titleKey: 'hr.masterContactManagement',
+			descriptionKey: 'hr.masterContactManagementDesc',
 			icon: '📞',
-			description: 'Manage employee contact information',
 			color: 'bg-yellow-500'
 		},
 		{
 			id: 'document-management',
-			title: 'Document Management',
+			titleKey: 'hr.masterDocumentManagement',
+			descriptionKey: 'hr.masterDocumentManagementDesc',
 			icon: '📄',
-			description: 'Manage employee documents and certificates',
 			color: 'bg-pink-500'
 		},
 		{
 			id: 'salary-management',
-			title: 'Salary & Wage Management',
+			titleKey: 'hr.masterSalaryManagement',
+			descriptionKey: 'hr.masterSalaryManagementDesc',
 			icon: '💰',
-			description: 'Manage employee salaries, allowances, and deductions',
 			color: 'bg-emerald-500'
 		},
 		{
 			id: 'warning-master',
-			title: 'Warning Master',
+			titleKey: 'hr.masterWarningMaster',
+			descriptionKey: 'hr.masterWarningMasterDesc',
 			icon: '⚠️',
-			description: 'Comprehensive warning management system',
 			color: 'bg-amber-500'
 		}
 	];
@@ -102,12 +164,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	function openHRWindow(buttonId) {
+		console.log('🔵 openHRWindow called for:', buttonId);
 		const button = dashboardButtons.find(b => b.id === buttonId);
 		const windowId = generateWindowId(buttonId);
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 
+		// Create a dynamic title getter function
+		const getTitle = () => {
+			const title = `${t(button.titleKey)} #${instanceNumber}`;
+			console.log('🎯 getTitle() called for', buttonId, ':', { titleKey: button.titleKey, title, currentLocale: $currentLocale });
+			return title;
+		};
+		
+		// Store window info for later updates
+		const windowInfo = { windowId, button, instanceNumber, getTitle };
+		openedWindowIds = [...openedWindowIds, windowInfo];
+		console.log('📝 Window opened:', { windowId, buttonId, initialTitle: getTitle(), totalOpenWindows: openedWindowIds.length });
+
 		let component;
-		let showComingSoon = false;
 		
 		switch(buttonId) {
 			case 'upload-employees':
@@ -129,7 +203,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				component = AssignPositions;
 				break;
 			case 'upload-fingerprint':
-				component = UploadFingerprint;
+				component = BiometricData;
 				break;
 			case 'contact-management':
 				component = ContactManagement;
@@ -148,13 +222,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 
 		if (showComingSoon) {
-			alert(`${button.title} - Coming Soon!\nThis will open as a separate window component.`);
+			alert(`${t(button.titleKey)} - Coming Soon!\nThis will open as a separate window component.`);
 			return;
 		}
 
 		openWindow({
 			id: windowId,
-			title: `${button.title} #${instanceNumber}`,
+			title: getTitle(),
 			component: component,
 			icon: button.icon,
 			size: { width: 1000, height: 700 },
@@ -174,8 +248,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	<!-- Header -->
 	<div class="header">
 		<div class="title-section">
-			<h1 class="title">HR Master Dashboard</h1>
-			<p class="subtitle">Complete Human Resources Management System</p>
+			<h1 class="title">{t('hr.masterTitle')}</h1>
+			<p class="subtitle">{t('hr.masterSubtitle')}</p>
 		</div>
 	</div>
 
@@ -187,8 +261,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<span class="icon">{button.icon}</span>
 				</div>
 				<div class="card-content">
-					<h3 class="card-title">{button.title}</h3>
-					<p class="card-description">{button.description}</p>
+					<h3 class="card-title">{t(button.titleKey)}</h3>
+					<p class="card-description">{t(button.descriptionKey)}</p>
 				</div>
 				<div class="card-arrow">
 					<span>→</span>

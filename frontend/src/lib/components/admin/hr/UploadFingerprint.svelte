@@ -322,7 +322,7 @@
 <div class="upload-fingerprint">
 	<!-- Header -->
 	<div class="header">
-		<h2 class="title">Upload Fingerprint Transactions</h2>
+		<h2 class="title">Biometric Data</h2>
 		<p class="subtitle">Upload employee attendance data from fingerprint devices</p>
 	</div>
 

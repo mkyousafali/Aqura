@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { t } from '$lib/i18n';
 	import { dataService } from '$lib/utils/dataService';
 	import { supabase } from '$lib/utils/supabase';
 	import * as XLSX from 'xlsx';
@@ -26,13 +27,13 @@
 			const { data: branchesData, error: branchesError } = await dataService.branches.getAll();
 			if (branchesError) {
 				console.error('Error loading branches:', branchesError);
-				errorMessage = 'Failed to load branches: ' + (branchesError.message || branchesError);
+				errorMessage = t('admin.failedToLoadBranches') + (branchesError.message || branchesError);
 				return;
 			}
 			branches = branchesData || [];
 		} catch (error) {
 			console.error('Error in loadBranches:', error);
-			errorMessage = error.message || 'Failed to load branches';
+			errorMessage = error.message || t('admin.failedToLoadBranches');
 		} finally {
 			isLoading = false;
 		}
@@ -51,7 +52,7 @@
 
 	function handleFile(file) {
 		if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-			errorMessage = 'Please select an Excel file (.xlsx or .xls)';
+			errorMessage = t('hr.selectExcelFile');
 			return;
 		}
 		
@@ -94,12 +95,12 @@
 
 	async function uploadEmployees() {
 		if (!selectedBranch) {
-			errorMessage = 'Please select a branch';
+			errorMessage = t('hr.pleaseSelectBranch');
 			return;
 		}
 		
 		if (!uploadedFile) {
-			errorMessage = 'Please select a file to upload';
+			errorMessage = t('hr.pleaseSelectFile');
 			return;
 		}
 
@@ -116,7 +117,7 @@
 
 			// Validate data structure
 			if (!data || data.length === 0) {
-				errorMessage = 'Excel file is empty or has no valid data';
+				errorMessage = t('hr.excelFileEmpty');
 				return;
 			}
 
@@ -126,7 +127,7 @@
 			const missingColumns = requiredColumns.filter(col => !(col in firstRow));
 			
 			if (missingColumns.length > 0) {
-				errorMessage = `Missing required columns: ${missingColumns.join(', ')}`;
+				errorMessage = t('hr.missingRequiredColumns') + ' ' + missingColumns.join(', ');
 				return;
 			}
 
@@ -147,7 +148,7 @@
 
 					// Validate employee data
 					if (!employeeData.employee_id || !employeeData.name) {
-						errors.push(`Row ${index + 2}: Missing Employee ID or Name`);
+						errors.push(`${t('hr.rowNumber')} ${index + 2}: ${t('hr.missingEmployeeIdOrName')}`);
 						errorCount++;
 						continue;
 					}
@@ -158,28 +159,28 @@
 						await supabase.from('hr_employees').insert([employeeData]).select().single();
 					
 					if (error) {
-						errors.push(`Row ${index + 2}: ${error.message}`);
+						errors.push(`${t('hr.rowNumber')} ${index + 2}: ${error.message}`);
 						errorCount++;
 					} else {
 						successCount++;
 					}
 				} catch (rowError) {
-					errors.push(`Row ${index + 2}: ${rowError.message}`);
+					errors.push(`${t('hr.rowNumber')} ${index + 2}: ${rowError.message}`);
 					errorCount++;
 				}
 			}
 
 			// Show results
 			const branchName = branches.find(b => b.id == selectedBranch)?.name_en;
-			let resultMessage = `Upload completed for ${branchName}:\n`;
-			resultMessage += `✓ Successfully uploaded: ${successCount} employees\n`;
+			let resultMessage = `${t('hr.uploadCompleted')} ${branchName}:\n`;
+			resultMessage += `✓ ${t('hr.successfullyUploaded')} ${successCount} ${t('hr.uploadedEmployeeCount')}\n`;
 			
 			if (errorCount > 0) {
-				resultMessage += `✗ Failed: ${errorCount} employees\n\n`;
+				resultMessage += `✗ ${t('hr.failedCount')} ${errorCount}\n\n`;
 				if (errors.length > 0) {
-					resultMessage += 'Errors:\n' + errors.slice(0, 5).join('\n');
+					resultMessage += t('hr.errors') + '\n' + errors.slice(0, 5).join('\n');
 					if (errors.length > 5) {
-						resultMessage += `\n... and ${errors.length - 5} more errors`;
+						resultMessage += `\n... ${errors.length - 5} ${t('hr.andMoreErrors')}`;
 					}
 				}
 			}
@@ -195,7 +196,7 @@
 			
 		} catch (error) {
 			console.error('Upload error:', error);
-			errorMessage = 'Failed to process Excel file: ' + error.message;
+			errorMessage = t('hr.failedToProcessExcel') + ' ' + error.message;
 		} finally {
 			isLoading = false;
 		}
@@ -210,19 +211,19 @@
 <div class="upload-employees">
 	<!-- Header -->
 	<div class="header">
-		<h2 class="title">Upload Employees</h2>
-		<p class="subtitle">Import employee data from Excel file</p>
+		<h2 class="title">{t('hr.uploadEmployeesTitle')}</h2>
+		<p class="subtitle">{t('hr.uploadEmployeesSubtitle')}</p>
 	</div>
 
 	<!-- Content -->
 	<div class="content">
 		<!-- Branch Selection -->
 		<div class="section">
-			<h3>1. Select Branch</h3>
+			<h3>1. {t('hr.selectBranchLabel')}</h3>
 			<div class="form-group">
-				<label for="branch-select">Choose Branch *</label>
+				<label for="branch-select">{t('hr.chooseBranch')}</label>
 				<select id="branch-select" bind:value={selectedBranch} required>
-					<option value="">Select a branch...</option>
+					<option value="">{t('hr.selectABranch')}</option>
 					{#each branches as branch}
 						<option value={branch.id}>
 							{branch.name_en} - {branch.name_ar}
@@ -234,7 +235,7 @@
 
 		<!-- File Upload -->
 		<div class="section">
-			<h3>2. Upload Excel File</h3>
+			<h3>2. {t('hr.uploadExcelFileLabel')}</h3>
 			
 			<div 
 				class="upload-zone {dragOver ? 'drag-over' : ''} {uploadedFile ? 'has-file' : ''}"
@@ -255,9 +256,9 @@
 				{:else}
 					<div class="upload-prompt">
 						<div class="upload-icon">📁</div>
-						<h4>Drop your Excel file here</h4>
-						<p>or click to browse files</p>
-						<div class="file-types">Supported: .xlsx, .xls</div>
+						<h4>{t('hr.dropYourExcelFile')}</h4>
+						<p>{t('hr.orClickToBrowse')}</p>
+						<div class="file-types">{t('hr.supportedFormats')}</div>
 					</div>
 				{/if}
 			</div>
@@ -273,19 +274,19 @@
 
 		<!-- Template Section -->
 		<div class="section">
-			<h3>3. Excel Template</h3>
+			<h3>3. {t('hr.excelTemplateLabel')}</h3>
 			<div class="template-info">
 				<div class="template-details">
-					<h4>Required Format</h4>
-					<p>Your Excel file should contain exactly 2 columns:</p>
+					<h4>{t('hr.requiredFormat')}</h4>
+					<p>{t('hr.yourExcelFileShouldContain')}</p>
 					<ul>
-						<li><strong>Employee ID</strong> - Unique identifier</li>
-						<li><strong>Name</strong> - Full employee name</li>
+						<li><strong>{t('hr.employeeIdLabel')}</strong> - {t('hr.employeeIdDesc')}</li>
+						<li><strong>{t('hr.nameLabel')}</strong> - {t('hr.nameDesc')}</li>
 					</ul>
 				</div>
 				<button type="button" class="template-btn" on:click={downloadTemplate}>
 					<span class="icon">⬇️</span>
-					Download Template
+					{t('hr.downloadTemplate')}
 				</button>
 			</div>
 		</div>
@@ -293,7 +294,7 @@
 		<!-- Error Message -->
 		{#if errorMessage}
 			<div class="error-message">
-				<strong>Error:</strong> {errorMessage}
+				<strong>{t('common.error')}:</strong> {errorMessage}
 			</div>
 		{/if}
 
@@ -307,10 +308,10 @@
 			>
 				{#if isLoading}
 					<span class="spinner"></span>
-					Uploading...
+					{t('hr.uploading')}
 				{:else}
 					<span class="icon">🚀</span>
-					Upload Employees
+					{t('hr.uploadEmployeesBtn')}
 				{/if}
 			</button>
 		</div>

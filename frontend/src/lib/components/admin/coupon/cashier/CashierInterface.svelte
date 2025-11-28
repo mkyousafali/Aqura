@@ -360,6 +360,13 @@
 		max-height: calc(100vh - 56px) !important;
 	}
 
+	/* Allow minimized windows to move freely anywhere */
+	.cashier-main :global(.window.minimized) {
+		max-height: none !important;
+		max-width: none !important;
+		bottom: auto !important;
+	}
+
 	.desktop-background {
 		width: 100%;
 		height: 100%;

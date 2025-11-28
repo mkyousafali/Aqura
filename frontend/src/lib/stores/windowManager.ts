@@ -170,20 +170,28 @@ class WindowManager {
       const window = windows.get(windowId);
       if (!window) return windows;
 
+      // Create a new Map to trigger reactivity
+      const newWindows = new Map(windows);
+
       // Deactivate all windows
-      windows.forEach((w) => (w.isActive = false));
+      newWindows.forEach((w) => {
+        if (w.isActive) {
+          newWindows.set(w.id, { ...w, isActive: false });
+        }
+      });
 
       // Activate and bring to front
-      window.isActive = true;
-      window.zIndex = this.nextZIndex++;
-
-      // If minimized, restore it
-      if (window.state === "minimized") {
-        window.state = "normal";
-      }
+      const updatedWindow = { 
+        ...window, 
+        isActive: true,
+        zIndex: this.nextZIndex++
+        // Don't auto-restore minimized windows - keep them minimized
+        // User must click restore button or double-click title to restore
+      };
+      newWindows.set(windowId, updatedWindow);
 
       this.activeWindowId.set(windowId);
-      return windows;
+      return newWindows;
     });
   }
 
@@ -191,28 +199,33 @@ class WindowManager {
    * Minimize a window
    */
   public minimizeWindow(windowId: string): void {
+    console.log('🔽 minimizeWindow called for:', windowId);
     this.windows.update((windows) => {
       const window = windows.get(windowId);
       if (!window) return windows;
 
-      window.state = "minimized";
-      window.isActive = false;
+      // Create a new Map to trigger reactivity
+      const newWindows = new Map(windows);
 
-      // Activate another window if this was active
+      // Create updated window object with minimized state
+      const updatedWindow = { ...window, state: "minimized" as const, isActive: false };
+      newWindows.set(windowId, updatedWindow);
+      console.log('🔽 Window minimized:', { windowId, newState: updatedWindow.state });
       if (get(this.activeWindowId) === windowId) {
-        const nextWindow = Array.from(windows.values())
+        const nextWindow = Array.from(newWindows.values())
           .filter((w) => w.id !== windowId && w.state !== "minimized")
           .sort((a, b) => b.zIndex - a.zIndex)[0];
 
         if (nextWindow) {
-          nextWindow.isActive = true;
+          const activatedWindow = { ...nextWindow, isActive: true };
+          newWindows.set(nextWindow.id, activatedWindow);
           this.activeWindowId.set(nextWindow.id);
         } else {
           this.activeWindowId.set(null);
         }
       }
 
-      return windows;
+      return newWindows;
     });
   }
 
@@ -224,26 +237,32 @@ class WindowManager {
       const window = windows.get(windowId);
       if (!window) return windows;
 
-      if (window.state === "maximized") {
-        window.state = "normal";
-      } else {
-        window.state = "maximized";
-        // Bring maximized window to front
-        window.zIndex = this.nextZIndex++;
-        // Ensure window is active when maximizing
-        windows.forEach((w) => (w.isActive = false));
-        window.isActive = true;
+      // Create a new Map to trigger reactivity
+      const newWindows = new Map(windows);
+
+      const isCurrentlyMaximized = window.state === "maximized";
+      const newState = isCurrentlyMaximized ? "normal" : "maximized";
+
+      if (!isCurrentlyMaximized) {
+        // When maximizing, deactivate all windows first
+        newWindows.forEach((w) => {
+          if (w.isActive) {
+            newWindows.set(w.id, { ...w, isActive: false });
+          }
+        });
       }
 
-      return windows;
-    });
+      // Update the target window
+      const updatedWindow = {
+        ...window,
+        state: newState as "normal" | "maximized",
+        zIndex: !isCurrentlyMaximized ? this.nextZIndex++ : window.zIndex,
+        isActive: !isCurrentlyMaximized ? true : window.isActive
+      };
+      newWindows.set(windowId, updatedWindow);
 
-    // Update active window ID if maximizing
-    const windows = get(this.windows);
-    const window = windows.get(windowId);
-    if (window && window.state === "maximized") {
-      this.activeWindowId.set(windowId);
-    }
+      return newWindows;
+    });
   }
 
   /**
@@ -255,10 +274,13 @@ class WindowManager {
   ): void {
     this.windows.update((windows) => {
       const window = windows.get(windowId);
-      if (window) {
-        window.position = position;
-      }
-      return windows;
+      if (!window) return windows;
+      
+      // Create a completely new Map to ensure reactivity
+      const newWindows = new Map(windows);
+      const updatedWindow = { ...window, position };
+      newWindows.set(windowId, updatedWindow);
+      return newWindows;
     });
   }
 
@@ -271,8 +293,28 @@ class WindowManager {
   ): void {
     this.windows.update((windows) => {
       const window = windows.get(windowId);
+      if (!window) return windows;
+      
+      // Create a completely new Map to ensure reactivity
+      const newWindows = new Map(windows);
+      const updatedWindow = { ...window, size };
+      newWindows.set(windowId, updatedWindow);
+      return newWindows;
+    });
+  }
+
+  /**
+   * Update window title
+   */
+  public updateWindowTitle(windowId: string, title: string): void {
+    this.windows.update((windows) => {
+      const window = windows.get(windowId);
       if (window) {
-        window.size = size;
+        // Create a new window object with updated title to trigger Svelte reactivity
+        const updatedWindow = { ...window, title };
+        const newWindows = new Map(windows);
+        newWindows.set(windowId, updatedWindow);
+        return newWindows;
       }
       return windows;
     });

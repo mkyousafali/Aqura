@@ -1611,13 +1611,36 @@ export const dataService = {
     async getAll(): Promise<{ data: any[] | null; error: any }> {
       if (USE_SUPABASE) {
         try {
-          const { data, error } = await supabase
-            .from("hr_fingerprint_transactions")
-            .select("*")
-            .order("transaction_date", { ascending: false })
-            .order("transaction_time", { ascending: false });
+          const allData: any[] = [];
+          let page = 0;
+          const pageSize = 1000;
+          let hasMore = true;
 
-          return { data, error };
+          while (hasMore) {
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
+
+            const { data, error, count } = await supabase
+              .from("hr_fingerprint_transactions")
+              .select("*", { count: "exact" })
+              .order("date", { ascending: false })
+              .order("time", { ascending: false })
+              .range(from, to);
+
+            if (error) {
+              console.error("Failed to fetch HR fingerprint transactions:", error);
+              return { data: null, error: error.message };
+            }
+
+            if (data && data.length > 0) {
+              allData.push(...data);
+            }
+
+            hasMore = data && data.length === pageSize;
+            page++;
+          }
+
+          return { data: allData, error: null };
         } catch (error) {
           console.error("Failed to fetch HR fingerprint transactions:", error);
           return { data: null, error: error.message };
@@ -1633,14 +1656,40 @@ export const dataService = {
     ): Promise<{ data: any[] | null; error: any }> {
       if (USE_SUPABASE) {
         try {
-          const { data, error } = await supabase
-            .from("hr_fingerprint_transactions")
-            .select("*")
-            .eq("branch_id", branchId)
-            .order("transaction_date", { ascending: false })
-            .order("transaction_time", { ascending: false });
+          const allData: any[] = [];
+          let page = 0;
+          const pageSize = 1000;
+          let hasMore = true;
 
-          return { data, error };
+          while (hasMore) {
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
+
+            const { data, error } = await supabase
+              .from("hr_fingerprint_transactions")
+              .select("*")
+              .eq("branch_id", branchId)
+              .order("date", { ascending: false })
+              .order("time", { ascending: false })
+              .range(from, to);
+
+            if (error) {
+              console.error(
+                "Failed to fetch HR fingerprint transactions by branch:",
+                error,
+              );
+              return { data: null, error: error.message };
+            }
+
+            if (data && data.length > 0) {
+              allData.push(...data);
+            }
+
+            hasMore = data && data.length === pageSize;
+            page++;
+          }
+
+          return { data: allData, error: null };
         } catch (error) {
           console.error(
             "Failed to fetch HR fingerprint transactions by branch:",

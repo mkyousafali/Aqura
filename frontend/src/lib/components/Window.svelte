@@ -19,28 +19,29 @@
 	$: isMinimized = window.state === 'minimized';
 	$: isActive = window.isActive;
 	
+	// Log title changes for debugging
+	$: if (window.title) {
+		console.log('🔷 Window.svelte title updated:', { windowId: window.id, title: window.title });
+	}
+	
 	// Check if we're in a popout iframe
 	$: isInPopout = typeof globalThis !== 'undefined' && globalThis.window && globalThis.window.location.hash.includes('#popout=');
 	
 	// Debug reactive statement
 	$: {
-		console.log('Window state changed:', {
-			id: window.id,
-			state: window.state,
-			isMaximized,
-			position: window.position,
-			size: window.size
-		});
+		if (window.state === 'minimized' && window.id.includes('vendor')) {
+			console.log('🪟 Window minimized - can be dragged freely');
+		}
 	}
 
 	// Window bounds
 	$: windowStyle = `
 		left: ${isMaximized ? '0px !important' : window.position.x + 'px'};
 		top: ${isMaximized ? '0px !important' : window.position.y + 'px'};
-		width: ${isMaximized ? '100% !important' : window.size.width + 'px'};
-		height: ${isMaximized ? '100% !important' : window.size.height + 'px'};
+		width: ${isMaximized ? '100% !important' : (isMinimized ? '300px' : window.size.width + 'px')};
+		height: ${isMaximized ? '100% !important' : (isMinimized ? '40px' : window.size.height + 'px')};
 		z-index: ${Math.min(window.zIndex, 9998)};
-		display: ${isMinimized ? 'none' : 'flex'};
+		display: flex;
 	`;
 
 	onMount(() => {
@@ -67,6 +68,8 @@
 			y: event.clientY - rect.top
 		};
 		
+		console.log('🖱️ Drag start:', { isMinimized, windowState: window.state, dragStart, rectLeft: rect.left, rectTop: rect.top, eventX: event.clientX, eventY: event.clientY });
+		
 		event.preventDefault();
 	}
 
@@ -91,16 +94,17 @@
 
 	function handleMouseMove(event: MouseEvent) {
 		if (isDragging) {
-			// Check if we're in a container with offset (like cashier interface)
-			const container = windowElement?.closest('.cashier-main, .desktop-main');
-			const containerLeft = container ? container.getBoundingClientRect().left : 0;
-			const containerRect = container?.getBoundingClientRect();
+			// For minimized windows, allow complete free movement
+			if (window.state === 'minimized') {
+				const newX = event.clientX - dragStart.x;
+				const newY = event.clientY - dragStart.y;
+				windowManager.updateWindowPosition(window.id, { x: newX, y: newY });
+				return; // IMPORTANT: Exit early, don't apply any constraints
+			}
 			
-			// Calculate maximum Y position to prevent overlap with taskbar (56px)
-			const maxY = containerRect ? containerRect.height - windowElement.offsetHeight : window.innerHeight - 56 - windowElement.offsetHeight;
-			
-			const newX = Math.max(containerLeft, event.clientX - dragStart.x);
-			const newY = Math.max(0, Math.min(maxY, event.clientY - dragStart.y));
+			// For normal windows, allow free movement too (no constraints)
+			const newX = event.clientX - dragStart.x;
+			const newY = event.clientY - dragStart.y;
 			
 			windowManager.updateWindowPosition(window.id, { x: newX, y: newY });
 		} else if (isResizing) {
@@ -259,6 +263,7 @@
 	class="window"
 	class:active={isActive}
 	class:maximized={isMaximized}
+	class:minimized={isMinimized}
 	class:modal={window.modal}
 	class:window-maximized={isMaximized}
 	style={windowStyle}
@@ -586,6 +591,11 @@
 		flex: 1;
 		overflow: auto;
 		background: white;
+		display: none;
+	}
+
+	.window:not(.minimized) .window-content {
+		display: block;
 	}
 
 	.window-maximized .window-content {
@@ -597,6 +607,11 @@
 	.resize-handle {
 		position: absolute;
 		background: transparent;
+		display: block;
+	}
+
+	.window.minimized .resize-handle {
+		display: none !important;
 	}
 
 	.resize-n, .resize-s {
