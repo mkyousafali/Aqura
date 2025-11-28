@@ -147,44 +147,61 @@
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
 	}
 
-	/* Optimize chart for mobile */
+	/* Optimize chart for mobile - minimal overrides */
 	:global(.chart-container) {
-		gap: 0.5rem !important;
 		padding: 1rem 0.5rem !important;
-		height: 300px !important;
+		overflow-x: auto !important;
 	}
 
 	:global(.sale-item) {
-		max-width: none !important;
-		flex: 1 !important;
-		min-width: 80px !important;
+		min-width: 70px !important;
 	}
 
-	:global(.sale-info) {
-		gap: 0.15rem !important;
+	:global(.bar-container) {
+		min-height: 120px !important;
 	}
 
-	:global(.date-label) {
-		font-size: 0.7rem !important;
+	:global(.bar) {
+		min-height: 30px !important;
 	}
 
-	:global(.amount-label) {
-		font-size: 0.75rem !important;
-	}
-
+	:global(.date-label),
+	:global(.amount-label),
 	:global(.bills-label),
 	:global(.basket-label),
 	:global(.return-label) {
-		font-size: 0.6rem !important;
+		font-size: 0.7rem !important;
 	}
 
 	:global(.monthly-averages) {
 		gap: 0.5rem !important;
+		display: flex !important;
+		justify-content: center !important;
+		margin-bottom: 1rem !important;
 	}
 
 	:global(.month-avg) {
 		padding: 0.75rem !important;
 		min-width: 120px !important;
+		border-radius: 12px !important;
+		color: white !important;
+		text-align: center !important;
+	}
+
+	:global(.branch-monthly-badges) {
+		display: flex !important;
+		gap: 0.4rem !important;
+		margin-bottom: 0.5rem !important;
+		flex-wrap: wrap !important;
+		justify-content: center !important;
+	}
+
+	:global(.mini-badge) {
+		padding: 0.5rem 0.75rem !important;
+		border-radius: 8px !important;
+		font-size: 0.65rem !important;
+		color: white !important;
+		min-width: 70px !important;
 	}
 
 	:global(.refresh-btn) {
@@ -209,13 +226,17 @@
 			padding: 0 0.25rem;
 		}
 
-		:global(.chart-container) {
-			height: 250px !important;
+		:global(.sales-comparison) {
+			gap: 0.5rem !important;
 			padding: 0.75rem 0.25rem !important;
 		}
 
 		:global(.sale-item) {
-			min-width: 60px !important;
+			gap: 0.25rem !important;
+		}
+
+		:global(.bar-container) {
+			max-width: 40px !important;
 		}
 
 		:global(.monthly-averages) {
