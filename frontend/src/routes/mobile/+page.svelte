@@ -14,6 +14,14 @@
 	let isLoading = true;
 	let currentTime = new Date();
 	
+	// Branch Performance Stats
+	let branchPerformance = {
+		branches: [],
+		todayStats: [],
+		yesterdayStats: [],
+		loading: false
+	};
+	
 	// Update time every second
 	let timeInterval: ReturnType<typeof setInterval>;
 	// Computed role check
@@ -36,6 +44,7 @@
 		currentUserData = $currentUser;
 		if (currentUserData) {
 			await loadDashboardData();
+			await loadBranchPerformance();
 		}
 		isLoading = false;
 		
@@ -93,6 +102,183 @@
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
 		}
+	}
+
+	async function loadBranchPerformance() {
+		branchPerformance.loading = true;
+		try {
+			// Load branches first ordered by ID
+			const { data: branchesData, error: branchError } = await supabase
+				.from('branches')
+				.select('id, name_ar, name_en')
+				.order('id', { ascending: true });
+
+			if (branchError) throw branchError;
+
+			let branches = (branchesData || []).map(b => ({
+				id: b.id,
+				name: $localeData.locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar)
+			}));
+
+			// Sort: user's branch first, then rest by ID
+			if (currentUserData?.branchId) {
+				const userBranchId = currentUserData.branchId;
+				branches.sort((a, b) => {
+					if (a.id === userBranchId) return -1;
+					if (b.id === userBranchId) return 1;
+					return a.id - b.id;
+				});
+			}
+
+			branchPerformance.branches = branches;
+
+			const today = new Date().toISOString().split('T')[0];
+			const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+			// Fetch ALL data without branch filter, then group by branch in memory
+			const todayStats = [];
+			const yesterdayStats = [];
+
+			for (const branch of branchPerformance.branches) {
+				// Today's data
+				const todayData = await fetchAllTasksForDay(today, branch.id);
+				todayStats.push({
+					branchId: branch.id,
+					branchName: branch.name,
+					completed: todayData.completed,
+					notCompleted: todayData.notCompleted,
+					total: todayData.completed + todayData.notCompleted
+				});
+
+				// Yesterday's data
+				const yesterdayData = await fetchAllTasksForDay(yesterday, branch.id);
+				yesterdayStats.push({
+					branchId: branch.id,
+					branchName: branch.name,
+					completed: yesterdayData.completed,
+					notCompleted: yesterdayData.notCompleted,
+					total: yesterdayData.completed + yesterdayData.notCompleted
+				});
+			}
+
+			branchPerformance.todayStats = todayStats;
+			branchPerformance.yesterdayStats = yesterdayStats;
+
+		} catch (error) {
+			console.error('Error loading branch performance:', error);
+		} finally {
+			branchPerformance.loading = false;
+		}
+	}
+
+	async function fetchAllTasksForDay(date, branchId) {
+		const BATCH_SIZE = 1000;
+		let completed = 0;
+		let notCompleted = 0;
+
+		// Fetch receiving tasks with pagination (get branch from receiving_record)
+		let receivingFrom = 0;
+		let hasMoreReceiving = true;
+		while (hasMoreReceiving) {
+			const { data, error } = await supabase
+				.from('receiving_tasks')
+				.select('task_status, receiving_record:receiving_records!receiving_tasks_receiving_record_id_fkey(branch_id)')
+				.gte('created_at', date)
+				.lt('created_at', date + 'T23:59:59')
+				.range(receivingFrom, receivingFrom + BATCH_SIZE - 1);
+
+			if (error) {
+				console.error('Error fetching receiving tasks:', error);
+				break;
+			}
+
+			if (data && data.length > 0) {
+				data.forEach(task => {
+					// Filter by branch in memory
+					if (task.receiving_record && task.receiving_record.branch_id === branchId) {
+						if (task.task_status === 'completed') {
+							completed++;
+						} else if (task.task_status !== 'cancelled') {
+							notCompleted++;
+						}
+					}
+				});
+				receivingFrom += BATCH_SIZE;
+				hasMoreReceiving = data.length === BATCH_SIZE;
+			} else {
+				hasMoreReceiving = false;
+			}
+		}
+
+		// Fetch task assignments with pagination (use assigned_to_branch_id)
+		let taskAssignFrom = 0;
+		let hasMoreTaskAssign = true;
+		while (hasMoreTaskAssign) {
+			const { data, error } = await supabase
+				.from('task_assignments')
+				.select('status, assigned_to_branch_id')
+				.gte('assigned_at', date)
+				.lt('assigned_at', date + 'T23:59:59')
+				.range(taskAssignFrom, taskAssignFrom + BATCH_SIZE - 1);
+
+			if (error) {
+				console.error('Error fetching task assignments:', error);
+				break;
+			}
+
+			if (data && data.length > 0) {
+				data.forEach(task => {
+					// Filter by branch in memory
+					if (task.assigned_to_branch_id === branchId) {
+						if (task.status === 'completed') {
+							completed++;
+						} else if (task.status !== 'cancelled') {
+							notCompleted++;
+						}
+					}
+				});
+				taskAssignFrom += BATCH_SIZE;
+				hasMoreTaskAssign = data.length === BATCH_SIZE;
+			} else {
+				hasMoreTaskAssign = false;
+			}
+		}
+
+		// Fetch quick task assignments with pagination (get branch from quick_task)
+		let quickTaskFrom = 0;
+		let hasMoreQuickTask = true;
+		while (hasMoreQuickTask) {
+			const { data, error } = await supabase
+				.from('quick_task_assignments')
+				.select('status, quick_task:quick_tasks!quick_task_assignments_quick_task_id_fkey(assigned_to_branch_id)')
+				.gte('created_at', date)
+				.lt('created_at', date + 'T23:59:59')
+				.range(quickTaskFrom, quickTaskFrom + BATCH_SIZE - 1);
+
+			if (error) {
+				console.error('Error fetching quick tasks:', error);
+				break;
+			}
+
+			if (data && data.length > 0) {
+				data.forEach(task => {
+					// Filter by branch in memory
+					if (task.quick_task && task.quick_task.assigned_to_branch_id === branchId) {
+						if (task.status === 'completed') {
+							completed++;
+						} else if (task.status !== 'cancelled') {
+							notCompleted++;
+						}
+					}
+				});
+				quickTaskFrom += BATCH_SIZE;
+				hasMoreQuickTask = data.length === BATCH_SIZE;
+			} else {
+				hasMoreQuickTask = false;
+			}
+		}
+
+		return { completed, notCompleted };
 	}
 
 	// Helper function to get proper file URL
@@ -235,6 +421,145 @@
 			</div>
 		</div>
 	</section>
+
+	<!-- Branch Performance Section -->
+	<section class="performance-section">
+		<div class="section-header">
+			<h2>Branch Performance</h2>
+			<button class="refresh-btn" on:click={loadBranchPerformance} disabled={branchPerformance.loading}>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+				</svg>
+			</button>
+		</div>
+
+		{#if branchPerformance.loading}
+			<div class="performance-loading">
+				<div class="loading-spinner-small"></div>
+				<p>Loading performance data...</p>
+			</div>
+		{:else}
+			<!-- Today's Performance -->
+			<div class="performance-group">
+				<h3 class="group-title">Today's Performance</h3>
+				<div class="branch-grid">
+					{#each branchPerformance.todayStats as stat}
+						<div class="branch-card">
+							<h4 class="branch-name">{stat.branchName}</h4>
+							<div class="pie-chart-container">
+								<svg viewBox="0 0 100 100" class="pie-chart">
+									{#if stat.total > 0}
+										{@const completedPercent = (stat.completed / stat.total) * 100}
+										{@const radius = 40}
+										{@const circumference = 2 * Math.PI * radius}
+										{@const completedOffset = circumference - (completedPercent / 100) * circumference}
+										
+										<!-- Background circle (not completed) -->
+										<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
+										
+										<!-- Completed arc -->
+										{#if completedPercent > 0}
+											<circle 
+												cx="50" 
+												cy="50" 
+												r="40" 
+												fill="none" 
+												stroke="#10B981" 
+												stroke-width="20"
+												stroke-dasharray={circumference}
+												stroke-dashoffset={completedOffset}
+												transform="rotate(-90 50 50)"
+											/>
+										{/if}
+										
+										<!-- Center text -->
+										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
+										<text x="50" y="58" text-anchor="middle" class="pie-label">Complete</text>
+									{:else}
+										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
+										<text x="50" y="53" text-anchor="middle" class="pie-empty">No Tasks</text>
+									{/if}
+								</svg>
+							</div>
+							<div class="branch-stats">
+								<div class="stat-item completed">
+									<span class="stat-dot"></span>
+									<span>{stat.completed} Completed</span>
+								</div>
+								<div class="stat-item pending">
+									<span class="stat-dot"></span>
+									<span>{stat.notCompleted} Pending</span>
+								</div>
+								<div class="stat-item total">
+									<span>Total: {stat.total}</span>
+								</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Yesterday's Performance -->
+			<div class="performance-group">
+				<h3 class="group-title">Yesterday's Performance</h3>
+				<div class="branch-grid">
+					{#each branchPerformance.yesterdayStats as stat}
+						<div class="branch-card">
+							<h4 class="branch-name">{stat.branchName}</h4>
+							<div class="pie-chart-container">
+								<svg viewBox="0 0 100 100" class="pie-chart">
+									{#if stat.total > 0}
+										{@const completedPercent = (stat.completed / stat.total) * 100}
+										{@const radius = 40}
+										{@const circumference = 2 * Math.PI * radius}
+										{@const completedOffset = circumference - (completedPercent / 100) * circumference}
+										
+										<!-- Background circle (not completed) -->
+										<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
+										
+										<!-- Completed arc -->
+										{#if completedPercent > 0}
+											<circle 
+												cx="50" 
+												cy="50" 
+												r="40" 
+												fill="none" 
+												stroke="#F59E0B" 
+												stroke-width="20"
+												stroke-dasharray={circumference}
+												stroke-dashoffset={completedOffset}
+												transform="rotate(-90 50 50)"
+											/>
+										{/if}
+										
+										<!-- Center text -->
+										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
+										<text x="50" y="58" text-anchor="middle" class="pie-label">Complete</text>
+									{:else}
+										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
+										<text x="50" y="53" text-anchor="middle" class="pie-empty">No Tasks</text>
+									{/if}
+								</svg>
+							</div>
+							<div class="branch-stats">
+								<div class="stat-item completed">
+									<span class="stat-dot"></span>
+									<span>{stat.completed} Completed</span>
+								</div>
+								<div class="stat-item pending">
+									<span class="stat-dot"></span>
+									<span>{stat.notCompleted} Pending</span>
+								</div>
+								<div class="stat-item total">
+									<span>Total: {stat.total}</span>
+								</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	</section>
 	{/if}
 </div>
 
@@ -346,13 +671,15 @@
 	}
 	.stat-card {
 		background: white;
-		border-radius: 13px; /* Reduced from 16px (20% smaller) */
-		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
+		border-radius: 8px;
+		padding: 0.6rem;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 		display: flex;
 		align-items: center;
-		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
+		gap: 0.4rem;
 		transition: all 0.3s ease;
+		text-decoration: none;
+		color: inherit;
 	}
 	.stat-card:hover {
 		transform: translateY(-2px);
@@ -367,9 +694,17 @@
 		justify-content: center;
 		flex-shrink: 0;
 	}
+	.stat-card.date-time .stat-icon {
+		background: rgba(139, 92, 246, 0.1);
+		color: #8B5CF6;
+	}
 	.stat-card.pending .stat-icon {
 		background: rgba(59, 130, 246, 0.1);
 		color: #3B82F6;
+	}
+	.stat-card.performance .stat-icon {
+		background: rgba(16, 185, 129, 0.1);
+		color: #10B981;
 	}
 	.stat-card.notifications .stat-icon {
 		background: rgba(245, 158, 11, 0.1);
@@ -390,16 +725,191 @@
 		color: #6B7280;
 	}
 	.stat-info h3 {
-		font-size: 1.6rem; /* Reduced from 2rem (20% smaller) */
+		font-size: 1rem;
 		font-weight: 700;
-		margin: 0 0 0.2rem 0; /* Reduced from 0.25rem */
+		margin: 0 0 0.1rem 0;
 		color: #1F2937;
 	}
 	.stat-info p {
-		font-size: 0.7rem; /* Reduced from 0.875rem (20% smaller) */
+		font-size: 0.625rem;
 		color: #6B7280;
 		margin: 0;
 	}
+
+	/* Branch Performance Section */
+	.performance-section {
+		padding: 0 1.2rem 1.2rem 1.2rem;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+	}
+
+	.section-header h2 {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #1F2937;
+		margin: 0;
+	}
+
+	.refresh-btn {
+		background: white;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		padding: 0.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+	}
+
+	.refresh-btn:hover {
+		background: #F3F4F6;
+		border-color: #D1D5DB;
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.refresh-btn svg {
+		color: #6B7280;
+	}
+
+	.performance-loading {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.performance-loading p {
+		color: #6B7280;
+		font-size: 0.875rem;
+		margin: 0;
+	}
+
+	.performance-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.group-title {
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: #1F2937;
+		margin: 0 0 1rem 0;
+		padding: 0.5rem 0.75rem;
+		background: white;
+		border-radius: 8px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.branch-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.branch-card {
+		background: white;
+		border-radius: 6px;
+		padding: 0.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.branch-name {
+		font-size: 0.625rem;
+		font-weight: 600;
+		color: #1F2937;
+		margin: 0;
+		text-align: center;
+	}
+
+	.pie-chart-container {
+		width: 100%;
+		height: 70px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.pie-chart {
+		width: 100%;
+		height: 100%;
+		max-width: 80px;
+		max-height: 80px;
+	}
+
+	.pie-percent {
+		font-size: 10px;
+		font-weight: 700;
+		fill: #1F2937;
+	}
+
+	.pie-label {
+		font-size: 6px;
+		fill: #6B7280;
+	}
+
+	.pie-empty {
+		font-size: 7px;
+		fill: #9CA3AF;
+	}
+
+	.branch-stats {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.stat-item {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.5rem;
+		color: #6B7280;
+	}
+
+	.stat-item.completed .stat-dot {
+		background: #10B981;
+	}
+
+	.stat-item.pending .stat-dot {
+		background: #FCA5A5;
+	}
+
+	.stat-item.total {
+		font-weight: 600;
+		color: #1F2937;
+		padding-top: 0.5rem;
+		border-top: 1px solid #E5E7EB;
+		justify-content: center;
+	}
+
+	.stat-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+	}
+
+	@media (max-width: 480px) {
+		.branch-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
 	/* Safe area handling for iOS */
 	@supports (padding: max(0px)) {
 		.mobile-header {
