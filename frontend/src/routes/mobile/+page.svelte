@@ -135,34 +135,32 @@
 			const today = new Date().toISOString().split('T')[0];
 			const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-			// Fetch ALL data without branch filter, then group by branch in memory
-			const todayStats = [];
-			const yesterdayStats = [];
+			// Fetch all branch data in PARALLEL (not sequential)
+			const allStatsPromises = branchPerformance.branches.map(branch =>
+				Promise.all([
+					fetchAllTasksForDay(today, branch.id),
+					fetchAllTasksForDay(yesterday, branch.id)
+				]).then(([todayData, yesterdayData]) => ({
+					today: {
+						branchId: branch.id,
+						branchName: branch.name,
+						completed: todayData.completed,
+						notCompleted: todayData.notCompleted,
+						total: todayData.completed + todayData.notCompleted
+					},
+					yesterday: {
+						branchId: branch.id,
+						branchName: branch.name,
+						completed: yesterdayData.completed,
+						notCompleted: yesterdayData.notCompleted,
+						total: yesterdayData.completed + yesterdayData.notCompleted
+					}
+				}))
+			);
 
-			for (const branch of branchPerformance.branches) {
-				// Today's data
-				const todayData = await fetchAllTasksForDay(today, branch.id);
-				todayStats.push({
-					branchId: branch.id,
-					branchName: branch.name,
-					completed: todayData.completed,
-					notCompleted: todayData.notCompleted,
-					total: todayData.completed + todayData.notCompleted
-				});
-
-				// Yesterday's data
-				const yesterdayData = await fetchAllTasksForDay(yesterday, branch.id);
-				yesterdayStats.push({
-					branchId: branch.id,
-					branchName: branch.name,
-					completed: yesterdayData.completed,
-					notCompleted: yesterdayData.notCompleted,
-					total: yesterdayData.completed + yesterdayData.notCompleted
-				});
-			}
-
-			branchPerformance.todayStats = todayStats;
-			branchPerformance.yesterdayStats = yesterdayStats;
+			const allStats = await Promise.all(allStatsPromises);
+			branchPerformance.todayStats = allStats.map(s => s.today);
+			branchPerformance.yesterdayStats = allStats.map(s => s.yesterday);
 
 		} catch (error) {
 			console.error('Error loading branch performance:', error);
@@ -176,7 +174,7 @@
 		let completed = 0;
 		let notCompleted = 0;
 
-		// Fetch receiving tasks with pagination (get branch from receiving_record)
+		// Fetch receiving tasks with pagination (filter by branch at DB level)
 		let receivingFrom = 0;
 		let hasMoreReceiving = true;
 		while (hasMoreReceiving) {
@@ -210,13 +208,14 @@
 			}
 		}
 
-		// Fetch task assignments with pagination (use assigned_to_branch_id)
+		// Fetch task assignments with pagination (filter by branch at DB level)
 		let taskAssignFrom = 0;
 		let hasMoreTaskAssign = true;
 		while (hasMoreTaskAssign) {
 			const { data, error } = await supabase
 				.from('task_assignments')
 				.select('status, assigned_to_branch_id')
+				.eq('assigned_to_branch_id', branchId)
 				.gte('assigned_at', date)
 				.lt('assigned_at', date + 'T23:59:59')
 				.range(taskAssignFrom, taskAssignFrom + BATCH_SIZE - 1);
@@ -228,13 +227,10 @@
 
 			if (data && data.length > 0) {
 				data.forEach(task => {
-					// Filter by branch in memory
-					if (task.assigned_to_branch_id === branchId) {
-						if (task.status === 'completed') {
-							completed++;
-						} else if (task.status !== 'cancelled') {
-							notCompleted++;
-						}
+					if (task.status === 'completed') {
+						completed++;
+					} else if (task.status !== 'cancelled') {
+						notCompleted++;
 					}
 				});
 				taskAssignFrom += BATCH_SIZE;
@@ -244,7 +240,7 @@
 			}
 		}
 
-		// Fetch quick task assignments with pagination (get branch from quick_task)
+		// Fetch quick task assignments with pagination (filter by branch at DB level)
 		let quickTaskFrom = 0;
 		let hasMoreQuickTask = true;
 		while (hasMoreQuickTask) {
@@ -839,7 +835,7 @@
 
 	.pie-chart-container {
 		width: 100%;
-		height: 70px;
+		height: 140px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -848,8 +844,8 @@
 	.pie-chart {
 		width: 100%;
 		height: 100%;
-		max-width: 80px;
-		max-height: 80px;
+		max-width: 150px;
+		max-height: 150px;
 	}
 
 	.pie-percent {
