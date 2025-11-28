@@ -14,11 +14,9 @@
 	let isLoading = true;
 	let currentTime = new Date();
 	
-	// Punch/Fingerprint Data
-	let lastPunch = {
-		time: null,
-		date: null,
-		status: null, // 'check-in' or 'check-out'
+	// Punch/Fingerprint Data - Store last 2 punches
+	let punches = {
+		records: [],
 		loading: false,
 		error: ''
 	};
@@ -54,7 +52,7 @@
 		if (currentUserData) {
 			await loadDashboardData();
 			await loadBranchPerformance();
-			await loadLastPunch();
+			await loadRecentPunches();
 		}
 		isLoading = false;
 		
@@ -114,18 +112,18 @@
 		}
 	}
 
-	async function loadLastPunch() {
+	async function loadRecentPunches() {
 		try {
-			lastPunch.loading = true;
-			lastPunch.error = '';
+			punches.loading = true;
+			punches.error = '';
 			
 			if (!currentUserData?.employee_id) {
 				console.log('⚠️ User has no employee_id, skipping punch data load');
-				lastPunch.loading = false;
+				punches.loading = false;
 				return;
 			}
 			
-			// Query hr_fingerprint_transactions for last punch
+			// Query hr_fingerprint_transactions for last 2 punches
 			// Note: employee_id is stored as varchar in hr_fingerprint_transactions, but users.employee_id is UUID
 			// We need to get the actual employee_id from hr_employees table using the UUID
 			const { data: empData, error: empError } = await supabase
@@ -136,18 +134,17 @@
 			
 			if (empError || !empData?.employee_id) {
 				console.log('⚠️ Could not find employee_id for user');
-				lastPunch.loading = false;
+				punches.loading = false;
 				return;
 			}
 			
-			// Now query fingerprint transactions using the varchar employee_id
+			// Now query fingerprint transactions using the varchar employee_id - get last 2 records
 			const { data, error } = await supabase
 				.from('hr_fingerprint_transactions')
 				.select('date, time, status, branch_id, created_at')
 				.eq('employee_id', empData.employee_id)
 				.order('created_at', { ascending: false })
-				.limit(1)
-				.single();
+				.limit(2);
 			
 			if (error) {
 				if (error.code === 'PGRST116') {
@@ -155,26 +152,30 @@
 					console.log('ℹ️ No punch records found for user');
 				} else {
 					console.error('❌ Error loading punch data:', error);
-					lastPunch.error = 'Failed to load punch data';
+					punches.error = 'Failed to load punch data';
 				}
-			} else if (data) {
-				// Combine date and time
-				// The time stored in hr_fingerprint_transactions is in Saudi timezone (UTC+3)
-				// We need to convert it to UTC by subtracting 3 hours
-				const saudiDate = new Date(`${data.date}T${data.time}`);
-				// Convert from Saudi time (UTC+3) to UTC by subtracting 3 hours
-				const utcTime = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
-				lastPunch.time = utcTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-				lastPunch.date = utcTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-				// Status is either "Check In" or "Check Out"
-				lastPunch.status = data.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out';
-				console.log('✅ Last punch loaded:', lastPunch);
+			} else if (data && data.length > 0) {
+				// Process each punch record
+				punches.records = data.map(record => {
+					// Combine date and time
+					// The time stored in hr_fingerprint_transactions is in Saudi timezone (UTC+3)
+					// We need to convert it to UTC by subtracting 3 hours
+					const saudiDate = new Date(`${record.date}T${record.time}`);
+					// Convert from Saudi time (UTC+3) to UTC by subtracting 3 hours
+					const utcTime = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+					return {
+						time: utcTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+						date: utcTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+						status: record.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out'
+					};
+				});
+				console.log('✅ Recent punches loaded:', punches.records);
 			}
 		} catch (error) {
-			console.error('Error loading last punch:', error);
-			lastPunch.error = 'Error loading punch data';
+			console.error('Error loading recent punches:', error);
+			punches.error = 'Error loading punch data';
 		} finally {
-			lastPunch.loading = false;
+			punches.loading = false;
 		}
 	}
 
@@ -497,17 +498,17 @@
 					</svg>
 				</div>
 				<div class="stat-info">
-					{#if lastPunch.loading}
+					{#if punches.loading}
 						<div class="loading-text">Loading...</div>
-					{:else if lastPunch.error}
+					{:else if punches.error}
 						<h3 style="color: #ef4444;">—</h3>
-						<p>{lastPunch.error}</p>
-					{:else if lastPunch.time}
+						<p>{punches.error}</p>
+					{:else if punches.records.length > 0}
 						<div class="punch-detail">
-							<h3>{lastPunch.time}</h3>
-							<p class="punch-date">{lastPunch.date}</p>
-							<p class="punch-status" class:checkin={lastPunch.status === 'check-in'} class:checkout={lastPunch.status === 'check-out'}>
-								{lastPunch.status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
+							<h3>{punches.records[0].time}</h3>
+							<p class="punch-date">{punches.records[0].date}</p>
+							<p class="punch-status" class:checkin={punches.records[0].status === 'check-in'} class:checkout={punches.records[0].status === 'check-out'}>
+								{punches.records[0].status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
 							</p>
 						</div>
 					{:else}
@@ -516,6 +517,25 @@
 					{/if}
 				</div>
 			</div>
+			{#if punches.records.length > 1}
+				<div class="stat-card punch">
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<polyline points="12,6 12,12 16,14"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<div class="punch-detail">
+							<h3>{punches.records[1].time}</h3>
+							<p class="punch-date">{punches.records[1].date}</p>
+							<p class="punch-status" class:checkin={punches.records[1].status === 'check-in'} class:checkout={punches.records[1].status === 'check-out'}>
+								{punches.records[1].status === 'check-in' ? getTranslation('mobile.dashboardContent.stats.checkIn') : getTranslation('mobile.dashboardContent.stats.checkOut')}
+							</p>
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</section>
 
