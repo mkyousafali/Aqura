@@ -1586,6 +1586,11 @@ export const englishLocale: LocaleData = {
       noValidNumbers: "No valid numbers to import",
       customersImported: "Successfully imported {count} customers",
       errorImportingCustomers: "Failed to import customers",
+      importedCustomers: "Imported Customers",
+      selectCampaignToView: "Select a campaign to view imported customers",
+      noCustomersImported: "No customers imported yet",
+      totalImported: "Total Imported",
+      loading: "Loading...",
       
       // Product Manager
       productDescription: "Add and manage gift products with stock control",

@@ -1566,6 +1566,11 @@ export const arabicLocale: LocaleData = {
       noValidNumbers: "لا توجد أرقام صحيحة للاستيراد",
       customersImported: "تم استيراد {count} عميل بنجاح",
       errorImportingCustomers: "فشل استيراد العملاء",
+      importedCustomers: "العملاء المستوردون",
+      selectCampaignToView: "اختر حملة لعرض العملاء المستوردين",
+      noCustomersImported: "لم يتم استيراد أي عملاء حتى الآن",
+      totalImported: "إجمالي المستوردة",
+      loading: "جاري التحميل...",
       
       // إدارة المنتجات
       productDescription: "إدارة منتجات الهدايا والعروض",

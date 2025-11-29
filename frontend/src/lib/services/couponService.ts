@@ -220,6 +220,18 @@ export async function getEligibleCustomersCount(campaignId: string) {
   return count || 0;
 }
 
+export async function deleteEligibleCustomer(customerId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('coupon_eligible_customers')
+    .delete()
+    .eq('id', customerId)
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
 // ==================== CLAIMS ====================
 
 export async function getClaimsByCampaign(campaignId: string) {

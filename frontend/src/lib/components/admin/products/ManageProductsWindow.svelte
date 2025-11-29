@@ -4,9 +4,19 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ProductFormWindow from './ProductFormWindow.svelte';
 
+	// Props
+	let { selectedProductIds = [] }: { selectedProductIds?: string[] } = $props();
+
 	let products: any[] = [];
 	let loading = true;
 	let error = '';
+
+	// Computed property to get sorted products (selected first)
+	$effect(() => {
+		if (selectedProductIds && selectedProductIds.length > 0) {
+			products = sortProductsBySelection(products, selectedProductIds);
+		}
+	});
 
 	onMount(async () => {
 		await loadProducts();
@@ -23,6 +33,16 @@
 		loadProducts();
 	}
 
+	function sortProductsBySelection(products: any[], selectedIds: string[]): any[] {
+		if (!selectedIds || selectedIds.length === 0) return products;
+		
+		const selectedSet = new Set(selectedIds);
+		const selected = products.filter(p => selectedSet.has(p.id));
+		const unselected = products.filter(p => !selectedSet.has(p.id));
+		
+		return [...selected, ...unselected];
+	}
+
 	async function loadProducts() {
 		loading = true;
 		error = '';
@@ -33,7 +53,15 @@
 				.order('created_at', { ascending: false });
 
 			if (fetchError) throw fetchError;
-			products = data || [];
+			
+			let loadedProducts = data || [];
+			
+			// Sort to show selected products first
+			if (selectedProductIds && selectedProductIds.length > 0) {
+				loadedProducts = sortProductsBySelection(loadedProducts, selectedProductIds);
+			}
+			
+			products = loadedProducts;
 		} catch (err: any) {
 			error = 'Failed to load products: ' + err.message;
 			console.error('Error loading products:', err);
@@ -143,8 +171,16 @@
 				</thead>
 				<tbody>
 					{#each products as product (product.id)}
-						<tr class:inactive={!product.is_active}>
-							<td class="serial">{product.product_serial}</td>
+						<tr 
+							class:inactive={!product.is_active}
+							class:selected={selectedProductIds && selectedProductIds.includes(product.id)}
+						>
+							<td class="serial">
+								{#if selectedProductIds && selectedProductIds.includes(product.id)}
+									<span class="selected-badge">✓</span>
+								{/if}
+								{product.product_serial}
+							</td>
 							<td class="image-cell">
 								{#if product.image_url}
 									<img src={product.image_url} alt={product.product_name_en} class="product-thumbnail" />
@@ -350,6 +386,26 @@
 	.products-table tr.inactive {
 		opacity: 0.6;
 		background: #fef2f2;
+	}
+
+	.products-table tr.selected {
+		background: #dbeafe;
+		border-left: 4px solid #3b82f6;
+	}
+
+	.products-table tr.selected:hover {
+		background: #bfdbfe;
+	}
+
+	.selected-badge {
+		display: inline-block;
+		background: #3b82f6;
+		color: white;
+		font-size: 0.7rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		margin-right: 0.5rem;
+		font-weight: 600;
 	}
 
 	.serial {

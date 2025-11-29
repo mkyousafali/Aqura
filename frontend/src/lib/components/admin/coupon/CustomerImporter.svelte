@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { t } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { getAllCampaigns, importCustomers } from '$lib/services/couponService';
+	import { getAllCampaigns, importCustomers, getEligibleCustomers, deleteEligibleCustomer } from '$lib/services/couponService';
 	import type { CouponCampaign } from '$lib/types/coupon';
 
 	// Props
@@ -21,10 +22,27 @@
 	let isDragging = $state(false);
 	let showPreview = $state(false);
 	let importing = $state(false);
+	let importedCustomers: any[] = $state([]);
+	let loadingImported = $state(false);
+	let showAddNumberModal = $state(false);
+	let newNumber = $state('');
+	let deletingCustomerId: string | null = $state(null);
 
+	// Reactive current user - subscribe to store changes
+	let currentUserData = $state(null);
+	
 	// Load campaigns on mount
 	onMount(async () => {
+		// Subscribe to currentUser store
+		const unsubscribe = currentUser.subscribe(value => {
+			currentUserData = value;
+			console.log('🔐 [CustomerImporter] Current user updated:', value);
+			console.log('🔐 [CustomerImporter] Role type:', value?.roleType);
+		});
+		
 		await loadCampaigns();
+		
+		return unsubscribe;
 	});
 
 	async function loadCampaigns() {
@@ -38,6 +56,25 @@
 			});
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Load imported customers for selected campaign
+	async function loadImportedCustomers() {
+		if (!selectedCampaignId) {
+			importedCustomers = [];
+			return;
+		}
+
+		loadingImported = true;
+		try {
+			const customers = await getEligibleCustomers(selectedCampaignId);
+			importedCustomers = customers;
+		} catch (error) {
+			console.error('Error loading imported customers:', error);
+			importedCustomers = [];
+		} finally {
+			loadingImported = false;
 		}
 	}
 
@@ -185,6 +222,86 @@
 		showPreview = true;
 	}
 
+	// Add single number manually
+	async function handleAddNumber() {
+		if (!selectedCampaignId) {
+			notifications.add({
+				message: t('coupon.selectCampaignFirst'),
+				type: 'error'
+			});
+			return;
+		}
+
+		if (!newNumber.trim()) {
+			notifications.add({
+				message: t('coupon.enterMobileNumber'),
+				type: 'error'
+			});
+			return;
+		}
+
+		if (!isValidSaudiMobile(newNumber)) {
+			notifications.add({
+				message: t('coupon.invalidMobileNumber'),
+				type: 'error'
+			});
+			return;
+		}
+
+		const normalized = normalizeMobile(newNumber);
+		
+		try {
+			const batchId = crypto.randomUUID();
+			const userId = get(currentUser)?.id || null;
+			
+			await importCustomers(selectedCampaignId, [normalized], batchId, userId);
+			
+			notifications.add({
+				message: t('coupon.customerAdded'),
+				type: 'success'
+			});
+
+			newNumber = '';
+			showAddNumberModal = false;
+			await loadImportedCustomers();
+		} catch (error: any) {
+			notifications.add({
+				message: error.message || t('coupon.errorAddingCustomer'),
+				type: 'error'
+			});
+		}
+	}
+
+	// Delete customer from campaign
+	async function handleDeleteCustomer(customerId: string) {
+		if (get(currentUser)?.roleType !== 'Master Admin') {
+			notifications.add({
+				message: t('coupon.notAuthorized'),
+				type: 'error'
+			});
+			return;
+		}
+
+		deletingCustomerId = customerId;
+		try {
+			await deleteEligibleCustomer(customerId);
+			
+			notifications.add({
+				message: t('coupon.customerDeleted'),
+				type: 'success'
+			});
+
+			await loadImportedCustomers();
+		} catch (error: any) {
+			notifications.add({
+				message: error.message || t('coupon.errorDeletingCustomer'),
+				type: 'error'
+			});
+		} finally {
+			deletingCustomerId = null;
+		}
+	}
+
 	// Import customers
 	async function handleImport() {
 		if (!selectedCampaignId) {
@@ -207,7 +324,7 @@
 		try {
 			// Generate UUID for batch
 			const batchId = crypto.randomUUID();
-			const userId = $currentUser?.id || null;
+			const userId = get(currentUser)?.id || null;
 			
 			await importCustomers(selectedCampaignId, validNumbers, batchId, userId);
 			
@@ -216,8 +333,9 @@
 				type: 'success'
 			});
 
-			// Reset form
+			// Reset form and reload imported customers
 			reset();
+			await loadImportedCustomers();
 		} catch (error: any) {
 			notifications.add({
 				message: error.message || t('coupon.errorImportingCustomers'),
@@ -252,36 +370,37 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-gray-50">
+<div class="flex flex-col w-full h-screen bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
 	<!-- Header -->
-	<div class="bg-white border-b border-gray-200 px-6 py-4">
-		<div class="flex items-center justify-between">
-			<div>
-				<h2 class="text-2xl font-bold text-gray-900">{t('coupon.importCustomers')}</h2>
-				<p class="text-sm text-gray-600 mt-1">{t('coupon.customerImportDescription')}</p>
+	<div class="bg-white border-b border-gray-200 px-8 py-6 shadow-sm flex-shrink-0">
+		<div class="flex items-center justify-between gap-6 w-full">
+			<div class="bg-gradient-to-br from-red-50 to-orange-50 border-l-4 border-orange-500 px-6 py-4 rounded-xl flex-1 min-w-0">
+				<h1 class="text-3xl font-bold text-gray-900">{t('coupon.importCustomers')}</h1>
+				<p class="text-sm text-gray-600 mt-2 font-medium">{t('coupon.customerImportDescription')}</p>
 			</div>
 			<button
 				onclick={downloadTemplate}
-				class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+				class="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-300 flex items-center gap-2 whitespace-nowrap font-semibold flex-shrink-0"
 			>
-				<span class="text-xl">📥</span>
+				<span class="text-xl">⬇️</span>
 				{t('coupon.downloadTemplate')}
 			</button>
 		</div>
 	</div>
 
 	<!-- Content -->
-	<div class="flex-1 overflow-auto p-6">
-		<div class="max-w-4xl mx-auto space-y-6">
+	<div class="flex-1 overflow-hidden p-8 w-full">
+		<div class="w-full h-full flex flex-col">
 			<!-- Campaign Selection -->
-			<div class="bg-white rounded-lg shadow-sm p-6">
-				<label class="block text-sm font-medium text-gray-700 mb-2">
-					{t('coupon.selectCampaign')} *
+			<div class="mb-8 flex-shrink-0">
+				<label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">
+					📋 {t('coupon.selectCampaign')} *
 				</label>
 				<select
 					bind:value={selectedCampaignId}
 					disabled={loading}
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+					onchange={loadImportedCustomers}
+					class="w-full max-w-2xl px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50 font-medium text-gray-700 bg-white shadow-sm hover:shadow-md transition-shadow"
 				>
 					<option value="">{t('coupon.chooseCampaign')}</option>
 					{#each campaigns as campaign}
@@ -292,121 +411,251 @@
 				</select>
 			</div>
 
-			<!-- File Upload -->
-			<div class="bg-white rounded-lg shadow-sm p-6">
-				<h3 class="text-lg font-semibold mb-4">{t('coupon.uploadFile')}</h3>
-				
-				<div
-					class="border-2 border-dashed rounded-lg p-8 text-center transition-colors {isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}"
-					ondrop={handleDrop}
-					ondragover={handleDragOver}
-					ondragleave={handleDragLeave}
-				>
-					<div class="text-6xl mb-4">📄</div>
-					<p class="text-lg font-medium text-gray-700 mb-2">
-						{t('coupon.dragDropFile')}
-					</p>
-					<p class="text-sm text-gray-500 mb-4">
-						{t('coupon.supportedFormats')}: CSV, TXT, XLS, XLSX
-					</p>
-					<input
-						type="file"
-						bind:this={fileInput}
-						onchange={handleFileSelect}
-						accept=".csv,.txt,.xls,.xlsx"
-						class="hidden"
-					/>
-					<button
-						onclick={() => fileInput?.click()}
-						class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-					>
-						{t('coupon.browseFiles')}
-					</button>
-				</div>
-			</div>
-
-			<!-- Manual Input -->
-			<div class="bg-white rounded-lg shadow-sm p-6">
-				<h3 class="text-lg font-semibold mb-4">{t('coupon.manualEntry')}</h3>
-				<textarea
-					onchange={handleManualInput}
-					rows="6"
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm"
-					placeholder="0548357066&#10;0509876543&#10;0512345678"
-				></textarea>
-				<p class="text-xs text-gray-500 mt-2">
-					{t('coupon.oneNumberPerLine')}
-				</p>
-			</div>
-
-			<!-- Preview -->
-			{#if showPreview}
-				<div class="bg-white rounded-lg shadow-sm p-6">
-					<h3 class="text-lg font-semibold mb-4">{t('coupon.importPreview')}</h3>
-					
-					<!-- Summary -->
-					<div class="grid grid-cols-3 gap-4 mb-6">
-						<div class="bg-green-50 border border-green-200 rounded-lg p-4">
-							<div class="text-3xl font-bold text-green-700">{validNumbers.length}</div>
-							<div class="text-sm text-green-600">{t('coupon.validNumbers')}</div>
-						</div>
-						<div class="bg-red-50 border border-red-200 rounded-lg p-4">
-							<div class="text-3xl font-bold text-red-700">{invalidNumbers.length}</div>
-							<div class="text-sm text-red-600">{t('coupon.invalidNumbers')}</div>
-						</div>
-						<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-							<div class="text-3xl font-bold text-yellow-700">{duplicateNumbers.length}</div>
-							<div class="text-sm text-yellow-600">{t('coupon.duplicateNumbers')}</div>
+			<!-- Two Horizontal Sections -->
+			<div class="flex-1 grid grid-cols-3 gap-8 min-w-0 w-full overflow-hidden">
+				<!-- Section 1: Import Section (Takes 2 columns) -->
+				<div class="col-span-2 space-y-8 overflow-y-auto pr-4 min-w-0">
+					<!-- File Upload -->
+					<div class="flex-shrink-0">
+						<label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">
+							📄 {t('coupon.uploadFile')}
+						</label>
+						<div
+							class="border-2 border-dashed rounded-2xl p-12 text-center transition-all duration-300 w-full {isDragging ? 'border-orange-500 bg-orange-50 scale-105' : 'border-gray-300 hover:border-orange-400 hover:bg-orange-50 bg-white'}"
+							ondrop={handleDrop}
+							ondragover={handleDragOver}
+							ondragleave={handleDragLeave}
+						>
+							<div class="text-7xl mb-6 animate-bounce">{isDragging ? '✨' : '📁'}</div>
+							<p class="text-xl font-bold text-gray-900 mb-2">
+								{isDragging ? 'Drop your file here!' : t('coupon.dragDropFile')}
+							</p>
+							<p class="text-sm text-gray-600 mb-6 font-medium">
+								{t('coupon.supportedFormats')}: CSV, TXT, XLS, XLSX
+							</p>
+							<input
+								type="file"
+								bind:this={fileInput}
+								onchange={handleFileSelect}
+								accept=".csv,.txt,.xls,.xlsx"
+								class="hidden"
+							/>
+							<button
+								onclick={() => fileInput?.click()}
+								class="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-300 font-semibold"
+							>
+								📤 {t('coupon.browseFiles')}
+							</button>
 						</div>
 					</div>
 
-					<!-- Invalid Numbers List -->
-					{#if invalidNumbers.length > 0}
-						<div class="mb-4">
-							<h4 class="font-medium text-red-700 mb-2">{t('coupon.invalidNumbersList')}:</h4>
-							<div class="bg-red-50 border border-red-200 rounded p-3 max-h-32 overflow-auto">
-								<div class="text-sm text-red-600 font-mono space-y-1">
-									{#each invalidNumbers as num}
-										<div>{num}</div>
-									{/each}
+					<!-- Manual Input -->
+					<div class="flex-shrink-0">
+						<label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">
+							✍️ {t('coupon.manualEntry')}
+						</label>
+						<textarea
+							onchange={handleManualInput}
+							rows="8"
+							class="w-full px-5 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none font-mono text-sm shadow-sm hover:shadow-md transition-shadow bg-white"
+							placeholder="0548357066&#10;0509876543&#10;0512345678"
+						></textarea>
+						<p class="text-xs text-gray-500 mt-3 font-medium">
+							💡 {t('coupon.oneNumberPerLine')}
+						</p>
+					</div>
+
+					<!-- Preview -->
+					{#if showPreview}
+						<div class="animate-in fade-in-50 duration-500 flex-shrink-0">
+							<label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">
+								✅ {t('coupon.importPreview')}
+							</label>
+							
+							<!-- Summary -->
+							<div class="grid grid-cols-3 gap-4 mb-6">
+								<div class="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-xl p-6 hover:shadow-lg transition-shadow">
+									<div class="text-4xl font-bold text-green-700">{validNumbers.length}</div>
+									<div class="text-sm text-green-700 font-semibold mt-2">✔️ {t('coupon.validNumbers')}</div>
 								</div>
+								<div class="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-300 rounded-xl p-6 hover:shadow-lg transition-shadow">
+									<div class="text-4xl font-bold text-red-700">{invalidNumbers.length}</div>
+									<div class="text-sm text-red-700 font-semibold mt-2">❌ {t('coupon.invalidNumbers')}</div>
+								</div>
+								<div class="bg-gradient-to-br from-yellow-50 to-yellow-100 border-2 border-yellow-300 rounded-xl p-6 hover:shadow-lg transition-shadow">
+									<div class="text-4xl font-bold text-yellow-700">{duplicateNumbers.length}</div>
+									<div class="text-sm text-yellow-700 font-semibold mt-2">⚠️ {t('coupon.duplicateNumbers')}</div>
+								</div>
+							</div>
+
+							<!-- Invalid Numbers List -->
+							{#if invalidNumbers.length > 0}
+								<div class="mb-6">
+									<h4 class="font-bold text-red-700 mb-3 text-sm">❌ {t('coupon.invalidNumbersList')}:</h4>
+									<div class="bg-red-50 border-2 border-red-200 rounded-xl p-4 max-h-40 overflow-auto">
+										<div class="text-sm text-red-700 font-mono space-y-2">
+											{#each invalidNumbers as num}
+												<div class="flex items-center gap-2">
+													<span class="text-red-500">•</span>
+													<span>{num}</span>
+												</div>
+											{/each}
+										</div>
+									</div>
+								</div>
+							{/if}
+
+							<!-- Duplicate Numbers List -->
+							{#if duplicateNumbers.length > 0}
+								<div class="mb-6">
+									<h4 class="font-bold text-yellow-700 mb-3 text-sm">⚠️ {t('coupon.duplicateNumbersList')}:</h4>
+									<div class="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4 max-h-40 overflow-auto">
+										<div class="text-sm text-yellow-700 font-mono space-y-2">
+											{#each duplicateNumbers as num}
+												<div class="flex items-center gap-2">
+													<span class="text-yellow-500">•</span>
+													<span>{num}</span>
+												</div>
+											{/each}
+										</div>
+									</div>
+								</div>
+							{/if}
+
+							<!-- Actions -->
+							<div class="flex gap-4 pt-4 border-t border-gray-200">
+								<button
+									onclick={handleImport}
+									disabled={importing || validNumbers.length === 0 || !selectedCampaignId}
+									class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed font-bold"
+								>
+									{importing ? '⏳ ' + t('coupon.importing') : '🚀 ' + t('coupon.importCustomers')} ({validNumbers.length})
+								</button>
+								<button
+									onclick={reset}
+									disabled={importing}
+									class="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all duration-300 disabled:opacity-50 font-semibold"
+								>
+									↻ {t('coupon.reset')}
+								</button>
 							</div>
 						</div>
 					{/if}
+				</div>
 
-					<!-- Duplicate Numbers List -->
-					{#if duplicateNumbers.length > 0}
-						<div class="mb-4">
-							<h4 class="font-medium text-yellow-700 mb-2">{t('coupon.duplicateNumbersList')}:</h4>
-							<div class="bg-yellow-50 border border-yellow-200 rounded p-3 max-h-32 overflow-auto">
-								<div class="text-sm text-yellow-600 font-mono space-y-1">
-									{#each duplicateNumbers as num}
-										<div>{num}</div>
-									{/each}
-								</div>
-							</div>
-						</div>
-					{/if}
-
-					<!-- Actions -->
-					<div class="flex gap-3 pt-4 border-t">
+				<!-- Section 2: Imported Customers List -->
+				<div class="col-span-1 flex flex-col min-w-0 w-full overflow-hidden h-full">
+					<div class="flex items-center justify-between gap-3 mb-3 flex-shrink-0">
+						<label class="block text-sm font-bold text-gray-700 uppercase tracking-wider flex-1">
+							📊 {t('coupon.importedCustomers')}
+						</label>
 						<button
-							onclick={handleImport}
-							disabled={importing || validNumbers.length === 0 || !selectedCampaignId}
-							class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+							onclick={() => showAddNumberModal = true}
+							disabled={!selectedCampaignId}
+							class="px-3 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-lg leading-none"
+							title="Add number manually"
 						>
-							{importing ? t('coupon.importing') : t('coupon.importCustomers')} ({validNumbers.length})
-						</button>
-						<button
-							onclick={reset}
-							disabled={importing}
-							class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
-						>
-							{t('coupon.reset')}
+							+
 						</button>
 					</div>
+					<div class="bg-white rounded-2xl shadow-md hover:shadow-lg transition-shadow p-6 flex-1 flex flex-col overflow-y-auto min-w-0">
+						{#if !selectedCampaignId}
+							<div class="text-center py-12 text-gray-500 flex-1 flex items-center justify-center">
+								<div>
+									<div class="text-4xl mb-3">🎯</div>
+									<p class="text-sm font-medium">{t('coupon.selectCampaignToView')}</p>
+								</div>
+							</div>
+						{:else if loadingImported}
+							<div class="text-center py-12 flex-1 flex items-center justify-center">
+								<div>
+									<div class="inline-block animate-spin text-4xl mb-3">⏳</div>
+									<p class="text-sm text-gray-600 font-medium">{t('coupon.loading')}</p>
+								</div>
+							</div>
+						{:else if importedCustomers.length === 0}
+							<div class="text-center py-12 text-gray-500 flex-1 flex items-center justify-center">
+								<div>
+									<div class="text-4xl mb-3">📭</div>
+									<p class="text-sm font-medium">{t('coupon.noCustomersImported')}</p>
+								</div>
+							</div>
+						{:else}
+							<div class="flex-1 flex flex-col overflow-hidden min-w-0">
+								<div class="bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl p-4 mb-4 flex-shrink-0">
+									<p class="text-sm font-bold text-blue-700">
+										✔️ {t('coupon.totalImported')}: <span class="text-lg">{importedCustomers.length}</span>
+									</p>
+								</div>
+								<div class="flex-1 overflow-y-auto space-y-2 pr-2 min-w-0">
+									{#each importedCustomers as customer, idx}
+										<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-orange-50 transition-colors duration-300 flex-shrink-0 {idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'} min-w-0 group">
+											<span class="text-sm font-bold text-orange-500 flex-shrink-0">✔️</span>
+											<span class="font-mono text-xs text-gray-700 flex-1 truncate">{customer.mobile_number || customer.phone || 'N/A'}</span>
+											{#if currentUserData?.roleType === 'Master Admin'}
+												<button
+													onclick={() => handleDeleteCustomer(customer.id)}
+													disabled={deletingCustomerId === customer.id}
+													class="text-xs text-red-500 hover:text-red-700 hover:bg-red-100 px-2 py-1 rounded transition-all duration-300 disabled:opacity-50 flex-shrink-0 font-semibold"
+													title="Delete customer"
+												>
+													{deletingCustomerId === customer.id ? '⏳' : '✕'}
+												</button>
+											{:else}
+												<span class="text-xs text-gray-400 flex-shrink-0">{currentUserData?.roleType || 'No role'}</span>
+											{/if}
+											<span class="text-xs text-gray-400 font-semibold flex-shrink-0">{idx + 1}</span>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					</div>
 				</div>
-			{/if}
+			</div>
 		</div>
 	</div>
 </div>
+
+<!-- Add Number Modal -->
+{#if showAddNumberModal}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 animate-in fade-in zoom-in duration-300">
+			<h3 class="text-2xl font-bold text-gray-900 mb-6">➕ {t('coupon.addCustomer')}</h3>
+			
+			<div class="space-y-4 mb-6">
+				<div>
+					<label class="block text-sm font-bold text-gray-700 mb-2">📱 {t('coupon.mobileNumber')} *</label>
+					<input
+						type="text"
+						bind:value={newNumber}
+						placeholder="05XXXXXXXX"
+						class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent font-mono text-sm"
+						onkeydown={(e) => e.key === 'Enter' && handleAddNumber()}
+					/>
+					<p class="text-xs text-gray-500 mt-2 font-medium">
+						💡 {t('coupon.saudiFormatExample')}: 05XXXXXXXX
+					</p>
+				</div>
+			</div>
+
+			<div class="flex gap-3">
+				<button
+					onclick={handleAddNumber}
+					class="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 font-bold"
+				>
+					✅ {t('coupon.add')}
+				</button>
+				<button
+					onclick={() => {
+						showAddNumberModal = false;
+						newNumber = '';
+					}}
+					class="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all duration-300 font-semibold"
+				>
+					✕ {t('coupon.cancel')}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

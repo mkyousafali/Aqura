@@ -29,18 +29,25 @@
 	let filteredFlyerProducts = $state<any[]>([]);
 	let couponProductMapping: Map<string, string> = $state(new Map()); // Maps coupon_product.id to flyer_product.id
 
-	// Filter products based on search
+	// Filter and sort products based on search and selection
 	$effect(() => {
+		let filtered: any[];
 		if (searchQuery.trim() === '') {
-			filteredFlyerProducts = flyerProducts;
+			filtered = flyerProducts;
 		} else {
 			const query = searchQuery.toLowerCase();
-			filteredFlyerProducts = flyerProducts.filter(p => 
+			filtered = flyerProducts.filter(p => 
 				p.product_name_en?.toLowerCase().includes(query) ||
 				p.product_name_ar?.toLowerCase().includes(query) ||
 				p.barcode?.toLowerCase().includes(query)
 			);
 		}
+		
+		// Sort: selected products first, then unselected
+		const selected = filtered.filter(p => selectedProducts.has(p.id) && !selectedProducts.get(p.id)?.markedForDeletion);
+		const unselected = filtered.filter(p => !selectedProducts.has(p.id) || selectedProducts.get(p.id)?.markedForDeletion);
+		
+		filteredFlyerProducts = [...selected, ...unselected];
 	});
 
 	// Load campaigns
@@ -259,19 +266,55 @@
 		saving = true;
 		try {
 			let successCount = 0;
+			let failedDeletes: string[] = [];
 
-			// Delete products
+			// Check products for claims before attempting deletion
 			for (const id of toDelete) {
 				try {
-					const { error } = await supabase
-						.from('coupon_products')
-						.delete()
-						.eq('id', id);
+					// First, check if the product has any claims
+					const { data: claims, error: claimError } = await supabase
+						.from('coupon_claims')
+						.select('id')
+						.eq('product_id', id)
+						.limit(1);
 					
-					if (error) throw error;
-					successCount++;
+					if (claimError) {
+						console.error('Error checking claims:', claimError);
+						continue;
+					}
+
+					// If product has claims, mark as inactive instead of deleting
+					if (claims && claims.length > 0) {
+						const { error: updateError } = await supabase
+							.from('coupon_products')
+							.update({ is_active: false })
+							.eq('id', id);
+						
+						if (updateError) {
+							console.error(`Error marking product inactive:`, updateError);
+						} else {
+							failedDeletes.push(id);
+							successCount++;
+						}
+					} else {
+						// No claims, safe to delete
+						const { error } = await supabase
+							.from('coupon_products')
+							.delete()
+							.eq('id', id);
+						
+						if (error) {
+							console.error(`Error deleting product:`, error);
+							notifications.add({
+								message: `Failed to delete product: ${error.message}`,
+								type: 'error'
+							});
+						} else {
+							successCount++;
+						}
+					}
 				} catch (error: any) {
-					console.error(`Error deleting product:`, error);
+					console.error(`Unexpected error processing product deletion:`, error);
 				}
 			}
 
@@ -302,6 +345,14 @@
 				message: `Successfully saved ${successCount} product(s)`,
 				type: 'success'
 			});
+
+			// Show additional message if products were marked inactive instead of deleted
+			if (failedDeletes.length > 0) {
+				notifications.add({
+					message: `${failedDeletes.length} product(s) with claims were marked as inactive instead of deleted`,
+					type: 'info'
+				});
+			}
 
 			// Reload products to refresh the view
 			await loadProducts();
