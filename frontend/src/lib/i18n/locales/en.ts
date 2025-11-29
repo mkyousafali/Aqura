@@ -992,6 +992,11 @@ export const englishLocale: LocaleData = {
       showing: "Showing",
       of: "of",
       transactions: "transactions (latest first)",
+      loadToday: "Today",
+      loadSpecificDate: "Specific Date",
+      loadDateRange: "Date Range",
+      loadAllData: "All Data",
+      loadData: "Load Data",
       // HR Master Dashboard
       masterTitle: "HR Master Dashboard",
       masterSubtitle: "Complete Human Resources Management System",

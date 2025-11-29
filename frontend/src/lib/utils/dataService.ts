@@ -1651,6 +1651,58 @@ export const dataService = {
       }
     },
 
+    async getByDate(date: string): Promise<{ data: any[] | null; error: any }> {
+      if (USE_SUPABASE) {
+        try {
+          const { data, error } = await supabase
+            .from("hr_fingerprint_transactions")
+            .select("*")
+            .eq("date", date)
+            .order("time", { ascending: false });
+
+          if (error) {
+            console.error("Failed to fetch HR fingerprint transactions by date:", error);
+            return { data: null, error: error.message };
+          }
+
+          return { data, error: null };
+        } catch (error) {
+          console.error("Failed to fetch HR fingerprint transactions by date:", error);
+          return { data: null, error: error.message };
+        }
+      } else {
+        await delay(MOCK_DATA_DELAY);
+        return { data: [], error: null };
+      }
+    },
+
+    async getByDateRange(startDate: string, endDate: string): Promise<{ data: any[] | null; error: any }> {
+      if (USE_SUPABASE) {
+        try {
+          const { data, error } = await supabase
+            .from("hr_fingerprint_transactions")
+            .select("*")
+            .gte("date", startDate)
+            .lte("date", endDate)
+            .order("date", { ascending: false })
+            .order("time", { ascending: false });
+
+          if (error) {
+            console.error("Failed to fetch HR fingerprint transactions by date range:", error);
+            return { data: null, error: error.message };
+          }
+
+          return { data, error: null };
+        } catch (error) {
+          console.error("Failed to fetch HR fingerprint transactions by date range:", error);
+          return { data: null, error: error.message };
+        }
+      } else {
+        await delay(MOCK_DATA_DELAY);
+        return { data: [], error: null };
+      }
+    },
+
     async getByBranch(
       branchId: string,
     ): Promise<{ data: any[] | null; error: any }> {

@@ -970,6 +970,11 @@ export const arabicLocale: LocaleData = {
       showing: "عرض",
       of: "من",
       transactions: "معاملات (الأحدث أولاً)",
+      loadToday: "اليوم",
+      loadSpecificDate: "تاريخ محدد",
+      loadDateRange: "نطاق التاريخ",
+      loadAllData: "جميع البيانات",
+      loadData: "تحميل البيانات",
       // HR Master Dashboard
       masterTitle: "لوحة مراقبة إدارة الموارد البشرية",
       masterSubtitle: "نظام إدارة الموارد البشرية الشامل",

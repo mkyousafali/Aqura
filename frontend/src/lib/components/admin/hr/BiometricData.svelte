@@ -14,6 +14,12 @@
 	let loading = true;
 	let error = '';
 	
+	// Data loading mode
+	let loadingMode = 'today'; // 'today', 'specific', 'range', 'all'
+	let specificDate = '';
+	let startDate = '';
+	let endDate = '';
+	
 	// Filter state
 	let selectedBranch = ''; // Empty string means "All"
 	let selectedDate = ''; // Empty string means "All"
@@ -74,13 +80,41 @@
 				});
 			}
 
-			// Get today's date
-			const today = new Date().toISOString().split('T')[0];
+		// Get today's date
+		const today = new Date().toISOString().split('T')[0];
 
-			// Fetch all fingerprint transactions
-			const { data, error: fetchError } = await dataService.hrFingerprint.getAll();
-			
-			if (fetchError) {
+		// Fetch fingerprint transactions based on loading mode
+		let fetchedData;
+		let fetchError;
+		
+		if (loadingMode === 'today') {
+			// Load only today's data with optimized query
+			const result = await dataService.hrFingerprint.getByDate(today);
+			fetchedData = result.data || [];
+			fetchError = result.error;
+		} else if (loadingMode === 'specific' && specificDate) {
+			// Load specific date data with optimized query
+			const result = await dataService.hrFingerprint.getByDate(specificDate);
+			fetchedData = result.data || [];
+			fetchError = result.error;
+		} else if (loadingMode === 'range' && startDate && endDate) {
+			// Load date range data with optimized query
+			const result = await dataService.hrFingerprint.getByDateRange(startDate, endDate);
+			fetchedData = result.data || [];
+			fetchError = result.error;
+		} else if (loadingMode === 'all') {
+			// Load all data (paginated in batches)
+			const result = await dataService.hrFingerprint.getAll();
+			fetchedData = result.data;
+			fetchError = result.error;
+		} else {
+			// Default to today if mode is not properly set
+			const result = await dataService.hrFingerprint.getByDate(today);
+			fetchedData = result.data || [];
+			fetchError = result.error;
+		}
+		
+		const data = fetchedData;			if (fetchError) {
 				error = 'Failed to load fingerprint data';
 				return;
 			}
@@ -214,16 +248,10 @@
 	}
 
 	function formatDate(dateString) {
-		// dateString is in YYYY-MM-DD format (Saudi Arabia timezone)
-		// Convert to UTC by subtracting 3 hours, which might affect the date
-		const date = new Date(dateString + 'T00:00:00Z');
-		date.setHours(date.getHours() - 3); // Subtract 3 hours for UTC
-		
-		return date.toLocaleDateString('en-US', {
-			month: '2-digit',
-			day: '2-digit',
-			year: 'numeric'
-		});
+		// dateString is in YYYY-MM-DD format
+		// Parse and format as DD/MM/YYYY
+		const [year, month, day] = dateString.split('-');
+		return `${day}/${month}/${year}`;
 	}
 
 	function formatTime(timeString) {
@@ -359,7 +387,70 @@
 			<div class="table-header">
 				<h3 class="table-title">{t('hr.allFingerprint')}</h3>
 				<p class="table-subtitle">{t('hr.showing')} {filteredTransactions.length} {t('hr.of')} {allTransactions.length} {t('hr.transactions')}</p>
-			</div>				<!-- Search Bar -->
+			</div>
+			
+			<!-- Data Loading Mode Radio Buttons -->
+			<div class="loading-mode-container">
+				<div class="radio-group-horizontal">
+					<label class="radio-label-mode">
+						<input type="radio" value="today" bind:group={loadingMode} class="radio-input" on:change={loadData} />
+						<span class="radio-text">📅 {t('hr.loadToday')}</span>
+					</label>
+					
+					<label class="radio-label-mode">
+						<input type="radio" value="specific" bind:group={loadingMode} class="radio-input" />
+						<span class="radio-text">🗓️ {t('hr.loadSpecificDate')}</span>
+					</label>
+					
+					<label class="radio-label-mode">
+						<input type="radio" value="range" bind:group={loadingMode} class="radio-input" />
+						<span class="radio-text">📆 {t('hr.loadDateRange')}</span>
+					</label>
+					
+					<label class="radio-label-mode">
+						<input type="radio" value="all" bind:group={loadingMode} class="radio-input" on:change={loadData} />
+						<span class="radio-text">📊 {t('hr.loadAllData')}</span>
+					</label>
+				</div>
+				
+				<!-- Date inputs based on selection -->
+				{#if loadingMode === 'specific'}
+					<div class="date-input-container">
+						<input 
+							type="date" 
+							bind:value={specificDate} 
+							class="date-input"
+							aria-label="Select specific date"
+						/>
+						<button class="load-btn" on:click={loadData} disabled={!specificDate}>
+							{t('hr.loadData')}
+						</button>
+					</div>
+				{:else if loadingMode === 'range'}
+					<div class="date-input-container">
+						<input 
+							type="date" 
+							bind:value={startDate} 
+							class="date-input"
+							placeholder="Start Date"
+							aria-label="Select start date"
+						/>
+						<span class="date-separator">→</span>
+						<input 
+							type="date" 
+							bind:value={endDate} 
+							class="date-input"
+							placeholder="End Date"
+							aria-label="Select end date"
+						/>
+						<button class="load-btn" on:click={loadData} disabled={!startDate || !endDate}>
+							{t('hr.loadData')}
+						</button>
+					</div>
+				{/if}
+			</div>
+			
+			<!-- Search Bar -->
 				<div class="search-bar-container">
 					<div class="search-input-group">
 						<input
@@ -920,6 +1011,134 @@
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
+	/* Loading Mode Radio Buttons */
+	.loading-mode-container {
+		padding: 16px 20px;
+		background: linear-gradient(135deg, #fef3c7 0%, #fef9e7 100%);
+		border-bottom: 1px solid #fbbf24;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.radio-group-horizontal {
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.radio-label-mode {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		font-size: 14px;
+		color: #92400e;
+		font-weight: 500;
+		user-select: none;
+		padding: 10px 18px;
+		border-radius: 8px;
+		border: 2px solid #fbbf24;
+		background: white;
+		transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		white-space: nowrap;
+	}
+
+	.radio-label-mode:hover {
+		background: #fffbeb;
+		border-color: #f59e0b;
+		color: #78350f;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+		transform: translateY(-1px);
+	}
+
+	.radio-label-mode:has(.radio-input:checked) {
+		background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+		border-color: #d97706;
+		color: white;
+		font-weight: 600;
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.radio-label-mode:has(.radio-input:checked):hover {
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		border-color: #b45309;
+		box-shadow: 0 6px 16px rgba(245, 158, 11, 0.5);
+	}
+
+	.radio-text {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.date-input-container {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px;
+		background: white;
+		border-radius: 8px;
+		border: 1px solid #fbbf24;
+	}
+
+	.date-input {
+		padding: 8px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		font-family: inherit;
+		color: #111827;
+		background: white;
+		transition: all 0.2s;
+		min-width: 150px;
+	}
+
+	.date-input:hover {
+		border-color: #9ca3af;
+		background: #f9fafb;
+	}
+
+	.date-input:focus {
+		outline: none;
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+	}
+
+	.date-separator {
+		font-size: 18px;
+		color: #92400e;
+		font-weight: bold;
+	}
+
+	.load-btn {
+		padding: 8px 24px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.load-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.load-btn:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
 	@media (max-width: 768px) {
 		.search-bar-container {
 			flex-direction: column;
@@ -937,6 +1156,29 @@
 		}
 
 		.clear-search-btn {
+			width: 100%;
+		}
+
+		.radio-group-horizontal {
+			flex-direction: column;
+			width: 100%;
+		}
+
+		.radio-label-mode {
+			width: 100%;
+			justify-content: center;
+		}
+
+		.date-input-container {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.date-input {
+			width: 100%;
+		}
+
+		.load-btn {
 			width: 100%;
 		}
 
