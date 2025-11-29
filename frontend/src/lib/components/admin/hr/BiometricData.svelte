@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { dataService } from '$lib/utils/dataService';
+	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { t, isRTL, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import BiometricExport from './BiometricExport.svelte';
@@ -13,6 +14,7 @@
 	let positionMap = new Map(); // Map to store employee positions by employee UUID id
 	let allBranches = []; // Store all branches for filter dropdown
 	let allDates = []; // Store all unique dates for filter dropdown
+	let biometricConnections = []; // Store biometric connection sync status
 	let loading = true;
 	let error = '';
 	
@@ -62,6 +64,18 @@
 				branches.forEach(branch => {
 					branchMap.set(branch.id, branch);
 				});
+			}
+
+			// Fetch biometric connections for sync status
+			const { data: connections, error: connError } = await supabaseAdmin
+				.from('biometric_connections')
+				.select('*')
+				.eq('is_active', true)
+				.order('branch_id', { ascending: true });
+			if (connError) {
+				console.error('Failed to load biometric connections:', connError);
+			} else if (connections) {
+				biometricConnections = connections;
 			}
 
 			// Fetch position assignments and positions data
@@ -256,6 +270,25 @@
 		return `${day}/${month}/${year}`;
 	}
 
+	function formatSyncTime(timestamp) {
+		if (!timestamp) return 'Never';
+		const date = new Date(timestamp);
+		
+		// Format as: Nov 30, 2025 at 3:42 PM
+		const dateStr = date.toLocaleDateString('en-US', { 
+			year: 'numeric', 
+			month: 'short', 
+			day: 'numeric' 
+		});
+		const timeStr = date.toLocaleTimeString('en-US', { 
+			hour: '2-digit', 
+			minute: '2-digit',
+			hour12: true 
+		});
+		
+		return `${dateStr} at ${timeStr}`;
+	}
+
 	function formatTime(timeString) {
 		// timeString is in HH:MM:SS format (stored in Saudi Arabia timezone UTC+3)
 		// Convert to UTC by subtracting 3 hours
@@ -394,6 +427,39 @@
 										<div class="branch-count">
 											<span class="count-value">{branch.uniqueEmployees}</span>
 											<span class="count-label">{t('hr.presentToday')}</span>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Sync Status Card -->
+				<div class="card sync-card">
+					<div class="card-header">
+						<h3 class="card-title">{t('hr.syncStatus')}</h3>
+						<span class="card-icon">🔄</span>
+					</div>
+					<div class="card-body">
+						{#if biometricConnections.length === 0}
+							<div class="no-data">
+								<p>{t('hr.noSyncData')}</p>
+							</div>
+						{:else}
+							<div class="sync-list">
+								{#each biometricConnections as conn (conn.id)}
+									<div class="sync-item">
+										<div class="sync-branch-name">{conn.branch_name}</div>
+										<div class="sync-details">
+											<div class="sync-row">
+												<span class="sync-label">👥 {t('hr.employees')}:</span>
+												<span class="sync-time">{formatSyncTime(conn.last_sync_at)}</span>
+											</div>
+											<div class="sync-row">
+												<span class="sync-label">📋 {t('hr.transactions')}:</span>
+												<span class="sync-time">{formatSyncTime(conn.last_employee_sync_at)}</span>
+											</div>
 										</div>
 									</div>
 								{/each}
@@ -645,7 +711,7 @@
 
 	.cards-container {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+		grid-template-columns: repeat(3, 1fr);
 		gap: 20px;
 	}
 
@@ -733,6 +799,64 @@
 
 	.breakdown-card .card-title {
 		color: #0c2d6b;
+	}
+
+	.sync-card .card-header {
+		background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+	}
+
+	.sync-card .card-title {
+		color: #92400e;
+	}
+
+	.sync-list {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.sync-item {
+		padding: 12px;
+		background: #f9fafb;
+		border-radius: 8px;
+		border: 1px solid #e5e7eb;
+	}
+
+	.sync-branch-name {
+		font-size: 14px;
+		font-weight: 600;
+		color: #111827;
+		margin-bottom: 8px;
+	}
+
+	.sync-details {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.sync-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 11px;
+		gap: 8px;
+	}
+
+	.sync-label {
+		color: #6b7280;
+		font-weight: 500;
+		flex-shrink: 0;
+	}
+
+	.sync-time {
+		color: #059669;
+		font-weight: 600;
+		text-align: right;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.metric-value {
