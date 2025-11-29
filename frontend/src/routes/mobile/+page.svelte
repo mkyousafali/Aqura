@@ -170,42 +170,25 @@
 					}))
 					.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 				
-				// Get the latest check-out
+				// Get the latest 2 punch records (most recent checkout and most recent checkin)
 				const latestCheckOut = sortedData.find(r => r.status?.toLowerCase().includes('out'));
+				const latestCheckIn = sortedData.find(r => r.status?.toLowerCase().includes('in'));
 				
-				// Get the FIRST (earliest) check-in of the same day as the latest check-out
-				let latestCheckIn = null;
-				if (latestCheckOut) {
-					const checkOutDate = latestCheckOut.date;
-					// Find all check-ins on the same date, sorted by time ascending (earliest first)
-					const checkInsOnSameDay = sortedData
-						.filter(r => r.status?.toLowerCase().includes('in') && r.date === checkOutDate)
-						.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-					
-					// Take the first (earliest) check-in of the day
-					latestCheckIn = checkInsOnSameDay[0];
-				}
-				
-				// If no check-out yet, just get the latest check-in
-				if (!latestCheckOut) {
-					latestCheckIn = sortedData.find(r => r.status?.toLowerCase().includes('in'));
-				}
-				
-				// Build display array with check-out first, then check-in
+				// Build display array with most recent records
 				const displayRecords = [];
 				if (latestCheckOut) displayRecords.push(latestCheckOut);
 				if (latestCheckIn) displayRecords.push(latestCheckIn);
 				
-				console.log('🔍 Display records (latest checkout + first checkin of same day):', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
+				console.log('🔍 Display records (latest 2 punches):', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
 				
-				// Process each punch record - database stores times 3 hours ahead, subtract 3 to display
-				// This matches the desktop BiometricData component behavior
+				// Convert time by subtracting 3 hours (same as desktop)
+				// Database stores times 3 hours ahead, so we subtract to display local time
 				punches.records = displayRecords.map(record => {
-					// Parse time and subtract 3 hours (same as desktop formatTime function)
-					const [hours, minutes, seconds] = record.time.split(':');
+					// Parse time and subtract 3 hours
+					const [hours, minutes] = record.time.split(':');
 					let hour = parseInt(hours, 10);
 					
-					// Subtract 3 hours (same logic as desktop BiometricData.svelte)
+					// Subtract 3 hours (same logic as desktop BiometricExport.svelte)
 					hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
 					
 					// Convert to 12-hour format
@@ -215,7 +198,11 @@
 					
 					// Format date
 					const dateObj = new Date(record.date);
-					const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+					const dateStr = dateObj.toLocaleDateString('en-US', { 
+						weekday: 'short', 
+						month: 'short', 
+						day: 'numeric' 
+					});
 					
 					console.log(`📍 Record: ${record.date} ${record.time} (DB) -3hrs → Display: ${timeStr} ${dateStr}`);
 					

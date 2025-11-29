@@ -103,7 +103,7 @@
 						'First Name': employee?.name || '—',
 						'Department': position || '—',
 						'Date': formatDate(transaction.date),
-						'Time': formatTime(transaction.time),
+						'Time': formatTime(transaction.time, transaction.date),
 						'Punch State': transaction.status
 					};
 				});
@@ -132,13 +132,13 @@
 		return dateString;
 	}
 
-	function formatTime(timeString) {
-		// timeString is in HH:MM:SS format (stored in Saudi Arabia timezone UTC+3)
-		// Convert to UTC by subtracting 3 hours
+	function formatTime(timeString, dateString = null) {
+		// timeString is in HH:MM:SS format (database stores times 3 hours ahead)
+		// Subtract 3 hours to display local time
 		const [hours, minutes] = timeString.split(':');
 		let hour = parseInt(hours);
 		
-		// Subtract 3 hours for UTC
+		// Subtract 3 hours
 		hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
 		
 		const ampm = hour >= 12 ? 'PM' : 'AM';
