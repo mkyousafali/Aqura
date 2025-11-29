@@ -138,13 +138,17 @@
 				return;
 			}
 			
+			console.log(`🔍 Querying punches for employee_id: ${empData.employee_id}`);
+			
 			// Now query fingerprint transactions using the varchar employee_id - get last 2 records
+			// We'll fetch more records and sort them properly by combining date and time
 			const { data, error } = await supabase
 				.from('hr_fingerprint_transactions')
 				.select('date, time, status, branch_id, created_at')
 				.eq('employee_id', empData.employee_id)
-				.order('created_at', { ascending: false })
-				.limit(2);
+				.order('date', { ascending: false })
+				.order('time', { ascending: false })
+				.limit(10); // Fetch more to ensure we get the latest from today
 			
 			if (error) {
 				if (error.code === 'PGRST116') {
@@ -155,18 +159,72 @@
 					punches.error = 'Failed to load punch data';
 				}
 			} else if (data && data.length > 0) {
-				// Process each punch record
-				punches.records = data.map(record => {
-					// Combine date and time
-					// The time stored in hr_fingerprint_transactions is in Saudi timezone (UTC+3)
-					// We need to convert it to UTC by subtracting 3 hours
-					const saudiDate = new Date(`${record.date}T${record.time}`);
-					// Convert from Saudi time (UTC+3) to UTC by subtracting 3 hours
-					const utcTime = new Date(saudiDate.getTime() - (3 * 60 * 60 * 1000));
+				console.log('🔍 Raw punch data from database:', data);
+				console.log('🔍 Raw punch records:', data.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
+				
+				// Sort by combining date and time into proper timestamps
+				const sortedData = data
+					.map(record => ({
+						...record,
+						timestamp: new Date(`${record.date}T${record.time}`)
+					}))
+					.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+				
+				// Get the latest check-out
+				const latestCheckOut = sortedData.find(r => r.status?.toLowerCase().includes('out'));
+				
+				// Get the FIRST (earliest) check-in of the same day as the latest check-out
+				let latestCheckIn = null;
+				if (latestCheckOut) {
+					const checkOutDate = latestCheckOut.date;
+					// Find all check-ins on the same date, sorted by time ascending (earliest first)
+					const checkInsOnSameDay = sortedData
+						.filter(r => r.status?.toLowerCase().includes('in') && r.date === checkOutDate)
+						.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+					
+					// Take the first (earliest) check-in of the day
+					latestCheckIn = checkInsOnSameDay[0];
+				}
+				
+				// If no check-out yet, just get the latest check-in
+				if (!latestCheckOut) {
+					latestCheckIn = sortedData.find(r => r.status?.toLowerCase().includes('in'));
+				}
+				
+				// Build display array with check-out first, then check-in
+				const displayRecords = [];
+				if (latestCheckOut) displayRecords.push(latestCheckOut);
+				if (latestCheckIn) displayRecords.push(latestCheckIn);
+				
+				console.log('🔍 Display records (latest checkout + first checkin of same day):', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
+				
+				// Process each punch record - database stores times 3 hours ahead, subtract 3 to display
+				// This matches the desktop BiometricData component behavior
+				punches.records = displayRecords.map(record => {
+					// Parse time and subtract 3 hours (same as desktop formatTime function)
+					const [hours, minutes, seconds] = record.time.split(':');
+					let hour = parseInt(hours, 10);
+					
+					// Subtract 3 hours (same logic as desktop BiometricData.svelte)
+					hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
+					
+					// Convert to 12-hour format
+					const isPM = hour >= 12;
+					const hour12 = hour % 12 || 12;
+					const timeStr = `${String(hour12).padStart(2, '0')}:${minutes} ${isPM ? 'PM' : 'AM'}`;
+					
+					// Format date
+					const dateObj = new Date(record.date);
+					const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+					
+					console.log(`📍 Record: ${record.date} ${record.time} (DB) -3hrs → Display: ${timeStr} ${dateStr}`);
+					
 					return {
-						time: utcTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-						date: utcTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-						status: record.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out'
+						time: timeStr,
+						date: dateStr,
+						status: record.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out',
+						rawDate: record.date,
+						rawTime: record.time
 					};
 				});
 				console.log('✅ Recent punches loaded:', punches.records);
