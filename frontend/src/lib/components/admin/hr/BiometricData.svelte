@@ -37,9 +37,11 @@
 			if (empError) {
 				console.error('Failed to load employees:', empError);
 			} else if (employees) {
-				// Build employee map by employee_id (not id)
+				// Build employee map by composite key: employee_id + branch_id
+				// This handles duplicate employee_ids across different branches
 				employees.forEach(emp => {
-					employeeMap.set(String(emp.employee_id), emp);
+					const compositeKey = `${emp.employee_id}_${emp.branch_id}`;
+					employeeMap.set(compositeKey, emp);
 				});
 			}
 
@@ -196,7 +198,7 @@
 				if (searchType === 'employee-id') {
 					return String(transaction.employee_id).toLowerCase().includes(query);
 				} else if (searchType === 'name') {
-					const employeeName = getEmployeeName(transaction.employee_id).toLowerCase();
+					const employeeName = getEmployeeName(transaction.employee_id, transaction.branch_id).toLowerCase();
 					return employeeName.includes(query);
 				}
 				return true;
@@ -238,8 +240,10 @@
 		return `${String(displayHour).padStart(2, '0')}:${minutes} ${ampm}`;
 	}
 
-	function getEmployeeName(employeeId) {
-		const employee = employeeMap.get(String(employeeId));
+	function getEmployeeName(employeeId, branchId) {
+		// Use composite key to match both employee_id and branch_id
+		const compositeKey = `${employeeId}_${branchId}`;
+		const employee = employeeMap.get(compositeKey);
 		if (employee && employee.name) {
 			return employee.name;
 		}
@@ -432,8 +436,8 @@
 							{#each filteredTransactions as transaction (transaction.id)}
 								<tr class="table-row" class:check-in={transaction.status === 'Check In'} class:check-out={transaction.status === 'Check Out'}>
 									<td class="employee-id">{transaction.employee_id}</td>
-									<td class="employee-name">{getEmployeeName(transaction.employee_id)}</td>
-									<td class="position-col">{getPosition(employeeMap.get(String(transaction.employee_id))?.id)}</td>
+									<td class="employee-name">{getEmployeeName(transaction.employee_id, transaction.branch_id)}</td>
+									<td class="position-col">{getPosition(employeeMap.get(`${transaction.employee_id}_${transaction.branch_id}`)?.id)}</td>
 									<td class="branch-col">{getBranchName(transaction.branch_id)}</td>
 									<td class="date-col">{formatDate(transaction.date)}</td>
 									<td class="time-col">{formatTime(transaction.time)}</td>

@@ -182,28 +182,36 @@
 	async function loadBranchPerformance() {
 		branchPerformance.loading = true;
 		try {
-			// Load branches first ordered by ID
+			console.log('🔍 Loading branch performance for user:', currentUserData);
+			console.log('🔍 User branch_id:', currentUserData?.branch_id);
+			console.log('🔍 User branchId:', currentUserData?.branchId);
+			
+			// Check both branch_id and branchId (different naming conventions)
+			const userBranchId = currentUserData?.branch_id || currentUserData?.branchId;
+			
+			if (!userBranchId) {
+				console.log('⚠️ User has no branch_id, skipping branch performance load');
+				branchPerformance.loading = false;
+				return;
+			}
+
 			const { data: branchesData, error: branchError } = await supabase
 				.from('branches')
 				.select('id, name_ar, name_en')
-				.order('id', { ascending: true });
+				.eq('id', userBranchId)
+				.single();
 
-			if (branchError) throw branchError;
-
-			let branches = (branchesData || []).map(b => ({
-				id: b.id,
-				name: $localeData.locale === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar)
-			}));
-
-			// Sort: user's branch first, then rest by ID
-			if (currentUserData?.branchId) {
-				const userBranchId = currentUserData.branchId;
-				branches.sort((a, b) => {
-					if (a.id === userBranchId) return -1;
-					if (b.id === userBranchId) return 1;
-					return a.id - b.id;
-				});
+			if (branchError) {
+				console.error('❌ Error loading branch:', branchError);
+				throw branchError;
 			}
+
+			console.log('✅ Loaded branch data:', branchesData);
+
+			let branches = [{
+				id: branchesData.id,
+				name: $localeData.locale === 'ar' ? (branchesData.name_ar || branchesData.name_en) : (branchesData.name_en || branchesData.name_ar)
+			}];
 
 			branchPerformance.branches = branches;
 
@@ -458,7 +466,7 @@
 	{#if isLoading}
 		<div class="loading-content">
 			<div class="loading-spinner"></div>
-			<p>Loading dashboard...</p>
+			<p>{getTranslation('mobile.dashboardContent.branchPerformance.loadingDashboard')}</p>
 		</div>
 	{:else}
 		<!-- Stats Grid -->
@@ -542,7 +550,7 @@
 	<!-- Branch Performance Section -->
 	<section class="performance-section">
 		<div class="section-header">
-			<h2>Branch Performance</h2>
+			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.title')}</h2>
 			<button class="refresh-btn" on:click={loadBranchPerformance} disabled={branchPerformance.loading}>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
@@ -553,12 +561,12 @@
 		{#if branchPerformance.loading}
 			<div class="performance-loading">
 				<div class="loading-spinner-small"></div>
-				<p>Loading performance data...</p>
+				<p>{getTranslation('mobile.dashboardContent.branchPerformance.loadingData')}</p>
 			</div>
 		{:else}
 			<!-- Today's Performance -->
 			<div class="performance-group">
-				<h3 class="group-title">Today's Performance</h3>
+				<h3 class="group-title">{getTranslation('mobile.dashboardContent.branchPerformance.todayPerformance')}</h3>
 				<div class="branch-grid">
 					{#each branchPerformance.todayStats as stat}
 						<div class="branch-card">
@@ -591,24 +599,24 @@
 										
 										<!-- Center text -->
 										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-										<text x="50" y="58" text-anchor="middle" class="pie-label">Complete</text>
+										<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
 									{:else}
 										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-										<text x="50" y="53" text-anchor="middle" class="pie-empty">No Tasks</text>
+										<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
 									{/if}
 								</svg>
 							</div>
 							<div class="branch-stats">
 								<div class="stat-item completed">
 									<span class="stat-dot"></span>
-									<span>{stat.completed} Completed</span>
+									<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
 								</div>
 								<div class="stat-item pending">
 									<span class="stat-dot"></span>
-									<span>{stat.notCompleted} Pending</span>
+									<span>{stat.notCompleted} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
 								</div>
 								<div class="stat-item total">
-									<span>Total: {stat.total}</span>
+									<span>{getTranslation('mobile.dashboardContent.branchPerformance.total')}: {stat.total}</span>
 								</div>
 							</div>
 						</div>
@@ -618,7 +626,7 @@
 
 			<!-- Yesterday's Performance -->
 			<div class="performance-group">
-				<h3 class="group-title">Yesterday's Performance</h3>
+				<h3 class="group-title">{getTranslation('mobile.dashboardContent.branchPerformance.yesterdayPerformance')}</h3>
 				<div class="branch-grid">
 					{#each branchPerformance.yesterdayStats as stat}
 						<div class="branch-card">
@@ -651,24 +659,24 @@
 										
 										<!-- Center text -->
 										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-										<text x="50" y="58" text-anchor="middle" class="pie-label">Complete</text>
+										<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
 									{:else}
 										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-										<text x="50" y="53" text-anchor="middle" class="pie-empty">No Tasks</text>
+										<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
 									{/if}
 								</svg>
 							</div>
 							<div class="branch-stats">
 								<div class="stat-item completed">
 									<span class="stat-dot"></span>
-									<span>{stat.completed} Completed</span>
+									<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
 								</div>
 								<div class="stat-item pending">
 									<span class="stat-dot"></span>
-									<span>{stat.notCompleted} Pending</span>
+									<span>{stat.notCompleted} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
 								</div>
 								<div class="stat-item total">
-									<span>Total: {stat.total}</span>
+									<span>{getTranslation('mobile.dashboardContent.branchPerformance.total')}: {stat.total}</span>
 								</div>
 							</div>
 						</div>
