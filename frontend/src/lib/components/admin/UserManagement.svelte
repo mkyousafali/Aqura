@@ -352,6 +352,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<th>Avatar</th>
 								<th>Username</th>
 								<th>Employee</th>
+								<th>Employee ID</th>
 								<th>Position</th>
 								<th>Branch</th>
 								<th>Quick Access</th>
@@ -380,6 +381,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									</td>
 									<td class="employee-cell">
 										{user.employee_name || 'Not Assigned'}
+									</td>
+									<td class="employee-id-cell">
+										{#if user.employee_code}
+											<code class="employee-code">{user.employee_code}</code>
+										{:else}
+											<span class="no-code">-</span>
+										{/if}
 									</td>
 									<td class="position-cell">
 										{user.position_title || 'Not Assigned'}
@@ -906,6 +914,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.never-logged-in {
 		color: #9ca3af;
 		font-style: italic;
+	}
+
+	.access-code, .employee-code {
+		background: #f3f4f6;
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 600;
+		color: #374151;
+		font-family: 'Courier New', monospace;
+	}
+
+	.employee-code {
+		background: #eff6ff;
+		color: #1e40af;
+	}
+
+	.no-code {
+		color: #9ca3af;
+		font-size: 13px;
 	}
 
 	.edit-btn:hover {
