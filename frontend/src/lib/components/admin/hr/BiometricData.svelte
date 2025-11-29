@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { dataService } from '$lib/utils/dataService';
 	import { t, isRTL, currentLocale } from '$lib/i18n';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import BiometricExport from './BiometricExport.svelte';
 
 	let totalPresentToday = 0;
 	let branchBreakdown = [];
@@ -319,6 +321,20 @@
 		// Fallback for legacy string format
 		return positionData || '—';
 	}
+
+	function handleExportToExcel() {
+		openWindow({
+			id: 'biometric-export-' + Date.now(),
+			title: t('hr.exportToExcel'),
+			component: BiometricExport,
+			icon: '📊',
+			size: { width: 800, height: 600 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
 </script>
 
 <div class="biometric-data">
@@ -340,7 +356,12 @@
 				<div class="card present-card">
 					<div class="card-header">
 						<h3 class="card-title">{t('hr.presentToday')}</h3>
-						<span class="card-icon">👥</span>
+						<div class="card-header-actions">
+							<button class="export-btn" on:click={handleExportToExcel} title={t('hr.exportToExcel')}>
+								📊 {t('hr.exportToExcel')}
+							</button>
+							<span class="card-icon">👥</span>
+						</div>
 					</div>
 					<div class="card-body">
 						<div class="metric-value">{totalPresentToday}</div>
@@ -668,6 +689,38 @@
 
 	.present-card .card-header {
 		background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+	}
+
+	.card-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.export-btn {
+		padding: 8px 16px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.export-btn:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.export-btn:active {
+		transform: translateY(0);
 	}
 
 	.present-card .card-title {
