@@ -1219,7 +1219,7 @@ function openApprovalCenter() {
 		flex-direction: column;
 		gap: 15px;
 		/* Reserve space for footer */
-		padding-bottom: 60px;
+		padding-bottom: 100px;
 	}
 
 	.menu-section {
