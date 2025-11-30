@@ -62,6 +62,7 @@ export const englishLocale: LocaleData = {
       approvalPermissions: "Approval Permissions",
       marketingMaster: "Marketing Master",
       erpConnections: "ERP Connections",
+      clearTables: "Clear Tables",
     },
 
     // Mobile page titles

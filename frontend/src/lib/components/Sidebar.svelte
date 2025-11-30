@@ -47,6 +47,7 @@
 	import SalesReport from '$lib/components/admin/reports/SalesReport.svelte';
 	import CouponDashboard from '$lib/components/admin/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/admin/ERPConnections.svelte';
+	import ClearTables from '$lib/components/admin/ClearTables.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -544,6 +545,28 @@ function openApprovalCenter() {
 			position: { 
 				x: 100 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openClearTables() {
+		const windowId = generateWindowId('clear-tables');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Clear Tables #${instanceNumber}`,
+			component: ClearTables,
+			icon: '🗑️',
+			size: { width: 900, height: 650 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -1203,6 +1226,14 @@ function openApprovalCenter() {
 						</button>
 					</div>
 				{/if}
+				{#if $currentUser?.roleType === 'Master Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openClearTables}>
+							<span class="menu-icon">🗑️</span>
+							<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -1348,7 +1379,7 @@ function openApprovalCenter() {
 		left: 0;
 		top: 0;
 		bottom: 56px; /* Fixed taskbar height */
-		width: 170px;
+		width: 154px;
 		background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%);
 		color: white;
 		display: flex;
@@ -1378,18 +1409,18 @@ function openApprovalCenter() {
 
 	.section-button {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 8px;
-		padding: 12px 10px;
+		padding: 10px 8px;
 		background: none;
 		border: none;
 		color: #e2e8f0;
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
-		font-size: 12px;
+		font-size: 11px;
 		width: 100%;
-		min-height: 44px; /* Changed from height to min-height */
+		min-height: 40px;
 		text-align: left;
 	}
 
@@ -1436,8 +1467,10 @@ function openApprovalCenter() {
 		overflow: visible;
 		text-overflow: clip;
 		font-weight: 500;
-		line-height: 1.2;
+		line-height: 1.3;
 		word-wrap: break-word;
+		word-break: break-word;
+		max-width: 100%;
 	}
 
 	.arrow {
@@ -1520,12 +1553,13 @@ function openApprovalCenter() {
 	}
 
 	.submenu-inline .submenu-item {
-		font-size: 12px;
-		padding: 8px 8px 8px 6px; /* Reduced left padding from 10px to 6px */
-		height: auto; /* Changed from 36px to auto to allow wrapping */
-		min-height: 36px; /* Minimum height */
+		font-size: 11px;
+		padding: 7px 6px 7px 5px;
+		height: auto;
+		min-height: 32px;
 		width: 100%;
 		background: transparent;
+		align-items: flex-start;
 	}
 
 	.submenu-inline .submenu-item:hover {
@@ -1534,22 +1568,24 @@ function openApprovalCenter() {
 	}
 
 	.menu-icon {
-		font-size: 14px;
+		font-size: 13px;
 		flex-shrink: 0;
-		width: 18px;
+		width: 16px;
 		text-align: center;
-		align-self: flex-start; /* Align icon to top when text wraps */
+		align-self: flex-start;
 		margin-top: 2px;
 	}
 
 	.menu-text {
 		flex: 1;
-		white-space: normal; /* Changed from nowrap to normal to allow wrapping */
+		white-space: normal;
 		overflow: visible;
 		text-overflow: clip;
 		font-weight: 500;
 		word-wrap: break-word;
+		word-break: break-word;
 		line-height: 1.3;
+		max-width: 100%;
 	}
 
 	/* Scrollbar styling */

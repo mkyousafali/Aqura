@@ -64,6 +64,7 @@ export const arabicLocale: LocaleData = {
       approvalPermissions: "صلاحيات الموافقة",
       marketingMaster: "إدارة التسويق",
       erpConnections: "اتصالات ERP",
+      clearTables: "مسح الجداول",
     },
 
     // Mobile page titles
