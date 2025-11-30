@@ -125,10 +125,10 @@
 			
 			// Query hr_fingerprint_transactions for last 2 punches
 			// Note: employee_id is stored as varchar in hr_fingerprint_transactions, but users.employee_id is UUID
-			// We need to get the actual employee_id from hr_employees table using the UUID
+			// We need to get the actual employee_id and branch_id from hr_employees table using the UUID
 			const { data: empData, error: empError } = await supabase
 				.from('hr_employees')
-				.select('employee_id')
+				.select('employee_id, branch_id')
 				.eq('id', currentUserData.employee_id)
 				.single();
 			
@@ -138,17 +138,18 @@
 				return;
 			}
 			
-			console.log(`🔍 Querying punches for employee_id: ${empData.employee_id}`);
+			console.log(`🔍 Querying punches for employee_id: ${empData.employee_id}, branch_id: ${empData.branch_id}`);
 			
-			// Now query fingerprint transactions using the varchar employee_id - get last 2 records
-			// We'll fetch more records and sort them properly by combining date and time
+			// Now query fingerprint transactions using the varchar employee_id and branch_id
+			// Get more records because string sorting of time isn't chronological
 			const { data, error } = await supabase
 				.from('hr_fingerprint_transactions')
-				.select('date, time, status, branch_id, created_at')
+				.select('date, time, status, branch_id, device_id, location')
 				.eq('employee_id', empData.employee_id)
+				.eq('branch_id', empData.branch_id)  // Match user's branch_id
 				.order('date', { ascending: false })
 				.order('time', { ascending: false })
-				.limit(10); // Fetch more to ensure we get the latest from today
+				.limit(10); // Get more records to sort chronologically in JS
 			
 			if (error) {
 				if (error.code === 'PGRST116') {
@@ -160,51 +161,51 @@
 				}
 			} else if (data && data.length > 0) {
 				console.log('🔍 Raw punch data from database:', data);
-				console.log('🔍 Raw punch records:', data.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
+				console.log('🔍 Records from DB:', data.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
 				
-				// Sort by combining date and time into proper timestamps
-				const sortedData = data
+				// Sort all records by actual datetime
+				const sortedByActualTime = data
 					.map(record => ({
 						...record,
-						timestamp: new Date(`${record.date}T${record.time}`)
+						actualDateTime: new Date(`${record.date}T${record.time}`)
 					}))
-					.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+					.sort((a, b) => b.actualDateTime - a.actualDateTime);
 				
-				// Get the latest 2 punch records (most recent checkout and most recent checkin)
-				const latestCheckOut = sortedData.find(r => r.status?.toLowerCase().includes('out'));
-				const latestCheckIn = sortedData.find(r => r.status?.toLowerCase().includes('in'));
+				// Get the latest Check In and latest Check Out (not just last 2 chronological)
+				const latestCheckIn = sortedByActualTime.find(r => r.status?.toLowerCase().includes('in'));
+				const latestCheckOut = sortedByActualTime.find(r => r.status?.toLowerCase().includes('out'));
 				
-				// Build display array with most recent records
+				// Build array with Check In first, then Check Out (desktop order)
 				const displayRecords = [];
-				if (latestCheckOut) displayRecords.push(latestCheckOut);
 				if (latestCheckIn) displayRecords.push(latestCheckIn);
+				if (latestCheckOut) displayRecords.push(latestCheckOut);
 				
-				console.log('🔍 Display records (latest 2 punches):', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
+				console.log('🔍 Latest Check In and Check Out:', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
 				
-				// Convert time by subtracting 3 hours (same as desktop)
-				// Database stores times 3 hours ahead, so we subtract to display local time
+				// Convert time by subtracting 3 hours properly (handles date changes)
+				// Time in DB is Saudi time (GMT+3), subtract 3 hours to get UTC
 				punches.records = displayRecords.map(record => {
-					// Parse time and subtract 3 hours
-					const [hours, minutes] = record.time.split(':');
-					let hour = parseInt(hours, 10);
+					// Create proper datetime object and subtract 3 hours
+					const saudiDateTime = new Date(`${record.date}T${record.time}`);
+					const utcDateTime = new Date(saudiDateTime.getTime() - (3 * 60 * 60 * 1000));
 					
-					// Subtract 3 hours (same logic as desktop BiometricExport.svelte)
-					hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
+					// Get adjusted hour and minute
+					const hour24 = utcDateTime.getHours();
+					const minutes = utcDateTime.getMinutes();
 					
 					// Convert to 12-hour format
-					const isPM = hour >= 12;
-					const hour12 = hour % 12 || 12;
-					const timeStr = `${String(hour12).padStart(2, '0')}:${minutes} ${isPM ? 'PM' : 'AM'}`;
+					const hour12 = hour24 % 12 || 12;
+					const ampm = hour24 >= 12 ? 'PM' : 'AM';
+					const timeStr = `${String(hour12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
 					
-					// Format date
-					const dateObj = new Date(record.date);
-					const dateStr = dateObj.toLocaleDateString('en-US', { 
+					// Format date (use adjusted date after time conversion)
+					const dateStr = utcDateTime.toLocaleDateString('en-US', { 
 						weekday: 'short', 
 						month: 'short', 
 						day: 'numeric' 
 					});
 					
-					console.log(`📍 Record: ${record.date} ${record.time} (DB) -3hrs → Display: ${timeStr} ${dateStr}`);
+					console.log(`📍 Record: ${record.date} ${record.time} (Saudi GMT+3) → ${timeStr} ${dateStr} (UTC -3hrs)`);
 					
 					return {
 						time: timeStr,
