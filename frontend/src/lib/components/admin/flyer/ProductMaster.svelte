@@ -71,6 +71,15 @@
 	let editingProduct: any = null;
 	let isSavingEdit: boolean = false;
 	
+	// Create product popup
+	let showCreatePopup: boolean = false;
+	let newProduct: any = null;
+	let isSavingCreate: boolean = false;
+	let isCheckingImage: boolean = false;
+	let imageCheckStatus: string = '';
+	let imageCheckResult: 'success' | 'error' | null = null;
+	let foundImageUrl: string = '';
+	
 	// Extract unique values for dropdowns
 	$: uniqueUnits = [...new Set(allProductsForDropdowns.map(p => p.unit_name).filter(Boolean))].sort();
 	$: uniqueParentCategories = [...new Set(allProductsForDropdowns.map(p => p.parent_category).filter(Boolean))].sort();
@@ -922,6 +931,154 @@
 			isSavingEdit = false;
 		}
 	}
+	
+	// Create product functions
+	function openCreatePopup() {
+		newProduct = {
+			barcode: '',
+			product_name_en: '',
+			product_name_ar: '',
+			unit_name: '',
+			parent_category: '',
+			parent_sub_category: '',
+			sub_category: '',
+			image_url: ''
+		};
+		isCheckingImage = false;
+		imageCheckStatus = '';
+		imageCheckResult = null;
+		foundImageUrl = '';
+		showCreatePopup = true;
+	}
+	
+	function closeCreatePopup() {
+		showCreatePopup = false;
+		newProduct = null;
+		isSavingCreate = false;
+		isCheckingImage = false;
+		imageCheckStatus = '';
+		imageCheckResult = null;
+		foundImageUrl = '';
+	}
+	
+	async function saveNewProduct() {
+		if (!newProduct) return;
+		
+		// Validate required fields
+		if (!newProduct.barcode || !newProduct.barcode.trim()) {
+			alert('Barcode is required!');
+			return;
+		}
+		
+		if (!newProduct.product_name_en || !newProduct.product_name_en.trim()) {
+			alert('Product name (English) is required!');
+			return;
+		}
+		
+		isSavingCreate = true;
+		try {
+			// Check if barcode already exists
+			const { data: existingProduct, error: checkError } = await supabase
+				.from('flyer_products')
+				.select('barcode')
+				.eq('barcode', newProduct.barcode.trim())
+				.maybeSingle();
+			
+			if (existingProduct) {
+				alert('A product with this barcode already exists!');
+				isSavingCreate = false;
+				return;
+			}
+			
+			const { error } = await supabase
+				.from('flyer_products')
+				.insert({
+					barcode: newProduct.barcode.trim(),
+					product_name_en: newProduct.product_name_en.trim(),
+					product_name_ar: newProduct.product_name_ar?.trim() || null,
+					unit_name: newProduct.unit_name?.trim() || null,
+					parent_category: newProduct.parent_category?.trim() || null,
+					parent_sub_category: newProduct.parent_sub_category?.trim() || null,
+					sub_category: newProduct.sub_category?.trim() || null,
+					image_url: newProduct.image_url || null,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString()
+				});
+			
+			if (error) {
+				console.error('Error creating product:', error);
+				alert('Failed to create product: ' + error.message);
+			} else {
+				alert('Product created successfully!');
+				
+				// Reload the appropriate view
+				if (showNoImageProducts) {
+					await loadNoImageProducts();
+				}
+				if (showAllProducts) {
+					await loadAllProducts();
+				}
+				
+				// Reload database stats
+				await loadDatabaseStats();
+				
+				closeCreatePopup();
+			}
+		} catch (error) {
+			console.error('Error creating product:', error);
+			alert('Error creating product. Please try again.');
+		} finally {
+			isSavingCreate = false;
+		}
+	}
+	
+	async function checkImageAvailability() {
+		if (!newProduct?.barcode || !newProduct.barcode.trim()) {
+			alert('Please enter a barcode first!');
+			return;
+		}
+		
+		isCheckingImage = true;
+		imageCheckStatus = 'Checking...';
+		imageCheckResult = null;
+		foundImageUrl = '';
+		
+		try {
+			const barcode = newProduct.barcode.trim();
+			const bucketName = 'flyer-product-images';
+			
+			// Try to get the public URL for the image
+			const { data: urlData } = supabase
+				.storage
+				.from(bucketName)
+				.getPublicUrl(`${barcode}.png`);
+			
+			const imageUrl = urlData.publicUrl;
+			
+			// Try to fetch the image to verify it exists
+			const response = await fetch(imageUrl);
+			
+			if (response.ok) {
+				// Image exists!
+				imageCheckStatus = 'Image exists! URL saved automatically.';
+				imageCheckResult = 'success';
+				foundImageUrl = imageUrl;
+				
+				// Automatically set the image URL in the newProduct object
+				newProduct.image_url = imageUrl;
+			} else {
+				// Image not found
+				imageCheckStatus = 'Image not available for this barcode.';
+				imageCheckResult = 'error';
+			}
+		} catch (error) {
+			console.error('Error checking image:', error);
+			imageCheckStatus = 'Error checking image availability.';
+			imageCheckResult = 'error';
+		} finally {
+			isCheckingImage = false;
+		}
+	}
 
 	async function handleImageUpload(event: Event) {
 		const target = event.target as HTMLInputElement;
@@ -1276,6 +1433,242 @@
 
 <div class="space-y-6">
 	<!-- Edit Product Popup -->
+	{#if showCreatePopup && newProduct}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreatePopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-green-600 to-emerald-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Create New Product</h3>
+							<p class="text-xs text-green-100">Add a new product to the database</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeCreatePopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+					<div class="space-y-4">
+						<!-- Barcode -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Barcode <span class="text-red-500">*</span>
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.barcode}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Enter product barcode"
+							/>
+							
+							<!-- Check Image Availability Button -->
+							<div class="mt-2">
+								<button
+									type="button"
+									on:click={checkImageAvailability}
+									disabled={isCheckingImage || !newProduct.barcode?.trim()}
+									class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									{#if isCheckingImage}
+										<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+										</svg>
+										Checking...
+									{:else}
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+										</svg>
+										Check Image Availability
+									{/if}
+								</button>
+								
+								<!-- Image Check Status -->
+								{#if imageCheckStatus}
+									<div class="mt-2 p-3 rounded-lg flex items-start gap-2 {imageCheckResult === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
+										{#if imageCheckResult === 'success'}
+											<svg class="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+											</svg>
+											<div class="flex-1">
+												<p class="text-sm font-semibold text-green-800">{imageCheckStatus}</p>
+												{#if foundImageUrl}
+													<p class="text-xs text-green-600 mt-1 break-all">{foundImageUrl}</p>
+												{/if}
+											</div>
+										{:else}
+											<svg class="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+											</svg>
+											<p class="text-sm font-semibold text-red-800">{imageCheckStatus}</p>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						</div>
+						
+						<!-- Product Name English -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (English) <span class="text-red-500">*</span>
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.product_name_en}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Enter product name in English"
+							/>
+						</div>
+						
+						<!-- Product Name Arabic -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (Arabic)
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.product_name_ar}
+								dir="rtl"
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="أدخل اسم المنتج بالعربية"
+							/>
+						</div>
+						
+						<!-- Unit Name -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Unit ({uniqueUnits.length} options)
+							</label>
+							<select
+								bind:value={newProduct.unit_name}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueUnits as unit}
+									<option value={unit}>{unit}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.unit_name}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom unit"
+							/>
+						</div>
+						
+						<!-- Parent Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Parent Category ({uniqueParentCategories.length} options)
+							</label>
+							<select
+								bind:value={newProduct.parent_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentCategories as category}
+									<option value={category}>{category}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.parent_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom category"
+							/>
+						</div>
+						
+						<!-- Parent Sub Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Parent Sub Category ({uniqueParentSubCategories.length} options)
+							</label>
+							<select
+								bind:value={newProduct.parent_sub_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentSubCategories as subCategory}
+									<option value={subCategory}>{subCategory}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.parent_sub_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom sub category"
+							/>
+						</div>
+						
+						<!-- Sub Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Sub Category ({uniqueSubCategories.length} options)
+							</label>
+							<select
+								bind:value={newProduct.sub_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueSubCategories as subCategory}
+									<option value={subCategory}>{subCategory}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.sub_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom sub category"
+							/>
+						</div>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreatePopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingCreate}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewProduct}
+						disabled={isSavingCreate}
+						class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingCreate}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Product
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+	
 	{#if showEditPopup && editingProduct}
 		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeEditPopup}>
 			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" on:click|stopPropagation>
@@ -1767,6 +2160,16 @@
 					{/if}
 				</button>
 			{/if}
+			
+			<button 
+				on:click={openCreatePopup}
+				class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				Create Product
+			</button>
 			
 			<button 
 				on:click={handleUploadImages}
