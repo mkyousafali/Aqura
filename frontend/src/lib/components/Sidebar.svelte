@@ -1201,7 +1201,7 @@ function openApprovalCenter() {
 		left: 0;
 		top: 0;
 		bottom: 56px; /* Fixed taskbar height */
-		width: 140px;
+		width: 170px;
 		background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%);
 		color: white;
 		display: flex;
