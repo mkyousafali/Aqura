@@ -1065,7 +1065,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				v5.2.4
+				v5.2.5
 			</button>
 		</div>
 	</div>
@@ -1076,7 +1076,7 @@ function openApprovalCenter() {
 	<div class="version-popup-overlay" on:click={closeVersionPopup}>
 		<div class="version-popup" on:click|stopPropagation>
 			<div class="version-popup-header">
-				<h3>What's New in v5.2.4</h3>
+				<h3>What's New in v5.2.5</h3>
 				<button class="close-btn" on:click={closeVersionPopup}>×</button>
 			</div>
 			<div class="version-popup-content">

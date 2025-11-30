@@ -1065,7 +1065,8 @@
 				foundImageUrl = imageUrl;
 				
 				// Automatically set the image URL in the newProduct object
-				newProduct.image_url = imageUrl;
+				// Use object reassignment to trigger Svelte reactivity
+				newProduct = { ...newProduct, image_url: imageUrl };
 			} else {
 				// Image not found
 				imageCheckStatus = 'Image not available for this barcode.';
