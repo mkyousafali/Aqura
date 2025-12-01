@@ -1,10 +1,12 @@
 # Aqura Management System
 
-<!-- Updated for Vercel deployment test -->
+**Version:** 2.0.2  
+**Status:** Production Ready  
+**Last Updated:** December 1, 2025
 
 ## 🌊 Overview
 
-Aqura is a modern, PWA-first windowed management platform designed specifically for Saudi Arabian businesses. Built with cutting-edge technologies, it provides a comprehensive solution for managing employees, branches, vendors, and business operations with full bilingual support (Arabic/English) and advanced offline capabilities.
+Aqura is a modern, PWA-first windowed management platform designed specifically for Saudi Arabian businesses. Built with cutting-edge technologies, it provides a comprehensive solution for managing HR, finances, customer operations, and business processes with full bilingual support (Arabic/English) and real-time synchronization capabilities.
 
 ## ✨ Key Features
 
@@ -28,10 +30,16 @@ Aqura is a modern, PWA-first windowed management platform designed specifically 
 - Cultural adaptation for Saudi market
 
 ### 🏢 **Business Management Modules**
-- **HR Management**: Employee records, departments, payroll
-- **Branch Management**: Multi-location operations, regional management
-- **Vendor Management**: Supplier relationships, purchase orders
-- **User Management**: Role-based access control
+- **HR Management**: Employee records, departments, positions, salary, biometric attendance
+- **Branch Management**: Multi-location operations across Saudi Arabia
+- **Vendor Management**: Supplier relationships, payment schedules, visit tracking
+- **Receiving Management**: Receiving workflow with task assignments and completion tracking
+- **Task Management**: Assignment system with reminders, completion tracking, and quick tasks
+- **Finance Management**: Expense requisitions, payments, employee warnings/fines
+- **Customer Management**: Mobile app for customers with order placement and tracking
+- **Product & Offers**: Product catalog, variation groups, offer management, coupon system
+- **Notification System**: Push notifications with attachments and real-time updates
+- **User Management**: Role-based access control with function-level permissions
 
 ### ♿ **Accessibility**
 - WCAG 2.1 compliant
@@ -56,128 +64,190 @@ Aqura is a modern, PWA-first windowed management platform designed specifically 
 - **Workbox** - Advanced service worker
 
 ### Backend
-- **Go (Golang)** - High-performance server
-- **Fiber** - Fast HTTP framework
-- **GORM** - Database ORM
-- **PostgreSQL** - Primary database
-- **Supabase** - BaaS for rapid development
+- **Supabase** - Backend-as-a-Service (PostgreSQL + Auth + Storage + Realtime)
+- **PostgreSQL** - Primary database with 65+ tables
+- **Row Level Security (RLS)** - Database-level security policies
+- **Edge Functions** - Serverless functions for push notifications
+- **ERP Integration** - Real-time sync with URBAN2_2025 ERP system
+- **Biometric Integration** - ZKBioTime attendance sync
 
 ### DevOps & Tools
-- **pnpm** - Fast package manager
-- **Monorepo** - Organized codebase
-- **ESLint/Prettier** - Code quality
-- **Docker** - Containerization
+- **pnpm** - Fast package manager (monorepo workspace)
+- **Vercel** - Frontend deployment platform
+- **Git** - Version control (GitHub repository)
+- **VS Code** - Primary development environment
+- **PowerShell** - Windows development shell
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ with pnpm
-- Go 1.21+
-- Docker (optional)
-- Supabase account (for production)
+- Node.js 18+ with npm/pnpm
+- Supabase account (project already configured)
+- VS Code (recommended)
+- Windows PowerShell
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-org/aqura.git
-   cd aqura
+   git clone https://github.com/mkyousafali/Aqura.git
+   cd Aqura
    ```
 
 2. **Install dependencies**
    ```bash
-   pnpm install
+   cd frontend
+   npm install
    ```
 
-3. **Start development servers**
+3. **Configure environment variables**
    ```bash
-   # Terminal 1: Frontend
-   cd frontend && npm run dev
-   
-   # Terminal 2: Backend
-   cd backend && go run cmd/server/main.go
+   # Create .env file in frontend/ directory
+   cp .env.example .env
+   # Add Supabase credentials (already configured)
    ```
 
-4. **Open the application**
-   - Frontend: http://localhost:5173
-   - Backend API: http://localhost:8080
+4. **Start development server**
+   
+   **Using VS Code Tasks (Recommended):**
+   - Press `Ctrl+Shift+B`
+   - Select **"🎨 Dev Frontend (npm)"**
+   - Server starts on http://localhost:5173
+   
+   **Using Terminal:**
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+5. **Open the application**
+   - Desktop Interface: http://localhost:5173/desktop-interface
+   - Mobile Interface: http://localhost:5173/mobile-interface
+   - Customer App: http://localhost:5173/customer-interface
+   - Cashier Interface: http://localhost:5173/cashier-interface
 
 ## 📱 Features Implemented
 
-### ✅ **Core Infrastructure**
-- Monorepo structure with pnpm workspaces
-- SvelteKit with TypeScript and TailwindCSS
-- Go backend with clean architecture
-- Comprehensive PWA configuration
+### ✅ **Desktop Admin Interface** (36+ Components)
+- **Window Management**: Drag, resize, minimize, maximize windows with taskbar
+- **Sidebar Navigation**: Multi-level menus with role-based access control
+- **Command Palette**: Quick actions (Ctrl+Shift+P)
+- **Master Data Management**: 
+  - HR (Employees, Departments, Positions)
+  - Branches, Vendors, Tasks
+  - Products, Categories, Units, Tax Categories
+- **Work Management**:
+  - Receiving workflow with task assignments
+  - Quick tasks with assignments and comments
+  - Task completion tracking
+- **Financial Management**:
+  - Expense requisitions and approvals
+  - Payment tracking and scheduler
+  - Employee warnings and fine payments
+- **Customer App Management**:
+  - Product management with variations
+  - Offer management (Product, Bundle, BOGO, Cart Tiers)
+  - Coupon system with redemption tracking
+  - Delivery settings and fee tiers
+- **Communication**: 
+  - Notification center with attachments
+  - Push notification management
+- **Settings**: User management, permissions, app functions
 
-### ✅ **UI/UX Components**
-- Desktop-style windowed interface
-- Window Manager with drag/resize/minimize
-- Taskbar with application shortcuts
-- Command Palette for quick actions
-- Responsive design system
+### ✅ **Mobile Employee Interface** (4 Components)
+- **My Tasks**: Personal task dashboard with completion tracking
+- **Notifications**: Real-time notification center
+- **Biometric Display**: Check-in/check-out history with timezone conversion
+- **Language Toggle**: Switch between Arabic and English
 
-### ✅ **Business Modules**
-- **HR Master**: Complete employee management
-- **Branch Master**: Multi-location management  
-- **Vendor Master**: Supplier relationship management
-- CRUD operations with mock data
+### ✅ **Customer Shopping App** (7 Components)
+- **Product Browsing**: Featured offers and product catalog
+- **Shopping Cart**: Bottom cart bar with real-time updates
+- **Offer System**: View and apply multiple offer types
+- **Customer Login/Registration**: Mobile number-based authentication
+- **Account Recovery**: Access code recovery system
 
-### ✅ **Internationalization**
-- Arabic and English localization
-- RTL layout support
-- Cultural adaptations
-- Dynamic language switching
+### ✅ **Cashier/POS Interface** (4 Components)
+- **Standalone Desktop Interface**: Dedicated cashier environment
+- **Coupon Redemption**: Validate and redeem customer coupons
+- **Access Code Authentication**: Secure cashier login
+- **Cashier Taskbar**: Simplified navigation for POS operations
+
+### ✅ **Database & Backend** (Supabase)
+- **65 Tables**: Complete database schema with RLS policies
+- **256 Functions**: Database functions for business logic
+- **71 Triggers**: Auto-calculations, synchronization, audit logging
+- **Real-time Sync**: Live updates across all interfaces
+- **ERP Integration**: Sync with URBAN2_2025 ERP system
+- **Biometric Integration**: ZKBioTime attendance synchronization
+
+### ✅ **Internationalization (i18n)**
+- Custom bilingual system (Arabic RTL + English LTR)
+- Domain-specific translations (not auto-translate)
+- Cultural adaptations for Saudi market
+- Font system: Noto Sans Arabic + Inter
+- Localized dates, numbers, currency
 
 ### ✅ **PWA Features**
-- Advanced service worker
-- Offline-first architecture
+- Installable on desktop and mobile
+- Service worker with offline support
+- Push notifications with FCM integration
 - Background sync capabilities
-- Installation prompts
-- Custom offline pages
+- Update prompts and version management
 
-### ✅ **Accessibility**
-- WCAG 2.1 compliance
-- Screen reader support
-- Keyboard navigation
-- ARIA labels and descriptions
-
-### ✅ **Data Layer**
-- Supabase integration setup
-- Offline data management
-- Background sync queuing
-- Mock data service
+### ✅ **Security & Permissions**
+- Supabase Authentication with JWT
+- Row Level Security (RLS) policies on all tables
+- Function-level permissions system
+- Role-based access control (Master Admin, Admin, Users)
+- Audit trails for all operations
 
 ## 📁 Project Structure
 
 ```
-aqura/
-├── frontend/                 # SvelteKit PWA frontend
+Aqura/
+├── frontend/                           # SvelteKit PWA frontend
 │   ├── src/
 │   │   ├── lib/
-│   │   │   ├── components/   # Reusable UI components
-│   │   │   ├── stores/       # Svelte stores for state management
-│   │   │   ├── utils/        # Utility functions
-│   │   │   ├── types/        # TypeScript type definitions
-│   │   │   └── i18n/         # Custom bilingual system
-│   │   ├── routes/           # SvelteKit file-based routing
-│   │   └── app.html          # HTML template
-│   ├── static/              # Static assets (icons, images)
-│   ├── vite.config.ts       # Vite + PWA configuration
+│   │   │   ├── components/             # UI components (organized by interface)
+│   │   │   │   ├── common/             # Shared components
+│   │   │   │   ├── desktop-interface/  # Desktop admin components (36+)
+│   │   │   │   ├── customer-interface/ # Customer app components (7)
+│   │   │   │   ├── mobile-interface/   # Mobile employee components (4)
+│   │   │   │   └── cashier-interface/  # Cashier/POS components (4)
+│   │   │   ├── stores/                 # Svelte stores (windowManager, notifications, auth)
+│   │   │   ├── utils/                  # Utility functions and helpers
+│   │   │   ├── types/                  # TypeScript type definitions
+│   │   │   └── i18n/                   # Custom bilingual system (en.ts, ar.ts)
+│   │   ├── routes/                     # SvelteKit file-based routing
+│   │   │   ├── desktop-interface/      # Desktop admin routes
+│   │   │   ├── customer-interface/     # Customer app routes
+│   │   │   ├── mobile-interface/       # Mobile employee routes
+│   │   │   ├── cashier-interface/      # Cashier/POS routes
+│   │   │   └── api/                    # API endpoints (+server.js)
+│   │   ├── app.html                    # HTML template
+│   │   └── app.css                     # Global styles
+│   ├── static/                         # Static assets (icons, sounds, manifest)
+│   ├── vite.config.ts                  # Vite + PWA configuration
 │   └── package.json
-├── backend/                 # Go Fiber backend
-│   ├── cmd/server/          # Application entry point
-│   ├── internal/            # Internal packages
-│   │   ├── transport/       # HTTP handlers/routes
-│   │   ├── service/         # Business logic
-│   │   ├── repository/      # Data access layer
-│   │   └── domain/          # Domain models
-│   ├── pkg/                 # Public packages
-│   └── go.mod
-├── .vscode/                 # VS Code workspace configuration
-├── docker-compose.dev.yml   # Development environment
-├── package.json             # Root workspace configuration
-└── README.md
+├── supabase/                           # Supabase backend configuration
+│   ├── functions/                      # Edge functions (push notifications)
+│   └── config.toml                     # Supabase configuration
+├── scripts/                            # Utility scripts
+│   ├── update-version.js               # Version management
+│   ├── check-employee-punches.js       # Biometric data verification
+│   └── add-missing-functions.js        # Database function setup
+├── Do not delete/                      # Documentation and guides
+│   ├── .copilot-instructions.md        # AI assistant instructions
+│   ├── VERSION_MANAGEMENT.md           # Version update process
+│   ├── COUPON_MANAGEMENT_SYSTEM_PLAN.md
+│   ├── ORDER_SYSTEM_IMPLEMENTATION_PLAN.md
+│   ├── BIOMETRIC_SYNC_IMPLEMENTATION_PLAN.md
+│   └── [other documentation files]
+├── build/                              # Production build output
+├── package.json                        # Root workspace configuration
+├── pnpm-workspace.yaml                 # pnpm monorepo configuration
+└── README.md                           # This file
 ```
 
 ## 🛠️ Development Setup
@@ -261,38 +331,45 @@ Post-development, the PWA can be packaged as a Windows desktop application:
 
 ## 🔐 Authentication & Security
 
-### Bootstrap Admin
-- **Username**: `masteradmin`
-- **Password**: `Aquraadmin` (stored in env, not source)
-- **First Login**: Forces password change + MFA setup
-- **Auto-Disable**: Bootstrap account disabled after owner admin created
+### User Authentication
+- **Desktop/Mobile**: Supabase Auth with username/password
+- **Customer App**: Mobile number-based with access codes
+- **Cashier Interface**: Access code authentication
+- **Session Management**: JWT tokens with automatic refresh
 
 ### Security Features
-- Rate limiting and account lockout
-- Multi-factor authentication (MFA)
-- Row-level security (RLS) with Supabase
-- Audit trail for all admin actions
-- Secure session management
+- **Row Level Security (RLS)**: Database-level access control on all tables
+- **Function Permissions**: Granular permissions (view, add, edit, delete, export)
+- **Role-based Access**: Master Admin, Admin, and custom user roles
+- **Audit Trails**: Complete logging of user actions
+- **Password History**: Prevents password reuse
+- **Device Sessions**: Track and manage user devices
 
-## 📊 Admin Modules
+## 📊 Key System Components
 
-Each module supports both manual CRUD operations and Excel import:
+### Desktop Admin Modules
+1. **HR Management**: Employees (203), departments, positions, salary components
+2. **Branch Management**: 3 branches across Saudi Arabia
+3. **Vendor Management**: Supplier details, payment schedules, visit tracking
+4. **Receiving Management**: 755 receiving records with workflow automation
+5. **Task Management**: Assignment system with reminders and completion tracking
+6. **Finance Management**: Expense requisitions, payments, warnings/fines
+7. **Product Management**: Catalog with variations, categories, units, tax
+8. **Offer Management**: Product offers, bundles, BOGO, cart tiers
+9. **Coupon System**: Campaign-based redemption with stock control
+10. **Customer Management**: Registration, recovery, app media
+11. **Notification System**: Push notifications with attachments
+12. **User Management**: 49 users with role-based permissions
 
-1. **HR Master**: Employee management with departments and roles
-2. **Branches Master**: Branch/location management
-3. **Vendors Master**: Vendor and supplier management  
-4. **Invoice Master**: Invoice processing and tracking
-5. **User Roles**: Permission and access control management
-6. **Hierarchy Master**: Organizational structure
-7. **User Management**: User creation and administration
-
-### Import Flow
-1. **Upload**: Select and upload Excel (.xlsx) files
-2. **Mapping**: Map Excel columns to database fields
-3. **Validation**: Real-time validation with error reporting
-4. **Staging**: Preview changes before committing
-5. **Commit**: Apply valid changes, keep invalid for retry
-6. **Audit**: Full audit trail with per-row status
+### External Integrations
+- **ERP Sync**: Real-time synchronization with URBAN2_2025 (267 tables)
+  - Sales data sync (1.4M+ transaction details)
+  - Product catalog sync (67,898 products)
+  - Inventory updates
+- **Biometric Sync**: ZKBioTime attendance integration (142 tables)
+  - Employee punch records
+  - Device management
+  - Attendance reporting
 
 ## 🧪 Testing & Quality
 
@@ -304,37 +381,89 @@ Each module supports both manual CRUD operations and Excel import:
 
 ## 🚀 Deployment
 
-- **Development**: Docker Compose with hot reload
-- **Production**: Docker containers with nginx
-- **CI/CD**: GitHub Actions pipeline
-- **Monitoring**: Error tracking and performance monitoring
+### Current Setup
+- **Frontend**: Vercel (automatic deployment from GitHub)
+- **Backend**: Supabase (hosted PostgreSQL + Edge Functions)
+- **Domain**: Configured with custom domain (if applicable)
+- **Version Control**: GitHub repository (mkyousafali/Aqura)
 
-## 📖 Documentation Roadmap
+### Version Management
+- Automated version update script (`npm run version:patch|minor|major`)
+- Version displayed in both desktop and mobile interfaces
+- Version popup with release notes in desktop sidebar
+- Update process documented in `Do not delete/VERSION_MANAGEMENT.md`
 
-- [ ] API Documentation
-- [ ] Component Library Storybook
-- [ ] User Guide (Admin & End User)
-- [ ] i18n Content Authoring Guide
-- [ ] Windows Packaging Guide
-- [ ] Deployment Guide
+### Deployment Process
+1. Update version: `npm run version:patch`
+2. Update version popup content in Sidebar.svelte
+3. Commit changes: `git add -A && git commit -m "feat: description"`
+4. Push to GitHub: `git push origin master`
+5. Vercel auto-deploys from master branch
 
-## 🎯 Acceptance Criteria Status
+## 📖 Documentation
 
-- [x] PWA installable on browsers
-- [x] Bilingual system with RTL/LTR support
-- [x] Custom i18n library (no auto-translate)
-- [x] Brand colors applied consistently
-- [ ] Windowed UI with MDI functionality
-- [ ] Bootstrap admin with forced password change
-- [ ] Excel import system with audit trail
-- [ ] Windows installer build
-- [ ] Offline support and service worker
-- [ ] Admin modules with CRUD operations
+Documentation is located in the `Do not delete/` folder:
+
+- **`.copilot-instructions.md`**: Complete system instructions for AI assistants
+- **`VERSION_MANAGEMENT.md`**: Version update process and guidelines
+- **`COUPON_MANAGEMENT_SYSTEM_PLAN.md`**: Coupon system implementation
+- **`ORDER_SYSTEM_IMPLEMENTATION_PLAN.md`**: Order management system
+- **`BIOMETRIC_SYNC_IMPLEMENTATION_PLAN.md`**: Biometric integration guide
+- **`PERMISSION_SYSTEM_IMPLEMENTATION_CHECKLIST.md`**: Permission system setup
+- **`PRIVILEGE_CARD_SYSTEM.md`**: ERP privilege card integration
+- **`PUSH_NOTIFICATION_SYSTEM.md`**: Push notification setup and troubleshooting
+- **`ADD_NEW_FUNCTION_GUIDE.md`**: Guide for adding new features
+- **Additional guides**: ERP setup, ZKBioTime integration, language localization
+
+## 🎯 System Status
+
+### ✅ Completed Features
+- [x] PWA installable on desktop and mobile
+- [x] Bilingual system with RTL/LTR support (Arabic/English)
+- [x] Custom i18n library with domain-specific translations
+- [x] Windowed desktop interface with drag/resize/minimize
+- [x] Desktop admin interface (36+ components)
+- [x] Mobile employee interface (4 components)
+- [x] Customer shopping app (7 components)
+- [x] Cashier/POS interface (4 components)
+- [x] Complete database schema (65 tables, 256 functions, 71 triggers)
+- [x] Role-based access control with function permissions
+- [x] Push notification system with FCM integration
+- [x] Service worker with offline support
+- [x] Real-time data synchronization
+- [x] ERP integration with URBAN2_2025
+- [x] Biometric attendance integration with ZKBioTime
+- [x] Task management with assignments and reminders
+- [x] Financial management (expenses, payments, warnings/fines)
+- [x] Product and offer management
+- [x] Coupon redemption system
+- [x] Version management system
+
+### 🚧 In Progress / Planned
+- [ ] Order management system (full implementation)
+- [ ] Advanced reporting and analytics
+- [ ] Excel import/export for all modules
+- [ ] Windows desktop installer (Electron packaging)
+- [ ] Enhanced offline capabilities
+- [ ] Mobile app native builds (iOS/Android)
 
 ## 📄 License
 
 Proprietary - Aqura Management System
 
+## 🤝 Contributing
+
+This is a proprietary project. For contributions or questions, contact the development team.
+
+## 📞 Support
+
+For technical support or questions:
+- Check documentation in `Do not delete/` folder
+- Review `.copilot-instructions.md` for system architecture
+- Contact system administrators
+
 ---
 
-**Current Status**: 🚧 In Development - Frontend foundation with i18n system completed
+**Current Status**: ✅ Production Ready - Version 2.0.2  
+**Last Updated**: December 1, 2025  
+**Repository**: [github.com/mkyousafali/Aqura](https://github.com/mkyousafali/Aqura)

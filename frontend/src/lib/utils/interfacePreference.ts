@@ -141,7 +141,7 @@ export class InterfacePreferenceService {
     const preference = this.getPreference(userId);
 
     if (preference === "mobile" || this.isMobileForced()) {
-      return "/mobile";
+      return "/mobile-interface";
     }
 
     return defaultRoute;
@@ -154,7 +154,7 @@ export class InterfacePreferenceService {
     const preference = this.getPreference(userId);
 
     if (preference === "mobile" || this.isMobileForced()) {
-      return "/mobile-login";
+      return "/mobile-interface/login";
     }
 
     return "/login";
@@ -170,16 +170,16 @@ export class InterfacePreferenceService {
     if (preference === "mobile" || this.isMobileForced()) {
       // Convert desktop routes to mobile routes
       if (notificationPath.startsWith("/tasks/")) {
-        return notificationPath.replace("/tasks/", "/mobile/tasks/");
+        return notificationPath.replace("/tasks/", "/mobile-interface/tasks/");
       }
       if (notificationPath.startsWith("/notifications/")) {
         return notificationPath.replace(
           "/notifications/",
-          "/mobile/notifications/",
+          "/mobile-interface/notifications/",
         );
       }
       // Default to mobile dashboard for unknown routes
-      return "/mobile";
+      return "/mobile-interface";
     }
 
     // Desktop users get the original route

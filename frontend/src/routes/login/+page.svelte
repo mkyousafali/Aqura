@@ -68,7 +68,7 @@
 	function chooseInterface(choice: 'desktop' | 'mobile') {
 		if (choice === 'mobile') {
 			// Redirect to mobile login
-			goto('/mobile-login');
+			goto('/mobile-interface/login');
 		} else {
 			// Continue with desktop interface
 			interfaceChoice = 'desktop';
@@ -83,7 +83,7 @@
 
 	function goToCustomerLogin() {
 		console.log('🔄 [Main Login] Customer Login button clicked');
-		goto('/customer-login');
+		goto('/customer-interface/login');
 	}
 
 	function validateUsername() {
@@ -380,7 +380,7 @@
 								<!-- Cashier Login Button -->
 								<button 
 									class="interface-btn cashier-btn"
-									on:click={() => goto('/cashier')}
+									on:click={() => goto('/cashier-interface')}
 									disabled={isLoading}
 									type="button"
 									title={$_('coupon.cashier') || 'Cashier'}

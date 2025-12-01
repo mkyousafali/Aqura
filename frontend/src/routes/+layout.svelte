@@ -6,13 +6,13 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import '../app.css';
-	import WindowManager from '$lib/components/WindowManager.svelte';
-	import Taskbar from '$lib/components/Taskbar.svelte';
-	import Sidebar from '$lib/components/Sidebar.svelte';
-	import CommandPalette from '$lib/components/CommandPalette.svelte';
-	import ToastNotifications from '$lib/components/ToastNotifications.svelte';
-	import UserSwitcher from '$lib/components/UserSwitcher.svelte';
-	import PushNotificationSettings from '$lib/components/PushNotificationSettings.svelte';
+	import WindowManager from '$lib/components/common/WindowManager.svelte';
+	import Taskbar from '$lib/components/desktop-interface/common/Taskbar.svelte';
+	import Sidebar from '$lib/components/desktop-interface/common/Sidebar.svelte';
+	import CommandPalette from '$lib/components/desktop-interface/common/CommandPalette.svelte';
+	import ToastNotifications from '$lib/components/common/ToastNotifications.svelte';
+	import UserSwitcher from '$lib/components/common/UserSwitcher.svelte';
+	import PushNotificationSettings from '$lib/components/desktop-interface/settings/PushNotificationSettings.svelte';
 	
 	// Enhanced imports for persistent auth and push notifications
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
@@ -26,7 +26,7 @@
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { cacheManager } from '$lib/utils/cacheManager';
 	import { startNotificationListener } from '$lib/stores/notifications';
-	import NotificationWindow from '$lib/components/admin/communication/NotificationWindow.svelte';
+	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
@@ -139,105 +139,105 @@
 			// Map component names to imports
 			switch (componentName) {
 				case 'VendorMaster':
-					const { default: VendorMaster } = await import('$lib/components/admin/VendorMaster.svelte');
+					const { default: VendorMaster } = await import('$lib/components/desktop-interface/master/VendorMaster.svelte');
 					component = VendorMaster;
 					break;
 				case 'BranchMaster':
-					const { default: BranchMaster } = await import('$lib/components/admin/BranchMaster.svelte');
+					const { default: BranchMaster } = await import('$lib/components/desktop-interface/master/BranchMaster.svelte');
 					component = BranchMaster;
 					break;
 				case 'StartReceiving':
-					const { default: StartReceiving } = await import('$lib/components/admin/receiving/StartReceiving.svelte');
+					const { default: StartReceiving } = await import('$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte');
 					component = StartReceiving;
 					break;
 				case 'Receiving':
-					const { default: Receiving } = await import('$lib/components/admin/Receiving.svelte');
+					const { default: Receiving } = await import('$lib/components/desktop-interface/master/operations/Receiving.svelte');
 					component = Receiving;
 					break;
 				case 'ReceivingRecords':
-					const { default: ReceivingRecords } = await import('$lib/components/admin/receiving/ReceivingRecords.svelte');
+					const { default: ReceivingRecords } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte');
 					component = ReceivingRecords;
 					break;
 				case 'ReceivingTasksDashboard':
-					const { default: ReceivingTasksDashboard } = await import('$lib/components/admin/receiving/ReceivingTasksDashboard.svelte');
+					const { default: ReceivingTasksDashboard } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingTasksDashboard.svelte');
 					component = ReceivingTasksDashboard;
 					break;
 				case 'ReceivingDataWindow':
-					const { default: ReceivingDataWindow } = await import('$lib/components/admin/receiving/ReceivingDataWindow.svelte');
+					const { default: ReceivingDataWindow } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingDataWindow.svelte');
 					component = ReceivingDataWindow;
 					break;
 				case 'ScheduledPayments':
-					const { default: ScheduledPayments } = await import('$lib/components/admin/vendor/ScheduledPayments.svelte');
+					const { default: ScheduledPayments } = await import('$lib/components/desktop-interface/master/finance/ScheduledPayments.svelte');
 					component = ScheduledPayments;
 					break;
 				case 'PaymentManager':
-					const { default: PaymentManager } = await import('$lib/components/admin/vendor/PaymentManager.svelte');
+					const { default: PaymentManager } = await import('$lib/components/desktop-interface/master/finance/PaymentManager.svelte');
 					component = PaymentManager;
 					break;
 				case 'MonthDetails':
 					console.log('🪟 Loading MonthDetails component...');
-					const { default: MonthDetails } = await import('$lib/components/admin/vendor/MonthDetails.svelte');
+					const { default: MonthDetails } = await import('$lib/components/desktop-interface/master/finance/MonthDetails.svelte');
 					component = MonthDetails;
 					console.log('🪟 MonthDetails component loaded:', component);
 					break;
 				case 'UnpaidScheduledDetails':
-					const { default: UnpaidScheduledDetails } = await import('$lib/components/admin/vendor/UnpaidScheduledDetails.svelte');
+					const { default: UnpaidScheduledDetails } = await import('$lib/components/desktop-interface/master/finance/UnpaidScheduledDetails.svelte');
 					component = UnpaidScheduledDetails;
 					break;
 				case 'TaskMaster':
-					const { default: TaskMaster } = await import('$lib/components/admin/TaskMaster.svelte');
+					const { default: TaskMaster } = await import('$lib/components/desktop-interface/master/TaskMaster.svelte');
 					component = TaskMaster;
 					break;
 				case 'HRMaster':
-					const { default: HRMaster } = await import('$lib/components/admin/HRMaster.svelte');
+					const { default: HRMaster } = await import('$lib/components/desktop-interface/master/HRMaster.svelte');
 					component = HRMaster;
 					break;
 				case 'OperationsMaster':
-					const { default: OperationsMaster } = await import('$lib/components/admin/OperationsMaster.svelte');
+					const { default: OperationsMaster } = await import('$lib/components/desktop-interface/master/OperationsMaster.svelte');
 					component = OperationsMaster;
 					break;
 				case 'FinanceMaster':
-					const { default: FinanceMaster } = await import('$lib/components/admin/FinanceMaster.svelte');
+					const { default: FinanceMaster } = await import('$lib/components/desktop-interface/master/FinanceMaster.svelte');
 					component = FinanceMaster;
 					break;
 				case 'UserManagement':
-					const { default: UserManagement } = await import('$lib/components/admin/UserManagement.svelte');
+					const { default: UserManagement } = await import('$lib/components/desktop-interface/settings/UserManagement.svelte');
 					component = UserManagement;
 					break;
 				case 'CommunicationCenter':
-					const { default: CommunicationCenter } = await import('$lib/components/admin/CommunicationCenter.svelte');
+					const { default: CommunicationCenter } = await import('$lib/components/desktop-interface/master/CommunicationCenter.svelte');
 					component = CommunicationCenter;
 					break;
 				case 'Settings':
-					const { default: Settings } = await import('$lib/components/admin/Settings.svelte');
+					const { default: Settings } = await import('$lib/components/desktop-interface/settings/Settings.svelte');
 					component = Settings;
 					break;
 				case 'UploadVendor':
-					const { default: UploadVendor } = await import('$lib/components/admin/vendor/UploadVendor.svelte');
+					const { default: UploadVendor } = await import('$lib/components/desktop-interface/master/vendor/UploadVendor.svelte');
 					component = UploadVendor;
 					break;
 				case 'ManageVendor':
-					const { default: ManageVendor } = await import('$lib/components/admin/vendor/ManageVendor.svelte');
+					const { default: ManageVendor } = await import('$lib/components/desktop-interface/master/vendor/ManageVendor.svelte');
 					component = ManageVendor;
 					break;
 				case 'EditUser':
-					const { default: EditUser } = await import('$lib/components/admin/user/EditUser.svelte');
+					const { default: EditUser } = await import('$lib/components/desktop-interface/settings/user/EditUser.svelte');
 					component = EditUser;
 					break;
 				case 'NotificationCenter':
-					const { default: NotificationCenter } = await import('$lib/components/admin/communication/NotificationCenter.svelte');
+					const { default: NotificationCenter } = await import('$lib/components/desktop-interface/master/communication/NotificationCenter.svelte');
 					component = NotificationCenter;
 					break;
 				case 'DocumentManagement':
-					const { default: DocumentManagement } = await import('$lib/components/admin/hr/DocumentManagement.svelte');
+					const { default: DocumentManagement } = await import('$lib/components/desktop-interface/master/hr/DocumentManagement.svelte');
 					component = DocumentManagement;
 					break;
 			case 'ProductSelectorWindow':
-				const { default: ProductSelectorWindow } = await import('$lib/components/admin/ProductSelectorWindow.svelte');
+				const { default: ProductSelectorWindow } = await import('$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte');
 				component = ProductSelectorWindow;
 				break;
 			case 'FlyerMasterDashboard':
-				const { default: FlyerMasterDashboard } = await import('$lib/components/admin/flyer/FlyerMasterDashboard.svelte');
+				const { default: FlyerMasterDashboard } = await import('$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte');
 				component = FlyerMasterDashboard;
 				break;
 			default:
@@ -567,37 +567,35 @@
 				const userId = currentUserState.id;
 				const currentPath = $page.url.pathname;
 				
-				// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
-				if (interfacePreferenceService.isMobilePreferred(userId) && 
-					!currentPath.startsWith('/mobile') && 
-					!currentPath.startsWith('/mobile-login') &&
-					!currentPath.startsWith('/cashier')) {
-					
-					console.log('🔐 User has mobile preference, redirecting to mobile interface');
-					goto('/mobile');
-					return;
-				}
+			// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
+			if (interfacePreferenceService.isMobilePreferred(userId) && 
+				!currentPath.startsWith('/mobile-interface') && 
+				!currentPath.startsWith('/mobile-interface/login') &&
+				!currentPath.startsWith('/cashier-interface')) {
 				
-				// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
-				if (!interfacePreferenceService.isMobilePreferred(userId) && 
-					currentPath.startsWith('/mobile') &&
-					!currentPath.startsWith('/cashier')) {
-					
-					console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
-					goto('/');
-					return;
-				}
-			}
+				console.log('🔐 User has mobile preference, redirecting to mobile interface');
+				goto('/mobile-interface');
+			return;
+		}
+		
+		// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
+		if (!interfacePreferenceService.isMobilePreferred(userId) && 
+			currentPath.startsWith('/mobile-interface') &&
+			!currentPath.startsWith('/cashier-interface')) {
 			
-			// Set initial state based on current auth status
+			console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
+			goto('/');
+			return;
+		}
+	}			// Set initial state based on current auth status
 			isAuthenticated = currentAuthState;
 			currentUserData = currentUserState;
 			
 			// Only redirect if necessary and avoid loops
-			const isCashier = $page.url.pathname.startsWith('/cashier');
-			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-login' && !isCashier) {
+			const isCashier = $page.url.pathname.startsWith('/cashier-interface');
+			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-interface/login' && !isCashier) {
 				console.log('🔐 Initial check: Not authenticated, will redirect to login');
-			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-login') && !isCashier) {
+			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-interface/login') && !isCashier) {
 				console.log('🔐 Initial check: Already authenticated, will redirect to appropriate dashboard');
 				
 				// Redirect to appropriate interface based on preference
@@ -747,25 +745,23 @@
 				isLoading = false;
 				
 				// Update body class for desktop mode
-				updateBodyClass();
-				
-				// Only redirect if we're not already on the target page to prevent loops
-				// Also exclude customer and cashier routes from employee authentication checks
-				const isCustomerRoute = $page.url.pathname.startsWith('/customer');
-				const isCashierRoute = $page.url.pathname.startsWith('/cashier');
-				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute) {
-					console.log('🔐 Not authenticated, redirecting to login');
-					goto('/login', { replaceState: true });
-				}
-				
-				// Redirect authenticated users away from login page (except cashier)
-				if (authenticated && $page.url.pathname === '/login' && !isCashierRoute) {
-					console.log('🔐 Already authenticated, redirecting to dashboard');
-					goto('/', { replaceState: true });
-				}
-			});
-
-			// Subscribe to current user changes
+			updateBodyClass();
+			
+			// Only redirect if we're not already on the target page to prevent loops
+			// Also exclude customer and cashier routes from employee authentication checks
+			const isCustomerRoute = $page.url.pathname.startsWith('/customer-interface');
+			const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
+			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute) {
+				console.log('🔐 Not authenticated, redirecting to login');
+				goto('/login', { replaceState: true });
+			}
+			
+			// Redirect authenticated users away from login page (except cashier)
+			if (authenticated && $page.url.pathname === '/login' && !isCashierRoute) {
+				console.log('🔐 Already authenticated, redirecting to dashboard');
+				goto('/', { replaceState: true });
+			}
+		});			// Subscribe to current user changes
 			unsubscribeUser = currentUser.subscribe(user => {
 				const previousUser = currentUserData;
 				currentUserData = user;
@@ -785,19 +781,17 @@
 			const loadingTimeout = setTimeout(() => {
 				if (isLoading) {
 					console.warn('⚠️ Loading timeout reached, forcing loading state to false');
-					isLoading = false;
-					
-					// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
-					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer');
-					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
-						console.log('🔐 Timeout reached, redirecting to login');
-						goto('/login');
-					}
+				isLoading = false;
+				
+				// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
+				const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer-interface');
+				const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
+				if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
+					console.log('🔐 Timeout reached, redirecting to login');
+					goto('/login');
 				}
-			}, 5000); // 5 second timeout
-			
-			// Return cleanup function for the timeout
+			}
+		}, 5000); // 5 second timeout			// Return cleanup function for the timeout
 			return () => {
 				clearTimeout(loadingTimeout);
 			};
@@ -816,7 +810,7 @@
 			isAuthenticated = false;
 			
 			// Only redirect to login if we're not already there and not on customer routes
-			const isCustomerRouteError = $page.url.pathname.startsWith('/customer');
+			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
 			if ($page.url.pathname !== '/login' && !isCustomerRouteError) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
@@ -1029,9 +1023,9 @@
 	// Check if current route is login page
 	// Page state management - detect mobile routes
 	$: isLoginPage = $page.url.pathname === '/login';
-	$: isMobileRoute = $page.url.pathname.startsWith('/mobile');
-	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-login');
-	$: isCashierRoute = $page.url.pathname.startsWith('/cashier');
+	$: isMobileRoute = $page.url.pathname.startsWith('/mobile-interface');
+	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-interface/login');
+	$: isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 
 	// Update body class when authentication or page state changes (exclude mobile and cashier routes)
 	$: if (typeof document !== 'undefined') {

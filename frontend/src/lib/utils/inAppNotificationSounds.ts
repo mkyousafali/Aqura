@@ -155,7 +155,7 @@ class InAppNotificationSoundManager {
     const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
 
     // Check for mobile interface route - THIS IS KEY FOR DESKTOP MOBILE INTERFACE
-    const isMobileRoute = window.location.pathname.startsWith("/mobile");
+    const isMobileRoute = window.location.pathname.startsWith("/mobile-interface");
 
     // IMPORTANT: Treat mobile interface as mobile even on desktop
     // This ensures sound system works properly for mobile interface users on desktop
@@ -178,7 +178,7 @@ class InAppNotificationSoundManager {
   private setupMobileAudioUnlock(): void {
     const isMobileInterface =
       typeof window !== "undefined" &&
-      window.location.pathname.startsWith("/mobile");
+      window.location.pathname.startsWith("/mobile-interface");
 
     if (!this.isMobileDevice && !isMobileInterface) {
       console.log(
@@ -421,7 +421,7 @@ class InAppNotificationSoundManager {
         // For mobile interface, try to unlock audio if not already unlocked
         const isMobileInterface =
           typeof window !== "undefined" &&
-          window.location.pathname.startsWith("/mobile");
+          window.location.pathname.startsWith("/mobile-interface");
         if ((this.isMobileDevice || isMobileInterface) && !this.audioUnlocked) {
           console.log(
             "🔓 [SoundManager] Audio not unlocked, attempting unlock before playback...",
@@ -486,7 +486,7 @@ class InAppNotificationSoundManager {
         // For mobile interface, we need to wait for next user interaction
         const isMobileInterface =
           typeof window !== "undefined" &&
-          window.location.pathname.startsWith("/mobile");
+          window.location.pathname.startsWith("/mobile-interface");
         if (isMobileInterface) {
           console.log(
             "📱 [SoundManager] Setting up re-unlock listeners for mobile interface...",
@@ -639,7 +639,7 @@ class InAppNotificationSoundManager {
     // For mobile interface, always try to unlock regardless of device type
     const isMobileInterface =
       typeof window !== "undefined" &&
-      window.location.pathname.startsWith("/mobile");
+      window.location.pathname.startsWith("/mobile-interface");
 
     if ((!this.isMobileDevice && !isMobileInterface) || !this.audio) {
       console.log(
@@ -751,7 +751,7 @@ if (typeof window !== "undefined" && notificationSoundManager) {
       }
     },
     isMobile: () => (notificationSoundManager as any).isMobileDevice,
-    isMobileInterface: () => window.location.pathname.startsWith("/mobile"),
+    isMobileInterface: () => window.location.pathname.startsWith("/mobile-interface"),
     isAudioUnlocked: () => (notificationSoundManager as any).audioUnlocked,
     checkAudio: () => {
       const audio = (notificationSoundManager as any).audio;
@@ -773,10 +773,10 @@ if (typeof window !== "undefined" && notificationSoundManager) {
   );
   console.log("📱 [SoundManager] Device detection:", {
     isMobileDevice: (notificationSoundManager as any).isMobileDevice,
-    isMobileInterface: window.location.pathname.startsWith("/mobile"),
+    isMobileInterface: window.location.pathname.startsWith("/mobile-interface"),
     shouldUseMobileAudio:
       (notificationSoundManager as any).isMobileDevice ||
-      window.location.pathname.startsWith("/mobile"),
+      window.location.pathname.startsWith("/mobile-interface"),
   });
 }
 
