@@ -5,19 +5,21 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ18.3.2.2</p>
-			<p class="version-details">Desktop: 18 | Mobile: 3 | Cashier: 2 | Customer: 2</p>
+			<p class="version-title">Version AQ19.3.2.2</p>
+			<p class="version-details">Desktop: 19 | Mobile: 3 | Cashier: 2 | Customer: 2</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>✨ New Feature</h3>
-			<p class="change-description">Improve version changelog automation</p>
+			<p class="change-description">Replace speed test with simple online/offline indicator</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Implemented improve version changelog automation</li>
-					<li>Modified 1 file</li>
+					<li>Removed internet speed test functionality</li>
+					<li>Added simple connection status indicator with green/red light</li>
+					<li>Replaced speed measurement with browser's navigator.onLine API</li>
+					<li>Simplified sidebar UI with pulsing status light</li>
 				</ul>
 			</div>
 			<p class="date">December 1, 2025</p>

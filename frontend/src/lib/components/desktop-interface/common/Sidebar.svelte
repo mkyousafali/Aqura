@@ -62,32 +62,8 @@
 	// Get pending approvals count from store
 	$: pendingApprovalsCount = $approvalCounts.pending;
 
-	// Internet Speed state
-	let internetSpeed: number | null = null;
-	let speedStatus: 'testing' | 'online' | 'slow' | 'offline' = 'online'; // Changed default to 'online'
-	let speedInterval: NodeJS.Timeout | null = null;
-	let isTestingSpeed = false;
-	
-	// Reactive speed display text
-	$: speedDisplayText = (() => {
-		if (speedStatus === 'testing' || isTestingSpeed) {
-			return 'Testing...';
-		} else if (speedStatus === 'offline') {
-			return 'No Internet';
-		} else if (speedStatus === 'slow' && internetSpeed !== null) {
-			return `Slow: ${internetSpeed.toFixed(1)} Mbps`;
-		} else if (internetSpeed !== null) {
-			// Show speed with quality indicator
-			if (internetSpeed > 30) return `⚡ ${internetSpeed.toFixed(1)} Mbps`;
-			else if (internetSpeed > 10) return `✓ ${internetSpeed.toFixed(1)} Mbps`;
-			else return `${internetSpeed.toFixed(1)} Mbps`;
-		}
-		// If speed is null but we're online, show a default message
-		return 'Detecting...';
-	})();
-	
-	// Reactive status class
-	$: speedStatusClass = `speed-${speedStatus}`;
+	// Online/Offline state
+	let isOnline = true;
 	
 	// Force reactivity when locale changes
 	$: locale = $currentLocale;
@@ -96,14 +72,20 @@
 	onMount(async () => {
 		initPWAInstall();
 		await checkApprovalPermission();
-		// Start internet speed monitoring
-		startSpeedMonitoring();
+		
+		// Monitor online/offline status
+		isOnline = navigator.onLine;
+		
+		const handleOnline = () => { isOnline = true; };
+		const handleOffline = () => { isOnline = false; };
+		
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
 		
 		// Cleanup on unmount
 		return () => {
-			if (speedInterval) {
-				clearInterval(speedInterval);
-			}
+			window.removeEventListener('online', handleOnline);
+			window.removeEventListener('offline', handleOffline);
 		};
 	});
 
@@ -829,166 +811,16 @@ function openApprovalCenter() {
 		});
 	}
 
-	// Internet Speed Testing Functions
-	function getConnectionSpeed(): number {
-		// Try to use the Network Information API if available
-		const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
-		
-		if (connection && connection.downlink) {
-			// downlink is in Mbps
-			return connection.downlink;
-		}
-		
-		// If API not available, estimate based on connection type
-		if (connection && connection.effectiveType) {
-			const type = connection.effectiveType;
-			if (type === '4g') return 25 + Math.random() * 20;
-			if (type === '3g') return 5 + Math.random() * 5;
-			if (type === '2g') return 0.5 + Math.random() * 0.5;
-			if (type === 'slow-2g') return 0.2;
-		}
-		
-		// Default fallback - assume decent connection
-		return 20 + Math.random() * 15;
-	}
-
-	async function measureInternetSpeed(): Promise<number | null> {
-		try {
-			isTestingSpeed = true;
-			speedStatus = 'testing';
-			
-			// Download a 25MB file for very accurate speed measurement
-			const testFileUrl = 'https://speed.cloudflare.com/__down?bytes=25000000'; // 25MB test
-			const startTime = performance.now();
-			
-			// Create abort controller for timeout
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-			
-			const response = await fetch(testFileUrl, {
-				method: 'GET',
-				cache: 'no-store',
-				signal: controller.signal
-			});
-			
-			clearTimeout(timeoutId);
-			
-			if (!response.ok) {
-				isTestingSpeed = false;
-				return getConnectionSpeed();
-			}
-			
-			// Read the data
-			const blob = await response.blob();
-			const endTime = performance.now();
-			
-			// Calculate actual download speed
-			const durationInSeconds = (endTime - startTime) / 1000;
-			const fileSizeInBytes = blob.size;
-			const fileSizeInMB = fileSizeInBytes / (1024 * 1024);
-			const speedInMbps = (fileSizeInMB * 8) / durationInSeconds;
-			
-			isTestingSpeed = false;
-			
-			// Sanity check - if speed seems wrong, use API fallback
-			if (speedInMbps > 0.5 && speedInMbps < 1000) {
-				return speedInMbps;
-			}
-			
-			return getConnectionSpeed();
-			
-		} catch (error) {
-			isTestingSpeed = false;
-			return getConnectionSpeed(); // Fallback to API speed
-		}
-	}
-
-	async function updateInternetSpeed() {
-		// Check if browser reports online status first
-		if (!navigator.onLine) {
-			internetSpeed = null;
-			speedStatus = 'offline';
-			return;
-		}
-		
-		// Get immediate speed from API
-		const apiSpeed = getConnectionSpeed();
-		internetSpeed = apiSpeed;
-		speedStatus = apiSpeed > 2 ? 'online' : 'slow';
-		
-		// Then do actual measurement in background
-		const measuredSpeed = await measureInternetSpeed();
-		
-		if (measuredSpeed === null) {
-			internetSpeed = null;
-			speedStatus = 'offline';
-		} else if (measuredSpeed < 2) {
-			internetSpeed = measuredSpeed;
-			speedStatus = 'slow';
-		} else {
-			internetSpeed = measuredSpeed;
-			speedStatus = 'online';
-		}
-	}
-
-	function startSpeedMonitoring() {
-		// Initial test - show API speed immediately
-		const initialSpeed = getConnectionSpeed();
-		
-		internetSpeed = initialSpeed;
-		speedStatus = initialSpeed > 2 ? 'online' : 'slow';
-		
-		// Run first real test after 2 seconds
-		setTimeout(() => {
-			manualSpeedTest();
-		}, 2000);
-		
-		// Then auto-test every 60 seconds
-		speedInterval = setInterval(() => {
-			manualSpeedTest();
-		}, 60000);
-	}
-
-	async function manualSpeedTest() {
-		if (isTestingSpeed) return; // Prevent multiple simultaneous tests
-		
-		const measuredSpeed = await measureInternetSpeed();
-		
-		if (measuredSpeed === null) {
-			internetSpeed = null;
-			speedStatus = 'offline';
-		} else if (measuredSpeed < 2) {
-			internetSpeed = measuredSpeed;
-			speedStatus = 'slow';
-		} else {
-			internetSpeed = measuredSpeed;
-			speedStatus = 'online';
-		}
-	}
-
 
 </script>
 
 <div class="sidebar">
 	<div class="sidebar-content">
-	<!-- Internet Speed Display (Top Section) -->
-	<div class="internet-speed-box {speedStatusClass}">
-		<div class="speed-value">{speedDisplayText}</div>
+	<!-- Online/Offline Indicator -->
+	<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
+		<div class="status-light"></div>
+		<span class="status-text">{isOnline ? 'Online' : 'Offline'}</span>
 	</div>
-	
-	<!-- Speed Test Button (Separate) -->
-	<button 
-		class="speed-test-btn" 
-		on:click={manualSpeedTest}
-		disabled={isTestingSpeed}
-		title="Test speed (downloads 25MB)"
-	>
-		{#if isTestingSpeed}
-			⏳ Testing...
-		{:else}
-			🔄 Test Speed
-		{/if}
-	</button>
 	
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
@@ -1277,7 +1109,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ18.3.2.2
+				AQ19.3.2.2
 			</button>
 		</div>
 	</div>
@@ -1677,127 +1509,81 @@ function openApprovalCenter() {
 		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
-	/* Internet Speed Display Styles */
-	.internet-speed-box {
+	/* Connection Indicator Styles */
+	.connection-indicator {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 12px 10px;
-		margin-bottom: 0px;
+		padding: 10px 12px;
 		border-radius: 8px;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		margin-bottom: 8px;
 		transition: all 0.3s ease;
 	}
 
-	.internet-speed-box.speed-testing {
-		background: rgba(59, 130, 246, 0.1);
-		border-color: rgba(59, 130, 246, 0.3);
-	}
-
-	.internet-speed-box.speed-online {
+	.connection-indicator.online {
 		background: rgba(16, 185, 129, 0.1);
-		border-color: rgba(16, 185, 129, 0.3);
+		border: 1px solid rgba(16, 185, 129, 0.3);
 	}
 
-	.internet-speed-box.speed-slow {
-		background: rgba(245, 158, 11, 0.1);
-		border-color: rgba(245, 158, 11, 0.3);
-	}
-
-	.internet-speed-box.speed-offline {
+	.connection-indicator.offline {
 		background: rgba(239, 68, 68, 0.1);
-		border-color: rgba(239, 68, 68, 0.3);
+		border: 1px solid rgba(239, 68, 68, 0.3);
 	}
 
-	.speed-icon {
-		font-size: 16px;
+	.status-light {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
 		flex-shrink: 0;
-		animation: pulseIcon 2s ease-in-out infinite;
+		transition: all 0.3s ease;
+		box-shadow: 0 0 8px currentColor;
 	}
 
-	@keyframes pulseIcon {
+	.connection-indicator.online .status-light {
+		background: #10b981;
+		animation: pulseGreen 2s ease-in-out infinite;
+	}
+
+	.connection-indicator.offline .status-light {
+		background: #ef4444;
+		animation: pulseRed 2s ease-in-out infinite;
+	}
+
+	@keyframes pulseGreen {
 		0%, 100% {
+			box-shadow: 0 0 8px #10b981;
 			opacity: 1;
-			transform: scale(1);
 		}
 		50% {
-			opacity: 0.7;
-			transform: scale(1.05);
+			box-shadow: 0 0 16px #10b981;
+			opacity: 0.8;
 		}
 	}
 
-	.speed-info {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		flex: 1;
-		min-width: 0;
+	@keyframes pulseRed {
+		0%, 100% {
+			box-shadow: 0 0 8px #ef4444;
+			opacity: 1;
+		}
+		50% {
+			box-shadow: 0 0 16px #ef4444;
+			opacity: 0.8;
+		}
 	}
 
-	.speed-label {
-		font-size: 10px;
-		color: rgba(255, 255, 255, 0.6);
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.speed-value {
+	.status-text {
 		font-size: 13px;
-		color: white;
 		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		color: white;
+		flex: 1;
 	}
 
-	.speed-testing .speed-value {
-		color: #60a5fa;
-	}
-
-	.speed-online .speed-value {
+	.connection-indicator.online .status-text {
 		color: #34d399;
 	}
 
-	.speed-slow .speed-value {
-		color: #fbbf24;
-	}
-
-	.speed-offline .speed-value {
+	.connection-indicator.offline .status-text {
 		color: #f87171;
-	}
-
-	.speed-test-btn {
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 6px;
-		color: white;
-		font-size: 11px;
-		padding: 8px 10px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		width: 100%;
-		margin-bottom: 8px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 5px;
-	}
-
-	.speed-test-btn:hover:not(:disabled) {
-		background: rgba(255, 255, 255, 0.2);
-		border-color: rgba(255, 255, 255, 0.3);
-		transform: scale(1.05);
-	}
-
-	.speed-test-btn:active:not(:disabled) {
-		transform: scale(0.95);
-	}
-
-	.speed-test-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	.speed-separator {
