@@ -101,14 +101,15 @@ function updatePackageJson(newVersion) {
 }
 
 /**
- * Update Sidebar.svelte version
+ * Update Sidebar.svelte version and changelog
  */
-function updateSidebarVersion(newVersion) {
+function updateSidebarVersion(newVersion, commitMessage) {
   const sidebarPath = path.join(__dirname, '../frontend/src/lib/components/desktop-interface/common/Sidebar.svelte');
   
   try {
     let content = fs.readFileSync(sidebarPath, 'utf8');
     
+    // Update version numbers
     content = content.replace(
       /AQ[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(?=\s*<\/button>)/g,
       newVersion
@@ -118,6 +119,59 @@ function updateSidebarVersion(newVersion) {
       /What's New in AQ[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/g,
       `What's New in ${newVersion}`
     );
+    
+    // Parse commit message to extract feature description
+    const featureMatch = commitMessage.match(/^(feat|fix|chore|docs|style|refactor|perf|test)\(([^)]+)\):\s*(.+)$/i);
+    let updateType = '✨ Update';
+    let updateDescription = commitMessage;
+    
+    if (featureMatch) {
+      const [, type, scope, description] = featureMatch;
+      switch (type.toLowerCase()) {
+        case 'feat':
+          updateType = '✨ New Feature';
+          break;
+        case 'fix':
+          updateType = '🐛 Bug Fix';
+          break;
+        case 'perf':
+          updateType = '⚡ Performance';
+          break;
+        case 'refactor':
+          updateType = '♻️ Refactor';
+          break;
+        case 'docs':
+          updateType = '📝 Documentation';
+          break;
+        case 'style':
+          updateType = '💄 Style';
+          break;
+        case 'test':
+          updateType = '🧪 Test';
+          break;
+        default:
+          updateType = '🔧 Maintenance';
+      }
+      updateDescription = description.charAt(0).toUpperCase() + description.slice(1);
+    }
+    
+    // Add new update section at the top of the changelog (after Version Format Header)
+    const updateSection = `
+				<!-- Latest Update - ${newVersion} -->
+				<div class="update-section" style="border-left: 4px solid #10b981; padding-left: 16px; background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%); padding: 12px; margin-bottom: 16px;">
+					<h4 style="color: #065f46; margin: 0 0 8px 0;">${updateType} - ${newVersion}</h4>
+					<ul style="margin: 0; padding-left: 20px; font-size: 13px;">
+						<li><strong>${updateDescription}</strong></li>
+						<li><small style="opacity: 0.7;">Updated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</small></li>
+					</ul>
+				</div>
+`;
+    
+    // Find the position after the Version Format Header and insert the new update
+    const versionFormatEnd = content.indexOf('</div>\n\n				<!-- Desktop Interface Section -->');
+    if (versionFormatEnd !== -1) {
+      content = content.slice(0, versionFormatEnd + 7) + updateSection + content.slice(versionFormatEnd + 7);
+    }
     
     fs.writeFileSync(sidebarPath, content);
     return true;
@@ -153,8 +207,9 @@ function main() {
   
   // Step 3: Update files
   console.log('🔄 Updating files...');
+  const commitMsg = custom_message || `chore(${interface_type}): bump version to ${newVersion}`;
   updatePackageJson(newVersion);
-  updateSidebarVersion(newVersion);
+  updateSidebarVersion(newVersion, commitMsg);
   console.log('✅ Files updated\n');
   
   // Step 4: Git operations
