@@ -140,16 +140,17 @@
 			
 			console.log(`🔍 Querying punches for employee_id: ${empData.employee_id}, branch_id: ${empData.branch_id}`);
 			
-			// Now query fingerprint transactions using the varchar employee_id and branch_id
-			// Get more records because string sorting of time isn't chronological
+			// Get punches from last 48 hours only (no need to fetch entire history)
+			const twoDaysAgo = new Date();
+			twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
+			const cutoffDate = twoDaysAgo.toISOString().split('T')[0];
+			
 			const { data, error } = await supabase
 				.from('hr_fingerprint_transactions')
 				.select('date, time, status, branch_id, device_id, location')
 				.eq('employee_id', empData.employee_id)
-				.eq('branch_id', empData.branch_id)  // Match user's branch_id
-				.order('date', { ascending: false })
-				.order('time', { ascending: false })
-				.limit(10); // Get more records to sort chronologically in JS
+				.eq('branch_id', empData.branch_id)
+				.gte('date', cutoffDate);
 			
 			if (error) {
 				if (error.code === 'PGRST116') {
@@ -163,49 +164,35 @@
 				console.log('🔍 Raw punch data from database:', data);
 				console.log('🔍 Records from DB:', data.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
 				
-				// Sort all records by actual datetime
-				const sortedByActualTime = data
+				// Sort by combined date+time to get truly latest punches
+				const sortedByDateTime = data
 					.map(record => ({
 						...record,
-						actualDateTime: new Date(`${record.date}T${record.time}`)
+						dateTime: new Date(`${record.date}T${record.time}`)
 					}))
-					.sort((a, b) => b.actualDateTime - a.actualDateTime);
+					.sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime())
+					.slice(0, 2); // Take only latest 2
 				
-				// Get the latest Check In and latest Check Out (not just last 2 chronological)
-				const latestCheckIn = sortedByActualTime.find(r => r.status?.toLowerCase().includes('in'));
-				const latestCheckOut = sortedByActualTime.find(r => r.status?.toLowerCase().includes('out'));
+				console.log('🔍 Latest 2 punches:', sortedByDateTime.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
 				
-				// Build array with Check In first, then Check Out (desktop order)
-				const displayRecords = [];
-				if (latestCheckIn) displayRecords.push(latestCheckIn);
-				if (latestCheckOut) displayRecords.push(latestCheckOut);
-				
-				console.log('🔍 Latest Check In and Check Out:', displayRecords.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
-				
-				// Convert time by subtracting 3 hours properly (handles date changes)
-				// Time in DB is Saudi time (GMT+3), subtract 3 hours to get UTC
-				punches.records = displayRecords.map(record => {
-					// Create proper datetime object and subtract 3 hours
-					const saudiDateTime = new Date(`${record.date}T${record.time}`);
-					const utcDateTime = new Date(saudiDateTime.getTime() - (3 * 60 * 60 * 1000));
-					
-					// Get adjusted hour and minute
-					const hour24 = utcDateTime.getHours();
-					const minutes = utcDateTime.getMinutes();
+				// Format time to 12-hour format (no timezone conversion)
+				punches.records = sortedByDateTime.map(record => {
+					const [hours, minutes, seconds] = record.time.split(':').map(Number);
 					
 					// Convert to 12-hour format
-					const hour12 = hour24 % 12 || 12;
-					const ampm = hour24 >= 12 ? 'PM' : 'AM';
-					const timeStr = `${String(hour12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
+					const period = hours >= 12 ? 'PM' : 'AM';
+					const hour12 = hours % 12 || 12;
+					const timeStr = `${String(hour12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`;
 					
-					// Format date (use adjusted date after time conversion)
-					const dateStr = utcDateTime.toLocaleDateString('en-US', { 
+					// Format date
+					const recordDate = new Date(record.date);
+					const dateStr = recordDate.toLocaleDateString('en-US', { 
 						weekday: 'short', 
 						month: 'short', 
 						day: 'numeric' 
 					});
 					
-					console.log(`📍 Record: ${record.date} ${record.time} (Saudi GMT+3) → ${timeStr} ${dateStr} (UTC -3hrs)`);
+					console.log(`📍 Punch: ${record.date} ${record.time} → Display: ${dateStr} ${timeStr}`);
 					
 					return {
 						time: timeStr,
