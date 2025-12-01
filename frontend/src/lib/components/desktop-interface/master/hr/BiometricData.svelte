@@ -16,6 +16,7 @@
 	let allDates = []; // Store all unique dates for filter dropdown
 	let biometricConnections = []; // Store biometric connection sync status
 	let loading = true;
+	let refreshingSyncStatus = false;
 	let error = '';
 	
 	// Data loading mode
@@ -66,19 +67,8 @@
 				});
 			}
 
-			// Fetch biometric connections for sync status
-			const { data: connections, error: connError } = await supabaseAdmin
-				.from('biometric_connections')
-				.select('*')
-				.eq('is_active', true)
-				.order('branch_id', { ascending: true });
-			if (connError) {
-				console.error('Failed to load biometric connections:', connError);
-			} else if (connections) {
-				biometricConnections = connections;
-			}
-
-			// Fetch position assignments and positions data
+		// Fetch biometric connections for sync status
+		await loadBiometricConnections();			// Fetch position assignments and positions data
 			const { data: positionAssignments, error: posAssignError } = await dataService.hrAssignments.getAll();
 			if (posAssignError) {
 				console.error('Failed to load position assignments:', posAssignError);
@@ -355,6 +345,30 @@
 		return positionData || '—';
 	}
 
+	async function loadBiometricConnections() {
+		const { data: connections, error: connError } = await supabaseAdmin
+			.from('biometric_connections')
+			.select('*')
+			.eq('is_active', true)
+			.order('branch_id', { ascending: true });
+		if (connError) {
+			console.error('Failed to load biometric connections:', connError);
+		} else if (connections) {
+			biometricConnections = connections;
+		}
+	}
+
+	async function refreshSyncStatus() {
+		refreshingSyncStatus = true;
+		try {
+			await loadBiometricConnections();
+			// Small delay to show the refresh animation
+			await new Promise(resolve => setTimeout(resolve, 500));
+		} finally {
+			refreshingSyncStatus = false;
+		}
+	}
+
 	function handleExportToExcel() {
 		openWindow({
 			id: 'biometric-export-' + Date.now(),
@@ -439,7 +453,15 @@
 				<div class="card sync-card">
 					<div class="card-header">
 						<h3 class="card-title">{t('hr.syncStatus')}</h3>
-						<span class="card-icon">🔄</span>
+						<button 
+							class="refresh-btn" 
+							class:refreshing={refreshingSyncStatus}
+							on:click={refreshSyncStatus} 
+							disabled={refreshingSyncStatus}
+							title="Refresh sync status"
+						>
+						🔄
+					</button>
 					</div>
 					<div class="card-body">
 						{#if biometricConnections.length === 0}
@@ -787,6 +809,48 @@
 
 	.export-btn:active {
 		transform: translateY(0);
+	}
+
+	.refresh-btn {
+		background: none;
+		border: none;
+		font-size: 24px;
+		cursor: pointer;
+		padding: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.3s ease;
+		border-radius: 50%;
+		width: 36px;
+		height: 36px;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.5);
+		transform: rotate(180deg);
+	}
+
+	.refresh-btn:active:not(:disabled) {
+		transform: rotate(180deg) scale(0.9);
+	}
+
+	.refresh-btn:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.refresh-btn.refreshing {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.present-card .card-title {

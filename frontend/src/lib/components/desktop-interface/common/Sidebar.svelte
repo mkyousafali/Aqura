@@ -34,6 +34,7 @@
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/desktop-interface/master/finance/ScheduledPayments.svelte';
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
+	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
@@ -674,6 +675,28 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Day Budget Planner window
+	function openDayBudgetPlanner() {
+		const windowId = generateWindowId('day-budget-planner');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Day Budget Planner #${instanceNumber}`,
+			component: DayBudgetPlanner,
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 160 + (Math.random() * 100),
+				y: 160 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// Open Expense Tracker window
 	function openExpenseTracker() {
 		const windowId = generateWindowId('expense-tracker');
@@ -1059,16 +1082,20 @@ function openApprovalCenter() {
 						<span class="menu-text">{t('nav.scheduledPayments') || 'Scheduled Payments'}</span>
 					</button>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openExpenseManager}>
-						<span class="menu-icon">💸</span>
-						<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
-					</button>
-				</div>
+			<div class="submenu-item-container">
+				<button class="submenu-item" on:click={openExpenseManager}>
+					<span class="menu-icon">💸</span>
+					<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
+				</button>
 			</div>
-		{/if}
-
-		<!-- Customer App Section -->
+			<div class="submenu-item-container">
+				<button class="submenu-item" on:click={openDayBudgetPlanner}>
+					<span class="menu-icon">📊</span>
+					<span class="menu-text">{t('nav.dayBudgetPlanner') || 'Day Budget Planner'}</span>
+				</button>
+			</div>
+		</div>
+	{/if}		<!-- Customer App Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
@@ -1250,7 +1277,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ16.2.2.2
+				AQ17.2.2.2
 			</button>
 		</div>
 	</div>

@@ -5,14 +5,14 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ16.2.2.2</p>
-			<p class="version-details">Desktop: 16 | Mobile: 2 | Cashier: 2 | Customer: 2</p>
+			<p class="version-title">Version AQ17.2.2.2</p>
+			<p class="version-details">Desktop: 17 | Mobile: 2 | Cashier: 2 | Customer: 2</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>🔧 Maintenance</h3>
-			<p class="change-description">Bump version to AQ16.2.2.2</p>
+			<h3>✨ New Feature</h3>
+			<p class="change-description">Add Day Budget Planner button to Work section and fix BiometricData refresh button</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>

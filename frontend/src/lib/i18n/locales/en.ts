@@ -56,6 +56,7 @@ export const englishLocale: LocaleData = {
       startReceiving: "Start Receiving",
       scheduledPayments: "Scheduled Payments",
       expenseManager: "Expense Manager",
+      dayBudgetPlanner: "Day Budget Planner",
       soundSettings: "Sound Settings",
       users: "Users",
       interfaceAccess: "Interface Access",
