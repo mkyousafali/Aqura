@@ -48,6 +48,7 @@
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
+	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 
 	let showSettingsSubmenu = false;
 	let showMasterSubmenu = false;
@@ -59,9 +60,6 @@
 	
 	// Get pending approvals count from store
 	$: pendingApprovalsCount = $approvalCounts.pending;
-	
-	// Version popup state
-	let showVersionPopup = false;
 
 	// Internet Speed state
 	let internetSpeed: number | null = null;
@@ -789,14 +787,23 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
-	// Show version popup with update information
+	// Show version changelog window
 	function showVersionInfo() {
-		showVersionPopup = true;
-	}
-
-	// Close version popup
-	function closeVersionPopup() {
-		showVersionPopup = false;
+		const windowId = generateWindowId('version-changelog');
+		
+		openWindow({
+			id: windowId,
+			title: 'Version Changelog',
+			component: VersionChangelog,
+			size: { width: 800, height: 600 },
+			position: { 
+				x: 100, 
+				y: 50 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true
+		});
 	}
 
 	// Internet Speed Testing Functions
@@ -1243,143 +1250,11 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ6.2.2.2
+				AQ16.2.2.2
 			</button>
 		</div>
 	</div>
 </div>
-
-<!-- Version Information Popup -->
-{#if showVersionPopup}
-	<div class="version-popup-overlay" on:click={closeVersionPopup}>
-		<div class="version-popup" on:click|stopPropagation>
-			<div class="version-popup-header">
-				<h3>What's New in AQ6.2.2.2</h3>
-				<button class="close-btn" on:click={closeVersionPopup}>×</button>
-			</div>
-			<div class="version-popup-content">
-				<!-- Version Format Header -->
-				<div class="update-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-					<h4>🎯 Version Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</h4>
-					<p style="margin: 8px 0 0 0; font-size: 14px;">AQ1.1.1.1 = Desktop v1, Mobile v1, Cashier v1, Customer v1</p>
-				</div>
-
-				<!-- Desktop Interface Section -->
-				<div class="update-section" style="border-left: 4px solid #3b82f6; padding-left: 16px; background: #eff6ff; padding: 12px;">
-					<h4 style="color: #1e40af; margin: 0 0 8px 0;">🖥️ Desktop Interface - Version 1</h4>
-					<ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-						<li><strong>Admin/Manager features:</strong> User management, task assignments</li>
-						<li><strong>Window Management:</strong> Drag/resize/minimize windows, taskbar</li>
-						<li><strong>Master Data:</strong> HR, Branch, Vendor, Product management</li>
-						<li><strong>Work Operations:</strong> Receiving, Tasks, Finance, Notifications</li>
-						<li><strong>Update Command:</strong> <code style="background: #fff; padding: 2px 4px;">node scripts/update-version.js desktop</code></li>
-					</ul>
-				</div>
-
-				<!-- Mobile Interface Section -->
-				<div class="update-section" style="border-left: 4px solid #8b5cf6; padding-left: 16px; background: #faf5ff; padding: 12px; margin-top: 12px;">
-					<h4 style="color: #6d28d9; margin: 0 0 8px 0;">📱 Mobile Interface - Version 1</h4>
-					<ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-						<li><strong>Employee App:</strong> Mobile task management, notifications</li>
-						<li><strong>Punch Card:</strong> Last check-in/check-out time display</li>
-						<li><strong>Task System:</strong> View, complete, and manage assigned tasks</li>
-						<li><strong>Notifications:</strong> Real-time alerts and updates</li>
-						<li><strong>Update Command:</strong> <code style="background: #fff; padding: 2px 4px;">node scripts/update-version.js mobile</code></li>
-					</ul>
-				</div>
-
-				<!-- Cashier Interface Section -->
-				<div class="update-section" style="border-left: 4px solid #f59e0b; padding-left: 16px; background: #fffbeb; padding: 12px; margin-top: 12px;">
-					<h4 style="color: #b45309; margin: 0 0 8px 0;">🏪 Cashier Interface - Version 1</h4>
-					<ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-						<li><strong>POS System:</strong> Standalone point-of-sale interface</li>
-						<li><strong>Coupon Redemption:</strong> Customer coupon validation and processing</li>
-						<li><strong>Cashier Features:</strong> Dedicated taskbar and window management</li>
-						<li><strong>Access Control:</strong> Access code based authentication</li>
-						<li><strong>Update Command:</strong> <code style="background: #fff; padding: 2px 4px;">node scripts/update-version.js cashier</code></li>
-					</ul>
-				</div>
-
-				<!-- Customer Interface Section -->
-				<div class="update-section" style="border-left: 4px solid #10b981; padding-left: 16px; background: #f0fdf4; padding: 12px; margin-top: 12px;">
-					<h4 style="color: #065f46; margin: 0 0 8px 0;">🛒 Customer Interface - Version 1</h4>
-					<ul style="margin: 0; padding-left: 20px; font-size: 13px;">
-						<li><strong>Shopping App:</strong> Mobile customer-facing application</li>
-						<li><strong>Product Browsing:</strong> View products by category</li>
-						<li><strong>Offers System:</strong> Featured offers and discounts</li>
-						<li><strong>Cart & Orders:</strong> Add to cart, checkout, order tracking</li>
-						<li><strong>Update Command:</strong> <code style="background: #fff; padding: 2px 4px;">node scripts/update-version.js customer</code></li>
-					</ul>
-				</div>
-
-				<div class="update-section">
-					<h4>👤 Mobile Dashboard - Last Punch Card (NEW)</h4>
-					<ul>
-						<li><strong>Punch Time Display:</strong> Shows user's last check-in or check-out time on mobile home page</li>
-						<li><strong>Date & Time:</strong> Displays punch date and time converted from Saudi timezone (UTC+3) to UTC</li>
-						<li><strong>Status Indicator:</strong> Green for Check In, Red for Check Out with clear visual distinction</li>
-						<li><strong>Database Integration:</strong> Queries hr_fingerprint_transactions table for accurate punch records</li>
-						<li><strong>Error Handling:</strong> Gracefully handles missing punch records and displays user-friendly messages</li>
-						<li><strong>Bilingual Support:</strong> Translations available in both English and Arabic</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🐛 Bug Fixes</h4>
-					<ul>
-						<li><strong>HR Master Component:</strong> Fixed undefined showComingSoon variable that caused ReferenceError on button clicks</li>
-						<li><strong>Version Update Script:</strong> Removed mobile layout version update to streamline desktop-only versioning</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🔗 Product Variation System (Previously in v5.2.3)</h4>
-					<ul>
-						<li><strong>Variation Manager:</strong> New interface to group similar products (different sizes/variants) for unified management</li>
-						<li><strong>Smart Grouping:</strong> Select multiple products and create variation groups with parent-child relationships</li>
-						<li><strong>Database Foundation:</strong> Added 14 new columns, 1 audit table, and 6 helper functions for variation management</li>
-						<li><strong>Better Error Handling:</strong> Added validation and clearer error messages for verification failures</li>
-						<li><strong>Split Status Display:</strong> Shows "Split Scheduled" when multiple payment schedules exist</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🎯 User Experience Enhancements</h4>
-					<ul>
-						<li><strong>Table Alignment Fixes:</strong> Resolved table layout issues with proper CSS classes and column sizing</li>
-						<li><strong>Conditional UI Elements:</strong> Split buttons only appear when adjust amounts are entered</li>
-						<li><strong>Accessibility Improvements:</strong> Added proper label associations for all form controls</li>
-						<li><strong>Visual Feedback:</strong> Enhanced status badges and interactive elements for better user guidance</li>
-						<li><strong>Responsive Design:</strong> Filter sections adapt to different screen sizes with professional styling</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>� Technical Improvements</h4>
-					<ul>
-						<li><strong>Reactive State Management:</strong> Enhanced Svelte reactivity for real-time filter updates and calculations</li>
-						<li><strong>Database Query Optimization:</strong> Improved handling of multiple payment schedules and verification queries</li>
-						<li><strong>Code Quality:</strong> Fixed syntax errors and improved error handling across components</li>
-						<li><strong>CSS Architecture:</strong> Added specific classes for better styling control and maintainability</li>
-						<li><strong>Data Integrity:</strong> Enhanced validation for split amounts and budget calculations</li>
-					</ul>
-				</div>
-				<div class="update-section">
-					<h4>🔧 Bug Fixes & Stability</h4>
-					<ul>
-						<li><strong>Split Modal Logic:</strong> Fixed calculation to show proper remaining balance after adjustment</li>
-						<li><strong>Budget Status Detection:</strong> Corrected individual payment method over-budget calculations</li>
-						<li><strong>Filter State Management:</strong> Resolved filter clearing and dropdown selection issues</li>
-						<li><strong>Table Rendering:</strong> Fixed table alignment and column width consistency</li>
-						<li><strong>Syntax Corrections:</strong> Resolved JavaScript parsing errors in receiving records</li>
-					</ul>
-				</div>
-				<div class="version-info-footer">
-					<p><strong>Release Date:</strong> November 25, 2025</p>
-					<p><strong>Build:</strong> Production Ready</p>
-					<p><strong>Version:</strong> 5.0.0 - Budget Management Revolution & Filter System Overhaul</p>
-					<p><strong>Focus:</strong> Day Budget Planner Enhancement, Advanced Filtering, Split Payment Management, User Experience</p>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.sidebar-header {
@@ -1773,127 +1648,6 @@ function openApprovalCenter() {
 	.version-text:active {
 		transform: translateY(0);
 		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-	}
-
-	/* Version Popup Styles */
-	.version-popup-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.7);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 10000;
-		backdrop-filter: blur(4px);
-	}
-
-	.version-popup {
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-		max-width: 500px;
-		width: 90%;
-		max-height: 80vh;
-		overflow-y: auto;
-		animation: popupSlideIn 0.3s ease;
-	}
-
-	@keyframes popupSlideIn {
-		from {
-			opacity: 0;
-			transform: scale(0.9) translateY(-20px);
-		}
-		to {
-			opacity: 1;
-			transform: scale(1) translateY(0);
-		}
-	}
-
-	.version-popup-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 20px 24px 16px;
-		border-bottom: 1px solid #e5e7eb;
-	}
-
-	.version-popup-header h3 {
-		margin: 0;
-		color: #1f2937;
-		font-size: 20px;
-		font-weight: 600;
-	}
-
-	.close-btn {
-		background: none;
-		border: none;
-		font-size: 24px;
-		color: #6b7280;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-		line-height: 1;
-	}
-
-	.close-btn:hover {
-		color: #ef4444;
-		background: rgba(239, 68, 68, 0.1);
-	}
-
-	.version-popup-content {
-		padding: 20px 24px;
-	}
-
-	.update-section {
-		margin-bottom: 24px;
-	}
-
-	.update-section:last-of-type {
-		margin-bottom: 16px;
-	}
-
-	.update-section h4 {
-		margin: 0 0 12px 0;
-		color: #374151;
-		font-size: 16px;
-		font-weight: 600;
-	}
-
-	.update-section ul {
-		margin: 0;
-		padding-left: 20px;
-		color: #4b5563;
-		line-height: 1.6;
-	}
-
-	.update-section li {
-		margin-bottom: 8px;
-	}
-
-	.update-section li strong {
-		color: #1f2937;
-		font-weight: 600;
-	}
-
-	.version-info-footer {
-		border-top: 1px solid #e5e7eb;
-		padding-top: 16px;
-		margin-top: 16px;
-	}
-
-	.version-info-footer p {
-		margin: 4px 0;
-		color: #6b7280;
-		font-size: 14px;
-	}
-
-	.version-info-footer strong {
-		color: #374151;
-		font-weight: 600;
 	}
 
 	/* Internet Speed Display Styles */
