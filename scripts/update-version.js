@@ -1,20 +1,29 @@
 #!/usr/bin/env node
 
 /**
- * Version Update Script for Aqura Management System
+ * Version Update Script for Aqura Management System (AQ1.1.1.1 Format)
  * 
- * This script automatically updates version numbers across the project:
- * - Updates package.json files (root and frontend)
- * - Updates version display in Sidebar.svelte
- * - Increments patch version by default, or accepts version type as argument
+ * This script automatically updates version numbers across the project using:
+ * Format: AQ[Desktop].[Mobile].[Cashier].[Customer]
+ * 
+ * Example: AQ1.2.1.3
+ * - Desktop Interface: 1
+ * - Mobile Interface: 2
+ * - Cashier Interface: 1
+ * - Customer Interface: 3
  * 
  * Usage:
- * node scripts/update-version.js [patch|minor|major]
+ * node scripts/update-version.js desktop [increment]  # Update desktop version (default: +1)
+ * node scripts/update-version.js mobile [increment]   # Update mobile version
+ * node scripts/update-version.js cashier [increment]  # Update cashier version
+ * node scripts/update-version.js customer [increment] # Update customer version
+ * node scripts/update-version.js all [increment]      # Update all interfaces
  * 
  * Examples:
- * node scripts/update-version.js        # Increments patch version (1.0.0 -> 1.0.1)
- * node scripts/update-version.js minor  # Increments minor version (1.0.0 -> 1.1.0)
- * node scripts/update-version.js major  # Increments major version (1.0.0 -> 2.0.0)
+ * node scripts/update-version.js desktop      # AQ1.2.1.3 -> AQ2.2.1.3
+ * node scripts/update-version.js desktop 5    # AQ1.2.1.3 -> AQ6.2.1.3
+ * node scripts/update-version.js mobile       # AQ1.2.1.3 -> AQ1.3.1.3
+ * node scripts/update-version.js all          # AQ1.2.1.3 -> AQ2.3.2.4 (increment each by 1)
  */
 
 import fs from 'fs';
@@ -24,29 +33,42 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get version type from command line argument (default: patch)
-const versionType = process.argv[2] || 'patch';
+// Get interface and increment from command line arguments
+const interface_type = process.argv[2] || 'desktop';
+const increment_amount = parseInt(process.argv[3] || '1');
 
-if (!['patch', 'minor', 'major'].includes(versionType)) {
-  console.error('❌ Invalid version type. Use: patch, minor, or major');
+if (!['desktop', 'mobile', 'cashier', 'customer', 'all'].includes(interface_type)) {
+  console.error('❌ Invalid interface. Use: desktop, mobile, cashier, customer, or all');
+  process.exit(1);
+}
+
+if (isNaN(increment_amount) || increment_amount < 1) {
+  console.error('❌ Invalid increment amount. Must be a positive number');
   process.exit(1);
 }
 
 /**
- * Parse version string and increment based on type
+ * Parse AQ version string (e.g., AQ1.2.1.3) and increment interface version
  */
-function incrementVersion(currentVersion, type) {
-  const parts = currentVersion.split('.').map(Number);
-  const [major, minor, patch] = parts;
+function incrementInterfaceVersion(currentVersion, interface_type, increment) {
+  // Remove 'AQ' prefix and split
+  const version_str = currentVersion.startsWith('AQ') ? currentVersion.substring(2) : currentVersion;
+  const parts = version_str.split('.').map(Number);
+  const [desktop, mobile, cashier, customer] = parts;
   
-  switch (type) {
-    case 'major':
-      return `${major + 1}.0.0`;
-    case 'minor':
-      return `${major}.${minor + 1}.0`;
-    case 'patch':
+  switch (interface_type) {
+    case 'desktop':
+      return `AQ${desktop + increment}.${mobile}.${cashier}.${customer}`;
+    case 'mobile':
+      return `AQ${desktop}.${mobile + increment}.${cashier}.${customer}`;
+    case 'cashier':
+      return `AQ${desktop}.${mobile}.${cashier + increment}.${customer}`;
+    case 'customer':
+      return `AQ${desktop}.${mobile}.${cashier}.${customer + increment}`;
+    case 'all':
+      return `AQ${desktop + increment}.${mobile + increment}.${cashier + increment}.${customer + increment}`;
     default:
-      return `${major}.${minor}.${patch + 1}`;
+      return currentVersion;
   }
 }
 
@@ -71,37 +93,25 @@ function updatePackageJson(filePath, newVersion) {
 /**
  * Update version in Sidebar.svelte
  */
-function updateSidebarVersion(newVersion) {
-  const sidebarPath = path.join(__dirname, '../frontend/src/lib/components/Sidebar.svelte');
+function updateSidebarVersion(newVersion, interface_type) {
+  const sidebarPath = path.join(__dirname, '../frontend/src/lib/components/desktop-interface/common/Sidebar.svelte');
   
   try {
     let content = fs.readFileSync(sidebarPath, 'utf8');
     let updated = false;
     
-    // Find and replace version in the clickable button (new format)
-    const buttonVersionRegex = /(\s+)v[\d.]+(\s+<\/button>)/g;
-    if (content.match(buttonVersionRegex)) {
-      content = content.replace(buttonVersionRegex, `$1v${newVersion}$2`);
-      updated = true;
-    }
+    // Find and replace version in the clickable button - match AQ followed by digits and dots
+    const buttonVersionRegex = /AQ\d+\.\d+\.\d+\.\d+/g;
+    const matchCount = (content.match(buttonVersionRegex) || []).length;
     
-    // Find and replace version in popup header
-    const popupHeaderRegex = /<h3>What's New in v[\d.]+<\/h3>/g;
-    if (content.match(popupHeaderRegex)) {
-      content = content.replace(popupHeaderRegex, `<h3>What's New in v${newVersion}</h3>`);
-      updated = true;
-    }
-    
-    // Legacy: Find and replace version in the version-text span (fallback)
-    const versionRegex = /<span class="version-text">v[\d.]+<\/span>/g;
-    if (content.match(versionRegex)) {
-      content = content.replace(versionRegex, `<span class="version-text">v${newVersion}</span>`);
+    if (matchCount > 0) {
+      content = content.replace(buttonVersionRegex, newVersion);
       updated = true;
     }
     
     if (updated) {
       fs.writeFileSync(sidebarPath, content);
-      console.log(`✅ Updated Sidebar.svelte version display to v${newVersion}`);
+      console.log(`✅ Updated Sidebar.svelte to ${newVersion} (${interface_type} interface)`);
       return true;
     } else {
       console.error('❌ Could not find version display in Sidebar.svelte');
@@ -117,13 +127,13 @@ function updateSidebarVersion(newVersion) {
  * Main execution
  */
 async function main() {
-  console.log(`🚀 Updating version (${versionType})...\n`);
+  console.log(`🚀 Updating ${interface_type} interface version (+${increment_amount})...\n`);
   
   // Read current version from root package.json
   const rootPackagePath = path.join(__dirname, '../package.json');
   const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
   const currentVersion = rootPackage.version;
-  const newVersion = incrementVersion(currentVersion, versionType);
+  const newVersion = incrementInterfaceVersion(currentVersion, interface_type, increment_amount);
   
   console.log(`📦 Current version: ${currentVersion}`);
   console.log(`📦 New version: ${newVersion}\n`);
@@ -138,13 +148,14 @@ async function main() {
   success = updatePackageJson(frontendPackagePath, newVersion) && success;
   
   // Update Sidebar.svelte version display
-  success = updateSidebarVersion(newVersion) && success;
+  success = updateSidebarVersion(newVersion, interface_type) && success;
   
   if (success) {
     console.log(`\n🎉 Successfully updated all files to version ${newVersion}`);
+    console.log(`📌 Interface updated: ${interface_type}`);
     console.log('\n📝 Next steps:');
     console.log('   git add -A');
-    console.log(`   git commit -m "chore: bump version to ${newVersion}"`);
+    console.log(`   git commit -m "chore(${interface_type}): bump version to ${newVersion}"`);
     console.log('   git push origin master');
   } else {
     console.log('\n❌ Some updates failed. Please check the errors above.');
