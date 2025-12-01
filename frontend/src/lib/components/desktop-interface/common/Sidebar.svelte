@@ -1277,7 +1277,7 @@ function openApprovalCenter() {
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ17.3.2.2
+				AQ18.3.2.2
 			</button>
 		</div>
 	</div>

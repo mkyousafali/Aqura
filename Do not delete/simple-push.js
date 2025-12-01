@@ -4,13 +4,16 @@
  * Simple Git Push with Auto Version Update (Non-Interactive)
  * 
  * Usage:
- * node scripts/simple-push.js [interface] [commit-message]
+ * node scripts/simple-push.js [interface] [commit-message] [change-details]
  * 
  * Examples:
  * node scripts/simple-push.js desktop          # Update desktop version and push
  * node scripts/simple-push.js mobile           # Update mobile version and push
  * node scripts/simple-push.js all              # Update all interfaces and push
  * node scripts/simple-push.js desktop "my message"  # Custom commit message
+ * node scripts/simple-push.js mobile "feat(mobile): new feature" "Added task filtering|Improved UI layout|Fixed bugs"
+ * 
+ * Change details should be separated by | (pipe character)
  */
 
 import fs from 'fs';
@@ -24,6 +27,7 @@ const __dirname = path.dirname(__filename);
 // Get interface from command line (default: desktop)
 const interface_type = process.argv[2] || 'desktop';
 const custom_message = process.argv[3];
+const change_details = process.argv[4]; // Optional: comma-separated list of changes
 
 const VALID_INTERFACES = ['desktop', 'mobile', 'cashier', 'customer', 'all'];
 
@@ -43,6 +47,103 @@ function getGitStatus() {
     console.error('❌ Failed to get git status');
     process.exit(1);
   }
+}
+
+/**
+ * Generate change details from modified files
+ */
+function generateChangeDetails(changes, interface_type, commitMessage) {
+  const details = [];
+  const fileTypes = new Set();
+  const areas = new Set();
+  
+  // Analyze changed files
+  changes.forEach(change => {
+    const file = change.substring(3);
+    
+    // Detect file types
+    if (file.endsWith('.svelte')) fileTypes.add('UI components');
+    if (file.endsWith('.ts') || file.endsWith('.js')) fileTypes.add('functionality');
+    if (file.endsWith('.css')) fileTypes.add('styling');
+    if (file.includes('lib/stores')) fileTypes.add('state management');
+    if (file.includes('lib/api')) fileTypes.add('API integration');
+    if (file.includes('lib/utils')) fileTypes.add('utility functions');
+    
+    // Detect areas based on path
+    if (file.includes('desktop-interface')) areas.add('desktop');
+    if (file.includes('mobile-interface')) areas.add('mobile');
+    if (file.includes('cashier-interface')) areas.add('cashier');
+    if (file.includes('customer-interface')) areas.add('customer');
+    
+    // Detect specific features
+    if (file.includes('tasks') || file.includes('Tasks')) areas.add('task management');
+    if (file.includes('orders') || file.includes('Orders')) areas.add('order system');
+    if (file.includes('products') || file.includes('Products')) areas.add('product catalog');
+    if (file.includes('customers') || file.includes('Customers')) areas.add('customer management');
+    if (file.includes('employees') || file.includes('Employees')) areas.add('employee management');
+    if (file.includes('reports') || file.includes('Reports')) areas.add('reporting');
+    if (file.includes('settings') || file.includes('Settings')) areas.add('settings');
+    if (file.includes('auth') || file.includes('Auth')) areas.add('authentication');
+  });
+  
+  // Parse commit message type
+  const featureMatch = commitMessage.match(/^(feat|fix|chore|docs|style|refactor|perf|test)\(([^)]+)\):\s*(.+)$/i);
+  let commitType = 'update';
+  let description = commitMessage;
+  
+  if (featureMatch) {
+    commitType = featureMatch[1].toLowerCase();
+    description = featureMatch[3];
+  }
+  
+  // Generate details based on commit type and changes
+  switch (commitType) {
+    case 'feat':
+      details.push(`Implemented ${description}`);
+      if (fileTypes.has('UI components')) details.push('Enhanced user interface components');
+      if (fileTypes.has('functionality')) details.push('Added new functionality and features');
+      if (fileTypes.has('state management')) details.push('Improved state management');
+      break;
+      
+    case 'fix':
+      details.push(`Fixed: ${description}`);
+      details.push('Resolved reported issues');
+      if (fileTypes.has('UI components')) details.push('Corrected UI component behavior');
+      break;
+      
+    case 'refactor':
+      details.push('Refactored codebase for better maintainability');
+      details.push('Improved code structure and organization');
+      if (fileTypes.has('functionality')) details.push('Optimized existing functionality');
+      break;
+      
+    case 'perf':
+      details.push('Improved application performance');
+      details.push('Optimized rendering and data processing');
+      break;
+      
+    case 'style':
+      details.push('Updated visual design and styling');
+      details.push('Enhanced user interface appearance');
+      break;
+      
+    default:
+      details.push(`Updated ${description}`);
+      if (fileTypes.size > 0) details.push(`Modified ${Array.from(fileTypes).join(', ')}`);
+  }
+  
+  // Add area-specific details
+  if (areas.size > 0) {
+    const areaList = Array.from(areas).filter(a => !['desktop', 'mobile', 'cashier', 'customer'].includes(a));
+    if (areaList.length > 0) {
+      details.push(`Updated ${areaList.join(' and ')} features`);
+    }
+  }
+  
+  // Add file count info
+  details.push(`Modified ${changes.length} file${changes.length > 1 ? 's' : ''}`);
+  
+  return details.slice(0, 5); // Limit to 5 details max
 }
 
 /**
@@ -103,7 +204,7 @@ function updatePackageJson(newVersion) {
 /**
  * Generate fresh changelog content for VersionChangelog.svelte
  */
-function generateVersionChangelogFile(newVersion, commitMessage) {
+function generateVersionChangelogFile(newVersion, commitMessage, changeDetails) {
   // Parse commit message to extract feature description
   const featureMatch = commitMessage.match(/^(feat|fix|chore|docs|style|refactor|perf|test)\(([^)]+)\):\s*(.+)$/i);
   let updateType = 'Update';
@@ -151,6 +252,26 @@ function generateVersionChangelogFile(newVersion, commitMessage) {
   const versionParts = newVersion.replace('AQ', '').split('.');
   const [desktop, mobile, cashier, customer] = versionParts;
 
+  // Parse change details - can be array or pipe-separated string
+  let changeDetailsHtml = '';
+  let changes = [];
+  
+  if (Array.isArray(changeDetails)) {
+    changes = changeDetails;
+  } else if (typeof changeDetails === 'string') {
+    changes = changeDetails.split('|').map(change => change.trim()).filter(c => c);
+  }
+  
+  if (changes.length > 0) {
+    changeDetailsHtml = `
+			<div class="change-details">
+				<h4>What Changed:</h4>
+				<ul>
+					${changes.map(change => `<li>${change}</li>`).join('\n					')}
+				</ul>
+			</div>`;
+  }
+
   return `<script lang="ts">
 	export let onClose: () => void;
 </script>
@@ -165,16 +286,7 @@ function generateVersionChangelogFile(newVersion, commitMessage) {
 
 		<div class="latest-change">
 			<h3>${typeEmoji} ${updateType}</h3>
-			<p class="change-description">${updateDescription}</p>
-			<div class="change-details">
-				<h4>What Changed:</h4>
-				<ul>
-					<li>Modified version management system for better tracking</li>
-					<li>Enhanced changelog display with improved formatting</li>
-					<li>Updated version window to show comprehensive interface information</li>
-					<li>Improved user experience with cleaner design and better visibility</li>
-				</ul>
-			</div>
+			<p class="change-description">${updateDescription}</p>${changeDetailsHtml}
 			<p class="date">${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 		</div>
 
@@ -366,11 +478,11 @@ function updateSidebarVersion(newVersion) {
 /**
  * Update VersionChangelog.svelte file
  */
-function updateVersionChangelog(newVersion, commitMessage) {
+function updateVersionChangelog(newVersion, commitMessage, changeDetails) {
   const changelogPath = path.join(__dirname, '../frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte');
   
   try {
-    const newContent = generateVersionChangelogFile(newVersion, commitMessage);
+    const newContent = generateVersionChangelogFile(newVersion, commitMessage, changeDetails);
     fs.writeFileSync(changelogPath, newContent);
     return true;
   } catch (error) {
@@ -413,6 +525,9 @@ function main() {
   console.log('🔄 Updating files...');
   const commitMsg = custom_message || `chore(${interface_type}): bump version to ${newVersion}`;
   
+  // Generate automatic change details
+  const autoDetails = change_details ? change_details.split('|').map(d => d.trim()) : generateChangeDetails(changes, interface_type, commitMsg);
+  
   console.log('   • Updating package.json files...');
   updatePackageJson(newVersion);
   
@@ -420,7 +535,7 @@ function main() {
   updateSidebarVersion(newVersion);
   
   console.log('   • Updating VersionChangelog.svelte...');
-  updateVersionChangelog(newVersion, commitMsg);
+  updateVersionChangelog(newVersion, commitMsg, autoDetails);
   
   console.log('✅ Files updated successfully\n');
   

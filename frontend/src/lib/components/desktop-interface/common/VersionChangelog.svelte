@@ -5,21 +5,19 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ17.3.2.2</p>
-			<p class="version-details">Desktop: 17 | Mobile: 3 | Cashier: 2 | Customer: 2</p>
+			<p class="version-title">Version AQ18.3.2.2</p>
+			<p class="version-details">Desktop: 18 | Mobile: 3 | Cashier: 2 | Customer: 2</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>✨ New Feature</h3>
-			<p class="change-description">Improve tasks window layout and functionality</p>
+			<p class="change-description">Improve version changelog automation</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Modified version management system for better tracking</li>
-					<li>Enhanced changelog display with improved formatting</li>
-					<li>Updated version window to show comprehensive interface information</li>
-					<li>Improved user experience with cleaner design and better visibility</li>
+					<li>Implemented improve version changelog automation</li>
+					<li>Modified 1 file</li>
 				</ul>
 			</div>
 			<p class="date">December 1, 2025</p>
