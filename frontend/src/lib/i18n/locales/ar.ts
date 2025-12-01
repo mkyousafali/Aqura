@@ -608,6 +608,8 @@ export const arabicLocale: LocaleData = {
       yesterdayBranchSales: "مبيعات الفروع أمس",
       previousMonth: "الشهر السابق",
       currentMonth: "الشهر الحالي",
+      previous: "الشهر السابق",
+      current: "الشهر الحالي",
       averagePerDay: "المتوسط/اليوم",
       days: "أيام",
       bills: "فواتير",

@@ -853,8 +853,8 @@
 	}
 
 	.menu-btn {
-		width: 30px;
-		height: 30px;
+		width: 50px;
+		height: 40px;
 		background: rgba(255, 255, 255, 0.2);
 		border: 1px solid rgba(255, 255, 255, 0.1);
 		border-radius: 8px;

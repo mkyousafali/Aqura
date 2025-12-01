@@ -50,9 +50,12 @@
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
-			await loadDashboardData();
-			await loadBranchPerformance();
-			await loadRecentPunches();
+			// Load all data in parallel for faster initial load
+			await Promise.all([
+				loadDashboardData(),
+				loadBranchPerformance(),
+				loadRecentPunches()
+			]);
 		}
 		isLoading = false;
 		

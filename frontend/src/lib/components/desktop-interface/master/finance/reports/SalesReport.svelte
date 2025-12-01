@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { supabaseAdmin } from '$lib/utils/supabase';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 
 	interface DailySales {
 		date: string;
@@ -42,9 +43,12 @@
 	let maxYesterdayBranchAmount = 0;
 
 	onMount(async () => {
-		await loadSalesData();
-		await loadBranchSalesData();
-		await loadYesterdayBranchSalesData();
+		// Load all data in parallel for faster initial load
+		await Promise.all([
+			loadSalesData(),
+			loadBranchSalesData(),
+			loadYesterdayBranchSalesData()
+		]);
 	});
 
 	async function loadSalesData() {
@@ -196,7 +200,8 @@
 					if (branchError) {
 						console.error('Error fetching branch locations:', branchError);
 					} else {
-						branchMap = new Map(branchData?.map(b => [b.id, b.location_en || b.location_ar]) || []);
+						const locale = get(currentLocale);
+						branchMap = new Map(branchData?.map(b => [b.id, locale === 'ar' ? (b.location_ar || b.location_en) : (b.location_en || b.location_ar)]) || []);
 					}
 				} catch (branchErr) {
 					console.error('Exception fetching branches:', branchErr);
@@ -304,7 +309,8 @@
 					if (branchError) {
 						console.error('Error fetching branch locations:', branchError);
 					} else {
-						branchMap = new Map(branchData?.map(b => [b.id, b.location_en || b.location_ar]) || []);
+						const locale = get(currentLocale);
+						branchMap = new Map(branchData?.map(b => [b.id, locale === 'ar' ? (b.location_ar || b.location_en) : (b.location_en || b.location_ar)]) || []);
 					}
 				} catch (branchErr) {
 					console.error('Exception fetching branches:', branchErr);
@@ -503,7 +509,7 @@
 						<div class="branch-monthly-badges">
 							{#if branch.previousMonthAvg !== undefined}
 								<div class="mini-badge previous-badge">
-									<div class="badge-label">Prev</div>
+									<div class="badge-label">{$t('reports.previous')}</div>
 									<div class="badge-value">
 										<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-micro" />
 										{formatCurrency(branch.previousMonthAvg)}
@@ -512,7 +518,7 @@
 							{/if}
 							{#if branch.currentMonthAvg !== undefined}
 								<div class="mini-badge current-badge">
-									<div class="badge-label">Curr</div>
+									<div class="badge-label">{$t('reports.current')}</div>
 									<div class="badge-value">
 										<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-micro" />
 										{formatCurrency(branch.currentMonthAvg)}

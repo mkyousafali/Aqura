@@ -664,6 +664,8 @@ export const englishLocale: LocaleData = {
       yesterdayBranchSales: "Yesterday's Branch Sales",
       previousMonth: "Previous Month",
       currentMonth: "Current Month",
+      previous: "Previous Month",
+      current: "Current Month",
       averagePerDay: "Average/Day",
       days: "days",
       bills: "bills",
