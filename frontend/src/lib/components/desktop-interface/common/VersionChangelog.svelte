@@ -5,24 +5,25 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ20.5.2.2</p>
-			<p class="version-details">Desktop: 20 | Mobile: 5 | Cashier: 2 | Customer: 2</p>
+			<p class="version-title">Version AQ21.6.3.3</p>
+			<p class="version-details">Desktop: 21 | Mobile: 6 | Cashier: 3 | Customer: 3</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>✨ New Feature</h3>
-			<p class="change-description">Optimize initial load performance</p>
+			<p class="change-description">Add language localization for all login interfaces</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Load all data in parallel for faster page loads</li>
-					<li>Optimize sales report data fetching</li>
-					<li>Improve mobile home page load time</li>
-					<li>Fix branch location Arabic translation</li>
+					<li>Fixed mobile, customer, and cashier login pages</li>
+					<li>Added automatic page refresh on language switch</li>
+					<li>Updated logo dimensions for mobile interface</li>
+					<li>Removed unnecessary labels from mobile login</li>
+					<li>Added translated footer tagline across all interfaces</li>
 				</ul>
 			</div>
-			<p class="date">December 1, 2025</p>
+			<p class="date">December 2, 2025</p>
 		</div>
 
 		<div class="interface-info">

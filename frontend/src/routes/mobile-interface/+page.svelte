@@ -14,19 +14,15 @@
 	let isLoading = true;
 	let currentTime = new Date();
 	
+	// Computed formatted time and date based on current locale
+	$: formattedTime = currentTime.toLocaleTimeString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' });
+	$: formattedDate = currentTime.toLocaleDateString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+	
 	// Punch/Fingerprint Data - Store last 2 punches
 	let punches = {
 		records: [],
 		loading: false,
 		error: ''
-	};
-	
-	// Branch Performance Stats
-	let branchPerformance = {
-		branches: [],
-		todayStats: [],
-		yesterdayStats: [],
-		loading: false
 	};
 	
 	// Update time every second
@@ -53,7 +49,6 @@
 			// Load all data in parallel for faster initial load
 			await Promise.all([
 				loadDashboardData(),
-				loadBranchPerformance(),
 				loadRecentPunches()
 			]);
 		}
@@ -215,187 +210,6 @@
 		}
 	}
 
-	async function loadBranchPerformance() {
-		branchPerformance.loading = true;
-		try {
-			console.log('🔍 Loading branch performance for user:', currentUserData);
-			console.log('🔍 User branch_id:', currentUserData?.branch_id);
-			console.log('🔍 User branchId:', currentUserData?.branchId);
-			
-			// Check both branch_id and branchId (different naming conventions)
-			const userBranchId = currentUserData?.branch_id || currentUserData?.branchId;
-			
-			if (!userBranchId) {
-				console.log('⚠️ User has no branch_id, skipping branch performance load');
-				branchPerformance.loading = false;
-				return;
-			}
-
-			const { data: branchesData, error: branchError } = await supabase
-				.from('branches')
-				.select('id, name_ar, name_en')
-				.eq('id', userBranchId)
-				.single();
-
-			if (branchError) {
-				console.error('❌ Error loading branch:', branchError);
-				throw branchError;
-			}
-
-			console.log('✅ Loaded branch data:', branchesData);
-
-			let branches = [{
-				id: branchesData.id,
-				name: $localeData.locale === 'ar' ? (branchesData.name_ar || branchesData.name_en) : (branchesData.name_en || branchesData.name_ar)
-			}];
-
-			branchPerformance.branches = branches;
-
-			const today = new Date().toISOString().split('T')[0];
-			const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-
-			// Fetch all branch data in PARALLEL (not sequential)
-			const allStatsPromises = branchPerformance.branches.map(branch =>
-				Promise.all([
-					fetchAllTasksForDay(today, branch.id),
-					fetchAllTasksForDay(yesterday, branch.id)
-				]).then(([todayData, yesterdayData]) => ({
-					today: {
-						branchId: branch.id,
-						branchName: branch.name,
-						completed: todayData.completed,
-						notCompleted: todayData.notCompleted,
-						total: todayData.completed + todayData.notCompleted
-					},
-					yesterday: {
-						branchId: branch.id,
-						branchName: branch.name,
-						completed: yesterdayData.completed,
-						notCompleted: yesterdayData.notCompleted,
-						total: yesterdayData.completed + yesterdayData.notCompleted
-					}
-				}))
-			);
-
-			const allStats = await Promise.all(allStatsPromises);
-			branchPerformance.todayStats = allStats.map(s => s.today);
-			branchPerformance.yesterdayStats = allStats.map(s => s.yesterday);
-
-		} catch (error) {
-			console.error('Error loading branch performance:', error);
-		} finally {
-			branchPerformance.loading = false;
-		}
-	}
-
-	async function fetchAllTasksForDay(date, branchId) {
-		const BATCH_SIZE = 1000;
-		let completed = 0;
-		let notCompleted = 0;
-
-		// Fetch receiving tasks with pagination (filter by branch at DB level)
-		let receivingFrom = 0;
-		let hasMoreReceiving = true;
-		while (hasMoreReceiving) {
-			const { data, error } = await supabase
-				.from('receiving_tasks')
-				.select('task_status, receiving_record:receiving_records!receiving_tasks_receiving_record_id_fkey(branch_id)')
-				.gte('created_at', date)
-				.lt('created_at', date + 'T23:59:59')
-				.range(receivingFrom, receivingFrom + BATCH_SIZE - 1);
-
-			if (error) {
-				console.error('Error fetching receiving tasks:', error);
-				break;
-			}
-
-			if (data && data.length > 0) {
-				data.forEach(task => {
-					// Filter by branch in memory
-					if (task.receiving_record && task.receiving_record.branch_id === branchId) {
-						if (task.task_status === 'completed') {
-							completed++;
-						} else if (task.task_status !== 'cancelled') {
-							notCompleted++;
-						}
-					}
-				});
-				receivingFrom += BATCH_SIZE;
-				hasMoreReceiving = data.length === BATCH_SIZE;
-			} else {
-				hasMoreReceiving = false;
-			}
-		}
-
-		// Fetch task assignments with pagination (filter by branch at DB level)
-		let taskAssignFrom = 0;
-		let hasMoreTaskAssign = true;
-		while (hasMoreTaskAssign) {
-			const { data, error } = await supabase
-				.from('task_assignments')
-				.select('status, assigned_to_branch_id')
-				.eq('assigned_to_branch_id', branchId)
-				.gte('assigned_at', date)
-				.lt('assigned_at', date + 'T23:59:59')
-				.range(taskAssignFrom, taskAssignFrom + BATCH_SIZE - 1);
-
-			if (error) {
-				console.error('Error fetching task assignments:', error);
-				break;
-			}
-
-			if (data && data.length > 0) {
-				data.forEach(task => {
-					if (task.status === 'completed') {
-						completed++;
-					} else if (task.status !== 'cancelled') {
-						notCompleted++;
-					}
-				});
-				taskAssignFrom += BATCH_SIZE;
-				hasMoreTaskAssign = data.length === BATCH_SIZE;
-			} else {
-				hasMoreTaskAssign = false;
-			}
-		}
-
-		// Fetch quick task assignments with pagination (filter by branch at DB level)
-		let quickTaskFrom = 0;
-		let hasMoreQuickTask = true;
-		while (hasMoreQuickTask) {
-			const { data, error } = await supabase
-				.from('quick_task_assignments')
-				.select('status, quick_task:quick_tasks!quick_task_assignments_quick_task_id_fkey(assigned_to_branch_id)')
-				.gte('created_at', date)
-				.lt('created_at', date + 'T23:59:59')
-				.range(quickTaskFrom, quickTaskFrom + BATCH_SIZE - 1);
-
-			if (error) {
-				console.error('Error fetching quick tasks:', error);
-				break;
-			}
-
-			if (data && data.length > 0) {
-				data.forEach(task => {
-					// Filter by branch in memory
-					if (task.quick_task && task.quick_task.assigned_to_branch_id === branchId) {
-						if (task.status === 'completed') {
-							completed++;
-						} else if (task.status !== 'cancelled') {
-							notCompleted++;
-						}
-					}
-				});
-				quickTaskFrom += BATCH_SIZE;
-				hasMoreQuickTask = data.length === BATCH_SIZE;
-			} else {
-				hasMoreQuickTask = false;
-			}
-		}
-
-		return { completed, notCompleted };
-	}
-
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
 		const baseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public';
@@ -518,8 +332,8 @@
 					</svg>
 				</div>
 				<div class="stat-info">
-					<h3>{currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</h3>
-					<p>{currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+					<h3>{formattedTime}</h3>
+					<p>{formattedDate}</p>
 				</div>
 			</div>
 			<div class="stat-card pending">
@@ -581,145 +395,6 @@
 				</div>
 			{/if}
 		</div>
-	</section>
-
-	<!-- Branch Performance Section -->
-	<section class="performance-section">
-		<div class="section-header">
-			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.title')}</h2>
-			<button class="refresh-btn" on:click={loadBranchPerformance} disabled={branchPerformance.loading}>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-				</svg>
-			</button>
-		</div>
-
-		{#if branchPerformance.loading}
-			<div class="performance-loading">
-				<div class="loading-spinner-small"></div>
-				<p>{getTranslation('mobile.dashboardContent.branchPerformance.loadingData')}</p>
-			</div>
-		{:else}
-			<!-- Today's Performance -->
-			<div class="performance-group">
-				<h3 class="group-title">{getTranslation('mobile.dashboardContent.branchPerformance.todayPerformance')}</h3>
-				<div class="branch-grid">
-					{#each branchPerformance.todayStats as stat}
-						<div class="branch-card">
-							<h4 class="branch-name">{stat.branchName}</h4>
-							<div class="pie-chart-container">
-								<svg viewBox="0 0 100 100" class="pie-chart">
-									{#if stat.total > 0}
-										{@const completedPercent = (stat.completed / stat.total) * 100}
-										{@const radius = 40}
-										{@const circumference = 2 * Math.PI * radius}
-										{@const completedOffset = circumference - (completedPercent / 100) * circumference}
-										
-										<!-- Background circle (not completed) -->
-										<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
-										
-										<!-- Completed arc -->
-										{#if completedPercent > 0}
-											<circle 
-												cx="50" 
-												cy="50" 
-												r="40" 
-												fill="none" 
-												stroke="#10B981" 
-												stroke-width="20"
-												stroke-dasharray={circumference}
-												stroke-dashoffset={completedOffset}
-												transform="rotate(-90 50 50)"
-											/>
-										{/if}
-										
-										<!-- Center text -->
-										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-										<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
-									{:else}
-										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-										<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
-									{/if}
-								</svg>
-							</div>
-							<div class="branch-stats">
-								<div class="stat-item completed">
-									<span class="stat-dot"></span>
-									<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
-								</div>
-								<div class="stat-item pending">
-									<span class="stat-dot"></span>
-									<span>{stat.notCompleted} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
-								</div>
-								<div class="stat-item total">
-									<span>{getTranslation('mobile.dashboardContent.branchPerformance.total')}: {stat.total}</span>
-								</div>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
-
-			<!-- Yesterday's Performance -->
-			<div class="performance-group">
-				<h3 class="group-title">{getTranslation('mobile.dashboardContent.branchPerformance.yesterdayPerformance')}</h3>
-				<div class="branch-grid">
-					{#each branchPerformance.yesterdayStats as stat}
-						<div class="branch-card">
-							<h4 class="branch-name">{stat.branchName}</h4>
-							<div class="pie-chart-container">
-								<svg viewBox="0 0 100 100" class="pie-chart">
-									{#if stat.total > 0}
-										{@const completedPercent = (stat.completed / stat.total) * 100}
-										{@const radius = 40}
-										{@const circumference = 2 * Math.PI * radius}
-										{@const completedOffset = circumference - (completedPercent / 100) * circumference}
-										
-										<!-- Background circle (not completed) -->
-										<circle cx="50" cy="50" r="40" fill="none" stroke="#FCA5A5" stroke-width="20"/>
-										
-										<!-- Completed arc -->
-										{#if completedPercent > 0}
-											<circle 
-												cx="50" 
-												cy="50" 
-												r="40" 
-												fill="none" 
-												stroke="#F59E0B" 
-												stroke-width="20"
-												stroke-dasharray={circumference}
-												stroke-dashoffset={completedOffset}
-												transform="rotate(-90 50 50)"
-											/>
-										{/if}
-										
-										<!-- Center text -->
-										<text x="50" y="47" text-anchor="middle" class="pie-percent">{completedPercent.toFixed(0)}%</text>
-										<text x="50" y="58" text-anchor="middle" class="pie-label">{getTranslation('mobile.dashboardContent.branchPerformance.complete')}</text>
-									{:else}
-										<circle cx="50" cy="50" r="40" fill="none" stroke="#E5E7EB" stroke-width="20"/>
-										<text x="50" y="53" text-anchor="middle" class="pie-empty">{getTranslation('mobile.dashboardContent.branchPerformance.noTasks')}</text>
-									{/if}
-								</svg>
-							</div>
-							<div class="branch-stats">
-								<div class="stat-item completed">
-									<span class="stat-dot"></span>
-									<span>{stat.completed} {getTranslation('mobile.dashboardContent.branchPerformance.completed')}</span>
-								</div>
-								<div class="stat-item pending">
-									<span class="stat-dot"></span>
-									<span>{stat.notCompleted} {getTranslation('mobile.dashboardContent.branchPerformance.pending')}</span>
-								</div>
-								<div class="stat-item total">
-									<span>{getTranslation('mobile.dashboardContent.branchPerformance.total')}: {stat.total}</span>
-								</div>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
-		{/if}
 	</section>
 	{/if}
 </div>

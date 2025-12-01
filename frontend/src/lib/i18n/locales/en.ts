@@ -109,6 +109,10 @@ export const englishLocale: LocaleData = {
         footer: "Secure access to Aqura mobile interface",
         accessDenied: "Access Denied",
         accessGranted: "Access Granted",
+        invalidDigitError: "Enter a valid 6-digit security code",
+        timeoutError: "Request timed out. Please check your connection and try again.",
+        networkError: "Network error. Please check your connection and try again.",
+        loginFailedError: "Login failed. Please try again.",
       },
       // Dashboard content
       dashboardContent: {
@@ -1293,6 +1297,32 @@ export const englishLocale: LocaleData = {
       back: "Back",
       backToLogin: "Back to Login",
       refresh: "Refresh",
+      // Desktop Login Page
+      backToInterfaceChoice: "Back to Interface Choice",
+      usernameAndPassword: "Username & Password",
+      traditionalLoginMethod: "Traditional login method",
+      quickAccessCode: "Quick Access Code",
+      sixDigitSecureAccess: "6-digit secure access",
+      welcomeBack: "Welcome Back",
+      enterCredentials: "Enter your credentials to access the system",
+      username: "Username",
+      enterUsername: "Enter your username",
+      usernameMustBeThreeCharacters: "Username must be at least 3 characters",
+      password: "Password",
+      enterPassword: "Enter your password",
+      passwordMustBeSixCharacters: "Password must be at least 6 characters",
+      rememberMeThirtyDays: "Remember me for 30 days",
+      signingIn: "Signing In...",
+      signInToSystem: "Sign In to System",
+      quickAccess: "Quick Access",
+      enterSixDigitSecurityCode: "Enter your 6-digit security code",
+      securityCode: "Security Code",
+      enterValidSixDigitCode: "Enter a valid 6-digit security code",
+      rememberThisDevice: "Remember this device",
+      accessing: "Accessing...",
+      accessSystem: "Access System",
+      authenticationFailed: "Authentication Failed",
+      accessGranted: "Access Granted",
     },
 
     // Status Messages
@@ -1361,6 +1391,7 @@ export const englishLocale: LocaleData = {
       login: {
         title: "Customer Portal",
         subtitle: "Access your customer account",
+        pageSubtitle: "Access your account and services",
         interfaceOption: "Customer Login",
         welcomeTitle: "Welcome to Aqura Customer Portal",
         welcomeSubtitle: "Secure access for our valued customers",
@@ -1542,6 +1573,10 @@ export const englishLocale: LocaleData = {
       activeCampaigns: "Active Campaigns",
       noActiveCampaigns: "No active campaigns",
       createFirst: "Create Your First Campaign",
+      
+      // Cashier login errors
+      invalidAccessCode: "Please enter a valid 6-digit access code",
+      invalidBranchSelection: "Invalid branch selection",
       
       // Campaign Manager
       campaignDescription: "Create campaigns, set dates, and manage terms",

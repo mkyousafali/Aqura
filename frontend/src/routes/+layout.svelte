@@ -520,6 +520,12 @@
 	let initializationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	onMount(async () => {
+		// CRITICAL: Set maximum timeout to prevent infinite loading
+		const maxLoadingTimeout = setTimeout(() => {
+			console.warn('⚠️ Maximum loading timeout (3s) reached, forcing app to load');
+			isLoading = false;
+		}, 3000); // 3 seconds maximum
+
 		try {
 			// Add desktop-mode class to body when in desktop interface (exclude mobile routes)
 			const updateBodyClass = () => {
@@ -551,9 +557,14 @@
 				});
 			}
 			
-			// Initialize persistent authentication first
+			// Initialize persistent authentication with timeout protection
 			try {
-				await persistentAuthService.initializeAuth();
+				const authPromise = persistentAuthService.initializeAuth();
+				const timeoutPromise = new Promise((_, reject) => 
+					setTimeout(() => reject(new Error('Auth initialization timeout')), 2000)
+				);
+				
+				await Promise.race([authPromise, timeoutPromise]);
 				console.log('✅ Persistent auth initialization completed');
 			} catch (authError) {
 				console.error('❌ Persistent auth initialization failed:', authError);
@@ -567,34 +578,45 @@
 			const currentUserState = $currentUser;
 			console.log('🔐 Initial auth state check:', { authenticated: currentAuthState, user: currentUserState });
 			
+			// Clear the max timeout if we got here
+			clearTimeout(maxLoadingTimeout);
+			
+			// Clear the max timeout if we got here
+			clearTimeout(maxLoadingTimeout);
+			
 			// Check interface preference and redirect if needed
 			if (currentAuthState && currentUserState) {
 				const userId = currentUserState.id;
 				const currentPath = $page.url.pathname;
 				
-			// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
-			if (interfacePreferenceService.isMobilePreferred(userId) && 
-				!currentPath.startsWith('/mobile-interface') && 
-				!currentPath.startsWith('/mobile-interface/login') &&
-				!currentPath.startsWith('/cashier-interface')) {
+				// Check if user has mobile preference and isn't already on mobile routes (exclude cashier)
+				if (interfacePreferenceService.isMobilePreferred(userId) && 
+					!currentPath.startsWith('/mobile-interface') && 
+					!currentPath.startsWith('/mobile-interface/login') &&
+					!currentPath.startsWith('/cashier-interface')) {
+					
+					console.log('🔐 User has mobile preference, redirecting to mobile interface');
+					isLoading = false; // Set loading false before redirect
+					goto('/mobile-interface');
+					return;
+				}
 				
-				console.log('🔐 User has mobile preference, redirecting to mobile interface');
-				goto('/mobile-interface');
-			return;
-		}
-		
-		// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
-		if (!interfacePreferenceService.isMobilePreferred(userId) && 
-			currentPath.startsWith('/mobile-interface') &&
-			!currentPath.startsWith('/cashier-interface')) {
+				// Check if user doesn't have mobile preference but is on mobile routes (exclude cashier)
+				if (!interfacePreferenceService.isMobilePreferred(userId) && 
+					currentPath.startsWith('/mobile-interface') &&
+					!currentPath.startsWith('/cashier-interface')) {
+					
+					console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
+					isLoading = false; // Set loading false before redirect
+					goto('/');
+					return;
+				}
+			}
 			
-			console.log('🔐 User does not have mobile preference, redirecting to desktop interface');
-			goto('/');
-			return;
-		}
-	}			// Set initial state based on current auth status
+			// Set initial state based on current auth status
 			isAuthenticated = currentAuthState;
 			currentUserData = currentUserState;
+			isLoading = false; // CRITICAL: Always set loading to false here
 			
 			// Only redirect if necessary and avoid loops
 			const isCashier = $page.url.pathname.startsWith('/cashier-interface');
@@ -752,11 +774,14 @@
 				console.log('🔐 Persistent auth state changed:', authenticated);
 				isAuthenticated = authenticated;
 				
-				// Set loading to false after we get the first auth state
-				isLoading = false;
+				// CRITICAL: Always ensure loading is false when auth state changes
+				if (isLoading) {
+					console.log('✅ Auth state received, setting loading to false');
+					isLoading = false;
+				}
 				
 				// Update body class for desktop mode
-			updateBodyClass();
+				updateBodyClass();
 			
 			// Only redirect if we're not already on the target page to prevent loops
 			// Also exclude customer and cashier routes from employee authentication checks
@@ -788,21 +813,23 @@
 				}
 			});
 
-			// Fallback timeout to prevent infinite loading
+			// Fallback timeout to prevent infinite loading (reduced to 5 seconds)
 			const loadingTimeout = setTimeout(() => {
 				if (isLoading) {
-					console.warn('⚠️ Loading timeout reached, forcing loading state to false');
-				isLoading = false;
+					console.warn('⚠️ Loading timeout (5s) reached, forcing loading state to false');
+					isLoading = false;
 				
-				// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
-				const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer-interface');
-				const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
-				if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
-					console.log('🔐 Timeout reached, redirecting to login');
-					goto('/login');
+					// If still not authenticated after timeout, redirect to login (exclude mobile, customer, and cashier routes)
+					const isCustomerRouteTimeout = $page.url.pathname.startsWith('/customer-interface');
+					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout) {
+						console.log('🔐 Timeout reached, redirecting to login');
+						goto('/login');
+					}
 				}
-			}
-		}, 5000); // 5 second timeout			// Return cleanup function for the timeout
+			}, 5000); // 5 second timeout
+			
+			// Return cleanup function for the timeout
 			return () => {
 				clearTimeout(loadingTimeout);
 			};

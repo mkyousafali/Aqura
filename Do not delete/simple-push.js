@@ -476,6 +476,39 @@ function updateSidebarVersion(newVersion) {
 }
 
 /**
+ * Update mobile interface version in +layout.svelte
+ */
+function updateMobileLayoutVersion(newVersion) {
+  const mobileLayoutPath = path.join(__dirname, '../frontend/src/routes/mobile-interface/+layout.svelte');
+  
+  try {
+    let content = fs.readFileSync(mobileLayoutPath, 'utf8');
+    
+    // Extract mobile version number (2nd number in AQ format)
+    const versionMatch = newVersion.match(/AQ(\d+)\.(\d+)\.(\d+)\.(\d+)/);
+    if (!versionMatch) {
+      console.warn('⚠️  Could not parse version number');
+      return false;
+    }
+    
+    const mobileVersionNumber = versionMatch[2]; // 2nd number is mobile
+    const mobileVersionDisplay = `AQ${mobileVersionNumber}`;
+    
+    // Replace the mobile version in the mobileVersion variable
+    content = content.replace(
+      /let mobileVersion = 'AQ\d+';/g,
+      `let mobileVersion = '${mobileVersionDisplay}';`
+    );
+    
+    fs.writeFileSync(mobileLayoutPath, content);
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to update mobile-interface layout:', error.message);
+    return false;
+  }
+}
+
+/**
  * Update VersionChangelog.svelte file
  */
 function updateVersionChangelog(newVersion, commitMessage, changeDetails) {
@@ -533,6 +566,9 @@ function main() {
   
   console.log('   • Updating Sidebar.svelte version number...');
   updateSidebarVersion(newVersion);
+  
+  console.log('   • Updating mobile interface version...');
+  updateMobileLayoutVersion(newVersion);
   
   console.log('   • Updating VersionChangelog.svelte...');
   updateVersionChangelog(newVersion, commitMsg, autoDetails);

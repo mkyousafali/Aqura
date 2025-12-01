@@ -4,6 +4,20 @@
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 
+	// Helper function to get translations
+	function t(keyPath: string): string {
+		const keys = keyPath.split('.');
+		let value: any = $localeData.translations;
+		for (const key of keys) {
+			if (value && typeof value === 'object' && key in value) {
+				value = value[key];
+			} else {
+				return keyPath; // Return key path if translation not found
+			}
+		}
+		return typeof value === 'string' ? value : keyPath;
+	}
+
 	// Login form states
 	let interfaceChoice: 'desktop' | 'mobile' | null = null;
 	let loginMethod: 'username' | 'quickAccess' = 'username';
@@ -310,7 +324,12 @@
 						</div>
 						<button 
 							class="language-toggle-main" 
-							on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
+							on:click={() => {
+								switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+								setTimeout(() => {
+									window.location.reload();
+								}, 100);
+							}}
 							title={$_('nav.languageToggle')}
 						>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -409,7 +428,7 @@
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M19 12H5M12 19l-7-7 7-7"/>
 							</svg>
-							Back to Interface Choice
+							{t('common.backToInterfaceChoice')}
 						</button>
 					</div>
 
@@ -427,8 +446,8 @@
 								</svg>
 							</div>
 							<div class="method-info">
-								<h3>Username & Password</h3>
-								<p>Traditional login method</p>
+								<h3>{t('common.usernameAndPassword')}</h3>
+								<p>{t('common.traditionalLoginMethod')}</p>
 							</div>
 						</button>
 
@@ -446,8 +465,8 @@
 								</svg>
 							</div>
 							<div class="method-info">
-								<h3>Quick Access Code</h3>
-								<p>6-digit secure access</p>
+								<h3>{t('common.quickAccessCode')}</h3>
+								<p>{t('common.sixDigitSecureAccess')}</p>
 							</div>
 						</button>
 					</div>
@@ -457,49 +476,43 @@
 						{#if loginMethod === 'username'}
 							<!-- Username/Password Form -->
 							<form class="auth-form" on:submit|preventDefault={handleUsernameLogin}>
-								<div class="form-header">
-									<h2>Welcome Back</h2>
-									<p>Enter your credentials to access the system</p>
-								</div>
-
-								<div class="form-fields">
-									<div class="field-group">
-										<label for="username">Username</label>
-										<input 
-											id="username"
-											type="text" 
-											class="field-input"
-											class:error={!usernameValid}
-											bind:value={username}
-											on:input={validateUsername}
-											placeholder="Enter your username"
-											disabled={isLoading}
-											autocomplete="username"
-										/>
-										{#if !usernameValid}
-											<span class="field-error">Username must be at least 3 characters</span>
-										{/if}
-									</div>
-
-									<div class="field-group">
-										<label for="password">Password</label>
-										<input 
-											id="password"
-											type="password" 
-											class="field-input"
-											class:error={!passwordValid}
-											bind:value={password}
-											on:input={validatePassword}
-											placeholder="Enter your password"
-											disabled={isLoading}
-											autocomplete="current-password"
-										/>
-										{#if !passwordValid}
-											<span class="field-error">Password must be at least 6 characters</span>
-										{/if}
-									</div>
-
-									<div class="form-options">
+						<div class="form-header">
+							<h2>{t('common.welcomeBack')}</h2>
+							<p>{t('common.enterCredentials')}</p>
+						</div>								<div class="form-fields">
+							<div class="field-group">
+								<label for="username">{t('common.username')}</label>
+								<input 
+									id="username"
+									type="text" 
+									class="field-input"
+									class:error={!usernameValid}
+									bind:value={username}
+									on:input={validateUsername}
+									placeholder={t('common.enterUsername')}
+									disabled={isLoading}
+									autocomplete="username"
+								/>
+								{#if !usernameValid}
+									<span class="field-error">{t('common.usernameMustBeThreeCharacters')}</span>
+								{/if}
+							</div>							<div class="field-group">
+								<label for="password">{t('common.password')}</label>
+								<input 
+									id="password"
+									type="password" 
+									class="field-input"
+									class:error={!passwordValid}
+									bind:value={password}
+									on:input={validatePassword}
+									placeholder={t('common.enterPassword')}
+									disabled={isLoading}
+									autocomplete="current-password"
+								/>
+								{#if !passwordValid}
+									<span class="field-error">{t('common.passwordMustBeSixCharacters')}</span>
+								{/if}
+							</div>									<div class="form-options">
 										<label class="checkbox-option">
 											<input 
 												type="checkbox" 
@@ -507,7 +520,7 @@
 												disabled={isLoading}
 											/>
 											<span class="checkbox-mark"></span>
-											Remember me for 30 days
+											{t('common.rememberMeThirtyDays')}
 										</label>
 									</div>
 								</div>
@@ -519,14 +532,14 @@
 								>
 									{#if isLoading}
 										<span class="loading-spinner"></span>
-										Signing In...
+										{t('common.signingIn')}
 									{:else}
 										<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 											<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
 											<polyline points="10,17 15,12 10,7"/>
 											<line x1="15" y1="12" x2="3" y2="12"/>
 										</svg>
-										Sign In to System
+										{t('common.signInToSystem')}
 									{/if}
 								</button>
 							</form>
@@ -534,14 +547,12 @@
 						{:else}
 							<!-- Quick Access Form -->
 							<form class="auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
-								<div class="form-header">
-									<h2>Quick Access</h2>
-									<p>Enter your 6-digit security code</p>
-								</div>
-
-								<div class="form-fields">
+						<div class="form-header">
+							<h2>{t('common.quickAccess')}</h2>
+							<p>{t('common.enterSixDigitSecurityCode')}</p>
+						</div>								<div class="form-fields">
 									<div class="field-group">
-										<label for="quickAccess">Security Code</label>
+										<label for="quickAccess">{t('common.securityCode')}</label>
 										<div class="quick-access-digits">
 											{#each quickAccessDigits as digit, index}
 												<input 
@@ -563,7 +574,7 @@
 											{/each}
 										</div>
 										{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
-											<span class="field-error">Enter a valid 6-digit security code</span>
+											<span class="field-error">{t('common.enterValidSixDigitCode')}</span>
 										{/if}
 									</div>
 
@@ -578,7 +589,7 @@
 												disabled={isLoading}
 											/>
 											<span class="checkbox-mark"></span>
-											Remember this device
+											{t('common.rememberThisDevice')}
 										</label>
 									</div>
 								</div>
@@ -599,7 +610,7 @@
 											<path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
 											<path d="M12 21c0-1 1-3 3-3s3 2 3 3-1 3-3 3-3-2-3-3"/>
 										</svg>
-										Access System
+										{t('common.accessSystem')}
 									{/if}
 								</button>
 							</form>
@@ -619,7 +630,7 @@
 							</svg>
 						</div>
 						<div class="status-content">
-							<h4>Authentication Failed</h4>
+							<h4>{t('common.authenticationFailed')}</h4>
 							<p>{errorMessage}</p>
 						</div>
 					</div>
@@ -634,7 +645,7 @@
 							</svg>
 						</div>
 						<div class="status-content">
-							<h4>Access Granted</h4>
+							<h4>{t('common.accessGranted')}</h4>
 							<p>{successMessage}</p>
 						</div>
 					</div>
@@ -1153,6 +1164,7 @@
 		justify-content: center;
 		align-items: center;
 		margin: 0.5rem 0;
+		direction: ltr;
 	}
 
 	.digit-input {
@@ -1173,6 +1185,7 @@
 		-moz-appearance: none;
 		appearance: none;
 		touch-action: manipulation;
+		direction: ltr;
 	}
 
 	.digit-input:focus {

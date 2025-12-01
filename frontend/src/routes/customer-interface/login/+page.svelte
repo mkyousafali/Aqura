@@ -4,6 +4,20 @@
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
+	// Helper function to get translations
+	function t(keyPath: string): string {
+		const keys = keyPath.split('.');
+		let value: any = $localeData.translations;
+		for (const key of keys) {
+			if (value && typeof value === 'object' && key in value) {
+				value = value[key];
+			} else {
+				return keyPath; // Return key path if translation not found
+			}
+		}
+		return typeof value === 'string' ? value : keyPath;
+	}
+
 	// Check if customer is already logged in
 	onMount(() => {
 		const customerSession = localStorage.getItem('customer_session');
@@ -53,8 +67,8 @@
 				<img src="/icons/logo.png" alt="Aqura Logo" class="logo-image" />
 			</div>
 			<div class="logo-content">
-				<h1 class="app-title">Customer Portal</h1>
-				<p class="app-subtitle">Access your account and services</p>
+				<h1 class="app-title">{t('customer.login.title')}</h1>
+				<p class="app-subtitle">{t('customer.login.pageSubtitle')}</p>
 			</div>
 		</div>				<!-- Customer Login Section -->
 			<div class="auth-section">

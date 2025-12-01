@@ -391,7 +391,12 @@
 		<button 
 			type="button"
 			class="language-toggle-btn" 
-			on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
+			on:click={() => {
+				switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+				setTimeout(() => {
+					window.location.reload();
+				}, 100);
+			}}
 			title={$_('nav.languageToggle')}
 		>
 			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -819,6 +824,7 @@
 		justify-content: center;
 		align-items: center;
 		margin: 0.5rem 0;
+		direction: ltr;
 	}
 
 	.customer-digit-input {
@@ -839,6 +845,7 @@
 		-moz-appearance: none;
 		appearance: none;
 		touch-action: manipulation;
+		direction: ltr;
 	}
 
 	.customer-digit-input:focus {

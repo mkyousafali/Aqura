@@ -111,6 +111,10 @@ export const arabicLocale: LocaleData = {
         footer: "وصول آمن لواجهة أكوا للجوال",
         accessDenied: "تم رفض الوصول",
         accessGranted: "تم منح الوصول",
+        invalidDigitError: "أدخل رمز أمان صحيح مكون من 6 أرقام",
+        timeoutError: "انتهت مهلة الطلب. يرجى التحقق من اتصالك والمحاولة مرة أخرى.",
+        networkError: "خطأ في الشبكة. يرجى التحقق من اتصالك والمحاولة مرة أخرى.",
+        loginFailedError: "فشل تسجيل الدخول. يرجى المحاولة مرة أخرى.",
       },
       // Dashboard content
       dashboardContent: {
@@ -1266,6 +1270,32 @@ export const arabicLocale: LocaleData = {
       back: "رجوع",
       backToLogin: "العودة لتسجيل الدخول",
       refresh: "تحديث",
+      // صفحة تسجيل دخول سطح المكتب
+      backToInterfaceChoice: "العودة لاختيار الواجهة",
+      usernameAndPassword: "اسم المستخدم و كلمة المرور",
+      traditionalLoginMethod: "طريقة تسجيل الدخول التقليدية",
+      quickAccessCode: "رمز الوصول السريع",
+      sixDigitSecureAccess: "وصول آمن برمز سداسي الأرقام",
+      welcomeBack: "أهلاً وسهلاً بعودتك",
+      enterCredentials: "أدخل بيانات اعتمادك للوصول إلى النظام",
+      username: "اسم المستخدم",
+      enterUsername: "أدخل اسم المستخدم",
+      usernameMustBeThreeCharacters: "يجب أن يكون اسم المستخدم 3 أحرف على الأقل",
+      password: "كلمة المرور",
+      enterPassword: "أدخل كلمة المرور",
+      passwordMustBeSixCharacters: "يجب أن تكون كلمة المرور 6 أحرف على الأقل",
+      rememberMeThirtyDays: "تذكري لمدة 30 يوماً",
+      signingIn: "جاري تسجيل الدخول...",
+      signInToSystem: "تسجيل الدخول إلى النظام",
+      quickAccess: "الوصول السريع",
+      enterSixDigitSecurityCode: "أدخل رمز الأمان السداسي",
+      securityCode: "رمز الأمان",
+      enterValidSixDigitCode: "أدخل رمز أمان سداسي صحيح",
+      rememberThisDevice: "تذكر هذا الجهاز",
+      accessing: "جاري الوصول...",
+      accessSystem: "الوصول إلى النظام",
+      authenticationFailed: "فشل المصادقة",
+      accessGranted: "تم منح الوصول",
     },
 
     // Status Messages
@@ -1334,6 +1364,7 @@ export const arabicLocale: LocaleData = {
       login: {
         title: "بوابة العملاء",
         subtitle: "الوصول إلى حساب العميل",
+        pageSubtitle: "الوصول إلى حسابك وخدماتك",
         interfaceOption: "تسجيل دخول العملاء",
         welcomeTitle: "مرحباً بكم في بوابة عملاء أكورا",
         welcomeSubtitle: "وصول آمن لعملائنا الكرام",
@@ -1516,6 +1547,10 @@ export const arabicLocale: LocaleData = {
       activeCampaigns: "الحملات النشطة",
       noActiveCampaigns: "لا توجد حملات نشطة",
       createFirst: "إنشاء أول حملة لك",
+      
+      // Cashier login errors
+      invalidAccessCode: "يرجى إدخال رمز وصول صحيح مكون من 6 أرقام",
+      invalidBranchSelection: "اختيار فرع غير صحيح",
       
       // إدارة الحملات
       campaignDescription: "إنشاء الحملات وتحديد المواعيد وإدارة الشروط",

@@ -35,65 +35,108 @@
 	// Menu state
 	let showMenu = false;
 	
+	// Mobile version - will be extracted from full version
+	let mobileVersion = 'AQ6';
+	
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
 
 	onMount(() => {
+		// CRITICAL: Set maximum timeout to prevent infinite loading
+		const maxLoadingTimeout = setTimeout(() => {
+			console.warn('⚠️ Mobile: Maximum loading timeout (3s) reached, forcing app to load');
+			isLoading = false;
+		}, 3000); // 3 seconds maximum
+		
 		// Initialize i18n system
 		initI18n();
 		
 		// Skip authentication check if on login page
 		const isLoginPage = $page.url.pathname === '/mobile-interface/login';
 		if (isLoginPage) {
+			clearTimeout(maxLoadingTimeout);
 			isLoading = false;
 			return;
 		}
 		
-		// Check authentication
-		if (!$isAuthenticated) {
-			goto('/mobile-interface/login');
-			return;
-		}
+		// Check authentication with timeout protection
+		const checkAuth = async () => {
+			try {
+				// Wait for auth to initialize with 2 second timeout
+				const authPromise = persistentAuthService.initializeAuth();
+				const timeoutPromise = new Promise((_, reject) => 
+					setTimeout(() => reject(new Error('Auth timeout')), 2000)
+				);
+				
+				await Promise.race([authPromise, timeoutPromise]);
+				console.log('✅ Mobile: Auth initialization completed');
+			} catch (error) {
+				console.error('❌ Mobile: Auth initialization failed:', error);
+			}
+			
+			// Check authentication state
+			if (!$isAuthenticated) {
+				clearTimeout(maxLoadingTimeout);
+				isLoading = false;
+				goto('/mobile-interface/login');
+				return;
+			}
 
-		// Ensure mobile preference is maintained for this user
-		if ($currentUser) {
-			interfacePreferenceService.forceMobileInterface($currentUser.id);
-		}
+			// Ensure mobile preference is maintained for this user
+			if ($currentUser) {
+				interfacePreferenceService.forceMobileInterface($currentUser.id);
+			}
 
-		// Check interface preference to ensure user should be in mobile interface
-		const userId = $currentUser?.id;
-		if (userId && !interfacePreferenceService.isMobilePreferred(userId)) {
-			goto('/');
-			return;
-		}
+			// Check interface preference to ensure user should be in mobile interface
+			const userId = $currentUser?.id;
+			if (userId && !interfacePreferenceService.isMobilePreferred(userId)) {
+				clearTimeout(maxLoadingTimeout);
+				isLoading = false;
+				goto('/');
+				return;
+			}
 
-		currentUserData = $currentUser;
-		isLoading = false;
+			currentUserData = $currentUser;
+			clearTimeout(maxLoadingTimeout);
+			isLoading = false;
 
-		// Load badge counts
-		loadBadgeCounts();
+			// Load badge counts
+			loadBadgeCounts();
+			
+			// Initialize notification sound system for mobile
+			startNotificationListener();
+			
+			// Set up mobile audio unlock on first user interaction
+			setupMobileAudioUnlock();
+			
+			// Set up periodic refresh of badge counts
+			const interval = setInterval(() => loadBadgeCounts(true), 30000); // Silent refresh every 30 seconds
+			return () => clearInterval(interval);
+		};
 		
-		// Initialize notification sound system for mobile
-		startNotificationListener();
-		
-		// Set up mobile audio unlock on first user interaction
-		setupMobileAudioUnlock();
-		
-		// Set up periodic refresh of badge counts
-		const interval = setInterval(() => loadBadgeCounts(true), 30000); // Silent refresh every 30 seconds
-		return () => clearInterval(interval);
+		checkAuth();
 	});
 
 	// Subscribe to auth changes
 	$: if (!$isAuthenticated && !isLoading && $page.url.pathname !== '/mobile-interface/login') {
 		// If user logs out, redirect to mobile login (but not if already on login page)
+		console.log('🔐 Mobile: Auth state changed to false, redirecting to login');
+		isLoading = false; // Ensure loading is false before redirect
 		goto('/mobile-interface/login');
 	}
 
 	// Ensure mobile preference is maintained when user changes
 	$: if ($currentUser && $isAuthenticated) {
+		console.log('🔐 Mobile: User authenticated, maintaining mobile preference');
 		interfacePreferenceService.forceMobileInterface($currentUser.id);
 		currentUserData = $currentUser;
+		
+		// Ensure loading is false when authenticated
+		if (isLoading) {
+			console.log('✅ Mobile: Auth confirmed, setting loading to false');
+			isLoading = false;
+		}
+		
 		loadBadgeCounts(true); // Silent refresh counts when user changes
 		
 		// Restart notification sound system for new user
@@ -535,6 +578,7 @@
 							{/if}
 						</div>
 					</a>
+					<span class="mobile-version-badge">{mobileVersion}</span>
 					{#if $page.url.pathname.startsWith('/mobile-interface/notifications')}
 						<button class="header-nav-btn refresh-btn" on:click={handleNotificationRefresh} aria-label={getTranslation('nav.refreshNotifications')}>
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={isRefreshing}>
@@ -571,6 +615,14 @@
 						<path d="M8 18h.01"/>
 						<path d="M12 18h.01"/>
 						<path d="M16 18h.01"/>
+					</svg>
+				</a>
+				<a href="/mobile-interface/branch-performance" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.dashboardContent.branchPerformance.title') || 'Branch Performance'}>
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 2v20M2 12h20M3 6h18M3 18h18"/>
+						<rect width="6" height="8" x="3" y="12" rx="1"/>
+						<rect width="6" height="12" x="9" y="8" rx="1"/>
+						<rect width="6" height="6" x="15" y="14" rx="1"/>
 					</svg>
 				</a>
 			{/if}
@@ -639,7 +691,7 @@
 						<span class="nav-badge approval-badge">{approvalCount > 99 ? '99+' : approvalCount}</span>
 					{/if}
 				</div>
-				<span class="nav-label">Approvals</span>
+				<span class="nav-label">{getTranslation('mobile.approvals')}</span>
 			</a>
 		</nav>
 	</div>
@@ -816,6 +868,21 @@
 		border-radius: 12px;
 		backdrop-filter: blur(10px);
 		white-space: nowrap;
+	}
+
+	.mobile-version-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		opacity: 0.85;
+		color: white;
+		background: rgba(255, 255, 255, 0.15);
+		padding: 0.25rem 0.6rem;
+		border-radius: 8px;
+		backdrop-filter: blur(10px);
+		white-space: nowrap;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		font-family: 'Courier New', monospace;
+		letter-spacing: 0.5px;
 	}
 
 	.user-info {
@@ -1333,6 +1400,18 @@
 
 	:global([dir="rtl"] .user-info) {
 		flex-direction: row-reverse;
+	}
+
+	:global([dir="rtl"] .user-info .back-btn) {
+		order: 3;
+	}
+
+	:global([dir="rtl"] .user-info .menu-btn) {
+		order: 2;
+	}
+
+	:global([dir="rtl"] .user-info .user-details) {
+		order: 1;
 	}
 
 	:global([dir="rtl"] .header-actions) {

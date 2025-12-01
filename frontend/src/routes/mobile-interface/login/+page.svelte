@@ -78,7 +78,7 @@
 			const loginPromise = persistentAuthService.loginWithQuickAccess(quickAccessCode, 'mobile');
 			const timeoutPromise = new Promise((_, reject) => {
 				timeoutId = setTimeout(() => {
-					reject(new Error('Login request timed out. Please check your connection and try again.'));
+					reject(new Error(t('mobile.login.timeoutError')));
 				}, timeoutMs);
 			});
 
@@ -124,14 +124,14 @@
 			// Handle different types of errors
 			if (error instanceof Error) {
 				if (error.message.includes('timed out')) {
-					errorMessage = 'Request timed out. Please check your connection and try again.';
+					errorMessage = t('mobile.login.timeoutError');
 				} else if (error.message.includes('fetch')) {
-					errorMessage = 'Network error. Please check your connection and try again.';
+					errorMessage = t('mobile.login.networkError');
 				} else {
 					errorMessage = error.message;
 				}
 			} else {
-				errorMessage = 'Login failed. Please try again.';
+				errorMessage = t('mobile.login.loginFailedError');
 			}
 		} finally {
 			// Ensure loading state is always reset
@@ -286,22 +286,14 @@
 					</div>
 					<h1 class="app-name">{t('app.shortName')}</h1>
 					<p class="app-description">{t('app.description')}</p>
-					<h2 class="page-title">{t('mobile.login.title')}</h2>
-					<p class="page-subtitle">{t('mobile.login.quickAccess')}</p>
 				</div>
 			</div>
 
 			<!-- Quick Access Form -->
 			<div class="mobile-auth-section">
 				<form class="mobile-auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
-					<div class="form-header">
-						<h2>{t('mobile.login.enterCode')}</h2>
-						<p>{t('mobile.login.subtitle')}</p>
-					</div>
-
 					<div class="form-fields">
 						<div class="field-group">
-							<label for="quickAccess">{t('mobile.login.accessCode')}</label>
 							<div class="quick-access-digits">
 								{#each quickAccessDigits as digit, index}
 									<input 
@@ -321,10 +313,10 @@
 										pattern="[0-9]*"
 									/>
 								{/each}
-							</div>
-							{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
-								<span class="field-error">Enter a valid 6-digit security code</span>
-							{/if}
+						</div>
+						{#if !quickAccessValid && quickAccessDigits.some(d => d !== '')}
+							<span class="field-error">{t('mobile.login.invalidDigitError')}</span>
+						{/if}
 						</div>
 					</div>
 
@@ -467,8 +459,8 @@
 	}
 
 	.logo-icon {
-		width: 120px;
-		height: 120px;
+		width: 180px;
+		height: 80px;
 		margin: 0 auto 1.5rem;
 		background: white;
 		border: 4px solid rgba(255, 255, 255, 0.3);
@@ -496,8 +488,8 @@
 	}
 
 	.logo-image {
-		width: 80px;
-		height: 80px;
+		width: 120px;
+		height: 60px;
 		border-radius: 16px;
 		object-fit: contain;
 	}
@@ -552,23 +544,6 @@
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
 	}
 
-	.form-header {
-		text-align: center;
-		margin-bottom: 2rem;
-	}
-
-	.form-header h2 {
-		font-size: 1.75rem;
-		font-weight: 600;
-		margin-bottom: 0.5rem;
-	}
-
-	.form-header p {
-		opacity: 0.8;
-		font-size: 1rem;
-		margin: 0;
-	}
-
 	/* Form fields */
 	.form-fields {
 		margin-bottom: 2rem;
@@ -578,14 +553,6 @@
 		margin-bottom: 1.5rem;
 	}
 
-	.field-group label {
-		display: block;
-		font-size: 0.875rem;
-		font-weight: 600;
-		margin-bottom: 1rem;
-		opacity: 0.9;
-	}
-
 	/* Quick Access Digits */
 	.quick-access-digits {
 		display: flex;
@@ -593,6 +560,7 @@
 		justify-content: center;
 		align-items: center;
 		margin: 1rem 0;
+		direction: ltr;
 	}
 
 	.digit-input {
@@ -614,6 +582,7 @@
 		appearance: none;
 		touch-action: manipulation;
 		backdrop-filter: blur(10px);
+		direction: ltr;
 	}
 
 	.digit-input:focus {
@@ -791,13 +760,13 @@
 		}
 
 		.logo-icon {
-			width: 100px;
-			height: 100px;
+			width: 150px;
+			height: 70px;
 		}
 
 		.logo-image {
-			width: 65px;
-			height: 65px;
+			width: 100px;
+			height: 50px;
 		}
 	}
 
@@ -824,14 +793,14 @@
 		}
 
 		.logo-icon {
-			width: 80px;
-			height: 80px;
+			width: 120px;
+			height: 60px;
 			margin-bottom: 1rem;
 		}
 
 		.logo-image {
-			width: 50px;
-			height: 50px;
+			width: 80px;
+			height: 40px;
 		}
 
 		.mobile-auth-form {

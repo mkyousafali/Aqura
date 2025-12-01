@@ -42,7 +42,7 @@
 		accessCode = accessDigits.join('');
 		
 		if (accessCode.length !== 6 || !/^[0-9]+$/.test(accessCode)) {
-			error = 'Please enter a valid 6-digit access code';
+			error = t('coupon.invalidAccessCode');
 			return;
 		}
 
@@ -114,13 +114,13 @@
 
 	function handleBranchSelect() {
 		if (!selectedBranchId) {
-			error = 'Please select a branch';
+			error = t('coupon.selectBranch');
 			return;
 		}
 
 		const selectedBranch = branches.find(b => b.id === selectedBranchId);
 		if (!selectedBranch) {
-			error = 'Invalid branch selection';
+			error = t('coupon.invalidBranchSelection');
 			return;
 		}
 
@@ -245,7 +245,12 @@
 					</div>
 					<button 
 						class="language-toggle-main" 
-						on:click={() => switchLocale($currentLocale === 'ar' ? 'en' : 'ar')}
+						on:click={() => {
+							switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+							setTimeout(() => {
+								window.location.reload();
+							}, 100);
+						}}
 						title={t('nav.languageToggle') || 'Switch Language'}
 					>
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -417,7 +422,7 @@
 
 			<!-- Footer -->
 			<div class="login-footer">
-				<p>Aqura Management System</p>
+				<p>{t('app.shortName')} - {t('app.description')}</p>
 			</div>
 		</div>
 	</div>
@@ -673,6 +678,7 @@
 		gap: 0.625rem;
 		justify-content: center;
 		margin-bottom: 0.75rem;
+		direction: ltr;
 	}
 
 	.digit-input {
@@ -687,6 +693,7 @@
 		color: #1f2937;
 		transition: all 0.2s ease;
 		outline: none;
+		direction: ltr;
 	}
 
 	.digit-input:focus {
