@@ -5,7 +5,7 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { db, supabase } from '$lib/utils/supabase';
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
-	import TaskCompletionModal from './TaskCompletionModal.svelte';
+	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 	import { locale, getTranslation } from '$lib/i18n';
 
 	// Current user for role-based access

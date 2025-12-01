@@ -233,6 +233,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     sourcemap: true,
     rollupOptions: {
+      external: ['mssql'],
       output: {
         manualChunks: {
           vendor: ["svelte"],

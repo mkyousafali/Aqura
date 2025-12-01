@@ -63,6 +63,9 @@ importers:
       lucide-svelte:
         specifier: ^0.447.0
         version: 0.447.0(svelte@5.39.8)
+      mssql:
+        specifier: ^12.1.1
+        version: 12.1.1
       onnxruntime-web:
         specifier: ^1.23.2
         version: 1.23.2
