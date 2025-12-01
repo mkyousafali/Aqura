@@ -11,7 +11,7 @@ class PushQueuePoller {
   private pollInterval = 30000; // 30 seconds
 
   /**
-   * Start polling the push notification queue
+   * Start polling for pending push notifications
    * Should be called once when the app initializes (for admin users only)
    */
   start() {
@@ -22,8 +22,10 @@ class PushQueuePoller {
 
     console.log("🔄 Starting push notification queue poller...");
 
-    // Process immediately
-    this.processQueue();
+    // Delay initial processing by 2 seconds to allow auth session to stabilize
+    setTimeout(() => {
+      this.processQueue();
+    }, 2000);
 
     // Then poll every 30 seconds
     this.intervalId = setInterval(() => {

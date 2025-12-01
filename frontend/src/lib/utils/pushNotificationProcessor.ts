@@ -49,10 +49,12 @@ class PushNotificationProcessor {
     );
     this.isProcessing = true;
 
-    // Process queue immediately
-    this.processQueue().catch((err) => {
-      console.error("❌ Initial queue processing failed:", err);
-    });
+    // Delay initial queue processing by 2 seconds to allow auth session to stabilize
+    setTimeout(() => {
+      this.processQueue().catch((err) => {
+        console.error("❌ Initial queue processing failed:", err);
+      });
+    }, 2000);
 
     // Set up periodic processing every 30 seconds
     this.intervalId = setInterval(async () => {

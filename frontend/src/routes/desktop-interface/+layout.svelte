@@ -513,6 +513,11 @@
 	let currentUserData = null;
 	let unsubscribePersistent: (() => void) | undefined;
 	let unsubscribeUser: (() => void) | undefined;
+	
+	// Initialization guards
+	let notificationServicesInitialized = false;
+	let isInitializingNotifications = false;
+	let initializationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	onMount(async () => {
 		try {
@@ -628,11 +633,17 @@
 			}
 			
 			// Initialize notification services if user is authenticated
-			if (isAuthenticated) {
+			if (isAuthenticated && !notificationServicesInitialized && !isInitializingNotifications) {
 				console.log('🔔 User is authenticated, initializing notification services...');
-				initializeNotificationServices().catch(error => {
-					console.warn('⚠️ Notification initialization failed:', error);
-				});
+				// Debounce initialization to prevent rapid calls
+				if (initializationTimeout) {
+					clearTimeout(initializationTimeout);
+				}
+				initializationTimeout = setTimeout(() => {
+					initializeNotificationServices().catch(error => {
+						console.warn('⚠️ Notification initialization failed:', error);
+					});
+				}, 500); // 500ms debounce
 			}
 			
 			// Initialize PWA install detection
@@ -837,6 +848,11 @@
 		if (unsubscribePersistent) unsubscribePersistent();
 		if (unsubscribeUser) unsubscribeUser();
 		
+		// Clean up initialization timeout
+		if (initializationTimeout) {
+			clearTimeout(initializationTimeout);
+		}
+		
 		// Remove desktop-mode class from body
 		if (typeof document !== 'undefined') {
 			document.body.classList.remove('desktop-mode');
@@ -844,19 +860,34 @@
 	});
 
 	async function initializeNotificationServices() {
+		// Prevent multiple simultaneous initializations
+		if (isInitializingNotifications) {
+			console.warn('⚠️ Notification services initialization already in progress');
+			return;
+		}
+		
+		if (notificationServicesInitialized) {
+			console.log('✅ Notification services already initialized');
+			return;
+		}
+		
+		isInitializingNotifications = true;
+		
 		try {
 			// Initialize push notification service first
 			console.log('🚀 Initializing push notification service...');
-			await pushNotificationService.initialize();
+			const initialized = await pushNotificationService.initialize();
+			
+			if (!initialized) {
+				console.warn('⚠️ Push notification service initialization failed');
+				return;
+			}
 			
 			// Check if push notifications are supported and user wants them
 			const isSupported = notificationService.isPushNotificationSupported();
 			const permission = notificationService.getPushNotificationPermission();
 			
 			if (isSupported && permission === 'granted') {
-				// Auto-register for push notifications
-				await notificationService.registerForPushNotifications();
-				
 				// Start real-time notification listener
 				await notificationService.startRealtimeNotificationListener();
 				
@@ -875,8 +906,14 @@
 			const { pushQueuePoller } = await import('$lib/utils/pushQueuePoller');
 			pushQueuePoller.start();
 			
+			// Mark as initialized
+			notificationServicesInitialized = true;
+			console.log('✅ All notification services initialized successfully');
+			
 		} catch (error) {
-			console.error('Error initializing notification services:', error);
+			console.error('❌ Error initializing notification services:', error);
+		} finally {
+			isInitializingNotifications = false;
 		}
 
 		// Listen for custom events from service worker

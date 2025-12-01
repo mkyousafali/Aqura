@@ -2,8 +2,61 @@ import { writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { supabase } from "./supabase";
 import { pushNotificationService } from "./pushNotifications";
-import { userAuth } from "./userAuth";
-import type { User } from "$lib/types/auth";
+import type { User, UserPermissions } from "$lib/types/auth";
+
+// Database types matching our deployed schema
+interface DatabaseUser {
+  id: string;
+  username: string;
+  password_hash: string;
+  salt: string;
+  quick_access_code: string;
+  quick_access_salt: string;
+  user_type: "global" | "branch_specific";
+  employee_id?: string;
+  branch_id?: number;
+  role_type: "Master Admin" | "Admin" | "Position-based";
+  position_id?: string;
+  avatar?: string;
+  status: "active" | "inactive" | "locked";
+  is_first_login: boolean;
+  failed_login_attempts: number;
+  last_login_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DatabaseUserView {
+  id: string;
+  username: string;
+  employee_name: string;
+  branch_name: string;
+  role_type: "Master Admin" | "Admin" | "Position-based";
+  status: "active" | "inactive" | "locked";
+  avatar?: string;
+  last_login?: string;
+  is_first_login: boolean;
+  failed_login_attempts: number;
+  user_type: "global" | "branch_specific";
+  employee_id?: string;
+  branch_id?: number;
+  position_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DatabaseUserPermissions {
+  user_id: string;
+  username: string;
+  role_name: string;
+  function_name: string;
+  function_code: string;
+  can_view: boolean;
+  can_add: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+  can_export: boolean;
+}
 
 // Types
 export interface UserSession {
@@ -24,7 +77,7 @@ export interface UserSession {
   loginMethod: "password" | "quickAccess" | "customerAccess";
   isActive: boolean;
   token?: string;
-  permissions?: any;
+  permissions?: UserPermissions;
   customer?: any; // Customer details for customer users
 }
 
@@ -102,27 +155,119 @@ export class PersistentAuthService {
     try {
       console.log("🔐 [PersistentAuth] Starting quick access login process");
 
-      // Use the userAuth service to authenticate
-      const { user, token } =
-        await userAuth.loginWithQuickAccess(quickAccessCode, interfaceType);
-      console.log("✅ [PersistentAuth] UserAuth completed successfully");
+      // Step 1: Validate code format
+      if (!/^[0-9]{6}$/.test(quickAccessCode)) {
+        console.error("❌ [PersistentAuth] Invalid access code format:", quickAccessCode);
+        throw new Error("Invalid access code format");
+      }
 
-      // Convert User to UserSession
+      console.log("🔍 [PersistentAuth] Querying database for user with quick access code");
+
+      // Step 2: Get user by quick access code directly from database
+      const { data: users, error: userError } = await supabase
+        .from("users")
+        .select(
+          `
+					id,
+					username,
+					quick_access_code,
+					quick_access_salt,
+					status,
+					user_type,
+					employee_id,
+					branch_id,
+					role_type,
+					position_id,
+					avatar
+				`,
+        )
+        .eq("status", "active")
+        .eq("quick_access_code", quickAccessCode)
+        .limit(1);
+
+      if (userError) {
+        console.error("❌ [PersistentAuth] Database error:", userError);
+        throw new Error("Database connection error. Please try again.");
+      }
+
+      if (!users || users.length === 0) {
+        console.error("❌ [PersistentAuth] No user found with quick access code");
+        throw new Error("Invalid access code");
+      }
+
+      const dbUser = users[0];
+      console.log("✅ [PersistentAuth] Found user:", dbUser.username);
+
+      // Step 3: Get user details from view
+      console.log("🔍 [PersistentAuth] Getting user details from view");
+      const { data: userDetails, error: userDetailsError } = await supabase
+        .from("user_management_view")
+        .select("*")
+        .eq("id", dbUser.id)
+        .single();
+
+      if (userDetailsError || !userDetails) {
+        console.error("❌ [PersistentAuth] User details error:", userDetailsError);
+        throw new Error("User account configuration error. Please contact support.");
+      }
+
+      console.log("✅ [PersistentAuth] User details retrieved successfully");
+
+      // Step 4: Get user permissions
+      console.log("🔍 [PersistentAuth] Getting user permissions");
+      const permissions = await this.getUserPermissions(dbUser.id);
+      console.log("✅ [PersistentAuth] User permissions retrieved");
+
+      // Step 4.1: Check interface access permission based on interface type
+      console.log(`🔍 [PersistentAuth] Checking ${interfaceType} interface access permission`);
+      const { data: interfacePermissions, error: permissionError } = await supabase
+        .from("interface_permissions")
+        .select("desktop_enabled, mobile_enabled, customer_enabled")
+        .eq("user_id", dbUser.id)
+        .single();
+
+      if (permissionError) {
+        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
+      } else if (interfacePermissions) {
+        const isEnabled = interfacePermissions[`${interfaceType}_enabled`];
+        if (!isEnabled) {
+          console.error(`❌ [PersistentAuth] ${interfaceType} interface access denied for user:`, dbUser.username);
+          throw new Error(`${interfaceType.charAt(0).toUpperCase() + interfaceType.slice(1)} interface access is disabled for your account. Please contact your administrator${interfaceType !== 'desktop' ? ' or use the desktop interface' : ''}.`);
+        }
+      }
+
+      console.log(`✅ [PersistentAuth] ${interfaceType} interface access confirmed`);
+
+      // Step 5: Update last login
+      console.log("🔍 [PersistentAuth] Updating last login timestamp");
+      await this.updateLastLogin(dbUser.id);
+
+      // Step 6: Create session token
+      console.log("🔍 [PersistentAuth] Creating session token");
+      const token = this.generateSessionToken();
+
+      // Step 7: Store session in database
+      console.log("🔍 [PersistentAuth] Storing session in database");
+      await this.createUserSession(dbUser.id, token, "quick_access");
+
+      // Convert to UserSession
       const userSession: UserSession = {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        roleType: user.roleType,
-        userType: user.userType,
-        avatar: user.avatar,
-        employeeName: user.employeeName,
-        branchName: user.branchName,
-        employee_id: user.employee_id,
-        branch_id: user.branch_id,
+        id: userDetails.id,
+        username: userDetails.username,
+        role: userDetails.role_type,
+        roleType: userDetails.role_type,
+        userType: userDetails.user_type,
+        avatar: userDetails.avatar,
+        employeeName: userDetails.employee_name,
+        branchName: userDetails.branch_name,
+        employee_id: userDetails.employee_id,
+        branch_id: userDetails.branch_id?.toString(),
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "quickAccess",
         isActive: true,
+        token,
+        permissions,
       };
       console.log("✅ [PersistentAuth] User session object created");
 
@@ -138,7 +283,7 @@ export class PersistentAuthService {
 
       // Schedule delayed push notification initialization to avoid SW race conditions
       console.log(
-        "� [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...",
+        "🔔 [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...",
       );
       setTimeout(async () => {
         try {
@@ -183,13 +328,31 @@ export class PersistentAuthService {
       return { success: true, user: userSession };
     } catch (error) {
       console.error("❌ [PersistentAuth] Quick access login error:", error);
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Quick access login failed. Please try again.",
-      };
+
+      // Rethrow with more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes("fetch")) {
+          return {
+            success: false,
+            error: "Network connection error. Please check your internet connection.",
+          };
+        } else if (error.message.includes("Database")) {
+          return {
+            success: false,
+            error: "Database connection error. Please try again.",
+          };
+        } else {
+          return {
+            success: false,
+            error: error.message,
+          };
+        }
+      } else {
+        return {
+          success: false,
+          error: "Authentication service error. Please try again.",
+        };
+      }
     }
   }
 
@@ -203,33 +366,128 @@ export class PersistentAuthService {
     try {
       console.log("🔐 [PersistentAuth] Starting customer login process");
 
-      // Use the userAuth service to authenticate customer
-      const { user, token, customer } = await userAuth.loginWithCustomerCredentials(
-        username,
-        accessCode,
-      );
-      console.log("✅ [PersistentAuth] Customer authentication completed successfully");
+      // Step 1: Validate inputs
+      if (!username?.trim() || !accessCode?.trim()) {
+        throw new Error("Username and access code are required");
+      }
 
-      // Convert User to UserSession
+      if (!/^[0-9]{6}$/.test(accessCode)) {
+        throw new Error("Access code must be 6 digits");
+      }
+
+      console.log("🔍 [PersistentAuth] Calling customer authentication function");
+
+      // Step 2: Authenticate using database function
+      const { data: authResult, error: authError } = await supabase.rpc(
+        "authenticate_customer_access_code",
+        {
+          p_username: username.trim(),
+          p_access_code: accessCode.trim(),
+        },
+      );
+
+      if (authError) {
+        console.error("❌ [PersistentAuth] Database authentication error:", authError);
+        throw new Error("Authentication service error. Please try again.");
+      }
+
+      if (!authResult || !authResult.success) {
+        const errorMsg = authResult?.error || "Invalid credentials";
+        console.error("❌ [PersistentAuth] Authentication failed:", errorMsg);
+        
+        if (errorMsg.includes("not found")) {
+          throw new Error("Invalid username or access code");
+        } else if (errorMsg.includes("not approved")) {
+          throw new Error("Your account is pending approval");
+        } else if (errorMsg.includes("suspended")) {
+          throw new Error("Your account has been suspended");
+        } else {
+          throw new Error("Authentication failed. Please try again.");
+        }
+      }
+
+      console.log("✅ [PersistentAuth] Customer authenticated successfully");
+
+      // Step 3: Get user and customer details
+      const userId = authResult.user_id;
+      const customerId = authResult.customer_id;
+
+      // Get user details from view
+      const { data: userDetails, error: userDetailsError } = await supabase
+        .from("user_management_view")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (userDetailsError || !userDetails) {
+        console.error("❌ [PersistentAuth] User details error:", userDetailsError);
+        throw new Error("User account configuration error. Please contact support.");
+      }
+
+      // Get customer details
+      const { data: customerDetails, error: customerError } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("id", customerId)
+        .single();
+
+      if (customerError || !customerDetails) {
+        console.error("❌ [PersistentAuth] Customer details error:", customerError);
+        throw new Error("Customer account error. Please contact support.");
+      }
+
+      // Step 4: Get user permissions (customers have limited permissions)
+      const permissions = await this.getUserPermissions(userId);
+
+      // Step 4.1: Check customer interface access permission
+      console.log("🔍 [PersistentAuth] Checking customer interface access permission");
+      const { data: interfacePermissions, error: permissionError } = await supabase
+        .from("interface_permissions")
+        .select("customer_enabled")
+        .eq("user_id", userId)
+        .single();
+
+      if (permissionError) {
+        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
+      } else if (interfacePermissions && !interfacePermissions.customer_enabled) {
+        console.error("❌ [PersistentAuth] Customer interface access denied for user:", userDetails.username);
+        throw new Error("Customer interface access is disabled for your account. Please contact your administrator.");
+      }
+
+      console.log("✅ [PersistentAuth] Customer interface access confirmed");
+
+      // Step 5: Update last login for customer
+      await supabase
+        .from("customers")
+        .update({ last_login_at: new Date().toISOString() })
+        .eq("id", customerId);
+
+      // Step 6: Create session token
+      const token = this.generateSessionToken();
+
+      // Step 7: Store session in database
+      await this.createUserSession(userId, token, "customer_access");
+
+      // Create UserSession
       const userSession: UserSession = {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        roleType: user.roleType,
-        userType: user.userType,
-        avatar: user.avatar,
-        employeeName: user.employeeName,
-        branchName: user.branchName,
-        employee_id: user.employee_id,
-        branch_id: user.branch_id,
-        customerId: user.customerId,
+        id: userDetails.id,
+        username: userDetails.username,
+        role: userDetails.role_type,
+        roleType: userDetails.role_type,
+        userType: "customer",
+        avatar: userDetails.avatar,
+        employeeName: userDetails.employee_name,
+        branchName: userDetails.branch_name,
+        employee_id: userDetails.employee_id,
+        branch_id: userDetails.branch_id?.toString(),
+        customerId: customerId,
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "customerAccess" as const,
         isActive: true,
         token,
-        permissions: user.permissions,
-        customer, // Add customer details
+        permissions,
+        customer: customerDetails,
       };
 
       // Save session to device
@@ -241,8 +499,6 @@ export class PersistentAuthService {
       console.log("🔐 [PersistentAuth] Setting current customer user...");
       await this.setCurrentUser(userSession);
       console.log("✅ [PersistentAuth] Current customer user set successfully");
-
-      console.log("✅ [PersistentAuth] Customer session created successfully");
 
       // Initialize push notifications after successful login (with delay for Service Worker)
       console.log(
@@ -265,19 +521,35 @@ export class PersistentAuthService {
         }
       }, 5000); // Wait 5 seconds for all Service Worker operations to complete
 
-      // Log customer login activity (simplified without activityService dependency)
-      console.log("🔐 [PersistentAuth] Customer login completed successfully");
-
+      console.log("✅ [PersistentAuth] Customer login completed successfully");
       return { success: true, user: userSession };
     } catch (error) {
       console.error("❌ [PersistentAuth] Customer login failed:", error);
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Customer login failed. Please try again.",
-      };
+
+      // Rethrow with more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes("fetch")) {
+          return {
+            success: false,
+            error: "Network connection error. Please check your internet connection.",
+          };
+        } else if (error.message.includes("Database")) {
+          return {
+            success: false,
+            error: "Database connection error. Please try again.",
+          };
+        } else {
+          return {
+            success: false,
+            error: error.message,
+          };
+        }
+      } else {
+        return {
+          success: false,
+          error: "Customer authentication error. Please try again.",
+        };
+      }
     }
   }
 
@@ -688,6 +960,103 @@ export class PersistentAuthService {
     } catch (error) {
       console.error("🔍 [PersistentAuth] Error logging user activity:", error);
     }
+  }
+
+  // Authentication helper methods (merged from userAuth.ts)
+
+  private async getUserPermissions(userId: string): Promise<UserPermissions> {
+    const { data: permissions, error } = await supabase
+      .from("user_permissions_view")
+      .select("*")
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("Error fetching permissions:", error);
+      return {};
+    }
+
+    const permissionMap: UserPermissions = {};
+
+    if (permissions) {
+      permissions.forEach((perm: DatabaseUserPermissions) => {
+        permissionMap[perm.function_code] = {
+          can_view: perm.can_view,
+          can_add: perm.can_add,
+          can_edit: perm.can_edit,
+          can_delete: perm.can_delete,
+          can_export: perm.can_export,
+        };
+      });
+    }
+
+    return permissionMap;
+  }
+
+  private async updateLastLogin(userId: string): Promise<void> {
+    await supabase
+      .from("users")
+      .update({
+        last_login_at: new Date().toISOString(),
+        failed_login_attempts: 0,
+      })
+      .eq("id", userId);
+  }
+
+  private async createUserSession(
+    userId: string,
+    token: string,
+    loginMethod: string,
+  ): Promise<void> {
+    const expiresAt = new Date();
+    expiresAt.setHours(
+      expiresAt.getHours() + (loginMethod === "quick_access" ? 8 : 24),
+    );
+
+    await supabase.from("user_sessions").insert({
+      user_id: userId,
+      session_token: token,
+      login_method: loginMethod,
+      expires_at: expiresAt.toISOString(),
+      is_active: true,
+    });
+  }
+
+  private generateSessionToken(): string {
+    const timestamp = Date.now().toString();
+    const random = Math.random().toString(36).substring(2);
+    return `aqura_${timestamp}_${random}`;
+  }
+
+  private async getPasswordHash(userId: string): Promise<string> {
+    const { data, error } = await supabase
+      .from("users")
+      .select("password_hash")
+      .eq("id", userId)
+      .single();
+
+    if (error || !data) {
+      throw new Error("User not found");
+    }
+
+    return data.password_hash;
+  }
+
+  private async incrementFailedLoginAttempts(userId: string): Promise<void> {
+    // First get current count
+    const { data: user } = await supabase
+      .from("users")
+      .select("failed_login_attempts")
+      .eq("id", userId)
+      .single();
+
+    const currentAttempts = user?.failed_login_attempts || 0;
+
+    await supabase
+      .from("users")
+      .update({
+        failed_login_attempts: currentAttempts + 1,
+      })
+      .eq("id", userId);
   }
 }
 
