@@ -383,7 +383,7 @@
 	function navigateToTask(task) {
 		if (task.task_type === 'receiving') {
 			// For receiving tasks, go to receiving task details page
-			goto(`/mobile/receiving-tasks/${task.id}`);
+			goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		} else if (task.task_type === 'quick') {
 			// For quick tasks, we might need a quick task details page
 			goto(`/mobile/quick-tasks/${task.id}`);
@@ -606,7 +606,7 @@ goto(`/mobile/tasks/${task.id}/complete`);
 			task.role_type === 'night_supervisor' ||
 			task.role_type === 'accountant') {
 			// Redirect to the detailed completion form
-			goto(`/mobile/receiving-tasks/${task.id}/complete`);
+			goto(`/mobile-interface/receiving-tasks/${task.id}/complete`);
 			return;
 		}
 

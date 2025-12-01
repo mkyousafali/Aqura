@@ -158,15 +158,15 @@
 	function navigateToTask(task: any, isQuickTask = false, isReceivingTask = false) {
 		if (isReceivingTask) {
 			if (task.role_type === 'inventory_manager') {
-				goto(`/mobile/receiving-tasks/${task.id}/complete`);
+				goto(`/mobile-interface/receiving-tasks/${task.id}/complete`);
 			} else {
 				// For other receiving tasks, might need a different completion flow
-				goto(`/mobile/receiving-tasks/${task.id}/complete`);
+				goto(`/mobile-interface/receiving-tasks/${task.id}/complete`);
 			}
 		} else if (isQuickTask) {
-			goto(`/mobile/quick-tasks/${task.quick_task.id}/complete`);
+			goto(`/mobile-interface/quick-tasks/${task.quick_task.id}/complete`);
 		} else {
-			goto(`/mobile/tasks/${task.task.id}/complete`);
+			goto(`/mobile-interface/tasks/${task.task.id}/complete`);
 		}
 	}
 	

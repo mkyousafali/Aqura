@@ -363,7 +363,7 @@
 			</button>
 			<button 
 				class="primary-btn" 
-				on:click={() => goto(`/mobile/receiving-tasks/${taskId}/complete`)}
+				on:click={() => goto(`/mobile-interface/receiving-tasks/${taskId}/complete`)}
 				disabled={taskDetails.task_status === 'completed'}
 			>
 				{#if taskDetails.task_status === 'completed'}
