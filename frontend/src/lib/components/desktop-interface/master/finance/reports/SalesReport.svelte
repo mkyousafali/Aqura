@@ -43,12 +43,9 @@
 	let maxYesterdayBranchAmount = 0;
 
 	onMount(async () => {
-		// Load all data in parallel for faster initial load
-		await Promise.all([
-			loadSalesData(),
-			loadBranchSalesData(),
-			loadYesterdayBranchSalesData()
-		]);
+		await loadSalesData();
+		await loadBranchSalesData();
+		await loadYesterdayBranchSalesData();
 	});
 
 	async function loadSalesData() {
