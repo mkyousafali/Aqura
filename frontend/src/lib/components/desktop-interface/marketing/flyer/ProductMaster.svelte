@@ -38,6 +38,8 @@
 	let noImageProducts: any[] = [];
 	let isLoadingNoImageProducts: boolean = false;
 	let uploadingImageForBarcode: string | null = null;
+	let noImageSearchQuery: string = '';
+	let filteredNoImageProducts: any[] = [];
 	
 	// All products view
 	let showAllProducts: boolean = false;
@@ -79,6 +81,17 @@
 	let imageCheckStatus: string = '';
 	let imageCheckResult: 'success' | 'error' | null = null;
 	let foundImageUrl: string = '';
+	
+	// Filter no-image products based on search query
+	$: filteredNoImageProducts = noImageProducts.filter(product => {
+		if (!noImageSearchQuery.trim()) return true;
+		const query = noImageSearchQuery.toLowerCase();
+		return (
+			product.barcode?.toLowerCase().includes(query) ||
+			product.product_name_en?.toLowerCase().includes(query) ||
+			product.product_name_ar?.includes(query)
+		);
+	});
 	
 	// Extract unique values for dropdowns
 	$: uniqueUnits = [...new Set(allProductsForDropdowns.map(p => p.unit_name).filter(Boolean))].sort();
@@ -2344,6 +2357,33 @@
 						Close
 					</button>
 				</div>
+				
+				<!-- Search Bar -->
+				<div class="px-4 pb-4">
+					<div class="relative">
+						<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+							<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+						</div>
+						<input
+							type="text"
+							bind:value={noImageSearchQuery}
+							placeholder="Search by barcode or product name..."
+							class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+						/>
+						{#if noImageSearchQuery}
+							<button
+								on:click={() => noImageSearchQuery = ''}
+								class="absolute inset-y-0 right-0 pr-3 flex items-center"
+							>
+								<svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						{/if}
+					</div>
+				</div>
 			</div>
 			
 			{#if isLoadingNoImageProducts}
@@ -2391,7 +2431,18 @@
 							</tr>
 						</thead>
 						<tbody class="bg-white divide-y divide-gray-200">
-							{#each noImageProducts as product (product.barcode)}
+							{#if filteredNoImageProducts.length === 0}
+								<tr>
+									<td colspan="7" class="px-6 py-12 text-center">
+										<svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+										</svg>
+										<p class="text-gray-500 text-lg font-medium">No products found</p>
+										<p class="text-gray-400 text-sm mt-1">Try adjusting your search query</p>
+									</td>
+								</tr>
+							{:else}
+								{#each filteredNoImageProducts as product (product.barcode)}
 								<tr class="hover:bg-gray-50 transition-colors">
 									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
 										{product.barcode}
@@ -2481,14 +2532,19 @@
 										</button>
 									</td>
 								</tr>
-							{/each}
+								{/each}
+							{/if}
 						</tbody>
 					</table>
 				</div>
 				
 				<div class="bg-gray-50 px-6 py-4 border-t border-gray-200">
 					<p class="text-sm text-gray-700">
-						Total Products Without Images: <span class="font-semibold">{noImageProducts.length}</span>
+						{#if noImageSearchQuery.trim()}
+							Showing <span class="font-semibold">{filteredNoImageProducts.length}</span> of <span class="font-semibold">{noImageProducts.length}</span> products
+						{:else}
+							Total Products Without Images: <span class="font-semibold">{noImageProducts.length}</span>
+						{/if}
 					</p>
 				</div>
 			{/if}
