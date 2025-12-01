@@ -133,14 +133,11 @@
 	}
 
 	function formatTime(timeString, dateString = null) {
-		// timeString is in HH:MM:SS format (database stores times 3 hours ahead)
-		// Subtract 3 hours to display local time
+		// timeString is in HH:MM:SS format - display as stored
 		const [hours, minutes] = timeString.split(':');
 		let hour = parseInt(hours);
 		
-		// Subtract 3 hours
-		hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
-		
+		// Convert to 12-hour format
 		const ampm = hour >= 12 ? 'PM' : 'AM';
 		const displayHour = hour % 12 || 12;
 		return `${String(displayHour).padStart(2, '0')}:${minutes} ${ampm}`;

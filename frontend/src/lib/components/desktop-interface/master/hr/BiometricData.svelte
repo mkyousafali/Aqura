@@ -280,14 +280,11 @@
 	}
 
 	function formatTime(timeString) {
-		// timeString is in HH:MM:SS format (stored in Saudi Arabia timezone UTC+3)
-		// Convert to UTC by subtracting 3 hours
+		// timeString is in HH:MM:SS format - display as stored
 		const [hours, minutes] = timeString.split(':');
 		let hour = parseInt(hours);
 		
-		// Subtract 3 hours for UTC
-		hour = (hour - 3 + 24) % 24; // +24 to handle negative numbers
-		
+		// Convert to 12-hour format
 		const ampm = hour >= 12 ? 'PM' : 'AM';
 		const displayHour = hour % 12 || 12;
 		return `${String(displayHour).padStart(2, '0')}:${minutes} ${ampm}`;

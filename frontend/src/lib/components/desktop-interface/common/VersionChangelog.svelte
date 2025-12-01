@@ -5,20 +5,20 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ19.4.2.2</p>
-			<p class="version-details">Desktop: 19 | Mobile: 4 | Cashier: 2 | Customer: 2</p>
+			<p class="version-title">Version AQ20.4.2.2</p>
+			<p class="version-details">Desktop: 20 | Mobile: 4 | Cashier: 2 | Customer: 2</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>🐛 Bug Fix</h3>
-			<p class="change-description">Remove timezone conversion from punch times</p>
+			<p class="change-description">Remove timezone conversion from biometric data displays</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Removed -3 hour adjustment from punch display</li>
-					<li>Punch times now show exactly as stored in database</li>
-					<li>Fixed 6-hour time display discrepancy</li>
+					<li>Removed -3 hour adjustment from BiometricData component</li>
+					<li>Removed -3 hour adjustment from BiometricExport component</li>
+					<li>Times now display exactly as stored in database</li>
 				</ul>
 			</div>
 			<p class="date">December 1, 2025</p>
