@@ -5,21 +5,22 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ22.6.3.3</p>
-			<p class="version-details">Desktop: 22 | Mobile: 6 | Cashier: 3 | Customer: 3</p>
+			<p class="version-title">Version AQ22.7.3.3</p>
+			<p class="version-details">Desktop: 22 | Mobile: 7 | Cashier: 3 | Customer: 3</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>✨ New Feature</h3>
-			<p class="change-description">Implement mobile dashboard Go backend with CORS fix</p>
+			<h3>🐛 Bug Fix</h3>
+			<p class="change-description">Fixed punch records not displaying in mobile dashboard</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Mobile dashboard endpoint with caching</li>
-					<li>Automatic Supabase fallback system</li>
-					<li>Fixed CORS OPTIONS handling</li>
-					<li>Updated implementation guides</li>
+					<li>Fixed RFC3339 date/time parsing from PostgreSQL</li>
+					<li>Updated time format parsing (0000-01-01T08:39:43Z)</li>
+					<li>Updated date format parsing (2025-12-02T00:00:00Z)</li>
+					<li>Added detailed error logging for debugging</li>
+					<li>Successfully displaying employee punch records</li>
 				</ul>
 			</div>
 			<p class="date">December 2, 2025</p>
