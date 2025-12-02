@@ -101,8 +101,14 @@
 
 	// Reactive statement to filter payments when filter changes
 	$: filteredPayments = scheduledPayments.filter(payment => {
-		if (filterBranch && payment.branch_name !== filterBranch) return false;
+		if (filterBranch && payment.branch_id != filterBranch) return false;
 		if (filterPaymentMethod && payment.payment_method !== filterPaymentMethod) return false;
+		return true;
+	});
+
+	// Reactive statement to filter expense scheduler payments
+	$: filteredExpensePayments = expenseSchedulerPayments.filter(payment => {
+		if (filterBranch && payment.branch_id != filterBranch) return false;
 		return true;
 	});
 
@@ -112,7 +118,7 @@
 	}
 
 	// Calculate totals by payment method for the current month
-	$: totalsByPaymentMethod = scheduledPayments.reduce((acc, payment) => {
+	$: totalsByPaymentMethod = filteredPayments.reduce((acc, payment) => {
 		if (!payment.due_date) return acc;
 		
 		// Parse date manually to avoid timezone issues
@@ -147,8 +153,8 @@
 		const currentMonth = monthData?.month;
 		const currentYear = monthData?.year;
 		
-		if (scheduledPayments && currentMonth !== undefined && currentYear !== undefined) {
-			scheduledPayments.forEach(payment => {
+		if (filteredPayments && currentMonth !== undefined && currentYear !== undefined) {
+			filteredPayments.forEach(payment => {
 				if (!payment.due_date) return;
 				
 				// Parse date manually to avoid timezone issues
@@ -188,10 +194,10 @@
 		let expensePaid = 0;
 		let expenseUnpaid = 0;
 
-		console.log('Calculating expense totals from:', expenseSchedulerPayments);
+		console.log('Calculating expense totals from:', filteredExpensePayments);
 
-		if (expenseSchedulerPayments && expenseSchedulerPayments.length > 0) {
-			expenseSchedulerPayments.forEach(payment => {
+		if (filteredExpensePayments && filteredExpensePayments.length > 0) {
+			filteredExpensePayments.forEach(payment => {
 				const amount = payment.amount || 0;
 				console.log('Processing expense payment:', { 
 					id: payment.id, 
@@ -241,7 +247,7 @@
 			while (hasMore) {
 				const { data: pageData, error } = await supabase
 					.from('branches')
-					.select('name_en, name_ar')
+					.select('id, name_en, name_ar')
 					.eq('is_active', true)
 					.order('name_en', { ascending: true })
 					.range(from, from + pageSize - 1);
@@ -263,7 +269,7 @@
 				}
 			}
 
-			branches = allData.map(b => b.name_en) || [];
+			branches = allData || [];
 			console.log('Loaded branches:', branches);
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -891,10 +897,11 @@
 					dayInfo.paymentsByVendor[vendorKey].payments.push(payment);
 					dayInfo.paymentsByVendor[vendorKey].totalAmount += (payment.final_bill_amount || 0);
 				}
-			});
+		});
 
-			// Also check expense scheduler payments for this day
-			expenseSchedulerPayments.forEach(expense => {
+		// Also check expense scheduler payments for this day
+		if (filteredExpensePayments && filteredExpensePayments.length > 0) {
+			filteredExpensePayments.forEach(expense => {
 				if (expense.due_date) {
 					const expenseDate = new Date(expense.due_date);
 					if (expenseDate.toDateString() === dayDate.toDateString()) {
@@ -915,8 +922,7 @@
 					}
 				}
 			});
-
-			// Add ALL days (including empty ones)
+		}			// Add ALL days (including empty ones)
 			monthDetailData.push(dayInfo);
 		}
 
@@ -1955,7 +1961,7 @@
 									<select class="filter-select" bind:value={filterBranch}>
 										<option value="">All Branches</option>
 										{#each branches as branch}
-											<option value={branch}>{branch}</option>
+											<option value={branch.id}>{branch.name_en}</option>
 										{/each}
 									</select>
 									<select class="filter-select" bind:value={filterPaymentMethod}>
@@ -2151,7 +2157,7 @@
 									<div class="section-summary">
 										{#if true}
 											{@const dayDateString = `${dayData.fullDate.getFullYear()}-${String(dayData.fullDate.getMonth() + 1).padStart(2, '0')}-${String(dayData.fullDate.getDate()).padStart(2, '0')}`}
-											{@const dayExpenses = expenseSchedulerPayments.filter(p => p.due_date === dayDateString)}
+											{@const dayExpenses = filteredExpensePayments.filter(p => p.due_date === dayDateString)}
 											{#if dayExpenses.length > 0}
 												{console.log('📅 Expense scheduler payments for', dayDateString, ':', dayExpenses.map(p => ({ id: p.id, type: p.schedule_type, amount: p.amount, due_date: p.due_date })))}
 											{/if}
@@ -2189,8 +2195,8 @@
 										<tbody>
 										{#if true}
 											{@const dayDateString = `${dayData.fullDate.getFullYear()}-${String(dayData.fullDate.getMonth() + 1).padStart(2, '0')}-${String(dayData.fullDate.getDate()).padStart(2, '0')}`}
-											{#if expenseSchedulerPayments.filter(p => p.due_date === dayDateString).length > 0}
-												{#each expenseSchedulerPayments.filter(p => p.due_date === dayDateString) as payment}
+											{#if filteredExpensePayments.filter(p => p.due_date === dayDateString).length > 0}
+												{#each filteredExpensePayments.filter(p => p.due_date === dayDateString) as payment}
 													<tr class={payment.is_paid ? 'paid-row' : ''}>
 														<td style="text-align: left; font-weight: 500;">
 															{payment.requester_name || payment.co_user_name || 'N/A'}
