@@ -34,6 +34,8 @@
 	let expenseSchedulerPayments = []; // For expense scheduler payments
 	let refreshing = false;
 	let monthDetailsElement;
+	let scrollableContainer; // Reference to the scrollable content section
+	let selectedDate = null; // Track which date is currently selected/highlighted
 	
 	// Check if current user is Master Admin
 	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
@@ -846,7 +848,11 @@
 			const dayDate = new Date(monthData.year, monthData.month, day);
 			const isToday = day === todayDate && monthData.month === todayMonth && monthData.year === todayYear;
 			
+			const uniqueId = `day-${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+			console.log(`📅 Day ${day}: ID = ${uniqueId}`);
+			
 			const dayInfo = {
+				id: uniqueId, // Unique ID
 				date: day,
 				dayName: dayDate.toLocaleDateString('en-US', { weekday: 'short' }),
 				fullDate: dayDate,
@@ -976,17 +982,80 @@
 	}
 
 	// Scroll to specific date (used by calendar view)
-	function scrollToDate(dateNumber) {
+	function scrollToDate(uniqueDateId) {
+		console.log('🔍 scrollToDate called with ID:', uniqueDateId);
+		
+		// Set the selected date for highlighting
+		selectedDate = uniqueDateId;
+		
 		// Use requestAnimationFrame to ensure DOM is ready
 		requestAnimationFrame(() => {
-			const element = document.getElementById(`day-${dateNumber}`);
+			console.log('📍 Looking for element with ID:', uniqueDateId);
+			const element = document.getElementById(uniqueDateId);
+			console.log('✅ Found element:', element ? 'YES' : 'NO', element?.id);
 			
-			if (element) {
-				// Simple scroll into view
-				element.scrollIntoView({ 
-					behavior: 'smooth', 
-					block: 'center'
-				});
+			if (element && scrollableContainer) {
+				try {
+					// Find the month-days-list wrapper which is the immediate parent container
+					const monthDaysList = scrollableContainer.querySelector('.month-days-list');
+					if (!monthDaysList) {
+						console.warn('❌ month-days-list not found');
+						return;
+					}
+					
+					// Get all day cards to find which index this element is
+					const allDayCards = monthDaysList.querySelectorAll('.day-details-card');
+					let dayIndex = -1;
+					for (let i = 0; i < allDayCards.length; i++) {
+						if (allDayCards[i].id === uniqueDateId) {
+							dayIndex = i;
+							break;
+						}
+					}
+					
+					console.log('📍 Found day at index:', dayIndex, 'of', allDayCards.length);
+					
+					// Sum up heights of all previous cards plus gaps to get exact position
+					let accumulatedHeight = 0;
+					const gap = 16; // from CSS: gap: 16px
+					
+					for (let i = 0; i < dayIndex; i++) {
+						accumulatedHeight += allDayCards[i].offsetHeight + gap;
+					}
+					
+					const elementHeight = element.offsetHeight;
+					const containerHeight = scrollableContainer.clientHeight;
+					
+					// Add top offset to keep day header visible (don't center, just show from top)
+					// This prevents the header from being hidden under the fixed calendar
+					const topOffset = 100; // Keep 100px of space at top for visibility
+					const targetScroll = accumulatedHeight - topOffset;
+					
+					// Constrain to valid range
+					const maxScroll = scrollableContainer.scrollHeight - containerHeight;
+					const constrainedScroll = Math.max(0, Math.min(targetScroll, maxScroll));
+					
+					console.log('📏 Accumulated height calculation:', {
+						dayIndex,
+						accumulatedHeight,
+						elementHeight,
+						containerHeight,
+						topOffset,
+						targetScroll,
+						maxScroll,
+						constrainedScroll
+					});
+					
+					// Scroll smoothly
+					scrollableContainer.scrollTo({
+						top: constrainedScroll,
+						behavior: 'smooth'
+					});
+				} catch (error) {
+					console.error('❌ Scroll error:', error);
+				}
+			} else {
+				console.warn('⚠️ Scroll failed - element or container missing:', { element: !!element, scrollableContainer: !!scrollableContainer });
 			}
 		});
 	}
@@ -1894,8 +1963,8 @@
 					<div class="compact-calendar-grid">
 						{#each monthDetailData as dayData}
 							<div 
-								class="mini-calendar-day {dayData.isToday ? 'is-today' : ''} {dayData.paymentCount > 0 ? (dayData.isFullyPaid ? 'has-payments fully-paid' : 'has-payments has-unpaid') : 'no-payments'}"
-								on:click={() => scrollToDate(dayData.date)}
+								class="mini-calendar-day {dayData.isToday ? 'is-today' : ''} {dayData.paymentCount > 0 ? (dayData.isFullyPaid ? 'has-payments fully-paid' : 'has-payments has-unpaid') : 'no-payments'} {selectedDate === dayData.id ? 'is-selected' : ''}"
+								on:click={() => scrollToDate(dayData.id)}
 								title="Click to jump to {dayData.dayName}, {monthData.month} {dayData.date} - {dayData.paymentCount} payments, Total: {formatCurrency(dayData.totalAmount)}, Unpaid: {formatCurrency(dayData.unpaidAmount)}"
 							>
 								<div class="mini-day-info">
@@ -1937,12 +2006,12 @@
 		</div>
 
 		<!-- Scrollable Content Section -->
-		<div class="scrollable-content-section">
+		<div class="scrollable-content-section" bind:this={scrollableContainer}>
 			<!-- Days List -->
 			<div class="month-days-list">
 			{#each monthDetailData as dayData}
 				<div 
-					id="day-{dayData.date}"
+					id="{dayData.id}"
 					class="day-details-card" 
 					class:has-payments={dayData.paymentCount > 0}
 					class:drop-zone={draggedPayment}
@@ -3185,6 +3254,26 @@
 	.mini-calendar-day.is-today.has-payments.has-unpaid {
 		border-color: #3b82f6;
 		background: linear-gradient(135deg, #bfdbfe 0%, #fed7aa 100%);
+	}
+
+	/* Selected date - prominent highlight with purple accent */
+	.mini-calendar-day.is-selected {
+		border-color: #8b5cf6;
+		border-width: 2px;
+		background: linear-gradient(135deg, #ede9fe 0%, #f3e8ff 100%);
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+		font-weight: 600;
+	}
+
+	.mini-calendar-day.is-selected:hover {
+		border-color: #7c3aed;
+		background: linear-gradient(135deg, #ddd6fe 0%, #ede9fe 100%);
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+	}
+
+	.mini-calendar-day.is-selected .mini-day-number {
+		color: #6d28d9;
+		font-weight: 800;
 	}
 
 	.mini-day-info {
