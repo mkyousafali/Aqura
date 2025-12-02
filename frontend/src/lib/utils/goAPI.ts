@@ -9,6 +9,45 @@ const GO_API_URL = import.meta.env.VITE_GO_API_URL || 'http://localhost:8080';
 // Toggle to use Go backend or Supabase
 export const USE_GO_BACKEND = import.meta.env.VITE_USE_GO_BACKEND === 'true' || false;
 
+// Client-side cache for faster subsequent loads
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes to match backend
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  
+  // Check if expired
+  if (Date.now() - entry.timestamp > CACHE_TTL) {
+    cache.delete(key);
+    return null;
+  }
+  
+  return entry.data;
+}
+
+function setCache<T>(key: string, data: T): void {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateCache(pattern: string): void {
+  if (pattern === '*') {
+    cache.clear();
+  } else {
+    // Remove all keys that start with pattern
+    for (const key of cache.keys()) {
+      if (key.startsWith(pattern)) {
+        cache.delete(key);
+      }
+    }
+  }
+}
+
 /**
  * Get authorization token from Supabase session
  */
@@ -52,11 +91,23 @@ async function goFetch(endpoint: string, options: RequestInit = {}) {
 export const goAPI = {
   branches: {
     /**
-     * Get all branches
+     * Get all branches with client-side caching
      */
-    async getAll() {
+    async getAll(useCache = true) {
+      const cacheKey = 'branches:all';
+      
+      // Try cache first
+      if (useCache) {
+        const cached = getCached(cacheKey);
+        if (cached) {
+          console.log('✅ Loaded branches from client cache');
+          return { data: cached, error: null };
+        }
+      }
+      
       try {
         const data = await goFetch('/api/branches');
+        setCache(cacheKey, data);
         return { data, error: null };
       } catch (error: any) {
         return { data: null, error: { message: error.message } };
@@ -67,8 +118,13 @@ export const goAPI = {
      * Get single branch by ID
      */
     async getById(id: string | number) {
+      const cacheKey = `branches:${id}`;
+      const cached = getCached(cacheKey);
+      if (cached) return { data: cached, error: null };
+      
       try {
         const data = await goFetch(`/api/branches/${id}`);
+        setCache(cacheKey, data);
         return { data, error: null };
       } catch (error: any) {
         return { data: null, error: { message: error.message } };
@@ -84,6 +140,8 @@ export const goAPI = {
           method: 'POST',
           body: JSON.stringify(branch),
         });
+        // Invalidate cache after creation
+        invalidateCache('branches');
         return { data, error: null };
       } catch (error: any) {
         return { data: null, error: { message: error.message } };
@@ -99,6 +157,8 @@ export const goAPI = {
           method: 'PUT',
           body: JSON.stringify(updates),
         });
+        // Invalidate cache after update
+        invalidateCache('branches');
         return { data, error: null };
       } catch (error: any) {
         return { data: null, error: { message: error.message } };
@@ -113,6 +173,8 @@ export const goAPI = {
         const data = await goFetch(`/api/branches/${id}`, {
           method: 'DELETE',
         });
+        // Invalidate cache after deletion
+        invalidateCache('branches');
         return { data, error: null };
       } catch (error: any) {
         return { data: null, error: { message: error.message } };

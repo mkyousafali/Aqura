@@ -27,6 +27,7 @@
 	import { cacheManager } from '$lib/utils/cacheManager';
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
+	import { initPreload } from '$lib/utils/preload';
 	
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
@@ -35,6 +36,9 @@
 
 	// Initialize i18n system
 	initI18n();
+	
+	// Initialize data preloading for faster navigation
+	initPreload();
 
 	// Command palette state
 	let showCommandPalette = false;

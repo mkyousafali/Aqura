@@ -19,6 +19,7 @@
 	let editingBranch: Branch | null = null;
 	let isLoading = false;
 	let errorMessage = '';
+	let cacheHit = false; // Track if data came from cache
 
 	// Load branches on component mount
 	onMount(async () => {
@@ -27,18 +28,21 @@
 
 	// Load branches from Go backend
 	async function loadBranches() {
+		const startTime = performance.now();
 		isLoading = true;
 		errorMessage = '';
 		
 		try {
 			const { data, error } = await goAPI.branches.getAll();
+			const loadTime = Math.round(performance.now() - startTime);
 			
 			if (error) {
 				errorMessage = error.message || 'Failed to load branches';
 				console.error('Failed to load branches:', error);
 			} else if (data) {
 				branches = data;
-				console.log('✅ Loaded branches from Go backend');
+				cacheHit = loadTime < 50; // If loaded in under 50ms, likely from cache
+				console.log(`✅ Loaded ${data.length} branches in ${loadTime}ms ${cacheHit ? '(cached)' : ''}`);
 			}
 		} catch (error) {
 			errorMessage = 'Failed to connect to server';
