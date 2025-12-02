@@ -42,6 +42,7 @@
 	let filterBranch = '';
 	let filterPaymentMethod = '';
 	let branches = [];
+	let branchMap = {}; // Map of branch_id to branch name
 	let paymentMethods = [];
 	
 	// Drag and drop state
@@ -83,6 +84,12 @@
 
 	// Initialize component
 	// (Initialization moved to loadInitialData function called from main onMount)
+
+	// Get branch name by ID from branchMap
+	function getBranchName(branchId) {
+		if (!branchId) return 'N/A';
+		return branchMap[branchId] || 'N/A';
+	}
 
 	// Reactive statement to regenerate data when scheduledPayments change
 	$: if (scheduledPayments.length >= 0 && monthData) {
@@ -270,7 +277,15 @@
 			}
 
 			branches = allData || [];
+			
+			// Build branch ID to name mapping
+			branchMap = {};
+			branches.forEach(branch => {
+				branchMap[branch.id] = branch.name_en;
+			});
+			
 			console.log('Loaded branches:', branches);
+			console.log('Branch map:', branchMap);
 		} catch (error) {
 			console.error('Error loading branches:', error);
 		}
@@ -2044,7 +2059,7 @@
 														
 														<!-- Always visible: Branch -->
 														<td class="always-visible">
-															{payment.branch_name || 'N/A'}
+															{getBranchName(payment.branch_id)}
 														</td>
 														
 														<!-- Always visible: Payment Method -->
@@ -2211,7 +2226,7 @@
 															<span style="color: #f59e0b; font-style: italic;">Unknown - To Be Assigned</span>
 														{/if}
 													</td>
-													<td style="text-align: left;">{payment.branch_name || 'N/A'}</td>
+													<td style="text-align: left;">{getBranchName(payment.branch_id)}</td>
 													<td>
 														<span class="payment-method-badge" style="background: #fee2e2; color: #991b1b; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 500;">
 															{payment.payment_method || 'Expense'}

@@ -48,6 +48,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let filterVendor = '';
 	let searchVendor = '';
 	let branches = [];
+	let branchMap = {}; // Map of branch_id to branch name
 	let paymentMethods = [];
 	let vendors = [];
 	let totalVendorsInDB = 0; // Total count from vendors table
@@ -59,6 +60,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Use the total vendor count from database
 	$: totalVendorCount = totalVendorsInDB;
+	
+	// Get branch name by ID from branchMap
+	function getBranchName(branchId) {
+		if (!branchId) return 'N/A';
+		return branchMap[branchId] || 'N/A';
+	}
 	
 	// Monthly totals
 	let monthlyData = [];
@@ -232,7 +239,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('name_en, name_ar, is_active')
+				.select('id, name_en, name_ar, is_active')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -242,7 +249,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 
 			branches = data || [];
+			
+			// Build branch ID to name mapping
+			branchMap = {};
+			branches.forEach(branch => {
+				branchMap[branch.id] = branch.name_en;
+			});
+			
 			console.log('Loaded branches:', branches.map(b => b.name_en));
+			console.log('Branch map:', branchMap);
 		} catch (err) {
 			console.error('Error loading branches:', err);
 		}
@@ -323,7 +338,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Get scheduled payments based on selected branch
 			let availablePayments;
 			if (filterBranch) {
-				availablePayments = scheduledPayments.filter(payment => payment.branch_name === filterBranch);
+				availablePayments = scheduledPayments.filter(payment => payment.branch_id == filterBranch);
 			} else {
 				availablePayments = scheduledPayments;
 			}
@@ -382,7 +397,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Filter payments based on selected filters
 	$: filteredPayments = scheduledPayments.filter(payment => {
-		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
+		const branchMatch = !filterBranch || payment.branch_id == filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
 		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
 		const notPaid = !payment.is_paid; // Only show unpaid payments
@@ -401,7 +416,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Filter selected day payments
 	$: filteredSelectedDayPayments = selectedDay?.payments.filter(payment => {
-		const branchMatch = !filterBranch || payment.branch_name === filterBranch;
+		const branchMatch = !filterBranch || payment.branch_id == filterBranch;
 		const paymentMethodMatch = !filterPaymentMethod || payment.payment_method === filterPaymentMethod;
 		const vendorMatch = !filterVendor || payment.vendor_name === filterVendor;
 		const notPaid = !payment.is_paid; // Only show unpaid payments
@@ -717,7 +732,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<select class="filter-select" bind:value={filterBranch}>
 				<option value="">All Branches</option>
 				{#each branches as branch}
-					<option value={branch.name_en}>{branch.name_en}</option>
+					<option value={branch.id}>{branch.name_en}</option>
 				{/each}
 			</select>
 			
@@ -806,7 +821,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<td class="due-date">{formatDate(payment.due_date)}</td>
 						<td class="amount">{formatCurrency(payment.final_bill_amount || payment.bill_amount || 0)}</td>
 						<td class="payment-method">{payment.payment_method || 'N/A'}</td>
-						<td class="branch">{payment.branch_name || 'N/A'}</td>
+						<td class="branch">{getBranchName(payment.branch_id)}</td>
 						<td class="status">
 							<span class="status-badge" class:overdue={new Date(payment.due_date) < new Date()} class:due-soon={isPaymentDueSoon(payment)} class:normal={!new Date(payment.due_date) < new Date() && !isPaymentDueSoon(payment)}>
 								{new Date(payment.due_date) < new Date() ? 'Overdue' : isPaymentDueSoon(payment) ? 'Due Soon' : 'Scheduled'}
@@ -974,7 +989,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				<select class="filter-select" bind:value={filterBranch}>
 					<option value="">All Branches</option>
 					{#each branches as branch}
-						<option value={branch.name_en}>{branch.name_en}</option>
+						<option value={branch.id}>{branch.name_en}</option>
 					{/each}
 				</select>
 				
@@ -1040,7 +1055,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									<div class="vendor-name">{payment.vendor_name || 'Unknown Vendor'}</div>
 									<div class="vendor-id">ID: {payment.vendor_id || 'N/A'}</div>
 								</td>
-								<td>{payment.branch_name || 'N/A'}</td>
+								<td>{getBranchName(payment.branch_id)}</td>
 								<td>{payment.bill_number || 'N/A'}</td>
 								<td>
 									<span class="payment-method-badge">{payment.payment_method || 'Cash on Delivery'}</span>
@@ -1067,7 +1082,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										<div class="vendor-name">{expense.co_user_name || 'N/A'}</div>
 										<div class="vendor-id">Category: {expense.expense_category_name_en || 'N/A'}</div>
 									</td>
-									<td>{expense.branch_name || 'N/A'}</td>
+									<td>{getBranchName(expense.branch_id)}</td>
 									<td>{expense.requisition_number || 'N/A'}</td>
 									<td>
 										<span class="payment-method-badge" style="background: #fee2e2; color: #991b1b;">Expense</span>
