@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { db, type Branch } from '$lib/utils/supabase';
-	import { goAPI, USE_GO_BACKEND } from '$lib/utils/goAPI';
+	import { type Branch } from '$lib/utils/supabase';
+	import { goAPI } from '$lib/utils/goAPI';
 
 	// State management
 	let branches: Branch[] = [];
@@ -19,43 +19,26 @@
 	let editingBranch: Branch | null = null;
 	let isLoading = false;
 	let errorMessage = '';
-	let usingGoBackend = USE_GO_BACKEND;
 
 	// Load branches on component mount
 	onMount(async () => {
 		await loadBranches();
 	});
 
-	// Load branches from Go backend or Supabase
+	// Load branches from Go backend
 	async function loadBranches() {
 		isLoading = true;
 		errorMessage = '';
 		
 		try {
-			// Try Go backend first if enabled
-			if (usingGoBackend) {
-				const { data, error } = await goAPI.branches.getAll();
-				
-				if (error) {
-					console.warn('Go backend failed, falling back to Supabase:', error);
-					usingGoBackend = false;
-					return await loadBranches(); // Retry with Supabase
-				} else if (data) {
-					branches = data;
-					console.log('✅ Loaded branches from Go backend');
-					return;
-				}
-			}
-			
-			// Fallback to Supabase
-			const { data, error } = await db.branches.getAll();
+			const { data, error } = await goAPI.branches.getAll();
 			
 			if (error) {
 				errorMessage = error.message || 'Failed to load branches';
 				console.error('Failed to load branches:', error);
 			} else if (data) {
 				branches = data;
-				console.log('✅ Loaded branches from Supabase');
+				console.log('✅ Loaded branches from Go backend');
 			}
 		} catch (error) {
 			errorMessage = 'Failed to connect to server';
@@ -132,18 +115,7 @@
 
 			let result;
 			if (showCreatePopup) {
-				// Try Go backend first if enabled
-				if (usingGoBackend) {
-					result = await goAPI.branches.create(branchData);
-					if (result.error) {
-						console.warn('Go backend create failed, falling back to Supabase');
-						usingGoBackend = false;
-					}
-				}
-				// Fallback to Supabase
-				if (!usingGoBackend || result?.error) {
-					result = await db.branches.create(branchData);
-				}
+				result = await goAPI.branches.create(branchData);
 				
 				if (result.error) {
 					errorMessage = result.error.message || 'Failed to create branch';
@@ -153,18 +125,7 @@
 					closeCreatePopup();
 				}
 			} else if (showEditPopup && editingBranch) {
-				// Try Go backend first if enabled
-				if (usingGoBackend) {
-					result = await goAPI.branches.update(editingBranch.id, branchData);
-					if (result.error) {
-						console.warn('Go backend update failed, falling back to Supabase');
-						usingGoBackend = false;
-					}
-				}
-				// Fallback to Supabase
-				if (!usingGoBackend || result?.error) {
-					result = await db.branches.update(editingBranch.id, branchData);
-				}
+				result = await goAPI.branches.update(editingBranch.id, branchData);
 				
 				if (result.error) {
 					errorMessage = result.error.message || 'Failed to update branch';
@@ -189,20 +150,7 @@
 			errorMessage = '';
 
 			try {
-				let result;
-				// Try Go backend first if enabled
-				if (usingGoBackend) {
-					result = await goAPI.branches.delete(id);
-					if (result.error) {
-						console.warn('Go backend delete failed, falling back to Supabase');
-						usingGoBackend = false;
-					}
-				}
-				// Fallback to Supabase
-				if (!usingGoBackend || result?.error) {
-					result = await db.branches.delete(id);
-				}
-				const { error } = result;
+				const { error } = await goAPI.branches.delete(id);
 				
 				if (error) {
 					errorMessage = error.message || 'Failed to delete branch';
