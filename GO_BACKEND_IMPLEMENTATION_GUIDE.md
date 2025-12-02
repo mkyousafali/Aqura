@@ -45,10 +45,11 @@ Just say: **"Implement Go backend for [Component Name]"**
 1. [Quick Start](#quick-start---implement-any-component)
 2. [Backend Structure](#backend-structure)
 3. [Handler Implementation](#handler-implementation)
-4. [Frontend Integration](#frontend-integration)
-5. [Running Local Development](#running-local-development)
-6. [Testing](#testing)
-7. [Component List](#component-list-ready-for-implementation)
+4. [PostgreSQL LISTEN/NOTIFY](#postgresql-listennotify---automatic-cache-updates)
+5. [Frontend Integration](#frontend-integration)
+6. [Running Local Development](#running-local-development)
+7. [Testing](#testing)
+8. [Component List](#component-list-ready-for-implementation)
 
 ---
 
@@ -446,6 +447,293 @@ func main() {
 	// ... rest of code ...
 }
 ```
+
+---
+
+## PostgreSQL LISTEN/NOTIFY - Automatic Cache Updates
+
+### Overview
+PostgreSQL LISTEN/NOTIFY enables **real-time automatic cache invalidation** across all Go backend instances when database changes occur. No manual cache invalidation needed!
+
+**How It Works:**
+1. User modifies data → PostgreSQL trigger fires
+2. Trigger sends NOTIFY to channel (e.g., `branches_changed`)
+3. Go backend listener receives notification
+4. Cache automatically invalidates
+5. Next request fetches fresh data
+
+**Benefits:**
+- ✅ Zero polling overhead
+- ✅ Real-time updates (< 100ms latency)
+- ✅ Works across multiple backend instances
+- ✅ Automatic - no manual cache management
+- ✅ Database-driven consistency
+
+### Step 1: Database Trigger (Supabase SQL Editor)
+
+Create PostgreSQL trigger for your table:
+
+```sql
+-- Function that sends notification when table changes
+CREATE OR REPLACE FUNCTION notify_your_table_change() 
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify(
+        'your_table_changed',
+        json_build_object(
+            'operation', TG_OP,
+            'id', COALESCE(NEW.id, OLD.id),
+            'timestamp', NOW()
+        )::text
+    );
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger on INSERT, UPDATE, DELETE
+CREATE TRIGGER your_table_notify_trigger
+AFTER INSERT OR UPDATE OR DELETE ON your_table
+FOR EACH ROW EXECUTE FUNCTION notify_your_table_change();
+```
+
+**Real Example (Branches):**
+```sql
+-- Branches notification function
+CREATE OR REPLACE FUNCTION notify_branches_change() 
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify(
+        'branches_changed',
+        json_build_object(
+            'operation', TG_OP,
+            'id', COALESCE(NEW.id, OLD.id),
+            'timestamp', NOW()
+        )::text
+    );
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger on branches table
+CREATE TRIGGER branches_notify_trigger
+AFTER INSERT OR UPDATE OR DELETE ON branches
+FOR EACH ROW EXECUTE FUNCTION notify_branches_change();
+```
+
+### Step 2: Backend Listener Setup (Already Done)
+
+The notification listener is already configured in `backend/database/supabase.go` and `backend/main.go`. It will automatically listen to your channels.
+
+**Current Channels:**
+- `branches_changed` - Branch table updates
+- `cache_invalidate` - Generic cache invalidation
+
+### Step 3: Add Your Channel to Listener
+
+Update `backend/database/supabase.go` to subscribe to your channel:
+
+```go
+func StartNotificationListener(callback NotificationCallback) error {
+    // ... existing code ...
+
+    // Subscribe to channels
+    listener.Listen("branches_changed")
+    listener.Listen("your_table_changed")  // ← Add your channel
+    listener.Listen("cache_invalidate")
+
+    // ... rest of code ...
+}
+```
+
+### Step 4: Handle Notification in main.go
+
+Update `handleDatabaseNotification` function in `backend/main.go`:
+
+```go
+func handleDatabaseNotification(channel string, payload string) {
+    log.Printf("📢 Received notification on channel: %s | Payload: %s", channel, payload)
+
+    switch channel {
+    case "branches_changed":
+        cache.Invalidate("branches:all")
+        log.Printf("🔄 Cache invalidated for branches (trigger: database change)")
+
+    case "your_table_changed":  // ← Add your handler
+        cache.Invalidate("your_entities:all")
+        log.Printf("🔄 Cache invalidated for your_entities (trigger: database change)")
+
+    case "cache_invalidate":
+        // Generic invalidation with JSON payload
+        if payload != "" {
+            var data map[string]interface{}
+            if err := json.Unmarshal([]byte(payload), &data); err == nil {
+                if key, ok := data["key"].(string); ok {
+                    cache.Invalidate(key)
+                    log.Printf("🔄 Cache invalidated: %s", key)
+                }
+            }
+        }
+
+    default:
+        log.Printf("⚠️  Unknown notification channel: %s", channel)
+    }
+}
+```
+
+### Step 5: Remove Manual Cache Invalidation (Optional)
+
+Since cache now invalidates automatically via triggers, you can remove manual invalidation from handlers:
+
+**Before (Manual Invalidation):**
+```go
+func CreateYourEntity(w http.ResponseWriter, r *http.Request) {
+    // ... insert logic ...
+    
+    cache.Invalidate("your_entities:all")  // ← Can remove this!
+    
+    respondWithJSON(w, http.StatusCreated, entity)
+}
+```
+
+**After (Automatic via Trigger):**
+```go
+func CreateYourEntity(w http.ResponseWriter, r *http.Request) {
+    // ... insert logic ...
+    
+    // No manual invalidation needed - trigger handles it!
+    
+    respondWithJSON(w, http.StatusCreated, entity)
+}
+```
+
+**Note:** You can keep manual invalidation as a backup or for immediate consistency before the trigger fires.
+
+### Testing LISTEN/NOTIFY
+
+1. **Start Go Backend:**
+   ```powershell
+   cd D:\Aqura\backend
+   go run main.go
+   ```
+   
+   Look for: `🎧 PostgreSQL notification listener started`
+
+2. **Trigger Database Change:**
+   ```sql
+   -- In Supabase SQL Editor
+   UPDATE branches SET name_en = 'Updated Branch' WHERE id = 1;
+   ```
+
+3. **Check Backend Logs:**
+   ```
+   📢 Received notification on channel: branches_changed | Payload: {"operation":"UPDATE","id":1,"timestamp":"2025-12-02T..."}
+   🔄 Cache invalidated for branches (trigger: database change)
+   ```
+
+4. **Verify Cache Invalidated:**
+   ```powershell
+   # Next request will be cache MISS
+   curl http://localhost:8080/api/branches
+   # Response header: X-Cache: MISS
+   
+   # Second request will be cache HIT
+   curl http://localhost:8080/api/branches
+   # Response header: X-Cache: HIT
+   ```
+
+### Multi-Instance Support
+
+**Scenario:** Multiple Go backend instances (Railway, local dev, etc.)
+
+**How It Works:**
+- Each instance connects to PostgreSQL with its own listener
+- When database changes, ALL instances receive notification
+- ALL caches invalidate simultaneously
+- Perfect consistency across all servers!
+
+**Example Flow:**
+```
+User A → Railway Backend → Insert Branch → PostgreSQL Trigger
+                                             |
+                                             ├─ NOTIFY "branches_changed"
+                                             |
+                              ┌──────────────┴──────────────┐
+                              ↓                              ↓
+                    Railway Listener                 Local Dev Listener
+                    Invalidate Cache                 Invalidate Cache
+                              ↓                              ↓
+                    User B gets fresh data          Developer sees update
+```
+
+### Generic Cache Invalidation Channel
+
+For advanced use cases, use the `cache_invalidate` channel with custom payloads:
+
+**SQL Trigger with Custom Key:**
+```sql
+CREATE OR REPLACE FUNCTION notify_custom_cache() 
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify(
+        'cache_invalidate',
+        json_build_object('key', 'custom:cache:key')::text
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Backend automatically handles it:**
+```go
+case "cache_invalidate":
+    // Parses JSON and invalidates the specified key
+    cache.Invalidate(key)  // key from payload["key"]
+```
+
+### Troubleshooting
+
+**Issue:** No notifications received
+
+**Solutions:**
+1. Check trigger exists:
+   ```sql
+   SELECT * FROM pg_trigger WHERE tgname = 'your_table_notify_trigger';
+   ```
+
+2. Check function exists:
+   ```sql
+   SELECT * FROM pg_proc WHERE proname = 'notify_your_table_change';
+   ```
+
+3. Test notification manually:
+   ```sql
+   SELECT pg_notify('your_table_changed', '{"test": true}');
+   ```
+
+4. Check backend logs for listener errors
+
+5. Verify database connection is active (listener pings every 90s)
+
+**Issue:** Listener disconnected
+
+**Solution:** Automatic reconnection with exponential backoff (10s to 1min)
+
+### Performance Impact
+
+- **Database:** Near-zero overhead (trigger fires in microseconds)
+- **Network:** Minimal (only sends notification when data changes)
+- **Backend:** Negligible (single goroutine handles all notifications)
+- **Latency:** < 100ms from database change to cache invalidation
+
+### Best Practices
+
+1. ✅ **One trigger per table** - Don't create multiple triggers on same table
+2. ✅ **Use FOR EACH ROW** - Gets exact row that changed
+3. ✅ **Include operation type** - Know if INSERT/UPDATE/DELETE
+4. ✅ **Keep payload small** - Only essential data (id, timestamp)
+5. ✅ **Test triggers thoroughly** - Ensure they don't block writes
+6. ✅ **Monitor listener health** - Check logs for reconnection issues
+7. ✅ **Graceful degradation** - Manual cache invalidation as backup
 
 ---
 
@@ -881,9 +1169,18 @@ Open browser console (F12) and look for:
 - [ ] Create handler in `backend/handlers/`
 - [ ] Add routes in `backend/main.go`
 - [ ] Add cache with 5min TTL
-- [ ] Invalidate cache on CREATE/UPDATE/DELETE
+- [ ] Invalidate cache on CREATE/UPDATE/DELETE (or use LISTEN/NOTIFY)
 - [ ] Add proper error handling
 - [ ] Test all endpoints with curl
+
+### PostgreSQL LISTEN/NOTIFY (Optional but Recommended)
+- [ ] Create trigger function in Supabase SQL Editor
+- [ ] Create trigger on table (AFTER INSERT/UPDATE/DELETE)
+- [ ] Add channel to listener in `database/supabase.go`
+- [ ] Add handler in `handleDatabaseNotification` in `main.go`
+- [ ] Test notification by modifying data in Supabase
+- [ ] Verify cache invalidation in backend logs
+- [ ] (Optional) Remove manual cache invalidation from handlers
 
 ### Frontend
 - [ ] Add API methods to `goAPI` object

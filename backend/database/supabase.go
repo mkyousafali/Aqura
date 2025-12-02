@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 var DB *sql.DB
@@ -87,4 +87,69 @@ func CloseDB() error {
 // GetDB returns the database instance
 func GetDB() *sql.DB {
 	return DB
+}
+
+// NotificationCallback is called when a database notification is received
+type NotificationCallback func(channel string, payload string)
+
+// StartNotificationListener starts listening for PostgreSQL NOTIFY events
+func StartNotificationListener(callback NotificationCallback) error {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is not set")
+	}
+
+	// Create a new listener
+	reportProblem := func(ev pq.ListenerEventType, err error) {
+		if err != nil {
+			log.Printf("⚠️ Listener error: %v", err)
+		}
+	}
+
+	listener := pq.NewListener(
+		dbURL,
+		10*time.Second,  // minReconnectInterval
+		time.Minute,     // maxReconnectInterval
+		reportProblem,
+	)
+
+	// Listen to channels
+	channels := []string{
+		"branches_changed",
+		"cache_invalidate",
+	}
+
+	for _, channel := range channels {
+		err := listener.Listen(channel)
+		if err != nil {
+			return fmt.Errorf("failed to listen to %s: %w", channel, err)
+		}
+		log.Printf("🔔 Listening for notifications on channel: %s", channel)
+	}
+
+	// Start listening in background
+	go func() {
+		for {
+			select {
+			case notification := <-listener.Notify:
+				if notification != nil {
+					log.Printf("📢 Received notification on %s: %s", notification.Channel, notification.Extra)
+					if callback != nil {
+						callback(notification.Channel, notification.Extra)
+					}
+				}
+			case <-time.After(90 * time.Second):
+				// Send periodic pings to keep connection alive
+				go func() {
+					err := listener.Ping()
+					if err != nil {
+						log.Printf("⚠️ Listener ping failed: %v", err)
+					}
+				}()
+			}
+		}
+	}()
+
+	log.Println("✅ Notification listener started successfully")
+	return nil
 }

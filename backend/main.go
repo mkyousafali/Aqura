@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/mkyousafali/Aqura/backend/cache"
 	"github.com/mkyousafali/Aqura/backend/database"
 	"github.com/mkyousafali/Aqura/backend/handlers"
 )
@@ -29,6 +30,12 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer database.CloseDB()
+
+	// Start notification listener for real-time cache updates
+	log.Println("🔔 Starting database notification listener...")
+	if err := database.StartNotificationListener(handleDatabaseNotification); err != nil {
+		log.Printf("⚠️ Failed to start notification listener: %v", err)
+	}
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -120,4 +127,35 @@ func enableCORS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	w.Header().Set("Access-Control-Max-Age", "3600")
+}
+
+// handleDatabaseNotification processes PostgreSQL LISTEN/NOTIFY events
+// and invalidates the appropriate cache entries
+func handleDatabaseNotification(channel string, payload string) {
+	log.Printf("📢 Received notification on channel: %s | Payload: %s", channel, payload)
+
+	switch channel {
+	case "branches_changed":
+		// Invalidate all branches cache when any branch is modified
+		cache.Invalidate("branches:all")
+		log.Printf("🔄 Cache invalidated for branches (trigger: database change)")
+
+	case "cache_invalidate":
+		// Generic cache invalidation - expects JSON payload with "key" field
+		// Example: {"key": "branches:all"} or {"key": "vendors:all"}
+		if payload != "" {
+			var data map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &data); err == nil {
+				if key, ok := data["key"].(string); ok {
+					cache.Invalidate(key)
+					log.Printf("🔄 Cache invalidated: %s", key)
+				}
+			} else {
+				log.Printf("⚠️  Failed to parse cache_invalidate payload: %v", err)
+			}
+		}
+
+	default:
+		log.Printf("⚠️  Unknown notification channel: %s", channel)
+	}
 }
