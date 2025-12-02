@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o backend .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main main.go
 
 # Use minimal alpine image for runtime
 FROM alpine:latest
@@ -25,10 +25,10 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 # Copy binary from builder
-COPY --from=builder /app/backend .
+COPY --from=builder /app/main .
 
 # Expose port
 EXPOSE 8080
 
 # Run the application
-CMD ["./backend"]
+CMD ["./main"]

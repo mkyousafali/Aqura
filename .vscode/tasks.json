@@ -215,11 +215,7 @@
 		{
 			"label": "🚀 Go Backend Server",
 			"type": "shell",
-			"command": "go",
-			"args": [
-				"run",
-				"main.go"
-			],
+			"command": "$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User'); go run main.go",
 			"options": {
 				"cwd": "${workspaceFolder}/backend"
 			},
