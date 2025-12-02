@@ -33,8 +33,14 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// Health check endpoint (no auth required)
-	mux.HandleFunc("/health", healthCheck)
+	// Health check endpoint (no auth required, with CORS)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(w, r)
+		if r.Method == "OPTIONS" {
+			return
+		}
+		healthCheck(w, r)
+	})
 
 	// Branch endpoints
 	mux.HandleFunc("/api/branches", func(w http.ResponseWriter, r *http.Request) {
