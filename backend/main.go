@@ -9,7 +9,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mkyousafali/Aqura/backend/database"
 	"github.com/mkyousafali/Aqura/backend/handlers"
-	"github.com/mkyousafali/Aqura/backend/middleware"
 )
 
 func main() {
