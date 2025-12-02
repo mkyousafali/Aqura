@@ -6,13 +6,24 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/mkyousafali/Aqura/backend/cache"
 	"github.com/mkyousafali/Aqura/backend/database"
 	"github.com/mkyousafali/Aqura/backend/models"
 )
 
-// GetBranches retrieves all branches
+// GetBranches retrieves all branches with caching
 func GetBranches(w http.ResponseWriter, r *http.Request) {
+	// Try to get from cache first
+	cacheKey := "branches:all"
+	if cachedData, found := cache.Get(cacheKey); found {
+		// Set cache headers
+		w.Header().Set("X-Cache", "HIT")
+		respondWithJSON(w, http.StatusOK, cachedData)
+		return
+	}
+
 	db := database.GetDB()
 
 	query := `
@@ -58,6 +69,10 @@ func GetBranches(w http.ResponseWriter, r *http.Request) {
 		branches = append(branches, branch)
 	}
 
+	// Cache for 5 minutes
+	cache.Set(cacheKey, branches, 5*time.Minute)
+	w.Header().Set("X-Cache", "MISS")
+	
 	respondWithJSON(w, http.StatusOK, branches)
 }
 
@@ -178,6 +193,9 @@ func CreateBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate cache
+	cache.Invalidate("branches:all")
+
 	respondWithJSON(w, http.StatusCreated, branch)
 }
 
@@ -245,6 +263,9 @@ func UpdateBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate cache
+	cache.Invalidate("branches:all")
+
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Branch updated successfully"})
 }
 
@@ -272,6 +293,9 @@ func DeleteBranch(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusNotFound, "Branch not found")
 		return
 	}
+
+	// Invalidate cache
+	cache.Invalidate("branches:all")
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Branch deleted successfully"})
 }
