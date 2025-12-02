@@ -211,6 +211,62 @@
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "🚀 Go Backend Server",
+			"type": "shell",
+			"command": "go",
+			"args": [
+				"run",
+				"main.go"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/backend"
+			},
+			"isBackground": true,
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"clear": true
+			},
+			"problemMatcher": {
+				"pattern": {
+					"regexp": "^(.*):(\\d+):(\\d+):\\s+(.*?):\\s+(.*)$",
+					"file": 1,
+					"line": 2,
+					"column": 3,
+					"severity": 4,
+					"message": 5
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "^.*Connecting to Supabase database.*$",
+					"endsPattern": "^.*Server starting on port.*$"
+				}
+			},
+			"group": "build"
+		},
+		{
+			"label": "🔥 Start Both Servers (Frontend + Go)",
+			"dependsOn": [
+				"🚀 Go Backend Server",
+				"🎨 Dev Frontend (npm)"
+			],
+			"dependsOrder": "parallel",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			}
 		}
 	]
 }
