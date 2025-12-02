@@ -5,22 +5,21 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ21.6.3.3</p>
-			<p class="version-details">Desktop: 21 | Mobile: 6 | Cashier: 3 | Customer: 3</p>
+			<p class="version-title">Version AQ22.6.3.3</p>
+			<p class="version-details">Desktop: 22 | Mobile: 6 | Cashier: 3 | Customer: 3</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>✨ New Feature</h3>
-			<p class="change-description">Add language localization for all login interfaces</p>
+			<p class="change-description">Implement mobile dashboard Go backend with CORS fix</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Fixed mobile, customer, and cashier login pages</li>
-					<li>Added automatic page refresh on language switch</li>
-					<li>Updated logo dimensions for mobile interface</li>
-					<li>Removed unnecessary labels from mobile login</li>
-					<li>Added translated footer tagline across all interfaces</li>
+					<li>Mobile dashboard endpoint with caching</li>
+					<li>Automatic Supabase fallback system</li>
+					<li>Fixed CORS OPTIONS handling</li>
+					<li>Updated implementation guides</li>
 				</ul>
 			</div>
 			<p class="date">December 2, 2025</p>

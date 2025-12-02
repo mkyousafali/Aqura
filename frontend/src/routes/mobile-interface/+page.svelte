@@ -5,6 +5,7 @@
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
+	import { goAPI } from '$lib/utils/goAPI';
 	import { localeData } from '$lib/i18n';
 	
 	let currentUserData = null;
@@ -46,11 +47,8 @@
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
-			// Load all data in parallel for faster initial load
-			await Promise.all([
-				loadDashboardData(),
-				loadRecentPunches()
-			]);
+			// Load dashboard data from Go backend (combines tasks + punches)
+			await loadDashboardData();
 		}
 		isLoading = false;
 		
@@ -75,138 +73,28 @@
 	}
 	async function loadDashboardData() {
 		try {
-			console.log('🔍 Loading mobile dashboard stats (optimized for speed)...');
-			// Optimized: Load only counts in parallel, no joins, filter at database level
-		const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
-				// Count pending regular tasks only (no joins, no data fetching)
-				supabase
-					.from('task_assignments')
-					.select('status', { count: 'exact', head: false })
-					.eq('assigned_to_user_id', currentUserData.id)
-					.not('status', 'in', '(completed,cancelled)'),
-				// Count pending quick tasks only
-				supabase
-					.from('quick_task_assignments')
-					.select('status', { count: 'exact', head: false })
-					.eq('assigned_to_user_id', currentUserData.id)
-					.not('status', 'in', '(completed,cancelled)'),
-				// Count pending receiving tasks only
-				supabase
-					.from('receiving_tasks')
-					.select('task_status', { count: 'exact', head: false })
-					.eq('assigned_user_id', currentUserData.id)
-					.not('task_status', 'in', '(completed,cancelled)')
-			]);
+			const startTime = performance.now();
+			console.log('🔍 Loading mobile dashboard from Go backend...');
 			
-			// Calculate pending tasks from counts
-			const taskCount = taskAssignmentsResult.count || 0;
-			const quickTaskCount = quickTaskAssignmentsResult.count || 0;
-			const receivingTaskCount = receivingTasksResult.count || 0;
+			// Use Go API with automatic fallback to Supabase
+			const { data, error } = await goAPI.mobileDashboard.getDashboardData(currentUserData.id);
 			
-			stats.pendingTasks = taskCount + quickTaskCount + receivingTaskCount;
+			if (error) {
+				console.error('❌ Error loading dashboard:', error);
+				return;
+			}
+			
+			// Update stats
+			stats.pendingTasks = data.stats.pending_tasks;
+			
+			// Update punches
+			punches = data.punches;
+			
+			const endTime = performance.now();
+			console.log(`✅ Dashboard loaded in ${(endTime - startTime).toFixed(2)}ms`);
 			
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
-		}
-	}
-
-	async function loadRecentPunches() {
-		try {
-			punches.loading = true;
-			punches.error = '';
-			
-			if (!currentUserData?.employee_id) {
-				console.log('⚠️ User has no employee_id, skipping punch data load');
-				punches.loading = false;
-				return;
-			}
-			
-			// Query hr_fingerprint_transactions for last 2 punches
-			// Note: employee_id is stored as varchar in hr_fingerprint_transactions, but users.employee_id is UUID
-			// We need to get the actual employee_id and branch_id from hr_employees table using the UUID
-			const { data: empData, error: empError } = await supabase
-				.from('hr_employees')
-				.select('employee_id, branch_id')
-				.eq('id', currentUserData.employee_id)
-				.single();
-			
-			if (empError || !empData?.employee_id) {
-				console.log('⚠️ Could not find employee_id for user');
-				punches.loading = false;
-				return;
-			}
-			
-			console.log(`🔍 Querying punches for employee_id: ${empData.employee_id}, branch_id: ${empData.branch_id}`);
-			
-			// Get punches from last 48 hours only (no need to fetch entire history)
-			const twoDaysAgo = new Date();
-			twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
-			const cutoffDate = twoDaysAgo.toISOString().split('T')[0];
-			
-			const { data, error } = await supabase
-				.from('hr_fingerprint_transactions')
-				.select('date, time, status, branch_id, device_id, location')
-				.eq('employee_id', empData.employee_id)
-				.eq('branch_id', empData.branch_id)
-				.gte('date', cutoffDate);
-			
-			if (error) {
-				if (error.code === 'PGRST116') {
-					// No rows returned - user has no punch records yet
-					console.log('ℹ️ No punch records found for user');
-				} else {
-					console.error('❌ Error loading punch data:', error);
-					punches.error = 'Failed to load punch data';
-				}
-			} else if (data && data.length > 0) {
-				console.log('🔍 Raw punch data from database:', data);
-				console.log('🔍 Records from DB:', data.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
-				
-				// Sort by combined date+time to get truly latest punches
-				const sortedByDateTime = data
-					.map(record => ({
-						...record,
-						dateTime: new Date(`${record.date}T${record.time}`)
-					}))
-					.sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime())
-					.slice(0, 2); // Take only latest 2
-				
-				console.log('🔍 Latest 2 punches:', sortedByDateTime.map(r => `${r.date} ${r.time} (${r.status})`).join(', '));
-				
-				// Format time to 12-hour format (no timezone conversion)
-				punches.records = sortedByDateTime.map(record => {
-					const [hours, minutes, seconds] = record.time.split(':').map(Number);
-					
-					// Convert to 12-hour format
-					const period = hours >= 12 ? 'PM' : 'AM';
-					const hour12 = hours % 12 || 12;
-					const timeStr = `${String(hour12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`;
-					
-					// Format date
-					const recordDate = new Date(record.date);
-					const dateStr = recordDate.toLocaleDateString('en-US', { 
-						weekday: 'short', 
-						month: 'short', 
-						day: 'numeric' 
-					});
-					
-					console.log(`📍 Punch: ${record.date} ${record.time} → Display: ${dateStr} ${timeStr}`);
-					
-					return {
-						time: timeStr,
-						date: dateStr,
-						status: record.status?.toLowerCase().includes('in') ? 'check-in' : 'check-out',
-						rawDate: record.date,
-						rawTime: record.time
-					};
-				});
-				console.log('✅ Recent punches loaded:', punches.records);
-			}
-		} catch (error) {
-			console.error('Error loading recent punches:', error);
-			punches.error = 'Error loading punch data';
-		} finally {
-			punches.loading = false;
 		}
 	}
 

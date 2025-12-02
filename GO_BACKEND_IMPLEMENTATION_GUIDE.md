@@ -55,88 +55,99 @@ Just say: **"Implement Go backend for [Component Name]"**
 
 ## Backend Structure
 
-### File Organization
+### File Organization (Interface-Based)
 ```
 backend/
-├── main.go                 # Routes and server setup
+├── main.go                           # Routes and server setup
 ├── cache/
-│   └── cache.go           # In-memory cache (5min TTL)
+│   └── cache.go                     # In-memory cache (5min TTL)
 ├── database/
-│   └── supabase.go        # Database connection
-├── handlers/
-│   └── your_handler.go    # API handlers
-├── models/
-│   └── your_model.go      # Data structures
+│   └── supabase.go                  # Database connection
+├── handlers/                         # API handlers by interface
+│   ├── desktop-interface/           # Desktop admin handlers
+│   │   └── branches.go              # Example: Branch Master
+│   ├── mobile-interface/            # Mobile employee handlers
+│   │   └── dashboard.go             # Example: Mobile Dashboard
+│   ├── customer-interface/          # Customer app handlers
+│   └── cashier-interface/           # Cashier POS handlers
+├── models/                           # Data models by interface
+│   ├── common.go                    # Shared types (NullString, etc.)
+│   ├── desktop-interface/           # Desktop admin models
+│   │   └── branch.go                # Example: Branch model
+│   ├── mobile-interface/            # Mobile employee models
+│   │   └── dashboard.go             # Example: Dashboard model
+│   ├── customer-interface/          # Customer app models
+│   └── cashier-interface/           # Cashier POS models
 └── middleware/
-    └── auth.go            # JWT authentication
+    └── auth.go                      # JWT authentication
 ```
+
+**Organization Rules:**
+- ✅ **Organize by interface** - Match frontend structure exactly
+- ✅ **Common types** - Use `models/common.go` for shared types
+- ✅ **Package naming** - Use `package desktopinterface`, `package mobileinterface`, etc.
+- ✅ **Import paths** - Use full paths like `github.com/mkyousafali/Aqura/backend/models/desktop-interface`
 
 ---
 
 ## Handler Implementation
 
-### Step 1: Create Model (`backend/models/your_model.go`)
+### Step 1: Create Model (Example: `backend/models/desktop-interface/entity.go`)
+
+**Determine Interface Type First:**
+- Desktop admin component? → `backend/models/desktop-interface/`
+- Mobile employee component? → `backend/models/mobile-interface/`
+- Customer app component? → `backend/models/customer-interface/`
+- Cashier POS component? → `backend/models/cashier-interface/`
 
 ```go
-package models
+// Example for desktop-interface
+package desktopinterface
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
+
+	"github.com/mkyousafali/Aqura/backend/models"
 )
 
 // Main struct
 type YourEntity struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// Custom NullString for proper JSON serialization
-type NullString struct {
-	sql.NullString
-}
-
-func (ns NullString) MarshalJSON() ([]byte, error) {
-	if ns.Valid {
-		return json.Marshal(ns.String)
-	}
-	return json.Marshal(nil)
-}
-
-func (ns *NullString) UnmarshalJSON(data []byte) error {
-	var s *string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	if s != nil {
-		ns.Valid = true
-		ns.String = *s
-	} else {
-		ns.Valid = false
-	}
-	return nil
+	ID        int64            `json:"id"`
+	Name      string           `json:"name"`
+	IsActive  bool             `json:"is_active"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+	VatNumber models.NullString `json:"vat_number,omitempty"` // Use shared NullString
 }
 
 // Input structs for API requests
 type CreateYourEntityInput struct {
-	Name     string `json:"name"`
-	IsActive *bool  `json:"is_active,omitempty"`
+	Name     string  `json:"name"`
+	IsActive *bool   `json:"is_active,omitempty"`
+	VatNumber *string `json:"vat_number,omitempty"`
 }
 
 type UpdateYourEntityInput struct {
 	Name     *string `json:"name,omitempty"`
 	IsActive *bool   `json:"is_active,omitempty"`
+	VatNumber *string `json:"vat_number,omitempty"`
 }
 ```
 
-### Step 2: Create Handler (`backend/handlers/your_handler.go`)
+**Note:** Use `models.NullString` from `backend/models/common.go` for nullable string fields.
+
+### Step 2: Create Handler (Example: `backend/handlers/desktop-interface/entity.go`)
+
+**Match the model's interface folder:**
+- Model in `desktop-interface/`? → Handler in `desktop-interface/`
+- Model in `mobile-interface/`? → Handler in `mobile-interface/`
+- Model in `customer-interface/`? → Handler in `customer-interface/`
+- Model in `cashier-interface/`? → Handler in `cashier-interface/`
 
 ```go
-package handlers
+// Example for desktop-interface
+package desktopinterface
 
 import (
 	"database/sql"
@@ -148,7 +159,7 @@ import (
 
 	"github.com/mkyousafali/Aqura/backend/cache"
 	"github.com/mkyousafali/Aqura/backend/database"
-	"github.com/mkyousafali/Aqura/backend/models"
+	desktopmodels "github.com/mkyousafali/Aqura/backend/models/desktop-interface"
 )
 
 // ========================================
@@ -179,9 +190,9 @@ func GetYourEntities(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	entities := []models.YourEntity{}
+	entities := []desktopmodels.YourEntity{}
 	for rows.Next() {
-		var entity models.YourEntity
+		var entity desktopmodels.YourEntity
 		err := rows.Scan(
 			&entity.ID,
 			&entity.Name,
@@ -223,7 +234,7 @@ func GetYourEntity(w http.ResponseWriter, r *http.Request) {
 		WHERE id = $1
 	`
 
-	var entity models.YourEntity
+	var entity desktopmodels.YourEntity
 	err = db.QueryRow(query, id).Scan(
 		&entity.ID,
 		&entity.Name,
@@ -248,7 +259,7 @@ func GetYourEntity(w http.ResponseWriter, r *http.Request) {
 // CREATE - With Cache Invalidation
 // ========================================
 func CreateYourEntity(w http.ResponseWriter, r *http.Request) {
-	var input models.CreateYourEntityInput
+	var input desktopmodels.CreateYourEntityInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -268,7 +279,7 @@ func CreateYourEntity(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, created_at
 	`
 
-	var entity models.YourEntity
+	var entity desktopmodels.YourEntity
 	entity.Name = input.Name
 
 	// Set defaults
@@ -302,7 +313,7 @@ func UpdateYourEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var input models.UpdateYourEntityInput
+	var input desktopmodels.UpdateYourEntityInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -402,26 +413,40 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 
 ### Step 3: Add Routes (`backend/main.go`)
 
+**CRITICAL: Always include proper CORS and OPTIONS handling:**
+
 ```go
-// Import your handler
+// Import handlers by interface
 import (
-	"github.com/mkyousafali/Aqura/backend/handlers"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/joho/godotenv"
+	"github.com/mkyousafali/Aqura/backend/cache"
+	"github.com/mkyousafali/Aqura/backend/database"
+	desktophandlers "github.com/mkyousafali/Aqura/backend/handlers/desktop-interface"
+	mobilehandlers "github.com/mkyousafali/Aqura/backend/handlers/mobile-interface"
+	// Add other interfaces as needed
 )
 
 func main() {
 	// ... existing code ...
 
-	// Your entity routes
+	// Desktop interface routes (example)
 	http.HandleFunc("/api/your-entities", func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w, r)
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)  // ⚠️ CRITICAL: Must return 200 OK for OPTIONS
 			return
 		}
 		switch r.Method {
 		case "GET":
-			handlers.GetYourEntities(w, r)
+			desktophandlers.GetYourEntities(w, r)
 		case "POST":
-			handlers.CreateYourEntity(w, r)
+			desktophandlers.CreateYourEntity(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -430,15 +455,16 @@ func main() {
 	http.HandleFunc("/api/your-entities/", func(w http.ResponseWriter, r *http.Request) {
 		enableCORS(w, r)
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)  // ⚠️ CRITICAL: Must return 200 OK for OPTIONS
 			return
 		}
 		switch r.Method {
 		case "GET":
-			handlers.GetYourEntity(w, r)
+			desktophandlers.GetYourEntity(w, r)
 		case "PUT":
-			handlers.UpdateYourEntity(w, r)
+			desktophandlers.UpdateYourEntity(w, r)
 		case "DELETE":
-			handlers.DeleteYourEntity(w, r)
+			desktophandlers.DeleteYourEntity(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -446,7 +472,43 @@ func main() {
 
 	// ... rest of code ...
 }
+
+// ⚠️ CRITICAL: enableCORS function must set proper headers
+func enableCORS(w http.ResponseWriter, r *http.Request) {
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "http://localhost:5173,http://localhost:4173"
+	}
+
+	origin := r.Header.Get("Origin")
+	origins := strings.Split(allowedOrigins, ",")
+
+	// Check if origin is allowed
+	for _, o := range origins {
+		if strings.TrimSpace(o) == origin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			break
+		}
+	}
+
+	// If no specific origin matched, allow all for development
+	if w.Header().Get("Access-Control-Allow-Origin") == "" {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "3600")
+}
 ```
+
+**CORS Checklist:**
+- ✅ Call `enableCORS(w, r)` before checking method
+- ✅ Return `http.StatusOK` for OPTIONS requests
+- ✅ Set `Access-Control-Allow-Origin` header
+- ✅ Set `Access-Control-Allow-Credentials: true`
+- ✅ Include `apikey` in allowed headers for Supabase compatibility
 
 ---
 
@@ -1288,7 +1350,11 @@ When ready to deploy:
 
 ---
 
-**Reference Implementation:** See `backend/handlers/branches.go` and `frontend/src/lib/utils/goAPI.ts` branches section for complete working example.
+**Reference Implementation:** 
+- Backend Model: `backend/models/desktop-interface/branch.go`
+- Backend Handler: `backend/handlers/desktop-interface/branches.go`
+- Frontend API: `frontend/src/lib/utils/goAPI.ts` branches section
+- Common Types: `backend/models/common.go` (NullString)
 
 ---
 

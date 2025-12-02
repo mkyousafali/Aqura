@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -9,7 +10,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mkyousafali/Aqura/backend/cache"
 	"github.com/mkyousafali/Aqura/backend/database"
-	"github.com/mkyousafali/Aqura/backend/handlers"
+	desktophandlers "github.com/mkyousafali/Aqura/backend/handlers/desktop-interface"
+	mobilehandlers "github.com/mkyousafali/Aqura/backend/handlers/mobile-interface"
 )
 
 func main() {
@@ -54,15 +56,16 @@ func main() {
 		// Enable CORS
 		enableCORS(w, r)
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 
 		switch r.Method {
 		case http.MethodGet:
-			handlers.GetBranches(w, r)
+			desktophandlers.GetBranches(w, r)
 		case http.MethodPost:
 			// POST requires authentication (disabled for testing)
-			handlers.CreateBranch(w, r)
+			desktophandlers.CreateBranch(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -72,18 +75,36 @@ func main() {
 		// Enable CORS
 		enableCORS(w, r)
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 
 		switch r.Method {
 		case http.MethodGet:
-			handlers.GetBranch(w, r)
+			desktophandlers.GetBranch(w, r)
 		case http.MethodPut:
 			// PUT requires authentication (disabled for testing)
-			handlers.UpdateBranch(w, r)
+			desktophandlers.UpdateBranch(w, r)
 		case http.MethodDelete:
 			// DELETE requires authentication (disabled for testing)
-			handlers.DeleteBranch(w, r)
+			desktophandlers.DeleteBranch(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Mobile Dashboard endpoint
+	mux.HandleFunc("/api/mobile/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS
+		enableCORS(w, r)
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			mobilehandlers.GetDashboard(w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -93,6 +114,7 @@ func main() {
 	log.Printf("🚀 Server starting on port %s", port)
 	log.Printf("📍 Health check: http://localhost:%s/health", port)
 	log.Printf("📍 API endpoint: http://localhost:%s/api/branches", port)
+	log.Printf("📍 Mobile Dashboard: http://localhost:%s/api/mobile/dashboard", port)
 
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
@@ -124,8 +146,14 @@ func enableCORS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If no specific origin matched, allow all for development
+	if w.Header().Get("Access-Control-Allow-Origin") == "" {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "3600")
 }
 

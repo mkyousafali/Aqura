@@ -141,6 +141,108 @@ async function goFetch(endpoint: string, options: RequestInit = {}) {
 }
 
 /**
+ * Fetch mobile dashboard data from Supabase (fallback function)
+ */
+async function fetchDashboardFromSupabase(userId: string) {
+  // Get pending tasks count
+  const taskQueries = await Promise.all([
+    supabase
+      .from('task_assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_to_user_id', userId)
+      .not('status', 'in', '(completed,cancelled)'),
+    supabase
+      .from('quick_task_assignments')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_to_user_id', userId)
+      .not('status', 'in', '(completed,cancelled)'),
+    supabase
+      .from('receiving_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_user_id', userId)
+      .not('task_status', 'in', '(completed,cancelled)')
+  ]);
+
+  const pendingTasks = taskQueries.reduce((sum, { count }) => sum + (count || 0), 0);
+
+  // Get employee info from user
+  const { data: user } = await supabase
+    .from('users')
+    .select('employee_id')
+    .eq('id', userId)
+    .single();
+
+  let punchRecords = [];
+
+  if (user?.employee_id) {
+    // Get employee details
+    const { data: employee } = await supabase
+      .from('hr_employees')
+      .select('employee_id, branch_id')
+      .eq('id', user.employee_id)
+      .single();
+
+    if (employee?.employee_id && employee?.branch_id) {
+      // Get last 2 punch records from last 48 hours
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      const formattedDate = twoDaysAgo.toISOString().split('T')[0];
+
+      const { data: punches } = await supabase
+        .from('hr_fingerprint_transactions')
+        .select('date, time, status')
+        .eq('employee_id', employee.employee_id)
+        .eq('branch_id', employee.branch_id)
+        .gte('date', formattedDate)
+        .order('date', { ascending: false })
+        .order('time', { ascending: false })
+        .limit(2);
+
+      if (punches) {
+        punchRecords = punches.map((punch: any) => {
+          // Parse and format time to 12-hour format
+          const [hours, minutes] = punch.time.split(':');
+          const hour = parseInt(hours);
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const hour12 = hour % 12 || 12;
+          const formattedTime = `${String(hour12).padStart(2, '0')}:${minutes} ${ampm}`;
+
+          // Format date
+          const date = new Date(punch.date);
+          const formattedDate = date.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            month: 'short', 
+            day: 'numeric' 
+          });
+
+          // Determine status
+          const status = (punch.status === 'C/In' || punch.status === 'check-in') 
+            ? 'check-in' 
+            : 'check-out';
+
+          return {
+            time: formattedTime,
+            date: formattedDate,
+            status,
+            raw_date: punch.date,
+            raw_time: punch.time
+          };
+        });
+      }
+    }
+  }
+
+  return {
+    stats: { pending_tasks: pendingTasks },
+    punches: {
+      records: punchRecords,
+      loading: false,
+      error: ''
+    }
+  };
+}
+
+/**
  * Branch API operations using Go backend with Supabase fallback
  */
 export const goAPI = {
@@ -364,6 +466,57 @@ export const goAPI = {
           backendHealthy = false;
           return { data, error: null };
         } catch (fallbackError: any) {
+          return { data: null, error: { message: fallbackError.message } };
+        }
+      }
+    },
+  },
+
+  // Mobile Interface APIs
+  mobileDashboard: {
+    /**
+     * Get mobile dashboard data (pending tasks + recent punches)
+     */
+    async getDashboardData(userId: string, useCache = true) {
+      const cacheKey = `mobile_dashboard:${userId}`;
+      
+      // Try cache first (2 min TTL)
+      if (useCache) {
+        const cached = getCached(cacheKey);
+        if (cached) {
+          console.log('✅ Loaded mobile dashboard from client cache');
+          return { data: cached, error: null };
+        }
+      }
+      
+      // Check backend health first
+      const isHealthy = await checkBackendHealth();
+      
+      try {
+        if (isHealthy && USE_GO_BACKEND) {
+          // Try Go backend first
+          const data = await goFetch(`/api/mobile/dashboard?user_id=${userId}`);
+          setCache(cacheKey, data);
+          console.log('✅ Loaded mobile dashboard from Go backend');
+          return { data, error: null };
+        } else {
+          // Use Supabase fallback
+          const data = await fetchDashboardFromSupabase(userId);
+          setCache(cacheKey, data);
+          console.log('✅ Loaded mobile dashboard from Supabase (fallback)');
+          return { data, error: null };
+        }
+      } catch (error: any) {
+        // If Go backend fails, try Supabase fallback
+        console.warn('⚠️ Go backend failed, trying Supabase fallback:', error.message);
+        try {
+          const data = await fetchDashboardFromSupabase(userId);
+          setCache(cacheKey, data);
+          backendHealthy = false;
+          console.log('✅ Loaded mobile dashboard from Supabase (fallback after error)');
+          return { data, error: null };
+        } catch (fallbackError: any) {
+          console.error('❌ Both Go backend and Supabase failed:', fallbackError);
           return { data: null, error: { message: fallbackError.message } };
         }
       }

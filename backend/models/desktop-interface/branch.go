@@ -1,23 +1,11 @@
-package models
+package desktopinterface
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
+
+	"github.com/mkyousafali/Aqura/backend/models"
 )
-
-// NullString wraps sql.NullString to provide proper JSON marshaling
-type NullString struct {
-	sql.NullString
-}
-
-// MarshalJSON converts NullString to JSON, returning null or string value
-func (ns NullString) MarshalJSON() ([]byte, error) {
-	if !ns.Valid {
-		return []byte("null"), nil
-	}
-	return json.Marshal(ns.String)
-}
 
 // Branch represents the branches table structure from Supabase
 type Branch struct {
@@ -30,18 +18,18 @@ type Branch struct {
 	IsMainBranch          *bool          `json:"is_main_branch" db:"is_main_branch"`
 	CreatedAt             *time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt             *time.Time     `json:"updated_at" db:"updated_at"`
-	CreatedBy             sql.NullInt64  `json:"created_by,omitempty" db:"created_by"`
-	UpdatedBy             sql.NullInt64  `json:"updated_by,omitempty" db:"updated_by"`
-	VatNumber             NullString     `json:"vat_number,omitempty" db:"vat_number"`
-	DeliveryServiceEnabled bool          `json:"delivery_service_enabled" db:"delivery_service_enabled"`
-	PickupServiceEnabled  bool           `json:"pickup_service_enabled" db:"pickup_service_enabled"`
-	MinimumOrderAmount    *float64       `json:"minimum_order_amount" db:"minimum_order_amount"`
-	Is24Hours             *bool          `json:"is_24_hours" db:"is_24_hours"`
-	OperatingStartTime    sql.NullTime   `json:"operating_start_time,omitempty" db:"operating_start_time"`
-	OperatingEndTime      sql.NullTime   `json:"operating_end_time,omitempty" db:"operating_end_time"`
-	DeliveryMessageAr     NullString     `json:"delivery_message_ar,omitempty" db:"delivery_message_ar"`
-	DeliveryMessageEn     NullString     `json:"delivery_message_en,omitempty" db:"delivery_message_en"`
-	DeliveryIs24Hours     *bool          `json:"delivery_is_24_hours" db:"delivery_is_24_hours"`
+	CreatedBy             sql.NullInt64     `json:"created_by,omitempty" db:"created_by"`
+	UpdatedBy             sql.NullInt64     `json:"updated_by,omitempty" db:"updated_by"`
+	VatNumber             models.NullString `json:"vat_number,omitempty" db:"vat_number"`
+	DeliveryServiceEnabled bool             `json:"delivery_service_enabled" db:"delivery_service_enabled"`
+	PickupServiceEnabled  bool              `json:"pickup_service_enabled" db:"pickup_service_enabled"`
+	MinimumOrderAmount    *float64          `json:"minimum_order_amount" db:"minimum_order_amount"`
+	Is24Hours             *bool             `json:"is_24_hours" db:"is_24_hours"`
+	OperatingStartTime    sql.NullTime      `json:"operating_start_time,omitempty" db:"operating_start_time"`
+	OperatingEndTime      sql.NullTime      `json:"operating_end_time,omitempty" db:"operating_end_time"`
+	DeliveryMessageAr     models.NullString `json:"delivery_message_ar,omitempty" db:"delivery_message_ar"`
+	DeliveryMessageEn     models.NullString `json:"delivery_message_en,omitempty" db:"delivery_message_en"`
+	DeliveryIs24Hours     *bool             `json:"delivery_is_24_hours" db:"delivery_is_24_hours"`
 	DeliveryStartTime     sql.NullTime   `json:"delivery_start_time,omitempty" db:"delivery_start_time"`
 	DeliveryEndTime       sql.NullTime   `json:"delivery_end_time,omitempty" db:"delivery_end_time"`
 	PickupIs24Hours       *bool          `json:"pickup_is_24_hours" db:"pickup_is_24_hours"`

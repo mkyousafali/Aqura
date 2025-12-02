@@ -1,4 +1,4 @@
-package handlers
+package desktopinterface
 
 import (
 	"database/sql"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/mkyousafali/Aqura/backend/cache"
 	"github.com/mkyousafali/Aqura/backend/database"
-	"github.com/mkyousafali/Aqura/backend/models"
+	desktopmodels "github.com/mkyousafali/Aqura/backend/models/desktop-interface"
 )
 
 // GetBranches retrieves all branches with caching
@@ -43,9 +43,9 @@ func GetBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	branches := []models.Branch{}
+	branches := []desktopmodels.Branch{}
 	for rows.Next() {
-		var branch models.Branch
+		var branch desktopmodels.Branch
 		err := rows.Scan(
 			&branch.ID,
 			&branch.NameEn,
@@ -97,7 +97,7 @@ func GetBranch(w http.ResponseWriter, r *http.Request) {
 		WHERE id = $1
 	`
 
-	var branch models.Branch
+	var branch desktopmodels.Branch
 	err = db.QueryRow(query, id).Scan(
 		&branch.ID,
 		&branch.NameEn,
@@ -129,7 +129,7 @@ func GetBranch(w http.ResponseWriter, r *http.Request) {
 
 // CreateBranch creates a new branch
 func CreateBranch(w http.ResponseWriter, r *http.Request) {
-	var input models.CreateBranchInput
+	var input desktopmodels.CreateBranchInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -153,7 +153,7 @@ func CreateBranch(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, created_at
 	`
 
-	var branch models.Branch
+	var branch desktopmodels.Branch
 	branch.NameEn = input.NameEn
 	branch.NameAr = input.NameAr
 	branch.LocationEn = input.LocationEn
@@ -209,7 +209,7 @@ func UpdateBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var input models.UpdateBranchInput
+	var input desktopmodels.UpdateBranchInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
