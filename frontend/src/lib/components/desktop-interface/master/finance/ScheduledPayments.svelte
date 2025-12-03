@@ -585,6 +585,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					} else {
 						console.log('❌ [ScheduledPayments] No refresh function available');
 					}
+				},
+				parentRefreshCallback: async () => {
+					console.log('🔄 [ScheduledPayments] Parent refresh triggered from MonthDetails');
+					await refreshData();
+					console.log('✅ [ScheduledPayments] Parent refresh completed');
 				}
 			},
 			icon: '📊',

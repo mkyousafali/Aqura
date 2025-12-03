@@ -27,6 +27,7 @@
 	export let monthData = null;
 	export let onRefresh = null; // Window refresh callback
 	export let setRefreshCallback = null; // Function to register our refresh function
+	export let parentRefreshCallback = null; // Callback to refresh parent window
 
 	// Component state
 	let monthDetailData = [];
@@ -1847,6 +1848,13 @@
 			}
 			
 			console.log('✅ [MonthDetails] Complete data refresh successful');
+			
+			// Also refresh parent window if callback provided
+			if (parentRefreshCallback) {
+				console.log('🔄 [MonthDetails] Refreshing parent ScheduledPayments...');
+				await parentRefreshCallback();
+				console.log('✅ [MonthDetails] Parent refreshed successfully');
+			}
 		} catch (error) {
 			console.error('❌ [MonthDetails] Error during complete refresh:', error);
 			alert('Error refreshing data. Please try again.');
