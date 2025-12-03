@@ -219,6 +219,8 @@
 			if (error) throw error;
 
 			console.log('📊 Today branch sales API response:', data);
+			console.log('📊 Today string for comparison:', todayStr);
+			console.log('📊 Sample sale_date from records:', data?.records?.[0]?.sale_date);
 
 			// Get branch names
 			const branchIds = [...new Set(data?.records?.map(d => d.branch_id) || [])];
@@ -248,13 +250,21 @@
 				const total_amount = branchItems.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 				const total_bills = branchItems.reduce((sum, d) => sum + (d.net_bills || 0), 0);
 				const total_return = branchItems.reduce((sum, d) => sum + (d.return_amount || 0), 0);
-				return {
+				const result = {
 					branch_id: branchId,
 					branch_name: branchMap.get(branchId) || `Branch ${branchId}`,
 					total_amount,
 					total_bills,
 					total_return
 				};
+				console.log(`📊 Today Branch ${branchId}:`, {
+					items: branchItems.length,
+					total_amount,
+					total_bills,
+					basket: total_bills > 0 ? total_amount / total_bills : 0,
+					sampleBills: branchItems.slice(0, 2).map(d => ({ net_bills: d.net_bills, net_amount: d.net_amount }))
+				});
+				return result;
 			});
 
 			// Fetch current month data by branch
@@ -824,9 +834,9 @@
 		align-items: center;
 		gap: 0.75rem;
 		flex: 1;
-		height: 100%;
+		min-height: 100%;
 		max-width: 120px;
-		overflow: hidden;
+		overflow: visible;
 	}
 
 	.bar-container {

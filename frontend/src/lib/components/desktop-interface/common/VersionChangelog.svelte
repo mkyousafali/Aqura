@@ -5,25 +5,23 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ22.7.3.3</p>
-			<p class="version-details">Desktop: 22 | Mobile: 7 | Cashier: 3 | Customer: 3</p>
+			<p class="version-title">Version AQ23.8.3.3</p>
+			<p class="version-details">Desktop: 23 | Mobile: 8 | Cashier: 3 | Customer: 3</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>🐛 Bug Fix</h3>
-			<p class="change-description">Fixed punch records not displaying in mobile dashboard</p>
+			<p class="change-description">Fix basket amount display in sales report</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Fixed RFC3339 date/time parsing from PostgreSQL</li>
-					<li>Updated time format parsing (0000-01-01T08:39:43Z)</li>
-					<li>Updated date format parsing (2025-12-02T00:00:00Z)</li>
-					<li>Added detailed error logging for debugging</li>
-					<li>Successfully displaying employee punch records</li>
+					<li>Fixed overflow hidden cutting off basket and return labels</li>
+					<li>Changed sale-item height to min-height with visible overflow</li>
+					<li>Applied fix to both desktop and mobile interfaces</li>
 				</ul>
 			</div>
-			<p class="date">December 2, 2025</p>
+			<p class="date">December 3, 2025</p>
 		</div>
 
 		<div class="interface-info">
