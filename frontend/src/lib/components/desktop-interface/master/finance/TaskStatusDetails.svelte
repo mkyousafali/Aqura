@@ -181,8 +181,16 @@
 		receiving_record_data: receivingRecordsMap[transaction.receiving_record_id] || null
 	}));			console.log(`TaskStatusDetails: Final tasks loaded:`, tasks.length);
 
-			// Update filter options
-			uniqueBranches = [...new Set(tasks.map(t => t.receiving_record_data?.branches?.name_en).filter(Boolean))].sort();
+			// Update filter options - build branch list keyed by branch_id to avoid duplicates
+			const uniqueBranchesMap = new Map();
+			tasks.forEach(t => {
+				const branchId = t.receiving_record_data?.branch_id;
+				const branchName = t.receiving_record_data?.branches?.name_en;
+				if (branchId && branchName) {
+					uniqueBranchesMap.set(branchId, branchName);
+				}
+			});
+			uniqueBranches = Array.from(uniqueBranchesMap.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
 			
 			// Create completion status options based on task completion data
 			const completionStatuses = tasks.map(task => getCompletionStatus(task));
@@ -229,8 +237,8 @@
 				if (!matchesSearch) return false;
 			}
 
-			// Branch filter
-			if (selectedBranch && task.receiving_record_data?.branches?.name_en !== selectedBranch) {
+			// Branch filter - use branch_id instead of branch name for accurate filtering
+			if (selectedBranch && task.receiving_record_data?.branch_id?.toString() !== selectedBranch) {
 				return false;
 			}
 
@@ -325,7 +333,7 @@
 				<select id="branch-filter" bind:value={selectedBranch} class="filter-select">
 					<option value="">All Branches</option>
 					{#each uniqueBranches as branch}
-						<option value={branch}>{branch}</option>
+						<option value={branch.id.toString()}>{branch.name}</option>
 					{/each}
 				</select>
 			</div>

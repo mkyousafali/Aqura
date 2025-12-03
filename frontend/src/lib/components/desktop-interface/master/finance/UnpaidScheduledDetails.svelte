@@ -55,7 +55,19 @@
 
 
 	// Get unique values for filters
-	$: uniqueBranches = [...new Set(payments.map(p => p.branches?.name_en).filter(Boolean))].sort();
+	// Build branch list keyed by branch_id to display unique branches with their IDs
+	$: uniqueBranchesMap = new Map();
+	$: {
+		uniqueBranchesMap.clear();
+		payments.forEach(p => {
+			const branchId = p.branch_id;
+			const branchName = p.branches?.name_en;
+			if (branchId && branchName) {
+				uniqueBranchesMap.set(branchId, branchName);
+			}
+		});
+	}
+	$: uniqueBranches = Array.from(uniqueBranchesMap.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
 	$: uniquePaymentMethods = [...new Set(payments.map(p => p.payment_method).filter(Boolean))].sort();
 
 	// Filter payments based on search and filters
@@ -77,8 +89,8 @@
 				if (!matchesSearch) return false;
 			}
 
-			// Branch filter
-			if (selectedBranch && payment.branches?.name_en !== selectedBranch) {
+			// Branch filter - use branch_id instead of branch name for accurate filtering
+			if (selectedBranch && payment.branch_id?.toString() !== selectedBranch) {
 				return false;
 			}
 
@@ -262,7 +274,7 @@
 				<select id="branch-filter" bind:value={selectedBranch} class="filter-select">
 					<option value="">All Branches</option>
 					{#each uniqueBranches as branch}
-						<option value={branch}>{branch}</option>
+						<option value={branch.id.toString()}>{branch.name}</option>
 					{/each}
 				</select>
 			</div>

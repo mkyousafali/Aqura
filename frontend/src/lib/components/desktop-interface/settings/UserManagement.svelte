@@ -219,7 +219,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	// Get unique values for filters
-	$: uniqueBranches = [...new Set(users.map(user => user.branch_name).filter(Boolean))];
+	// Build branch list from users, keyed by branch_id to avoid duplicates
+	$: uniqueBranchesMap = new Map();
+	$: {
+		uniqueBranchesMap.clear();
+		users.forEach(user => {
+			if (user.branch_id && user.branch_name) {
+				uniqueBranchesMap.set(user.branch_id, user.branch_name);
+			}
+		});
+	}
+	// Convert map to array: [{ id: branchId, name: branchName }, ...]
+	$: uniqueBranches = Array.from(uniqueBranchesMap.entries()).map(([id, name]) => ({ id, name }));
+	
 	$: uniqueRoles = [...new Set(users.map(user => user.role_type).filter(Boolean))];
 	$: uniqueStatuses = ['active', 'inactive', 'locked'];
 
@@ -230,7 +242,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			(user.employee_name && user.employee_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
 			(user.branch_name && user.branch_name.toLowerCase().includes(searchQuery.toLowerCase()));
 		
-		const matchesBranch = branchFilter === '' || user.branch_name === branchFilter;
+		// Filter by branch_id when a filter is selected
+		const matchesBranch = branchFilter === '' || (user.branch_id && user.branch_id.toString() === branchFilter.toString());
 		const matchesRole = roleFilter === '' || user.role_type === roleFilter;
 		const matchesStatus = statusFilter === '' || user.status === statusFilter;
 
@@ -308,7 +321,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<select bind:value={branchFilter} class="filter-select">
 							<option value="">All Branches</option>
 							{#each uniqueBranches as branch}
-								<option value={branch}>{branch}</option>
+								<option value={branch.id.toString()}>{branch.name}</option>
 							{/each}
 						</select>
 						<select bind:value={roleFilter} class="filter-select">

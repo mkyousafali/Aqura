@@ -204,33 +204,21 @@
 		filteredUsers = users.filter(user => {
 			// Handle empty search term
 			if (!userSearchTerm || userSearchTerm.trim() === '') {
-				// Fixed branch filtering: Since user.branch_id is undefined, match by branch name
+				// Filter by branch_id if a branch is selected
 				if (!selectedBranch) {
 					return true; // No branch filter selected
 				}
 				
-				// Find the selected branch to get its names
-				const selectedBranchObj = branches.find(b => b.id === parseInt(selectedBranch));
-				if (!selectedBranchObj) {
-					return false; // Invalid branch selection
-				}
-				
-				// Match user's branch name to the selected branch's English or Arabic name
-				const matchesBranchByName = user.branch_name === selectedBranchObj.name_en || 
-											user.branch_name === selectedBranchObj.name_ar ||
-											user.branch_name_en === selectedBranchObj.name_en ||
-											user.branch_name_ar === selectedBranchObj.name_ar;
+				// Match user's branch_id to the selected branch's ID
+				const matchesBranchById = user.branch_id === parseInt(selectedBranch);
 				
 				console.log('🔍 Branch filter debug:', {
 					selectedBranch,
-					selectedBranchObj: { id: selectedBranchObj.id, name_en: selectedBranchObj.name_en, name_ar: selectedBranchObj.name_ar },
-					userBranchName: user.branch_name,
-					userBranchNameEn: user.branch_name_en,
-					userBranchNameAr: user.branch_name_ar,
-					matchesBranchByName
+					userBranchId: user.branch_id,
+					matchesBranchById
 				});
 				
-				return matchesBranchByName;
+				return matchesBranchById;
 			}
 			
 			// Search in multiple fields - handle null/undefined values properly
@@ -241,7 +229,7 @@
 			const matchesUsername = user.username && user.username.toLowerCase().includes(searchTerm);
 			const matchesEmployeeName = user.employee_name && user.employee_name.toLowerCase().includes(searchTerm);
 			
-			// Add branch name search support (both English and Arabic)
+			// Add branch name search support (both English and Arabic) - for display names only
 			const userBranchName = getUserBranchName(user);
 			const matchesBranchName = userBranchName && userBranchName.toLowerCase().includes(searchTerm);
 			const matchesBranchNameEn = user.branch_name_en && user.branch_name_en.toLowerCase().includes(searchTerm);
@@ -249,18 +237,10 @@
 			
 			const matchesSearch = matchesDisplayName || matchesEmail || matchesUsername || matchesEmployeeName || matchesBranchName || matchesBranchNameEn || matchesBranchNameAr;
 			
-			// Fixed branch filtering for search mode too
+			// Filter by branch_id (not by branch name)
 			let matchesBranch = true;
 			if (selectedBranch) {
-				const selectedBranchObj = branches.find(b => b.id === parseInt(selectedBranch));
-				if (selectedBranchObj) {
-					matchesBranch = user.branch_name === selectedBranchObj.name_en || 
-									user.branch_name === selectedBranchObj.name_ar ||
-									user.branch_name_en === selectedBranchObj.name_en ||
-									user.branch_name_ar === selectedBranchObj.name_ar;
-				} else {
-					matchesBranch = false;
-				}
+				matchesBranch = user.branch_id === parseInt(selectedBranch);
 			}
 			
 			return matchesSearch && matchesBranch;
