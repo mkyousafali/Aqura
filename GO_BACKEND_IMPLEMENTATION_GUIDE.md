@@ -9,31 +9,90 @@ Complete reference for implementing Go backend endpoints with caching, fallback,
 ### Simple Command:
 Just say: **"Implement Go backend for [Component Name]"**
 
+### ⚠️ CRITICAL FIRST STEP - Provide Table Schema:
+**BEFORE implementing, you MUST provide the exact table schema.**
+
+**How to Get Schema:**
+1. Run: `node scripts/create-schema-md.js`
+2. Open generated `DATABASE_SCHEMA.md`
+3. Find your table section
+4. Copy ONLY that table's schema (including all columns)
+5. Paste it in your request
+
+**Example Request:**
+```
+Implement Go backend for Sales Report
+
+Table Schema:
+## erp_daily_sales
+**Total Columns:** 16
+| Column Name | Data Type | Nullable | Default |
+|---|---|---|---|
+| id | uuid | ✗ No | uuid_generate_v4() |
+| branch_id | bigint | ✗ No | - |
+| sale_date | date | ✗ No | - |
+| total_bills | integer | ✓ Yes | 0 |
+| gross_amount | numeric | ✓ Yes | 0 |
+... (rest of columns)
+```
+
 ### What Happens Automatically:
-1. ✅ **Backend Model** - Creates `backend/models/[entity].go` with proper types
-2. ✅ **Backend Handler** - Creates `backend/handlers/[entity].go` with:
+1. ✅ **Schema Validation** - Verifies table structure from your provided schema
+2. ✅ **Backend Model** - Creates `backend/models/[entity].go` with proper types matching exact schema
+3. ✅ **Backend Handler** - Creates `backend/handlers/[entity].go` with:
    - GET all (with 5min cache)
    - GET by ID
    - CREATE (invalidates cache)
    - UPDATE (invalidates cache)  
    - DELETE/soft delete (invalidates cache)
-3. ✅ **Routes** - Adds to `backend/main.go` with CORS
-4. ✅ **Frontend API** - Adds to `frontend/src/lib/utils/goAPI.ts` with:
+4. ✅ **Routes** - Adds to `backend/main.go` with CORS
+5. ✅ **Frontend API** - Adds to `frontend/src/lib/utils/goAPI.ts` with:
    - Client-side caching
    - Health check before requests
    - Automatic Supabase fallback
    - Error handling
-5. ✅ **Component Update** - Updates your Svelte component to use Go API
-6. ✅ **Testing** - Validates all endpoints work
-7. ✅ **Deployment** - Commits and pushes to Railway/Vercel
+6. ✅ **Component Update** - Updates your Svelte component to use Go API
+7. ✅ **Testing** - Validates all endpoints work
+8. ✅ **Deployment** - Commits and pushes to Railway/Vercel
 
-### Examples:
+### Complete Example Request:
 ```
-"Implement Go backend for Vendor Master"
-"Implement Go backend for Employee Master"  
-"Implement Go backend for Product Categories"
-"Implement Go backend for Receiving Records"
+Implement Go backend for Sales Report
+
+Table: erp_daily_sales
+Component: frontend/src/routes/mobile-interface/reports/+page.svelte
+
+Table Schema (from DATABASE_SCHEMA.md):
+## erp_daily_sales
+**Total Columns:** 16
+| Column Name | Data Type | Nullable | Default |
+|---|---|---|---|
+| id | uuid | ✗ No | uuid_generate_v4() |
+| branch_id | bigint | ✗ No | - |
+| sale_date | date | ✗ No | - |
+| total_bills | integer | ✓ Yes | 0 |
+| gross_amount | numeric | ✓ Yes | 0 |
+| tax_amount | numeric | ✓ Yes | 0 |
+| discount_amount | numeric | ✓ Yes | 0 |
+| total_returns | integer | ✓ Yes | 0 |
+| return_amount | numeric | ✓ Yes | 0 |
+| return_tax | numeric | ✓ Yes | 0 |
+| net_bills | integer | ✓ Yes | 0 |
+| net_amount | numeric | ✓ Yes | 0 |
+| net_tax | numeric | ✓ Yes | 0 |
+| last_sync_at | timestamp with time zone | ✓ Yes | - |
+| created_at | timestamp with time zone | ✓ Yes | now() |
+| updated_at | timestamp with time zone | ✓ Yes | now() |
+
+Operations: GET all (with date filtering), GET by branch
 ```
+
+### Why Schema is Required:
+- ✅ **Accurate Types** - Maps PostgreSQL types to Go types correctly
+- ✅ **Nullable Fields** - Uses NullString/NullInt64 for nullable columns
+- ✅ **Default Values** - Handles defaults properly in INSERT operations
+- ✅ **No Assumptions** - Prevents errors from guessing column names/types
+- ✅ **Future-Proof** - Works even if schema changes
 
 ### Current Status:
 - ✅ **Branch Master** - Fully implemented with caching & fallback
@@ -1402,22 +1461,54 @@ When ready to deploy:
 ```
 Implement Go backend for [Component Name]
 
-Details:
-- Table: [table_name]
-- Component: [path/to/component.svelte]
-- Operations: GET all, GET by ID, CREATE, UPDATE, DELETE
-- Special: [any custom requirements]
+Table: [table_name]
+Component: [path/to/component.svelte]
+
+Table Schema (from DATABASE_SCHEMA.md):
+## [table_name]
+**Total Columns:** [X]
+| Column Name | Data Type | Nullable | Default |
+|---|---|---|---|
+| ... | ... | ... | ... |
+(paste complete table schema here)
+
+Operations: [GET all, GET by ID, CREATE, UPDATE, DELETE]
+Special Requirements: [any custom requirements]
 ```
 
-**Example:**
+**Complete Example:**
 ```
 Implement Go backend for Vendor Master
 
-Details:
-- Table: vendors
-- Component: frontend/src/lib/components/desktop-interface/master/VendorMaster.svelte
-- Operations: GET all, GET by ID, CREATE, UPDATE, DELETE
-- Special: Need to filter by branch_id
+Table: vendors
+Component: frontend/src/lib/components/desktop-interface/master/VendorMaster.svelte
+
+Table Schema (from DATABASE_SCHEMA.md):
+## vendors
+**Total Columns:** 12
+| Column Name | Data Type | Nullable | Default |
+|---|---|---|---|
+| id | bigint | ✗ No | nextval('vendors_id_seq'::regclass) |
+| name_en | text | ✗ No | - |
+| name_ar | text | ✓ Yes | - |
+| vat_number | text | ✓ Yes | - |
+| contact_person | text | ✓ Yes | - |
+| phone | text | ✓ Yes | - |
+| email | text | ✓ Yes | - |
+| address | text | ✓ Yes | - |
+| is_active | boolean | ✓ Yes | true |
+| branch_id | bigint | ✓ Yes | - |
+| created_at | timestamp with time zone | ✓ Yes | now() |
+| updated_at | timestamp with time zone | ✓ Yes | now() |
+
+Operations: GET all, GET by ID, CREATE, UPDATE, DELETE
+Special Requirements: Filter by branch_id, support both English and Arabic names
 ```
+
+**Important Notes:**
+- ⚠️ **ALWAYS include complete table schema** - Copy from DATABASE_SCHEMA.md
+- ⚠️ **Run schema generation first** - `node scripts/create-schema-md.js`
+- ⚠️ **One table at a time** - Don't try to implement multiple tables in one request
+- ⚠️ **Verify column names** - Schema ensures exact column names are used
 
 Copilot will handle everything automatically following the established patterns!

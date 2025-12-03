@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { goAPI } from '$lib/utils/goAPI';
 	import { _ as t, currentLocale } from '$lib/i18n';
 
 	interface DailySales {
@@ -43,6 +44,24 @@
 	let maxYesterdayBranchAmount = 0;
 
 	onMount(async () => {
+		// Test Go backend availability
+		const { data: healthData } = await goAPI.healthCheck();
+		if (healthData) {
+			console.log('🚀 Go backend is available:', healthData);
+			
+			// Test fetching sales data from Go backend
+			const testStart = performance.now();
+			const { data: goSalesData, error } = await goAPI.sales.getDailySales();
+			const testEnd = performance.now();
+			
+			if (goSalesData) {
+				console.log(`✅ Go backend sales data fetched in ${(testEnd - testStart).toFixed(2)}ms`);
+				console.log('📊 Go backend returned:', goSalesData.count, 'sales records');
+			} else if (error) {
+				console.log('⚠️ Go backend error:', error);
+			}
+		}
+		
 		await loadSalesData();
 		await loadBranchSalesData();
 		await loadYesterdayBranchSalesData();
@@ -50,6 +69,9 @@
 
 	async function loadSalesData() {
 		loading = true;
+		const startTime = performance.now();
+		console.log('📊 Loading sales data...');
+		
 		try {
 			// Use Saudi Arabia timezone (UTC+3)
 			const saudiOffset = 3 * 60; // 3 hours in minutes
@@ -84,46 +106,54 @@
 			const previousMonthStart = formatDate(previousMonthDate);
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
-			// Fetch daily sales data
-			const { data, error } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('sale_date, net_amount, net_bills, return_amount')
-				.in('sale_date', dates)
-				.order('sale_date', { ascending: true });
+			// Fetch daily sales data from Go backend (last 3 days)
+			const { data, error } = await goAPI.sales.getDailySales({
+				startDate: formatDate(dayBeforeYesterday),
+				endDate: today
+			});
 
 			if (error) throw error;
+			
+			// Debug: Log actual dates in the response
+			console.log('📊 API returned records:', data?.count);
+			console.log('📊 Sample dates from API:', data?.records?.slice(0, 5).map(r => r.sale_date));
 
 			// Fetch current month data
-			const { data: currentMonthData, error: currentMonthError } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('sale_date, net_amount')
-				.gte('sale_date', currentMonthStart)
-				.lte('sale_date', currentMonthEnd);
+			const { data: currentMonthData, error: currentMonthError } = await goAPI.sales.getDailySales({
+				startDate: currentMonthStart,
+				endDate: currentMonthEnd
+			});
 
 			// Fetch previous month data
-			const { data: previousMonthData, error: previousMonthError } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('sale_date, net_amount')
-				.gte('sale_date', previousMonthStart)
-				.lte('sale_date', previousMonthEnd);
+			const { data: previousMonthData, error: previousMonthError } = await goAPI.sales.getDailySales({
+				startDate: previousMonthStart,
+				endDate: previousMonthEnd
+			});
 
 			// Group by date and sum amounts for daily chart
 			const groupedData = dates.map(date => {
-				const dayData = data?.filter(d => d.sale_date === date) || [];
+				// Extract just the date part from ISO timestamp (2025-12-03T00:00:00Z -> 2025-12-03)
+				const dayData = data?.records?.filter(d => d.sale_date?.substring(0, 10) === date) || [];
+				console.log(`📊 Processing date ${date}:`, {
+					recordCount: dayData.length,
+					sampleRecord: dayData[0],
+					netAmounts: dayData.map(d => d.net_amount)
+				});
 				const total_amount = dayData.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 				const total_bills = dayData.reduce((sum, d) => sum + (d.net_bills || 0), 0);
 				const total_return = dayData.reduce((sum, d) => sum + (d.return_amount || 0), 0);
 				return { date, total_amount, total_bills, total_return };
 			});
 			
+			console.log('📊 Sales data grouped:', groupedData);
 			salesData = groupedData;
 			minAmount = Math.min(...groupedData.map(d => d.total_amount));
 			maxAmount = Math.max(...groupedData.map(d => d.total_amount), 1);
 
 			// Calculate current month average
-			if (currentMonthData && !currentMonthError) {
-				const uniqueDates = [...new Set(currentMonthData.map(d => d.sale_date))];
-				const totalAmount = currentMonthData.reduce((sum, d) => sum + (d.net_amount || 0), 0);
+			if (currentMonthData?.records && !currentMonthError) {
+				const uniqueDates = [...new Set(currentMonthData.records.map(d => d.sale_date))];
+				const totalAmount = currentMonthData.records.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 				currentMonthAvg = {
 					month: saudiTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
 					average: uniqueDates.length > 0 ? totalAmount / uniqueDates.length : 0,
@@ -132,9 +162,9 @@
 			}
 
 			// Calculate previous month average
-			if (previousMonthData && !previousMonthError) {
-				const uniqueDates = [...new Set(previousMonthData.map(d => d.sale_date))];
-				const totalAmount = previousMonthData.reduce((sum, d) => sum + (d.net_amount || 0), 0);
+			if (previousMonthData?.records && !previousMonthError) {
+				const uniqueDates = [...new Set(previousMonthData.records.map(d => d.sale_date))];
+				const totalAmount = previousMonthData.records.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 				previousMonthAvg = {
 					month: previousMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
 					average: uniqueDates.length > 0 ? totalAmount / uniqueDates.length : 0,
@@ -142,14 +172,20 @@
 				};
 			}
 		} catch (err) {
-			console.error('Error loading sales data:', err);
+			console.error('❌ Error loading sales data:', err);
 		} finally {
+			const endTime = performance.now();
+			const duration = (endTime - startTime).toFixed(2);
+			console.log(`✅ Sales data loaded in ${duration}ms (Source: Go Backend)`);
 			loading = false;
 		}
 	}
 
 	async function loadBranchSalesData() {
 		loadingBranch = true;
+		const startTime = performance.now();
+		console.log('📊 Loading branch sales data...');
+		
 		try {
 			// Use Saudi Arabia timezone (UTC+3)
 			const saudiOffset = 3 * 60;
@@ -174,17 +210,18 @@
 			const previousMonthStart = formatDate(previousMonthDate);
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
-			// Fetch today's sales by branch
-			const { data, error } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('branch_id, net_amount, net_bills, return_amount')
-				.eq('sale_date', todayStr)
-				.order('net_amount', { ascending: false });
+			// Fetch today's sales by branch from Go backend
+			const { data, error } = await goAPI.sales.getDailySales({
+				startDate: todayStr,
+				endDate: todayStr
+			});
 
 			if (error) throw error;
 
+			console.log('📊 Today branch sales API response:', data);
+
 			// Get branch names
-			const branchIds = [...new Set(data?.map(d => d.branch_id) || [])];
+			const branchIds = [...new Set(data?.records?.map(d => d.branch_id) || [])];
 			
 			let branchMap = new Map();
 			if (branchIds.length > 0) {
@@ -207,7 +244,7 @@
 
 			// Group by branch
 			const groupedByBranch = branchIds.map(branchId => {
-				const branchItems = data?.filter(d => d.branch_id === branchId) || [];
+				const branchItems = data?.records?.filter(d => d.branch_id === branchId) || [];
 				const total_amount = branchItems.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 				const total_bills = branchItems.reduce((sum, d) => sum + (d.net_bills || 0), 0);
 				const total_return = branchItems.reduce((sum, d) => sum + (d.return_amount || 0), 0);
@@ -221,24 +258,22 @@
 			});
 
 			// Fetch current month data by branch
-			const { data: currentMonthData } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('sale_date, branch_id, net_amount')
-				.gte('sale_date', currentMonthStart)
-				.lte('sale_date', currentMonthEnd);
+			const { data: currentMonthData } = await goAPI.sales.getDailySales({
+				startDate: currentMonthStart,
+				endDate: currentMonthEnd
+			});
 
 			// Fetch previous month data by branch
-			const { data: previousMonthData } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('sale_date, branch_id, net_amount')
-				.gte('sale_date', previousMonthStart)
-				.lte('sale_date', previousMonthEnd);
+			const { data: previousMonthData } = await goAPI.sales.getDailySales({
+				startDate: previousMonthStart,
+				endDate: previousMonthEnd
+			});
 
 			// Calculate averages for each branch
 			groupedByBranch.forEach(branch => {
 				// Current month average for this branch
-				if (currentMonthData) {
-					const branchCurrentData = currentMonthData.filter(d => d.branch_id === branch.branch_id);
+				if (currentMonthData?.records) {
+					const branchCurrentData = currentMonthData.records.filter(d => d.branch_id === branch.branch_id);
 					const uniqueDates = [...new Set(branchCurrentData.map(d => d.sale_date))];
 					const totalAmount = branchCurrentData.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 					branch.currentMonthAvg = uniqueDates.length > 0 ? totalAmount / uniqueDates.length : 0;
@@ -246,8 +281,8 @@
 				}
 				
 				// Previous month average for this branch
-				if (previousMonthData) {
-					const branchPreviousData = previousMonthData.filter(d => d.branch_id === branch.branch_id);
+				if (previousMonthData?.records) {
+					const branchPreviousData = previousMonthData.records.filter(d => d.branch_id === branch.branch_id);
 					const uniqueDates = [...new Set(branchPreviousData.map(d => d.sale_date))];
 					const totalAmount = branchPreviousData.reduce((sum, d) => sum + (d.net_amount || 0), 0);
 					branch.previousMonthAvg = uniqueDates.length > 0 ? totalAmount / uniqueDates.length : 0;
@@ -257,14 +292,20 @@
 			branchSalesData = groupedByBranch;
 			maxBranchAmount = Math.max(...groupedByBranch.map(d => d.total_amount), 1);
 		} catch (err) {
-			console.error('Error loading branch sales data:', err);
+			console.error('❌ Error loading branch sales data:', err);
 		} finally {
+			const endTime = performance.now();
+			const duration = (endTime - startTime).toFixed(2);
+			console.log(`✅ Branch sales data loaded in ${duration}ms (Source: Go Backend)`);
 			loadingBranch = false;
 		}
 	}
 
 	async function loadYesterdayBranchSalesData() {
 		loadingYesterdayBranch = true;
+		const startTime = performance.now();
+		console.log('📊 Loading yesterday branch sales data...');
+		
 		try {
 			// Use Saudi Arabia timezone (UTC+3)
 			const saudiOffset = 3 * 60;
@@ -283,62 +324,62 @@
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayStr = formatDate(yesterday);
 
-			// Fetch yesterday's sales by branch
-			const { data, error } = await supabaseAdmin
-				.from('erp_daily_sales')
-				.select('branch_id, net_amount, net_bills, return_amount')
-				.eq('sale_date', yesterdayStr)
-				.order('net_amount', { ascending: false });
+		// Fetch yesterday's sales by branch from Go backend
+		const { data, error } = await goAPI.sales.getDailySales({
+			startDate: yesterdayStr,
+			endDate: yesterdayStr
+		});
 
-			if (error) throw error;
+		if (error) throw error;
 
-			// Get branch names
-			const branchIds = [...new Set(data?.map(d => d.branch_id) || [])];
-			
-			let branchMap = new Map();
-			if (branchIds.length > 0) {
-				try {
-					const { data: branchData, error: branchError } = await supabaseAdmin
-						.from('branches')
-						.select('id, location_en, location_ar')
-						.in('id', branchIds);
+		console.log('📊 Yesterday branch sales API response:', data);
 
-					if (branchError) {
-						console.error('Error fetching branch locations:', branchError);
-					} else {
-						const locale = get(currentLocale);
-						branchMap = new Map(branchData?.map(b => [b.id, locale === 'ar' ? (b.location_ar || b.location_en) : (b.location_en || b.location_ar)]) || []);
-					}
-				} catch (branchErr) {
-					console.error('Exception fetching branches:', branchErr);
+		// Get branch names
+		const branchIds = [...new Set(data?.records?.map(d => d.branch_id) || [])];
+		
+		let branchMap = new Map();
+		if (branchIds.length > 0) {
+			try {
+				const { data: branchData, error: branchError } = await supabaseAdmin
+					.from('branches')
+					.select('id, location_en, location_ar')
+					.in('id', branchIds);
+
+				if (branchError) {
+					console.error('Error fetching branch locations:', branchError);
+				} else {
+					const locale = get(currentLocale);
+					branchMap = new Map(branchData?.map(b => [b.id, locale === 'ar' ? (b.location_ar || b.location_en) : (b.location_en || b.location_ar)]) || []);
 				}
+			} catch (branchErr) {
+				console.error('Exception fetching branches:', branchErr);
 			}
-
-			// Group by branch
-			const groupedByBranch = branchIds.map(branchId => {
-				const branchItems = data?.filter(d => d.branch_id === branchId) || [];
-				const total_amount = branchItems.reduce((sum, d) => sum + (d.net_amount || 0), 0);
-				const total_bills = branchItems.reduce((sum, d) => sum + (d.net_bills || 0), 0);
-				const total_return = branchItems.reduce((sum, d) => sum + (d.return_amount || 0), 0);
-				return {
-					branch_id: branchId,
-					branch_name: branchMap.get(branchId) || `Branch ${branchId}`,
-					total_amount,
-					total_bills,
-					total_return
-				};
-			});
-
-			yesterdayBranchSalesData = groupedByBranch;
-			maxYesterdayBranchAmount = Math.max(...groupedByBranch.map(d => d.total_amount), 1);
-		} catch (err) {
-			console.error('Error loading yesterday branch sales data:', err);
-		} finally {
-			loadingYesterdayBranch = false;
 		}
-	}
 
-	function getBarColor(amount: number): string {
+		// Group by branch
+		const groupedByBranch = branchIds.map(branchId => {
+			const branchItems = data?.records?.filter(d => d.branch_id === branchId) || [];
+			const total_amount = branchItems.reduce((sum, d) => sum + (d.net_amount || 0), 0);
+			const total_bills = branchItems.reduce((sum, d) => sum + (d.net_bills || 0), 0);
+			const total_return = branchItems.reduce((sum, d) => sum + (d.return_amount || 0), 0);
+			return {
+				branch_id: branchId,
+				branch_name: branchMap.get(branchId) || `Branch ${branchId}`,
+				total_amount,
+				total_bills,
+				total_return
+			};
+		});		yesterdayBranchSalesData = groupedByBranch;
+		maxYesterdayBranchAmount = Math.max(...groupedByBranch.map(d => d.total_amount), 1);
+	} catch (err) {
+		console.error('❌ Error loading yesterday branch sales data:', err);
+	} finally {
+		const endTime = performance.now();
+		const duration = (endTime - startTime).toFixed(2);
+		console.log(`✅ Yesterday branch sales data loaded in ${duration}ms (Source: Go Backend)`);
+		loadingYesterdayBranch = false;
+	}
+}	function getBarColor(amount: number): string {
 		const amounts = salesData.map(d => d.total_amount).sort((a, b) => b - a);
 		const highest = amounts[0];
 		const lowest = amounts[amounts.length - 1];

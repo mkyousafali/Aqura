@@ -110,11 +110,29 @@ func main() {
 		}
 	})
 
+	// Sales Report endpoints
+	mux.HandleFunc("/api/mobile/sales", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS
+		enableCORS(w, r)
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			mobilehandlers.GetDailySales(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	// Start server
 	log.Printf("🚀 Server starting on port %s", port)
 	log.Printf("📍 Health check: http://localhost:%s/health", port)
 	log.Printf("📍 API endpoint: http://localhost:%s/api/branches", port)
 	log.Printf("📍 Mobile Dashboard: http://localhost:%s/api/mobile/dashboard", port)
+	log.Printf("📍 Sales Report: http://localhost:%s/api/mobile/sales", port)
 
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
@@ -167,6 +185,11 @@ func handleDatabaseNotification(channel string, payload string) {
 		// Invalidate all branches cache when any branch is modified
 		cache.Invalidate("branches:all")
 		log.Printf("🔄 Cache invalidated for branches (trigger: database change)")
+
+	case "erp_daily_sales_changed":
+		// Invalidate all sales cache when sales data is modified
+		cache.InvalidatePattern("daily_sales:")
+		log.Printf("🔄 Cache invalidated for daily sales (trigger: database change)")
 
 	case "cache_invalidate":
 		// Generic cache invalidation - expects JSON payload with "key" field

@@ -56,6 +56,18 @@ func Invalidate(key string) {
 	delete(globalCache.items, key)
 }
 
+// InvalidatePattern removes all cache items matching a key prefix
+func InvalidatePattern(prefix string) {
+	globalCache.mu.Lock()
+	defer globalCache.mu.Unlock()
+
+	for key := range globalCache.items {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(globalCache.items, key)
+		}
+	}
+}
+
 // Clear removes all items from cache
 func Clear() {
 	globalCache.mu.Lock()

@@ -112,6 +112,46 @@ async function fetchBranchesFromSupabase() {
 }
 
 /**
+ * Fallback to Supabase for sales data
+ */
+async function fetchSalesFromSupabase(
+  branchId?: string | number,
+  startDate?: string,
+  endDate?: string
+) {
+  let query = supabase
+    .from('erp_daily_sales')
+    .select('*');
+  
+  // Apply filters
+  if (branchId) {
+    query = query.eq('branch_id', branchId);
+  }
+  
+  if (startDate) {
+    query = query.gte('sale_date', startDate);
+  }
+  
+  if (endDate) {
+    query = query.lte('sale_date', endDate);
+  }
+  
+  // Order by date descending, then branch ascending
+  query = query.order('sale_date', { ascending: false })
+               .order('branch_id', { ascending: true });
+  
+  const { data, error } = await query;
+  
+  if (error) throw error;
+  
+  // Return in same format as Go backend (records instead of data)
+  return {
+    records: data || [],
+    count: data?.length || 0
+  };
+}
+
+/**
  * Make authenticated API request to Go backend
  */
 async function goFetch(endpoint: string, options: RequestInit = {}) {
@@ -514,6 +554,82 @@ export const goAPI = {
           setCache(cacheKey, data);
           backendHealthy = false;
           console.log('✅ Loaded mobile dashboard from Supabase (fallback after error)');
+          return { data, error: null };
+        } catch (fallbackError: any) {
+          console.error('❌ Both Go backend and Supabase failed:', fallbackError);
+          return { data: null, error: { message: fallbackError.message } };
+        }
+      }
+    },
+  },
+
+  // Sales Report APIs
+  sales: {
+    /**
+     * Get daily sales data with optional filtering
+     * @param branchId - Optional branch ID filter
+     * @param startDate - Optional start date (YYYY-MM-DD)
+     * @param endDate - Optional end date (YYYY-MM-DD)
+     * @param useCache - Whether to use client cache
+     */
+    async getDailySales(options?: {
+      branchId?: string | number;
+      startDate?: string;
+      endDate?: string;
+      useCache?: boolean;
+    }) {
+      const { branchId, startDate, endDate, useCache = true } = options || {};
+      
+      // Build cache key based on filters
+      let cacheKey = 'daily_sales:all';
+      const params = new URLSearchParams();
+      
+      if (branchId) {
+        cacheKey = `daily_sales:branch:${branchId}`;
+        params.append('branch_id', String(branchId));
+      }
+      
+      if (startDate && endDate) {
+        cacheKey = `${cacheKey}:range:${startDate}:${endDate}`;
+        params.append('start_date', startDate);
+        params.append('end_date', endDate);
+      }
+      
+      // Try cache first
+      if (useCache) {
+        const cached = getCached(cacheKey);
+        if (cached) {
+          console.log('✅ Loaded sales data from client cache');
+          return { data: cached, error: null };
+        }
+      }
+      
+      // Check backend health first
+      const isHealthy = await checkBackendHealth();
+      
+      try {
+        if (isHealthy && USE_GO_BACKEND) {
+          // Try Go backend first
+          const url = `/api/mobile/sales${params.toString() ? '?' + params.toString() : ''}`;
+          const data = await goFetch(url);
+          setCache(cacheKey, data);
+          console.log('✅ Loaded sales data from Go backend');
+          return { data, error: null };
+        } else {
+          // Use Supabase fallback
+          const data = await fetchSalesFromSupabase(branchId, startDate, endDate);
+          setCache(cacheKey, data);
+          console.log('✅ Loaded sales data from Supabase (fallback)');
+          return { data, error: null };
+        }
+      } catch (error: any) {
+        // If Go backend fails, try Supabase fallback
+        console.warn('⚠️ Go backend failed, trying Supabase fallback:', error.message);
+        try {
+          const data = await fetchSalesFromSupabase(branchId, startDate, endDate);
+          setCache(cacheKey, data);
+          backendHealthy = false;
+          console.log('✅ Loaded sales data from Supabase (fallback after error)');
           return { data, error: null };
         } catch (fallbackError: any) {
           console.error('❌ Both Go backend and Supabase failed:', fallbackError);

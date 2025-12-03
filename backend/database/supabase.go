@@ -116,6 +116,7 @@ func StartNotificationListener(callback NotificationCallback) error {
 	// Listen to channels
 	channels := []string{
 		"branches_changed",
+		"erp_daily_sales_changed",
 		"cache_invalidate",
 	}
 
