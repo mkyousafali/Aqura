@@ -23,9 +23,6 @@ importers:
       onnxruntime-web:
         specifier: ^1.23.2
         version: 1.23.2
-      pg:
-        specifier: ^8.16.3
-        version: 8.16.3
       web-push:
         specifier: ^3.6.7
         version: 3.6.7
@@ -33,6 +30,9 @@ importers:
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
 
   frontend:
     dependencies:
