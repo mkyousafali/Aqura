@@ -308,9 +308,6 @@
 				);
 				transformed.attachments = uniqueAttachments;
 			}
-		} catch (error) {
-			console.warn(`❌ [Mobile Notification] Failed to batch load attachments:`, error);
-		}
 
 		// Debug: Log final notification structure
 		console.log(`📎 [Mobile Notification] Final notifications with attachments:`, transformedNotifications.map(n => ({
