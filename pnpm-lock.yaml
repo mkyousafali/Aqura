@@ -45,6 +45,9 @@ importers:
       '@sveltejs/adapter-auto':
         specifier: ^6.1.0
         version: 6.1.1(@sveltejs/kit@2.43.8(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.39.8)(vite@5.4.20(@types/node@22.18.8)(terser@5.44.0)))(svelte@5.39.8)(vite@5.4.20(@types/node@22.18.8)(terser@5.44.0)))
+      aqura:
+        specifier: file:..
+        version: 'file:'
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -1750,6 +1753,10 @@ packages:
 
   aproba@2.1.0:
     resolution: {integrity: sha512-tLIEcj5GuR2RSTnxNKdkK0dJ/GrC7P38sUkiDmDuHfsHmbagTFAxDVIBltoklXEVIQ/f14IL8IMJ5pn9Hez1Ew==}
+
+  'aqura@file:':
+    resolution: {directory: '', type: directory}
+    engines: {node: '>=18.0.0', npm: '>=8.0.0'}
 
   archiver-utils@2.1.0:
     resolution: {integrity: sha512-bEL/yUb/fNNiNTuUz979Z0Yg5L+LzLxGJz8x79lYmR54fmTIb6ob/hNQgkQnIUDWIFjZVQwl9Xs356I6BAMHfw==}
@@ -6571,6 +6578,19 @@ snapshots:
       - supports-color
 
   aproba@2.1.0: {}
+
+  'aqura@file:':
+    dependencies:
+      '@imgly/background-removal': 1.7.0(onnxruntime-web@1.23.2)
+      '@supabase/supabase-js': 2.58.0
+      dotenv: 17.2.3
+      mssql: 12.1.1
+      onnxruntime-web: 1.23.2
+      web-push: 3.6.7
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
 
   archiver-utils@2.1.0:
     dependencies:
