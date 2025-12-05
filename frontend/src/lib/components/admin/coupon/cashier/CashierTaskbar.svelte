@@ -27,7 +27,9 @@
 		// Fetch initial counts using cashier user
 		if (authenticatedUser) {
 			fetchNotificationCounts();
-			taskCountService.initTaskCountMonitoring();
+			// 🔴 DISABLED: Task count monitoring disabled
+		console.warn('⚠️ Task count monitoring disabled');
+		// taskCountService.initTaskCountMonitoring();
 		}
 		
 		// Refresh counts periodically

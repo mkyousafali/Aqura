@@ -1,8 +1,8 @@
 // Script to add missing functions to app_functions table
 // Run with: node add-missing-functions.js
 
-const fs = require('fs');
-const { createClient } = require('@supabase/supabase-js');
+import fs from 'fs';
+import { createClient } from '@supabase/supabase-js';
 
 // Load environment variables
 const envPath = './frontend/.env';
@@ -20,7 +20,7 @@ envContent.split('\n').forEach(line => {
 });
 
 const supabaseUrl = envVars.VITE_SUPABASE_URL;
-const supabaseServiceKey = envVars.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const supabaseServiceKey = envVars.VITE_SUPABASE_SERVICE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Define all missing functions

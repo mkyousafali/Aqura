@@ -69,22 +69,22 @@ export const deliveryActions = {
   // Load delivery service settings
   async loadSettings() {
     try {
-      const { data, error } = await supabase.rpc('get_delivery_service_settings');
+      // 🔴 TEMPORARILY DISABLED: RPC call to get_delivery_service_settings
+      // Using default values instead
+      console.warn('⚠️ [Delivery] loadSettings() temporarily disabled - using default values');
       
-      if (error) throw error;
+      // Set default delivery settings
+      deliverySettings.set({
+        minimumOrderAmount: 0,
+        is24Hours: true,
+        operatingStartTime: '00:00',
+        operatingEndTime: '23:59',
+        isActive: true,
+        displayMessageAr: 'خدمة التوصيل متاحة',
+        displayMessageEn: 'Delivery service available'
+      });
       
-      if (data && data.length > 0) {
-        deliverySettings.set({
-          minimumOrderAmount: data[0].minimum_order_amount,
-          is24Hours: data[0].is_24_hours,
-          operatingStartTime: data[0].operating_start_time,
-          operatingEndTime: data[0].operating_end_time,
-          isActive: data[0].is_active,
-          displayMessageAr: data[0].display_message_ar,
-          displayMessageEn: data[0].display_message_en
-        });
-      }
-      return data;
+      return null;
     } catch (error) {
       console.error('Error loading delivery settings:', error);
       return null;

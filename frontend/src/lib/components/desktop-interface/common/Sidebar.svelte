@@ -49,6 +49,7 @@
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
+	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 
 	let showSettingsSubmenu = false;
@@ -523,6 +524,28 @@ function openApprovalCenter() {
 			component: ApprovalPermissionsManager,
 			icon: '🔐',
 			size: { width: 950, height: 750 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSettingsSubmenu = false;
+	}
+
+	function openUserPermissions() {
+		const windowId = generateWindowId('user-permissions');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `User Permissions Manager #${instanceNumber}`,
+			component: UserPermissionsWindow,
+			icon: '👥',
+			size: { width: 1500, height: 900 },
 			position: { 
 				x: 100 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
@@ -1093,6 +1116,12 @@ function openApprovalCenter() {
 					</div>
 				{/if}
 				{#if $currentUser?.roleType === 'Master Admin'}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openUserPermissions}>
+							<span class="menu-icon">👥</span>
+							<span class="menu-text">{t('nav.userPermissions') || 'User Permissions'}</span>
+						</button>
+					</div>
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openClearTables}>
 							<span class="menu-icon">🗑️</span>

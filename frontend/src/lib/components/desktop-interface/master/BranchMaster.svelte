@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { type Branch } from '$lib/utils/supabase';
-	import { goAPI } from '$lib/utils/goAPI';
+	import { supabase } from '$lib/utils/supabase';
+	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 
 	// State management
 	let branches: Branch[] = [];
@@ -26,14 +27,18 @@
 		await loadBranches();
 	});
 
-	// Load branches from Go backend
+	// Load branches from Supabase
 	async function loadBranches() {
 		const startTime = performance.now();
 		isLoading = true;
 		errorMessage = '';
 		
 		try {
-			const { data, error } = await goAPI.branches.getAll();
+			const { data, error } = await supabase
+				.from('branches')
+				.select('*')
+				.order('created_at', { ascending: false });
+			
 			const loadTime = Math.round(performance.now() - startTime);
 			
 			if (error) {
@@ -119,7 +124,11 @@
 
 			let result;
 			if (showCreatePopup) {
-				result = await goAPI.branches.create(branchData);
+				const { data, error } = await supabase
+					.from('branches')
+					.insert([branchData])
+					.select();
+				result = { error };
 				
 				if (result.error) {
 					errorMessage = result.error.message || 'Failed to create branch';
@@ -129,7 +138,11 @@
 					closeCreatePopup();
 				}
 			} else if (showEditPopup && editingBranch) {
-				result = await goAPI.branches.update(editingBranch.id, branchData);
+				const { error } = await supabase
+					.from('branches')
+					.update(branchData)
+					.eq('id', editingBranch.id);
+				result = { error };
 				
 				if (result.error) {
 					errorMessage = result.error.message || 'Failed to update branch';
@@ -154,7 +167,10 @@
 			errorMessage = '';
 
 			try {
-				const { error } = await goAPI.branches.delete(id);
+				const { error } = await supabase
+					.from('branches')
+					.delete()
+					.eq('id', id);
 				
 				if (error) {
 					errorMessage = error.message || 'Failed to delete branch';

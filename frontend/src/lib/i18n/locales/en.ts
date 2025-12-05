@@ -61,6 +61,7 @@ export const englishLocale: LocaleData = {
       users: "Users",
       interfaceAccess: "Interface Access",
       approvalPermissions: "Approval Permissions",
+      userPermissions: "User Permissions",
       marketingMaster: "Marketing Master",
       erpConnections: "ERP Connections",
       clearTables: "Clear Tables",

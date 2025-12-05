@@ -10,10 +10,10 @@ const VAPID_PUBLIC_KEY =
   import.meta.env.VITE_VAPID_PUBLIC_KEY || "your-vapid-public-key"; // Will need to be set
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
-  "https://vmypotfsyrvuublyddyt.supabase.co";
+  "https://supabase.urbanaqura.com";
 const SUPABASE_SERVICE_KEY =
   import.meta.env.VITE_SUPABASE_SERVICE_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjQ4MjQ4OSwiZXhwIjoyMDcyMDU4NDg5fQ.tKKj7zXNvccfYO7m59}IQ-XzNeUvcuEbrQlF6P4-8BjJkjKnB8h8HoPQ";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NjQ4NzU1MjcsImV4cCI6MjA4MDQ1MTUyN30.6mj0wiHW0ljpYNIEeYG-r--577LDNbxCLj7SZOghbv0";
 
 // Singleton service role client to avoid multiple instances
 let serviceRoleClient: any = null;
@@ -199,8 +199,7 @@ export class PushNotificationService {
       console.log("⏳ Waiting for Service Worker to stabilize...");
       await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased to 2 seconds
 
-      // Subscribe to push notifications
-      await this.subscribeToPush();
+      // Push notifications subscription disabled
 
       return true;
     } catch (error) {
@@ -273,304 +272,20 @@ export class PushNotificationService {
 
   /**
    * Subscribe to push notifications
+   * 🔴 DISABLED: Push notifications causing rate limit warnings
    */
-  async subscribeToPush(): Promise<PushSubscription | null> {
-    if (!this.swRegistration) {
-      console.error("Service worker not registered");
-      return null;
-    }
-
-    try {
-      // Check if push notifications are explicitly disabled
-      const pushEnabled =
-        import.meta.env.VITE_PUSH_NOTIFICATIONS_ENABLED !== "false";
-
-      if (!pushEnabled) {
-        console.log("🔧 Push notifications disabled in configuration");
-        return null;
-      }
-
-      // Try to get real VAPID subscription first, even in development
-      if (VAPID_PUBLIC_KEY && VAPID_PUBLIC_KEY !== "your-vapid-public-key") {
-        console.log(
-          "🔑 Using real VAPID subscription for locked phone notifications",
-        );
-
-        // Ensure Service Worker is active
-        await navigator.serviceWorker.ready;
-        const currentRegistration = await navigator.serviceWorker.ready;
-
-        if (!currentRegistration.active) {
-          throw new Error("Service Worker is not active for push subscription");
-        }
-
-        // Check for existing subscription first
-        this.subscription =
-          await currentRegistration.pushManager.getSubscription();
-
-        if (!this.subscription) {
-          console.log(
-            "📱 Creating new real push subscription with enhanced options for locked phones...",
-          );
-
-          // Enhanced subscription options for locked phone notifications
-          this.subscription = await currentRegistration.pushManager.subscribe({
-            userVisibleOnly: true, // REQUIRED: ensures notifications work when app is closed/phone locked
-            applicationServerKey: this.urlBase64ToUint8Array(
-              VAPID_PUBLIC_KEY,
-            ) as BufferSource,
-          });
-
-          console.log("✅ Real push subscription created successfully");
-        } else {
-          console.log("✅ Using existing real push subscription");
-        }
-
-        console.log(
-          "🔒 Subscription will work when phone is locked and app is closed",
-        );
-
-        // Update registration reference
-        this.swRegistration = currentRegistration;
-
-        // Register device with backend
-        await this.registerDevice();
-        return this.subscription;
-      }
-
-      // Development fallback: In development mode, create mock subscription but log warning
-      if (import.meta.env.DEV) {
-        console.log("🔧 Development mode: Using mock subscription");
-        console.warn(
-          "⚠️ For real locked phone notifications, configure VAPID keys in .env",
-        );
-
-        // Create a mock subscription for local testing
-        this.subscription = {
-          endpoint: "mock://localhost/push",
-          getKey: (keyType: string) => {
-            if (keyType === "p256dh") return new ArrayBuffer(65);
-            if (keyType === "auth") return new ArrayBuffer(16);
-            return null;
-          },
-          unsubscribe: () => Promise.resolve(true),
-          toJSON: () => ({
-            endpoint: "mock://localhost/push",
-            keys: { p256dh: "mock-p256dh", auth: "mock-auth" },
-          }),
-        } as unknown as PushSubscription;
-
-        // Register device with backend using mock subscription
-        await this.registerDevice();
-        return this.subscription;
-      }
-
-      // Production mode - require VAPID key
-      console.warn(
-        "⚠️ VAPID public key not configured. Push notifications disabled in production.",
-      );
-      return null;
-    } catch (error) {
-      console.error("Failed to subscribe to push notifications:", error);
-      return null;
-    }
-  }
+  // async subscribeToPush(): Promise<PushSubscription | null> {
+  //   console.warn('⚠️ [PushNotifications] subscribeToPush disabled');
+  //   return null;
+  // }
 
   /**
    * Register device with backend
+   * 🔴 DISABLED: Push notifications causing rate limit warnings
    */
   async registerDevice(): Promise<void> {
-    // Circuit breaker check
-    if (this.isCircuitBreakerOpen) {
-      const now = Date.now();
-      if (now < this.circuitBreakerResetTime) {
-        const waitTime = Math.ceil((this.circuitBreakerResetTime - now) / 1000);
-        console.warn(
-          `🚫 Circuit breaker is OPEN. Device registration blocked for ${waitTime} more seconds due to repeated failures.`
-        );
-        return;
-      } else {
-        // Reset circuit breaker after timeout
-        console.log("🔄 Circuit breaker timeout expired. Resetting and allowing retry...");
-        this.isCircuitBreakerOpen = false;
-        this.deviceRegistrationFailures = 0;
-      }
-    }
-
-    // Rate limiting check - prevent rapid retries
-    const now = Date.now();
-    const timeSinceLastAttempt = now - this.lastRegistrationAttempt;
-    if (timeSinceLastAttempt < this.minTimeBetweenRetries) {
-      const waitTime = Math.ceil((this.minTimeBetweenRetries - timeSinceLastAttempt) / 1000);
-      console.warn(
-        `⏱️ Rate limit: Last registration attempt was ${Math.ceil(timeSinceLastAttempt / 1000)}s ago. Wait ${waitTime}s before retrying.`
-      );
-      return;
-    }
-
-    this.lastRegistrationAttempt = now;
-
-    if (!this.subscription) {
-      console.error("No push subscription available");
-      return;
-    }
-
-    // Get current user from persistent auth
-    const user = get(persistentCurrentUser);
-    if (!user) {
-      console.error("No user logged in");
-      return;
-    }
-
-    // Check for existing device ID in localStorage first
-    // Only generate new one if none exists
-    let deviceId = localStorage.getItem("aqura-device-id");
-    if (!deviceId) {
-      deviceId = this.generateDeviceId();
-      console.log("🆕 Generated new device ID:", deviceId);
-    } else {
-      console.log("♻️ Reusing existing device ID:", deviceId);
-    }
-
-    // Use the actual user ID since it should already be a valid UUID in the database
-    const userUUID = user.id;
-
-    const deviceRegistration: Partial<DeviceRegistration> = {
-      user_id: userUUID,
-      device_id: deviceId,
-      endpoint: this.subscription.endpoint,
-      p256dh: this.subscription.getKey("p256dh")
-        ? btoa(
-            String.fromCharCode(
-              ...new Uint8Array(this.subscription.getKey("p256dh")!),
-            ),
-          )
-        : "",
-      auth: this.subscription.getKey("auth")
-        ? btoa(
-            String.fromCharCode(
-              ...new Uint8Array(this.subscription.getKey("auth")!),
-            ),
-          )
-        : "",
-      device_type: this.getDeviceType(),
-      browser_name: this.getBrowserName(),
-      user_agent: navigator.userAgent,
-      is_active: true,
-      last_seen: new Date().toISOString(),
-    };
-
-    console.log("📱 Registering device:", {
-      originalUserId: user.id,
-      mappedUUID: userUUID,
-      deviceId: deviceId,
-      deviceType: this.getDeviceType(),
-    });
-
-    try {
-      console.log("🔄 [PushNotifications] Attempting device registration...");
-
-      // First, try to find existing subscription for this user and device
-      // Use maybeSingle() instead of single() to avoid 406 error when no results found
-      const { data: existingSubscription, error: findError } =
-        await supabaseAdmin
-          .from("push_subscriptions")
-          .select("id")
-          .eq("user_id", userUUID)
-          .eq("device_id", deviceId)
-          .maybeSingle();
-
-      let result;
-      if (existingSubscription && !findError) {
-        // Update existing subscription
-        console.log("🔄 [PushNotifications] Updating existing subscription");
-        result = await supabaseAdmin
-          .from("push_subscriptions")
-          .update(deviceRegistration)
-          .eq("user_id", userUUID)
-          .eq("device_id", deviceId);
-      } else {
-        // Create new subscription
-        console.log("🆕 [PushNotifications] Creating new subscription");
-        result = await supabaseAdmin
-          .from("push_subscriptions")
-          .insert(deviceRegistration);
-      }
-
-      if (result.error) {
-        throw result.error;
-      }
-
-      // Store device ID locally
-      localStorage.setItem("aqura-device-id", deviceId);
-
-      // Clean up old subscriptions after successful registration
-      try {
-        console.log("🧹 [PushNotifications] Running subscription cleanup...");
-        const cleanupResult =
-          await PushSubscriptionCleanupService.cleanupUserSubscriptions(
-            userUUID,
-          );
-        if (cleanupResult.success) {
-          console.log(
-            `✅ [PushNotifications] Subscription cleanup completed - deleted ${cleanupResult.deleted} old subscriptions`,
-          );
-        } else {
-          console.warn(
-            "⚠️ [PushNotifications] Cleanup completed with warnings:",
-            cleanupResult.error,
-          );
-        }
-      } catch (cleanupError) {
-        console.warn(
-          "⚠️ [PushNotifications] Cleanup failed but registration succeeded:",
-          cleanupError,
-        );
-      }
-
-      console.log(
-        "✅ [PushNotifications] Device registered for push notifications",
-      );
-      
-      // Reset failure counter on success
-      this.deviceRegistrationFailures = 0;
-      this.isCircuitBreakerOpen = false;
-    } catch (error) {
-      console.error("❌ [PushNotifications] Failed to register device:", error);
-      
-      // Increment failure counter
-      this.deviceRegistrationFailures++;
-      console.warn(
-        `⚠️ Device registration failure ${this.deviceRegistrationFailures}/${this.maxConsecutiveFailures}`
-      );
-      
-      // Check if we should open the circuit breaker
-      if (this.deviceRegistrationFailures >= this.maxConsecutiveFailures) {
-        this.isCircuitBreakerOpen = true;
-        this.circuitBreakerResetTime = Date.now() + this.circuitBreakerTimeout;
-        console.error(
-          `🚫 CIRCUIT BREAKER OPENED: Too many consecutive failures (${this.deviceRegistrationFailures}). ` +
-          `Device registration blocked for ${this.circuitBreakerTimeout / 60000} minutes. ` +
-          `This prevents infinite retry loops. Error: ${error instanceof Error ? error.message : String(error)}`
-        );
-        
-        // Show user-friendly notification about the issue
-        if (typeof window !== "undefined") {
-          try {
-            const { notifications } = await import("$lib/stores/notifications");
-            notifications.add({
-              type: "error",
-              message: "⚠️ Push notification registration temporarily disabled due to server errors. Will retry automatically later.",
-              duration: 10000,
-            });
-          } catch (notifError) {
-            console.warn("Could not show user notification:", notifError);
-          }
-        }
-      }
-      
-      // Don't throw error - allow login to continue without push notifications
-    }
+    console.warn('⚠️ [PushNotifications] registerDevice disabled');
+    return;
   }
 
   /**
@@ -803,32 +518,12 @@ export class PushNotificationService {
 
   /**
    * Update device last seen
+   * 🔴 DISABLED: Causing 403 Forbidden errors - using default values instead
    */
   async updateLastSeen(): Promise<void> {
-    const deviceId = localStorage.getItem("aqura-device-id");
-    if (!deviceId) return;
-
-    try {
-      // Use shared supabase admin client
-      await supabaseAdmin
-        .from("push_subscriptions")
-        .update({
-          last_seen: new Date().toISOString(),
-          is_active: true,
-        })
-        .eq("device_id", deviceId);
-    } catch (error) {
-      // Silently handle connection errors to prevent console spam
-      if (
-        error?.message?.includes("Failed to fetch") ||
-        error?.message?.includes("ERR_CONNECTION_CLOSED") ||
-        error?.message?.includes("net::")
-      ) {
-        // Connection issue - skip logging to prevent spam
-        return;
-      }
-      console.error("Failed to update last seen:", error);
-    }
+    console.warn("⚠️ [PushNotifications] updateLastSeen() temporarily disabled - preventing 403 errors");
+    // This method is disabled to prevent 403 Forbidden errors
+    return;
   }
 
   /**

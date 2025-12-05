@@ -12,7 +12,7 @@ import {
   type Vendor,
   type User,
 } from "./supabase";
-import { offlineDataManager } from "./offlineDataManager";
+// offlineDataManager removed - using localStorage caching instead
 
 // Configuration
 const USE_SUPABASE = true; // Set to true when Supabase is configured
@@ -172,15 +172,15 @@ export const dataService = {
 
           // Cache the data for offline use
           if (result.data) {
-            await offlineDataManager.cacheData("employees", result.data);
+            localStorage.setItem("cache:employees", JSON.stringify(result.data));
           }
 
           return result;
         } catch (error) {
           // Fallback to cached data if offline
           console.warn("Supabase failed, using cached data:", error);
-          const cachedData =
-            await offlineDataManager.getCachedData("employees");
+          const cachedStr = localStorage.getItem("cache:employees");
+          const cachedData = cachedStr ? JSON.parse(cachedStr) : [];
           return {
             data: cachedData.length > 0 ? cachedData : mockEmployees,
             error: null,
@@ -212,13 +212,9 @@ export const dataService = {
       if (USE_SUPABASE) {
         const result = await db.employees.create(employee);
 
-        // If offline, queue the operation
+        // If offline, queue the operation (note: offlineDataManager removed, pending ops not supported)
         if (!navigator.onLine && !result.data) {
-          await offlineDataManager.addPendingOperation({
-            type: "employees",
-            method: "POST",
-            data: employee,
-          });
+          console.warn("Offline: Employee creation queued but not persisted (offlineDataManager removed)");
         }
 
         return result;
@@ -242,13 +238,9 @@ export const dataService = {
       if (USE_SUPABASE) {
         const result = await db.employees.update(id, updates);
 
-        // If offline, queue the operation
+        // If offline, queue the operation (note: offlineDataManager removed)
         if (!navigator.onLine && !result.data) {
-          await offlineDataManager.addPendingOperation({
-            type: "employees",
-            method: "PUT",
-            data: { id, ...updates },
-          });
+          console.warn("Offline: Employee update queued but not persisted (offlineDataManager removed)");
         }
 
         return result;
@@ -271,13 +263,9 @@ export const dataService = {
       if (USE_SUPABASE) {
         const result = await db.employees.delete(id);
 
-        // If offline, queue the operation
+        // If offline, queue the operation (note: offlineDataManager removed)
         if (!navigator.onLine && result.error) {
-          await offlineDataManager.addPendingOperation({
-            type: "employees",
-            method: "DELETE",
-            data: { id },
-          });
+          console.warn("Offline: Employee deletion queued but not persisted (offlineDataManager removed)");
         }
 
         return result;
@@ -929,12 +917,13 @@ export const dataService = {
           }
 
           if (data) {
-            await offlineDataManager.cacheData("branches", data);
+            localStorage.setItem("cache:branches", JSON.stringify(data));
           }
           return { data, error: null };
         } catch (error) {
           console.error("Error fetching branches:", error);
-          const cachedData = await offlineDataManager.getCachedData("branches");
+          const cachedStr = localStorage.getItem("cache:branches");
+          const cachedData = cachedStr ? JSON.parse(cachedStr) : [];
           return {
             data: cachedData.length > 0 ? cachedData : mockBranches,
             error: null,
@@ -1055,11 +1044,12 @@ export const dataService = {
         try {
           const result = await db.vendors.getAll();
           if (result.data) {
-            await offlineDataManager.cacheData("vendors", result.data);
+            localStorage.setItem("cache:vendors", JSON.stringify(result.data));
           }
           return result;
         } catch (error) {
-          const cachedData = await offlineDataManager.getCachedData("vendors");
+          const cachedStr = localStorage.getItem("cache:vendors");
+          const cachedData = cachedStr ? JSON.parse(cachedStr) : [];
           return {
             data: cachedData.length > 0 ? cachedData : mockVendors,
             error: null,
@@ -2342,9 +2332,13 @@ export const dataService = {
   },
 };
 
-// Initialize offline data manager
+// offlineDataManager removed - using localStorage caching instead
+// Initialize offline support using localStorage
 if (typeof window !== "undefined") {
-  offlineDataManager.init().then(() => {
-    offlineDataManager.setupNetworkListeners();
-  });
+  // Periodically sync data to localStorage cache
+  setInterval(() => {
+    if (navigator.onLine) {
+      offline.syncOfflineData();
+    }
+  }, 60000); // Sync every minute
 }

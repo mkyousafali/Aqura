@@ -1206,7 +1206,7 @@
 		try {
 			// Call the Edge Function
 			const response = await fetch(
-				'https://vmypotfsyrvuublyddyt.supabase.co/functions/v1/check-overdue-reminders',
+				'https://supabase.urbanaqura.com/functions/v1/check-overdue-reminders',
 				{
 					method: 'POST',
 					headers: {

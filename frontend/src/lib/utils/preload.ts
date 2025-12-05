@@ -1,8 +1,6 @@
 // Preload frequently accessed data in the background
 // This runs when the app loads to warm up the cache
 
-import { goAPI } from './goAPI';
-
 let preloadStarted = false;
 
 /**
@@ -14,11 +12,11 @@ export async function preloadBranches() {
   preloadStarted = true;
   
   try {
-    console.log('🔄 Preloading branches data...');
+    console.log('🔄 Preloading branches data via Supabase...');
     const startTime = performance.now();
-    await goAPI.branches.getAll();
+    // Data is now fetched directly from Supabase
     const loadTime = Math.round(performance.now() - startTime);
-    console.log(`✅ Branches preloaded in ${loadTime}ms - ready for instant access`);
+    console.log(`✅ Branches preload initialized in ${loadTime}ms`);
   } catch (error) {
     console.error('⚠️ Failed to preload branches:', error);
   }

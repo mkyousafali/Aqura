@@ -97,8 +97,8 @@ export const pushQueuePoller = new PushQueuePoller();
 // Auto-start for admin users - enabled by default
 // The Edge Function now works properly
 if (browser) {
-  // Start polling when the module loads (will be active on all pages)
-  pushQueuePoller.start();
+  // 🔴 DISABLED: Push queue polling disabled for now
+  // pushQueuePoller.start();
 
   // Clean up on page unload
   window.addEventListener("beforeunload", () => {

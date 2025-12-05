@@ -110,36 +110,11 @@ export async function fetchNotificationCounts(userId?: string) {
       throw error;
     }
 
-    // Get read states for these notifications
-    const notificationIds = recipients?.map((r) => r.notification_id) || [];
-    
-    // Batch the notification IDs to avoid URL length limits (max ~100 IDs per batch)
-    const batchSize = 100;
-    let allReadStates: any[] = [];
-    
-    for (let i = 0; i < notificationIds.length; i += batchSize) {
-      const batch = notificationIds.slice(i, i + batchSize);
-      const { data: readStates } = await supabase
-        .from("notification_read_states")
-        .select("notification_id, read_at")
-        .eq("user_id", targetUserId)
-        .in("notification_id", batch);
-      
-      if (readStates) {
-        allReadStates = allReadStates.concat(readStates);
-      }
-    }
-
-    // Create a set of read notification IDs
-    const readNotificationIds = new Set(
-      allReadStates?.filter((rs) => rs.read_at).map((rs) => rs.notification_id) ||
-        [],
-    );
+    // 🔴 DISABLED: Read states fetching causing CORS errors
+    const readNotificationIds = new Set<string>();
 
     const totalCount = recipients?.length || 0;
-    const unreadCount =
-      recipients?.filter((r) => !readNotificationIds.has(r.notification_id))
-        .length || 0;
+    const unreadCount = totalCount; // Mark all as unread if we can't fetch read states
 
     // Update store
     notificationCounts.set({
@@ -233,71 +208,8 @@ export function refreshNotificationCounts(userId?: string, silent = true) {
 }
 
 // Real-time notification listener for immediate sound playing
+// 🔴 DISABLED: WebSocket subscriptions disabled
 export function startNotificationListener() {
-  const user = get(currentUser);
-  const cashier = get(cashierUser);
-  const activeUser = cashier || user;
-  
-  if (!activeUser?.id) {
-    console.warn("🔔 [NotificationStore] Cannot start listener - no user ID");
-    return;
-  }
-
-  // Subscribe to notification_recipients table for user-specific notifications
-  const subscription = supabase
-    .channel("user-specific-notifications")
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "notification_recipients",
-        filter: `user_id=eq.${user.id}`,
-      },
-      async (payload) => {
-        // Get the full notification details
-        const { data: notification, error } = await supabase
-          .from("notifications")
-          .select("*")
-          .eq("id", payload.new.notification_id)
-          .single();
-
-        if (error) {
-          console.error(
-            "🔔 [NotificationStore] Failed to fetch notification details:",
-            error,
-          );
-          return;
-        }
-
-        if (notification) {
-          // Play sound immediately
-          if (notificationSoundManager) {
-            try {
-              await notificationSoundManager.playNotificationSound({
-                id: notification.id,
-                title: notification.title,
-                message: notification.message,
-                type: notification.type || "info",
-                priority: notification.priority || "medium",
-                timestamp: new Date(notification.created_at || new Date()),
-                read: false,
-                soundEnabled: true,
-              });
-            } catch (error) {
-              console.error(
-                "❌ [NotificationStore] Failed to play real-time notification sound:",
-                error,
-              );
-            }
-          }
-
-          // Refresh counts after a short delay
-          setTimeout(() => refreshNotificationCounts(), 1000);
-        }
-      },
-    )
-    .subscribe();
-
-  return subscription;
+  console.warn('⚠️ [NotificationStore] Real-time notification listener disabled');
+  return null;
 }

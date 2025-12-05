@@ -81,7 +81,7 @@
 						type: 'notification_attachment',
 						fileUrl: att.file_path.startsWith('http') 
 							? att.file_path 
-							: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/notification-images/${att.file_path}`,
+							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
 						fileName: att.file_name,
 						fileSize: att.file_size,
 						fileType: att.file_type,
@@ -127,24 +127,22 @@
 					if (originalNotification.task_id) {
 						const { data: taskImages } = await supabase
 							.from('task_images')
-							.select('*')
-							.eq('task_id', originalNotification.task_id);
-						
-						if (taskImages && taskImages.length > 0) {
-							taskAttachments.push(...taskImages.map(img => ({
-								...img,
-								type: 'task_image',
-								fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
-								fileName: img.file_name,
-								fileSize: img.file_size,
-								fileType: img.file_type,
-								isImage: true,
-								source: 'Task'
-							})));
-						}
-					}
+						.select('*')
+						.eq('task_id', originalNotification.task_id);
 					
-					// Get task images from task_assignment_id
+					if (taskImages && taskImages.length > 0) {
+						taskAttachments.push(...taskImages.map(img => ({
+							...img,
+							type: 'task_image',
+							fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+							fileName: img.file_name,
+							fileSize: img.file_size,
+							fileType: img.file_type,
+							isImage: true,
+							source: 'Task'
+						})));
+					}
+				}					// Get task images from task_assignment_id
 					if (originalNotification.task_assignment_id) {
 						const { data: assignment } = await supabase
 							.from('task_assignments')
@@ -162,7 +160,7 @@
 								taskAttachments.push(...taskImages.map(img => ({
 									...img,
 									type: 'task_image',
-									fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+									fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
 									fileName: img.file_name,
 									fileSize: img.file_size,
 									fileType: img.file_type,
@@ -253,7 +251,7 @@
 						quickTaskAttachments = quickTaskFiles.map(file => ({
 							...file,
 							type: 'quick_task_file',
-							fileUrl: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/quick-task-files/${file.storage_path}`,
+							fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/quick-task-files/${file.storage_path}`,
 							fileName: file.file_name,
 							fileSize: file.file_size,
 							fileType: file.file_type,

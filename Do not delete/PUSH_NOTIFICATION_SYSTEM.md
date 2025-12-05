@@ -59,8 +59,8 @@ Notification Created → Queue Entry → Edge Function → FCM → Service Worke
 ### API Keys (`.env` file)
 
 ```env
-VITE_SUPABASE_URL=https://vmypotfsyrvuublyddyt.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs
+VITE_SUPABASE_URL=https://supabase.urbanaqura.com
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
 ```
 
 ### VAPID Keys (for Web Push)
@@ -137,7 +137,7 @@ const pushResponse = await fetch(urlWithId.toString(), {
 
 1. **API Key Must Be Correct**
    ```javascript
-   const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs';
+   const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
    ```
    ⚠️ **If this key is wrong/expired, notifications will show generic "You have a new notification"**
 
@@ -287,14 +287,14 @@ cmd /c test-simple.bat
 
 **Check queue status:**
 ```bash
-curl.exe -X GET "https://vmypotfsyrvuublyddyt.supabase.co/rest/v1/notification_queue?select=*&order=created_at.desc&limit=5" \
+curl.exe -X GET "https://supabase.urbanaqura.com/rest/v1/notification_queue?select=*&order=created_at.desc&limit=5" \
   -H "apikey: {ANON_KEY}" \
   -H "Authorization: Bearer {ANON_KEY}"
 ```
 
 **Check subscriptions:**
 ```bash
-curl.exe -X GET "https://vmypotfsyrvuublyddyt.supabase.co/rest/v1/push_subscriptions?select=*&user_id=eq.{USER_ID}" \
+curl.exe -X GET "https://supabase.urbanaqura.com/rest/v1/push_subscriptions?select=*&user_id=eq.{USER_ID}" \
   -H "apikey: {ANON_KEY}" \
   -H "Authorization: Bearer {ANON_KEY}"
 ```

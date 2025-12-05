@@ -24,7 +24,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
-	import { cacheManager } from '$lib/utils/cacheManager';
+	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	
@@ -908,16 +908,9 @@
 			const isSupported = notificationService.isPushNotificationSupported();
 			const permission = notificationService.getPushNotificationPermission();
 			
-			if (isSupported && permission === 'granted') {
-				// Start real-time notification listener
-				await notificationService.startRealtimeNotificationListener();
-				
-				// Start notification store listener for in-app sounds
-				console.log('🔔 Starting notification store listener for in-app sounds...');
-				startNotificationListener();
-			}
-			
-			// Start the push notification processor
+		if (isSupported && permission === 'granted') {
+			// Push notification services are configured
+		}			// Start the push notification processor
 			console.log('🚀 Starting push notification processor...');
 			pushNotificationProcessor.start();
 			
@@ -925,7 +918,8 @@
 			// This is needed when pg_cron is not available (free tier)
 			console.log('🔄 Starting push queue poller...');
 			const { pushQueuePoller } = await import('$lib/utils/pushQueuePoller');
-			pushQueuePoller.start();
+			// 🔴 DISABLED: Push queue polling disabled
+			// pushQueuePoller.start();
 			
 			// Mark as initialized
 			notificationServicesInitialized = true;

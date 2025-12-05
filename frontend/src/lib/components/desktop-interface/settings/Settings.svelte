@@ -3,7 +3,7 @@
     import NotificationSoundControls from '$lib/components/common/NotificationSoundControls.svelte';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { currentLocale, t } from '$lib/i18n';
-    import { cacheManager } from '$lib/utils/cacheManager';
+    // import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
     
     // Get current user for context
     $: user = $currentUser;
@@ -33,7 +33,9 @@
         clearMessage = 'Clearing caches...';
         
         try {
-            await cacheManager.clearAllCaches();
+            // TODO: Replace with localStorage.clear() or IndexedDB clearing
+            // await cacheManager.clearAllCaches();
+            localStorage.clear();
             clearMessage = '✅ Caches cleared successfully! App performance may improve.';
             
             // Clear the message after 3 seconds

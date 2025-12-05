@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { supabaseAdmin } from '$lib/utils/supabase';
-	import { goAPI } from '$lib/utils/goAPI';
+	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { _ as t, currentLocale } from '$lib/i18n';
 
 	interface DailySales {
@@ -44,23 +44,11 @@
 	let maxYesterdayBranchAmount = 0;
 
 	onMount(async () => {
-		// Test Go backend availability
-		const { data: healthData } = await goAPI.healthCheck();
-		if (healthData) {
-			console.log('🚀 Go backend is available:', healthData);
-			
-			// Test fetching sales data from Go backend
-			const testStart = performance.now();
-			const { data: goSalesData, error } = await goAPI.sales.getDailySales();
-			const testEnd = performance.now();
-			
-			if (goSalesData) {
-				console.log(`✅ Go backend sales data fetched in ${(testEnd - testStart).toFixed(2)}ms`);
-				console.log('📊 Go backend returned:', goSalesData.count, 'sales records');
-			} else if (error) {
-				console.log('⚠️ Go backend error:', error);
-			}
-		}
+		// TODO: Replace Go backend availability check with Supabase health check
+		// const { data: healthData } = await goAPI.healthCheck();
+		// if (healthData) {
+		// 	console.log('🚀 Go backend is available:', healthData);
+		// }
 		
 		await loadSalesData();
 		await loadBranchSalesData();
@@ -106,11 +94,14 @@
 			const previousMonthStart = formatDate(previousMonthDate);
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
-			// Fetch daily sales data from Go backend (last 3 days)
-			const { data, error } = await goAPI.sales.getDailySales({
-				startDate: formatDate(dayBeforeYesterday),
-				endDate: today
-			});
+			// TODO: Replace with Supabase queries
+			// Fetch daily sales data from Supabase (last 3 days)
+			// const { data, error } = await goAPI.sales.getDailySales({
+			// 	startDate: formatDate(dayBeforeYesterday),
+			// 	endDate: today
+			// });
+			const data = { count: 0, records: [] };
+			const error = null;
 
 			if (error) throw error;
 			
@@ -119,16 +110,20 @@
 			console.log('📊 Sample dates from API:', data?.records?.slice(0, 5).map(r => r.sale_date));
 
 			// Fetch current month data
-			const { data: currentMonthData, error: currentMonthError } = await goAPI.sales.getDailySales({
-				startDate: currentMonthStart,
-				endDate: currentMonthEnd
-			});
+			// const { data: currentMonthData, error: currentMonthError } = await goAPI.sales.getDailySales({
+			// 	startDate: currentMonthStart,
+			// 	endDate: currentMonthEnd
+			// });
+			const currentMonthData = { records: [] };
+			const currentMonthError = null;
 
 			// Fetch previous month data
-			const { data: previousMonthData, error: previousMonthError } = await goAPI.sales.getDailySales({
-				startDate: previousMonthStart,
-				endDate: previousMonthEnd
-			});
+			// const { data: previousMonthData, error: previousMonthError } = await goAPI.sales.getDailySales({
+			// 	startDate: previousMonthStart,
+			// 	endDate: previousMonthEnd
+			// });
+			const previousMonthData = { records: [] };
+			const previousMonthError = null;
 
 			// Group by date and sum amounts for daily chart
 			const groupedData = dates.map(date => {
@@ -210,11 +205,14 @@
 			const previousMonthStart = formatDate(previousMonthDate);
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
-			// Fetch today's sales by branch from Go backend
-			const { data, error } = await goAPI.sales.getDailySales({
-				startDate: todayStr,
-				endDate: todayStr
-			});
+			// TODO: Replace with Supabase queries
+			// Fetch today's sales by branch from Supabase
+			// const { data, error } = await goAPI.sales.getDailySales({
+			// 	startDate: todayStr,
+			// 	endDate: todayStr
+			// });
+			const data = { records: [] };
+			const error = null;
 
 			if (error) throw error;
 
@@ -267,17 +265,20 @@
 				return result;
 			});
 
+			// TODO: Replace with Supabase queries
 			// Fetch current month data by branch
-			const { data: currentMonthData } = await goAPI.sales.getDailySales({
-				startDate: currentMonthStart,
-				endDate: currentMonthEnd
-			});
+			// const { data: currentMonthData } = await goAPI.sales.getDailySales({
+			// 	startDate: currentMonthStart,
+			// 	endDate: currentMonthEnd
+			// });
+			const currentMonthData = { records: [] };
 
 			// Fetch previous month data by branch
-			const { data: previousMonthData } = await goAPI.sales.getDailySales({
-				startDate: previousMonthStart,
-				endDate: previousMonthEnd
-			});
+			// const { data: previousMonthData } = await goAPI.sales.getDailySales({
+			// 	startDate: previousMonthStart,
+			// 	endDate: previousMonthEnd
+			// });
+			const previousMonthData = { records: [] };
 
 			// Calculate averages for each branch
 			groupedByBranch.forEach(branch => {
@@ -334,11 +335,14 @@
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayStr = formatDate(yesterday);
 
-		// Fetch yesterday's sales by branch from Go backend
-		const { data, error } = await goAPI.sales.getDailySales({
-			startDate: yesterdayStr,
-			endDate: yesterdayStr
-		});
+		// TODO: Replace with Supabase queries
+		// Fetch yesterday's sales by branch from Supabase
+		// const { data, error } = await goAPI.sales.getDailySales({
+		// 	startDate: yesterdayStr,
+		// 	endDate: yesterdayStr
+		// });
+		const data = { records: [] };
+		const error = null;
 
 		if (error) throw error;
 

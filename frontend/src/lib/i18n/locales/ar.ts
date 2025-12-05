@@ -63,6 +63,7 @@ export const arabicLocale: LocaleData = {
       users: "المستخدمون",
       interfaceAccess: "وصول الواجهة",
       approvalPermissions: "صلاحيات الموافقة",
+      userPermissions: "صلاحيات المستخدم",
       marketingMaster: "إدارة التسويق",
       erpConnections: "اتصالات ERP",
       clearTables: "مسح الجداول",

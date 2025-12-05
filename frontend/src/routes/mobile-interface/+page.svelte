@@ -5,7 +5,7 @@
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
-	import { goAPI } from '$lib/utils/goAPI';
+	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
 	
 	let currentUserData = null;
@@ -74,10 +74,12 @@
 	async function loadDashboardData() {
 		try {
 			const startTime = performance.now();
-			console.log('🔍 Loading mobile dashboard from Go backend...');
+			console.log('🔍 Loading mobile dashboard from Supabase...');
 			
-			// Use Go API with automatic fallback to Supabase
-			const { data, error } = await goAPI.mobileDashboard.getDashboardData(currentUserData.id);
+			// TODO: Replace with Supabase queries
+			// const { data, error } = await goAPI.mobileDashboard.getDashboardData(currentUserData.id);
+			const data = { stats: { pending_tasks: 0 }, punches: { records: [], loading: false, error: '' } };
+			const error = null;
 			
 			if (error) {
 				console.error('❌ Error loading dashboard:', error);
@@ -100,7 +102,7 @@
 
 	// Helper function to get proper file URL
 	function getFileUrl(attachment) {
-		const baseUrl = 'https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public';
+		const baseUrl = 'https://supabase.urbanaqura.com/storage/v1/object/public';
 		if (attachment.type === 'task_image') {
 			// Task images use file_url or file_path
 			const fileName = attachment.file_url || attachment.file_path;

@@ -97,7 +97,7 @@
 					fileType: attachment.file_type || 'application/octet-stream',
 					fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
 						? attachment.file_path 
-						: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+						: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
 					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 					uploadedAt: attachment.created_at
 				}));

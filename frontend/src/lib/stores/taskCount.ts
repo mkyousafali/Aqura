@@ -234,74 +234,9 @@ export const taskCountService = {
   },
 
   // Subscribe to real-time task updates
+  // 🔴 DISABLED: WebSocket subscriptions disabled
   subscribeToTaskUpdates() {
-    const user = get(currentUser);
-    const cashier = get(cashierUser);
-    const activeUser = cashier || user;
-    
-    if (!activeUser || !browser) return null;
-
-    // Subscribe to regular task assignments
-    const regularTaskChannel = supabase
-      .channel("task-assignments-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "task_assignments",
-          filter: `assigned_to_user_id=eq.${activeUser.id}`,
-        },
-        () => {
-          console.log(
-            "📋 Regular task assignment changed, refreshing counts...",
-          );
-          this.fetchTaskCounts(true); // Silent refresh
-        },
-      )
-      .subscribe();
-
-    // Subscribe to quick task assignments
-    const quickTaskChannel = supabase
-      .channel("quick-task-assignments-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "quick_task_assignments",
-          filter: `assigned_to_user_id=eq.${activeUser.id}`,
-        },
-        () => {
-          console.log("⚡ Quick task assignment changed, refreshing counts...");
-          this.fetchTaskCounts(true); // Silent refresh
-        },
-      )
-      .subscribe();
-
-    // Subscribe to receiving tasks
-    const receivingTaskChannel = supabase
-      .channel("receiving-tasks-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "receiving_tasks",
-          filter: `assigned_user_id=eq.${activeUser.id}`,
-        },
-        () => {
-          console.log("📦 Receiving task changed, refreshing counts...");
-          this.fetchTaskCounts(true); // Silent refresh
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(regularTaskChannel);
-      supabase.removeChannel(quickTaskChannel);
-      supabase.removeChannel(receivingTaskChannel);
-    };
+    return null;
   },
 
   // Initialize task count monitoring

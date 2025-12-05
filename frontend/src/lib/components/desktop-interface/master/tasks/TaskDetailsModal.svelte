@@ -51,14 +51,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						id: attachment.id,
 						fileName: attachment.file_name || 'Unknown File',
 						fileSize: attachment.file_size || 0,
-						fileType: attachment.file_type || 'application/octet-stream',
-						fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-						downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-						uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+					fileType: attachment.file_type || 'application/octet-stream',
+					fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+						? attachment.file_path 
+						: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+						? attachment.file_path 
+						: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+					uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
 						uploadedAt: attachment.created_at
 					}));
 				console.log('📎 [TaskDetails] Task attachments loaded:', taskAttachments.length);

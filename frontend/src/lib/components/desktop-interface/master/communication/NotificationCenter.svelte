@@ -76,7 +76,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						...att,
 						fileUrl: att.file_path.startsWith('http') 
 							? att.file_path 
-							: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/notification-images/${att.file_path}`,
+							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
 						fileName: att.file_name,
 						fileSize: att.file_size,
 						fileType: att.file_type,
@@ -130,31 +130,29 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					.in('task_id', taskIds);
 
 				if (error) {
-					console.warn(`❌ [Notification] Failed to batch load task attachments:`, error);
-				} else if (taskAttachments && taskAttachments.length > 0) {
-					// Group attachments by task_id
-					const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
-						if (!acc[attachment.task_id]) {
-							acc[attachment.task_id] = [];
-						}
-						acc[attachment.task_id].push({
-							id: attachment.id,
-							fileName: attachment.file_name || 'Unknown File',
-							fileSize: attachment.file_size || 0,
-							fileType: attachment.file_type || 'application/octet-stream',
-							fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-								? attachment.file_path 
-								: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-							downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-								? attachment.file_path 
-								: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-							uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
-							uploadedAt: attachment.created_at
-						});
-						return acc;
-					}, {});
-
-					// Assign task attachments to their respective notifications
+				console.warn(`❌ [Notification] Failed to batch load task attachments:`, error);
+			} else if (taskAttachments && taskAttachments.length > 0) {
+				// Group attachments by task_id
+				const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
+					if (!acc[attachment.task_id]) {
+						acc[attachment.task_id] = [];
+					}
+					acc[attachment.task_id].push({
+						id: attachment.id,
+						fileName: attachment.file_name || 'Unknown File',
+						fileSize: attachment.file_size || 0,
+						fileType: attachment.file_type || 'application/octet-stream',
+						fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+							? attachment.file_path 
+							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+						downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+							? attachment.file_path 
+							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+						uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+						uploadedAt: attachment.created_at
+					});
+					return acc;
+				}, {});					// Assign task attachments to their respective notifications
 					for (const transformed of transformedNotifications) {
 						const notification = apiNotifications.find(n => n.id === transformed.id);
 						if (notification?.metadata?.task_id) {

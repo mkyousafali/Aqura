@@ -58,7 +58,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		const notificationInterval = setInterval(fetchNotificationCounts, 30000);
 		
 		// Initialize task count monitoring
-		taskCountService.initTaskCountMonitoring();
+		// 🔴 DISABLED: Task count monitoring disabled
+		// taskCountService.initTaskCountMonitoring();
 		
 		// Initialize approval count monitoring
 		initApprovalCountMonitoring();

@@ -49,23 +49,7 @@ class PushNotificationProcessor {
     );
     this.isProcessing = true;
 
-    // Delay initial queue processing by 2 seconds to allow auth session to stabilize
-    setTimeout(() => {
-      this.processQueue().catch((err) => {
-        console.error("❌ Initial queue processing failed:", err);
-      });
-    }, 2000);
-
-    // Set up periodic processing every 30 seconds
-    this.intervalId = setInterval(async () => {
-      if (this.isProcessing) {
-        try {
-          await this.processQueue();
-        } catch (error) {
-          console.error("❌ Periodic queue processing failed:", error);
-        }
-      }
-    }, 30000); // Process every 30 seconds
+    // Queue processing disabled
 
     // Daily cleanup disabled to prevent notification deletion
     // setInterval(async () => {
@@ -102,150 +86,11 @@ class PushNotificationProcessor {
 
   /**
    * Process pending notifications in the queue with retry logic
+   * DISABLED - Removed to prevent console warnings
    */
-  private async processQueue() {
-    try {
-      // [v3.0] Preventive cleanup disabled to prevent notification deletion
-      // await this.cleanupExcessiveFailedNotifications();
-
-      // CRITICAL FIX: Get current user to only process their notifications
-      const currentUser = await supabase.auth.getUser();
-      if (!currentUser.data.user) {
-        console.warn("⚠️ No authenticated user - skipping queue processing");
-        return;
-      }
-      const currentUserId = currentUser.data.user.id;
-
-      // Get pending notifications and those ready for retry FOR CURRENT USER ONLY
-      const now = new Date().toISOString();
-      const { data: queuedNotifications, error } = await supabase
-        .from("notification_queue")
-        .select(
-          `
-                    id,
-                    notification_id,
-                    user_id,
-                    device_id,
-                    push_subscription_id,
-                    payload,
-                    status,
-                    created_at,
-                    retry_count,
-                    next_retry_at,
-                    last_attempt_at,
-                    push_subscriptions!inner(
-                        endpoint,
-                        p256dh,
-                        auth,
-                        is_active
-                    )
-                `,
-        )
-        .eq("user_id", currentUserId) // CRITICAL: Only process current user's notifications
-        .or(`status.eq.pending,and(status.eq.retry,next_retry_at.lte.${now})`)
-        .eq("push_subscriptions.is_active", true)
-        .order("created_at", { ascending: true }) // Process oldest first (FIFO)
-        .limit(10);
-
-      if (error) {
-        console.error("❌ Error fetching queued notifications:", error);
-        // If it's a connection error, stop processing for now
-        if (
-          error.message?.includes("Failed to fetch") ||
-          error.message?.includes("ERR_CONNECTION_CLOSED")
-        ) {
-          console.warn(
-            "🔌 Connection error detected, pausing queue processing",
-          );
-          return;
-        }
-        return;
-      }
-
-      const totalNotifications = queuedNotifications?.length || 0;
-      const pendingCount =
-        queuedNotifications?.filter((n) => n.status === "pending").length || 0;
-      const retryCount =
-        queuedNotifications?.filter((n) => n.status === "retry").length || 0;
-
-      console.log(
-        `📊 Found ${totalNotifications} notifications in queue FOR USER ${currentUserId} (${pendingCount} pending, ${retryCount} ready for retry)`,
-      );
-
-      if (!queuedNotifications || queuedNotifications.length === 0) {
-        return; // Don't log if no notifications (too verbose)
-      }
-
-      console.log(
-        `📬 Processing ${queuedNotifications.length} notifications FOR CURRENT USER...`,
-      );
-
-      // Process each notification individually with retry logic
-      for (const queueItem of queuedNotifications) {
-        try {
-          // Check if subscription exists and is still active
-          let needsFallback = false;
-
-          if (
-            !queueItem.push_subscriptions ||
-            !queueItem.push_subscriptions.is_active
-          ) {
-            console.warn(
-              `⚠️ Subscription for queue item ${queueItem.id} is not active or not found - trying fallback`,
-            );
-            needsFallback = true;
-          }
-
-          // Additional check: verify subscription ID exists in subscription table
-          if (!needsFallback && queueItem.push_subscription_id) {
-            const { data: subscriptionCheck, error: checkError } =
-              await supabase
-                .from("push_subscriptions")
-                .select("id, is_active")
-                .eq("id", queueItem.push_subscription_id)
-                .single();
-
-            if (
-              checkError ||
-              !subscriptionCheck ||
-              !subscriptionCheck.is_active
-            ) {
-              console.warn(
-                `⚠️ Subscription ID ${queueItem.push_subscription_id} not found or inactive - trying fallback`,
-              );
-              needsFallback = true;
-            }
-          }
-
-          if (needsFallback) {
-            // Fallback: Find latest active subscription for this user
-            const fallbackSuccess =
-              await this.processFallbackSubscription(queueItem);
-            if (!fallbackSuccess) {
-              // Mark as failed if no fallback available
-              await supabase
-                .from("notification_queue")
-                .update({
-                  status: "failed",
-                  error_message: "No active subscription found for user",
-                })
-                .eq("id", queueItem.id);
-              continue;
-            }
-          }
-
-          await this.processNotificationWithRetry(queueItem);
-        } catch (error) {
-          console.error(
-            `❌ Error processing queue item ${queueItem.id}:`,
-            error,
-          );
-        }
-      }
-    } catch (error) {
-      console.error("❌ Error processing notification queue:", error);
-    }
-  }
+  // private async processQueue() {
+  //   // Queue processing disabled
+  // }
 
   /**
    * Process fallback subscription when device_id or push_subscription_id not found/inactive
@@ -1413,10 +1258,11 @@ class PushNotificationProcessor {
 
   /**
    * Manually process queue once (for testing)
+   * DISABLED - Removed to prevent console warnings
    */
-  async processOnce() {
-    await this.processQueue();
-  }
+  // async processOnce() {
+  //   // await this.processQueue();
+  // }
 
   /**
    * Create a test notification queue entry (DISABLED - removed to prevent unwanted test notifications)

@@ -104,7 +104,9 @@
 			loadBadgeCounts();
 			
 			// Initialize notification sound system for mobile
-			startNotificationListener();
+			// 🔴 DISABLED: Real-time notification listener disabled
+			console.warn('⚠️ Real-time notification listener disabled');
+			// startNotificationListener();
 			
 			// Set up mobile audio unlock on first user interaction
 			setupMobileAudioUnlock();
@@ -140,7 +142,9 @@
 		loadBadgeCounts(true); // Silent refresh counts when user changes
 		
 		// Restart notification sound system for new user
-		startNotificationListener();
+		// 🔴 DISABLED: Real-time notification listener disabled
+		console.warn('⚠️ Real-time notification listener disabled');
+		// startNotificationListener();
 	}
 
 	// Reactive statement to play sound when notification count increases

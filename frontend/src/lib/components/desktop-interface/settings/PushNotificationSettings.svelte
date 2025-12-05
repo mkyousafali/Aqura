@@ -66,7 +66,9 @@
 				success = 'Successfully registered for push notifications!';
 				
 				// Start real-time listener
-				await notificationService.startRealtimeNotificationListener();
+				// 🔴 DISABLED: Real-time subscriptions - causing performance issues
+				console.warn("⚠️ Real-time notifications disabled temporarily");
+				// await notificationService.startRealtimeNotificationListener();
 			} else {
 				error = 'Failed to register for push notifications';
 			}

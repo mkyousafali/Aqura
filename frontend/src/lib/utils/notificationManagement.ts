@@ -158,34 +158,12 @@ export class NotificationManagementService {
           throw error;
         }
 
-        // Get read states for all notifications in batched queries to avoid URL length limits
-        const notificationIds = data?.map((r) => r.notification_id) || [];
-        const batchSize = 100;
-        let allReadStates: any[] = [];
-        
-        for (let i = 0; i < notificationIds.length; i += batchSize) {
-          const batch = notificationIds.slice(i, i + batchSize);
-          const { data: readStates } = await supabase
-            .from("notification_read_states")
-            .select("notification_id, is_read, read_at")
-            .eq("user_id", userId)
-            .in("notification_id", batch);
-          
-          if (readStates) {
-            allReadStates = allReadStates.concat(readStates);
-          }
-        }
-
-        // Create a map of read states for quick lookup
+        // 🔴 DISABLED: Read states fetching causing CORS errors
+        console.warn('⚠️ [NotificationManagement] Read states fetching disabled');
         const readStatesMap = new Map<
           string,
           { is_read: boolean; read_at?: string }
-        >(
-          allReadStates?.map((rs) => [
-            rs.notification_id,
-            { is_read: rs.is_read, read_at: rs.read_at },
-          ]) || [],
-        );
+        >();
 
         // Transform data to match NotificationItem interface
         return (
@@ -250,40 +228,10 @@ export class NotificationManagementService {
         throw error;
       }
 
-      // Get read states for all notifications in batched queries to avoid URL length limits
-      const notificationIds = data?.map((r) => r.notification_id) || [];
-      const batchSize = 100;
-      let allReadStates: any[] = [];
-      
-      for (let i = 0; i < notificationIds.length; i += batchSize) {
-        const batch = notificationIds.slice(i, i + batchSize);
-        const { data: readStates } = await supabase
-          .from("notification_read_states")
-          .select("notification_id, is_read, read_at")
-          .eq("user_id", userId)
-          .in("notification_id", batch);
-        
-        if (readStates) {
-          allReadStates = allReadStates.concat(readStates);
-        }
-      }
-
-      // Create a map of read states for quick lookup
-      const readStatesMap = new Map<
-        string,
-        { is_read: boolean; read_at?: string }
-      >(
-        allReadStates?.map((rs) => [
-          rs.notification_id,
-          { is_read: rs.is_read, read_at: rs.read_at },
-        ]) || [],
-      );
-
       // Transform data to match UserNotificationItem interface
       const userNotifications =
         data?.map((recipient) => {
           const notification = recipient.notifications;
-          const readState = readStatesMap.get(recipient.notification_id);
 
           return {
             id: notification.id,
@@ -292,8 +240,8 @@ export class NotificationManagementService {
             message: notification.message,
             type: notification.type,
             priority: notification.priority,
-            is_read: readState?.is_read || false,
-            read_at: readState?.read_at,
+            is_read: false,
+            read_at: undefined,
             created_at: notification.created_at,
             created_by_name: notification.created_by_name,
             recipient_id: recipient.user_id,
@@ -523,90 +471,30 @@ export class NotificationManagementService {
         data,
       );
 
-      // Queue the notification for push delivery
+      // Queue the notification for push delivery - TEMPORARILY DISABLED
+      console.log(
+        "⚠️ [NotificationManagement] Push notification RPC call temporarily disabled",
+      );
+      // Skip the queue_push_notification RPC call
+
+      // ⚡ INSTANT PUSH: TEMPORARILY DISABLED - Edge Function calls disabled
       try {
         console.log(
-          "📨 [NotificationManagement] Queueing notification for push delivery...",
-        );
-        const { data: queueResult, error: queueError } = await supabase.rpc(
-          "queue_push_notification",
-          {
-            p_notification_id: data.id,
-          },
+          "⚠️ [NotificationManagement] Edge Function temporarily disabled, using client-side processing",
         );
 
-        if (queueError) {
-          console.error(
-            "❌ [NotificationManagement] Failed to queue notification:",
-            queueError,
-          );
-        } else {
-          console.log(
-            "✅ [NotificationManagement] Notification queued successfully:",
-            queueResult,
-          );
-        }
-      } catch (error) {
-        console.error(
-          "❌ [NotificationManagement] Queue function failed:",
-          error,
-        );
-      }
-
-      // ⚡ INSTANT PUSH: Call Edge Function directly for immediate delivery
-      try {
-        console.log(
-          "⚡ [NotificationManagement] Triggering INSTANT push notification delivery...",
-        );
-
-        // Call Edge Function directly (no waiting)
-        const edgeFunctionUrl = `${supabase.supabaseUrl.replace("https://", "https://").replace(".co", ".co")}/functions/v1/process-push-queue`;
-
-        fetch(edgeFunctionUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${supabase.supabaseKey}`,
-            "Content-Type": "application/json",
-          },
-        })
-          .then((response) => {
-            if (response.ok) {
-              console.log(
-                "✅ [NotificationManagement] Instant push delivery triggered successfully",
-              );
-            } else {
-              console.warn(
-                "⚠️ [NotificationManagement] Edge Function call failed, falling back to client processing",
-              );
-              // Fallback to client-side processing
-              setTimeout(() => {
-                pushNotificationProcessor.processOnce().catch((error) => {
-                  console.error(
-                    "❌ [NotificationManagement] Fallback processing failed:",
-                    error,
-                  );
-                });
-              }, 1000);
-            }
-          })
-          .catch((error) => {
+        // Use client-side processing instead
+        setTimeout(() => {
+          pushNotificationProcessor.processOnce().catch((error) => {
             console.error(
-              "❌ [NotificationManagement] Edge Function call error, using fallback:",
+              "❌ [NotificationManagement] Client-side processing failed:",
               error,
             );
-            // Fallback to client-side processing
-            setTimeout(() => {
-              pushNotificationProcessor.processOnce().catch((error) => {
-                console.error(
-                  "❌ [NotificationManagement] Fallback processing failed:",
-                  error,
-                );
-              });
-            }, 1000);
           });
+        }, 500);
       } catch (error) {
         console.error(
-          "❌ [NotificationManagement] Failed to trigger instant push:",
+          "❌ [NotificationManagement] Error in notification processing:",
           error,
         );
       }
@@ -1352,6 +1240,10 @@ export class NotificationManagementService {
    * Listen for real-time notifications and show push notifications with error handling
    */
   async startRealtimeNotificationListener(): Promise<void> {
+    // 🔴 DISABLED: Real-time subscriptions disabled to reduce load
+    console.warn("⚠️ [NotificationManagement] Real-time notification listener disabled - using polling instead");
+    return;
+    
     // Prevent concurrent connection attempts
     if (this.isRealtimeConnecting) {
       console.warn("⚠️ Realtime connection attempt already in progress");

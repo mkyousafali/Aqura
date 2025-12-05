@@ -246,6 +246,19 @@ export class PersistentAuthService {
       console.log("🔍 [PersistentAuth] Creating session token");
       const token = this.generateSessionToken();
 
+      // Step 6.5: Set user context in Postgres for RLS policies
+      console.log("🔐 [PersistentAuth] Setting user context for RLS policies...");
+      try {
+        await supabase.rpc('set_user_context', {
+          user_id: dbUser.id,
+          role_type: userDetails.role_type
+        });
+        console.log("✅ [PersistentAuth] User context set successfully for RLS");
+      } catch (contextError) {
+        console.warn("⚠️ [PersistentAuth] Failed to set user context:", contextError);
+        // Don't fail login if context setting fails, just log warning
+      }
+
       // Step 7: Store session in database
       console.log("🔍 [PersistentAuth] Storing session in database");
       await this.createUserSession(dbUser.id, token, "quick_access");
@@ -584,6 +597,7 @@ export class PersistentAuthService {
 					username,
 					email,
 					role,
+					role_type,
 					hr_employees (
 						id,
 						employee_id,
@@ -596,6 +610,19 @@ export class PersistentAuthService {
 
       if (userError || !userData) {
         return { success: false, error: "User data not found" };
+      }
+
+      // Set user context in Postgres for RLS policies
+      console.log("🔐 [PersistentAuth] Setting user context for RLS policies...");
+      try {
+        await supabase.rpc('set_user_context', {
+          user_id: userData.id,
+          role_type: userData.role_type
+        });
+        console.log("✅ [PersistentAuth] User context set successfully for RLS");
+      } catch (contextError) {
+        console.warn("⚠️ [PersistentAuth] Failed to set user context:", contextError);
+        // Don't fail login if context setting fails, just log warning
       }
 
       // Check desktop interface access permission
@@ -615,17 +642,24 @@ export class PersistentAuthService {
         };
       }
 
+      // Get user permissions
+      console.log("🔍 [PersistentAuth] Getting user permissions");
+      const permissions = await this.getUserPermissions(userData.id);
+      console.log("✅ [PersistentAuth] User permissions retrieved");
+
       // Create user session
       const userSession: UserSession = {
         id: userData.id,
         username: userData.username,
         role: userData.role,
+        roleType: userData.role_type,
         employee_id: userData.hr_employees?.[0]?.employee_id,
         branch_id: userData.hr_employees?.[0]?.branch_id,
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "password",
         isActive: true,
+        permissions,
       };
 
       // Save session to device
@@ -869,25 +903,13 @@ export class PersistentAuthService {
     currentUser.set(user);
     isAuthenticated.set(true);
 
-    // Defer last activity update to avoid race conditions during initialization
-    setTimeout(async () => {
-      try {
-        await this.updateLastActivity();
-      } catch (error) {
-        console.warn("Failed to update last activity:", error);
-      }
-    }, 100);
+    // 🔴 DISABLED: updateLastActivity disabled
+    // await this.updateLastActivity();
   }
 
   private async updateLastActivity(): Promise<void> {
-    const deviceSession = await this.getDeviceSession();
-    if (deviceSession) {
-      deviceSession.lastActivity = new Date().toISOString();
-      await this.saveDeviceSession(deviceSession);
-    }
-
-    // Update push notification service
-    await pushNotificationService.updateLastSeen();
+    // 🔴 DISABLED: updateLastActivity causing updateLastSeen warnings
+    return;
   }
 
   private startSessionMonitoring(): void {
@@ -903,12 +925,13 @@ export class PersistentAuthService {
     }, 60 * 1000);
 
     // Update activity every 5 minutes
-    this.activityTrackingInterval = setInterval(async () => {
-      const current = await this.getCurrentUser();
-      if (current) {
-        await this.updateLastActivity();
-      }
-    }, this.ACTIVITY_UPDATE_INTERVAL);
+    // 🔴 DISABLED: updateLastActivity disabled
+    // this.activityTrackingInterval = setInterval(async () => {
+    //   const current = await this.getCurrentUser();
+    //   if (current) {
+    //     await this.updateLastActivity();
+    //   }
+    // }, this.ACTIVITY_UPDATE_INTERVAL);
   }
 
   private stopSessionMonitoring(): void {
@@ -1062,23 +1085,3 @@ export class PersistentAuthService {
 
 // Singleton instance
 export const persistentAuthService = new PersistentAuthService();
-
-// Listen for user activity to update last seen
-if (browser) {
-  [
-    "mousedown",
-    "mousemove",
-    "keypress",
-    "scroll",
-    "touchstart",
-    "click",
-  ].forEach((event) => {
-    document.addEventListener(
-      event,
-      () => {
-        persistentAuthService["updateLastActivity"]();
-      },
-      { passive: true },
-    );
-  });
-}

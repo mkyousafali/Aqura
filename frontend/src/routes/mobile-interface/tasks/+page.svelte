@@ -479,7 +479,7 @@
 		task.attachments.forEach(attachment => {
 			const downloadUrl = attachment.file_path && attachment.file_path.startsWith('http') 
 				? attachment.file_path 
-				: `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path || ''}`;
+				: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`;
 			
 			const link = document.createElement('a');
 			link.href = downloadUrl;
@@ -498,13 +498,13 @@
 			if (attachment.file_path.startsWith('http')) {
 				return attachment.file_path;
 			}
-			return `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/task-images/${attachment.file_path}`;
+			return `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path}`;
 		}
 		
 		// Handle quick task files (use storage_path and storage_bucket)
 		if (attachment.storage_path) {
 			const bucket = attachment.storage_bucket || 'quick-task-files';
-			return `https://vmypotfsyrvuublyddyt.supabase.co/storage/v1/object/public/${bucket}/${attachment.storage_path}`;
+			return `https://supabase.urbanaqura.com/storage/v1/object/public/${bucket}/${attachment.storage_path}`;
 		}
 		
 		return null;

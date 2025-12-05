@@ -12,8 +12,8 @@ jobs:
     steps:
       - name: Trigger Edge Function
         run: |
-          curl -X POST "https://vmypotfsyrvuublyddyt.supabase.co/functions/v1/check-overdue-reminders" \
-            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZteXBvdGZzeXJ2dXVibHlkZHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0ODI0ODksImV4cCI6MjA3MjA1ODQ4OX0.-HBW0CJM4sO35WjCf0flxuvLLEeQ_eeUnWmLQMlkWQs" \
+          curl -X POST "https://supabase.urbanaqura.com/functions/v1/check-overdue-reminders" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json"
       
       - name: Log Result
