@@ -175,191 +175,329 @@
 	async function loadData() {
 		try {
 			loading = true;
+			const startTime = performance.now();
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			let query;
+			let result;
 			
 			switch (dataType) {
 				case 'bills':
-					query = supabase
-						.from('receiving_records')
-						.select(`
-							*,
-							vendors (
-								vendor_name,
-								vat_number
-							),
-							branches (
-								name_en
-							)
-						`);
-					
-					// Apply branch filter
-					if (branchFilterMode === 'branch' && selectedBranch) {
-						query = query.eq('branch_id', selectedBranch);
-					}
-					
-					// Apply date filter
-					if (dateFilterMode === 'today') {
-						const today = getToday();
-						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
-					} else if (dateFilterMode === 'yesterday') {
-						const yesterday = getYesterday();
-						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
-					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
-						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
-					}
-					
-					query = query.order('created_at', { ascending: false });
+					result = await loadBillsOptimized(supabase);
 					break;
 					
 				case 'tasks':
-					query = supabase.rpc('get_all_receiving_tasks');
+					result = await loadTasksOptimized(supabase);
 					break;
 					
 				case 'completed':
-					query = supabase.rpc('get_completed_receiving_tasks');
+					result = await loadCompletedTasksOptimized(supabase);
 					break;
 					
 				case 'incomplete':
-					query = supabase.rpc('get_incomplete_receiving_tasks');
+					result = await loadIncompleteTasksOptimized(supabase);
 					break;
 					
 				case 'no-original':
-					query = supabase
-						.from('receiving_records')
-						.select(`
-							*,
-							vendors (
-								vendor_name,
-								vat_number
-							),
-							branches (
-								name_en
-							)
-						`)
-						.or('original_bill_url.is.null,original_bill_url.eq.');
-					
-					// Apply branch filter
-					if (branchFilterMode === 'branch' && selectedBranch) {
-						query = query.eq('branch_id', selectedBranch);
-					}
-					
-					// Apply date filter
-					if (dateFilterMode === 'today') {
-						const today = getToday();
-						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
-					} else if (dateFilterMode === 'yesterday') {
-						const yesterday = getYesterday();
-						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
-					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
-						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
-					}
-					
-					query = query.order('created_at', { ascending: false });
+					result = await loadNoOriginalOptimized(supabase);
 					break;
 					
 				case 'no-erp':
-					query = supabase
-						.from('receiving_records')
-						.select(`
-							id,
-							bill_number,
-							vendor_id,
-							bill_date,
-							bill_amount,
-							final_bill_amount,
-							created_at,
-							erp_purchase_invoice_reference,
-							branch_id,
-							vendors!inner (
-								vendor_name,
-								vat_number
-							),
-							branches!inner (
-								name_en
-							)
-						`)
-						.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.');
-					
-					// Apply branch filter
-					if (branchFilterMode === 'branch' && selectedBranch) {
-						query = query.eq('branch_id', selectedBranch);
-					}
-					
-					// Apply date filter
-					if (dateFilterMode === 'today') {
-						const today = getToday();
-						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
-					} else if (dateFilterMode === 'yesterday') {
-						const yesterday = getYesterday();
-						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
-					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
-						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
-					}
-					
-					query = query.order('created_at', { ascending: false });
+					result = await loadNoErpOptimized(supabase);
 					break;
 
 				case 'no-pr-excel':
-					console.log('🔍 Loading records without PR Excel...');
-					query = supabase
-						.from('receiving_records')
-						.select(`
-							*,
-							vendors (
-								vendor_name,
-								vat_number
-							),
-							branches (
-								name_en
-							)
-						`)
-						.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.');
-					
-					// Apply branch filter
-					if (branchFilterMode === 'branch' && selectedBranch) {
-						query = query.eq('branch_id', selectedBranch);
-					}
-					
-					// Apply date filter
-					if (dateFilterMode === 'today') {
-						const today = getToday();
-						query = query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
-					} else if (dateFilterMode === 'yesterday') {
-						const yesterday = getYesterday();
-						query = query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
-					} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
-						query = query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
-					}
-					
-					query = query.order('created_at', { ascending: false });
+					result = await loadNoPrExcelOptimized(supabase);
 					break;
 					
 				default:
 					throw new Error(`Unknown data type: ${dataType}`);
 			}
 
-			const { data: result, error: queryError } = await query;
-			
-			console.log('🔍 Query result for dataType:', dataType);
-			console.log('📊 Data received:', result);
-			console.log('❌ Query error:', queryError);
-
-			if (queryError) {
-				throw queryError;
+			if (result.error) {
+				throw result.error;
 			}
 
 			// Transform data for display
-			data = transformData(result || []);
+			data = transformData(result.data || []);
+			
+			const endTime = performance.now();
+			console.log(`✅ ${dataType} loaded in ${(endTime - startTime).toFixed(0)}ms (${data.length} records)`);
 			
 		} catch (err) {
-			console.error('Error loading data:', err);
+			console.error('❌ Error loading data:', err);
 			error = err.message;
 			data = [];
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Optimized loaders using separate sequential queries (no nested JOINs)
+	async function loadBillsOptimized(supabase) {
+		// Step 1: Load receiving records with minimal columns and hard limit
+		let query = supabase
+			.from('receiving_records')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
+			.limit(200);
+
+		// Apply branch filter
+		if (branchFilterMode === 'branch' && selectedBranch) {
+			query = query.eq('branch_id', selectedBranch);
+		}
+
+		// Apply date filter
+		query = applyDateFilter(query);
+
+		const { data: records, error } = await query.order('created_at', { ascending: false });
+
+		if (error) return { error };
+		if (!records || records.length === 0) return { data: [] };
+
+		// Step 2: Load vendor details separately
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(Boolean))];
+		const { data: vendors = [] } = vendorIds.length > 0
+			? await supabase.from('vendors').select('id, vendor_name, vat_number').in('id', vendorIds)
+			: { data: [] };
+
+		// Step 3: Load branch details separately
+		const branchIds = [...new Set(records.map(r => r.branch_id).filter(Boolean))];
+		const { data: branches = [] } = branchIds.length > 0
+			? await supabase.from('branches').select('id, name_en').in('id', branchIds)
+			: { data: [] };
+
+		// Step 4: Merge in memory (no RLS overhead)
+		const vendorMap = new Map((vendors || []).map(v => [v.id, v]));
+		const branchMap = new Map((branches || []).map(b => [b.id, b]));
+
+		const merged = records.map(record => ({
+			...record,
+			vendors: vendorMap.get(record.vendor_id),
+			branches: branchMap.get(record.branch_id)
+		}));
+
+		return { data: merged };
+	}
+
+	async function loadNoOriginalOptimized(supabase) {
+		// Step 1: Load records without original bill
+		let query = supabase
+			.from('receiving_records')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
+			.or('original_bill_url.is.null,original_bill_url.eq.')
+			.limit(200);
+
+		if (branchFilterMode === 'branch' && selectedBranch) {
+			query = query.eq('branch_id', selectedBranch);
+		}
+
+		query = applyDateFilter(query);
+
+		const { data: records, error } = await query.order('created_at', { ascending: false });
+
+		if (error) return { error };
+		if (!records || records.length === 0) return { data: [] };
+
+		// Step 2: Load vendor details separately
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
+		let vendors = [];
+		if (vendorIds.length > 0) {
+			try {
+				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
+				if (vendorError) {
+					console.warn('⚠️ Error loading vendors:', vendorError);
+				} else {
+					vendors = vendorData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading vendors:', err);
+			}
+		}
+
+		// Step 3: Load branch details separately
+		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+		let branches = [];
+		if (branchIds.length > 0) {
+			try {
+				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
+				if (branchError) {
+					console.warn('⚠️ Error loading branches:', branchError);
+				} else {
+					branches = branchData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading branches:', err);
+			}
+		}
+
+		// Step 4: Merge in memory
+		const vendorMap = new Map((vendors || []).map(v => [v.erp_vendor_id, v]));
+		const branchMap = new Map((branches || []).map(b => [b.id, b]));
+
+		const merged = records.map(record => ({
+			...record,
+			vendors: vendorMap.get(record.vendor_id),
+			branches: branchMap.get(record.branch_id)
+		}));
+
+		return { data: merged };
+	}
+
+	async function loadNoPrExcelOptimized(supabase) {
+		// Step 1: Load records without PR Excel file
+		let query = supabase
+			.from('receiving_records')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
+			.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.')
+			.limit(200);
+
+		if (branchFilterMode === 'branch' && selectedBranch) {
+			query = query.eq('branch_id', selectedBranch);
+		}
+
+		query = applyDateFilter(query);
+
+		const { data: records, error } = await query.order('created_at', { ascending: false });
+
+		if (error) return { error };
+		if (!records || records.length === 0) return { data: [] };
+
+		// Step 2: Load vendor details separately
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
+		let vendors = [];
+		if (vendorIds.length > 0) {
+			try {
+				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
+				if (vendorError) {
+					console.warn('⚠️ Error loading vendors:', vendorError);
+				} else {
+					vendors = vendorData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading vendors:', err);
+			}
+		}
+
+		// Step 3: Load branch details separately
+		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+		let branches = [];
+		if (branchIds.length > 0) {
+			try {
+				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
+				if (branchError) {
+					console.warn('⚠️ Error loading branches:', branchError);
+				} else {
+					branches = branchData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading branches:', err);
+			}
+		}
+
+		// Step 4: Merge in memory
+		const vendorMap = new Map((vendors || []).map(v => [v.erp_vendor_id, v]));
+		const branchMap = new Map((branches || []).map(b => [b.id, b]));
+
+		const merged = records.map(record => ({
+			...record,
+			vendors: vendorMap.get(record.vendor_id),
+			branches: branchMap.get(record.branch_id)
+		}));
+
+		return { data: merged };
+	}
+
+	async function loadNoErpOptimized(supabase) {
+		// Step 1: Load records without ERP reference (no nested JOINs)
+		let query = supabase
+			.from('receiving_records')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, final_bill_amount, branch_id, created_at, erp_purchase_invoice_reference')
+			.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.')
+			.limit(200);
+
+		if (branchFilterMode === 'branch' && selectedBranch) {
+			query = query.eq('branch_id', selectedBranch);
+		}
+
+		query = applyDateFilter(query);
+
+		const { data: records, error } = await query.order('created_at', { ascending: false });
+
+		if (error) return { error };
+		if (!records || records.length === 0) return { data: [] };
+
+		// Step 2: Load vendor details separately
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
+		let vendors = [];
+		if (vendorIds.length > 0) {
+			try {
+				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
+				if (vendorError) {
+					console.warn('⚠️ Error loading vendors:', vendorError);
+				} else {
+					vendors = vendorData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading vendors:', err);
+			}
+		}
+
+		// Step 3: Load branch details separately
+		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+		let branches = [];
+		if (branchIds.length > 0) {
+			try {
+				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
+				if (branchError) {
+					console.warn('⚠️ Error loading branches:', branchError);
+				} else {
+					branches = branchData || [];
+				}
+			} catch (err) {
+				console.warn('⚠️ Exception loading branches:', err);
+			}
+		}
+
+		// Step 4: Merge in memory
+		const vendorMap = new Map((vendors || []).map(v => [v.erp_vendor_id, v]));
+		const branchMap = new Map((branches || []).map(b => [b.id, b]));
+
+		const merged = records.map(record => ({
+			...record,
+			vendors: vendorMap.get(record.vendor_id),
+			branches: branchMap.get(record.branch_id)
+		}));
+
+		return { data: merged };
+	}
+
+	async function loadTasksOptimized(supabase) {
+		// RPC functions already optimized, just add limit
+		const { data, error } = await supabase.rpc('get_all_receiving_tasks').limit(200);
+		return { data: data || [], error };
+	}
+
+	async function loadCompletedTasksOptimized(supabase) {
+		const { data, error } = await supabase.rpc('get_completed_receiving_tasks').limit(200);
+		return { data: data || [], error };
+	}
+
+	async function loadIncompleteTasksOptimized(supabase) {
+		const { data, error } = await supabase.rpc('get_incomplete_receiving_tasks').limit(200);
+		return { data: data || [], error };
+	}
+
+	// Helper to apply date filter
+	function applyDateFilter(query) {
+		if (dateFilterMode === 'today') {
+			const today = getToday();
+			return query.gte('created_at', `${today}T00:00:00`).lte('created_at', `${today}T23:59:59`);
+		} else if (dateFilterMode === 'yesterday') {
+			const yesterday = getYesterday();
+			return query.gte('created_at', `${yesterday}T00:00:00`).lte('created_at', `${yesterday}T23:59:59`);
+		} else if (dateFilterMode === 'range' && dateFrom && dateTo) {
+			return query.gte('created_at', `${dateFrom}T00:00:00`).lte('created_at', `${dateTo}T23:59:59`);
+		}
+		return query;
 	}
 	
 	// Load branches for filtering
@@ -479,7 +617,7 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabase } = await import('$lib/utils/supabase');
+				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
 				
 				// Generate unique filename
 				const fileExt = file.name.split('.').pop();
@@ -501,8 +639,8 @@
 					.from('original-bills')
 					.getPublicUrl(fileName);
 
-				// Update the record with the file URL
-				const { error: updateError } = await supabase
+				// Update the record with the file URL using admin client
+				const { error: updateError } = await supabaseAdmin
 					.from('receiving_records')
 					.update({ original_bill_url: publicUrl })
 					.eq('id', recordId);
@@ -546,7 +684,7 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabase } = await import('$lib/utils/supabase');
+				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
 				
 				// Generate unique filename with "updated" prefix
 				const fileExt = file.name.split('.').pop();
@@ -568,8 +706,8 @@
 					.from('original-bills')
 					.getPublicUrl(fileName);
 
-				// Update the record with the new file URL
-				const { error: updateError } = await supabase
+				// Update the record with the new file URL using admin client
+				const { error: updateError } = await supabaseAdmin
 					.from('receiving_records')
 					.update({ 
 						original_bill_url: publicUrl,
@@ -619,7 +757,7 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabase } = await import('$lib/utils/supabase');
+				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
 				
 				// Generate unique filename
 				const fileExt = file.name.split('.').pop();
@@ -641,8 +779,8 @@
 					.from('pr-excel-files')
 					.getPublicUrl(fileName);
 
-				// Update the record with the file URL
-				const { error: updateError } = await supabase
+				// Update the record with the file URL using admin client
+				const { error: updateError } = await supabaseAdmin
 					.from('receiving_records')
 					.update({ pr_excel_file_url: publicUrl })
 					.eq('id', recordId);
