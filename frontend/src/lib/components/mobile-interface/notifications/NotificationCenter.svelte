@@ -70,6 +70,10 @@
 			// Get all attachments for all notifications in one query
 			const allAttachmentsResult = await db.notificationAttachments.getBatchByNotificationIds(notificationIds);
 			
+			if (allAttachmentsResult.error) {
+				console.warn(`⚠️ [Notification] Error fetching attachments, continuing without them:`, allAttachmentsResult.error);
+			}
+			
 			if (allAttachmentsResult.data && allAttachmentsResult.data.length > 0) {
 				// Group attachments by notification_id
 				const attachmentsByNotification = allAttachmentsResult.data.reduce((acc, att) => {
@@ -79,7 +83,7 @@
 					acc[att.notification_id].push({
 						...att,
 						type: 'notification_attachment',
-						fileUrl: att.file_path.startsWith('http') 
+						fileUrl: att.file_path && att.file_path.startsWith('http') 
 							? att.file_path 
 							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
 						fileName: att.file_name,
@@ -98,7 +102,7 @@
 					transformed.attachments = notificationAttachments;
 					
 					// Set the first image as the primary image_url for backward compatibility
-					const firstImage = notificationAttachments.find(att => att.file_type.startsWith('image/'));
+					const firstImage = notificationAttachments.find(att => att.file_type && att.file_type.startsWith('image/'));
 					if (firstImage) {
 						transformed.image_url = firstImage.fileUrl;
 					}
@@ -108,53 +112,76 @@
 			} else {
 				
 			}
+		} catch (error) {
+			console.warn(`❌ [Notification] Failed to batch load attachments:`, error);
+			// Continue without attachments
+		}
 
-			// Process each notification for attachments (both task-related and quick task)
-			for (let transformed of transformedNotifications) {
-				const originalNotification = apiNotifications.find(n => n.id === transformed.id);
-				if (!originalNotification) continue;
+		// Process each notification for attachments (both task-related and quick task)
+		for (let transformed of transformedNotifications) {
+			const originalNotification = apiNotifications.find(n => n.id === transformed.id);
+			if (!originalNotification) continue;
 
-				// Initialize a consolidated attachments array with existing notification attachments
-				const allAttachments = [...(transformed.attachments || [])];
+			// Initialize a consolidated attachments array with existing notification attachments
+			const allAttachments = [...(transformed.attachments || [])];
 
-				// 1. Load task images for task-related notifications
-				if (originalNotification.task_id || originalNotification.task_assignment_id) {
-					
-					
-					const taskAttachments = [];
-					
-					// Get task images from task_id
-					if (originalNotification.task_id) {
-						const { data: taskImages } = await supabase
+			// 1. Load task images for task-related notifications
+			if (originalNotification.task_id || originalNotification.task_assignment_id) {
+				
+				
+				const taskAttachments = [];
+				
+				// Get task images from task_id
+				if (originalNotification.task_id) {
+					try {
+						const { data: taskImages, error } = await supabase
 							.from('task_images')
 						.select('*')
 						.eq('task_id', originalNotification.task_id);
+						
+						if (error) {
+							console.warn(`⚠️ [Notification] Error fetching task images for task ${originalNotification.task_id}:`, error);
+						}
 					
-					if (taskImages && taskImages.length > 0) {
-						taskAttachments.push(...taskImages.map(img => ({
-							...img,
-							type: 'task_image',
-							fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
-							fileName: img.file_name,
-							fileSize: img.file_size,
-							fileType: img.file_type,
-							isImage: true,
-							source: 'Task'
-						})));
+						if (taskImages && taskImages.length > 0) {
+							taskAttachments.push(...taskImages.map(img => ({
+								...img,
+								type: 'task_image',
+								fileUrl: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${img.file_url || img.file_path}`,
+								fileName: img.file_name,
+								fileSize: img.file_size,
+								fileType: img.file_type,
+								isImage: true,
+								source: 'Task'
+							})));
+						}
+					} catch (taskError) {
+						console.warn(`⚠️ [Notification] Exception loading task images for task ${originalNotification.task_id}:`, taskError);
 					}
-				}					// Get task images from task_assignment_id
-					if (originalNotification.task_assignment_id) {
-						const { data: assignment } = await supabase
+				}
+				
+				// Get task images from task_assignment_id
+				if (originalNotification.task_assignment_id) {
+					try {
+						const { data: assignment, error: assignmentError } = await supabase
 							.from('task_assignments')
 							.select('task_id')
 							.eq('id', originalNotification.task_assignment_id)
 							.single();
 						
+						if (assignmentError) {
+							console.warn(`⚠️ [Notification] Error fetching assignment:`, assignmentError);
+						}
+						
 						if (assignment && assignment.task_id) {
-							const { data: taskImages } = await supabase
+							const { data: taskImages, error: imageError } = await supabase
 								.from('task_images')
 								.select('*')
 								.eq('task_id', assignment.task_id);
+							
+							if (imageError) {
+								console.warn(`⚠️ [Notification] Error fetching task images for assignment:`, imageError);
+							}
 							
 							if (taskImages && taskImages.length > 0) {
 								taskAttachments.push(...taskImages.map(img => ({
@@ -169,21 +196,24 @@
 								})));
 							}
 						}
+					} catch (assignmentError) {
+						console.warn(`⚠️ [Notification] Exception loading task assignment images:`, assignmentError);
 					}
+				}
+				
+				// Add task attachments to consolidated array
+				if (taskAttachments.length > 0) {
+					allAttachments.push(...taskAttachments);
 					
-					// Add task attachments to consolidated array
-					if (taskAttachments.length > 0) {
-						allAttachments.push(...taskAttachments);
-						
-						// Set first image as primary if not already set
-						if (!transformed.image_url) {
-							const firstImage = taskAttachments.find(att => att.isImage);
-							if (firstImage) {
-								transformed.image_url = firstImage.fileUrl;
-							}
+					// Set first image as primary if not already set
+					if (!transformed.image_url) {
+						const firstImage = taskAttachments.find(att => att.isImage);
+						if (firstImage) {
+							transformed.image_url = firstImage.fileUrl;
 						}
 					}
 				}
+			}
 
 				// 2. Get quick task files if this is a quick task notification
 				let quickTaskAttachments = [];
@@ -838,7 +868,7 @@
 						if (!simpleError && quickTasks && quickTasks.length > 0) {
 							const quickTaskId = quickTasks[0].id;
 							
-							await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
+							await goto(`/mobile-interface/quick-tasks/${quickTaskId}/complete`);
 							return;
 						}
 					} else if (assignments && assignments.length > 0) {
@@ -846,7 +876,7 @@
 						
 						
 						// Navigate to quick task completion page
-						await goto(`/mobile/quick-tasks/${assignment.quick_task_id}/complete`);
+						await goto(`/mobile-interface/quick-tasks/${assignment.quick_task_id}/complete`);
 						return;
 					} else {
 						console.warn('⚠️ [Mobile Notification] No quick task assignment found for title:', taskTitle);
@@ -909,7 +939,7 @@
 						if (!simpleError && tasks && tasks.length > 0) {
 							const normalTaskId = tasks[0].id;
 							
-							await goto(`/mobile/tasks/${normalTaskId}/complete`);
+							await goto(`/mobile-interface/tasks/${normalTaskId}/complete`);
 							return;
 						}
 					} else if (assignments && assignments.length > 0) {
@@ -917,7 +947,7 @@
 						
 						
 						// Navigate to normal task completion page
-						await goto(`/mobile/tasks/${assignment.task_id}/complete`);
+						await goto(`/mobile-interface/tasks/${assignment.task_id}/complete`);
 						return;
 					} else {
 						console.warn('⚠️ [Mobile Notification] No normal task assignment found for title:', taskTitle);
@@ -934,7 +964,7 @@
 		if (quickTaskId) {
 			// Navigate to quick task completion page
 			
-			await goto(`/mobile/quick-tasks/${quickTaskId}/complete`);
+			await goto(`/mobile-interface/quick-tasks/${quickTaskId}/complete`);
 			return;
 		}
 		

@@ -14,13 +14,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	let tasks = [];
 	let filteredTasks = [];
-	let loading = true;
+	let loading = false; // Don't load by default
 	let searchTerm = '';
 	let filterStatus = 'all';
 	let filterPriority = 'all';
 	let filterTaskType = 'all';
 	let filterDateRange = 'all'; // 'all', 'today', 'week', 'month', 'overdue'
 	let showCompleted = false;
+	
+	// Track which task types are loaded to avoid duplicate loads
+	let loadedTaskTypes = new Set(); // Start with empty set - lazy load
+	let hasInitialized = false; // Track if we've shown the view once
 	
 	// Live countdown state
 	let countdownInterval = null;
@@ -31,21 +35,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: currentUserData = activeUser;
 	$: console.log('🔍 [MyTasks] Auth state:', { authenticated, currentUserData, isCashier: !!$cashierUser });
 
-	// Subscribe to auth changes and reload tasks when user changes
-	$: if (authenticated && activeUser?.id) {
-		loadMyTasks();
+	// Subscribe to auth changes - don't auto-load, wait for filter change
+	$: if (authenticated && activeUser?.id && !hasInitialized) {
+		hasInitialized = true;
 	}
 
 	// Reactive filtering when any filter changes
 	$: searchTerm, filterStatus, filterPriority, filterTaskType, filterDateRange, showCompleted, filterTasks();
 
+	// Load task types when filter changes
+	$: if (authenticated && activeUser?.id && hasInitialized && filterTaskType !== 'all') {
+		loadTasksByType(filterTaskType);
+	}
+
+	// Load completed tasks when checkbox is checked
+	$: if (showCompleted && authenticated && activeUser?.id && !loadedTaskTypes.has('completed')) {
+		loadCompletedTasks();
+	}
+
 	onMount(() => {
-		// Try to load tasks on mount if user is available
-		if (authenticated && activeUser?.id) {
-			loadMyTasks();
-		}
-		
-		// Start live countdown timer
+		// Don't load anything on mount - let user trigger it via filter selection
 		startCountdownTimer();
 		
 		// Cleanup on unmount
@@ -61,255 +70,266 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		filterTasks();
 	}
 
-	async function loadMyTasks() {
-		// Get the current user ID from persistent auth or cashier auth
+	async function loadTasksByType(taskType) {
 		let userId = activeUser?.id;
 		
-		console.log('🔍 [MyTasks] Attempting to get user ID:', {
-			activeUser,
-			authenticated,
-			userId,
-			isCashier: !!$cashierUser
-		});
-		
 		if (!authenticated || !userId) {
-			console.warn('❌ [MyTasks] No current user ID available or not authenticated');
-			loading = false;
+			console.warn('❌ [MyTasks] No user ID available');
 			return;
 		}
+
+		// Determine which task types to load
+		const typesToLoad = [];
 		
-		console.log('🔄 [MyTasks] Loading tasks for user:', userId);
+		if (taskType === 'all') {
+			if (!loadedTaskTypes.has('receiving')) typesToLoad.push('receiving');
+			if (!loadedTaskTypes.has('regular')) typesToLoad.push('regular');
+			if (!loadedTaskTypes.has('quick_task')) typesToLoad.push('quick_task');
+		} else if (taskType === 'receiving' && !loadedTaskTypes.has('receiving')) {
+			typesToLoad.push('receiving');
+		} else if (taskType === 'regular' && !loadedTaskTypes.has('regular')) {
+			typesToLoad.push('regular');
+		} else if (taskType === 'quick_task' && !loadedTaskTypes.has('quick_task')) {
+			typesToLoad.push('quick_task');
+		}
+
+		if (typesToLoad.length === 0) {
+			console.log('📦 [MyTasks] Task types already loaded, skipping load');
+			return;
+		}
+
+		console.log('🔄 [MyTasks] Loading task types on demand:', typesToLoad);
 		loading = true;
+		
 		try {
-			// First, fetch regular task assignments with task details
-			const { data: regularTasks, error: regularError } = await supabase
-				.from('task_assignments')
-				.select(`
-					*,
-					task:tasks!inner(
-						id,
-						title,
-						description,
-						priority,
-						due_date,
-						due_time,
-						status,
-						created_at,
-						created_by,
-						created_by_name,
-						created_by_role
-					)
-				`)
-				.eq('assigned_to_user_id', userId)
-				.order('assigned_at', { ascending: false });
+			let newTasks = [];
 
-			console.log('📊 [MyTasks] Regular tasks query result:', { data: regularTasks, error: regularError, userID: userId });
-			
-			if (regularError) throw regularError;
-
-			// Fetch Quick Task assignments
-			const { data: quickTasks, error: quickError } = await supabase
-				.from('quick_task_assignments')
-				.select(`
-					*,
-					quick_task:quick_tasks!inner(
-						id,
-						title,
-						description,
-						price_tag,
-						issue_type,
-						priority,
-						assigned_by,
-						assigned_to_branch_id,
-						created_at,
-						deadline_datetime,
-						completed_at,
-						status
-					)
-				`)
-				.eq('assigned_to_user_id', userId)
-				.order('created_at', { ascending: false });
-
-			console.log('📊 [MyTasks] Quick tasks query result:', { data: quickTasks, error: quickError, userID: userId });
-			
-			if (quickError) {
-				console.warn('⚠️ [MyTasks] Error loading quick tasks (table may not exist):', quickError);
-			}
-
-			// Batch fetch all task images for regular tasks (single query instead of N queries)
-			const taskIds = (regularTasks || []).map(a => a.task.id);
-			const { data: allTaskImages } = await supabase
-				.from('task_images')
-				.select('*')
-				.in('task_id', taskIds);
-			
-			// Group images by task_id for quick lookup
-			const imagesByTaskId = {};
-			(allTaskImages || []).forEach(img => {
-				if (!imagesByTaskId[img.task_id]) imagesByTaskId[img.task_id] = [];
-				imagesByTaskId[img.task_id].push(img);
-			});
-
-			// Batch fetch all assigned_by users (single query instead of N queries)
-			const assignedByIds = (regularTasks || [])
-				.map(a => a.assigned_by)
-				.filter(id => id && id.includes('-') && id.length === 36);
-			
-			const { data: assignedByUsers } = assignedByIds.length > 0 
-				? await supabase
-					.from('users')
-					.select(`
-						id,
-						username,
-						hr_employees!employee_id(
-							name
-						)
-					`)
-					.in('id', assignedByIds)
-				: { data: [] };
-			
-			// Create lookup map for assigned_by users
-			const userLookup = {};
-			(assignedByUsers || []).forEach(user => {
-				userLookup[user.id] = user.hr_employees?.[0]?.name || user.username;
-			});
-
-			// Map regular tasks with images and user details
-			const regularTasksWithImages = (regularTasks || []).map(assignment => {
-				let assignedByName = 'Unknown User';
-				if (assignment.assigned_by) {
-					if (userLookup[assignment.assigned_by]) {
-						assignedByName = userLookup[assignment.assigned_by];
-					} else if (!assignment.assigned_by.includes('-')) {
-						assignedByName = assignment.assigned_by;
-					}
-				}
+			// Load Receiving Tasks if needed - MINIMAL columns only + pagination
+			if (typesToLoad.includes('receiving')) {
+				console.log('📥 [MyTasks] Loading receiving tasks...');
+				const startTime = performance.now();
 				
-				if (assignedByName === 'Unknown User' && assignment.assigned_by_name) {
-					assignedByName = assignment.assigned_by_name;
+				// CRITICAL: Only load PENDING and IN_PROGRESS tasks, not all 1261
+				const { data: receivingTasks, error: receivingError } = await supabase
+					.from('receiving_tasks')
+					.select('id, title, description, priority, task_status, created_at, due_date, assigned_user_id, role_type, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
+					.eq('assigned_user_id', userId)
+					.in('task_status', ['pending', 'in_progress'])  // ONLY load active tasks
+					.limit(200);  // Hard limit to prevent huge queries
+
+				if (receivingError) {
+					console.warn('⚠️ [MyTasks] Error loading receiving tasks:', receivingError);
 				}
 
-				return {
-					...assignment.task,
-					assignment_id: assignment.id,
-					assignment_status: assignment.status,
-					assigned_at: assignment.assigned_at,
-					assigned_by: assignment.assigned_by,
-					assigned_by_name: assignedByName,
-					assigned_to_user_id: assignment.assigned_to_user_id,
-					schedule_date: assignment.schedule_date,
-					schedule_time: assignment.schedule_time,
-					deadline_date: assignment.deadline_date,
-					deadline_time: assignment.deadline_time,
-					deadline_datetime: assignment.deadline_datetime,
-					// Assignment requirements
-					require_task_finished: assignment.require_task_finished ?? false,
-					require_photo_upload: assignment.require_photo_upload ?? false,
-					require_erp_reference: assignment.require_erp_reference ?? false,
-					// Task images
-					images: imagesByTaskId[assignment.task.id] || [],
-					// Task type
-					task_type: 'regular'
-				};
-			});
-
-			// Batch fetch all quick task files (single query instead of N queries)
-			const quickTaskIds = (quickTasks || []).map(a => a.quick_task.id);
-			const { data: allQuickTaskFiles } = quickTaskIds.length > 0
-				? await supabase
-					.from('quick_task_files')
-					.select('*')
-					.in('quick_task_id', quickTaskIds)
-				: { data: [] };
-			
-			// Group files by quick_task_id for quick lookup
-			const filesByQuickTaskId = {};
-			(allQuickTaskFiles || []).forEach(file => {
-				if (!filesByQuickTaskId[file.quick_task_id]) filesByQuickTaskId[file.quick_task_id] = [];
-				filesByQuickTaskId[file.quick_task_id].push(file);
-			});
-
-			// Batch fetch all assigned_by users for quick tasks (single query)
-			const quickTaskAssignedByIds = (quickTasks || [])
-				.map(a => a.quick_task.assigned_by)
-				.filter(id => id && id.includes('-') && id.length === 36);
-			
-			const { data: quickTaskAssignedByUsers } = quickTaskAssignedByIds.length > 0
-				? await supabase
-					.from('users')
-					.select(`
-						id,
-						username,
-						hr_employees!employee_id(
-							name
-						)
-					`)
-					.in('id', quickTaskAssignedByIds)
-				: { data: [] };
-			
-			// Create lookup map for quick task assigned_by users
-			const quickTaskUserLookup = {};
-			(quickTaskAssignedByUsers || []).forEach(user => {
-				quickTaskUserLookup[user.id] = user.hr_employees?.[0]?.name || user.username;
-			});
-
-			// Process Quick Tasks with batched data
-			const quickTasksWithDetails = (quickTasks || []).map(assignment => {
-				let assignedByName = 'Unknown User';
-				if (assignment.quick_task.assigned_by) {
-					assignedByName = quickTaskUserLookup[assignment.quick_task.assigned_by] || 'Unknown User';
+				if (receivingTasks) {
+					const loadTime = performance.now() - startTime;
+					console.log(`⏱️ Receiving tasks loaded in ${loadTime.toFixed(0)}ms`, { count: receivingTasks.length });
+					const receivingTasksFormatted = receivingTasks.map(task => ({
+						id: task.id,
+						title: task.title,
+						description: task.description,
+						priority: task.priority,
+						status: task.task_status,
+						created_at: task.created_at,
+						due_date: task.due_date,
+						due_time: null,
+						deadline_datetime: task.due_date,
+						assignment_id: task.id,
+						assignment_status: task.task_status,
+						assigned_at: task.created_at,
+						assigned_by: null,
+						assigned_by_name: 'System (Receiving)',
+						assigned_to_user_id: task.assigned_user_id,
+						schedule_date: null,
+						schedule_time: null,
+						role_type: task.role_type,
+						receiving_record_id: task.receiving_record_id,
+						clearance_certificate_url: task.clearance_certificate_url,
+						require_task_finished: true,
+						require_photo_upload: task.requires_original_bill_upload || false,
+						require_erp_reference: task.requires_erp_reference || false,
+						images: [],
+						task_type: 'receiving'
+					}));
+					newTasks.push(...receivingTasksFormatted);
+					loadedTaskTypes.add('receiving');
+					console.log('✅ [MyTasks] Loaded receiving tasks:', { count: receivingTasksFormatted.length });
 				}
-
-				// Convert Quick Task to match regular task structure
-				return {
-					id: assignment.quick_task.id,
-					title: assignment.quick_task.title,
-					description: assignment.quick_task.description,
-					priority: assignment.quick_task.priority,
-					status: assignment.quick_task.status,
-					created_at: assignment.quick_task.created_at,
-					due_date: null, // Quick tasks use deadline_datetime
-					due_time: null,
-					deadline_datetime: assignment.quick_task.deadline_datetime,
-					assignment_id: assignment.id,
-					assignment_status: assignment.status,
-					assigned_at: assignment.created_at,
-					assigned_by: assignment.quick_task.assigned_by,
-					assigned_by_name: assignedByName,
-					assigned_to_user_id: assignment.assigned_to_user_id,
-					schedule_date: null,
-					schedule_time: null,
-					// Quick task specific fields
-					price_tag: assignment.quick_task.price_tag,
-					issue_type: assignment.quick_task.issue_type,
-					// Assignment requirements (Quick tasks don't have these by default)
-					require_task_finished: false,
-					require_photo_upload: false,
-					require_erp_reference: false,
-					// Quick task files as images
-					images: filesByQuickTaskId[assignment.quick_task.id] || [],
-					files: filesByQuickTaskId[assignment.quick_task.id] || [],
-					// Task type
-					task_type: 'quick_task'
-				};
-			});
-
-			// Fetch Receiving Tasks assigned to the user (load all, filter in UI)
-			const { data: receivingTasks, error: receivingError } = await supabase
-				.from('receiving_tasks')
-				.select('*')
-				.eq('assigned_user_id', userId)
-				.order('created_at', { ascending: false });
-
-			console.log('📊 [MyTasks] Receiving tasks query result:', { data: receivingTasks, error: receivingError, userID: userId });
-			
-			if (receivingError) {
-				console.warn('⚠️ [MyTasks] Error loading receiving tasks:', receivingError);
 			}
 
-			// Process Receiving Tasks
-			const receivingTasksFormatted = (receivingTasks || []).map(task => {
-				return {
+			// Load Regular Tasks if needed - SKIP nested joins and heavy operations
+			if (typesToLoad.includes('regular')) {
+				console.log('📝 [MyTasks] Loading regular tasks...');
+				const startTime = performance.now();
+				const { data: regularTasks, error: regularError } = await supabase
+					.from('task_assignments')
+					.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, created_by, created_by_name')
+					.eq('assigned_to_user_id', userId)
+					.in('status', ['pending', 'assigned', 'in_progress'])  // ONLY active tasks
+					.limit(200);  // Hard limit
+
+				if (regularError) {
+					console.warn('⚠️ [MyTasks] Error loading regular tasks:', regularError);
+				}
+
+				if (regularTasks && regularTasks.length > 0) {
+					// Get task details separately without join
+					const taskIds = regularTasks.map(a => a.task_id);
+					const { data: taskDetails } = await supabase
+						.from('tasks')
+						.select('id, title, description, priority, status, created_at')
+						.in('id', taskIds);
+
+					const taskMap = {};
+					(taskDetails || []).forEach(t => {
+						taskMap[t.id] = t;
+					});
+
+					const regularTasksFormatted = regularTasks.map(assignment => {
+						const taskData = taskMap[assignment.task_id] || {};
+						return {
+							id: assignment.task_id,
+							title: taskData.title || 'Untitled Task',
+							description: taskData.description || '',
+							priority: taskData.priority || 'medium',
+							status: taskData.status || 'pending',
+							created_at: taskData.created_at || assignment.assigned_at,
+							due_date: null,
+							due_time: null,
+							deadline_datetime: assignment.deadline_datetime,
+							assignment_id: assignment.id,
+							assignment_status: assignment.status,
+							assigned_at: assignment.assigned_at,
+							assigned_by: assignment.created_by,
+							assigned_by_name: assignment.created_by_name || 'Unknown User',
+							assigned_to_user_id: assignment.assigned_to_user_id,
+							schedule_date: null,
+							schedule_time: null,
+							require_task_finished: false,
+							require_photo_upload: false,
+							require_erp_reference: false,
+							images: [],
+							task_type: 'regular'
+						};
+					});
+
+					const loadTime = performance.now() - startTime;
+					console.log(`⏱️ Regular tasks loaded in ${loadTime.toFixed(0)}ms`, { count: regularTasksFormatted.length });
+					newTasks.push(...regularTasksFormatted);
+					loadedTaskTypes.add('regular');
+					console.log('✅ [MyTasks] Loaded regular tasks:', { count: regularTasksFormatted.length });
+				}
+			}
+
+			// Load Quick Tasks if needed - MINIMAL approach
+			if (typesToLoad.includes('quick_task')) {
+				console.log('⚡ [MyTasks] Loading quick tasks...');
+				const startTime = performance.now();
+				const { data: quickTasks, error: quickError } = await supabase
+					.from('quick_task_assignments')
+					.select('id, quick_task_id, assigned_to_user_id, status, created_at')
+					.eq('assigned_to_user_id', userId)
+					.in('status', ['assigned', 'in_progress'])  // ONLY active assignments
+					.limit(200);  // Hard limit
+
+				if (quickError) {
+					console.warn('⚠️ [MyTasks] Error loading quick tasks:', quickError);
+				}
+
+				if (quickTasks && quickTasks.length > 0) {
+					// Get quick task details separately
+					const quickTaskIds = quickTasks.map(a => a.quick_task_id);
+					const { data: qtDetails } = await supabase
+						.from('quick_tasks')
+						.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by')
+						.in('id', quickTaskIds);
+
+					const qtMap = {};
+					(qtDetails || []).forEach(qt => {
+						qtMap[qt.id] = qt;
+					});
+
+					const quickTasksFormatted = quickTasks.map(assignment => {
+						const qt = qtMap[assignment.quick_task_id] || {};
+						return {
+							id: assignment.quick_task_id,
+							title: qt.title || 'Untitled Quick Task',
+							description: qt.description || '',
+							priority: qt.priority || 'medium',
+							status: qt.status || 'pending',
+							created_at: qt.created_at || assignment.created_at,
+							due_date: null,
+							due_time: null,
+							deadline_datetime: qt.deadline_datetime,
+							assignment_id: assignment.id,
+							assignment_status: assignment.status,
+							assigned_at: assignment.created_at,
+							assigned_by: qt.assigned_by,
+							assigned_by_name: 'Assigned By',
+							assigned_to_user_id: assignment.assigned_to_user_id,
+							schedule_date: null,
+							schedule_time: null,
+							require_task_finished: false,
+							require_photo_upload: false,
+							require_erp_reference: false,
+							images: [],
+							task_type: 'quick_task'
+						};
+					});
+
+					const loadTime = performance.now() - startTime;
+					console.log(`⏱️ Quick tasks loaded in ${loadTime.toFixed(0)}ms`, { count: quickTasksFormatted.length });
+					newTasks.push(...quickTasksFormatted);
+					loadedTaskTypes.add('quick_task');
+					console.log('✅ [MyTasks] Loaded quick tasks:', { count: quickTasksFormatted.length });
+				}
+			}
+
+			// Merge with existing tasks
+			tasks = [...tasks, ...newTasks];
+			tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+			filterTasks();
+			
+			console.log('✅ [MyTasks] Successfully loaded all tasks:', { 
+				total: tasks.length, 
+				loadedTypes: Array.from(loadedTaskTypes)
+			});
+		} catch (error) {
+			console.error('❌ [MyTasks] Error loading tasks:', error);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadCompletedTasks() {
+		let userId = activeUser?.id;
+		
+		if (!authenticated || !userId) {
+			console.warn('❌ [MyTasks] No user ID available');
+			return;
+		}
+
+		console.log('⏳ [MyTasks] Loading completed tasks...');
+		loading = true;
+		
+		try {
+			let completedTasks = [];
+			const startTime = performance.now();
+
+			// Load completed receiving tasks
+			const { data: completedReceiving, error: rcvError } = await supabase
+				.from('receiving_tasks')
+				.select('id, title, description, priority, task_status, created_at, due_date, assigned_user_id, role_type, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
+				.eq('assigned_user_id', userId)
+				.eq('task_status', 'completed')
+				.limit(100);
+
+			if (rcvError) {
+				console.warn('⚠️ [MyTasks] Error loading completed receiving tasks:', rcvError);
+			}
+
+			if (completedReceiving) {
+				const completed = completedReceiving.map(task => ({
 					id: task.id,
 					title: task.title,
 					description: task.description,
@@ -327,37 +347,144 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					assigned_to_user_id: task.assigned_user_id,
 					schedule_date: null,
 					schedule_time: null,
-					// Receiving task specific fields
 					role_type: task.role_type,
 					receiving_record_id: task.receiving_record_id,
 					clearance_certificate_url: task.clearance_certificate_url,
-					// Assignment requirements
 					require_task_finished: true,
 					require_photo_upload: task.requires_original_bill_upload || false,
 					require_erp_reference: task.requires_erp_reference || false,
-					// Images
 					images: [],
-					// Task type
 					task_type: 'receiving'
-				};
-			});
+				}));
+				completedTasks.push(...completed);
+				console.log('✅ Loaded completed receiving tasks:', { count: completed.length });
+			}
 
-			// Combine regular tasks, quick tasks, and receiving tasks
-			const allTasks = [...regularTasksWithImages, ...quickTasksWithDetails, ...receivingTasksFormatted];
-			
-			// Sort by creation date (newest first)
-			allTasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+			// Load completed regular tasks
+			const { data: completedRegular, error: regError } = await supabase
+				.from('task_assignments')
+				.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, created_by, created_by_name')
+				.eq('assigned_to_user_id', userId)
+				.neq('status', 'pending')
+				.neq('status', 'assigned')
+				.neq('status', 'in_progress')
+				.limit(100);
 
-			tasks = allTasks;
+			if (regError) {
+				console.warn('⚠️ [MyTasks] Error loading completed regular tasks:', regError);
+			}
+
+			if (completedRegular && completedRegular.length > 0) {
+				const taskIds = completedRegular.map(a => a.task_id);
+				const { data: taskDetails } = await supabase
+					.from('tasks')
+					.select('id, title, description, priority, status, created_at')
+					.in('id', taskIds);
+
+				const taskMap = {};
+				(taskDetails || []).forEach(t => {
+					taskMap[t.id] = t;
+				});
+
+				const completed = completedRegular.map(assignment => {
+					const taskData = taskMap[assignment.task_id] || {};
+					return {
+						id: assignment.task_id,
+						title: taskData.title || 'Untitled Task',
+						description: taskData.description || '',
+						priority: taskData.priority || 'medium',
+						status: taskData.status || assignment.status,
+						created_at: taskData.created_at || assignment.assigned_at,
+						due_date: null,
+						due_time: null,
+						deadline_datetime: assignment.deadline_datetime,
+						assignment_id: assignment.id,
+						assignment_status: assignment.status,
+						assigned_at: assignment.assigned_at,
+						assigned_by: assignment.created_by,
+						assigned_by_name: assignment.created_by_name || 'Unknown User',
+						assigned_to_user_id: assignment.assigned_to_user_id,
+						schedule_date: null,
+						schedule_time: null,
+						require_task_finished: false,
+						require_photo_upload: false,
+						require_erp_reference: false,
+						images: [],
+						task_type: 'regular'
+					};
+				});
+				completedTasks.push(...completed);
+				console.log('✅ Loaded completed regular tasks:', { count: completed.length });
+			}
+
+			// Load completed quick tasks
+			const { data: completedQuick, error: qtError } = await supabase
+				.from('quick_task_assignments')
+				.select('id, quick_task_id, assigned_to_user_id, status, created_at')
+				.eq('assigned_to_user_id', userId)
+				.neq('status', 'assigned')
+				.neq('status', 'in_progress')
+				.limit(100);
+
+			if (qtError) {
+				console.warn('⚠️ [MyTasks] Error loading completed quick tasks:', qtError);
+			}
+
+			if (completedQuick && completedQuick.length > 0) {
+				const quickTaskIds = completedQuick.map(a => a.quick_task_id);
+				const { data: qtDetails } = await supabase
+					.from('quick_tasks')
+					.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by')
+					.in('id', quickTaskIds);
+
+				const qtMap = {};
+				(qtDetails || []).forEach(qt => {
+					qtMap[qt.id] = qt;
+				});
+
+				const completed = completedQuick.map(assignment => {
+					const qt = qtMap[assignment.quick_task_id] || {};
+					return {
+						id: assignment.quick_task_id,
+						title: qt.title || 'Untitled Quick Task',
+						description: qt.description || '',
+						priority: qt.priority || 'medium',
+						status: qt.status || assignment.status,
+						created_at: qt.created_at || assignment.created_at,
+						due_date: null,
+						due_time: null,
+						deadline_datetime: qt.deadline_datetime,
+						assignment_id: assignment.id,
+						assignment_status: assignment.status,
+						assigned_at: assignment.created_at,
+						assigned_by: qt.assigned_by,
+						assigned_by_name: 'Assigned By',
+						assigned_to_user_id: assignment.assigned_to_user_id,
+						schedule_date: null,
+						schedule_time: null,
+						require_task_finished: false,
+						require_photo_upload: false,
+						require_erp_reference: false,
+						images: [],
+						task_type: 'quick_task'
+					};
+				});
+				completedTasks.push(...completed);
+				console.log('✅ Loaded completed quick tasks:', { count: completed.length });
+			}
+
+			const loadTime = performance.now() - startTime;
+			console.log(`⏱️ Completed tasks loaded in ${loadTime.toFixed(0)}ms`, { count: completedTasks.length });
+
+			// Merge with existing tasks
+			tasks = [...tasks, ...completedTasks];
+			tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+			loadedTaskTypes.add('completed');
 			filterTasks();
-			console.log('✅ [MyTasks] Successfully loaded tasks:', { 
-				total: tasks.length, 
-				regular: regularTasksWithImages.length, 
-				quick: quickTasksWithDetails.length,
-				receiving: receivingTasksFormatted.length
-			});
+
+			console.log('✅ [MyTasks] Successfully loaded completed tasks:', { total: tasks.length });
 		} catch (error) {
-			console.error('❌ [MyTasks] Error loading my tasks:', error);
+			console.error('❌ [MyTasks] Error loading completed tasks:', error);
 		} finally {
 			loading = false;
 		}
@@ -845,15 +972,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		</div>
 		
 		<!-- Show Completed Toggle -->
-		<div class="mt-4 px-6">
-			<label class="flex items-center space-x-2 cursor-pointer">
-				<input 
-					type="checkbox" 
-					bind:checked={showCompleted}
-					class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-				/>
-				<span class="text-sm font-medium text-gray-700">Show completed tasks</span>
-			</label>
+		<div class="mt-4 px-6 bg-blue-50 border border-blue-200 rounded-lg p-3">
+			<div class="flex items-start space-x-3">
+				<div class="flex-1">
+					<label class="flex items-center space-x-2 cursor-pointer">
+						<input 
+							type="checkbox" 
+							bind:checked={showCompleted}
+							class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+						/>
+						<span class="text-sm font-medium text-gray-700">Show completed tasks</span>
+					</label>
+					<p class="text-xs text-gray-600 mt-1">💡 Only active tasks are loaded for performance. Load completed tasks if needed.</p>
+				</div>
+			</div>
 		</div>
 	</div>
 
@@ -862,6 +994,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		{#if loading}
 			<div class="flex items-center justify-center h-64">
 				<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+			</div>
+		{:else if tasks.length === 0}
+			<div class="text-center py-12">
+				<svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+				</svg>
+				<h3 class="text-lg font-medium text-gray-900 mb-2">No tasks loaded yet</h3>
+				<p class="text-gray-600 mb-4">Select a task type from the filters above to load your tasks</p>
+				<button 
+					on:click={() => filterTaskType = 'receiving'}
+					class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+				>
+					Load Receiving Tasks
+				</button>
 			</div>
 		{:else if filteredTasks.length === 0}
 			<div class="text-center py-12">

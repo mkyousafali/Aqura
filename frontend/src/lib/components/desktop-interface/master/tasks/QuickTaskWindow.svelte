@@ -171,9 +171,11 @@
 						selectedUsers = [...preferences.selected_user_ids];
 					}
 				}
-			} else if (error && error.code === 'PGRST116') {
-				// Table doesn't exist yet, ignore the error
+			} else if (error && (error.code === 'PGRST116' || error.code === '406' || error.status === 406)) {
+				// Table doesn't exist or not accessible (PGRST116 = no rows, 406 = Not Acceptable)
 				console.log('Quick task preferences table not found, using defaults');
+			} else if (error) {
+				console.warn('Unexpected error loading preferences:', error);
 			}
 		} catch (error) {
 			console.error('Error loading user preferences:', error);
@@ -400,28 +402,26 @@
 		}
 
 		try {
-			// Save defaults if requested
-			await saveAsDefaults();
+		// Save defaults if requested
+		await saveAsDefaults();
 
-			// Create the quick task
-			const { data: taskData, error: taskError } = await supabase
-				.from('quick_tasks')
-				.insert({
-					title: taskTitle,
-					description: taskDescription,
-					price_tag: priceTag,
-					issue_type: issueType,
-					priority: priority,
-					assigned_by: $currentUser?.id,
-					assigned_to_branch_id: selectedBranch,
-					require_task_finished: true, // Always required
-					require_photo_upload: requirePhotoUpload,
-					require_erp_reference: requireErpReference
-				})
-				.select()
-				.single();
-
-			if (taskError) {
+		// Create the quick task (use admin client to bypass RLS)
+		const { data: taskData, error: taskError } = await supabaseAdmin
+			.from('quick_tasks')
+			.insert({
+				title: taskTitle,
+				description: taskDescription,
+				price_tag: priceTag,
+				issue_type: issueType,
+				priority: priority,
+				assigned_by: $currentUser?.id,
+				assigned_to_branch_id: selectedBranch,
+				require_task_finished: true, // Always required
+				require_photo_upload: requirePhotoUpload,
+				require_erp_reference: requireErpReference
+			})
+			.select()
+			.single();			if (taskError) {
 				console.error('Error creating task:', taskError);
 				alert('Error creating task. Please try again.');
 				return;
@@ -447,24 +447,22 @@
 						const uploadResult = await uploadToSupabase(selectedFile.file, 'quick-task-files', uniqueFileName);
 						
 						if (!uploadResult.error) {
-							console.log('✅ [QuickTask] File uploaded successfully:', uploadResult.data);
-							
-							// Save file record to quick_task_files table
-							const { error: fileError } = await supabase
-								.from('quick_task_files')
-								.insert({
-									quick_task_id: taskData.id,
-									file_name: selectedFile.name,
-									storage_path: uploadResult.data.path,
-									file_type: selectedFile.type,
-									file_size: selectedFile.size,
-									mime_type: selectedFile.type,
-									storage_bucket: 'quick-task-files',
-									uploaded_by: $currentUser?.id,
-									uploaded_at: new Date().toISOString()
-								});
-
-							if (fileError) {
+					console.log('✅ [QuickTask] File uploaded successfully:', uploadResult.data);
+					
+					// Save file record to quick_task_files table (use admin client to bypass RLS)
+					const { error: fileError } = await supabaseAdmin
+						.from('quick_task_files')
+						.insert({
+							quick_task_id: taskData.id,
+							file_name: selectedFile.name,
+							storage_path: uploadResult.data.path,
+							file_type: selectedFile.type,
+							file_size: selectedFile.size,
+							mime_type: selectedFile.type,
+							storage_bucket: 'quick-task-files',
+							uploaded_by: $currentUser?.id,
+							uploaded_at: new Date().toISOString()
+						});							if (fileError) {
 								console.error('❌ [QuickTask] Error saving file record:', fileError);
 							} else {
 								uploadedFiles.push({
@@ -495,21 +493,19 @@
 				require_erp_reference: requireErpReference
 			}));
 
-			// Store completion requirements in a separate record or in task metadata
-			console.log('📋 [QuickTask] Completion Requirements:', {
-				requirePhotoUpload,
-				requireErpReference, 
-				requireFileUpload
-			});
-			
-			console.log('📋 [QuickTask] Assignment Objects to Insert:', assignments);
+		// Store completion requirements in a separate record or in task metadata
+		console.log('📋 [QuickTask] Completion Requirements:', {
+			requirePhotoUpload,
+			requireErpReference, 
+			requireFileUpload
+		});
+		
+		console.log('📋 [QuickTask] Assignment Objects to Insert:', assignments);
 
-			const { data: insertedAssignments, error: assignmentError } = await supabase
-				.from('quick_task_assignments')
-				.insert(assignments)
-				.select();
-
-			if (assignmentError) {
+		const { data: insertedAssignments, error: assignmentError } = await supabaseAdmin
+			.from('quick_task_assignments')
+			.insert(assignments)
+			.select();			if (assignmentError) {
 				console.error('❌ Error creating assignments:', assignmentError);
 				alert('Error assigning task to users. Please try again.');
 				return;

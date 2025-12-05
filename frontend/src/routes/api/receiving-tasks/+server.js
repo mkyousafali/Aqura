@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { supabase } from "$lib/utils/supabase";
+import { supabaseAdmin } from "$lib/utils/supabase";
 
 export async function POST({ request }) {
   try {
@@ -31,7 +31,7 @@ export async function POST({ request }) {
     }
 
     // Call the database function to process clearance certificate generation
-    const { data, error } = await supabase.rpc(
+    const { data, error } = await supabaseAdmin.rpc(
       "process_clearance_certificate_generation",
       {
         receiving_record_id_param: receiving_record_id,

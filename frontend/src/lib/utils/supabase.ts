@@ -1205,9 +1205,10 @@ export const db = {
       }
 
       // Supabase REST GET with a very large `.in()` list can produce extremely
-      // long URLs which hit server / proxy limits and return 400 Bad Request.
+      // long URLs which hit server / proxy limits and return 400 Bad Request / 502 Bad Gateway.
       // Chunk the IDs into smaller groups to avoid too-long query strings.
-      const CHUNK_SIZE = 100; // safe default; tune if needed
+      // Using smaller chunk size (25) to avoid URL length limits with Supabase's encoded URLs
+      const CHUNK_SIZE = 25; // smaller for better URL safety
       const chunks: string[][] = [];
       for (let i = 0; i < notification_ids.length; i += CHUNK_SIZE) {
         chunks.push(notification_ids.slice(i, i + CHUNK_SIZE));
@@ -1221,14 +1222,28 @@ export const db = {
           .order("created_at", { ascending: false }),
       );
 
-      // Run in parallel and merge results
-      const results = await Promise.all(promises);
+      // Run in parallel with error handling for each chunk
+      const results = await Promise.allSettled(promises);
       let combined: any[] = [];
       let firstError: any = null;
-      for (const res of results) {
-        if (res.error && !firstError) firstError = res.error;
-        if (res.data && res.data.length > 0)
-          combined = combined.concat(res.data);
+      
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          const res = result.value;
+          if (res.error && !firstError) {
+            firstError = res.error;
+            console.warn(`⚠️ Error fetching notification attachments chunk:`, res.error);
+          }
+          if (res.data && res.data.length > 0) {
+            combined = combined.concat(res.data);
+          }
+        } else {
+          // Promise rejected (network error, etc.)
+          if (!firstError) {
+            firstError = result.reason;
+          }
+          console.warn(`⚠️ Network error fetching notification attachments chunk:`, result.reason);
+        }
       }
 
       // Deduplicate attachments by id (in case of overlap) and sort by created_at desc

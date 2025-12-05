@@ -116,7 +116,7 @@
 		
 		// If completing the task, navigate to completion page instead
 		if (newStatus === 'completed') {
-			goto(`/mobile/tasks/${taskId}/complete`);
+			goto(`/mobile-interface/tasks/${taskId}/complete`);
 			return;
 		}
 		

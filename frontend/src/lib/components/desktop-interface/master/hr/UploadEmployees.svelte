@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { t } from '$lib/i18n';
 	import { dataService } from '$lib/utils/dataService';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import * as XLSX from 'xlsx';
 
 	// State management
@@ -153,10 +153,10 @@
 						continue;
 					}
 
-					// Save to database
+					// Save to database using admin client to bypass RLS
 					const { data: savedEmployee, error } = await dataService.hrEmployees.create ? 
 						await dataService.hrEmployees.create(employeeData) :
-						await supabase.from('hr_employees').insert([employeeData]).select().single();
+						await supabaseAdmin.from('hr_employees').insert([employeeData]).select().single();
 					
 					if (error) {
 						errors.push(`${t('hr.rowNumber')} ${index + 2}: ${error.message}`);

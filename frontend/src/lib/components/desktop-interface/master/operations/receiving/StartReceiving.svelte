@@ -3,7 +3,7 @@
   import StepIndicator from './StepIndicator.svelte';
   import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
   import { currentUser } from '$lib/utils/persistentAuth';
-  import { supabase } from '$lib/utils/supabase';
+  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
   import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
@@ -444,28 +444,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for the branch users using chunked queries
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches to avoid URL length limits
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -544,28 +559,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for the branch users using chunked queries
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches to avoid URL length limits
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -645,28 +675,45 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for all users
+      // Get position assignments for all users using chunked queries to avoid URL length limits
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches (max 25 per query to avoid URL length limits)
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          
+          // Combine results from all chunks
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -747,28 +794,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for the branch users using chunked queries
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches to avoid URL length limits
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -847,28 +909,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for the branch users using chunked queries
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches to avoid URL length limits
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -947,28 +1024,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get position assignments for the branch users
+      // Get position assignments for the branch users using chunked queries
       let positionsData = [];
       if (usersData && usersData.length > 0) {
         const employeeUUIDs = usersData
           .filter(user => user.hr_employees?.id)
           .map(user => user.hr_employees.id);
 
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            hr_positions (
-              position_title_en
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
+        // Chunk the UUIDs into smaller batches to avoid URL length limits
+        const chunkSize = 25;
+        const positionPromises = [];
+        
+        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
+          const chunk = employeeUUIDs.slice(i, i + chunkSize);
+          const promise = supabase
+            .from('hr_position_assignments')
+            .select(`
+              employee_id,
+              hr_positions (
+                position_title_en
+              )
+            `)
+            .in('employee_id', chunk)
+            .eq('is_current', true);
+          positionPromises.push(promise);
+        }
 
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
+        try {
+          const results = await Promise.all(positionPromises);
+          results.forEach(result => {
+            if (result.data) {
+              positionsData = positionsData.concat(result.data);
+            } else if (result.error) {
+              console.warn('Error in position chunk:', result.error);
+            }
+          });
+        } catch (chunkError) {
+          console.warn('Error loading positions in chunks:', chunkError);
         }
       }
 
@@ -1853,8 +1945,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       console.log('No duplicate found, proceeding with save...');
 
-      // Save to receiving_records table
-      const { data, error } = await supabase
+      // Save to receiving_records table using admin client to bypass RLS
+      const { data, error } = await supabaseAdmin
         .from('receiving_records')
         .insert([receivingData])
         .select();

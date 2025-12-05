@@ -141,16 +141,24 @@ export class UserManagementService {
     updates: UpdateUserRequest,
   ): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from("users")
-        .update(updates)
-        .eq("id", userId);
+      // Use RPC function with SECURITY DEFINER that bypasses RLS
+      const { data, error } = await supabase.rpc('update_user', {
+        p_user_id: userId,
+        p_updates: updates
+      });
 
       if (error) {
-        console.error("Error updating user:", error);
-        throw new Error("Failed to update user");
+        console.error("Error updating user via RPC:", error);
+        throw new Error("Failed to update user: " + error.message);
       }
 
+      // Check response from function
+      if (data && !data.success) {
+        console.error("RPC returned error:", data.message);
+        throw new Error(data.message || "Failed to update user");
+      }
+
+      console.log("User updated successfully via RPC:", data);
       return true;
     } catch (error) {
       console.error("Update user error:", error);

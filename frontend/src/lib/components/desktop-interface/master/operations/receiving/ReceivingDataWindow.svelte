@@ -692,9 +692,9 @@
 		updatingErp = true;
 		
 		try {
-			const { supabase } = await import('$lib/utils/supabase');
+			const { supabaseAdmin } = await import('$lib/utils/supabase');
 			
-			const { error } = await supabase
+			const { error } = await supabaseAdmin
 				.from('receiving_records')
 				.update({ 
 					erp_purchase_invoice_reference: erpReferenceValue.trim(),

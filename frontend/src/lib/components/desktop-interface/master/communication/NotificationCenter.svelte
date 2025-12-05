@@ -66,6 +66,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Get all attachments for all notifications in one query
 			const allAttachmentsResult = await db.notificationAttachments.getBatchByNotificationIds(notificationIds);
 			
+			if (allAttachmentsResult.error) {
+				console.warn(`⚠️ [Notification] Error fetching attachments, continuing without them:`, allAttachmentsResult.error);
+			}
+			
 			if (allAttachmentsResult.data && allAttachmentsResult.data.length > 0) {
 				// Group attachments by notification_id
 				const attachmentsByNotification = allAttachmentsResult.data.reduce((acc, att) => {
@@ -74,7 +78,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					}
 					acc[att.notification_id].push({
 						...att,
-						fileUrl: att.file_path.startsWith('http') 
+						fileUrl: att.file_path && att.file_path.startsWith('http') 
 							? att.file_path 
 							: `https://supabase.urbanaqura.com/storage/v1/object/public/notification-images/${att.file_path}`,
 						fileName: att.file_name,
@@ -92,7 +96,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					transformed.attachments = notificationAttachments;
 					
 					// Set the first image as the primary image_url for backward compatibility
-					const firstImage = notificationAttachments.find(att => att.file_type.startsWith('image/'));
+					const firstImage = notificationAttachments.find(att => att.file_type && att.file_type.startsWith('image/'));
 					if (firstImage) {
 						transformed.image_url = firstImage.fileUrl;
 					}
@@ -104,6 +108,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 		} catch (error) {
 			console.warn(`❌ [Notification] Failed to batch load attachments:`, error);
+			// Continue without attachments - don't crash the notification center
 		}
 
 		// Handle task attachments (batch load for performance)
@@ -123,36 +128,55 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			try {
 				console.log(`🖼️ [Notification] Batch loading task attachments for ${taskIds.length} tasks`);
 				
-				// Query all task attachments at once
-				const { data: taskAttachments, error } = await supabase
-					.from('task_images')
-					.select('*')
-					.in('task_id', taskIds);
-
-				if (error) {
-				console.warn(`❌ [Notification] Failed to batch load task attachments:`, error);
-			} else if (taskAttachments && taskAttachments.length > 0) {
-				// Group attachments by task_id
-				const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
-					if (!acc[attachment.task_id]) {
-						acc[attachment.task_id] = [];
+				// Query all task attachments in chunks to avoid URL length limits
+				let taskAttachments = [];
+				const CHUNK_SIZE = 25; // Use smaller chunks to avoid URL limits
+				
+				for (let i = 0; i < taskIds.length; i += CHUNK_SIZE) {
+					const chunk = taskIds.slice(i, i + CHUNK_SIZE);
+					try {
+						const { data, error } = await supabase
+							.from('task_images')
+							.select('*')
+							.in('task_id', chunk);
+						
+						if (error) {
+							console.warn(`⚠️ [Notification] Error fetching task attachments for chunk, continuing:`, error);
+						}
+						
+						if (data) {
+							taskAttachments.push(...data);
+						}
+					} catch (chunkError) {
+						console.warn(`⚠️ [Notification] Exception fetching task attachment chunk:`, chunkError);
+						// Continue with next chunk even if this one fails
 					}
-					acc[attachment.task_id].push({
-						id: attachment.id,
-						fileName: attachment.file_name || 'Unknown File',
-						fileSize: attachment.file_size || 0,
-						fileType: attachment.file_type || 'application/octet-stream',
-						fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-						downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
-							? attachment.file_path 
-							: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
-						uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
-						uploadedAt: attachment.created_at
-					});
-					return acc;
-				}, {});					// Assign task attachments to their respective notifications
+				}
+
+				if (taskAttachments && taskAttachments.length > 0) {
+					// Group attachments by task_id
+					const attachmentsByTaskId = taskAttachments.reduce((acc, attachment) => {
+						if (!acc[attachment.task_id]) {
+							acc[attachment.task_id] = [];
+						}
+						acc[attachment.task_id].push({
+							id: attachment.id,
+							fileName: attachment.file_name || 'Unknown File',
+							fileSize: attachment.file_size || 0,
+							fileType: attachment.file_type || 'application/octet-stream',
+							fileUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+								? attachment.file_path 
+								: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							downloadUrl: attachment.file_path && attachment.file_path.startsWith('http') 
+								? attachment.file_path 
+								: `https://supabase.urbanaqura.com/storage/v1/object/public/task-images/${attachment.file_path || ''}`,
+							uploadedBy: attachment.uploaded_by_name || attachment.uploaded_by || 'Unknown',
+							uploadedAt: attachment.created_at
+						});
+						return acc;
+					}, {});
+					
+					// Assign task attachments to their respective notifications
 					for (const transformed of transformedNotifications) {
 						const notification = apiNotifications.find(n => n.id === transformed.id);
 						if (notification?.metadata?.task_id) {
@@ -167,6 +191,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				}
 			} catch (error) {
 				console.warn(`❌ [Notification] Exception during batch task attachment loading:`, error);
+				// Continue without task attachments
 			}
 		}
 
