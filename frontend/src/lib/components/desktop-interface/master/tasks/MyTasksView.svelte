@@ -490,6 +490,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	async function loadMyTasks() {
+		// Refresh all currently loaded task types
+		console.log('🔄 [MyTasks] Refreshing tasks...');
+		loading = true;
+		
+		try {
+			tasks = []; // Clear existing tasks
+			loadedTaskTypes.clear(); // Reset loaded types
+			
+			// Reload completed tasks if they were being shown
+			if (showCompleted) {
+				await loadCompletedTasks();
+			}
+			
+			// Reload task types that were previously loaded
+			if (loadedTaskTypes.size === 0 && filterTaskType !== 'all') {
+				await loadTasksByType(filterTaskType);
+			} else if (filterTaskType !== 'all') {
+				await loadTasksByType(filterTaskType);
+			}
+			
+			console.log('✅ [MyTasks] Tasks refreshed successfully');
+		} catch (error) {
+			console.error('❌ [MyTasks] Error refreshing tasks:', error);
+		} finally {
+			loading = false;
+			filterTasks();
+		}
+	}
+
 	function filterTasks() {
 		filteredTasks = tasks.filter(task => {
 			// Hide completed tasks unless showCompleted is true
