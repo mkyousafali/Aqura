@@ -6,6 +6,8 @@
 	// State for receiving records
 	let receivingRecords = [];
 	let filteredRecords = [];
+	let paginatedRecords = [];
+	let archivedRecords = [];
 	let searchTerm = '';
 	let filterVendorId = '';
 	let filterVatNumber = '';
@@ -22,6 +24,13 @@
 	let generatingCertificateId = null;
 	let updatingBillId = null;
 	let deletingRecordId = null;
+	let showArchived = false; // Toggle for archived records
+
+	// Pagination state
+	let currentPage = 1;
+	let pageSize = 10; // Show 10 records per page
+	let totalPages = 1;
+	let totalRecords = 0;
 
 	// Check if current user is master admin
 	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
@@ -62,46 +71,88 @@
 	async function loadReceivingRecords() {
 		loading = true;
 		try {
+			const startTime = performance.now();
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			// Get receiving records with user and branch information
+			console.log('📋 Starting optimized receiving records load (on-demand pagination)...');
+			
+			// First, get the TOTAL COUNT of records (no limit)
+			const { count: totalCount, error: countError } = await supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true });
+
+			if (countError) throw countError;
+
+			totalRecords = totalCount || 0;
+			totalPages = Math.ceil(totalRecords / pageSize);
+			console.log(`📊 Total receiving records available: ${totalRecords}, Pages: ${totalPages}`);
+
+			// Load only the CURRENT PAGE of records
+			await loadPageData(currentPage);
+			
+			const endTime = performance.now();
+			console.log(`✅ Page 1 loaded in ${(endTime - startTime).toFixed(0)}ms`);
+		} catch (err) {
+			console.error('Error in loadReceivingRecords:', err);
+			receivingRecords = [];
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Load data for a specific page
+	async function loadPageData(pageNum) {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const startIdx = (pageNum - 1) * pageSize;
+
+			console.log(`📄 Loading page ${pageNum}/${totalPages} (offset: ${startIdx}, limit: ${pageSize})...`);
+			
+			// 1️⃣ Load ONLY records for current page (no nested JOINs)
+			// Note: order BEFORE range for proper pagination
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
-				.select(`
-					*,
-					branches (
-						name_en
-					),
-					users!receiving_records_user_id_fkey (
-						id,
-						username,
-						hr_employees (
-							name
-						)
-					)
-				`)
-				.order('created_at', { ascending: false });
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.order('created_at', { ascending: false })
+				.range(startIdx, startIdx + pageSize - 1);
 
 			if (recordsError) {
+				console.error(`❌ Error loading page ${pageNum}:`, recordsError);
 				throw recordsError;
 			}
 
 			if (!records || records.length === 0) {
+				console.log(`📊 No records on page ${pageNum}`);
 				receivingRecords = [];
-				applyFilters();
+				updatePaginatedRecords();
 				return;
 			}
 
-			console.log(`📊 Loading data for ${records.length} receiving records...`);
+			console.log(`📊 Loaded ${records.length} records for page ${pageNum}`);
 
-			// OPTIMIZATION: Fetch all vendors and payment schedules in BULK queries
-			const recordIds = records.map(r => r.id);
-			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			// 2️⃣ Fetch branch details in bulk
 			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
+			const { data: branchDetails } = await supabase
+				.from('branches')
+				.select('id, name_en')
+				.in('id', uniqueBranchIds);
 
-			console.log(`📦 Fetching vendors (${uniqueVendorIds.length} unique IDs) and payment schedules...`);
+			// 3️⃣ Fetch vendor details in bulk
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const { data: vendorDetails } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id')
+				.in('erp_vendor_id', uniqueVendorIds);
 
-			// Helper function to chunk array into smaller pieces
+			// 4️⃣ Fetch user/creator details in bulk
+			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
+			const { data: userDetails } = await supabase
+				.from('users')
+				.select('id, username, hr_employees(name)')
+				.in('id', uniqueUserIds);
+
+			// 5️⃣ Fetch payment schedules in bulk with chunking
+			const recordIds = records.map(r => r.id);
 			const chunkArray = (array, size) => {
 				const chunks = [];
 				for (let i = 0; i < array.length; i += size) {
@@ -110,36 +161,23 @@
 				return chunks;
 			};
 
-			// Fetch vendors (no chunking needed - only 146 IDs)
-			const vendorsPromise = supabase
-				.from('vendors')
-				.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id')
-				.in('erp_vendor_id', uniqueVendorIds)
-				.in('branch_id', uniqueBranchIds);
-
-			// Fetch payment schedules in chunks to avoid URL length limit
-			// PostgreSQL can handle ~500 UUIDs per query safely (future-proof for 100K+ records)
-			const scheduleChunks = chunkArray(recordIds, 500);
-			console.log(`📦 Fetching schedules in ${scheduleChunks.length} chunks...`);
-
-			const schedulesPromises = scheduleChunks.map(chunk =>
+			const scheduleChunks = chunkArray(recordIds, 50);
+			console.log(`📦 Fetching payment schedules in ${scheduleChunks.length} chunks...`);
+			
+			const schedulesPromises = scheduleChunks.map((chunk, idx) =>
 				supabase
 					.from('vendor_payment_schedule')
 					.select('id, receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
 					.in('receiving_record_id', chunk)
+					.then(result => {
+						if (!result.error) {
+							console.log(`  ✅ Schedule chunk ${idx + 1} loaded (${result.data?.length || 0} records)`);
+						}
+						return result;
+					})
 			);
 
-			// Execute all queries in parallel
-			const [vendorsResult, ...scheduleResults] = await Promise.all([
-				vendorsPromise,
-				...schedulesPromises
-			]);
-
-			if (vendorsResult.error) {
-				console.error('❌ Error fetching vendors:', vendorsResult.error);
-			}
-
-			// Combine all schedule results
+			const scheduleResults = await Promise.all(schedulesPromises);
 			const allSchedules = [];
 			scheduleResults.forEach((result, index) => {
 				if (result.error) {
@@ -149,13 +187,14 @@
 				}
 			});
 
-			// Create lookup maps for O(1) access
+			// 6️⃣ Create lookup maps for O(1) merge operations
+			const branchMap = new Map(branchDetails?.map(b => [b.id, b]) || []);
 			const vendorMap = new Map();
-			(vendorsResult.data || []).forEach(vendor => {
+			vendorDetails?.forEach(vendor => {
 				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
 				vendorMap.set(key, vendor);
 			});
-
+			const userMap = new Map(userDetails?.map(u => [u.id, u]) || []);
 			const scheduleMap = new Map();
 			allSchedules.forEach(schedule => {
 				if (!scheduleMap.has(schedule.receiving_record_id)) {
@@ -164,113 +203,144 @@
 				scheduleMap.get(schedule.receiving_record_id).push(schedule);
 			});
 
-			console.log(`✅ Loaded ${vendorMap.size} vendors and ${scheduleMap.size} payment schedules`);
-
-			// Map records with their vendor and schedule data using the lookup maps
-			const recordsWithVendors = records.map(record => {
-				const vendorKey = `${record.vendor_id}_${record.branch_id}`;
-				const vendorData = vendorMap.get(vendorKey);
+			// 7️⃣ Merge data in-memory (no RLS evaluation cost)
+			const recordsWithDetails = records.map(record => {
+				const branch = branchMap.get(record.branch_id);
+				const vendor = vendorMap.get(`${record.vendor_id}_${record.branch_id}`);
+				const creator = userMap.get(record.user_id);
 				const schedules = scheduleMap.get(record.id) || [];
 				const scheduleData = schedules[0] || null;
-				const hasMultipleSchedules = schedules.length > 1;
 
 				return {
 					...record,
-					vendors: vendorData || null,
+					branches: branch,
+					vendors: vendor,
+					users: creator,
 					schedule_status: scheduleData,
 					is_scheduled: !!scheduleData,
-					has_multiple_schedules: hasMultipleSchedules,
+					has_multiple_schedules: schedules.length > 1,
 					pr_excel_verified: scheduleData?.pr_excel_verified || false,
 					pr_excel_verified_by: scheduleData?.pr_excel_verified_by,
 					pr_excel_verified_date: scheduleData?.pr_excel_verified_date
 				};
 			});
 
-			receivingRecords = recordsWithVendors;
-			console.log(`✅ Successfully loaded ${recordsWithVendors.length} records with vendor data`);
-			
-			applyFilters();
+			receivingRecords = recordsWithDetails;
+			updatePaginatedRecords();
+			console.log(`✅ Page ${pageNum} data merged and ready (${recordsWithDetails.length} records)`);
 		} catch (err) {
-			console.error('Error in loadReceivingRecords:', err);
+			console.error(`Error loading page ${pageNum}:`, err);
 			receivingRecords = [];
-		} finally {
+			updatePaginatedRecords();
+		}
+	}
+
+	// Load archived records on-demand
+	async function loadArchivedRecords() {
+		try {
+			const startTime = performance.now();
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			console.log('📦 Loading archived records on-demand...');
+			
+		const { data: records, error: recordsError } = await supabase
+			.from('receiving_records')
+			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+			.order('created_at', { ascending: false })
+			.limit(200);			if (recordsError) throw recordsError;
+
+			if (!records || records.length === 0) {
+				const endTime = performance.now();
+				console.log(`✅ No archived records found in ${(endTime - startTime).toFixed(0)}ms`);
+				return;
+			}
+
+			// Fetch details in bulk for archived records
+			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
+
+			const [branchResult, vendorResult, userResult] = await Promise.all([
+				supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds),
+				supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id').in('erp_vendor_id', uniqueVendorIds),
+				supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
+			]);
+
+			const branchMap = new Map(branchResult.data?.map(b => [b.id, b]) || []);
+			const vendorMap = new Map();
+			vendorResult.data?.forEach(vendor => {
+				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+				vendorMap.set(key, vendor);
+			});
+			const userMap = new Map(userResult.data?.map(u => [u.id, u]) || []);
+
+			const recordsWithDetails = records.map(record => ({
+				...record,
+				branches: branchMap.get(record.branch_id),
+				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
+				users: userMap.get(record.user_id)
+			}));
+
+			archivedRecords = recordsWithDetails;
+			const endTime = performance.now();
+			console.log(`✅ Archived records loaded in ${(endTime - startTime).toFixed(0)}ms (${recordsWithDetails.length} records)`);
+		} catch (error) {
+			console.error('Error loading archived records:', error);
+		}
+	}
+
+	// Reactive: Load archived records when toggle is checked
+	$: if (showArchived && archivedRecords.length === 0) {
+		loadArchivedRecords();
+	}
+
+	function applyFilters() {
+		// With on-demand loading, filters are applied on initial load
+		// Just reset to page 1 when filters change
+		currentPage = 1;
+		console.log('🔍 Filters applied, resetting to page 1');
+		updatePaginatedRecords(); // ✅ Update display with current page data
+	}
+
+	// Update paginated records based on current page
+	function updatePaginatedRecords() {
+		// With on-demand loading, just assign receivingRecords to paginatedRecords
+		paginatedRecords = [...receivingRecords]; // Use spread operator to ensure reactivity
+		console.log(`📄 Page ${currentPage}/${totalPages}: showing ${paginatedRecords.length} records`);
+	}
+
+	// Pagination functions - load data on demand
+	async function nextPage() {
+		if (currentPage < totalPages) {
+			currentPage++;
+			loading = true;
+			await loadPageData(currentPage);
 			loading = false;
 		}
 	}
 
-	function applyFilters() {
-		console.log('Filter values:', { 
-			branchFilterMode, 
-			selectedBranch, 
-			recordCount: receivingRecords.length 
-		});
-		
-		filteredRecords = receivingRecords.filter(record => {
-			const matchesSearch = !searchTerm || 
-				record.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				record.vendors?.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				record.vendors?.vat_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				record.users?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-				record.users?.hr_employees?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-			
-			const matchesVendorId = !filterVendorId || 
-				record.vendors?.erp_vendor_id?.toString().includes(filterVendorId);
-			
-			const matchesVatNumber = !filterVatNumber || 
-				record.vendors?.vat_number?.toLowerCase().includes(filterVatNumber.toLowerCase());
-			
-			const matchesVendorName = !filterVendorName || 
-				record.vendors?.vendor_name?.toLowerCase().includes(filterVendorName.toLowerCase());
+	async function previousPage() {
+		if (currentPage > 1) {
+			currentPage--;
+			loading = true;
+			await loadPageData(currentPage);
+			loading = false;
+		}
+	}
 
-			// Filter by branch
-			const matchesBranch = branchFilterMode === 'all' || 
-				(branchFilterMode === 'branch' && selectedBranch && record.branch_id?.toString() === selectedBranch.toString());
-			
-			if (branchFilterMode === 'branch') {
-				console.log('Branch filter debug:', {
-					recordId: record.id,
-					recordBranchId: record.branch_id,
-					selectedBranch,
-					matches: matchesBranch
-				});
-			}
-
-			// Calculate days remaining for this record
-			let daysRemaining = null;
-			if (record.due_date) {
-				const dueDate = new Date(record.due_date);
-				const today = new Date();
-				today.setHours(0, 0, 0, 0);
-				dueDate.setHours(0, 0, 0, 0);
-				const diffTime = dueDate.getTime() - today.getTime();
-				daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-			}
-
-			// Filter by days range (from days to to days)
-			const matchesDaysRange = (!filterFromDays && !filterToDays) || 
-				(daysRemaining !== null && 
-				 (!filterFromDays || daysRemaining >= parseInt(filterFromDays)) &&
-				 (!filterToDays || daysRemaining <= parseInt(filterToDays)));
-
-			// Filter by overdue days (only show records overdue by specific number of days)
-			const matchesOverdueDays = !filterOverdueDays || 
-				(daysRemaining !== null && 
-				 daysRemaining < 0 && 
-				 Math.abs(daysRemaining) >= parseInt(filterOverdueDays));
-
-			return matchesSearch && matchesVendorId && matchesVatNumber && matchesVendorName && matchesBranch && matchesDaysRange && matchesOverdueDays;
-		}).sort((a, b) => {
-			// Sort by creation date (newest first - latest receiving bills on top)
-			const dateA = new Date(a.created_at);
-			const dateB = new Date(b.created_at);
-			return dateB.getTime() - dateA.getTime();
-		});
+	async function goToPage(page) {
+		if (page >= 1 && page <= totalPages) {
+			currentPage = page;
+			loading = true;
+			await loadPageData(currentPage);
+			loading = false;
+		}
 	}
 
 	// Reactive statements to trigger filtering when filter values change
 	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || 
 	      filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || 
-	      filterOverdueDays !== undefined || branchFilterMode !== undefined || selectedBranch !== undefined) {
+	      filterOverdueDays !== undefined || branchFilterMode !== undefined || selectedBranch !== undefined || showArchived !== undefined) {
 		applyFilters();
 	}
 
@@ -837,6 +907,17 @@
 			/>
 		</div>
 		
+		<!-- Show Archived Records Toggle -->
+		<div class="filter-section">
+			<label class="archived-toggle">
+				<input 
+					type="checkbox" 
+					bind:checked={showArchived}
+				/>
+				<span class="toggle-label">📦 Show Archived Records ({archivedRecords.length > 0 ? archivedRecords.length : 'none'})</span>
+			</label>
+		</div>
+		
 		<!-- Branch Filter -->
 		<div class="filter-section">
 			<div class="branch-filter">
@@ -928,7 +1009,7 @@
 				<div class="spinner"></div>
 				<p>Loading receiving records...</p>
 			</div>
-		{:else if filteredRecords.length === 0}
+		{:else if paginatedRecords.length === 0}
 			<div class="no-records">
 				<p>No receiving records found.</p>
 			</div>
@@ -953,7 +1034,7 @@
 					{/if}
 				</div>
 				
-				{#each filteredRecords as record}
+				{#each paginatedRecords as record}
 					<div class="table-row">
 						<div class="cell certificate-cell">
 							{#if record.certificate_url}
@@ -1177,6 +1258,32 @@
 						{/if}
 					</div>
 				{/each}
+				
+				<!-- Pagination Controls at Bottom -->
+				{#if totalRecords > pageSize}
+					<div class="pagination-controls">
+						<button 
+							class="pagination-btn" 
+							on:click={previousPage} 
+							disabled={currentPage === 1}
+							title="Previous page"
+						>
+							← Previous
+						</button>
+						<div class="pagination-info">
+							<span class="page-number">Page {currentPage} of {totalPages}</span>
+							<span class="record-count">({totalRecords} records total)</span>
+						</div>
+						<button 
+							class="pagination-btn" 
+							on:click={nextPage} 
+							disabled={currentPage === totalPages}
+							title="Next page"
+						>
+							Next →
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -1377,6 +1484,29 @@
 		border-radius: 12px;
 		padding: 1.5rem;
 		margin-bottom: 16px;
+	}
+
+	.archived-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		cursor: pointer;
+		font-weight: 500;
+		color: #475569;
+		padding: 0;
+		margin: 0;
+	}
+
+	.archived-toggle input[type="checkbox"] {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		transform: scale(1.2);
+	}
+
+	.toggle-label {
+		font-size: 0.95rem;
+		user-select: none;
 	}
 
 	.branch-filter h4 {
@@ -2229,6 +2359,75 @@
 		font-size: 10px;
 		font-weight: 600;
 		letter-spacing: 0.5px;
+	}
+
+	/* Pagination Controls Styles */
+	.pagination-controls {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 16px;
+		padding: 24px;
+		background: #f9fafb;
+		border-top: 1px solid #e5e7eb;
+		margin-top: 12px;
+		border-radius: 0 0 8px 8px;
+		flex-wrap: wrap;
+	}
+
+	.pagination-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 10px 16px;
+		background: #3b82f6;
+		color: white;
+		border: 1px solid #3b82f6;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 500;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.pagination-btn:hover:not(:disabled) {
+		background: #2563eb;
+		border-color: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
+	}
+
+	.pagination-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.pagination-btn:disabled {
+		background: #d1d5db;
+		border-color: #d1d5db;
+		color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.pagination-info {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		color: #6b7280;
+		font-size: 14px;
+		font-weight: 500;
+	}
+
+	.page-number {
+		color: #374151;
+		font-weight: 600;
+	}
+
+	.record-count {
+		color: #9ca3af;
+		font-size: 12px;
 	}
 
 	/* Responsive adjustments */

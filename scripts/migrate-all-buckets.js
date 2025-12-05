@@ -40,19 +40,7 @@ const newSupabase = createClient(newUrl, newKey);
 
 // List of buckets to migrate (in order)
 const bucketsToMigrate = [
-  'clearance-certificates',  // 1,845 files
-  'original-bills',          // 1,732 files
-  'pr-excel-files',          // 1,712 files
-  'completion-photos',       // 1,295 files
-  'quick-task-files',        // 59 files
-  'expense-scheduler-bills',  // 349 files (nested)
-  'notification-images',     // Unknown
-  'task-images',             // Unknown
-  'warning-documents',       // Unknown
-  'shelf-paper-templates',   // Unknown
-  'customer-app-media',      // Unknown
-  'category-images',         // Unknown
-  'product-images'           // Unknown
+  'original-bills'          // 1,732 files
 ];
 
 let totalMigrated = 0;
