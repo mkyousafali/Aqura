@@ -368,204 +368,87 @@
 	// Load scheduled payments from database
 	async function loadScheduledPayments() {
 		try {
-			// Fetch all records using pagination to bypass Supabase's default 1000 row limit
-			let allData = [];
-			let from = 0;
-			const pageSize = 1000;
-			let hasMore = true;
-
-			while (hasMore) {
-				const { data: pageData, error, count } = await supabase
-					.from('vendor_payment_schedule')
-					.select(`
-						*,
-						receiving_records!receiving_record_id (
-							accountant_user_id,
-							bill_number,
-							vendor_id,
-							user_id,
-							original_bill_url,
-							users!user_id (
-								username
-							)
-						)
-					`, { count: 'exact' })
-					.order('due_date', { ascending: true })
-					.range(from, from + pageSize - 1);
-
-				if (error) {
-					console.error('Error loading scheduled payments:', error);
-					return;
-				}
-
-				if (pageData && pageData.length > 0) {
-					allData = [...allData, ...pageData];
-					from += pageSize;
-					
-					// Check if there are more records
-					if (pageData.length < pageSize || (count && allData.length >= count)) {
-						hasMore = false;
-					}
-				} else {
-					hasMore = false;
-				}
-			}
-
-			const scheduleData = allData;
-			console.log(`✅ Loaded ${scheduleData.length} total scheduled payments using pagination`);
-
-			if (scheduleData.length === 0) {
-				console.warn('No scheduled payments loaded');
+			if (!monthData) {
+				console.warn('No monthData available, skipping payment load');
 				return;
 			}
 
-			// Test parsing on the specific payment
-			const testPayment = scheduleData?.find(p => p.bill_number === '2720057707');
-			if (testPayment) {
-				console.log('🧪 Testing payment 2720057707:', {
-					due_date: testPayment.due_date,
-					due_date_type: typeof testPayment.due_date,
-					split_test: testPayment.due_date?.split('-'),
-					manual_parse: (() => {
-						if (!testPayment.due_date) return null;
-						const [year, month, day] = testPayment.due_date.split('-').map(Number);
-						const date = new Date(year, month - 1, day);
-						return {
-							year: date.getFullYear(),
-							month: date.getMonth(),
-							day: date.getDate(),
-							dateString: date.toDateString()
-						};
-					})()
-				});
+			// Calculate date range for current month only
+			const startDate = new Date(monthData.year, monthData.month, 1);
+			const endDate = new Date(monthData.year, monthData.month + 1, 0);
+			const startDateStr = startDate.toISOString().split('T')[0];
+			const endDateStr = endDate.toISOString().split('T')[0];
+
+			// Fetch only current month records (much faster)
+			const { data: scheduleData, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select(`
+					*,
+					receiving_records!receiving_record_id (
+						accountant_user_id,
+						bill_number,
+						vendor_id,
+						original_bill_url
+					)
+				`)
+				.gte('due_date', startDateStr)
+				.lte('due_date', endDateStr)
+				.order('due_date', { ascending: true });
+
+			if (error) {
+				console.error('Error loading scheduled payments:', error);
+				return;
 			}
 
-			console.log('📊 Loaded scheduled payments:', {
-				total: scheduleData?.length || 0,
-				december: scheduleData?.filter(p => {
-					if (!p.due_date) return false;
-					// Parse date manually to avoid timezone issues
-					const [year, month, day] = p.due_date.split('-').map(Number);
-					const date = new Date(year, month - 1, day); // month is 0-indexed
-					const isDecember = date.getMonth() === 11 && date.getFullYear() === 2025;
-					return isDecember;
-				}).length || 0,
-				dec10: scheduleData?.filter(p => {
-					if (!p.due_date) return false;
-					// Parse date manually to avoid timezone issues
-					const [year, month, day] = p.due_date.split('-').map(Number);
-					const date = new Date(year, month - 1, day); // month is 0-indexed
-					const isDec10 = date.getMonth() === 11 && date.getDate() === 10 && date.getFullYear() === 2025;
-					if (isDec10) {
-						console.log('🔍 Dec 10 payment found:', {
-							id: p.id,
-							vendor: p.vendor_name,
-							bill: p.bill_number,
-							due_date: p.due_date,
-							due_date_type: typeof p.due_date,
-							parsed: date.toISOString(),
-							dateString: date.toDateString(),
-							month: date.getMonth(),
-							day: date.getDate(),
-							year: date.getFullYear()
-						});
-					}
-					return isDec10;
-				}).length || 0
-			});
+			const payments = scheduleData || [];
 
-			// Get unique vendor IDs and branch IDs to fetch priorities
-			const vendorKeys = [...new Set(scheduleData.map(p => `${p.vendor_id}-${p.branch_id}`))].filter(k => k !== 'undefined-undefined');
-			
-			// Fetch vendor priorities with pagination
+			// Get unique vendor IDs to fetch priorities (lazy load)
 			const vendorPriorities = {};
-			if (vendorKeys.length > 0) {
-				let allVendors = [];
-				let from = 0;
-				const pageSize = 1000;
-				let hasMore = true;
-
-				while (hasMore) {
-					const { data: pageData, error } = await supabase
-						.from('vendors')
-						.select('erp_vendor_id, branch_id, payment_priority')
-						.range(from, from + pageSize - 1);
-					
-					if (error) {
-						console.error('Error loading vendors:', error);
-						break;
-					}
-
-					if (pageData && pageData.length > 0) {
-						allVendors = [...allVendors, ...pageData];
-						from += pageSize;
-						
-						if (pageData.length < pageSize) {
-							hasMore = false;
-						}
-					} else {
-						hasMore = false;
-					}
-				}
+			const uniqueVendorIds = [...new Set(payments.map(p => p.vendor_id).filter(Boolean))];
+			
+			if (uniqueVendorIds.length > 0) {
+				const { data: vendorsData, error: vendorError } = await supabase
+					.from('vendors')
+					.select('erp_vendor_id, branch_id, payment_priority')
+					.in('erp_vendor_id', uniqueVendorIds);
 				
-				if (allVendors.length > 0) {
-					allVendors.forEach(v => {
-						vendorPriorities[`${v.erp_vendor_id}-${v.branch_id}`] = v.payment_priority;
+				if (!vendorError && vendorsData) {
+					// Build vendor priorities map
+					vendorsData.forEach(v => {
+						const key = `${v.erp_vendor_id}-${v.branch_id}`;
+						vendorPriorities[key] = v.payment_priority || 'Normal';
 					});
 				}
 			}
 
-			// Attach vendor priority to each payment
-			scheduledPayments = scheduleData.map(payment => ({
+			// Assign priorities to payments
+			scheduledPayments = payments.map(payment => ({
 				...payment,
-				vendor_priority: vendorPriorities[`${payment.vendor_id}-${payment.branch_id}`] || 'Normal'
+				payment_priority: vendorPriorities[`${payment.vendor_id}-${payment.branch_id}`] || 'Normal'
 			}));
 		} catch (error) {
 			console.error('Error loading scheduled payments:', error);
 		}
 	}
 
-	// Load expense scheduler payments for the current month
+	// Load expense scheduler payments for the current month (OPTIMIZED)
 	async function loadExpenseSchedulerPayments() {
 		try {
-			// First, let's test if we can get ANY data from expense_scheduler using ADMIN
-			const { data: testData, error: testError } = await supabaseAdmin
-				.from('expense_scheduler')
-				.select('*')
-				.limit(10);
-			
-			console.log('🧪 TEST WITH ADMIN: All expense_scheduler data (first 10):', testData, 'Error:', testError);
-			
 			if (!monthData || monthData.month === undefined || monthData.year === undefined) {
-				console.warn('⚠️ monthData not ready:', monthData);
 				return;
 			}
 			
 			const startDate = new Date(monthData.year, monthData.month, 1);
-			const endDate = new Date(monthData.year, monthData.month + 1, 0); // Last day of current month
+			const endDate = new Date(monthData.year, monthData.month + 1, 0);
 			
 			// Format dates for query (YYYY-MM-DD)
 			const startDateStr = `${monthData.year}-${String(monthData.month + 1).padStart(2, '0')}-01`;
 			const endDateStr = `${monthData.year}-${String(monthData.month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 			
-			console.log('Loading expense scheduler for:', { 
-				startDate: startDateStr, 
-				endDate: endDateStr,
-				endDateDay: endDate.getDate(),
-				month: monthData.month,
-				year: monthData.year
-			});
-			
-			// Load expense scheduler with pagination to handle large datasets
-			let allData = [];
-			let from = 0;
-			const pageSize = 1000;
-			let hasMore = true;
-
-			while (hasMore) {
-				const { data: pageData, error } = await supabaseAdmin
-					.from('expense_scheduler')
-					.select(`
+			// Load only current month (no pagination needed for one month)
+			const { data: pageData, error } = await supabaseAdmin
+				.from('expense_scheduler')
+				.select(`
 						*,
 						creator:users!created_by (
 							username
@@ -576,43 +459,14 @@
 					`)
 					.gte('due_date', startDateStr)
 					.lte('due_date', endDateStr)
-					.order('due_date', { ascending: true })
-					.range(from, from + pageSize - 1);
+					.order('due_date', { ascending: true });
 
-				if (error) {
-					console.error('❌ Error loading expense scheduler payments:', error);
-					return;
-				}
-
-				if (pageData && pageData.length > 0) {
-					allData = [...allData, ...pageData];
-					from += pageSize;
-					
-					if (pageData.length < pageSize) {
-						hasMore = false;
-					}
-				} else {
-					hasMore = false;
-				}
+			if (error) {
+				console.error('Error loading expense scheduler payments:', error);
+				return;
 			}
 
-			const data = allData;
-			console.log(`✅ Loaded ${data.length} expense scheduler payments WITH ADMIN using pagination`);
-			console.log('📊 Expense Scheduler Summary:', {
-				totalRecords: data?.length || 0,
-				byScheduleType: data?.reduce((acc, r) => {
-					const type = r.schedule_type || 'null';
-					acc[type] = (acc[type] || 0) + 1;
-					return acc;
-				}, {}),
-				records: data?.map(r => ({
-					id: r.id,
-					schedule_type: r.schedule_type,
-					due_date: r.due_date,
-					amount: r.amount,
-					branch: r.branch_name
-				}))
-			});
+			const data = pageData || [];
 			
 			// Flatten the data and filter out completed/written-off requisitions
 			expenseSchedulerPayments = (data || [])

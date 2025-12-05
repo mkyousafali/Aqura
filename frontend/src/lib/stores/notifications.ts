@@ -104,7 +104,8 @@ export async function fetchNotificationCounts(userId?: string) {
 			`,
       )
       .eq("user_id", targetUserId)
-      .eq("notifications.status", "published");
+      .eq("notifications.status", "published")
+      .limit(500);
 
     if (error) {
       throw error;

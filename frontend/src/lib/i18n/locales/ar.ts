@@ -57,6 +57,8 @@ export const arabicLocale: LocaleData = {
       approvals: "الموافقات",
       startReceiving: "بدء الاستلام",
       scheduledPayments: "المدفوعات المجدولة",
+      monthlyManager: "مدير الأشهر",
+      monthlyBreakdown: "تفصيل شهري",
       expenseManager: "إدارة المصروفات",
       dayBudgetPlanner: "مخطط الميزانية اليومية",
       soundSettings: "إعدادات الصوت",

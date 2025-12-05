@@ -152,7 +152,8 @@ export class NotificationManagementService {
           )
           .eq("user_id", userId)
           .eq("notifications.status", "published")
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          .limit(500);
 
         if (error) {
           throw error;
@@ -222,7 +223,8 @@ export class NotificationManagementService {
         )
         .eq("user_id", userId)
         .eq("notifications.status", "published")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
 
       if (error) {
         throw error;
@@ -455,7 +457,7 @@ export class NotificationManagementService {
         notificationPayload,
       );
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from("notifications")
         .insert(notificationPayload)
         .select("*")
@@ -514,7 +516,7 @@ export class NotificationManagementService {
     updates: UpdateNotificationRequest,
   ): Promise<NotificationItem> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from("notifications")
         .update(updates)
         .eq("id", id)
@@ -537,7 +539,7 @@ export class NotificationManagementService {
    */
   async deleteNotification(id: string): Promise<{ success: boolean }> {
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from("notifications")
         .delete()
         .eq("id", id);
@@ -620,7 +622,8 @@ export class NotificationManagementService {
         .from("notification_recipients")
         .select("notification_id, notifications!inner(status)")
         .eq("user_id", userId)
-        .eq("notifications.status", "published");
+        .eq("notifications.status", "published")
+        .limit(500);
 
       if (fetchError) {
         throw fetchError;

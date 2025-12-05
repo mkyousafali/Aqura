@@ -33,6 +33,8 @@
 	import CommunicationCenter from '$lib/components/desktop-interface/master/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
 	import ScheduledPayments from '$lib/components/desktop-interface/master/finance/ScheduledPayments.svelte';
+	import MonthlyManager from '$lib/components/desktop-interface/master/finance/MonthlyManager.svelte';
+	import MonthlyBreakdown from '$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte';
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
 	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
@@ -660,6 +662,59 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Monthly Manager window
+	function openMonthlyManager() {
+		const windowId = generateWindowId('monthly-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		let monthlyManagerRefreshFunction = null;
+		
+		openWindow({
+			id: windowId,
+			title: `Monthly Manager #${instanceNumber}`,
+			component: MonthlyManager,
+			props: {
+				setRefreshCallback: (fn) => {
+					monthlyManagerRefreshFunction = fn;
+				},
+				onRefresh: async () => {
+					if (monthlyManagerRefreshFunction) {
+						return await monthlyManagerRefreshFunction();
+					}
+				}
+			},
+			icon: '📅',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 130 + (Math.random() * 100),
+				y: 130 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	// Open Monthly Breakdown window
+	function openMonthlyBreakdown() {
+		const windowId = generateWindowId('monthly-breakdown');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Monthly Breakdown #${instanceNumber}`,
+			component: MonthlyBreakdown,
+			props: {},
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 130 + (Math.random() * 100),
+				y: 130 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Expense Manager window
 	function openExpenseManager() {
 		const windowId = generateWindowId('expense-manager');
@@ -937,6 +992,12 @@ function openApprovalCenter() {
 						<span class="menu-text">{t('nav.scheduledPayments') || 'Scheduled Payments'}</span>
 					</button>
 				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openMonthlyManager}>
+						<span class="menu-icon">📅</span>
+						<span class="menu-text">{t('nav.monthlyManager') || 'Monthly Manager'}</span>
+					</button>
+				</div>
 			<div class="submenu-item-container">
 				<button class="submenu-item" on:click={openExpenseManager}>
 					<span class="menu-icon">💸</span>
@@ -1063,6 +1124,12 @@ function openApprovalCenter() {
 					<button class="submenu-item" on:click={openSalesReport}>
 						<span class="menu-icon">📊</span>
 						<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openMonthlyBreakdown}>
+						<span class="menu-icon">📅</span>
+						<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
 					</button>
 				</div>
 			</div>

@@ -55,6 +55,8 @@ export const englishLocale: LocaleData = {
       approvals: "Approvals",
       startReceiving: "Start Receiving",
       scheduledPayments: "Scheduled Payments",
+      monthlyManager: "Monthly Manager",
+      monthlyBreakdown: "Monthly Breakdown",
       expenseManager: "Expense Manager",
       dayBudgetPlanner: "Day Budget Planner",
       soundSettings: "Sound Settings",

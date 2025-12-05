@@ -1,9 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
-	import { windowManager } from '$lib/stores/windowManager';
-import { openWindow } from '$lib/utils/windowManagerUtils';
-	import MonthDetails from '$lib/components/desktop-interface/master/finance/MonthDetails.svelte';
 
 	// Props for window refresh functionality
 	export let onRefresh = null; // Window refresh callback
@@ -74,26 +71,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Refresh function to reload all data
 	async function refreshData() {
-		if (refreshing) return; // Prevent multiple simultaneous refreshes
+		if (refreshing) return;
 		
 		try {
 			refreshing = true;
-			console.log('🔄 [ScheduledPayments] Starting complete data refresh...');
-			console.log('🔍 [ScheduledPayments] Current scheduledPayments:', scheduledPayments.length);
-			console.log('🔍 [ScheduledPayments] Current expenseSchedulerPayments:', expenseSchedulerPayments.length);
 			
 			// Clear existing data first
 			scheduledPayments = [];
 			expenseSchedulerPayments = [];
 			weekDays = [];
 			
-			console.log('✅ [ScheduledPayments] Data cleared, reloading...');
-			
 			// Reload all data sources
 			generateWeekDays();
 			calculateMonthlyTotals();
-			
-			console.log('✅ [ScheduledPayments] Week days and calculations regenerated');
 			
 			await Promise.all([
 				loadBranches(),
@@ -102,17 +92,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				loadScheduledPayments(),
 				loadExpenseSchedulerPayments()
 			]);
-			
-			console.log('✅ [ScheduledPayments] All data reloaded successfully');
-			console.log('🔍 [ScheduledPayments] New scheduledPayments:', scheduledPayments.length);
-			console.log('🔍 [ScheduledPayments] New expenseSchedulerPayments:', expenseSchedulerPayments.length);
-			
 		} catch (error) {
-			console.error('❌ [ScheduledPayments] Error during complete refresh:', error);
+			console.error('Error during refresh:', error);
 			alert('Error refreshing data. Please try again.');
 		} finally {
 			refreshing = false;
-			console.log('🏁 [ScheduledPayments] Refresh completed, refreshing state reset');
 		}
 	}
 
@@ -128,18 +112,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	onMount(async () => {
-		console.log('🚀 [ScheduledPayments] Component mounted');
-		console.log('🔍 [ScheduledPayments] setRefreshCallback:', setRefreshCallback);
-		console.log('🔍 [ScheduledPayments] onRefresh:', onRefresh);
-		
 		await loadInitialData();
 		
 		// Register our refresh function with the window
 		if (setRefreshCallback) {
-			console.log('✅ [ScheduledPayments] Registering refreshData function with window');
 			setRefreshCallback(refreshData);
-		} else {
-			console.log('❌ [ScheduledPayments] No setRefreshCallback provided');
 		}
 	});
 
@@ -170,14 +147,31 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
-	// Load scheduled payments from database
+	// Load scheduled payments from database (OPTIMIZED - next 6 months only)
 	async function loadScheduledPayments() {
 		try {
-			console.log('Loading scheduled payments...');
+			// Load only next 6 months to improve performance
+			const today = new Date();
+			const sixMonthsLater = new Date(today);
+			sixMonthsLater.setMonth(today.getMonth() + 6);
+			
+			const startDateStr = today.toISOString().split('T')[0];
+			const endDateStr = sixMonthsLater.toISOString().split('T')[0];
+
 			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
-				.select('*')
+				.select(`
+					*,
+					receiving_records!receiving_record_id (
+						accountant_user_id,
+						bill_number,
+						vendor_id,
+						original_bill_url
+					)
+				`)
 				.eq('is_paid', false)
+				.gte('due_date', startDateStr)
+				.lte('due_date', endDateStr)
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -185,32 +179,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return;
 			}
 
-			console.log('Loaded scheduled payments:', data);
 			scheduledPayments = data || [];
-			
-			// Group payments by day after loading data
 			groupPaymentsByDay();
-			
-			// Calculate monthly totals after loading data
 			calculateMonthlyTotals();
-			
-			// Force reactivity update
 			weekDays = weekDays;
 		} catch (err) {
 			console.error('Error loading scheduled payments:', err);
 		}
 	}
 
-	// Load expense scheduler payments from database
+	// Load expense scheduler payments from database (OPTIMIZED - next 6 months only)
 	async function loadExpenseSchedulerPayments() {
 		try {
-			console.log('Loading expense scheduler payments...');
+			// Load only next 6 months to improve performance
+			const today = new Date();
+			const sixMonthsLater = new Date(today);
+			sixMonthsLater.setMonth(today.getMonth() + 6);
+			
+			const startDateStr = today.toISOString().split('T')[0];
+			const endDateStr = sixMonthsLater.toISOString().split('T')[0];
+
 			const { data, error } = await supabaseAdmin
 				.from('expense_scheduler')
 				.select(`
 					*,
 					creator:users!created_by(username)
 				`)
+				.gte('due_date', startDateStr)
+				.lte('due_date', endDateStr)
 				.order('due_date', { ascending: true });
 
 			if (error) {
@@ -218,16 +214,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				return;
 			}
 
-			console.log('Loaded expense scheduler payments:', data);
 			expenseSchedulerPayments = data || [];
-			
-			// Group payments by day after loading data
 			groupPaymentsByDay();
-			
-			// Calculate monthly totals after loading data
 			calculateMonthlyTotals();
-			
-			// Force reactivity update
 			weekDays = weekDays;
 		} catch (err) {
 			console.error('Error loading expense scheduler payments:', err);
@@ -431,35 +420,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Group payments by day
 	function groupPaymentsByDay() {
-		console.log('Grouping payments by day...', filteredPayments.length, 'vendor payments', expenseSchedulerPayments.length, 'expense payments');
 		weekDays.forEach(day => {
 			// Filter vendor payments for this day
 			day.payments = filteredPayments.filter(payment => {
 				const paymentDate = new Date(payment.due_date);
-				const matches = paymentDate.toDateString() === day.fullDate.toDateString();
-				if (matches) {
-					console.log(`Vendor payment matched for ${day.fullDate.toDateString()}:`, payment);
-				}
-				return matches;
+				return paymentDate.toDateString() === day.fullDate.toDateString();
 			});
 			
 			// Filter expense scheduler payments for this day
 			day.expensePayments = expenseSchedulerPayments.filter(expense => {
 				if (!expense.due_date) return false;
 				const expenseDate = new Date(expense.due_date);
-				const matches = expenseDate.toDateString() === day.fullDate.toDateString();
-				if (matches) {
-					console.log(`Expense payment matched for ${day.fullDate.toDateString()}:`, expense);
-				}
-				return matches;
+				return expenseDate.toDateString() === day.fullDate.toDateString();
 			});
 			
 			// Calculate totals
 			day.totalAmount = day.payments.reduce((sum, payment) => sum + (payment.final_bill_amount || payment.bill_amount || 0), 0);
 			day.expenseTotalAmount = day.expensePayments.reduce((sum, expense) => sum + (expense.amount || 0), 0);
 			day.combinedTotalAmount = day.totalAmount + day.expenseTotalAmount;
-			
-			console.log(`Day ${day.dayName} ${day.date}: ${day.payments.length} vendor payments (${day.totalAmount}), ${day.expensePayments.length} expense payments (${day.expenseTotalAmount}), combined total: ${day.combinedTotalAmount}`);
 		});
 	}
 
@@ -608,7 +586,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		showDetails = false;
 		selectedDay = null;
 	}
-
 
 
 	// Generate months data (unlimited)
@@ -910,7 +887,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 		<div class="months-grid">
 			{#each monthlyData as monthData, index}
-				<div class="month-card" class:current={monthData.isCurrent} class:next={monthData.isNext} class:has-payments={monthData.total > 0} class:clickable={monthData.total > 0} on:click={() => handleMonthClick(monthData)}>
+				<div class="month-card" class:current={monthData.isCurrent} class:next={monthData.isNext} class:has-payments={monthData.total > 0}>
 					<div class="month-header">
 						<div class="month-icon">
 							{#if monthData.isCurrent}
@@ -1842,15 +1819,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.month-card.current.has-payments {
 		border-color: #3b82f6;
 		background: linear-gradient(135deg, #dbeafe 0%, #ffffff 100%);
-	}
-
-	.month-card.clickable {
-		cursor: pointer;
-	}
-
-	.month-card.clickable:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
 	}
 
 	.month-header {
