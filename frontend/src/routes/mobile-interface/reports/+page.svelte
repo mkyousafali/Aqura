@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
+	import MobileSalesReport from '$lib/components/mobile-interface/reports/MobileSalesReport.svelte';
 	import { localeData } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -55,7 +55,7 @@
 		</div>
 		
 		<div class="report-container">
-			<SalesReport />
+			<MobileSalesReport />
 		</div>
 	{:else}
 		<div class="access-denied">
@@ -75,8 +75,8 @@
 
 	.page-header {
 		background: white;
-		padding: 1.5rem 1rem;
-		margin-bottom: 1rem;
+		padding: 1rem 1rem;
+		margin-bottom: 0.5rem;
 		border-bottom: 1px solid #e5e7eb;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 	}
@@ -85,25 +85,26 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-size: 1.5rem;
+		font-size: 1.25rem;
 		font-weight: 700;
 		color: #1f2937;
-		margin: 0 0 0.5rem 0;
+		margin: 0 0 0.25rem 0;
 	}
 
 	.page-icon {
-		font-size: 1.5rem;
+		font-size: 1.25rem;
 	}
 
 	.page-subtitle {
 		color: #6b7280;
-		font-size: 0.95rem;
+		font-size: 0.875rem;
 		margin: 0;
 		font-weight: 500;
 	}
 
 	.report-container {
-		padding: 0 0.5rem;
+		padding: 0;
+		width: 100%;
 	}
 
 	.access-denied {
@@ -132,119 +133,17 @@
 		font-size: 1rem;
 	}
 
-	/* Make the desktop sales report responsive for mobile */
-	:global(.sales-report-container) {
-		flex-direction: column !important;
-		gap: 1rem !important;
-		padding: 0 !important;
-	}
-
-	:global(.sales-card) {
-		max-width: none !important;
-		width: 100% !important;
-		margin: 0 !important;
-		border-radius: 12px !important;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-	}
-
-	/* Optimize chart for mobile - minimal overrides */
-	:global(.chart-container) {
-		padding: 1rem 0.5rem !important;
-		overflow-x: auto !important;
-	}
-
-	:global(.sale-item) {
-		min-width: 70px !important;
-	}
-
-	:global(.bar-container) {
-		min-height: 120px !important;
-	}
-
-	:global(.bar) {
-		min-height: 30px !important;
-	}
-
-	:global(.date-label),
-	:global(.amount-label),
-	:global(.bills-label),
-	:global(.basket-label),
-	:global(.return-label) {
-		font-size: 0.7rem !important;
-	}
-
-	:global(.monthly-averages) {
-		gap: 0.5rem !important;
-		display: flex !important;
-		justify-content: center !important;
-		margin-bottom: 1rem !important;
-	}
-
-	:global(.month-avg) {
-		padding: 0.75rem !important;
-		min-width: 120px !important;
-		border-radius: 12px !important;
-		color: white !important;
-		text-align: center !important;
-	}
-
-	:global(.branch-monthly-badges) {
-		display: flex !important;
-		gap: 0.4rem !important;
-		margin-bottom: 0.5rem !important;
-		flex-wrap: wrap !important;
-		justify-content: center !important;
-	}
-
-	:global(.mini-badge) {
-		padding: 0.5rem 0.75rem !important;
-		border-radius: 8px !important;
-		font-size: 0.65rem !important;
-		color: white !important;
-		min-width: 70px !important;
-	}
-
-	:global(.refresh-btn) {
-		padding: 0.4rem !important;
-	}
-
-	/* Mobile responsive adjustments */
 	@media (max-width: 480px) {
 		.page-header {
-			padding: 1rem 0.75rem;
+			padding: 0.75rem 0.5rem;
 		}
 
 		.page-title {
-			font-size: 1.25rem;
+			font-size: 1.1rem;
 		}
 
 		.page-subtitle {
-			font-size: 0.875rem;
-		}
-
-		.report-container {
-			padding: 0 0.25rem;
-		}
-
-		:global(.sales-comparison) {
-			gap: 0.5rem !important;
-			padding: 0.75rem 0.25rem !important;
-		}
-
-		:global(.sale-item) {
-			gap: 0.25rem !important;
-		}
-
-		:global(.bar-container) {
-			max-width: 40px !important;
-		}
-
-		:global(.monthly-averages) {
-			flex-direction: column !important;
-		}
-
-		:global(.month-avg) {
-			min-width: 100px !important;
+			font-size: 0.8rem;
 		}
 	}
 </style>
