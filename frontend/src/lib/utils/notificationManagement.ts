@@ -479,27 +479,10 @@ export class NotificationManagementService {
       );
       // Skip the queue_push_notification RPC call
 
-      // ⚡ INSTANT PUSH: TEMPORARILY DISABLED - Edge Function calls disabled
-      try {
-        console.log(
-          "⚠️ [NotificationManagement] Edge Function temporarily disabled, using client-side processing",
-        );
-
-        // Use client-side processing instead
-        setTimeout(() => {
-          pushNotificationProcessor.processOnce().catch((error) => {
-            console.error(
-              "❌ [NotificationManagement] Client-side processing failed:",
-              error,
-            );
-          });
-        }, 500);
-      } catch (error) {
-        console.error(
-          "❌ [NotificationManagement] Error in notification processing:",
-          error,
-        );
-      }
+      // ⚡ INSTANT PUSH: DISABLED - Push notification processing disabled
+      console.log(
+        "⚠️ [NotificationManagement] Push notification processing disabled",
+      );
 
       return data;
     } catch (error) {
@@ -1119,30 +1102,23 @@ export class NotificationManagementService {
           console.error(
             "❌ [NotificationManagement] Failed to queue push notifications:",
             queueError,
-          );
-        } else {
-          console.log(
-            "✅ [NotificationManagement] Push notifications queued successfully",
-          );
+        );
+      } else {
+        console.log(
+          "✅ [NotificationManagement] Push notifications queued successfully",
+        );
 
-          // Immediately trigger push notification processing
-          setTimeout(() => {
-            pushNotificationProcessor.processOnce().catch((error) => {
-              console.error(
-                "❌ [NotificationManagement] Failed to process push notifications:",
-                error,
-              );
-            });
-          }, 1000); // Reduced delay for faster task assignment notifications
-        }
-      } catch (queueError) {
-        console.error(
-          "❌ [NotificationManagement] Error in manual queue process:",
-          queueError,
+        // Push notification processing disabled
+        console.log(
+          "⚠️ [NotificationManagement] Push notification processing disabled",
         );
       }
-
-      return data;
+    } catch (queueError) {
+      console.error(
+        "❌ [NotificationManagement] Error in manual queue process:",
+        queueError,
+      );
+    }      return data;
     } catch (error) {
       console.error("Error creating task assignment notification:", error);
       throw new Error("Failed to create task assignment notification");

@@ -1,9 +1,10 @@
 <script>
 	// Approval Center Component
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+	import { supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
+	import { notifications } from '$lib/stores/notifications';
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
@@ -23,6 +24,12 @@
 	let isProcessing = false;
 	let userCanApprove = false; // Track if current user has approval permissions
 	let activeSection = 'approvals'; // 'approvals' or 'my_requests'
+	
+	// Confirmation modal state
+	let showConfirmModal = false;
+	let confirmAction = null; // 'approve' or 'reject'
+	let pendingRequisitionId = null;
+	let rejectionReason = '';
 
 	// Stats for approvals assigned to me
 	let stats = {
@@ -44,21 +51,22 @@
 		loadRequisitions();
 	});
 
+	// Track if historical data is loaded
+	let historicalDataLoaded = false;
+
 	async function loadRequisitions() {
 		try {
 		loading = true;
 		
-		// Check if user is logged in
-		if (!$currentUser?.id) {
-			alert('❌ Please login to access the approval center');
-			loading = false;
-			return;
-		}
-
-		console.log('🔐 Current user:', $currentUser);
+	// Check if user is logged in
+	if (!$currentUser?.id) {
+		notifications.add({ type: 'error', message: 'Please login to access the approval center' });
+		loading = false;
+		return;
+	}		console.log('🔐 Current user:', $currentUser);
 
 	// Get current user's approval permissions from approval_permissions table
-	const { data: approvalPerms, error: permsError } = await supabase
+	const { data: approvalPerms, error: permsError } = await supabaseAdmin
 		.from('approval_permissions')
 		.select('*')
 		.eq('user_id', $currentUser.id)
@@ -69,7 +77,7 @@
 
 	if (permsError) {
 		console.error('Error fetching approval permissions:', permsError);
-		alert('❌ Error checking user permissions: ' + permsError.message);
+		notifications.add({ type: 'error', message: 'Error checking user permissions: ' + permsError.message });
 		loading = false;
 		return;
 	}		// User can approve if ANY permission is enabled
@@ -92,39 +100,35 @@
 				leave_requests: approvalPerms.can_approve_leave_requests
 			});
 		} else {
-			userCanApprove = false;
-			console.log('👤 No approval permissions found for user');
-		}
+		userCanApprove = false;
+		console.log('👤 No approval permissions found for user');
+	}
 
-		console.log('✅ Loading approval center for user:', $currentUser.username);
-		
-		// Import supabaseAdmin for admin queries
-		const { supabaseAdmin } = await import('$lib/utils/supabase');
-		
-		// Calculate date for filtering
-		const twoDaysFromNow = new Date();
-		twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
-		const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
-		
-		console.log('🔍 Loading all data in parallel for better performance...');
-		
-		// Run all queries in parallel for better performance
-		const [
-			requisitionsResult,
-			schedulesResult,
-			vendorPaymentsResult,
-			myRequisitionsResult,
-			mySchedulesResult,
-			myApprovedSchedulesResult,
-			approvedSchedulesResult,
-			rejectedSchedulesResult
-		] = await Promise.all([
-			// 1. Requisitions where current user is approver
-			supabaseAdmin
-				.from('expense_requisitions')
-				.select('*')
-				.eq('approver_id', $currentUser.id)
-				.order('created_at', { ascending: false }),
+	console.log('✅ Loading approval center for user:', $currentUser.username);
+	
+	// Calculate date for filtering
+	const twoDaysFromNow = new Date();
+	twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+	const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
+	
+	console.log('🔍 Loading pending items first for faster display...');
+	
+	// Load only pending items first for faster initial display
+	const [
+		requisitionsResult,
+		schedulesResult,
+		vendorPaymentsResult,
+		myRequisitionsResult,
+		mySchedulesResult
+	] = await Promise.all([
+		// 1. Requisitions where current user is approver (pending only)
+		supabaseAdmin
+			.from('expense_requisitions')
+			.select('*')
+			.eq('approver_id', $currentUser.id)
+			.eq('status', 'pending')
+			.order('created_at', { ascending: false })
+			.limit(200),
 			
 			// 2. Payment schedules requiring approval
 			supabaseAdmin
@@ -139,7 +143,8 @@
 				.eq('approval_status', 'pending')
 				.eq('approver_id', $currentUser.id)
 				.in('schedule_type', ['single_bill', 'multiple_bill'])
-				.order('created_at', { ascending: false }),
+				.order('created_at', { ascending: false })
+				.limit(200),
 			
 			// 3. Vendor payments requiring approval (only if user has permission)
 			(approvalPerms && approvalPerms.can_approve_vendor_payments) ? 
@@ -152,84 +157,40 @@
 							username
 						)
 					`)
-					.eq('approval_status', 'sent_for_approval')
-					.order('approval_requested_at', { ascending: false }) :
-				Promise.resolve({ data: [], error: null }),
-			
-			// 4. My created requisitions
-			supabaseAdmin
-				.from('expense_requisitions')
-				.select('*')
-				.eq('created_by', $currentUser.id)
-				.order('created_at', { ascending: false }),
-			
-			// 5. My created payment schedules
-			supabaseAdmin
-				.from('non_approved_payment_scheduler')
-				.select(`
-					*,
-					approver:users!approver_id (
-						id,
-						username
-					)
-				`)
-				.eq('created_by', $currentUser.id)
-				.in('schedule_type', ['single_bill', 'multiple_bill'])
-				.order('created_at', { ascending: false }),
-			
-			// 6. My approved/rejected schedules from expense_scheduler
-			supabaseAdmin
-				.from('expense_scheduler')
-				.select(`
-					*,
-					approver:users!approver_id (
-						id,
-						username
-					)
-				`)
-				.eq('created_by', $currentUser.id)
-				.not('schedule_type', 'eq', 'recurring')
-				.not('schedule_type', 'eq', 'expense_requisition')
-				.order('created_at', { ascending: false }),
-			
-			// 7. Approved payment schedules where I was the approver
-			supabaseAdmin
-				.from('expense_scheduler')
-				.select(`
-					*,
-					creator:users!created_by (
-						id,
-						username
-					)
-				`)
-				.eq('approver_id', $currentUser.id)
-				.not('schedule_type', 'eq', 'recurring')
-				.not('schedule_type', 'eq', 'expense_requisition')
-				.order('created_at', { ascending: false }),
-			
-			// 8. Rejected schedules where I was the approver
-			supabaseAdmin
-				.from('non_approved_payment_scheduler')
-				.select(`
-					*,
-					creator:users!created_by (
-						id,
-						username
-					)
-				`)
-				.eq('approver_id', $currentUser.id)
-				.eq('approval_status', 'rejected')
-				.order('created_at', { ascending: false })
-		]);
+				.eq('approval_status', 'sent_for_approval')
+				.order('approval_requested_at', { ascending: false })
+				.limit(200) :
+			Promise.resolve({ data: [], error: null }),		// 4. My created requisitions (pending only)
+		supabaseAdmin
+			.from('expense_requisitions')
+			.select('*')
+			.eq('created_by', $currentUser.id)
+			.eq('status', 'pending')
+			.order('created_at', { ascending: false })
+			.limit(200),
 		
-		// Process requisitions result
-		const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
-		if (requisitionsError) {
-			console.error('❌ Error loading requisitions:', requisitionsError);
-			throw requisitionsError;
-		}
-		
-		requisitions = requisitionsData || [];
+		// 5. My created payment schedules (pending only)
+		supabaseAdmin
+			.from('non_approved_payment_scheduler')
+			.select(`
+				*,
+				approver:users!approver_id (
+					id,
+					username
+				)
+			`)
+		.eq('created_by', $currentUser.id)
+		.eq('approval_status', 'pending')
+		.in('schedule_type', ['single_bill', 'multiple_bill'])
+		.order('created_at', { ascending: false })
+	]);
+	
+	// Process requisitions result
+	const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
+	if (requisitionsError) {
+		console.error('❌ Error loading requisitions:', requisitionsError);
+		throw requisitionsError;
+	}		requisitions = requisitionsData || [];
 		
 		// Fetch usernames for requisitions if needed
 		if (requisitions.length > 0) {
@@ -293,82 +254,208 @@
 			console.log('✅ My created requisitions:', myCreatedRequisitions.length);
 		}
 		
-		// Process my created schedules
-		const { data: mySchedulesData, error: mySchedulesError } = mySchedulesResult;
-		if (!mySchedulesError && mySchedulesData) {
-			myCreatedSchedules = mySchedulesData || [];
-			console.log('✅ My created payment schedules:', myCreatedSchedules.length);
-		}
-		
-		// Process my approved schedules
-		const { data: myApprovedSchedulesData, error: myApprovedSchedulesError } = myApprovedSchedulesResult;
-		let myApprovedSchedulesCount = 0;
-		if (!myApprovedSchedulesError && myApprovedSchedulesData) {
-			myApprovedSchedules = myApprovedSchedulesData || [];
-			myApprovedSchedulesCount = myApprovedSchedules.length;
-			console.log('✅ My approved schedules loaded:', myApprovedSchedulesCount);
-		}
-		
-		// Process approved schedules where I was approver
-		const { data: approvedSchedulesData, error: approvedSchedulesError } = approvedSchedulesResult;
-		let approvedSchedulesCount = 0;
-		if (!approvedSchedulesError && approvedSchedulesData) {
-			approvedPaymentSchedules = approvedSchedulesData || [];
-			approvedSchedulesCount = approvedPaymentSchedules.length;
-			console.log('✅ Approved payment schedules loaded (where user is approver):', approvedSchedulesCount);
-		}
-		
-		// Process rejected schedules
-		const { data: rejectedSchedulesData, error: rejectedSchedulesError } = rejectedSchedulesResult;
-		let rejectedSchedulesCount = 0;
-		if (!rejectedSchedulesError && rejectedSchedulesData) {
-			rejectedPaymentSchedules = rejectedSchedulesData || [];
-			rejectedSchedulesCount = rejectedPaymentSchedules.length;
-			console.log('✅ Rejected payment schedules loaded:', rejectedSchedulesCount);
-		}
-
-		// Calculate stats (include both requisitions and payment schedules)
-		// Stats for approvals assigned to me
-		// Only count items where current user is the approver
-		const myApprovedRequisitions = requisitions.filter(r => r.status === 'approved' && r.approver_id === $currentUser.id);
-		const myRejectedRequisitions = requisitions.filter(r => r.status === 'rejected' && r.approver_id === $currentUser.id);
-		
-		stats.pending = requisitions.filter(r => r.status === 'pending').length + paymentSchedules.length + vendorPayments.length;
-		stats.approved = myApprovedRequisitions.length + approvedSchedulesCount;
-		stats.rejected = myRejectedRequisitions.length + rejectedSchedulesCount;
-		stats.total = stats.pending + stats.approved + stats.rejected;
-
-		// Stats for my created requests
-		myStats.pending = myCreatedRequisitions.filter(r => r.status === 'pending').length + 
-		                  myCreatedSchedules.filter(s => s.approval_status === 'pending').length;
-		myStats.approved = myCreatedRequisitions.filter(r => r.status === 'approved').length + myApprovedSchedulesCount;
-		myStats.rejected = myCreatedRequisitions.filter(r => r.status === 'rejected').length +
-		                   myCreatedSchedules.filter(s => s.approval_status === 'rejected').length;
-		myStats.total = myStats.pending + myStats.approved + myStats.rejected;
-
-		console.log('📈 Approval Stats:', stats);
-		console.log('� My Requests Stats:', myStats);
-		console.log('�📊 Stats breakdown:', {
-			requisitions: requisitions.length,
-			paymentSchedules: paymentSchedules.length,
-			approvedSchedules: approvedSchedulesCount,
-			rejectedSchedules: rejectedSchedulesCount,
-			pendingRequisitions: requisitions.filter(r => r.status === 'pending').length,
-			approvedRequisitions: requisitions.filter(r => r.status === 'approved').length,
-			rejectedRequisitions: requisitions.filter(r => r.status === 'rejected').length,
-			myCreatedRequisitions: myCreatedRequisitions.length,
-			myCreatedSchedules: myCreatedSchedules.length,
-			myApprovedSchedules: myApprovedSchedulesCount
-		});
-
-		filterRequisitions();
-		} catch (err) {
-			console.error('Error loading requisitions:', err);
-			alert('Error loading requisitions: ' + err.message);
-		} finally {
-			loading = false;
-		}
+	// Process my created schedules
+	const { data: mySchedulesData, error: mySchedulesError } = mySchedulesResult;
+	if (!mySchedulesError && mySchedulesData) {
+		myCreatedSchedules = mySchedulesData || [];
+		console.log('✅ My created payment schedules:', myCreatedSchedules.length);
 	}
+	
+	// Initialize empty arrays for historical data (will load on demand)
+	myApprovedSchedules = [];
+	approvedPaymentSchedules = [];
+	rejectedPaymentSchedules = [];
+	let myApprovedSchedulesCount = 0;
+	let approvedSchedulesCount = 0;
+	let rejectedSchedulesCount = 0;
+
+	// Calculate stats (only pending for now, historical data will be loaded on demand)
+	// Stats for approvals assigned to me
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+	stats.approved = 0; // Will be loaded when user switches to approved tab
+	stats.rejected = 0; // Will be loaded when user switches to rejected tab
+	stats.total = stats.pending;
+
+	// Stats for my created requests (only pending initially)
+	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length;
+	myStats.approved = 0; // Will be loaded on demand
+	myStats.rejected = 0; // Will be loaded on demand
+	myStats.total = myStats.pending;
+	
+	console.log('📈 Approval Stats:', stats);
+	console.log('📊 My Requests Stats:', myStats);
+
+	filterRequisitions();
+	
+	// Load historical data in background after initial display
+	loadHistoricalData();
+	} catch (err) {
+		console.error('Error loading requisitions:', err);
+		notifications.add({ type: 'error', message: 'Error loading requisitions: ' + err.message });
+	} finally {
+		loading = false;
+	}
+}
+
+// Load historical (approved/rejected) data in background
+async function loadHistoricalData() {
+	if (historicalDataLoaded || !$currentUser?.id) return;
+	
+	try {
+		console.log('📚 Loading historical data in background...');
+		
+		const [
+			approvedReqsResult,
+			rejectedReqsResult,
+			myApprovedSchedulesResult,
+			approvedSchedulesResult,
+			rejectedSchedulesResult,
+			myApprovedReqsResult,
+			myRejectedReqsResult,
+			myRejectedSchedulesResult
+		] = await Promise.all([
+			// Approved requisitions where I'm approver
+			supabaseAdmin
+				.from('expense_requisitions')
+				.select('*')
+			.eq('approver_id', $currentUser.id)
+			.eq('status', 'approved')
+			.order('created_at', { ascending: false })
+			.limit(1000),			// Rejected requisitions where I'm approver
+			supabaseAdmin
+				.from('expense_requisitions')
+				.select('*')
+			.eq('approver_id', $currentUser.id)
+			.eq('status', 'rejected')
+			.order('created_at', { ascending: false })
+			.limit(1000),			// My approved/rejected schedules from expense_scheduler
+			supabaseAdmin
+				.from('expense_scheduler')
+				.select(`
+					*,
+					approver:users!approver_id (
+						id,
+						username
+					)
+				`)
+				.eq('created_by', $currentUser.id)
+				.not('schedule_type', 'eq', 'recurring')
+				.not('schedule_type', 'eq', 'expense_requisition')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// Approved payment schedules where I was the approver
+			supabaseAdmin
+				.from('expense_scheduler')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
+				.eq('approver_id', $currentUser.id)
+				.not('schedule_type', 'eq', 'recurring')
+				.not('schedule_type', 'eq', 'expense_requisition')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// Rejected schedules where I was the approver
+			supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select(`
+					*,
+					creator:users!created_by (
+						id,
+						username
+					)
+				`)
+				.eq('approver_id', $currentUser.id)
+				.eq('approval_status', 'rejected')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// My approved requisitions
+			supabaseAdmin
+				.from('expense_requisitions')
+				.select('*')
+				.eq('created_by', $currentUser.id)
+				.eq('status', 'approved')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// My rejected requisitions
+			supabaseAdmin
+				.from('expense_requisitions')
+				.select('*')
+				.eq('created_by', $currentUser.id)
+				.eq('status', 'rejected')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// My rejected schedules
+			supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select(`
+					*,
+					approver:users!approver_id (
+						id,
+						username
+					)
+				`)
+				.eq('created_by', $currentUser.id)
+				.eq('approval_status', 'rejected')
+				.in('schedule_type', ['single_bill', 'multiple_bill'])
+				.order('created_at', { ascending: false })
+				.limit(1000)
+		]);
+		
+		// Process approved requisitions
+		const approvedReqs = approvedReqsResult.data || [];
+		const rejectedReqs = rejectedReqsResult.data || [];
+		
+		// Merge with existing requisitions
+		requisitions = [...requisitions, ...approvedReqs, ...rejectedReqs];
+		
+		// Process schedules
+		myApprovedSchedules = myApprovedSchedulesResult.data || [];
+		approvedPaymentSchedules = approvedSchedulesResult.data || [];
+		rejectedPaymentSchedules = rejectedSchedulesResult.data || [];
+		
+		// Merge my created requisitions
+		const myApprovedReqs = myApprovedReqsResult.data || [];
+		const myRejectedReqs = myRejectedReqsResult.data || [];
+		myCreatedRequisitions = [...myCreatedRequisitions, ...myApprovedReqs, ...myRejectedReqs];
+		
+		// Merge my created schedules
+		const myRejectedScheds = myRejectedSchedulesResult.data || [];
+		myCreatedSchedules = [...myCreatedSchedules, ...myRejectedScheds];
+		
+		// Update stats with historical data
+		stats.approved = approvedReqs.length + approvedPaymentSchedules.length;
+		stats.rejected = rejectedReqs.length + rejectedPaymentSchedules.length;
+		stats.total = stats.pending + stats.approved + stats.rejected;
+		
+		myStats.approved = myApprovedReqs.length + myApprovedSchedules.length;
+		myStats.rejected = myRejectedReqs.length + myRejectedScheds.length;
+		myStats.total = myStats.pending + myStats.approved + myStats.rejected;
+		
+		historicalDataLoaded = true;
+		console.log('✅ Historical data loaded:', { 
+			approvedReqs: approvedReqs.length,
+			rejectedReqs: rejectedReqs.length,
+			approvedSchedules: approvedPaymentSchedules.length,
+			rejectedSchedules: rejectedPaymentSchedules.length
+		});
+		
+		// Refresh filters if user is viewing approved/rejected
+		if (selectedStatus !== 'pending') {
+			filterRequisitions();
+		}
+	} catch (err) {
+		console.error('Error loading historical data:', err);
+	}
+}
 
 	function filterRequisitions() {
 		if (activeSection === 'approvals') {
@@ -385,13 +472,15 @@
 				searchQuery
 			});
 
-			// Filter requisitions by status
-			if (selectedStatus !== 'all') {
-				filtered = filtered.filter(r => r.status === selectedStatus);
-				console.log(`  ↳ After status filter (${selectedStatus}):`, filtered.length);
+		// Filter requisitions by status
+		if (selectedStatus !== 'all') {
+			// Load historical data if viewing approved/rejected and not loaded yet
+			if ((selectedStatus === 'approved' || selectedStatus === 'rejected') && !historicalDataLoaded) {
+				loadHistoricalData();
 			}
-
-			// Filter by search query
+			filtered = filtered.filter(r => r.status === selectedStatus);
+			console.log(`  ↳ After status filter (${selectedStatus}):`, filtered.length);
+		}			// Filter by search query
 			if (searchQuery.trim()) {
 				const query = searchQuery.toLowerCase();
 				filtered = filtered.filter(r =>
@@ -532,25 +621,58 @@
 		selectedRequisition = null;
 	}
 
-	async function approveRequisition(requisitionId) {
-		if (!confirm('Are you sure you want to approve this ' + (selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : 'requisition') + '?')) return;
+	// Show confirmation modal for approval
+	function showApprovalConfirm(requisitionId) {
+		pendingRequisitionId = requisitionId;
+		confirmAction = 'approve';
+		showConfirmModal = true;
+	}
 
-		try {
-			isProcessing = true;
+	// Show confirmation modal for rejection
+	function showRejectionConfirm(requisitionId) {
+		pendingRequisitionId = requisitionId;
+		confirmAction = 'reject';
+		rejectionReason = '';
+		showConfirmModal = true;
+	}
 
-			// Use supabaseAdmin for update operations
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			
-			// Check if it's a payment schedule or regular requisition
-			if (selectedRequisition.item_type === 'payment_schedule') {
-				// Get the full payment schedule data
-				const { data: scheduleData, error: fetchError } = await supabaseAdmin
-					.from('non_approved_payment_scheduler')
-					.select('*')
-					.eq('id', requisitionId)
-					.single();
+	// Cancel confirmation
+	function cancelConfirm() {
+		showConfirmModal = false;
+		confirmAction = null;
+		pendingRequisitionId = null;
+		rejectionReason = '';
+	}
 
-				if (fetchError) throw fetchError;
+	// Confirm action
+	async function confirmActionHandler() {
+		if (confirmAction === 'approve') {
+			showConfirmModal = false;
+			await approveRequisition(pendingRequisitionId);
+		} else if (confirmAction === 'reject') {
+			if (!rejectionReason.trim()) {
+				notifications.add({ type: 'error', message: 'Please provide a reason for rejection' });
+				return;
+			}
+			showConfirmModal = false;
+			await rejectRequisition(pendingRequisitionId, rejectionReason);
+		}
+		cancelConfirm();
+	}
+
+
+async function approveRequisition(requisitionId) {
+	try {
+		isProcessing = true;
+		
+		// Check if it's a payment schedule or regular requisition
+		if (selectedRequisition.item_type === 'payment_schedule') {
+			// Get the full payment schedule data
+			const { data: scheduleData, error: fetchError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select('*')
+				.eq('id', requisitionId)
+				.single();				if (fetchError) throw fetchError;
 
 				// Move to expense_scheduler
 				const { error: insertError } = await supabaseAdmin
@@ -612,7 +734,7 @@
 					// Don't fail the whole operation if notification fails
 				}
 
-				alert('✅ Payment schedule approved and moved to expense scheduler!');
+				notifications.add({ type: 'success', message: 'Payment schedule approved and moved to expense scheduler!' });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Approve vendor payment
 				const { data: paymentData, error: fetchError } = await supabaseAdmin
@@ -651,7 +773,7 @@
 					console.error('⚠️ Failed to send approval notification:', notifError);
 				}
 
-				alert('✅ Vendor payment approved successfully!');
+				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
 			} else {
 				// Get the requisition data first
 				const { data: reqData, error: reqError } = await supabaseAdmin
@@ -723,44 +845,45 @@
 						}, $currentUser?.id || $currentUser?.username || 'System');
 						console.log('✅ Approval notification sent to creator:', reqData.created_by);
 					}
-				} catch (notifError) {
-					console.error('⚠️ Failed to send approval notification:', notifError);
-					// Don't fail the whole operation if notification fails
-				}
-				
-				alert('✅ Requisition approved and added to expense scheduler!');
-			}
-
-			closeDetail();
-			await loadRequisitions();
-		} catch (err) {
-			console.error('Error approving:', err);
-			alert('Error approving: ' + err.message);
-		} finally {
-			isProcessing = false;
+			} catch (notifError) {
+			console.error('⚠️ Failed to send approval notification:', notifError);
+			// Don't fail the whole operation if notification fails
 		}
+		
+		notifications.add({ type: 'success', message: 'Requisition approved and added to expense scheduler!' });
 	}
 
-	async function rejectRequisition(requisitionId) {
-		const reason = prompt('Please provide a reason for rejection:');
-		if (!reason) return;
+	// Remove from pending lists without reloading
+	requisitions = requisitions.filter(r => r.id !== requisitionId);
+	paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
+	vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
+	
+	// Update stats
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+	stats.total = stats.pending + stats.approved + stats.rejected;
+	
+	// Refresh filtered lists
+	filterRequisitions();
+	
+	closeDetail();
+} catch (err) {
+	console.error('Error approving:', err);
+	notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
+} finally {
+	isProcessing = false;
+}
+}
 
-		try {
-			isProcessing = true;
-
-			// Use supabaseAdmin for update operations
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			
-			// Check if it's a payment schedule or regular requisition
-			if (selectedRequisition.item_type === 'payment_schedule') {
-				// Get the schedule data first
-				const { data: scheduleData, error: fetchError } = await supabaseAdmin
-					.from('non_approved_payment_scheduler')
-					.select('*')
-					.eq('id', requisitionId)
-					.single();
-
-				if (fetchError) throw fetchError;
+async function rejectRequisition(requisitionId, reason) {
+	try {
+		isProcessing = true;		// Check if it's a payment schedule or regular requisition
+		if (selectedRequisition.item_type === 'payment_schedule') {
+			// Get the schedule data first
+			const { data: scheduleData, error: fetchError } = await supabaseAdmin
+				.from('non_approved_payment_scheduler')
+				.select('*')
+				.eq('id', requisitionId)
+				.single();				if (fetchError) throw fetchError;
 
 				// Update payment schedule
 				const { error } = await supabaseAdmin
@@ -789,7 +912,7 @@
 					// Don't fail the whole operation if notification fails
 				}
 				
-				alert('❌ Payment schedule rejected successfully!');
+				notifications.add({ type: 'warning', message: 'Payment schedule rejected successfully!' });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Reject vendor payment
 				const { data: paymentData, error: fetchError } = await supabaseAdmin
@@ -828,7 +951,7 @@
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 				}
 
-				alert('❌ Vendor payment rejected successfully!');
+				notifications.add({ type: 'warning', message: 'Vendor payment rejected successfully!' });
 			} else {
 				// Get requisition data first
 				const { data: reqData, error: fetchError } = await supabaseAdmin
@@ -866,20 +989,29 @@
 					// Don't fail the whole operation if notification fails
 				}
 				
-				alert('❌ Requisition rejected successfully!');
-			}
-
-			closeDetail();
-			await loadRequisitions();
-		} catch (err) {
-			console.error('Error rejecting:', err);
-			alert('Error rejecting: ' + err.message);
-		} finally {
-			isProcessing = false;
+			notifications.add({ type: 'warning', message: 'Requisition rejected successfully!' });
 		}
-	}
 
-	function getStatusClass(status) {
+		// Remove from pending lists without reloading
+		requisitions = requisitions.filter(r => r.id !== requisitionId);
+		paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
+		vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
+		
+		// Update stats
+		stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+		stats.total = stats.pending + stats.approved + stats.rejected;
+		
+		// Refresh filtered lists
+		filterRequisitions();
+		
+		closeDetail();
+	} catch (err) {
+		console.error('Error rejecting:', err);
+		notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
+	} finally {
+		isProcessing = false;
+	}
+}	function getStatusClass(status) {
 		switch (status) {
 			case 'pending': return 'status-pending';
 			case 'approved': return 'status-approved';
@@ -1567,7 +1699,7 @@
 					{/if}
 					<button
 						class="btn-approve"
-						on:click={() => approveRequisition(selectedRequisition.id)}
+						on:click={() => showApprovalConfirm(selectedRequisition.id)}
 						disabled={isProcessing || !canApproveThis}
 						title={!canApproveThis ? 'You need approval permissions to approve this item' : 'Approve this item'}
 					>
@@ -1575,7 +1707,7 @@
 					</button>
 					<button
 						class="btn-reject"
-						on:click={() => rejectRequisition(selectedRequisition.id)}
+						on:click={() => showRejectionConfirm(selectedRequisition.id)}
 						disabled={isProcessing || !canApproveThis}
 						title={!canApproveThis ? 'You need approval permissions to reject this item' : 'Reject this item'}
 					>
@@ -1591,6 +1723,53 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- Confirmation Modal -->
+{#if showConfirmModal}
+<div class="confirm-overlay" on:click={cancelConfirm}>
+	<div class="confirm-modal" on:click|stopPropagation>
+		<h3 class="confirm-title">
+			{confirmAction === 'approve' ? '✅ Confirm Approval' : '❌ Confirm Rejection'}
+		</h3>
+		
+		<p class="confirm-message">
+			{#if confirmAction === 'approve'}
+				Are you sure you want to approve this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+			{:else}
+				Are you sure you want to reject this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+			{/if}
+		</p>
+		
+		{#if confirmAction === 'reject'}
+			<div class="form-group">
+				<label for="rejection-reason" class="form-label">Reason for Rejection *</label>
+				<textarea
+					id="rejection-reason"
+					bind:value={rejectionReason}
+					placeholder="Please provide a detailed reason for rejection..."
+					rows="4"
+					class="rejection-textarea"
+				></textarea>
+			</div>
+		{/if}
+		
+		<div class="confirm-actions">
+			<button class="btn-confirm-cancel" on:click={cancelConfirm}>
+				Cancel
+			</button>
+			<button 
+				class="btn-confirm-ok" 
+				class:approve={confirmAction === 'approve'}
+				class:reject={confirmAction === 'reject'}
+				on:click={confirmActionHandler}
+				disabled={confirmAction === 'reject' && !rejectionReason.trim()}
+			>
+				{confirmAction === 'approve' ? 'Approve' : 'Reject'}
+			</button>
+		</div>
+	</div>
+</div>
 {/if}
 
 <style>
@@ -2194,7 +2373,146 @@
 		background: #f1f5f9;
 		border-radius: 8px;
 		text-align: center;
-		font-weight: 600;
-		color: #475569;
+	font-weight: 600;
+	color: #475569;
+}
+
+/* Confirmation Modal */
+.confirm-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 10000;
+	backdrop-filter: blur(4px);
+}
+
+.confirm-modal {
+	background: white;
+	border-radius: 16px;
+	padding: 2rem;
+	max-width: 500px;
+	width: 90%;
+	box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+	from {
+		opacity: 0;
+		transform: translateY(-20px) scale(0.95);
 	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+.confirm-title {
+	font-size: 1.5rem;
+	font-weight: 700;
+	color: #1e293b;
+	margin: 0 0 1rem 0;
+	text-align: center;
+}
+
+.confirm-message {
+	font-size: 1rem;
+	color: #475569;
+	margin: 0 0 1.5rem 0;
+	text-align: center;
+	line-height: 1.6;
+}
+
+.form-group {
+	margin-bottom: 1.5rem;
+}
+
+.form-label {
+	display: block;
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: #334155;
+	margin-bottom: 0.5rem;
+}
+
+.rejection-textarea {
+	width: 100%;
+	padding: 0.75rem;
+	border: 2px solid #e2e8f0;
+	border-radius: 8px;
+	font-size: 0.875rem;
+	font-family: inherit;
+	resize: vertical;
+	transition: border-color 0.2s;
+}
+
+.rejection-textarea:focus {
+	outline: none;
+	border-color: #3b82f6;
+}
+
+.rejection-textarea::placeholder {
+	color: #94a3b8;
+}
+
+.confirm-actions {
+	display: flex;
+	gap: 1rem;
+	justify-content: flex-end;
+}
+
+.btn-confirm-cancel,
+.btn-confirm-ok {
+	padding: 0.75rem 1.5rem;
+	border: none;
+	border-radius: 8px;
+	font-size: 0.875rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.2s;
+}
+
+.btn-confirm-cancel {
+	background: #f1f5f9;
+	color: #475569;
+}
+
+.btn-confirm-cancel:hover {
+	background: #e2e8f0;
+}
+
+.btn-confirm-ok {
+	color: white;
+}
+
+.btn-confirm-ok.approve {
+	background: #10b981;
+}
+
+.btn-confirm-ok.approve:hover {
+	background: #059669;
+}
+
+.btn-confirm-ok.reject {
+	background: #ef4444;
+}
+
+.btn-confirm-ok.reject:hover {
+	background: #dc2626;
+}
+
+.btn-confirm-ok:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.btn-confirm-ok:disabled:hover {
+	background: #ef4444;
+}
 </style>

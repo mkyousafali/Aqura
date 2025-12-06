@@ -27,6 +27,7 @@
 	let branchMap = {};
 	let paymentMethods = [];
 	let isLoading = false;
+	let loadingProgress = 0;
 	
 	// Filters
 	let filterBranch = '';
@@ -119,7 +120,7 @@
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
 				.order('name_en', { ascending: true })
-				.limit(1000);
+				.limit(5000);
 
 			if (error) {
 				console.error('Error loading branches:', error);
@@ -145,7 +146,7 @@
 				.from('vendor_payment_schedule')
 				.select('id, bill_number, vendor_name, final_bill_amount, bill_date, branch_id, payment_method, bank_name, iban, is_paid, paid_date, approval_status, due_date')
 				.eq('due_date', selectedDate)
-				.limit(1000);
+				.limit(5000);
 
 			if (error) {
 				console.error('Error loading scheduled payments:', error);
@@ -167,7 +168,7 @@
 				.from('expense_scheduler')
 				.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, creator:users!created_by(username)')
 				.eq('due_date', selectedDate)
-				.limit(1000);
+				.limit(5000);
 
 			if (error) {
 				console.error('Error loading expense scheduler payments:', error);
@@ -639,14 +640,18 @@
 
 	async function loadData() {
 		isLoading = true;
+		loadingProgress = 0;
 		try {
-			await Promise.all([
-				loadBranches(),
-				loadScheduledPayments(),
-				loadExpenseSchedulerPayments()
-			]);
+			loadingProgress = 10;
+			await loadBranches();
+			loadingProgress = 40;
+			await loadScheduledPayments();
+			loadingProgress = 70;
+			await loadExpenseSchedulerPayments();
+			loadingProgress = 100;
 		} finally {
 			isLoading = false;
+			loadingProgress = 0;
 		}
 	}
 
@@ -656,6 +661,19 @@
 </script>
 
 <div class="monthly-manager-container">
+	{#if isLoading}
+		<div class="loading-overlay">
+			<div class="loading-content">
+				<div class="loading-spinner"></div>
+				<div class="loading-text">Loading payments...</div>
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: {loadingProgress}%"></div>
+				</div>
+				<div class="progress-text">{loadingProgress}%</div>
+			</div>
+		</div>
+	{/if}
+	
 	<div class="header-section">
 		<div class="top-controls">
 			<div class="month-selector">
@@ -708,10 +726,7 @@
 	<div class="payment-section">
 		<div class="section-header">
 			<h3 class="section-title">📦 Vendor Payments</h3>
-			{#if isLoading}
-				<div class="inline-spinner">Loading...</div>
-			{:else}
-				<div class="section-summary">
+			<div class="section-summary">
 				{#if true}
 					{@const totalAmount = filteredPayments.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
 					{@const paidAmount = filteredPayments.filter(p => p.is_paid).reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
@@ -722,7 +737,6 @@
 					<span style="color: #dc2626;">Unpaid: {formatCurrency(unpaidAmount)}</span>
 				{/if}
 			</div>
-			{/if}
 		</div>
 
 		<div class="simple-table-container">
@@ -1612,12 +1626,19 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background: rgba(255, 255, 255, 0.9);
+		background: rgba(255, 255, 255, 0.95);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		z-index: 9999;
+		backdrop-filter: blur(4px);
+	}
+
+	.loading-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 		gap: 20px;
 	}
 
@@ -1637,7 +1658,28 @@
 	.loading-text {
 		font-size: 18px;
 		color: #475569;
-		font-weight: 500;
+		font-weight: 600;
+	}
+
+	.progress-bar {
+		width: 300px;
+		height: 8px;
+		background: #e2e8f0;
+		border-radius: 10px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+		transition: width 0.3s ease;
+		border-radius: 10px;
+	}
+
+	.progress-text {
+		font-size: 16px;
+		color: #64748b;
+		font-weight: 600;
 	}
 
 	.inline-spinner {
