@@ -48,6 +48,8 @@
 	import FlyerMasterDashboard from '$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
+	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
+	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
@@ -797,6 +799,52 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+		maximizable: true,
+		closable: true
+	});
+	showReportsSubmenu = false;
+}
+
+	// Open Vendor Pending Payments window
+	function openVendorPendingPayments() {
+		const windowId = generateWindowId('vendor-pending-payments');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Vendor Payments #${instanceNumber}`,
+			component: VendorPendingPayments,
+			icon: '💳',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showReportsSubmenu = false;
+	}
+
+	// Open Vendor Records window
+	function openVendorRecords() {
+		const windowId = generateWindowId('vendor-records');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Vendor Records #${instanceNumber}`,
+			component: VendorRecords,
+			icon: '📋',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
 			maximizable: true,
 			closable: true
 		});
@@ -1127,15 +1175,25 @@ function openApprovalCenter() {
 					</button>
 				</div>
 				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openMonthlyBreakdown}>
-						<span class="menu-icon">📅</span>
-						<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
+					<button class="submenu-item" on:click={openVendorPendingPayments}>
+						<span class="menu-icon">💳</span>
+						<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
 					</button>
 				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openVendorRecords}>
+						<span class="menu-icon">📋</span>
+						<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openMonthlyBreakdown}>
+						<span class="menu-icon">📅</span>
+					<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
+				</button>
 			</div>
-		{/if}
-
-		<!-- Settings Section -->
+		</div>
+	{/if}		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"

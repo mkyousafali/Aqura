@@ -152,8 +152,8 @@ export class NotificationManagementService {
           )
           .eq("user_id", userId)
           .eq("notifications.status", "published")
-          .order("created_at", { ascending: false })
-          .limit(500);
+          .order("created_at", { ascending: false, foreignTable: "notifications" })
+          .limit(100);
 
         if (error) {
           throw error;
@@ -223,8 +223,8 @@ export class NotificationManagementService {
         )
         .eq("user_id", userId)
         .eq("notifications.status", "published")
-        .order("created_at", { ascending: false })
-        .limit(500);
+        .order("created_at", { ascending: false, foreignTable: "notifications" })
+        .limit(100);
 
       if (error) {
         throw error;
@@ -623,7 +623,8 @@ export class NotificationManagementService {
         .select("notification_id, notifications!inner(status)")
         .eq("user_id", userId)
         .eq("notifications.status", "published")
-        .limit(500);
+        .order("created_at", { ascending: false, foreignTable: "notifications" })
+        .limit(100);
 
       if (fetchError) {
         throw fetchError;

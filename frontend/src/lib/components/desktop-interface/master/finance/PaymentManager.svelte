@@ -107,19 +107,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Also loads all data needed for cards in a single query
 	async function loadScheduledPayments() {
 		try {
-			// Fetch ALL records using pagination (Supabase default limit is 1000)
-			let allData = [];
-			let page = 0;
-			const pageSize = 1000;
-			let hasMore = true;
+		// Fetch ALL records using pagination (reduced to 100 per batch to avoid content length errors)
+		let allData = [];
+		let page = 0;
+		const pageSize = 100;
+		let hasMore = true;
 
-			while (hasMore) {
-				const { data, error: scheduleError } = await supabase
-					.from('vendor_payment_schedule')
-					.select('*')
-					.range(page * pageSize, (page + 1) * pageSize - 1);
-
-				if (scheduleError) {
+		while (hasMore) {
+			const { data, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('*')
+				.range(page * pageSize, (page + 1) * pageSize - 1);				if (scheduleError) {
 					console.error('Error loading scheduled payments:', scheduleError);
 					return;
 				}

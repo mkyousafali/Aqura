@@ -26,6 +26,7 @@
 	let branches = [];
 	let branchMap = {};
 	let paymentMethods = [];
+	let isLoading = false;
 	
 	// Filters
 	let filterBranch = '';
@@ -117,7 +118,8 @@
 				.from('branches')
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
-				.order('name_en', { ascending: true });
+				.order('name_en', { ascending: true })
+				.limit(1000);
 
 			if (error) {
 				console.error('Error loading branches:', error);
@@ -141,47 +143,16 @@
 
 			const { data: scheduleData, error } = await supabaseAdmin
 				.from('vendor_payment_schedule')
-				.select(`
-					*,
-					receiving_records!receiving_record_id (
-						accountant_user_id,
-						bill_number,
-						vendor_id,
-						original_bill_url
-					)
-				`)
+				.select('id, bill_number, vendor_name, final_bill_amount, bill_date, branch_id, payment_method, bank_name, iban, is_paid, paid_date, approval_status, due_date')
 				.eq('due_date', selectedDate)
-				.order('due_date', { ascending: true });
+				.limit(1000);
 
 			if (error) {
 				console.error('Error loading scheduled payments:', error);
 				return;
 			}
 
-			const payments = scheduleData || [];
-
-			// Get vendor priorities
-			const vendorPriorities = {};
-			const uniqueVendorIds = [...new Set(payments.map(p => p.vendor_id).filter(Boolean))];
-			
-			if (uniqueVendorIds.length > 0) {
-				const { data: vendorsData, error: vendorError } = await supabase
-					.from('vendors')
-					.select('erp_vendor_id, branch_id, payment_priority')
-					.in('erp_vendor_id', uniqueVendorIds);
-				
-				if (!vendorError && vendorsData) {
-					vendorsData.forEach(v => {
-						const key = `${v.erp_vendor_id}-${v.branch_id}`;
-						vendorPriorities[key] = v.payment_priority || 'Normal';
-					});
-				}
-			}
-
-			scheduledPayments = payments.map(payment => ({
-				...payment,
-				payment_priority: vendorPriorities[`${payment.vendor_id}-${payment.branch_id}`] || 'Normal'
-			}));
+			scheduledPayments = scheduleData || [];
 		} catch (error) {
 			console.error('Error loading scheduled payments:', error);
 		}
@@ -194,17 +165,9 @@
 
 			const { data, error } = await supabaseAdmin
 				.from('expense_scheduler')
-				.select(`
-					*,
-					creator:users!created_by (
-						username
-					),
-					requisition:expense_requisitions (
-						requester_name
-					)
-				`)
+				.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, creator:users!created_by(username)')
 				.eq('due_date', selectedDate)
-				.order('due_date', { ascending: true });
+				.limit(1000);
 
 			if (error) {
 				console.error('Error loading expense scheduler payments:', error);
@@ -212,10 +175,6 @@
 			}
 
 			expenseSchedulerPayments = (data || [])
-				.map(payment => ({
-					...payment,
-					requester_name: payment.requisition?.requester_name || null
-				}))
 				.filter(payment => {
 					if (payment.schedule_type === 'expense_requisition' && (payment.amount === 0 || payment.is_paid === true)) {
 						return false;
@@ -410,7 +369,7 @@
 			}
 
 			// Create new payment with split amount
-			const { id, payment_priority, receiving_records, ...paymentData } = splitPayment;
+			const { id, ...paymentData } = splitPayment;
 			const { error: insertError } = await supabaseAdmin
 				.from('vendor_payment_schedule')
 				.insert({
@@ -679,9 +638,16 @@
 	}
 
 	async function loadData() {
-		await loadBranches();
-		await loadScheduledPayments();
-		await loadExpenseSchedulerPayments();
+		isLoading = true;
+		try {
+			await Promise.all([
+				loadBranches(),
+				loadScheduledPayments(),
+				loadExpenseSchedulerPayments()
+			]);
+		} finally {
+			isLoading = false;
+		}
 	}
 
 	onMount(() => {
@@ -742,7 +708,10 @@
 	<div class="payment-section">
 		<div class="section-header">
 			<h3 class="section-title">📦 Vendor Payments</h3>
-			<div class="section-summary">
+			{#if isLoading}
+				<div class="inline-spinner">Loading...</div>
+			{:else}
+				<div class="section-summary">
 				{#if true}
 					{@const totalAmount = filteredPayments.reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
 					{@const paidAmount = filteredPayments.filter(p => p.is_paid).reduce((sum, p) => sum + (p.final_bill_amount || 0), 0)}
@@ -753,6 +722,7 @@
 					<span style="color: #dc2626;">Unpaid: {formatCurrency(unpaidAmount)}</span>
 				{/if}
 			</div>
+			{/if}
 		</div>
 
 		<div class="simple-table-container">
@@ -765,7 +735,6 @@
 						<th>Bill Date</th>
 						<th>Branch</th>
 						<th>Payment</th>
-						<th>Priority</th>
 						<th>Bank</th>
 						<th>IBAN</th>
 						<th>Status</th>
@@ -795,15 +764,6 @@
 								<td>{getBranchName(payment.branch_id)}</td>
 								<td>
 									<span class="payment-method">{payment.payment_method || 'Cash on Delivery'}</span>
-								</td>
-								<td>
-									{#if payment.payment_priority}
-										<span class="priority-badge priority-{payment.payment_priority.toLowerCase()}">
-											{payment.payment_priority}
-										</span>
-									{:else}
-										<span class="priority-badge priority-normal">Normal</span>
-									{/if}
 								</td>
 								<td>{payment.bank_name || 'N/A'}</td>
 								<td>{payment.iban || 'N/A'}</td>
@@ -895,7 +855,7 @@
 						{/each}
 					{:else}
 						<tr>
-							<td colspan="17" class="empty-payments-row">
+							<td colspan="16" class="empty-payments-row">
 								<div class="empty-message">No vendor payments scheduled for this date</div>
 							</td>
 						</tr>
@@ -926,8 +886,7 @@
 			<table class="simple-payments-table">
 				<thead>
 					<tr>
-						<th>Requester</th>
-						<th>Request #</th>
+						<th>Voucher Number</th>
 						<th>Sub-Category</th>
 						<th>Branch</th>
 						<th>Payment Method</th>
@@ -945,11 +904,8 @@
 					{#if filteredExpensePayments.length > 0}
 						{#each filteredExpensePayments as payment}
 							<tr class={payment.is_paid ? 'paid-row' : ''}>
-								<td style="text-align: left; font-weight: 500;">
-									{payment.requester_name || payment.co_user_name || 'N/A'}
-								</td>
 								<td>
-									<span class="bill-number-badge">#{payment.requisition_number || 'N/A'}</span>
+									<span class="bill-number-badge">#{payment.id || 'N/A'}</span>
 								</td>
 								<td style="text-align: left;">
 									{#if payment.expense_category_name_en || payment.expense_category_name_ar}
@@ -1027,7 +983,7 @@
 						{/each}
 					{:else}
 						<tr>
-							<td colspan="13" class="empty-payments-row">
+							<td colspan="12" class="empty-payments-row">
 								<div class="empty-message">No expense payments scheduled for this date</div>
 							</td>
 						</tr>
@@ -1648,6 +1604,51 @@
 		background: rgba(255, 255, 255, 0.2);
 		border-radius: 50px 50px 0 0;
 		box-shadow: inset 0 2px 10px rgba(255, 255, 255, 0.3);
+	}
+
+	.loading-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(255, 255, 255, 0.9);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		z-index: 9999;
+		gap: 20px;
+	}
+
+	.loading-spinner {
+		width: 60px;
+		height: 60px;
+		border: 6px solid #e2e8f0;
+		border-top-color: #3b82f6;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.loading-text {
+		font-size: 18px;
+		color: #475569;
+		font-weight: 500;
+	}
+
+	.inline-spinner {
+		color: white;
+		font-size: 14px;
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
 	}
 </style>
 

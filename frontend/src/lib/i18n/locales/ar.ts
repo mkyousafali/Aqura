@@ -610,6 +610,9 @@ export const arabicLocale: LocaleData = {
     reports: {
       expenseTracker: "متتبع المصروفات",
       salesReport: "تقرير المبيعات",
+      vendorPayments: "مدفوعات الموردين",
+      vendorRecords: "سجلات الموردين",
+      vendorPendings: "المدفوعات المعلقة للموردين",
       dailySalesOverview: "نظرة عامة على المبيعات اليومية",
       todayBranchSales: "مبيعات الفروع اليوم",
       yesterdayBranchSales: "مبيعات الفروع أمس",

@@ -87,6 +87,7 @@ export async function fetchNotificationCounts(userId?: string) {
 
   try {
     // Get notifications for user from notification_recipients table
+    // Using smaller limit to avoid ERR_CONTENT_LENGTH_MISMATCH
     const { data: recipients, error } = await supabase
       .from("notification_recipients")
       .select(
@@ -105,7 +106,8 @@ export async function fetchNotificationCounts(userId?: string) {
       )
       .eq("user_id", targetUserId)
       .eq("notifications.status", "published")
-      .limit(500);
+      .order("created_at", { ascending: false, foreignTable: "notifications" })
+      .limit(100);
 
     if (error) {
       throw error;
