@@ -1,7 +1,8 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { dataService } from '$lib/utils/dataService';
 	import { supabase } from '$lib/utils/supabase';
+	import { realtimeService } from '$lib/utils/realtimeService';
 	import { t, isRTL, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
@@ -18,6 +19,7 @@
 	let loading = true;
 	let refreshingSyncStatus = false;
 	let error = '';
+	let unsubscribeFingerprint: (() => void) | null = null;
 	
 	// Data loading mode
 	let loadingMode = 'today'; // 'today', 'specific', 'range', 'all'
@@ -36,6 +38,14 @@
 
 	onMount(async () => {
 		await loadData();
+		setupRealtimeSubscription();
+	});
+	
+	onDestroy(() => {
+		if (unsubscribeFingerprint) {
+			console.log('🔌 Cleaning up biometric realtime subscription');
+			unsubscribeFingerprint();
+		}
 	});
 
 	async function loadData() {
@@ -201,6 +211,104 @@
 			extractUniqueValues();
 			applyFilters();
 		}
+	}
+
+	function setupRealtimeSubscription() {
+		console.log('📡 Setting up real-time subscription for biometric data...');
+		
+		// Get today's date for filtering
+		const today = new Date().toISOString().split('T')[0];
+		
+		// Unsubscribe from previous subscription if exists
+		if (unsubscribeFingerprint) {
+			console.log('🔌 Cleaning up previous subscription');
+			unsubscribeFingerprint();
+		}
+		
+		// Subscribe based on loading mode
+		if (loadingMode === 'today') {
+			// For today's data, subscribe to today's date only
+			unsubscribeFingerprint = realtimeService.subscribeToDateFingerprintChanges(
+				today,
+				handleRealtimeUpdate
+			);
+		} else {
+			// For other modes, subscribe to all changes
+			unsubscribeFingerprint = realtimeService.subscribeToFingerprintChanges(
+				handleRealtimeUpdate
+			);
+		}
+	}
+
+	function handleRealtimeUpdate(payload) {
+		console.log('🔔 Real-time biometric data update received:', payload);
+		
+		const eventType = payload.eventType;
+		const newData = payload.new;
+		const oldData = payload.old;
+		
+		if (eventType === 'INSERT') {
+			// Add new punch record
+			allTransactions = [newData, ...allTransactions].sort((a, b) => {
+				const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime();
+				if (dateCompare !== 0) return dateCompare;
+				return b.time.localeCompare(a.time);
+			});
+			
+			console.log('✅ New punch added in real-time. Total records:', allTransactions.length);
+			
+			// Re-extract unique values and apply filters
+			extractUniqueValues();
+			applyFilters();
+			
+			// Update today's statistics if the new record is for today
+			const today = new Date().toISOString().split('T')[0];
+			if (newData.date === today) {
+				updateTodayStatistics();
+			}
+		} else if (eventType === 'UPDATE') {
+			// Update existing record
+			const index = allTransactions.findIndex(t => t.id === newData.id);
+			if (index !== -1) {
+				allTransactions[index] = newData;
+				console.log('✅ Punch updated in real-time at index:', index);
+				applyFilters();
+			}
+		} else if (eventType === 'DELETE') {
+			// Remove deleted record
+			allTransactions = allTransactions.filter(t => t.id !== oldData.id);
+			console.log('✅ Punch removed in real-time. Total records:', allTransactions.length);
+			extractUniqueValues();
+			applyFilters();
+		}
+	}
+
+	function updateTodayStatistics() {
+		const today = new Date().toISOString().split('T')[0];
+		const todayTransactions = allTransactions.filter(t => t.date === today);
+		
+		// Get unique employees for today
+		const todayEmployeeIds = new Set();
+		const branchStats = new Map();
+		
+		todayTransactions.forEach(transaction => {
+			todayEmployeeIds.add(transaction.employee_id);
+			
+			const branchId = transaction.branch_id;
+			if (!branchStats.has(branchId)) {
+				branchStats.set(branchId, new Set());
+			}
+			branchStats.get(branchId).add(transaction.employee_id);
+		});
+		
+		totalPresentToday = todayEmployeeIds.size;
+		
+		branchBreakdown = Array.from(branchStats.entries())
+			.map(([branchId, uniqueEmployees]) => ({
+				...branchMap.get(branchId),
+				uniqueEmployees: uniqueEmployees.size
+			}))
+			.sort((a, b) => b.uniqueEmployees - a.uniqueEmployees);
 	}
 
 	function extractUniqueValues() {

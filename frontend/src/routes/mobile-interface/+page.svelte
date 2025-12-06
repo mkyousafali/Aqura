@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
+	import { realtimeService } from '$lib/utils/realtimeService';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
 	
@@ -15,6 +16,8 @@
 	};
 	let isLoading = true;
 	let currentTime = new Date();
+	let unsubscribeFingerprint: (() => void) | null = null;
+	let employeeCode: string | null = null; // Store employee code for realtime subscription
 	
 	// Computed formatted time and date based on current locale
 	$: formattedTime = currentTime.toLocaleTimeString($localeData.code === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' });
@@ -61,7 +64,17 @@
 		// Cleanup on destroy
 		return () => {
 			if (timeInterval) clearInterval(timeInterval);
+			if (unsubscribeFingerprint) {
+				console.log('🔌 Cleaning up fingerprint realtime subscription');
+				unsubscribeFingerprint();
+			}
 		};
+	});
+	
+	onDestroy(() => {
+		if (unsubscribeFingerprint) {
+			unsubscribeFingerprint();
+		}
 	});
 	function handleViewOffer(event: CustomEvent) {
 		selectedOffer = event.detail;
@@ -220,6 +233,61 @@
 					error: ''
 				};
 			}
+			
+			// Step 7: Setup real-time subscription for this employee's punches
+			console.log('📡 Step 7 - Setting up real-time subscription for employee:', employeeCode);
+			if (unsubscribeFingerprint) {
+				console.log('🔌 Cleaning up previous subscription');
+				unsubscribeFingerprint();
+			}
+			
+			unsubscribeFingerprint = realtimeService.subscribeToEmployeeFingerprintChanges(
+				employeeCode,
+				(payload) => {
+					console.log('🔔 Real-time punch update received:', payload);
+					
+					// Only process changes for today
+					const today = new Date().toISOString().split('T')[0];
+					const punchDate = payload.new?.date || payload.old?.date;
+					
+					if (punchDate !== today) {
+						console.log('⏭️ Punch is not for today, skipping');
+						return;
+					}
+					
+					if (payload.eventType === 'INSERT') {
+						// New punch record - format and add to display
+						const newPunch = payload.new;
+						let formattedTime = newPunch.time || '';
+						
+						if (formattedTime) {
+							try {
+								const [hours, minutes] = formattedTime.split(':').slice(0, 2);
+								const hour = parseInt(hours, 10);
+								const minute = minutes || '00';
+								const ampm = hour >= 12 ? 'PM' : 'AM';
+								const hour12 = hour % 12 || 12;
+								formattedTime = `${hour12.toString().padStart(2, '0')}:${minute} ${ampm}`;
+							} catch (e) {
+								console.error('Error formatting realtime punch time:', e);
+							}
+						}
+						
+						const mappedNewPunch = {
+							time: formattedTime,
+							date: newPunch.date || '',
+							status: newPunch.status === 'Check In' ? 'check-in' : 'check-out',
+							raw: newPunch
+						};
+						
+						// Add to beginning of list and keep only last 2
+						punches.records = [mappedNewPunch, ...punches.records].slice(0, 2);
+						console.log('✅ Punch list updated in real-time:', punches.records);
+					}
+				}
+			);
+			
+			console.log('✅ Real-time subscription set up successfully');
 			
 			// Set pending tasks to 0 for now (TODO: implement task loading)
 			stats.pendingTasks = 0;
