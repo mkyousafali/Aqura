@@ -2,8 +2,10 @@
 	import { onMount } from 'svelte';
 	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ApprovalMask from '$lib/components/desktop-interface/master/finance/ApprovalMask.svelte';
 	import ApproverListModal from '$lib/components/desktop-interface/master/finance/ApproverListModal.svelte';
+	import RequestClosureManager from '$lib/components/desktop-interface/master/finance/RequestClosureManager.svelte';
 
 	export let onRefresh = null;
 	export let setRefreshCallback = null;
@@ -164,13 +166,11 @@
 		try {
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
 
-			const { data, error } = await supabaseAdmin
-				.from('expense_scheduler')
-				.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, creator:users!created_by(username)')
-				.eq('due_date', selectedDate)
-				.limit(5000);
-
-			if (error) {
+		const { data, error } = await supabaseAdmin
+			.from('expense_scheduler')
+			.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, requisition_id, requisition_number, creator:users!created_by(username)')
+			.eq('due_date', selectedDate)
+			.limit(5000);			if (error) {
 				console.error('Error loading expense scheduler payments:', error);
 				return;
 			}
@@ -485,6 +485,24 @@
 		expenseNewDateInput = '';
 		expenseSplitAmount = 0;
 		showExpenseRescheduleModal = true;
+	}
+
+	// Open request closure modal
+	function openRequestClosureModal(payment) {
+		const windowId = `request-closure-${payment.requisition_id}`;
+		openWindow({
+			id: windowId,
+			title: `Close Request: #${payment.requisition_number}`,
+			component: RequestClosureManager,
+			props: {
+				preSelectedRequestId: payment.requisition_id,
+				windowId: windowId
+			},
+			icon: '✅',
+			size: { width: 1400, height: 800 },
+			resizable: true,
+			maximizable: true
+		});
 	}
 
 	async function handleExpenseReschedule() {
@@ -980,6 +998,15 @@
 										>
 											📅
 										</button>
+										{#if payment.requisition_id}
+											<button 
+												class="close-request-btn"
+												on:click|stopPropagation={() => openRequestClosureModal(payment)}
+												title="Close Request"
+											>
+												🔒
+											</button>
+										{/if}
 									{/if}
 								</td>
 								<td>
@@ -1433,6 +1460,7 @@
 	.reschedule-btn,
 	.split-btn,
 	.edit-amount-btn,
+	.close-request-btn,
 	.delete-btn {
 		background: none;
 		border: none;
@@ -1447,6 +1475,7 @@
 	.reschedule-btn:hover,
 	.split-btn:hover,
 	.edit-amount-btn:hover,
+	.close-request-btn:hover,
 	.delete-btn:hover {
 		transform: scale(1.2);
 	}
