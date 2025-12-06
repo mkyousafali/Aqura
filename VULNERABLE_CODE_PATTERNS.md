@@ -12,7 +12,7 @@ This document shows the actual vulnerable patterns in your codebase.
 ```typescript
 const supabaseServiceKey =
   import.meta.env.VITE_SUPABASE_SERVICE_KEY || 
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NjQ4NzU1MjcsImV4cCI6MjA4MDQ1MTUyN30.6mj0wiHW0ljpYNIEeYG-r--577LDNbxCLj7SZOghbv0";
+  "[REMOVED - DO NOT HARDCODE KEYS]";
 
 export const supabaseAdmin = (() => {
   if (_supabaseAdmin) {
