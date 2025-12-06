@@ -3,45 +3,37 @@
 	import { supabaseAdmin } from '$lib/utils/supabase';
 
 	let loading = true;
+	let loadingRecords = false;
 	let records: any[] = [];
+	let totalCount = 0;
 	let searchQuery = '';
 	let branches: Array<{ id: number; name_en: string; name_ar: string }> = [];
 	let selectedBranchId = '';
 
-	// Pagination
+	// Server-side Pagination
 	let currentPage = 1;
-	let pageSize = 20;
+	let pageSize = 10;
 
-	// Filtered records based on search and branch
-	$: filteredRecords = records.filter(record => {
-		const branchMatch = !selectedBranchId || record.branch_id?.toString() === selectedBranchId;
-		const searchMatch = !searchQuery || 
-			record.bill_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			record.vendor_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			record.vendor_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			record.branch_name?.toLowerCase().includes(searchQuery.toLowerCase());
-		return branchMatch && searchMatch;
-	});
+	// Track previous filter values
+	let prevSearchQuery = '';
+	let prevBranchId = '';
 
 	// Pagination calculations
-	$: totalRecords = filteredRecords.length;
-	$: totalPages = Math.ceil(totalRecords / pageSize);
-	$: startRecord = (currentPage - 1) * pageSize + 1;
-	$: endRecord = Math.min(currentPage * pageSize, totalRecords);
-
-	// Paginated records for display
-	$: paginatedRecords = filteredRecords.slice(
-		(currentPage - 1) * pageSize,
-		currentPage * pageSize
-	);
+	$: totalPages = Math.ceil(totalCount / pageSize);
+	$: startRecord = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+	$: endRecord = Math.min(currentPage * pageSize, totalCount);
 
 	// Reset to page 1 when filters change
-	$: if (currentPage > totalPages && totalPages > 0) {
+	$: if (searchQuery !== prevSearchQuery || selectedBranchId !== prevBranchId) {
+		prevSearchQuery = searchQuery;
+		prevBranchId = selectedBranchId;
 		currentPage = 1;
+		loadRecords();
 	}
 
 	onMount(async () => {
-		await Promise.all([loadBranches(), loadRecords()]);
+		await loadBranches();
+		await loadRecords();
 		loading = false;
 	});
 
@@ -62,8 +54,10 @@
 	}
 
 	async function loadRecords() {
+		loadingRecords = true;
 		try {
-			const { data, error } = await supabaseAdmin
+			// Build query
+			let query = supabaseAdmin
 				.from('receiving_records')
 				.select(`
 					id,
@@ -79,7 +73,7 @@
 					iban,
 					certificate_url,
 					original_bill_url,
-					erp_invoice_reference,
+					erp_purchase_invoice_reference,
 					created_at,
 					vendors!inner (
 						vendor_name,
@@ -92,11 +86,28 @@
 						name_en,
 						name_ar
 					)
-				`)
-				.order('created_at', { ascending: false });
+				`, { count: 'exact' });
+
+			// Apply filters
+			if (selectedBranchId) {
+				query = query.eq('branch_id', parseInt(selectedBranchId));
+			}
+
+			if (searchQuery) {
+				query = query.or(`bill_number.ilike.%${searchQuery}%,vendors.vendor_name.ilike.%${searchQuery}%`);
+			}
+
+			// Apply pagination
+			const from = (currentPage - 1) * pageSize;
+			const to = from + pageSize - 1;
+
+			const { data, error, count } = await query
+				.order('created_at', { ascending: false })
+				.range(from, to);
 
 			if (error) throw error;
 
+			totalCount = count || 0;
 			records = (data || []).map(record => ({
 				...record,
 				vendor_name: record.vendors?.vendor_name,
@@ -107,6 +118,9 @@
 		} catch (error) {
 			console.error('Error loading records:', error);
 			records = [];
+			totalCount = 0;
+		} finally {
+			loadingRecords = false;
 		}
 	}
 
@@ -141,12 +155,14 @@
 	function nextPage() {
 		if (currentPage < totalPages) {
 			currentPage++;
+			loadRecords();
 		}
 	}
 
 	function previousPage() {
 		if (currentPage > 1) {
 			currentPage--;
+			loadRecords();
 		}
 	}
 
@@ -155,28 +171,38 @@
 		selectedBranchId = '';
 		currentPage = 1;
 	}
+
+	function handlePageInput(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const value = parseInt(target.value);
+		if (value >= 1 && value <= totalPages) {
+			currentPage = value;
+			loadRecords();
+		}
+	}
 </script>
 
 <div class="vendor-records">
-	<div class="content">
+	<!-- Fixed Header Section -->
+	<div class="header-section">
 		{#if loading}
 			<div class="loading">
 				<div class="spinner"></div>
 				<p>Loading vendor records...</p>
 			</div>
 		{:else}
-			<!-- Header Section -->
+			<!-- Header Card -->
 			<div class="header-card">
 				<div class="header-info">
 					<h2>Vendor Receiving Records</h2>
-					<p class="record-count">Total Records: <strong>{records.length}</strong></p>
+					<p class="record-count">Total Records: <strong>{totalCount}</strong></p>
 				</div>
-				<button class="refresh-btn" on:click={loadRecords}>
-					🔄 Refresh
+				<button class="refresh-btn" on:click={() => loadRecords()} disabled={loadingRecords}>
+					{loadingRecords ? '🔄 Loading...' : '🔄 Refresh'}
 				</button>
 			</div>
 
-			<!-- Filters Section -->
+			<!-- Filters Card -->
 			<div class="filters-card">
 				<div class="filters-row">
 					<div class="filter-group">
@@ -185,13 +211,19 @@
 							id="search"
 							type="text"
 							bind:value={searchQuery}
-							placeholder="Search by bill number, vendor name, or branch..."
+							placeholder="Search by bill number or vendor name..."
 							class="search-input"
+							disabled={loadingRecords}
 						/>
 					</div>
 					<div class="filter-group">
 						<label for="branch-filter">Branch:</label>
-						<select id="branch-filter" bind:value={selectedBranchId} class="filter-select">
+						<select 
+							id="branch-filter" 
+							bind:value={selectedBranchId} 
+							class="filter-select"
+							disabled={loadingRecords}
+						>
 							<option value="">All Branches</option>
 							{#each branches as branch}
 								<option value={branch.id.toString()}>{branch.name_en}</option>
@@ -199,20 +231,32 @@
 						</select>
 					</div>
 					{#if searchQuery || selectedBranchId}
-						<button class="reset-btn" on:click={resetFilters}>
+						<button class="reset-btn" on:click={resetFilters} disabled={loadingRecords}>
 							Clear Filters
 						</button>
 					{/if}
 				</div>
 			</div>
 
-			<!-- Table Section -->
-			{#if filteredRecords.length > 0}
+			<!-- Table Info -->
+			{#if totalCount > 0}
 				<div class="table-info">
-					<span>Showing {startRecord}-{endRecord} of {totalRecords} records</span>
+					<span>Showing {startRecord}-{endRecord} of {totalCount} records</span>
 				</div>
+			{/if}
+		{/if}
+	</div>
 
-				<div class="table-container">
+	<!-- Scrollable Table Section -->
+	{#if !loading}
+		{#if records.length > 0}
+			<div class="table-section">
+				{#if loadingRecords}
+					<div class="table-loading">
+						<div class="spinner"></div>
+						<p>Loading records...</p>
+					</div>
+				{:else}
 					<table class="records-table">
 						<thead>
 							<tr>
@@ -228,7 +272,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each paginatedRecords as record}
+							{#each records as record}
 								<tr>
 									<td class="thumbnail-cell">
 										{#if record.certificate_url}
@@ -296,69 +340,81 @@
 										{formatCurrency(record.final_bill_amount)}
 									</td>
 									<td>
-										<span class="erp-ref">{record.erp_invoice_reference || 'N/A'}</span>
+										<span class="erp-ref">{record.erp_purchase_invoice_reference || 'N/A'}</span>
 									</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
-				</div>
-
-				<!-- Pagination Controls -->
-				{#if totalPages > 1}
-					<div class="pagination">
-						<button 
-							class="pagination-btn" 
-							on:click={previousPage}
-							disabled={currentPage === 1}
-						>
-							← Previous
-						</button>
-						
-						<div class="pagination-info">
-							<span>Page</span>
-							<input 
-								type="number" 
-								min="1" 
-								max={totalPages}
-								bind:value={currentPage}
-								class="page-input"
-							/>
-							<span>of {totalPages}</span>
-						</div>
-
-						<button 
-							class="pagination-btn" 
-							on:click={nextPage}
-							disabled={currentPage === totalPages}
-						>
-							Next →
-						</button>
-					</div>
 				{/if}
-			{:else}
-				<div class="no-data">
-					<span class="no-data-icon">📋</span>
-					<p>No vendor records found matching your filters</p>
+			</div>
+
+			<!-- Pagination Controls -->
+			{#if totalPages > 1}
+				<div class="pagination">
+					<button 
+						class="pagination-btn" 
+						on:click={previousPage}
+						disabled={currentPage === 1 || loadingRecords}
+					>
+						← Previous
+					</button>
+					
+					<div class="pagination-info">
+						<span>Page</span>
+						<input 
+							type="number" 
+							min="1" 
+							max={totalPages}
+							bind:value={currentPage}
+							on:blur={handlePageInput}
+							class="page-input"
+							disabled={loadingRecords}
+						/>
+						<span>of {totalPages}</span>
+					</div>
+
+					<button 
+						class="pagination-btn" 
+						on:click={nextPage}
+						disabled={currentPage === totalPages || loadingRecords}
+					>
+						Next →
+					</button>
 				</div>
 			{/if}
+		{:else}
+			<div class="no-data">
+				<span class="no-data-icon">📋</span>
+				<p>No vendor records found matching your filters</p>
+			</div>
 		{/if}
-	</div>
+	{/if}
 </div>
 
 <style>
 	.vendor-records {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
+		height: 100vh;
 		background: #f9fafb;
 		overflow: hidden;
 	}
 
-	.content {
-		flex: 1;
-		overflow: auto;
+	.header-section {
+		flex-shrink: 0;
 		padding: 1.5rem;
+		background: #f9fafb;
+	}
+
+	.table-section {
+		flex: 0 1 auto;
+		max-height: calc(100vh - 320px);
+		overflow: auto;
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-bottom: none;
+		margin: 0 1.5rem;
 	}
 
 	.loading {
@@ -366,8 +422,18 @@
 		flex-direction: column;
 		justify-content: center;
 		align-items: center;
-		height: 100%;
+		padding: 3rem;
 		gap: 1rem;
+	}
+
+	.table-loading {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		padding: 3rem;
+		gap: 1rem;
+		background: white;
 	}
 
 	.spinner {
@@ -423,10 +489,16 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		transition: background 0.2s;
+		min-width: 120px;
 	}
 
-	.refresh-btn:hover {
+	.refresh-btn:hover:not(:disabled) {
 		background: #2563eb;
+	}
+
+	.refresh-btn:disabled {
+		background: #93c5fd;
+		cursor: not-allowed;
 	}
 
 	.filters-card {
@@ -434,7 +506,7 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
 		padding: 1.5rem;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1rem;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	}
 
@@ -476,6 +548,12 @@
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
+	.search-input:disabled,
+	.filter-select:disabled {
+		background: #f3f4f6;
+		cursor: not-allowed;
+	}
+
 	.filter-select {
 		cursor: pointer;
 	}
@@ -493,25 +571,24 @@
 		align-self: flex-end;
 	}
 
-	.reset-btn:hover {
+	.reset-btn:hover:not(:disabled) {
 		background: #dc2626;
 	}
 
+	.reset-btn:disabled {
+		background: #fca5a5;
+		cursor: not-allowed;
+	}
+
 	.table-info {
-		background: #f9fafb;
+		background: white;
 		border: 1px solid #e5e7eb;
 		border-radius: 8px 8px 0 0;
 		padding: 0.75rem 1rem;
 		font-size: 0.875rem;
 		color: #6b7280;
 		font-weight: 500;
-	}
-
-	.table-container {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-top: none;
-		overflow-x: auto;
+		margin: 0 1.5rem;
 	}
 
 	.records-table {
@@ -675,6 +752,7 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
 		color: #6b7280;
+		margin: 0 1.5rem 1.5rem 1.5rem;
 	}
 
 	.no-data-icon {
@@ -690,6 +768,7 @@
 
 	/* Pagination Styles */
 	.pagination {
+		flex-shrink: 0;
 		display: flex;
 		justify-content: center;
 		align-items: center;
@@ -698,6 +777,7 @@
 		background: white;
 		border: 1px solid #e5e7eb;
 		border-top: none;
+		margin: 0 1.5rem 1.5rem 1.5rem;
 		border-radius: 0 0 8px 8px;
 	}
 
@@ -744,6 +824,11 @@
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.page-input:disabled {
+		background: #f3f4f6;
+		cursor: not-allowed;
 	}
 
 	.page-input::-webkit-inner-spin-button,
