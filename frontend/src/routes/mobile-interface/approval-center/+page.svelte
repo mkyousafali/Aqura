@@ -96,9 +96,6 @@
 		}
 		console.log('👤 User approval permission:', userCanApprove);
 
-		// Import supabase for admin queries
-		const { supabase } = await import('$lib/utils/supabase');
-		
 		// Calculate date for filtering
 		const twoDaysFromNow = new Date();
 		twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
