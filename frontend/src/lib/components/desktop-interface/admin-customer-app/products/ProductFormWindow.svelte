@@ -70,8 +70,8 @@
 		
 		// Load all units for this product serial
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('products')
 				.select('*')
 				.eq('product_serial', productData.product_serial)
@@ -104,8 +104,8 @@
 
 	async function loadBaseUnits() {
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('product_units')
 				.select('*')
 				.eq('is_active', true)
@@ -121,8 +121,8 @@
 
 	async function loadTaxes() {
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('tax_categories')
 				.select('*')
 				.eq('is_active', true)
@@ -139,8 +139,8 @@
 	async function loadCategories() {
 		loadingCategories = true;
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('product_categories')
 				.select('*')
 				.eq('is_active', true)
@@ -314,7 +314,7 @@
 		generatingSerial = true;
 		
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 			// Validate we have at least one unit
 			if (productUnits.length === 0) {
@@ -336,7 +336,7 @@
 			// If creating new product, generate serial
 			if (!editMode) {
 				// Get the latest product serial number to generate next
-				const { data: lastProduct, error: fetchError } = await supabaseAdmin
+				const { data: lastProduct, error: fetchError } = await supabase
 					.from('products')
 					.select('product_serial')
 					.order('product_serial', { ascending: false })
@@ -364,7 +364,7 @@
 			
 			// If editing, delete existing units first
 			if (editMode) {
-				const { error: deleteError } = await supabaseAdmin
+				const { error: deleteError } = await supabase
 					.from('products')
 					.delete()
 					.eq('product_serial', serial);
@@ -406,7 +406,7 @@
 			});
 			
 			// Insert all units
-			const { error: insertError } = await supabaseAdmin
+			const { error: insertError } = await supabase
 				.from('products')
 				.insert(productsToInsert);
 			
@@ -595,15 +595,15 @@
 		}
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 		// Create unique filename
 		const fileExt = file.name.split('.').pop();
 		const fileName = `product-unit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
 		const filePath = `${fileName}`;
 
-		// Upload to storage bucket using supabaseAdmin
-		const { data, error } = await supabaseAdmin.storage
+		// Upload to storage bucket using supabase
+		const { data, error } = await supabase.storage
 			.from('product-images')
 			.upload(filePath, file, {
 				cacheControl: '3600',
@@ -613,7 +613,7 @@
 		if (error) throw error;
 
 		// Get public URL
-		const { data: urlData } = supabaseAdmin.storage
+		const { data: urlData } = supabase.storage
 			.from('product-images')
 			.getPublicUrl(filePath);			// Update the unit's image URL
 			productUnits[index].imageUrl = urlData.publicUrl;

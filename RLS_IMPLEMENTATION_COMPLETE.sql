@@ -305,7 +305,7 @@ CREATE POLICY "anon_full_access" ON quick_task_completions FOR ALL USING (auth.j
 CREATE POLICY "anon_full_access" ON quick_task_files FOR ALL USING (auth.jwt()->>'role' = 'anon');
 CREATE POLICY "anon_full_access" ON quick_task_user_preferences FOR ALL USING (auth.jwt()->>'role' = 'anon');
 CREATE POLICY "anon_full_access" ON quick_tasks FOR ALL USING (auth.jwt()->>'role' = 'anon');
-CREATE POLICY "anon_full_access" ON receiving_records FOR ALL USING (auth.jwt()->>'role' = 'anon');
+CREATE POLICY "anon_full_access" ON receiving_records FOR ALL USING (auth.jwt()->>'role' = 'anon') WITH CHECK (auth.jwt()->>'role' = 'anon');
 CREATE POLICY "anon_full_access" ON receiving_task_templates FOR ALL USING (auth.jwt()->>'role' = 'anon');
 CREATE POLICY "anon_full_access" ON receiving_tasks FOR ALL USING (auth.jwt()->>'role' = 'anon');
 CREATE POLICY "anon_full_access" ON recurring_assignment_schedules FOR ALL USING (auth.jwt()->>'role' = 'anon');
@@ -395,7 +395,7 @@ CREATE POLICY "authenticated_full_access" ON quick_task_completions FOR ALL USIN
 CREATE POLICY "authenticated_full_access" ON quick_task_files FOR ALL USING (auth.uid() IS NOT NULL);
 CREATE POLICY "authenticated_full_access" ON quick_task_user_preferences FOR ALL USING (auth.uid() IS NOT NULL);
 CREATE POLICY "authenticated_full_access" ON quick_tasks FOR ALL USING (auth.uid() IS NOT NULL);
-CREATE POLICY "authenticated_full_access" ON receiving_records FOR ALL USING (auth.uid() IS NOT NULL);
+CREATE POLICY "authenticated_full_access" ON receiving_records FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "authenticated_full_access" ON receiving_task_templates FOR ALL USING (auth.uid() IS NOT NULL);
 CREATE POLICY "authenticated_full_access" ON receiving_tasks FOR ALL USING (auth.uid() IS NOT NULL);
 CREATE POLICY "authenticated_full_access" ON recurring_assignment_schedules FOR ALL USING (auth.uid() IS NOT NULL);

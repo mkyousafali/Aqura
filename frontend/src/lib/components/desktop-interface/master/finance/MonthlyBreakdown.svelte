@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	export let onRefresh = null;
 	export let setRefreshCallback = null;
@@ -31,7 +31,7 @@
 	// Load branches
 	async function loadBranches() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
@@ -60,7 +60,7 @@
 			const endDateStr = endDate.toISOString().split('T')[0];
 
 			// Load vendor payments
-			const { data: vendorData, error: vendorError } = await supabaseAdmin
+			const { data: vendorData, error: vendorError } = await supabase
 				.from('vendor_payment_schedule')
 				.select('due_date, branch_id, payment_method, final_bill_amount')
 				.gte('due_date', startDateStr)
@@ -72,7 +72,7 @@
 			}
 
 			// Load expense payments
-			const { data: expenseData, error: expenseError } = await supabaseAdmin
+			const { data: expenseData, error: expenseError } = await supabase
 				.from('expense_scheduler')
 				.select('due_date, branch_id, payment_method, amount')
 				.gte('due_date', startDateStr)

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   
   let templateImage: string | null = null;
   let imageFile: File | null = null;
@@ -222,7 +222,7 @@
   async function loadSavedTemplates() {
     isLoading = true;
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('shelf_paper_templates')
         .select('*')
         .eq('is_active', true)
@@ -291,7 +291,7 @@
       const fileExt = imageFile.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
-      const { data, error } = await supabaseAdmin.storage
+      const { data, error } = await supabase.storage
         .from('shelf-paper-templates')
         .upload(fileName, imageFile, {
           cacheControl: '3600',
@@ -300,7 +300,7 @@
       
       if (error) throw error;
       
-      const { data: { publicUrl } } = supabaseAdmin.storage
+      const { data: { publicUrl } } = supabase.storage
         .from('shelf-paper-templates')
         .getPublicUrl(data.path);
       
@@ -358,7 +358,7 @@
       if (selectedTemplateId) {
         // Update existing template (don't update created_by)
         const { created_by, ...updateData } = templateData;
-        result = await supabaseAdmin
+        result = await supabase
           .from('shelf_paper_templates')
           .update(updateData)
           .eq('id', selectedTemplateId)
@@ -366,7 +366,7 @@
           .single();
       } else {
         // Create new template
-        result = await supabaseAdmin
+        result = await supabase
           .from('shelf_paper_templates')
           .insert([templateData])
           .select()

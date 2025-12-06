@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 
 /**
  * Push Subscription Cleanup Service
@@ -21,7 +21,7 @@ export class PushSubscriptionCleanupService {
       );
 
       // Get all active subscriptions for the user, ordered by last_seen (most recent first)
-      const { data: allSubscriptions, error: fetchError } = await supabaseAdmin
+      const { data: allSubscriptions, error: fetchError } = await supabase
         .from("push_subscriptions")
         .select("id, device_type, last_seen, created_at, device_id, endpoint")
         .eq("user_id", userId)
@@ -101,7 +101,7 @@ export class PushSubscriptionCleanupService {
       // Delete old subscriptions
       const subscriptionIds = subscriptionsToDelete.map((sub) => sub.id);
 
-      const { error: deleteError } = await supabaseAdmin
+      const { error: deleteError } = await supabase
         .from("push_subscriptions")
         .delete()
         .in("id", subscriptionIds);
@@ -150,7 +150,7 @@ export class PushSubscriptionCleanupService {
 
       // Get all users who have active push subscriptions
       const { data: usersWithSubscriptions, error: usersError } =
-        await supabaseAdmin
+        await supabase
           .from("push_subscriptions")
           .select("user_id")
           .eq("is_active", true)
@@ -264,7 +264,7 @@ export class PushSubscriptionCleanupService {
       cutoffDate.setDate(cutoffDate.getDate() - daysOld);
 
       // Delete inactive subscriptions older than cutoff date
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from("push_subscriptions")
         .delete()
         .eq("is_active", false)
@@ -315,24 +315,24 @@ export class PushSubscriptionCleanupService {
         desktopResult,
         usersResult,
       ] = await Promise.all([
-        supabaseAdmin
+        supabase
           .from("push_subscriptions")
           .select("id", { count: "exact", head: true }),
-        supabaseAdmin
+        supabase
           .from("push_subscriptions")
           .select("id", { count: "exact", head: true })
           .eq("is_active", true),
-        supabaseAdmin
+        supabase
           .from("push_subscriptions")
           .select("id", { count: "exact", head: true })
           .eq("device_type", "mobile")
           .eq("is_active", true),
-        supabaseAdmin
+        supabase
           .from("push_subscriptions")
           .select("id", { count: "exact", head: true })
           .eq("device_type", "desktop")
           .eq("is_active", true),
-        supabaseAdmin
+        supabase
           .from("push_subscriptions")
           .select("user_id")
           .eq("is_active", true),

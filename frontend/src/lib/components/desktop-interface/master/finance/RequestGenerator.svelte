@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import html2canvas from 'html2canvas';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -85,7 +85,7 @@
 	async function loadInitialData() {
 		try {
 			// Load branches
-			const { data: branchData } = await supabaseAdmin
+			const { data: branchData } = await supabase
 				.from('branches')
 				.select('*')
 				.eq('is_active', true)
@@ -93,7 +93,7 @@
 			branches = branchData || [];
 
 		// Load users with approval permissions from approval_permissions table
-		const { data: approvalPermsData } = await supabaseAdmin
+		const { data: approvalPermsData } = await supabase
 			.from('approval_permissions')
 			.select('user_id, requisition_amount_limit, can_approve_requisitions')
 			.eq('is_active', true)
@@ -108,7 +108,7 @@
 			filteredUsers = [];
 		} else {
 			// Load user details for those with permissions
-			const { data: userData } = await supabaseAdmin
+			const { data: userData } = await supabase
 				.from('users')
 				.select(`
 					id,
@@ -140,7 +140,7 @@
 		}
 
 		// Load requesters
-			const { data: requesterData } = await supabaseAdmin
+			const { data: requesterData } = await supabase
 				.from('requesters')
 				.select('*')
 				.order('requester_name');
@@ -148,7 +148,7 @@
 			filteredRequesters = requesters;
 
 			// Load internal employees (users with employee data) - ALL employees from ALL branches
-			const { data: employeeData } = await supabaseAdmin
+			const { data: employeeData } = await supabase
 				.from('users')
 				.select(`
 					id,
@@ -277,7 +277,7 @@
 			let createdByUserId = null;
 			if ($currentUser?.id) {
 				try {
-					const { data: userExists } = await supabaseAdmin
+					const { data: userExists } = await supabase
 						.from('users')
 						.select('id')
 						.eq('id', $currentUser.id)
@@ -291,7 +291,7 @@
 				}
 			}
 
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('requesters')
 				.insert([{
 					requester_id: requesterId.trim(),
@@ -504,7 +504,7 @@
 			
 			// Step 3: Upload to storage (40-70%)
 			const fileName = `${requisitionNumber}.png`;
-			const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+			const { data: uploadData, error: uploadError } = await supabase.storage
 				.from('requisition-images')
 				.upload(fileName, blob, {
 					contentType: 'image/png',
@@ -516,7 +516,7 @@
 			savingStatus = 'Getting image URL...';
 
 			// Step 4: Get public URL (70-80%)
-			const { data: urlData } = supabaseAdmin.storage
+			const { data: urlData } = supabase.storage
 				.from('requisition-images')
 				.getPublicUrl(fileName);
 
@@ -563,7 +563,7 @@
 				insertData.internal_user_id = selectedInternalUserId;
 			}
 
-			const { error: dbError } = await supabaseAdmin
+			const { error: dbError } = await supabase
 				.from('expense_requisitions')
 				.insert(insertData);			if (dbError) throw dbError;
 			

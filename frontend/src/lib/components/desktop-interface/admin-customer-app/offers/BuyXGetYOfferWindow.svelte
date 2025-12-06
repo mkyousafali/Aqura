@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { currentLocale } from '$lib/i18n';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   
   // Props
   export let editMode = false;
@@ -113,7 +113,7 @@
       const tempSet = new Set<string>();
       
       // 1. Load products from BOGO offers
-      let bogoQuery = supabaseAdmin
+      let bogoQuery = supabase
         .from('bogo_offer_rules')
         .select('buy_product_id, get_product_id, offer_id');
       
@@ -141,7 +141,7 @@
       }
       
       // 2. Load products from Bundle offers
-      let bundleQuery = supabaseAdmin
+      let bundleQuery = supabase
         .from('offer_bundles')
         .select('required_products, offer_id, bundle_name_en');
       
@@ -170,7 +170,7 @@
       }
       
       // 3. Load products from offer_products table (Percentage & Special Price offers)
-      let offerProductsQuery = supabaseAdmin
+      let offerProductsQuery = supabase
         .from('offer_products')
         .select(`
           product_id,
@@ -218,7 +218,7 @@
   }
   
   async function loadProducts() {
-    const { data, error: err } = await supabaseAdmin
+    const { data, error: err } = await supabase
       .from('products')
       .select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock')
       .eq('is_active', true)
@@ -303,7 +303,7 @@
   async function loadBogoRules() {
     if (!offerId) return;
 
-    const { data: rules, error: err } = await supabaseAdmin
+    const { data: rules, error: err } = await supabase
       .from('bogo_offer_rules')
       .select('*')
       .eq('offer_id', offerId);
@@ -515,7 +515,7 @@
         console.log('✅ Taking UPDATE path');
 
         // Update existing offer
-        const { data, error: offerError } = await supabaseAdmin
+        const { data, error: offerError } = await supabase
           .from('offers')
           .update(offerPayload)
           .eq('id', offerId)
@@ -526,7 +526,7 @@
         offer = data;
         
         // Delete existing BOGO rules before creating new ones
-        const { error: deleteError } = await supabaseAdmin
+        const { error: deleteError } = await supabase
           .from('bogo_offer_rules')
           .delete()
           .eq('offer_id', offerId);
@@ -535,7 +535,7 @@
       } else {
         console.log('❌ Taking CREATE path - creating new offer');
         // Create new offer
-        const { data, error: offerError } = await supabaseAdmin
+        const { data, error: offerError } = await supabase
           .from('offers')
           .insert(offerPayload)
           .select()
@@ -556,7 +556,7 @@
         discount_value: rule.discountValue
       }));
       
-      const { error: rulesError } = await supabaseAdmin
+      const { error: rulesError } = await supabase
         .from('bogo_offer_rules')
         .insert(rulesPayload);
       

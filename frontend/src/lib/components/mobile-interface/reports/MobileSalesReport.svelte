@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { _ as t, currentLocale } from '$lib/i18n';
 
 	interface DailySales {
@@ -91,17 +91,17 @@
 				{ data: currentMonthRecords, error: currentMonthError },
 				{ data: previousMonthRecords, error: previousMonthError }
 			] = await Promise.all([
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('sale_date, net_amount, net_bills, return_amount')
 					.gte('sale_date', formatDate(dayBeforeYesterday))
 					.lte('sale_date', today),
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('sale_date, net_amount')
 					.gte('sale_date', currentMonthStart)
 					.lte('sale_date', currentMonthEnd),
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('sale_date, net_amount')
 					.gte('sale_date', previousMonthStart)
@@ -188,16 +188,16 @@
 				{ data: currentMonthRecords },
 				{ data: previousMonthRecords }
 			] = await Promise.all([
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('branch_id, net_amount, net_bills, return_amount')
 					.eq('sale_date', todayStr),
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('branch_id, sale_date, net_amount')
 					.gte('sale_date', currentMonthStart)
 					.lte('sale_date', currentMonthEnd),
-				supabaseAdmin
+				supabase
 					.from('erp_daily_sales')
 					.select('branch_id, sale_date, net_amount')
 					.gte('sale_date', previousMonthStart)
@@ -212,7 +212,7 @@
 			let branchMap = new Map();
 			if (branchIds.length > 0) {
 				try {
-					const { data: branchData } = await supabaseAdmin
+					const { data: branchData } = await supabase
 						.from('branches')
 						.select('id, location_en, location_ar')
 						.in('id', branchIds);
@@ -291,7 +291,7 @@
 			yesterday.setDate(yesterday.getDate() - 1);
 			const yesterdayStr = formatDate(yesterday);
 
-			const { data: salesRecords, error } = await supabaseAdmin
+			const { data: salesRecords, error } = await supabase
 				.from('erp_daily_sales')
 				.select('branch_id, net_amount, net_bills, return_amount')
 				.eq('sale_date', yesterdayStr);
@@ -304,7 +304,7 @@
 			let branchMap = new Map();
 			if (branchIds.length > 0) {
 				try {
-					const { data: branchData } = await supabaseAdmin
+					const { data: branchData } = await supabase
 						.from('branches')
 						.select('id, location_en, location_ar')
 						.in('id', branchIds);

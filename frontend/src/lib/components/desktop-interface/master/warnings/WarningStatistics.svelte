@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	let loading = true;
 	let error = null;
@@ -68,7 +68,7 @@
 			// If regular client fails, try admin client
 			if (queryError || !warnings || warnings.length === 0) {
 				console.log('🔄 Regular client failed for statistics, trying admin client...');
-				let adminQuery = supabaseAdmin
+				let adminQuery = supabase
 					.from('employee_warnings')
 					.select(`
 						*,

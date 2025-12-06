@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { supabaseAdmin } from '$lib/utils/supabase';
+import { supabase } from '$lib/utils/supabase';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const branchId = url.searchParams.get('branchId');
@@ -13,16 +13,14 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const now = new Date().toISOString();
 
-		// Step 1: Get all active offers (product, BOGO, and bundle)
-		const { data: offers, error: offersError } = await supabaseAdmin
-			.from('offers')
-			.select('*')
-			.eq('is_active', true)
-			.in('type', ['product', 'bogo', 'bundle'])
-			.lte('start_date', now)
-			.gte('end_date', now);
-
-		if (offersError) {
+	// Step 1: Get all active offers (product, BOGO, and bundle)
+	const { data: offers, error: offersError } = await supabase
+		.from('offers')
+		.select('*')
+		.eq('is_active', true)
+		.in('type', ['product', 'bogo', 'bundle'])
+		.lte('start_date', now)
+		.gte('end_date', now);		if (offersError) {
 			console.error('Error fetching offers:', offersError);
 			return json({ error: 'Failed to fetch offers' }, { status: 500 });
 		}
@@ -53,14 +51,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		const offerIds = filteredOffers.map((o) => o.id);
 		
 		if (offerIds.length === 0) {
-			// No offers, return regular products with proper field transformation
-			const { data: products, error: productsError } = await supabaseAdmin
-				.from('products')
-				.select('*')
-				.eq('is_active', true)
-				.order('product_name_en');
-
-			if (productsError) {
+		// No offers, return regular products with proper field transformation
+		const { data: products, error: productsError } = await supabase
+			.from('products')
+			.select('*')
+			.eq('is_active', true)
+			.order('product_name_en');			if (productsError) {
 				console.error('Error fetching products:', productsError);
 				return json({ error: 'Failed to fetch products' }, { status: 500 });
 			}
@@ -102,10 +98,10 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ products: transformedProducts, offersCount: 0 });
 		}
 
-		// Get offer products with special price
-		const { data: offerProducts, error: offerProductsError } = await supabaseAdmin
-			.from('offer_products')
-			.select(`
+	// Get offer products with special price
+	const { data: offerProducts, error: offerProductsError } = await supabase
+		.from('offer_products')
+		.select(`
 				id,
 				offer_id,
 				product_id,
@@ -142,10 +138,10 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		console.log(`📦 Found ${offerProducts?.length || 0} offer products`);
 
-		// Step 3: Get BOGO offer rules
-		const { data: bogoRules, error: bogoError } = await supabaseAdmin
-			.from('bogo_offer_rules')
-			.select(`
+	// Step 3: Get BOGO offer rules
+	const { data: bogoRules, error: bogoError } = await supabase
+		.from('bogo_offer_rules')
+		.select(`
 				id,
 				offer_id,
 				buy_product_id,
@@ -296,14 +292,12 @@ export const GET: RequestHandler = async ({ url }) => {
 			// BOGO offers are completely separate in the bogoOffers array
 		});
 
-		// Step 5: Also get regular products (without offers)
-		const { data: allProducts, error: allProductsError } = await supabaseAdmin
-			.from('products')
-			.select('*')
-			.eq('is_active', true)
-			.order('product_name_en');
-
-		if (allProductsError) {
+	// Step 5: Also get regular products (without offers)
+	const { data: allProducts, error: allProductsError } = await supabase
+		.from('products')
+		.select('*')
+		.eq('is_active', true)
+		.order('product_name_en');		if (allProductsError) {
 			console.error('Error fetching all products:', allProductsError);
 		}
 
@@ -439,13 +433,11 @@ export const GET: RequestHandler = async ({ url }) => {
 		const bundleOfferIds = filteredOffers.filter(o => o.type === 'bundle').map(o => o.id);
 		let bundleOffers = [];
 
-		if (bundleOfferIds.length > 0) {
-			const { data: bundleRules, error: bundleError } = await supabaseAdmin
-				.from('offer_bundles')
-				.select('*')
-				.in('offer_id', bundleOfferIds);
-
-			if (bundleError) {
+	if (bundleOfferIds.length > 0) {
+		const { data: bundleRules, error: bundleError } = await supabase
+			.from('offer_bundles')
+			.select('*')
+			.in('offer_id', bundleOfferIds);			if (bundleError) {
 				console.error('Error fetching bundle rules:', bundleError);
 			} else {
 				console.log(`📦 Found ${bundleRules?.length || 0} bundle rules`);
@@ -461,15 +453,13 @@ export const GET: RequestHandler = async ({ url }) => {
 						: (bundle.required_products || []);
 					if (requiredProducts.length === 0 || requiredProducts.length > 6) return null;
 
-					// Fetch all product details
-					const productPromises = requiredProducts.map(async (req) => {
-						const { data: prod, error: prodError } = await supabaseAdmin
-							.from('products')
-							.select('*')
-							.eq('id', req.product_id)
-							.single();
-
-						if (prodError || !prod) return null;
+				// Fetch all product details
+				const productPromises = requiredProducts.map(async (req) => {
+					const { data: prod, error: prodError } = await supabase
+						.from('products')
+						.select('*')
+						.eq('id', req.product_id)
+						.single();						if (prodError || !prod) return null;
 
 						return {
 							id: req.product_id,

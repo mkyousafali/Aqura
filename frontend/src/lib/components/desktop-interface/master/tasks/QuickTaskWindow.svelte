@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// State management
@@ -149,7 +149,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabaseAdmin
+			const { data: preferences, error } = await supabase
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -364,7 +364,7 @@
 		updates.updated_at = new Date().toISOString();
 
 		// First, try to check if user preferences exist
-		const { data: existingPrefs } = await supabaseAdmin
+		const { data: existingPrefs } = await supabase
 			.from('quick_task_user_preferences')
 			.select('user_id')
 			.eq('user_id', $currentUser?.id)
@@ -373,14 +373,14 @@
 		let error;
 		if (existingPrefs) {
 			// Update existing preferences
-			const updateResult = await supabaseAdmin
+			const updateResult = await supabase
 				.from('quick_task_user_preferences')
 				.update(updates)
 				.eq('user_id', $currentUser?.id);
 			error = updateResult.error;
 		} else {
 			// Insert new preferences
-			const insertResult = await supabaseAdmin
+			const insertResult = await supabase
 				.from('quick_task_user_preferences')
 				.insert({
 					user_id: $currentUser?.id,
@@ -406,7 +406,7 @@
 		await saveAsDefaults();
 
 		// Create the quick task (use admin client to bypass RLS)
-		const { data: taskData, error: taskError } = await supabaseAdmin
+		const { data: taskData, error: taskError } = await supabase
 			.from('quick_tasks')
 			.insert({
 				title: taskTitle,
@@ -450,7 +450,7 @@
 					console.log('✅ [QuickTask] File uploaded successfully:', uploadResult.data);
 					
 					// Save file record to quick_task_files table (use admin client to bypass RLS)
-					const { error: fileError } = await supabaseAdmin
+					const { error: fileError } = await supabase
 						.from('quick_task_files')
 						.insert({
 							quick_task_id: taskData.id,
@@ -502,7 +502,7 @@
 		
 		console.log('📋 [QuickTask] Assignment Objects to Insert:', assignments);
 
-		const { data: insertedAssignments, error: assignmentError } = await supabaseAdmin
+		const { data: insertedAssignments, error: assignmentError } = await supabase
 			.from('quick_task_assignments')
 			.insert(assignments)
 			.select();			if (assignmentError) {

@@ -386,14 +386,14 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabaseAdmin } = await import('$lib/utils/supabase');
+				const { supabase } = await import('$lib/utils/supabase');
 				
 				// Generate unique filename
 				const fileExt = file.name.split('.').pop();
 				const fileName = `${recordId}_original_bill_${Date.now()}.${fileExt}`;
 
 				// Upload file to original-bills storage bucket
-				const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
 					.upload(fileName, file);
 
@@ -404,12 +404,12 @@
 				}
 
 				// Get public URL
-				const { data: { publicUrl } } = supabaseAdmin.storage
+				const { data: { publicUrl } } = supabase.storage
 					.from('original-bills')
 					.getPublicUrl(fileName);
 
 				// Update the record with the file URL
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('receiving_records')
 					.update({ original_bill_url: publicUrl })
 					.eq('id', recordId);
@@ -453,14 +453,14 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabaseAdmin } = await import('$lib/utils/supabase');
+				const { supabase } = await import('$lib/utils/supabase');
 				
 				// Generate unique filename with "updated" prefix
 				const fileExt = file.name.split('.').pop();
 				const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;
 
 				// Upload file to original-bills storage bucket
-				const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
 					.upload(fileName, file);
 
@@ -471,12 +471,12 @@
 				}
 
 				// Get public URL
-				const { data: { publicUrl } } = supabaseAdmin.storage
+				const { data: { publicUrl } } = supabase.storage
 					.from('original-bills')
 					.getPublicUrl(fileName);
 
 				// Update the record with the new file URL
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('receiving_records')
 					.update({ 
 						original_bill_url: publicUrl,
@@ -843,9 +843,9 @@
 
 		try {
 			deletingRecordId = recordId;
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('receiving_records')
 				.delete()
 				.eq('id', recordId);

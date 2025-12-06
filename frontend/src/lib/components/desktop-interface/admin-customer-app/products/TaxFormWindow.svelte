@@ -68,9 +68,9 @@
 		}
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('tax_categories')
 				.insert([
 					{

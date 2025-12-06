@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ProductFormWindow from '$lib/components/desktop-interface/admin-customer-app/products/ProductFormWindow.svelte';
 
@@ -47,7 +47,7 @@
 		loading = true;
 		error = '';
 		try {
-			const { data, error: fetchError } = await supabaseAdmin
+			const { data, error: fetchError } = await supabase
 				.from('products')
 				.select('*')
 				.order('created_at', { ascending: false });
@@ -96,7 +96,7 @@
 		if (!confirm('Are you sure you want to delete this product?')) return;
 		
 		try {
-			const { error: deleteError } = await supabaseAdmin
+			const { error: deleteError } = await supabase
 				.from('products')
 				.delete()
 				.eq('id', productId);
@@ -110,7 +110,7 @@
 
 	async function toggleActive(productId: string, currentStatus: boolean) {
 		try {
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('products')
 				.update({ is_active: !currentStatus })
 				.eq('id', productId);

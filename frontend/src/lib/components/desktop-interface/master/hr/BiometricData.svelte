@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { dataService } from '$lib/utils/dataService';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { t, isRTL, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
@@ -343,7 +343,7 @@
 	}
 
 	async function loadBiometricConnections() {
-		const { data: connections, error: connError } = await supabaseAdmin
+		const { data: connections, error: connError } = await supabase
 			.from('biometric_connections')
 			.select('*')
 			.eq('is_active', true)

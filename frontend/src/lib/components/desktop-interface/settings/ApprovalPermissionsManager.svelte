@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -27,7 +27,7 @@
 			loading = true;
 
 			// Load users
-			const { data: usersData, error: usersError } = await supabaseAdmin
+			const { data: usersData, error: usersError } = await supabase
 				.from('users')
 				.select('id, username, status, employee_id')
 				.order('username');
@@ -39,8 +39,8 @@
 			let employeeNames: any = {};
 
 			if (employeeIds.length > 0) {
-				// Use supabaseAdmin to bypass RLS - note: column is 'name' not 'full_name'
-				const { data: employeesData, error: empError } = await supabaseAdmin
+				// Use supabase to bypass RLS - note: column is 'name' not 'full_name'
+				const { data: employeesData, error: empError } = await supabase
 					.from('hr_employees')
 					.select('id, name');
 
@@ -55,7 +55,7 @@
 			}
 
 			// Load all approval permissions
-			const { data: permissionsData, error: permError } = await supabaseAdmin
+			const { data: permissionsData, error: permError } = await supabase
 				.from('approval_permissions')
 				.select('*');
 
@@ -98,7 +98,7 @@
 		try {
 			saving = true;
 
-			const { error } = await supabaseAdmin.from('approval_permissions').upsert(
+			const { error } = await supabase.from('approval_permissions').upsert(
 				{
 					...user.permissions,
 					user_id: user.id,

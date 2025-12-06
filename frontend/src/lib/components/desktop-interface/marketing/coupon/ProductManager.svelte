@@ -3,7 +3,7 @@
 	import { t } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import { supabaseAdmin as supabase } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import {
 		getAllCampaigns,
 		getProductsByCampaign,

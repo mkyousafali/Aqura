@@ -3,7 +3,7 @@
  * Handles all coupon system operations
  */
 
-import { supabaseAdmin } from '$lib/utils/supabase';
+import { supabase } from '$lib/utils/supabase';
 import type { 
   CouponCampaign, 
   CouponProduct, 
@@ -14,7 +14,7 @@ import type {
 // ==================== CAMPAIGNS ====================
 
 export async function createCampaign(campaignData: Partial<CouponCampaign>) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .insert(campaignData)
     .select()
@@ -25,7 +25,7 @@ export async function createCampaign(campaignData: Partial<CouponCampaign>) {
 }
 
 export async function updateCampaign(id: string, updates: Partial<CouponCampaign>) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .update(updates)
     .eq('id', id)
@@ -37,7 +37,7 @@ export async function updateCampaign(id: string, updates: Partial<CouponCampaign
 }
 
 export async function getAllCampaigns() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .select('*')
     .is('deleted_at', null)
@@ -48,7 +48,7 @@ export async function getAllCampaigns() {
 }
 
 export async function getCampaignById(id: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .select('*')
     .eq('id', id)
@@ -60,7 +60,7 @@ export async function getCampaignById(id: string) {
 }
 
 export async function toggleCampaignStatus(id: string, isActive: boolean) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .update({ is_active: isActive })
     .eq('id', id)
@@ -72,7 +72,7 @@ export async function toggleCampaignStatus(id: string, isActive: boolean) {
 }
 
 export async function softDeleteCampaign(id: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_campaigns')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
@@ -87,7 +87,7 @@ export async function softDeleteCampaign(id: string) {
 export const deleteCampaign = softDeleteCampaign;
 
 export async function generateCampaignCode() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .rpc('generate_campaign_code');
   
   if (error) throw error;
@@ -95,7 +95,7 @@ export async function generateCampaignCode() {
 }
 
 export async function getCampaignStatistics(campaignId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .rpc('get_campaign_statistics', { p_campaign_id: campaignId });
   
   if (error) throw error;
@@ -105,7 +105,7 @@ export async function getCampaignStatistics(campaignId: string) {
 // ==================== PRODUCTS ====================
 
 export async function createProduct(productData: Partial<CouponProduct>) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .insert(productData)
     .select()
@@ -116,7 +116,7 @@ export async function createProduct(productData: Partial<CouponProduct>) {
 }
 
 export async function updateProduct(id: string, updates: Partial<CouponProduct>) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .update(updates)
     .eq('id', id)
@@ -128,7 +128,7 @@ export async function updateProduct(id: string, updates: Partial<CouponProduct>)
 }
 
 export async function getProductsByCampaign(campaignId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .select('*')
     .eq('campaign_id', campaignId)
@@ -140,7 +140,7 @@ export async function getProductsByCampaign(campaignId: string) {
 }
 
 export async function toggleProductStatus(id: string, isActive: boolean) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .update({ is_active: isActive })
     .eq('id', id)
@@ -152,7 +152,7 @@ export async function toggleProductStatus(id: string, isActive: boolean) {
 }
 
 export async function updateProductStock(id: string, stockRemaining: number) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .update({ stock_remaining: stockRemaining })
     .eq('id', id)
@@ -164,7 +164,7 @@ export async function updateProductStock(id: string, stockRemaining: number) {
 }
 
 export async function softDeleteProduct(id: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_products')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
@@ -190,7 +190,7 @@ export async function importCustomers(
     imported_by: userId
   }));
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_eligible_customers')
     .insert(records)
     .select();
@@ -200,7 +200,7 @@ export async function importCustomers(
 }
 
 export async function getEligibleCustomers(campaignId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_eligible_customers')
     .select('*')
     .eq('campaign_id', campaignId)
@@ -211,7 +211,7 @@ export async function getEligibleCustomers(campaignId: string) {
 }
 
 export async function getEligibleCustomersCount(campaignId: string) {
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await supabase
     .from('coupon_eligible_customers')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId);
@@ -221,7 +221,7 @@ export async function getEligibleCustomersCount(campaignId: string) {
 }
 
 export async function deleteEligibleCustomer(customerId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_eligible_customers')
     .delete()
     .eq('id', customerId)
@@ -235,7 +235,7 @@ export async function deleteEligibleCustomer(customerId: string) {
 // ==================== CLAIMS ====================
 
 export async function getClaimsByCampaign(campaignId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('coupon_claims')
     .select(`
       *,
@@ -251,7 +251,7 @@ export async function getClaimsByCampaign(campaignId: string) {
 }
 
 export async function getClaimsCount(campaignId: string) {
-  const { count, error } = await supabaseAdmin
+  const { count, error } = await supabase
     .from('coupon_claims')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId);
@@ -267,7 +267,7 @@ export async function uploadProductImage(file: File, productId: string) {
   const fileName = `${productId}-${Date.now()}.${fileExt}`;
   const filePath = `products/${fileName}`;
 
-  const { data, error } = await supabaseAdmin.storage
+  const { data, error } = await supabase.storage
     .from('coupon-product-images')
     .upload(filePath, file, {
       cacheControl: '3600',
@@ -276,7 +276,7 @@ export async function uploadProductImage(file: File, productId: string) {
 
   if (error) throw error;
 
-  const { data: publicUrlData } = supabaseAdmin.storage
+  const { data: publicUrlData } = supabase.storage
     .from('coupon-product-images')
     .getPublicUrl(filePath);
 
@@ -289,7 +289,7 @@ export async function deleteProductImage(imageUrl: string) {
   const fileName = urlParts[urlParts.length - 1];
   const filePath = `products/${fileName}`;
 
-  const { error } = await supabaseAdmin.storage
+  const { error } = await supabase.storage
     .from('coupon-product-images')
     .remove([filePath]);
 

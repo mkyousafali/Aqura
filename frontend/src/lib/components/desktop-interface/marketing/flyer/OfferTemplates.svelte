@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 
 	let offerTemplates: any[] = [];
@@ -22,7 +22,7 @@
 	async function loadOfferTemplates() {
 		isLoadingTemplates = true;
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('flyer_offers')
 				.select('*')
 				.eq('is_active', true)
@@ -48,7 +48,7 @@
 
 		try {
 			// Load all products
-			const { data: products, error: productsError } = await supabaseAdmin
+			const { data: products, error: productsError } = await supabase
 				.from('flyer_products')
 				.select('*')
 				.order('barcode', { ascending: true });
@@ -78,7 +78,7 @@
 			subCategories = Array.from(subCatSet).sort();
 
 			// Load selected products for this template
-			const { data: selectedProductsData, error: selectedError } = await supabaseAdmin
+			const { data: selectedProductsData, error: selectedError } = await supabase
 				.from('flyer_offer_products')
 				.select('product_barcode')
 				.eq('offer_id', templateId);
@@ -173,7 +173,7 @@
 
 		try {
 			// First, delete all existing product selections for this template
-			const { error: deleteError } = await supabaseAdmin
+			const { error: deleteError } = await supabase
 				.from('flyer_offer_products')
 				.delete()
 				.eq('offer_id', selectedTemplate.id);
@@ -211,7 +211,7 @@
 					};
 				});
 
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('flyer_offer_products')
 					.insert(insertData);
 

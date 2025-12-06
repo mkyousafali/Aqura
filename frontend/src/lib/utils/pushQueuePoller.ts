@@ -2,7 +2,7 @@
 // This runs in the browser and triggers the Edge Function periodically
 // Use this when pg_cron is not available (Supabase free tier)
 
-import { supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 import { browser } from "$app/environment";
 
 class PushQueuePoller {

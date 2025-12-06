@@ -105,8 +105,8 @@
 
 	async function loadBranches() {
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('branches')
 				.select('*')
 				.order('name_en');
@@ -125,8 +125,8 @@
 	async function loadERPConfigs() {
 		try {
 			loading = true;
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('erp_connections')
 				.select('*')
 				.order('branch_name');
@@ -156,7 +156,7 @@
 
 		try {
 			saving = true;
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 
 			// Get branch name
 			const branch = branches.find(b => b.id === formData.branch_id);
@@ -166,7 +166,7 @@
 
 			if (formData.id) {
 				// Update existing
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('erp_connections')
 					.update(formData)
 					.eq('id', formData.id);
@@ -178,7 +178,7 @@
 				});
 			} else {
 				// Create new
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('erp_connections')
 					.insert(formData);
 
@@ -262,8 +262,8 @@
 			fetchingSales = true;
 			
 			// Fetch from Supabase erp_daily_sales table (synced by desktop app)
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.eq('branch_id', selectedBranch)
@@ -327,8 +327,8 @@
 		}
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
 				.from('erp_connections')
 				.delete()
 				.eq('id', id);

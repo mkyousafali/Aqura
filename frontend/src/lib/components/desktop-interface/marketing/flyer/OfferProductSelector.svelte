@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import VariationSelectionModal from '$lib/components/desktop-interface/marketing/flyer/VariationSelectionModal.svelte';
 	import PriceValidationWarning from '$lib/components/desktop-interface/marketing/flyer/PriceValidationWarning.svelte';
@@ -138,7 +138,7 @@
 	async function loadVariationGroup(templateId: string, parentBarcode: string) {
 		try {
 			// Call database function to get all variations
-			const { data, error } = await supabaseAdmin.rpc('get_product_variations', {
+			const { data, error } = await supabase.rpc('get_product_variations', {
 				p_barcode: parentBarcode
 			});
 			
@@ -253,7 +253,7 @@
 			// Save each template as a separate offer
 			for (const template of templates) {
 				// Insert offer with template_id
-				const { data: offerData, error: offerError } = await supabaseAdmin
+				const { data: offerData, error: offerError } = await supabase
 					.from('flyer_offers')
 					.insert({
 						template_id: template.templateId,
@@ -277,7 +277,7 @@
 						product_barcode: barcode
 					}));
 					
-					const { error: productsError } = await supabaseAdmin
+					const { error: productsError } = await supabase
 						.from('flyer_offer_products')
 						.insert(offerProducts);
 					
@@ -409,7 +409,7 @@
 			// Save each template as a separate offer
 			for (const template of templates) {
 				// Insert offer with template_id
-				const { data: offerData, error: offerError } = await supabaseAdmin
+				const { data: offerData, error: offerError } = await supabase
 					.from('flyer_offers')
 					.insert({
 						template_id: template.templateId,
@@ -433,7 +433,7 @@
 						product_barcode: barcode
 					}));
 					
-					const { error: productsError } = await supabaseAdmin
+					const { error: productsError } = await supabase
 						.from('flyer_offer_products')
 						.insert(offerProducts);
 					
@@ -464,7 +464,7 @@
 		isLoading = true;
 		
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('flyer_products')
 				.select('*')
 				.order('product_name_en', { ascending: true });

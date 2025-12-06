@@ -79,7 +79,7 @@
 		videoSlots = [...videoSlots];
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 			console.log('📹 File details:', {
 				name: file.name,
@@ -95,7 +95,7 @@
 			console.log('📤 Uploading to path:', filePath);
 
 			// Upload with upsert option to overwrite if exists
-			const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+			const { data: uploadData, error: uploadError } = await supabase.storage
 				.from('customer-app-media')
 				.upload(filePath, file, {
 					cacheControl: '3600',
@@ -109,7 +109,7 @@
 			}
 
 			// Get public URL
-			const { data: urlData } = supabaseAdmin.storage
+			const { data: urlData } = supabase.storage
 				.from('customer-app-media')
 				.getPublicUrl(filePath);
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabaseAdmin as supabase } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import { t } from '$lib/i18n';

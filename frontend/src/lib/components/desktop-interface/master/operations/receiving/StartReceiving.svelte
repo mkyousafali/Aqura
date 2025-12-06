@@ -3,7 +3,7 @@
   import StepIndicator from './StepIndicator.svelte';
   import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
   import { currentUser } from '$lib/utils/persistentAuth';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
   import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
@@ -1450,9 +1450,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // Reactive statement to calculate due date based on payment method
   $: if (paymentMethod) {
     if (paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery') {
-      // For delivery methods, due date is current date (immediate payment)
-      const today = new Date();
-      dueDate = today.toISOString().split('T')[0];
+      // For delivery methods, due date is the same as bill date (payment on delivery)
+      dueDate = billDate || '';
     } else if (billDate && creditPeriod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')) {
       // For credit methods, due date is bill date + credit period
       const billDateObj = new Date(billDate);
@@ -1863,7 +1862,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Prepare receiving record data according to the actual schema
       const receivingData = {
         user_id: $currentUser?.id,
-        branch_id: selectedBranch,
+        branch_id: parseInt(selectedBranch, 10), // Convert string to integer
         vendor_id: selectedVendor?.erp_vendor_id, // Use erp_vendor_id as foreign key
         bill_date: billDate,
         bill_amount: parseFloat(billAmount || 0),
@@ -1944,12 +1943,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       }
 
       console.log('No duplicate found, proceeding with save...');
+      
+      // DEBUG: Log the data being sent
+      console.log('📊 receivingData being sent:', JSON.stringify(receivingData, null, 2));
+      console.log('User ID:', receivingData.user_id);
+      console.log('Branch ID:', receivingData.branch_id);
+      console.log('Vendor ID:', receivingData.vendor_id);
+      console.log('Bill Date:', receivingData.bill_date);
+      console.log('Bill Amount:', receivingData.bill_amount);
 
-      // Save to receiving_records table using admin client to bypass RLS
-      const { data, error } = await supabaseAdmin
+      // Save to receiving_records table - don't select anything back to avoid permission issues
+      const { data, error } = await supabase
         .from('receiving_records')
-        .insert([receivingData])
-        .select();
+        .insert([receivingData]);
 
       if (error) {
         console.error('Error saving receiving record:', error);
@@ -1957,8 +1963,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      console.log('Receiving record saved:', data);
-      savedReceivingId = data[0]?.id; // Store the saved record ID
+      console.log('Receiving record saved (no data returned due to permission checks)');
+      // Note: data will be null since we didn't use .select(), but the INSERT succeeded if no error
+      // We'll need to fetch the ID from the database if needed
+      
+      // Fetch the ID of the newly created record by querying the most recent one for this user/vendor/bill
+      const { data: fetchedData, error: fetchError } = await supabase
+        .from('receiving_records')
+        .select('id')
+        .eq('user_id', $currentUser?.id)
+        .eq('vendor_id', selectedVendor?.erp_vendor_id)
+        .eq('bill_date', receivingData.bill_date)
+        .eq('bill_amount', receivingData.bill_amount)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (fetchError) {
+        console.error('Error fetching receiving record ID:', fetchError);
+        alert('Record saved but could not retrieve ID. Please refresh and try again.');
+        return;
+      }
+
+      if (fetchedData && fetchedData.length > 0) {
+        savedReceivingId = fetchedData[0].id;
+        console.log('Retrieved saved receiving record ID:', savedReceivingId);
+      } else {
+        console.error('Could not find the newly created receiving record');
+        alert('Record saved but ID could not be retrieved.');
+        return;
+      }
       
       // Check if payment method differs from vendor's default and ask to update vendor table
       const paymentMethodChanged = paymentMethod && selectedVendor?.payment_method && 

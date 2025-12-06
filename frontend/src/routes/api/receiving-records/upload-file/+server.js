@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "$lib/utils/supabase";
+import { supabase } from "$lib/utils/supabase";
 
 export async function POST({ request }) {
   try {
@@ -100,8 +100,8 @@ export async function POST({ request }) {
       filePath,
     });
 
-    // Upload file to Supabase storage using admin client
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+    // Upload file to Supabase storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucketName)
       .upload(filePath, file, {
         cacheControl: "3600",
@@ -121,7 +121,7 @@ export async function POST({ request }) {
     }
 
     // Get the public URL for the uploaded file
-    const { data: urlData } = supabaseAdmin.storage
+    const { data: urlData } = supabase.storage
       .from(bucketName)
       .getPublicUrl(filePath);
 
@@ -138,7 +138,7 @@ export async function POST({ request }) {
       updateData.original_bill_uploaded = true;
     }
 
-    const { data: dbData, error: dbError } = await supabaseAdmin
+    const { data: dbData, error: dbError } = await supabase
       .from("receiving_records")
       .update(updateData)
       .eq("id", receiving_record_id_str)
@@ -150,7 +150,7 @@ export async function POST({ request }) {
       console.error("❌ [File Upload] Database error:", dbError);
       // Try to clean up the uploaded file if database update fails
       try {
-        await supabaseAdmin.storage.from(bucketName).remove([filePath]);
+        await supabase.storage.from(bucketName).remove([filePath]);
       } catch (cleanupError) {
         console.error("❌ [File Upload] Cleanup error:", cleanupError);
       }

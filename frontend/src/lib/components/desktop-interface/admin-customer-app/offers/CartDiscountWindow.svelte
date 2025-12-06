@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { currentLocale } from '$lib/i18n';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { notifications } from '$lib/stores/notifications';
 
   export let editMode = false;
@@ -100,7 +100,7 @@
   async function loadCartTiers() {
     if (!offerId) return;
 
-    const { data, error: err } = await supabaseAdmin
+    const { data, error: err } = await supabase
       .from('offer_cart_tiers')
       .select('*')
       .eq('offer_id', offerId)
@@ -223,7 +223,7 @@
       let savedOfferId = offerId;
 
       if (editMode && offerId) {
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await supabase
           .from('offers')
           .update(offerPayload)
           .eq('id', offerId);
@@ -231,12 +231,12 @@
         if (updateError) throw updateError;
         savedOfferId = offerId;
 
-        await supabaseAdmin
+        await supabase
           .from('offer_cart_tiers')
           .delete()
           .eq('offer_id', savedOfferId);
       } else {
-        const { data: newOffer, error: insertError } = await supabaseAdmin
+        const { data: newOffer, error: insertError } = await supabase
           .from('offers')
           .insert(offerPayload)
           .select()
@@ -255,7 +255,7 @@
         discount_value: tier.discount_value
       }));
 
-      const { error: tiersError } = await supabaseAdmin
+      const { error: tiersError } = await supabase
         .from('offer_cart_tiers')
         .insert(tierInserts);
 

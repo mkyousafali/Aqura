@@ -32,8 +32,8 @@
 	async function loadCategories() {
 		loading = true;
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('product_categories')
 				.select('*')
 				.order('display_order');
@@ -120,13 +120,13 @@
 		uploadingId = categoryId;
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 			// Upload image
 			const fileExt = file.name.split('.').pop();
 			const fileName = `${categoryId}-${Date.now()}.${fileExt}`;
 			
-			const { error: uploadError } = await supabaseAdmin.storage
+			const { error: uploadError } = await supabase.storage
 				.from('category-images')
 				.upload(fileName, file, {
 					cacheControl: '3600',
@@ -136,12 +136,12 @@
 			if (uploadError) throw uploadError;
 
 			// Get public URL
-			const { data } = supabaseAdmin.storage
+			const { data } = supabase.storage
 				.from('category-images')
 				.getPublicUrl(fileName);
 
 			// Update category
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('product_categories')
 				.update({ image_url: data.publicUrl })
 				.eq('id', categoryId);
@@ -162,8 +162,8 @@
 
 	async function toggleActive(categoryId: string, currentStatus: boolean) {
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
 				.from('product_categories')
 				.update({ is_active: !currentStatus })
 				.eq('id', categoryId);
@@ -183,8 +183,8 @@
 		}
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
 				.from('product_categories')
 				.delete()
 				.eq('id', categoryId);

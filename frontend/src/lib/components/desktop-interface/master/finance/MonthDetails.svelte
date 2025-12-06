@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import RequestClosureManager from '$lib/components/desktop-interface/master/finance/RequestClosureManager.svelte';
@@ -446,7 +446,7 @@
 			const endDateStr = `${monthData.year}-${String(monthData.month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 			
 			// Load only current month (no pagination needed for one month)
-			const { data: pageData, error } = await supabaseAdmin
+			const { data: pageData, error } = await supabase
 				.from('expense_scheduler')
 				.select(`
 						*,
@@ -491,7 +491,7 @@
 		if (!confirm('Mark this expense payment as paid?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					is_paid: true, 
@@ -518,7 +518,7 @@
 		if (!confirm('Unmark this expense payment as paid?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					is_paid: false, 
@@ -585,7 +585,7 @@
 		if (!confirm('Move the entire payment to the new date?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					due_date: expenseNewDateInput,
@@ -624,7 +624,7 @@
 
 		try {
 			// Update existing payment with reduced amount
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					amount: parseFloat(reschedulingExpensePayment.amount) - expenseSplitAmount,
@@ -636,7 +636,7 @@
 			if (updateError) throw updateError;
 
 			// Create new payment entry for split amount
-			const { error: insertError } = await supabaseAdmin
+			const { error: insertError } = await supabase
 				.from('expense_scheduler')
 				.insert({
 					branch_id: reschedulingExpensePayment.branch_id,
@@ -1599,7 +1599,7 @@
 		if (!confirm(confirmMessage)) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.delete()
 				.eq('id', payment.id);
@@ -1633,7 +1633,7 @@
 		if (!confirm(confirmMessage)) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.delete()
 				.eq('id', payment.id);

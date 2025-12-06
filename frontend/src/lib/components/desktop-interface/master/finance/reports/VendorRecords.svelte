@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	let loading = true;
 	let loadingRecords = false;
@@ -39,7 +39,7 @@
 
 	async function loadBranches() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
@@ -57,7 +57,7 @@
 		loadingRecords = true;
 		try {
 			// Build query
-			let query = supabaseAdmin
+			let query = supabase
 				.from('receiving_records')
 				.select(`
 					id,

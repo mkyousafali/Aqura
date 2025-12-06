@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { setCashierAuth } from '$lib/stores/cashierAuth';
 	import { t, currentLocale, switchLocale } from '$lib/i18n';
 
@@ -21,7 +21,7 @@
 	async function loadBranches() {
 		try {
 			loadingBranches = true;
-			const { data, error: branchError } = await supabaseAdmin
+			const { data, error: branchError } = await supabase
 				.from('branches')
 				.select('id, name_ar, name_en')
 				.order('name_en');
@@ -51,7 +51,7 @@
 			error = '';
 
 			// Authenticate with quick access code from users table
-			const { data: userData, error: authError } = await supabaseAdmin
+			const { data: userData, error: authError } = await supabase
 				.from('users')
 				.select('id, username, employee_id, branch_id')
 				.eq('quick_access_code', accessCode)
@@ -66,7 +66,7 @@
 			}
 
 			// Check cashier permission
-			const { data: permissionData, error: permissionError } = await supabaseAdmin
+			const { data: permissionData, error: permissionError } = await supabase
 				.from('interface_permissions')
 				.select('cashier_enabled')
 				.eq('user_id', userData.id)
@@ -82,7 +82,7 @@
 			// Get employee details if employee_id exists
 			let fullName = userData.username;
 			if (userData.employee_id) {
-				const { data: employeeData } = await supabaseAdmin
+				const { data: employeeData } = await supabase
 					.from('hr_employees')
 					.select('name')
 					.eq('id', userData.employee_id)

@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { supabaseAdmin } from "$lib/utils/supabase";
+import { supabase } from "$lib/utils/supabase";
 
 export async function POST({ request }) {
   try {
@@ -32,7 +32,7 @@ export async function POST({ request }) {
     console.log("🔍 [API] Looking for task:", receiving_task_id);
 
     // Get task details to check role type and requirements
-    const { data: taskData, error: taskError } = await supabaseAdmin
+    const { data: taskData, error: taskError } = await supabase
       .from("receiving_tasks")
       .select(
         "role_type, requires_erp_reference, requires_original_bill_upload",
@@ -130,7 +130,7 @@ export async function POST({ request }) {
     console.log("📋 [API] Function parameters:", functionParams);
 
     // Call the appropriate database function to complete the receiving task
-    const { data, error } = await supabaseAdmin.rpc(functionName, functionParams);
+    const { data, error } = await supabase.rpc(functionName, functionParams);
 
     console.log("📊 [API] Database function result:", { data, error });
 
@@ -150,7 +150,7 @@ export async function POST({ request }) {
 
         // For purchase managers, try a simpler completion without payment schedule validation
         try {
-          const { data: simpleResult, error: simpleError } = await supabaseAdmin
+          const { data: simpleResult, error: simpleError } = await supabase
             .from("receiving_tasks")
             .update({
               task_completed: true,
@@ -280,7 +280,7 @@ export async function GET({ url }) {
     }
 
     // Call the database function to validate completion requirements
-    const { data, error } = await supabaseAdmin.rpc(
+    const { data, error } = await supabase.rpc(
       "validate_task_completion_requirements",
       {
         receiving_task_id_param: receiving_task_id,

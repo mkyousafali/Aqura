@@ -1,7 +1,7 @@
 <script>
 	// Requests Manager Component - Display all available requests
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -43,7 +43,7 @@
 		}			console.log('🔍 Loading all requisitions for user:', $currentUser.username);
 
 			// Load all requisitions (data is already denormalized)
-			const { data: requisitionsData, error: reqError } = await supabaseAdmin
+			const { data: requisitionsData, error: reqError } = await supabase
 				.from('expense_requisitions')
 				.select('*')
 				.order('created_at', { ascending: false });
@@ -59,7 +59,7 @@
 				const userIds = [...new Set(requisitionsData.map(r => r.created_by).filter(Boolean))];
 				
 				if (userIds.length > 0) {
-					const { data: usersData } = await supabaseAdmin
+					const { data: usersData } = await supabase
 						.from('users')
 						.select('id, username')
 						.in('id', userIds);
@@ -174,7 +174,7 @@
 		try {
 			isProcessing = true;
 
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_requisitions')
 				.update({ 
 					is_active: newStatus,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { t, currentLocale } from '$lib/i18n';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import OfferTypeSelector from '$lib/components/desktop-interface/admin-customer-app/offers/OfferTypeSelector.svelte';
 	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
@@ -99,7 +99,7 @@
 			
 			if (isProductSpecificOffer) {
 				// Get all products currently in active product-specific offers (excluding current offer in edit mode)
-				const { data: activeOfferProducts } = await supabaseAdmin
+				const { data: activeOfferProducts } = await supabase
 					.from('offer_products')
 					.select(`
 						product_id,
@@ -109,7 +109,7 @@
 					.in('offers.type', ['product', 'bogo']); // Only check product-specific offers
 				
 				// Get products from active bundle offers too
-				const { data: activeBundles } = await supabaseAdmin
+				const { data: activeBundles } = await supabase
 					.from('offer_bundles')
 					.select(`
 						required_products,
@@ -216,7 +216,7 @@
 		// Check if this is a bundle offer
 		if (offerData.type === 'bundle') {
 			// Load all bundles from offer_bundles table for this offer
-			const { data: bundlesData, error: bundleErr } = await supabaseAdmin
+			const { data: bundlesData, error: bundleErr } = await supabase
 				.from('offer_bundles')
 				.select('*')
 				.eq('offer_id', offerId);
@@ -237,7 +237,7 @@
 			}
 		} else {
 			// Load products from offer_products table (for product/bogo offers)
-			const { data, error: err } = await supabaseAdmin
+			const { data, error: err } = await supabase
 				.from('offer_products')
 				.select(`
 					product_id,
@@ -253,7 +253,7 @@
 				const productIds = data.map(op => op.product_id);
 				console.log('🔑 Product IDs:', productIds);
 				
-				const { data: productsData, error: productsErr } = await supabaseAdmin
+				const { data: productsData, error: productsErr } = await supabase
 					.from('products')
 					.select('id, product_name_ar, product_name_en, barcode, sale_price, unit_id, image_url, product_serial')
 					.in('id', productIds);
@@ -284,7 +284,7 @@
 		
 		console.log('🎯 Loading cart tiers for offer:', offerId);
 		
-		const { data, error: err } = await supabaseAdmin
+		const { data, error: err } = await supabase
 			.from('offer_cart_tiers')
 			.select('*')
 			.eq('offer_id', offerId)
@@ -502,7 +502,7 @@
 				
 				// Delete existing bundles for bundle offers
 				if (offerData.type === 'bundle') {
-					await supabaseAdmin
+					await supabase
 						.from('offer_bundles')
 						.delete()
 						.eq('offer_id', offerId);
@@ -510,7 +510,7 @@
 				
 				// Delete existing cart tiers
 				if (needsTierConfiguration) {
-					await supabaseAdmin
+					await supabase
 						.from('offer_cart_tiers')
 						.delete()
 						.eq('offer_id', offerId);
@@ -552,7 +552,7 @@
 					required_products: bundle.required_products
 				}));
 
-				const { error: bundlesError } = await supabaseAdmin
+				const { error: bundlesError } = await supabase
 					.from('offer_bundles')
 					.insert(bundleInserts);
 
@@ -570,7 +570,7 @@
 					discount_value: tier.discount_value
 				}));
 
-				const { error: tiersError } = await supabaseAdmin
+				const { error: tiersError } = await supabase
 					.from('offer_cart_tiers')
 					.insert(tierInserts);
 

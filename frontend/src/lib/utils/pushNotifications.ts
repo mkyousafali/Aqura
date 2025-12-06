@@ -1,5 +1,5 @@
 // Import shared supabase clients to avoid multiple instances
-import { supabase, supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 import { browser } from "$app/environment";
 import { currentUser as persistentCurrentUser } from "./persistentAuth";
 import { get } from "svelte/store";
@@ -11,12 +11,6 @@ const VAPID_PUBLIC_KEY =
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ||
   "https://supabase.urbanaqura.com";
-const SUPABASE_SERVICE_KEY =
-  import.meta.env.VITE_SUPABASE_SERVICE_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NjQ4NzU1MjcsImV4cCI6MjA4MDQ1MTUyN30.6mj0wiHW0ljpYNIEeYG-r--577LDNbxCLj7SZOghbv0";
-
-// Singleton service role client to avoid multiple instances
-let serviceRoleClient: any = null;
 
 interface DeviceRegistration {
   user_id: string;
@@ -298,7 +292,7 @@ export class PushNotificationService {
     try {
       // Use shared supabase admin client
       // Mark device as inactive
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from("push_subscriptions")
         .update({ is_active: false })
         .eq("device_id", deviceId);

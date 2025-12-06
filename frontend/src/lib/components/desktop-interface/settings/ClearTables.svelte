@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { notifications } from '$lib/stores/notifications';
 	import { t } from '$lib/i18n';
 
@@ -16,7 +16,7 @@
 		isLoading = true;
 		try {
 			// Get count for notifications table only
-			const { count, error } = await supabaseAdmin
+			const { count, error } = await supabase
 				.from('notifications')
 				.select('*', { count: 'exact', head: true });
 
@@ -44,31 +44,31 @@
 			// Delete in correct order to handle foreign key constraints
 			
 			// Step 1: Delete notification_recipients
-			await supabaseAdmin
+			await supabase
 				.from('notification_recipients')
 				.delete()
 				.neq('id', '00000000-0000-0000-0000-000000000000');
 
 			// Step 2: Delete notification_read_states
-			await supabaseAdmin
+			await supabase
 				.from('notification_read_states')
 				.delete()
 				.neq('id', '00000000-0000-0000-0000-000000000000');
 
 			// Step 3: Delete notification_attachments
-			await supabaseAdmin
+			await supabase
 				.from('notification_attachments')
 				.delete()
 				.neq('id', '00000000-0000-0000-0000-000000000000');
 
 			// Step 4: Delete task_reminder_logs
-			await supabaseAdmin
+			await supabase
 				.from('task_reminder_logs')
 				.delete()
 				.neq('id', '00000000-0000-0000-0000-000000000000');
 
 			// Step 5: Finally delete all notifications
-			const { error: notificationsError } = await supabaseAdmin
+			const { error: notificationsError } = await supabase
 				.from('notifications')
 				.delete()
 				.neq('id', '00000000-0000-0000-0000-000000000000');

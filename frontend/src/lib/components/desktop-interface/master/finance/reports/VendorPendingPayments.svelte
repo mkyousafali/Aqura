@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	let loading = true;
 	let vendors: Array<{ vendor_id: string; vendor_name: string }> = [];
@@ -63,7 +63,7 @@
 
 	async function loadSummary() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('vendor_id, final_bill_amount')
 				.eq('is_paid', false);
@@ -83,7 +83,7 @@
 
 	async function loadBranches() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
@@ -110,7 +110,7 @@
 				const from = page * pageSize;
 				const to = from + pageSize - 1;
 
-			const { data, error, count } = await supabaseAdmin
+			const { data, error, count } = await supabase
 				.from('vendor_payment_schedule')
 				.select('vendor_id, vendor_name', { count: 'exact' })
 				.eq('is_paid', false)
@@ -168,7 +168,7 @@
 
 		loadingPayments = true;
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select(`
 					*,

@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
 import { browser } from "$app/environment";
-import { supabase, supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 import { pushNotificationService } from "./pushNotifications";
 import type { User, UserPermissions } from "$lib/types/auth";
 
@@ -965,7 +965,7 @@ export class PersistentAuthService {
         userId,
       });
 
-      const result = await supabaseAdmin.from("user_audit_logs").insert({
+      const result = await supabase.from("user_audit_logs").insert({
         user_id: userId,
         action: activity,
         ip_address: null, // We could get this from a service if needed
@@ -1016,7 +1016,7 @@ export class PersistentAuthService {
   }
 
   private async updateLastLogin(userId: string): Promise<void> {
-    await supabaseAdmin
+    await supabase
       .from("users")
       .update({
         last_login_at: new Date().toISOString(),
@@ -1035,7 +1035,7 @@ export class PersistentAuthService {
       expiresAt.getHours() + (loginMethod === "quick_access" ? 8 : 24),
     );
 
-    await supabaseAdmin.from("user_sessions").insert({
+    await supabase.from("user_sessions").insert({
       user_id: userId,
       session_token: token,
       login_method: loginMethod,
@@ -1066,7 +1066,7 @@ export class PersistentAuthService {
 
   private async incrementFailedLoginAttempts(userId: string): Promise<void> {
     // First get current count
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await supabase
       .from("users")
       .select("failed_login_attempts")
       .eq("id", userId)
@@ -1074,7 +1074,7 @@ export class PersistentAuthService {
 
     const currentAttempts = user?.failed_login_attempts || 0;
 
-    await supabaseAdmin
+    await supabase
       .from("users")
       .update({
         failed_login_attempts: currentAttempts + 1,

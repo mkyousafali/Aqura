@@ -3,7 +3,7 @@
 	 * ApproverListModal Component
 	 * Displays a list of eligible approvers and allows submitting for approval
 	 */
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 
@@ -45,7 +45,7 @@
 			const paymentAmount = paymentData.final_bill_amount || paymentData.bill_amount || 0;
 
 			// Query approval_permissions to find eligible approvers
-			const { data, error: queryError } = await supabaseAdmin
+			const { data, error: queryError } = await supabase
 				.from('approval_permissions')
 				.select(`
 					id,
@@ -102,7 +102,7 @@
 
 		try {
 			// Update the payment record with approval request
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('vendor_payment_schedule')
 				.update({
 					approval_status: 'sent_for_approval',

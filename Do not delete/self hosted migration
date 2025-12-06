@@ -1,0 +1,275 @@
+🟩 FULL MIGRATION GUIDE — Hosted Supabase → Self-Hosted Supabase
+(Clean, Complete, Easy to Follow)
+✅ PART 1 — PREPARATION
+1.1 Identify your Hosted Supabase database connection
+
+You obtained:
+
+postgresql://postgres:@#Imanihayath120@db.vmypotfsyrvuublyddyt.supabase.co:5432/postgres
+
+
+This contains:
+
+Host
+
+User
+
+Password
+
+Database name
+
+You need this to connect and export your hosted database.
+
+1.2 Identify your Self-Hosted Supabase database credentials
+
+You found your self-hosted database container:
+
+supabase-db (supabase/postgres)
+
+
+And your internal database password:
+
+POSTGRES_PASSWORD=your-super-secret-and-long-postgres-password
+
+
+You will need this to import the data later.
+
+✅ PART 2 — INSTALL pg_dump 17 (REQUIRED)
+
+Hosted Supabase uses PostgreSQL 17.x.
+Your server originally had pg_dump 14.x, which cannot dump a PostgreSQL 17 database.
+
+So we installed:
+
+PostgreSQL client 17
+
+Steps we did:
+
+2.1 Add the PostgreSQL apt repository
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+
+2.2 Add signing key
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+
+2.3 Update packages
+sudo apt update
+
+2.4 Install pg_dump 17
+sudo apt install postgresql-client-17 -y
+
+
+Then confirmed version:
+
+pg_dump --version
+pg_dump (PostgreSQL) 17.7
+
+✅ PART 3 — BACKUP HOSTED SUPABASE DATABASE
+
+This is the safe, non-destructive export.
+
+3.1 Set hosted password in environment:
+export PGPASSWORD='@#Imanihayath120'
+
+3.2 Dump the hosted DB into a file:
+pg_dump \
+  --format=custom \
+  --no-owner \
+  --no-privileges \
+  --host=db.vmypotfsyrvuublyddyt.supabase.co \
+  --port=5432 \
+  --username=postgres \
+  --dbname=postgres \
+  --file=/root/hosted_supabase_backup.dump
+
+
+This succeeded with NO errors.
+
+Your backup file is:
+
+/root/hosted_supabase_backup.dump
+
+
+This contains:
+
+Tables
+
+Data
+
+Functions
+
+Triggers
+
+Views
+
+RLS rules
+
+Auth tables
+
+Extensions
+
+Everything inside Postgres.
+
+❗ BEFORE CONTINUING
+
+You decided:
+
+“I want to stop now and do the real migration later.”
+
+This is fine — everything so far is just a backup and setup.
+
+So from here down, you will follow the remaining steps later when you want to do the real migration.
+
+🟩 PART 4 — RESTORE INTO SELF-HOSTED SUPABASE
+
+(You saw how it works; below is the clean guide)
+
+4.1 Copy dump file into postgres container
+docker cp /root/hosted_supabase_backup.dump supabase-db:/tmp/hosted_supabase_backup.dump
+
+4.2 Get internal IP of the Postgres container
+docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' supabase-db
+
+
+Example result:
+
+172.18.0.4
+
+4.3 Set the self-hosted DB password
+export PGPASSWORD='your-super-secret-and-long-postgres-password'
+
+4.4 Run pg_restore from HOST → container
+pg_restore \
+  --clean \
+  --if-exists \
+  --no-owner \
+  --no-privileges \
+  --host=172.18.0.4 \
+  --port=5432 \
+  --username=supabase_admin \
+  --dbname=postgres \
+  /root/hosted_supabase_backup.dump
+
+
+This imports the entire database.
+
+(Warnings are normal — cloud vs. local differences.)
+
+4.5 Clear password
+unset PGPASSWORD
+
+🟩 PART 5 — MIGRATE STORAGE FILES (NOT YET DONE)
+
+Your storage buckets contain real files:
+
+product images
+
+customer uploads
+
+profile images
+
+documents
+
+PDFs
+
+pg_dump does NOT copy these.
+
+Migration method (when ready):
+
+I will generate a Node.js script that:
+
+✔ Connects to hosted Supabase storage
+✔ Connects to self-hosted storage
+✔ Downloads every file
+✔ Uploads it into the correct bucket/path
+✔ Fully automatic
+
+This must be done AFTER database restore.
+
+🟩 PART 6 — MIGRATE EDGE FUNCTIONS (NOT YET DONE)
+
+Edge functions are stored as files.
+
+Steps (for real migration later):
+
+Download functions from hosted project or your local repo
+
+Upload them to:
+
+/opt/supabase/supabase/volumes/functions/
+
+
+Restart the function container:
+
+docker restart supabase-edge-functions
+
+
+Functions become active on new Supabase.
+
+🟩 PART 7 — FIX STORAGE URLS (IF NEEDED)
+
+If your table stores full URLs from cloud, example:
+
+https://project.supabase.co/storage/v1/object/public/products/image.png
+
+
+We will update them automatically:
+
+UPDATE table_name
+SET file_url = REPLACE(
+  file_url,
+  'https://old.supabase.co',
+  'http://your-server:8000'
+);
+
+
+If you store paths, no update needed.
+
+🟩 PART 8 — FINAL FRONTEND SETUP
+
+Your app must point to new Supabase:
+
+const supabase = createClient(
+  "http://YOUR_SERVER:8000",
+  "SELF_HOSTED_ANON_KEY"
+);
+
+🟩 WHAT YOU HAVE DONE SO FAR
+
+✔ Installed pg_dump 17 (required)
+✔ Successfully dumped the hosted database
+✔ Successfully tested restore commands
+✔ Verified no critical errors
+✔ Verified your self-hosted DB structure
+
+You did all the right preparation work.
+
+🟩 WHAT REMAINS TO BE DONE LATER
+
+When you’re ready for the real migration:
+
+Restore database for real
+
+Migrate storage files
+
+Migrate edge functions
+
+Fix storage URLs (optional)
+
+Point frontend to new Supabase
+
+Secure the Supabase Studio port
+
+Test everything
+
+Go live
+
+I can walk you through each step, again slowly.
+
+
+Host: db.vmypotfsyrvuublyddyt.supabase.co
+Port: 5432
+Database: postgres
+User: postgres
+Password: 
+POSTGRES_PASSWORD=your-super-secret-and-long-postgres-password
+http://8.213.42.21:3000

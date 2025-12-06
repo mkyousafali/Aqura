@@ -1,9 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { supabaseAdmin } from '$lib/utils/supabase';
-
-// Use service role client to bypass RLS for reading offer data
-const supabase = supabaseAdmin;
+import { supabase } from '$lib/utils/supabase';
 
 export const GET: RequestHandler = async ({ url }) => {
 	try {

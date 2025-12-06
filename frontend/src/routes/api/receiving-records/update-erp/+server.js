@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { supabaseAdmin } from "$lib/utils/supabase";
+import { supabase } from "$lib/utils/supabase";
 
 /** @type {import('./$types').RequestHandler} */
 export async function POST({ request }) {
@@ -18,8 +18,8 @@ export async function POST({ request }) {
       return json({ error: "ERP reference is required" }, { status: 400 });
     }
 
-    // Update the receiving record with the ERP reference using admin client to bypass RLS
-    const { data, error } = await supabaseAdmin
+    // Update the receiving record with the ERP reference
+    const { data, error } = await supabase
       .from("receiving_records")
       .update({
         erp_purchase_invoice_reference: erpReference.trim(),

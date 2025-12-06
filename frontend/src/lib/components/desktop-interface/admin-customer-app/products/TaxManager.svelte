@@ -26,8 +26,8 @@
 	async function loadTaxes() {
 		loading = true;
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { data, error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
 				.from('tax_categories')
 				.select('*')
 				.order('name_en');
@@ -69,8 +69,8 @@
 
 	async function toggleActive(tax: any) {
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
 				.from('tax_categories')
 				.update({ is_active: !tax.is_active })
 				.eq('id', tax.id);
@@ -90,8 +90,8 @@
 		}
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
-			const { error } = await supabaseAdmin
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
 				.from('tax_categories')
 				.delete()
 				.eq('id', tax.id);

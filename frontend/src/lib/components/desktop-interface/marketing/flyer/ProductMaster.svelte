@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as XLSX from 'xlsx';
-	import { supabaseAdmin as supabase } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	import { removeBackground } from '@imgly/background-removal';
 	

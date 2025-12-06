@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import ApprovalMask from '$lib/components/desktop-interface/master/finance/ApprovalMask.svelte';
@@ -144,7 +144,7 @@
 		try {
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
 
-			const { data: scheduleData, error } = await supabaseAdmin
+			const { data: scheduleData, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('id, bill_number, vendor_name, final_bill_amount, bill_date, branch_id, payment_method, bank_name, iban, is_paid, paid_date, approval_status, due_date')
 				.eq('due_date', selectedDate)
@@ -166,7 +166,7 @@
 		try {
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
 
-		const { data, error } = await supabaseAdmin
+		const { data, error } = await supabase
 			.from('expense_scheduler')
 			.select('id, amount, is_paid, paid_date, status, branch_id, payment_method, expense_category_name_en, expense_category_name_ar, description, schedule_type, due_date, co_user_name, created_by, requisition_id, requisition_number, creator:users!created_by(username)')
 			.eq('due_date', selectedDate)
@@ -194,7 +194,7 @@
 				? { is_paid: true, paid_date: new Date().toISOString() }
 				: { is_paid: false, paid_date: null };
 
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.update(updateData)
 				.eq('id', paymentId);
@@ -217,7 +217,7 @@
 		if (!confirm('Mark this expense payment as paid?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					is_paid: true, 
@@ -245,7 +245,7 @@
 		if (!confirm('Mark this expense payment as unpaid?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.update({ 
 					is_paid: false, 
@@ -279,7 +279,7 @@
 		if (!editingPaymentId) return;
 		
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.update({ payment_method: newMethod })
 				.eq('id', editingPaymentId);
@@ -324,7 +324,7 @@
 		}
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.update({ due_date: rescheduleNewDate })
 				.eq('id', reschedulingPayment.id);
@@ -358,7 +358,7 @@
 
 		try {
 			// Update original payment amount
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('vendor_payment_schedule')
 				.update({ final_bill_amount: splitPayment.final_bill_amount - splitAmount })
 				.eq('id', splitPayment.id);
@@ -371,7 +371,7 @@
 
 			// Create new payment with split amount
 			const { id, ...paymentData } = splitPayment;
-			const { error: insertError } = await supabaseAdmin
+			const { error: insertError } = await supabase
 				.from('vendor_payment_schedule')
 				.insert({
 					...paymentData,
@@ -427,7 +427,7 @@
 				return;
 			}
 
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.update({ 
 					final_bill_amount: newAmount,
@@ -462,7 +462,7 @@
 		if (!confirm(`Delete payment for ${payment.vendor_name}?`)) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('vendor_payment_schedule')
 				.delete()
 				.eq('id', payment.id);
@@ -514,7 +514,7 @@
 		try {
 			if (expenseSplitAmount > 0 && expenseSplitAmount < reschedulingExpensePayment.amount) {
 				// Split the payment
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('expense_scheduler')
 					.update({ amount: reschedulingExpensePayment.amount - expenseSplitAmount })
 					.eq('id', reschedulingExpensePayment.id);
@@ -525,7 +525,7 @@
 					return;
 				}
 
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('expense_scheduler')
 					.insert({
 						...reschedulingExpensePayment,
@@ -543,7 +543,7 @@
 				}
 			} else {
 				// Just reschedule
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_scheduler')
 					.update({ due_date: expenseNewDateInput })
 					.eq('id', reschedulingExpensePayment.id);
@@ -568,7 +568,7 @@
 		if (!confirm('Delete this expense payment?')) return;
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_scheduler')
 				.delete()
 				.eq('id', payment.id);

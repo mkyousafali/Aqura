@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { supabaseAdmin } from "$lib/utils/supabase";
+import { supabase } from "$lib/utils/supabase";
 
 export async function POST({ request }) {
   try {
@@ -31,7 +31,7 @@ export async function POST({ request }) {
     }
 
     // Call the database function to process clearance certificate generation
-    const { data, error } = await supabaseAdmin.rpc(
+    const { data, error } = await supabase.rpc(
       "process_clearance_certificate_generation",
       {
         receiving_record_id_param: receiving_record_id,
@@ -94,7 +94,7 @@ export async function GET({ url }) {
         "Fetching tasks for receiving_record_id:",
         receiving_record_id,
       );
-      const { data, error } = await supabaseAdmin.rpc(
+      const { data, error } = await supabase.rpc(
         "get_tasks_for_receiving_record",
         {
           receiving_record_id_param: receiving_record_id,
@@ -125,7 +125,7 @@ export async function GET({ url }) {
       const status_filter = url.searchParams.get("status") || null;
       const limit = parseInt(url.searchParams.get("limit") || "50");
 
-      const { data, error } = await supabaseAdmin.rpc(
+      const { data, error } = await supabase.rpc(
         "get_receiving_tasks_for_user",
         {
           user_id_param: user_id,
@@ -149,7 +149,7 @@ export async function GET({ url }) {
       const date_from = url.searchParams.get("date_from");
       const date_to = url.searchParams.get("date_to");
 
-      const { data, error } = await supabaseAdmin.rpc(
+      const { data, error } = await supabase.rpc(
         "get_receiving_task_statistics",
         {
           branch_id_param: branch_id ? parseInt(branch_id) : null,

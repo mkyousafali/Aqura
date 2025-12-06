@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { t } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -39,7 +39,7 @@
 
 	async function loadSubCategories() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('expense_sub_categories')
 				.select('id, name_en, name_ar')
 				.eq('is_active', true)
@@ -63,7 +63,7 @@
 		error = null;
 		try {
 			console.log('🔍 Fetching expenses from expense_scheduler...');
-			const { data, error: fetchError } = await supabaseAdmin
+			const { data, error: fetchError } = await supabase
 				.from('expense_scheduler')
 				.select(`
 					*,
@@ -250,7 +250,7 @@
 		if (!editingExpense) return;
 
 		try {
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('expense_scheduler')
 				.update({
 					expense_category_name_en: editForm.category,

@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	// Props
 	export let payments = [];
@@ -25,7 +25,7 @@
 
 	async function loadExpenseSchedulerPayments() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('expense_scheduler')
 				.select('*')
 				.eq('is_paid', true)
@@ -210,7 +210,7 @@ $: combinedPayments = [
 		try {
 			if (editingType === 'expense') {
 				// Update expense scheduler reference
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_scheduler')
 					.update({ payment_reference: editingValue.trim() || null })
 					.eq('id', paymentId);

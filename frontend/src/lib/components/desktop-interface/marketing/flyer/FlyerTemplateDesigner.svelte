@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { openWindow } from '$lib/utils/windowManagerUtils';
   import ProductFieldConfiguratorFlyer from '$lib/components/desktop-interface/marketing/flyer/ProductFieldConfiguratorFlyer.svelte';
   
@@ -136,7 +136,7 @@
   async function loadSavedTemplates() {
     isLoading = true;
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('flyer_templates')
         .select('*')
         .eq('is_active', true)
@@ -163,7 +163,7 @@
       let firstPageUrl = firstPageImage;
       if (firstPageFile) {
         const firstPageFileName = `first-page-${Date.now()}-${firstPageFile.name}`;
-        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from('flyer-templates')
           .upload(firstPageFileName, firstPageFile, {
             contentType: firstPageFile.type,
@@ -172,7 +172,7 @@
 
         if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabaseAdmin.storage
+        const { data: { publicUrl } } = supabase.storage
           .from('flyer-templates')
           .getPublicUrl(uploadData.path);
         
@@ -184,7 +184,7 @@
       for (let i = 0; i < subPageImages.length; i++) {
         if (subPageFiles[i]) {
           const subPageFileName = `sub-page-${i + 1}-${Date.now()}-${subPageFiles[i].name}`;
-          const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
             .from('flyer-templates')
             .upload(subPageFileName, subPageFiles[i], {
               contentType: subPageFiles[i].type,
@@ -193,7 +193,7 @@
 
           if (uploadError) throw uploadError;
 
-          const { data: { publicUrl } } = supabaseAdmin.storage
+          const { data: { publicUrl } } = supabase.storage
             .from('flyer-templates')
             .getPublicUrl(uploadData.path);
           
@@ -229,7 +229,7 @@
       let result;
       if (selectedTemplateId) {
         // Update existing template
-        result = await supabaseAdmin
+        result = await supabase
           .from('flyer_templates')
           .update({
             ...templateData,
@@ -240,7 +240,7 @@
           .single();
       } else {
         // Insert new template
-        result = await supabaseAdmin
+        result = await supabase
           .from('flyer_templates')
           .insert(templateData)
           .select()

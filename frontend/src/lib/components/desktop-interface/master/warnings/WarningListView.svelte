@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import WarningTemplateImageModal from '$lib/components/desktop-interface/master/warnings/WarningTemplateImageModal.svelte';
@@ -98,7 +98,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// If regular client fails, try admin client
 			if (queryError || !data || data.length === 0) {
 				console.log('🔄 Regular client failed for warnings list, trying admin client...');
-				const adminQuery = supabaseAdmin
+				const adminQuery = supabase
 					.from('employee_warnings')
 					.select(`
 						*,

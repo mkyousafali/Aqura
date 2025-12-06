@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { locale, getTranslation } from '$lib/i18n';
 
@@ -213,7 +213,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabaseAdmin
+			const { data: preferences, error } = await supabase
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -396,7 +396,7 @@
 		})
 	};
 
-	const { error } = await supabaseAdmin
+	const { error } = await supabase
 		.from('quick_task_user_preferences')
 		.upsert(defaultsData, { onConflict: 'user_id' });			if (error) {
 				console.error('Error saving defaults:', error);
@@ -417,28 +417,26 @@
 		isSubmitting = true;
 
 		try {
-			// Save defaults if requested
-			await saveAsDefaults();
+		// Save defaults if requested
+		await saveAsDefaults();
 
-			// Create the quick task (use admin client to bypass RLS)
-			const { data: taskData, error: taskError } = await supabaseAdmin
-				.from('quick_tasks')
-				.insert({
-					title: taskTitle,
-					description: taskDescription,
-					price_tag: priceTag,
-					issue_type: issueType,
-					priority: priority,
-					assigned_by: $currentUser?.id,
-					assigned_to_branch_id: selectedBranch,
-					require_task_finished: true, // Always required
-					require_photo_upload: requirePhotoUpload,
-					require_erp_reference: requireErpReference
-				})
-				.select()
-				.single();
-
-			if (taskError) {
+		// Create the quick task
+		const { data: taskData, error: taskError } = await supabase
+			.from('quick_tasks')
+			.insert({
+				title: taskTitle,
+				description: taskDescription,
+				price_tag: priceTag,
+				issue_type: issueType,
+				priority: priority,
+				assigned_by: $currentUser?.id,
+				assigned_to_branch_id: selectedBranch,
+				require_task_finished: true, // Always required
+				require_photo_upload: requirePhotoUpload,
+				require_erp_reference: requireErpReference
+			})
+			.select()
+			.single();			if (taskError) {
 				console.error('Error creating task:', taskError);
 				alert('Error creating task. Please try again.');
 				return;
@@ -468,7 +466,7 @@
 						console.log('✅ [QuickTask] File uploaded successfully:', uploadResult.data);
 						
 						// Save file record to quick_task_files table (use admin client to bypass RLS)
-						const { error: fileError } = await supabaseAdmin
+						const { error: fileError } = await supabase
 							.from('quick_task_files')
 							.insert({
 								quick_task_id: taskData.id,
@@ -520,7 +518,7 @@
 			
 		console.log('📋 [QuickTask Mobile] Assignment Objects to Insert:', assignments);
 
-		const { data: insertedAssignments, error: assignmentError } = await supabaseAdmin
+		const { data: insertedAssignments, error: assignmentError } = await supabase
 			.from('quick_task_assignments')
 			.insert(assignments)
 			.select();			if (assignmentError) {

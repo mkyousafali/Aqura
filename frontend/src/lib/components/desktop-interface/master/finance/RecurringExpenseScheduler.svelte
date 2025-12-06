@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 
@@ -120,7 +120,7 @@
 	async function loadInitialData() {
 		try {
 			// Load branches
-			const { data: branchesData, error: branchesError } = await supabaseAdmin
+			const { data: branchesData, error: branchesError } = await supabase
 				.from('branches')
 				.select('*')
 				.eq('is_active', true)
@@ -130,7 +130,7 @@
 			branches = branchesData || [];
 
 			// Load categories with parent category info
-			const { data: categoriesData, error: categoriesError } = await supabaseAdmin
+			const { data: categoriesData, error: categoriesError } = await supabase
 				.from('expense_sub_categories')
 				.select(`
 					*,
@@ -148,7 +148,7 @@
 			filteredCategories = categories;
 
 			// Load approvers with recurring bill approval permissions from approval_permissions table
-			const { data: approvalPermsData, error: approvalPermsError } = await supabaseAdmin
+			const { data: approvalPermsData, error: approvalPermsError } = await supabase
 				.from('approval_permissions')
 				.select('user_id, recurring_bill_amount_limit, can_approve_recurring_bill')
 				.eq('is_active', true)
@@ -159,7 +159,7 @@
 			if (approvalPermsData && approvalPermsData.length > 0) {
 				const userIds = approvalPermsData.map(p => p.user_id);
 				
-				const { data: approversData, error: approversError } = await supabaseAdmin
+				const { data: approversData, error: approversError } = await supabase
 					.from('users')
 					.select(`
 						id,
@@ -408,7 +408,7 @@
 
 		console.log('Saving to non_approved_payment_scheduler (awaiting approval):', scheduleData);
 
-		const { data, error } = await supabaseAdmin
+		const { data, error } = await supabase
 			.from('non_approved_payment_scheduler')
 			.insert([scheduleData])
 			.select()
@@ -420,7 +420,7 @@
 
 		// Generate all future occurrences immediately
 		try {
-			const { data: occurrencesData, error: occurrencesError } = await supabaseAdmin
+			const { data: occurrencesData, error: occurrencesError } = await supabase
 				.rpc('generate_recurring_occurrences', {
 					p_parent_id: data.id,
 					p_source_table: 'non_approved_payment_scheduler'
@@ -451,7 +451,7 @@
 		}
 
 		// Get occurrence count from the generated occurrences
-		const { count: occurrenceCount } = await supabaseAdmin
+		const { count: occurrenceCount } = await supabase
 			.from('non_approved_payment_scheduler')
 			.select('*', { count: 'exact', head: true })
 			.eq('schedule_type', 'single_bill')

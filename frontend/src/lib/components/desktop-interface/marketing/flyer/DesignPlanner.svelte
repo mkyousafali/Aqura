@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { windowManager } from '$lib/stores/windowManager';
   import ShelfPaperTemplateDesigner from '$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte';
 
@@ -81,7 +81,7 @@
   async function loadTemplates() {
     try {
       isLoadingTemplates = true;
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('shelf_paper_templates')
         .select('*')
         .eq('is_active', true)
@@ -99,7 +99,7 @@
   async function loadActiveOffers() {
     try {
       isLoadingOffers = true;
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('flyer_offers')
         .select('*')
         .eq('is_active', true)
@@ -128,7 +128,7 @@
       selectedOffer = offers.find(o => o.id === offerId) || null;
       
       // Get offer products
-      const { data: offerProducts, error: offerError } = await supabaseAdmin
+      const { data: offerProducts, error: offerError } = await supabase
         .from('flyer_offer_products')
         .select('*')
         .eq('offer_id', offerId);
@@ -144,7 +144,7 @@
       const barcodes = offerProducts.map(p => p.product_barcode);
 
       // Get product details from flyer_products (including variation fields)
-      const { data: productDetails, error: productError } = await supabaseAdmin
+      const { data: productDetails, error: productError } = await supabase
         .from('flyer_products')
         .select('barcode, product_name_en, product_name_ar, unit_name, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override')
         .in('barcode', barcodes);
@@ -303,7 +303,7 @@
       console.log('🔍 Fetching variation images for barcodes:', product.variation_barcodes);
       
       try {
-        const { data: variationProducts, error } = await supabaseAdmin
+        const { data: variationProducts, error } = await supabase
           .from('flyer_products')
           .select('image_url, variation_order')
           .in('barcode', product.variation_barcodes)
@@ -470,7 +470,7 @@
       console.log('🔍 Fetching variation images for barcodes:', product.variation_barcodes);
       
       try {
-        const { data: variationProducts, error } = await supabaseAdmin
+        const { data: variationProducts, error } = await supabase
           .from('flyer_products')
           .select('image_url, variation_order')
           .in('barcode', product.variation_barcodes)
@@ -774,7 +774,7 @@
           console.log(`📊 Expected ${product.variation_count} variations`);
           
           try {
-            const { data: variationProducts, error } = await supabaseAdmin
+            const { data: variationProducts, error } = await supabase
               .from('flyer_products')
               .select('image_url, variation_order, barcode')
               .in('barcode', product.variation_barcodes)

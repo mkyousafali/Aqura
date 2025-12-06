@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { _ as t, currentLocale } from '$lib/i18n';
 
 	interface DailySales {
@@ -42,6 +42,9 @@
 	let maxBranchAmount = 0;
 	let maxYesterdayBranchAmount = 0;
 
+	// Real-time subscription
+	let subscription: any = null;
+
 	onMount(async () => {
 		// TODO: Replace Go backend availability check with Supabase health check
 		// const { data: healthData } = await goAPI.healthCheck();
@@ -52,7 +55,180 @@
 		await loadSalesData();
 		await loadBranchSalesData();
 		await loadYesterdayBranchSalesData();
+		
+		// Subscribe to real-time changes in erp_daily_sales table
+		subscribeToSalesUpdates();
+
+		// Cleanup on component unmount
+		return () => {
+			if (subscription) {
+				subscription.unsubscribe();
+				console.log('🛑 Unsubscribed from realtime updates');
+			}
+		};
 	});
+
+	function subscribeToSalesUpdates() {
+		console.log('🔴 Attempting to subscribe to real-time sales updates...');
+		console.log('📡 Using anon key for realtime WebSocket connection');
+		
+		try {
+			// Check if supabase realtime is available
+			if (!supabase.realtime) {
+				console.error('❌ Supabase realtime client not available');
+				return;
+			}
+
+			const channel = supabase
+				.channel('public:erp_daily_sales')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'erp_daily_sales'
+					},
+					(payload: any) => {
+						console.log('🔔 Real-time update received:', {
+							event: payload.eventType,
+							table: payload.table,
+							record: payload.new || payload.old
+						});
+						
+						// Update component state directly instead of reloading entire page
+						handleRealtimeUpdate(payload);
+					}
+				)
+				.subscribe((status: string, err?: any) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Successfully subscribed to real-time updates');
+					} else if (status === 'CHANNEL_ERROR') {
+						console.error('❌ Channel error:', err);
+						console.log('🔍 Debugging info:');
+						console.log('  - Check if Realtime is enabled in Supabase Settings');
+						console.log('  - Verify JWT token in anon key is valid');
+						console.log('  - Check network connectivity to wss://supabase.urbanaqura.com');
+					} else if (status === 'TIMED_OUT') {
+						console.warn('⏱️ Subscription timed out, retrying in 5 seconds...');
+						setTimeout(() => subscribeToSalesUpdates(), 5000);
+					} else {
+						console.log('📡 Subscription status changed:', status);
+					}
+				});
+
+			subscription = channel;
+		} catch (error) {
+			console.error('❌ Error setting up subscription:', error);
+		}
+	}
+
+	function handleRealtimeUpdate(payload: any) {
+		console.log('⚡ Processing real-time update efficiently (no page reload)...');
+		const record = payload.new || payload.old;
+		
+		if (!record) return;
+
+		const saudiOffset = 3 * 60;
+		const now = new Date();
+		const saudiTime = new Date(now.getTime() + (saudiOffset + now.getTimezoneOffset()) * 60000);
+		
+		const formatDate = (date: Date) => {
+			const year = date.getFullYear();
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const day = String(date.getDate()).padStart(2, '0');
+			return `${year}-${month}-${day}`;
+		};
+		
+		const today = formatDate(saudiTime);
+		const yesterday = new Date(saudiTime);
+		yesterday.setDate(yesterday.getDate() - 1);
+		const yesterdayStr = formatDate(yesterday);
+		
+		const recordDate = record.sale_date?.substring(0, 10);
+		
+		console.log(`📅 Update for date: ${recordDate}, comparing with today: ${today}, yesterday: ${yesterdayStr}`);
+		
+		// Update branch sales if it's today
+		if (recordDate === today) {
+			console.log('💾 Updating today branch sales directly (no reload)...');
+			updateBranchSalesDirectly(record, 'today');
+		}
+		
+		// Update yesterday branch sales if it's yesterday
+		if (recordDate === yesterdayStr) {
+			console.log('💾 Updating yesterday branch sales directly (no reload)...');
+			updateBranchSalesDirectly(record, 'yesterday');
+		}
+		
+		// Update daily sales overview if it's in the last 3 days
+		const dayBeforeYesterday = new Date(saudiTime);
+		dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+		const dayBeforeYesterdayStr = formatDate(dayBeforeYesterday);
+		
+		if (recordDate === today || recordDate === yesterdayStr || recordDate === dayBeforeYesterdayStr) {
+			console.log('💾 Updating daily sales directly (no reload)...');
+			updateDailySalesDirectly(record, recordDate);
+		}
+	}
+
+	function updateBranchSalesDirectly(record: any, period: 'today' | 'yesterday') {
+		const branchData = period === 'today' ? branchSalesData : yesterdayBranchSalesData;
+		const setter = period === 'today' ? ((v: any) => branchSalesData = v) : ((v: any) => yesterdayBranchSalesData = v);
+		const maxSetter = period === 'today' ? ((v: number) => maxBranchAmount = v) : ((v: number) => maxYesterdayBranchAmount = v);
+		
+		// Find if branch exists in current data
+		const existingIndex = branchData.findIndex(b => b.branch_id === record.branch_id);
+		
+		if (existingIndex >= 0) {
+			// Update existing branch data
+			const updatedBranch = branchData[existingIndex];
+			updatedBranch.total_amount = (record.net_amount || 0);
+			updatedBranch.total_bills = (record.net_bills || 0);
+			updatedBranch.total_return = (record.return_amount || 0);
+			
+			// Recalculate max
+			const newMax = Math.max(...branchData.map(d => d.total_amount), 1);
+			maxSetter(newMax);
+			
+			// Trigger reactivity by reassigning
+			setter([...branchData]);
+			console.log(`✅ Updated ${period} branch ${record.branch_id} directly`);
+		} else {
+			// New branch - add it
+			const newBranch = {
+				branch_id: record.branch_id,
+				branch_name: `Branch ${record.branch_id}`,
+				total_amount: record.net_amount || 0,
+				total_bills: record.net_bills || 0,
+				total_return: record.return_amount || 0
+			};
+			branchData.push(newBranch);
+			maxSetter(Math.max(...branchData.map(d => d.total_amount), 1));
+			setter([...branchData]);
+			console.log(`✅ Added new ${period} branch ${record.branch_id} directly`);
+		}
+	}
+
+	function updateDailySalesDirectly(record: any, recordDate: string) {
+		// Find if date exists in sales data
+		const existingIndex = salesData.findIndex(d => d.date === recordDate);
+		
+		if (existingIndex >= 0) {
+			// Update existing date - just increment the values
+			const day = salesData[existingIndex];
+			day.total_amount += (record.net_amount || 0);
+			day.total_bills += (record.net_bills || 0);
+			day.total_return += (record.return_amount || 0);
+			
+			// Recalculate min/max
+			minAmount = Math.min(...salesData.map(d => d.total_amount));
+			maxAmount = Math.max(...salesData.map(d => d.total_amount), 1);
+			
+			// Trigger reactivity
+			salesData = [...salesData];
+			console.log(`✅ Updated daily sales for ${recordDate} directly`);
+		}
+	}
 
 	async function loadSalesData() {
 		loading = true;
@@ -94,7 +270,7 @@
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
 			// Fetch daily sales data from Supabase (last 3 days)
-			const { data: salesRecords, error } = await supabaseAdmin
+			const { data: salesRecords, error } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.gte('sale_date', formatDate(dayBeforeYesterday))
@@ -110,7 +286,7 @@
 			console.log('📊 Sample dates from API:', data?.records?.slice(0, 5).map(r => r.sale_date));
 
 			// Fetch current month data
-			const { data: currentMonthRecords, error: currentMonthError } = await supabaseAdmin
+			const { data: currentMonthRecords, error: currentMonthError } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.gte('sale_date', currentMonthStart)
@@ -119,7 +295,7 @@
 			const currentMonthData = { records: currentMonthRecords || [] };
 
 			// Fetch previous month data
-			const { data: previousMonthRecords, error: previousMonthError } = await supabaseAdmin
+			const { data: previousMonthRecords, error: previousMonthError } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.gte('sale_date', previousMonthStart)
@@ -208,7 +384,7 @@
 			const previousMonthEnd = formatDate(new Date(saudiTime.getFullYear(), saudiTime.getMonth(), 0));
 
 			// Fetch today's sales by branch from Supabase
-			const { data: salesRecords, error } = await supabaseAdmin
+			const { data: salesRecords, error } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.eq('sale_date', todayStr)
@@ -228,7 +404,7 @@
 			let branchMap = new Map();
 			if (branchIds.length > 0) {
 				try {
-					const { data: branchData, error: branchError } = await supabaseAdmin
+					const { data: branchData, error: branchError } = await supabase
 						.from('branches')
 						.select('id, location_en, location_ar')
 						.in('id', branchIds);
@@ -268,7 +444,7 @@
 			});
 
 			// Fetch current month data by branch
-			const { data: currentMonthRecords } = await supabaseAdmin
+			const { data: currentMonthRecords } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.gte('sale_date', currentMonthStart)
@@ -277,7 +453,7 @@
 			const currentMonthData = { records: currentMonthRecords || [] };
 
 			// Fetch previous month data by branch
-			const { data: previousMonthRecords } = await supabaseAdmin
+			const { data: previousMonthRecords } = await supabase
 				.from('erp_daily_sales')
 				.select('*')
 				.gte('sale_date', previousMonthStart)
@@ -341,7 +517,7 @@
 			const yesterdayStr = formatDate(yesterday);
 
 		// Fetch yesterday's sales by branch from Supabase
-		const { data: salesRecords, error } = await supabaseAdmin
+		const { data: salesRecords, error } = await supabase
 			.from('erp_daily_sales')
 			.select('*')
 			.eq('sale_date', yesterdayStr)
@@ -359,7 +535,7 @@
 		let branchMap = new Map();
 		if (branchIds.length > 0) {
 			try {
-				const { data: branchData, error: branchError } = await supabaseAdmin
+				const { data: branchData, error: branchError } = await supabase
 					.from('branches')
 					.select('id, location_en, location_ar')
 					.in('id', branchIds);
@@ -485,7 +661,7 @@
 	<div class="sales-card">
 		<div class="header">
 			<h3>{$t('reports.dailySalesOverview')}</h3>
-			<button class="refresh-btn" on:click={loadSalesData} disabled={loading} title={$t('common.refresh')}>
+			<button class="refresh-btn" on:click={loadSalesData} disabled={true} title="Real-time updates active">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
 				</svg>
@@ -549,7 +725,7 @@
 	<div class="sales-card">
 		<div class="header">
 			<h3>{$t('reports.todayBranchSales')}</h3>
-			<button class="refresh-btn" on:click={loadBranchSalesData} disabled={loadingBranch} title={$t('common.refresh')}>
+			<button class="refresh-btn" on:click={loadBranchSalesData} disabled={true} title="Real-time updates active">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
 				</svg>
@@ -611,7 +787,7 @@
 	<div class="sales-card">
 		<div class="header">
 			<h3>{$t('reports.yesterdayBranchSales')}</h3>
-			<button class="refresh-btn" on:click={loadYesterdayBranchSalesData} disabled={loadingYesterdayBranch} title={$t('common.refresh')}>
+			<button class="refresh-btn" on:click={loadYesterdayBranchSalesData} disabled={true} title="Real-time updates active">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
 				</svg>

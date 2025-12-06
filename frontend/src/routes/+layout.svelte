@@ -706,7 +706,17 @@
 						// Handle controller change (when new SW takes control)
 						navigator.serviceWorker.addEventListener('controllerchange', () => {
 							console.log('🔄 PWA Service Worker controller changed');
-							window.location.reload();
+							
+							// Don't reload on sales report page to preserve real-time updates
+							const isSalesReportPage = typeof window !== 'undefined' && 
+								(window.location.pathname.includes('/master/finance') || 
+								 window.location.pathname.includes('sales-report'));
+							
+							if (isSalesReportPage) {
+								console.log('📊 On sales report page - skipping auto-reload to preserve real-time updates');
+							} else {
+								window.location.reload();
+							}
 						});
 						
 						// Set up update function

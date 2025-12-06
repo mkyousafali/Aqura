@@ -79,14 +79,14 @@
 		imageSlots = [...imageSlots];
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 			// Upload file to storage using admin client (bypasses RLS)
 			const timestamp = Date.now();
 			const fileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
 			const filePath = `images/slot-${slotNumber}/${timestamp}-${fileName}`;
 
-			const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+			const { data: uploadData, error: uploadError } = await supabase.storage
 				.from('customer-app-media')
 				.upload(filePath, file, {
 					cacheControl: '3600',
@@ -97,7 +97,7 @@
 			if (uploadError) throw uploadError;
 
 			// Get public URL
-			const { data: urlData } = supabaseAdmin.storage
+			const { data: urlData } = supabase.storage
 				.from('customer-app-media')
 				.getPublicUrl(filePath);
 

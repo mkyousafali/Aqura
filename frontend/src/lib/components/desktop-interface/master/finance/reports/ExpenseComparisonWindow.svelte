@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	let expenses: any[] = [];
 	let allCategories: { name: string; color: string }[] = [];
@@ -46,7 +46,7 @@
 
 	async function loadBranches() {
 		try {
-			const { data, error: fetchError } = await supabaseAdmin
+			const { data, error: fetchError } = await supabase
 				.from('branches')
 				.select('id, name_en, name_ar')
 				.order('name_en');
@@ -61,7 +61,7 @@
 
 	async function loadCategories() {
 		try {
-			const { data, error: fetchError } = await supabaseAdmin
+			const { data, error: fetchError } = await supabase
 				.from('expense_sub_categories')
 				.select('name_en')
 				.eq('is_active', true)
@@ -92,7 +92,7 @@
 		loading = true;
 		error = null;
 		try {
-			const { data, error: fetchError } = await supabaseAdmin
+			const { data, error: fetchError } = await supabase
 				.from('expense_scheduler')
 				.select(`
 					*,

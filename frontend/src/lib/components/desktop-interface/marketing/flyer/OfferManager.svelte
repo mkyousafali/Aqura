@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabaseAdmin } from '\$lib/utils/supabase';
+	import { supabase } from '\$lib/utils/supabase';
 	import { onMount } from 'svelte';
 	
 	let offers: any[] = [];
@@ -21,7 +21,7 @@
 			today.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
 			
 			// Get all active offers that have passed their end date
-			const { data: expiredOffers, error: fetchError } = await supabaseAdmin
+			const { data: expiredOffers, error: fetchError } = await supabase
 				.from('flyer_offers')
 				.select('id, template_name, end_date')
 				.eq('is_active', true)
@@ -36,7 +36,7 @@
 				console.log(`Found ${expiredOffers.length} expired offer(s), deactivating...`);
 				
 				// Deactivate all expired offers
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('flyer_offers')
 					.update({ is_active: false })
 					.eq('is_active', true)
@@ -64,7 +64,7 @@
 		await deactivateExpiredOffers();
 		
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('flyer_offers')
 				.select('*')
 				.order('created_at', { ascending: false });
@@ -86,7 +86,7 @@
 	// Toggle offer active status
 	async function toggleOfferStatus(offerId: string, currentStatus: boolean) {
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('flyer_offers')
 				.update({ is_active: !currentStatus })
 				.eq('id', offerId);
@@ -111,7 +111,7 @@
 		}
 		
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('flyer_offers')
 				.delete()
 				.eq('id', offerId);

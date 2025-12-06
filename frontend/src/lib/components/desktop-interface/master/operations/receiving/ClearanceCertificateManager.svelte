@@ -1,7 +1,7 @@
 <!-- ClearanceCertificateManager.svelte -->
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { currentUser } from '$lib/utils/persistentAuth';
   
   export let receivingRecord = null;
@@ -805,7 +805,7 @@
       const fileName = `clearance-certificate-${receivingRecord.id}-${Date.now()}.png`;
       
       // Upload to the existing clearance-certificates bucket
-      const { data, error } = await supabaseAdmin.storage
+      const { data, error } = await supabase.storage
         .from('clearance-certificates')
         .upload(fileName, blob, {
           contentType: 'image/png',
@@ -817,7 +817,7 @@
       }
 
       // Get public URL
-      const { data: { publicUrl } } = supabaseAdmin.storage
+      const { data: { publicUrl } } = supabase.storage
         .from('clearance-certificates')
         .getPublicUrl(fileName);
 
@@ -826,7 +826,7 @@
       uploadProgress = 100;
 
       // Update receiving record with certificate information
-      const { error: updateError } = await supabaseAdmin
+      const { error: updateError } = await supabase
         .from('receiving_records')
         .update({
           certificate_url: publicUrl,

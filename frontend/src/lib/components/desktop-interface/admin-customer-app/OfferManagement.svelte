@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { currentLocale } from '$lib/i18n';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { openWindow } from '$lib/utils/windowManagerUtils';
   import BundleOfferWindow from '$lib/components/desktop-interface/admin-customer-app/offers/BundleOfferWindow.svelte';
   import BuyXGetYOfferWindow from '$lib/components/desktop-interface/admin-customer-app/offers/BuyXGetYOfferWindow.svelte';
@@ -191,7 +191,7 @@
   async function loadOffers() {
     loading = true;
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('offers')
         .select(`
           *,
@@ -216,13 +216,13 @@
       
       // Load bundle data separately (not directly joinable in Supabase)
       const offerIds = data?.map(o => o.id) || [];
-      const { data: bundlesData } = await supabaseAdmin
+      const { data: bundlesData } = await supabase
         .from('offer_bundles')
         .select('*')
         .in('offer_id', offerIds);
       
       // Load BOGO rules data separately
-      const { data: bogoRulesData } = await supabaseAdmin
+      const { data: bogoRulesData } = await supabase
         .from('bogo_offer_rules')
         .select('*')
         .in('offer_id', offerIds);
@@ -497,7 +497,7 @@
     // Open product discount offers - need to check offer_products to determine percentage vs special price
     if (offer && offer.type === 'product') {
       // Query offer_products to determine if it's percentage or special price
-      const { data: offerProducts, error } = await supabaseAdmin
+      const { data: offerProducts, error } = await supabase
         .from('offer_products')
         .select('offer_percentage')
         .eq('offer_id', offerId)
@@ -604,7 +604,7 @@
   
   async function updateOfferStatus(offerId, isActive) {
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('offers')
         .update({ is_active: isActive })
         .eq('id', offerId);
@@ -653,7 +653,7 @@
       console.log('Offer data:', offerData);
       
       // 3. Get all associated bundles
-      const { data: bundlesData, error: bundlesError } = await supabaseAdmin
+      const { data: bundlesData, error: bundlesError } = await supabase
         .from('offer_bundles')
         .select('*')
         .eq('offer_id', offerId);
@@ -674,7 +674,7 @@
       console.log('Archive data to insert:', archiveData);
       
       // 5. Archive to deleted_bundle_offers table
-      const { data: insertedData, error: archiveError } = await supabaseAdmin
+      const { data: insertedData, error: archiveError } = await supabase
         .from('deleted_bundle_offers')
         .insert(archiveData)
         .select();
@@ -692,7 +692,7 @@
       // 6. Delete bundles from offer_bundles
       if (bundlesData && bundlesData.length > 0) {
         console.log('Deleting bundles from offer_bundles...');
-        const { error: bundleDeleteError } = await supabaseAdmin
+        const { error: bundleDeleteError } = await supabase
           .from('offer_bundles')
           .delete()
           .eq('offer_id', offerId);
@@ -706,7 +706,7 @@
       
       // 7. Delete the offer from offers table
       console.log('Deleting offer from offers table...');
-      const { data: deletedOffer, error: deleteError } = await supabaseAdmin
+      const { data: deletedOffer, error: deleteError } = await supabase
         .from('offers')
         .delete()
         .eq('id', offerId)
@@ -751,7 +751,7 @@
       const newStatus = !currentStatus;
       
       // Update offer status in database
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('offers')
         .update({ is_active: newStatus })
         .eq('id', offerId);
@@ -798,7 +798,7 @@
       // 2. Get all associated bundles if it's a bundle offer
       let originalBundles = [];
       if (originalOffer.type === 'bundle') {
-        const { data: bundlesData, error: bundlesError } = await supabaseAdmin
+        const { data: bundlesData, error: bundlesError } = await supabase
           .from('offer_bundles')
           .select('*')
           .eq('offer_id', offerId);
@@ -823,7 +823,7 @@
       delete duplicateOfferData.updated_at;
       
       // 4. Insert the duplicate offer
-      const { data: newOffer, error: insertError } = await supabaseAdmin
+      const { data: newOffer, error: insertError } = await supabase
         .from('offers')
         .insert(duplicateOfferData)
         .select()
@@ -842,7 +842,7 @@
           required_products: bundle.required_products
         }));
         
-        const { error: bundlesInsertError } = await supabaseAdmin
+        const { error: bundlesInsertError } = await supabase
           .from('offer_bundles')
           .insert(duplicateBundles);
         

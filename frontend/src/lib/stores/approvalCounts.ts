@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { supabaseAdmin } from "$lib/utils/supabase";
+import { supabase } from "$lib/utils/supabase";
 import { currentUser } from "$lib/utils/persistentAuth";
 import { get } from "svelte/store";
 
@@ -30,7 +30,7 @@ export async function fetchApprovalCounts(): Promise<void> {
     }
 
     // Count pending requisitions where user is the approver
-    const { count: requisitionCount, error: reqError } = await supabaseAdmin
+    const { count: requisitionCount, error: reqError } = await supabase
       .from("expense_requisitions")
       .select("*", { count: "exact", head: true })
       .eq("approver_id", user.id)
@@ -46,7 +46,7 @@ export async function fetchApprovalCounts(): Promise<void> {
     twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
     const twoDaysDate = twoDaysFromNow.toISOString().split("T")[0];
 
-    const { data: schedulesData, error: schedError } = await supabaseAdmin
+    const { data: schedulesData, error: schedError } = await supabase
       .from("non_approved_payment_scheduler")
       .select("id, schedule_type, due_date")
       .eq("approver_id", user.id)
@@ -72,7 +72,7 @@ export async function fetchApprovalCounts(): Promise<void> {
     let vendorPaymentCount = 0;
 
     // First check if user has vendor payment approval permissions
-    const { data: approvalPerms, error: permsError } = await supabaseAdmin
+    const { data: approvalPerms, error: permsError } = await supabase
       .from("approval_permissions")
       .select("can_approve_vendor_payments, vendor_payment_amount_limit")
       .eq("user_id", user.id)
@@ -84,7 +84,7 @@ export async function fetchApprovalCounts(): Promise<void> {
 
     // If user can approve vendor payments, count them
     if (approvalPerms && approvalPerms.can_approve_vendor_payments) {
-      const { data: vendorPaymentsData, error: vpError } = await supabaseAdmin
+      const { data: vendorPaymentsData, error: vpError } = await supabase
         .from("vendor_payment_schedule")
         .select("id, final_bill_amount, bill_amount")
         .eq("approval_status", "sent_for_approval");

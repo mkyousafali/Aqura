@@ -98,12 +98,12 @@
 		if (!categoryImage) return null;
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			const fileExt = categoryImage.name.split('.').pop();
 			const fileName = `${categoryId}-${Date.now()}.${fileExt}`;
 			const filePath = fileName;
 
-			const { error: uploadError } = await supabaseAdmin.storage
+			const { error: uploadError } = await supabase.storage
 				.from('category-images')
 				.upload(filePath, categoryImage, {
 					cacheControl: '3600',
@@ -113,7 +113,7 @@
 			if (uploadError) throw uploadError;
 
 			// Get public URL
-			const { data } = supabaseAdmin.storage
+			const { data } = supabase.storage
 				.from('category-images')
 				.getPublicUrl(filePath);
 
@@ -134,10 +134,10 @@
 		uploadError = '';
 
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
 			// Insert category first
-			const { data: newCategory, error: insertError } = await supabaseAdmin
+			const { data: newCategory, error: insertError } = await supabase
 				.from('product_categories')
 				.insert({
 					name_en: categoryNameEn,
@@ -155,7 +155,7 @@
 				
 				// Update category with image URL
 				if (imageUrl) {
-					const { error: updateError } = await supabaseAdmin
+					const { error: updateError } = await supabase
 						.from('product_categories')
 						.update({ image_url: imageUrl })
 						.eq('id', newCategory.id);

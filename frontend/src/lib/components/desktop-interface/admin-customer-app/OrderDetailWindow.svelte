@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { notifications } from '$lib/stores/notifications';
   import { t, currentLocale } from '$lib/i18n';
   import { currentUser } from '$lib/utils/persistentAuth';
@@ -120,7 +120,7 @@
 
   async function loadUsers() {
     try {
-      const { data, error } = await supabaseAdmin.from('users')
+      const { data, error } = await supabase.from('users')
         .select('id, username')
         .eq('status', 'active')
         .order('username');
@@ -131,7 +131,7 @@
       availableDelivery = data || [];
 
       // Calculate workload for each user
-      const { data: workloadData, error: workloadError } = await supabaseAdmin.from('orders')
+      const { data: workloadData, error: workloadError } = await supabase.from('orders')
         .select('picker_id, delivery_person_id')
         .in('order_status', ['accepted', 'in_picking', 'ready', 'out_for_delivery']);
 
@@ -153,7 +153,7 @@
   async function loadOrderDetails() {
     try {
       loading = true;
-      const { data: orderData, error: orderError } = await supabaseAdmin.from('orders')
+      const { data: orderData, error: orderError } = await supabase.from('orders')
         .select(`
           *,
           customer:customers(id, name, whatsapp_number, location1_name, location1_url, location2_name, location2_url, location3_name, location3_url),
@@ -448,7 +448,7 @@
     }
 
     try {
-      const { error } = await supabaseAdmin.from('orders')
+      const { error } = await supabase.from('orders')
         .update({ 
           picker_id: pickerId,
           updated_at: new Date().toISOString()
@@ -461,7 +461,7 @@
       const pickerUser = availablePickers.find(p => p.id === pickerId);
 
       // Create a quick task for the picker to start picking
-      const { data: taskData, error: taskError } = await supabaseAdmin
+      const { data: taskData, error: taskError } = await supabase
         .from('quick_tasks')
         .insert({
           title: isRTL ? `تحضير طلب #${order.order_number}` : `Pick Order #${order.order_number}`,
@@ -486,7 +486,7 @@
         // Continue even if task creation fails
       } else if (taskData) {
         // Assign the task to the picker
-        const { error: assignmentError } = await supabaseAdmin
+        const { error: assignmentError } = await supabase
           .from('quick_task_assignments')
           .insert({
             quick_task_id: taskData.id,
@@ -504,7 +504,7 @@
       }
 
       // Log the assignment in audit_logs
-      await supabaseAdmin.from('order_audit_logs').insert({
+      await supabase.from('order_audit_logs').insert({
         order_id: order.id,
         action_type: 'assignment',
         assignment_type: 'picker',
@@ -545,7 +545,7 @@
     }
 
     try {
-      const { error } = await supabaseAdmin.from('orders')
+      const { error } = await supabase.from('orders')
         .update({ 
           delivery_person_id: deliveryId,
           updated_at: new Date().toISOString()
@@ -558,7 +558,7 @@
       const deliveryUser = availableDelivery.find(d => d.id === deliveryId);
 
       // Create a quick task for the delivery person
-      const { data: taskData, error: taskError } = await supabaseAdmin
+      const { data: taskData, error: taskError } = await supabase
         .from('quick_tasks')
         .insert({
           title: isRTL ? `توصيل طلب #${order.order_number}` : `Deliver Order #${order.order_number}`,
@@ -583,7 +583,7 @@
         // Continue even if task creation fails
       } else if (taskData) {
         // Assign the task to the delivery person
-        const { error: assignmentError } = await supabaseAdmin
+        const { error: assignmentError } = await supabase
           .from('quick_task_assignments')
           .insert({
             quick_task_id: taskData.id,
@@ -601,7 +601,7 @@
       }
 
       // Log the assignment in audit_logs
-      await supabaseAdmin.from('order_audit_logs').insert({
+      await supabase.from('order_audit_logs').insert({
         order_id: order.id,
         action_type: 'assignment',
         assignment_type: 'delivery',
@@ -633,7 +633,7 @@
   // Status update handlers
   async function acceptOrder() {
     try {
-      const { error } = await supabaseAdmin.from('orders')
+      const { error } = await supabase.from('orders')
         .update({ 
           order_status: 'accepted',
           updated_at: new Date().toISOString()
@@ -642,7 +642,7 @@
 
       if (error) throw error;
 
-      await supabaseAdmin.from('order_audit_logs').insert({
+      await supabase.from('order_audit_logs').insert({
         order_id: order.id,
         action_type: 'status_change',
         from_status: order.order_status,
@@ -674,7 +674,7 @@
     }
 
     try {
-      const { error } = await supabaseAdmin.from('orders')
+      const { error } = await supabase.from('orders')
         .update({ 
           order_status: 'cancelled',
           updated_at: new Date().toISOString()
@@ -683,7 +683,7 @@
 
       if (error) throw error;
 
-      await supabaseAdmin.from('order_audit_logs').insert({
+      await supabase.from('order_audit_logs').insert({
         order_id: order.id,
         action_type: 'status_change',
         from_status: order.order_status,

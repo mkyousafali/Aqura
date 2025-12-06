@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { currentLocale } from '$lib/i18n';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	export let editMode = false;
 	export let offerId: number | null = null;
@@ -126,7 +126,7 @@
 	}
 
 	async function loadProducts() {
-		const { data, error: err } = await supabaseAdmin
+		const { data, error: err } = await supabase
 			.from('products')
 			.select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock')
 			.eq('is_active', true)
@@ -134,7 +134,7 @@
 
 		if (!err && data) {
 			// Get products already in active offers (product, bogo, bundle)
-			const { data: offerProducts } = await supabaseAdmin
+			const { data: offerProducts } = await supabase
 				.from('offer_products')
 				.select(`
 					product_id,
@@ -145,7 +145,7 @@
 				.neq('offers.id', offerId || 0);
 
 			// Get products in active bundles
-			const { data: bundleData } = await supabaseAdmin
+			const { data: bundleData } = await supabase
 				.from('offer_bundles')
 				.select(`
 					required_products,
@@ -156,7 +156,7 @@
 				.neq('offers.id', offerId || 0);
 
 			// Get products from BOGO offers
-			let bogoQuery = supabaseAdmin
+			let bogoQuery = supabase
 				.from('bogo_offer_rules')
 				.select(`
 					buy_product_id,
@@ -221,7 +221,7 @@
 	async function loadBundles() {
 		if (!offerId) return;
 
-		const { data, error: err } = await supabaseAdmin
+		const { data, error: err } = await supabase
 			.from('offer_bundles')
 			.select('*')
 			.eq('offer_id', offerId);
@@ -477,7 +477,7 @@
 
 			if (editMode && offerId) {
 				// Update existing offer
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('offers')
 					.update(offerPayload)
 					.eq('id', offerId);
@@ -485,13 +485,13 @@
 				if (updateError) throw updateError;
 
 				// Delete existing bundles
-				await supabaseAdmin
+				await supabase
 					.from('offer_bundles')
 					.delete()
 					.eq('offer_id', offerId);
 			} else {
 				// Create new offer
-				const { data, error: insertError } = await supabaseAdmin
+				const { data, error: insertError } = await supabase
 					.from('offers')
 					.insert(offerPayload)
 					.select()
@@ -517,7 +517,7 @@
 					}))
 				};
 
-				const { error: bundleError } = await supabaseAdmin
+				const { error: bundleError } = await supabase
 					.from('offer_bundles')
 					.insert(bundlePayload);
 

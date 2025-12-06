@@ -1,6 +1,6 @@
 <script lang="ts">
   import { openWindow } from '$lib/utils/windowManagerUtils';
-  import { supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { onMount } from 'svelte';
   import ProductMaster from '$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte';
   import OfferTemplates from '$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte';
@@ -143,7 +143,7 @@
     isLoadingStats = true;
     try {
       // Count total products
-      const { count: productsCount, error: productsError } = await supabaseAdmin
+      const { count: productsCount, error: productsError } = await supabase
         .from('flyer_products')
         .select('*', { count: 'exact', head: true });
       
@@ -152,7 +152,7 @@
       }
       
       // Count active offers
-      const { count: offersCount, error: offersError } = await supabaseAdmin
+      const { count: offersCount, error: offersError } = await supabase
         .from('flyer_offers')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true);

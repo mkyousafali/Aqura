@@ -1,7 +1,7 @@
 <script>
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { 
@@ -46,7 +46,7 @@
 			if (!currentUserEmployeeId && user.id) {
 				console.log('🔍 employee_id not in session, fetching from database...');
 				try {
-					const { data: userData, error } = await supabaseAdmin
+					const { data: userData, error } = await supabase
 						.from('users')
 						.select('employee_id')
 						.eq('id', user.id)
@@ -64,7 +64,7 @@
 			// Fetch user's current position
 			if (currentUserEmployeeId) {
 				try {
-					const { data: positionData, error } = await supabaseAdmin
+					const { data: positionData, error } = await supabase
 						.from('hr_position_assignments')
 						.select(`
 							position_id,
@@ -390,7 +390,7 @@
 			console.log(`Looking up user ID for username: ${username}`);
 			
 			// First try the users table
-			const { data: userData, error: userError } = await supabaseAdmin
+			const { data: userData, error: userError } = await supabase
 				.from('users')
 				.select('id')
 				.eq('username', username)
@@ -402,7 +402,7 @@
 			}
 
 			// If not found in users table, try hr_employees table
-			const { data: hrData, error: hrError } = await supabaseAdmin
+			const { data: hrData, error: hrError } = await supabase
 				.from('hr_employees')
 				.select('id')
 				.eq('username', username)
@@ -516,7 +516,7 @@
 			if (actualUserId) {
 				try {
 					// Get user details to find linked employee
-					const { data: userDetails, error: userError } = await supabaseAdmin
+					const { data: userDetails, error: userError } = await supabase
 						.from('users')
 						.select(`
 							id,
@@ -576,7 +576,7 @@
 			console.log('Saving warning record:', warningRecord);
 
 			// Use admin client to bypass RLS since we have custom authentication
-			const { data: insertedData, error } = await supabaseAdmin
+			const { data: insertedData, error } = await supabase
 				.from('employee_warnings')
 				.insert([warningRecord])
 				.select()
@@ -896,7 +896,7 @@ ${t.companyName}`;
 				warningData = await saveWarningRecord();
 			} else {
 				// Fetch existing warning data
-				const { data: existingWarning } = await supabaseAdmin
+				const { data: existingWarning } = await supabase
 					.from('employee_warnings')
 					.select('*')
 					.eq('id', savedWarningId)

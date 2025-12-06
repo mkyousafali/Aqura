@@ -1,7 +1,7 @@
 <script>
 	// Approval Center Component
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
@@ -66,7 +66,7 @@
 	}		console.log('🔐 Current user:', $currentUser);
 
 	// Get current user's approval permissions from approval_permissions table
-	const { data: approvalPerms, error: permsError } = await supabaseAdmin
+	const { data: approvalPerms, error: permsError } = await supabase
 		.from('approval_permissions')
 		.select('*')
 		.eq('user_id', $currentUser.id)
@@ -122,7 +122,7 @@
 		mySchedulesResult
 	] = await Promise.all([
 		// 1. Requisitions where current user is approver (pending only)
-		supabaseAdmin
+		supabase
 			.from('expense_requisitions')
 			.select('*')
 			.eq('approver_id', $currentUser.id)
@@ -131,7 +131,7 @@
 			.limit(200),
 			
 			// 2. Payment schedules requiring approval
-			supabaseAdmin
+			supabase
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -148,7 +148,7 @@
 			
 			// 3. Vendor payments requiring approval (only if user has permission)
 			(approvalPerms && approvalPerms.can_approve_vendor_payments) ? 
-				supabaseAdmin
+				supabase
 					.from('vendor_payment_schedule')
 					.select(`
 						*,
@@ -161,7 +161,7 @@
 				.order('approval_requested_at', { ascending: false })
 				.limit(200) :
 			Promise.resolve({ data: [], error: null }),		// 4. My created requisitions (pending only)
-		supabaseAdmin
+		supabase
 			.from('expense_requisitions')
 			.select('*')
 			.eq('created_by', $currentUser.id)
@@ -170,7 +170,7 @@
 			.limit(200),
 		
 		// 5. My created payment schedules (pending only)
-		supabaseAdmin
+		supabase
 			.from('non_approved_payment_scheduler')
 			.select(`
 				*,
@@ -197,7 +197,7 @@
 			const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
 			
 			if (userIds.length > 0) {
-				const { data: usersData } = await supabaseAdmin
+				const { data: usersData } = await supabase
 					.from('users')
 					.select('id, username')
 					.in('id', userIds);
@@ -315,21 +315,21 @@ async function loadHistoricalData() {
 			myRejectedSchedulesResult
 		] = await Promise.all([
 			// Approved requisitions where I'm approver
-			supabaseAdmin
+			supabase
 				.from('expense_requisitions')
 				.select('*')
 			.eq('approver_id', $currentUser.id)
 			.eq('status', 'approved')
 			.order('created_at', { ascending: false })
 			.limit(1000),			// Rejected requisitions where I'm approver
-			supabaseAdmin
+			supabase
 				.from('expense_requisitions')
 				.select('*')
 			.eq('approver_id', $currentUser.id)
 			.eq('status', 'rejected')
 			.order('created_at', { ascending: false })
 			.limit(1000),			// My approved/rejected schedules from expense_scheduler
-			supabaseAdmin
+			supabase
 				.from('expense_scheduler')
 				.select(`
 					*,
@@ -345,7 +345,7 @@ async function loadHistoricalData() {
 				.limit(1000),
 			
 			// Approved payment schedules where I was the approver
-			supabaseAdmin
+			supabase
 				.from('expense_scheduler')
 				.select(`
 					*,
@@ -361,7 +361,7 @@ async function loadHistoricalData() {
 				.limit(1000),
 			
 			// Rejected schedules where I was the approver
-			supabaseAdmin
+			supabase
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -376,7 +376,7 @@ async function loadHistoricalData() {
 				.limit(1000),
 			
 			// My approved requisitions
-			supabaseAdmin
+			supabase
 				.from('expense_requisitions')
 				.select('*')
 				.eq('created_by', $currentUser.id)
@@ -385,7 +385,7 @@ async function loadHistoricalData() {
 				.limit(1000),
 			
 			// My rejected requisitions
-			supabaseAdmin
+			supabase
 				.from('expense_requisitions')
 				.select('*')
 				.eq('created_by', $currentUser.id)
@@ -394,7 +394,7 @@ async function loadHistoricalData() {
 				.limit(1000),
 			
 			// My rejected schedules
-			supabaseAdmin
+			supabase
 				.from('non_approved_payment_scheduler')
 				.select(`
 					*,
@@ -668,14 +668,14 @@ async function approveRequisition(requisitionId) {
 		// Check if it's a payment schedule or regular requisition
 		if (selectedRequisition.item_type === 'payment_schedule') {
 			// Get the full payment schedule data
-			const { data: scheduleData, error: fetchError } = await supabaseAdmin
+			const { data: scheduleData, error: fetchError } = await supabase
 				.from('non_approved_payment_scheduler')
 				.select('*')
 				.eq('id', requisitionId)
 				.single();				if (fetchError) throw fetchError;
 
 				// Move to expense_scheduler
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('expense_scheduler')
 					.insert([{
 						schedule_type: scheduleData.schedule_type,
@@ -711,7 +711,7 @@ async function approveRequisition(requisitionId) {
 				if (insertError) throw insertError;
 
 				// Delete from non_approved_payment_scheduler
-				const { error: deleteError } = await supabaseAdmin
+				const { error: deleteError } = await supabase
 					.from('non_approved_payment_scheduler')
 					.delete()
 					.eq('id', requisitionId);
@@ -737,7 +737,7 @@ async function approveRequisition(requisitionId) {
 				notifications.add({ type: 'success', message: 'Payment schedule approved and moved to expense scheduler!' });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Approve vendor payment
-				const { data: paymentData, error: fetchError } = await supabaseAdmin
+				const { data: paymentData, error: fetchError } = await supabase
 					.from('vendor_payment_schedule')
 					.select('*')
 					.eq('id', requisitionId)
@@ -746,7 +746,7 @@ async function approveRequisition(requisitionId) {
 				if (fetchError) throw fetchError;
 
 				// Update vendor payment status
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('vendor_payment_schedule')
 					.update({
 						approval_status: 'approved',
@@ -776,7 +776,7 @@ async function approveRequisition(requisitionId) {
 				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
 			} else {
 				// Get the requisition data first
-				const { data: reqData, error: reqError } = await supabaseAdmin
+				const { data: reqData, error: reqError } = await supabase
 					.from('expense_requisitions')
 					.select('*')
 					.eq('id', requisitionId)
@@ -785,7 +785,7 @@ async function approveRequisition(requisitionId) {
 				if (reqError) throw reqError;
 
 				// Update regular requisition status to approved
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_requisitions')
 					.update({
 						status: 'approved',
@@ -821,7 +821,7 @@ async function approveRequisition(requisitionId) {
 					created_by: reqData.created_by
 				};
 
-				const { error: schedulerError } = await supabaseAdmin
+				const { error: schedulerError } = await supabase
 					.from('expense_scheduler')
 					.insert([schedulerEntry]);
 
@@ -879,14 +879,14 @@ async function rejectRequisition(requisitionId, reason) {
 		isProcessing = true;		// Check if it's a payment schedule or regular requisition
 		if (selectedRequisition.item_type === 'payment_schedule') {
 			// Get the schedule data first
-			const { data: scheduleData, error: fetchError } = await supabaseAdmin
+			const { data: scheduleData, error: fetchError } = await supabase
 				.from('non_approved_payment_scheduler')
 				.select('*')
 				.eq('id', requisitionId)
 				.single();				if (fetchError) throw fetchError;
 
 				// Update payment schedule
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('non_approved_payment_scheduler')
 					.update({
 						approval_status: 'rejected',
@@ -915,7 +915,7 @@ async function rejectRequisition(requisitionId, reason) {
 				notifications.add({ type: 'warning', message: 'Payment schedule rejected successfully!' });
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Reject vendor payment
-				const { data: paymentData, error: fetchError } = await supabaseAdmin
+				const { data: paymentData, error: fetchError } = await supabase
 					.from('vendor_payment_schedule')
 					.select('*')
 					.eq('id', requisitionId)
@@ -924,7 +924,7 @@ async function rejectRequisition(requisitionId, reason) {
 				if (fetchError) throw fetchError;
 
 				// Update vendor payment status
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('vendor_payment_schedule')
 					.update({
 						approval_status: 'rejected',
@@ -954,7 +954,7 @@ async function rejectRequisition(requisitionId, reason) {
 				notifications.add({ type: 'warning', message: 'Vendor payment rejected successfully!' });
 			} else {
 				// Get requisition data first
-				const { data: reqData, error: fetchError } = await supabaseAdmin
+				const { data: reqData, error: fetchError } = await supabase
 					.from('expense_requisitions')
 					.select('created_by, requisition_number, requester_name, amount, expense_category_name_en, branch_name')
 					.eq('id', requisitionId)
@@ -963,7 +963,7 @@ async function rejectRequisition(requisitionId, reason) {
 				if (fetchError) throw fetchError;
 
 				// Update regular requisition
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_requisitions')
 					.update({
 						status: 'rejected',

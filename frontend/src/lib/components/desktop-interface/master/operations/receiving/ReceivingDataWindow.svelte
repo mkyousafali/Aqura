@@ -615,15 +615,13 @@
 				return;
 			}
 
-			try {
-				// Import supabase here to avoid circular dependencies
-				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
-				
-				// Generate unique filename
-				const fileExt = file.name.split('.').pop();
-				const fileName = `${recordId}_original_bill_${Date.now()}.${fileExt}`;
-
-				// Upload file to original-bills storage bucket
+		try {
+			// Import supabase here to avoid circular dependencies
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			// Generate unique filename
+			const fileExt = file.name.split('.').pop();
+			const fileName = `${recordId}_original_bill_${Date.now()}.${fileExt}`;				// Upload file to original-bills storage bucket
 				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
 					.upload(fileName, file);
@@ -640,7 +638,7 @@
 					.getPublicUrl(fileName);
 
 				// Update the record with the file URL using admin client
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('receiving_records')
 					.update({ original_bill_url: publicUrl })
 					.eq('id', recordId);
@@ -684,13 +682,11 @@
 
 			try {
 				// Import supabase here to avoid circular dependencies
-				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
-				
-				// Generate unique filename with "updated" prefix
-				const fileExt = file.name.split('.').pop();
-				const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;
-
-				// Upload file to original-bills storage bucket
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			// Generate unique filename with "updated" prefix
+			const fileExt = file.name.split('.').pop();
+			const fileName = `${recordId}_original_bill_updated_${Date.now()}.${fileExt}`;				// Upload file to original-bills storage bucket
 				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('original-bills')
 					.upload(fileName, file);
@@ -707,7 +703,7 @@
 					.getPublicUrl(fileName);
 
 				// Update the record with the new file URL using admin client
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('receiving_records')
 					.update({ 
 						original_bill_url: publicUrl,
@@ -756,14 +752,12 @@
 			}
 
 			try {
-				// Import supabase here to avoid circular dependencies
-				const { supabase, supabaseAdmin } = await import('$lib/utils/supabase');
-				
-				// Generate unique filename
-				const fileExt = file.name.split('.').pop();
-				const fileName = `${recordId}_pr_excel_${Date.now()}.${fileExt}`;
-
-				// Upload file to pr-excel-files storage bucket
+			// Import supabase here to avoid circular dependencies
+			const { supabase } = await import('$lib/utils/supabase');
+			
+			// Generate unique filename
+			const fileExt = file.name.split('.').pop();
+			const fileName = `${recordId}_pr_excel_${Date.now()}.${fileExt}`;				// Upload file to pr-excel-files storage bucket
 				const { data: uploadData, error: uploadError } = await supabase.storage
 					.from('pr-excel-files')
 					.upload(fileName, file);
@@ -780,7 +774,7 @@
 					.getPublicUrl(fileName);
 
 				// Update the record with the file URL using admin client
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('receiving_records')
 					.update({ pr_excel_file_url: publicUrl })
 					.eq('id', recordId);
@@ -830,9 +824,9 @@
 		updatingErp = true;
 		
 		try {
-			const { supabaseAdmin } = await import('$lib/utils/supabase');
+			const { supabase } = await import('$lib/utils/supabase');
 			
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('receiving_records')
 				.update({ 
 					erp_purchase_invoice_reference: erpReferenceValue.trim(),

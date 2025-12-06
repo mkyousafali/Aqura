@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	// Props for window refresh functionality
 	export let onRefresh = null; // Window refresh callback
@@ -199,7 +199,7 @@
 			const startDateStr = today.toISOString().split('T')[0];
 			const endDateStr = sixMonthsLater.toISOString().split('T')[0];
 
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('expense_scheduler')
 				.select(`
 					*,

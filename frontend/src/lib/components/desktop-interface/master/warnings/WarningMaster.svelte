@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import WarningListView from '$lib/components/desktop-interface/master/warnings/WarningListView.svelte';
 	import WarningStatistics from '$lib/components/desktop-interface/master/warnings/WarningStatistics.svelte';
 	import ActiveFinesView from '$lib/components/desktop-interface/master/warnings/ActiveFinesView.svelte';
@@ -52,7 +52,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// If regular client fails, try admin client
 			if (warningsError || !warnings || warnings.length === 0) {
 				console.log('🔄 Regular client failed or returned no data, trying admin client...');
-				const adminResult = await supabaseAdmin
+				const adminResult = await supabase
 					.from('employee_warnings')
 					.select('warning_status, has_fine, fine_amount, fine_status, is_deleted, id, warning_type')
 					.or('is_deleted.is.null,is_deleted.eq.false');

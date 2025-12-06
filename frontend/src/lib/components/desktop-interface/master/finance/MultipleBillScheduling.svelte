@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 
@@ -81,7 +81,7 @@
 
 	async function loadInitialData() {
 		try {
-			const { data: branchesData, error: branchesError } = await supabaseAdmin
+			const { data: branchesData, error: branchesError } = await supabase
 				.from('branches')
 				.select('*')
 				.eq('is_active', true)
@@ -90,7 +90,7 @@
 			if (branchesError) throw branchesError;
 			branches = branchesData || [];
 
-			const { data: categoriesData, error: categoriesError } = await supabaseAdmin
+			const { data: categoriesData, error: categoriesError } = await supabase
 				.from('expense_sub_categories')
 				.select(`
 					*,
@@ -117,7 +117,7 @@
 	async function loadApprovers() {
 		try {
 			// Load users with multiple bill approval permissions from approval_permissions table
-			const { data: approvalPermsData } = await supabaseAdmin
+			const { data: approvalPermsData } = await supabase
 				.from('approval_permissions')
 				.select('user_id, multiple_bill_amount_limit, can_approve_multiple_bill')
 				.eq('is_active', true)
@@ -134,7 +134,7 @@
 			}
 
 			// Load user details for those with permissions
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('users')
 				.select(`
 					*,
@@ -169,7 +169,7 @@
 		if (!selectedBranchId) return;
 
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('expense_requisitions')
 				.select('*, used_amount, remaining_balance')
 				.eq('branch_id', selectedBranchId)
@@ -196,7 +196,7 @@
 		if (!selectedBranchId) return;
 
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('users')
 				.select('*')
 				.or(`branch_id.eq.${selectedBranchId},user_type.eq.global`)
@@ -495,14 +495,14 @@
 				const fileName = `${Date.now()}_bill${bill.number}.${fileExt}`;
 				const filePath = `${selectedBranchId}/${fileName}`;
 
-				const { data: uploadData, error: uploadError } = await supabaseAdmin
+				const { data: uploadData, error: uploadError } = await supabase
 					.storage
 					.from('expense-scheduler-bills')
 					.upload(filePath, bill.billFile);
 
 				if (uploadError) throw uploadError;
 
-				const { data: urlData } = supabaseAdmin
+				const { data: urlData } = supabase
 					.storage
 					.from('expense-scheduler-bills')
 					.getPublicUrl(filePath);
@@ -545,7 +545,7 @@
 				approval_status: 'pending'
 			};
 
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('non_approved_payment_scheduler')
 				.insert([nonApprovedData])
 				.select();

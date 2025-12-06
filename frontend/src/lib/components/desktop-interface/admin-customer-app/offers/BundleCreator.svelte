@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { currentLocale } from '$lib/i18n';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	export let bundles: any[] = [];
 	export let offerId: number | null = null;
@@ -112,7 +112,7 @@
 		}
 
 		// Check if product is in any other active bundle offers (globally)
-		const { data: activeBundles } = await supabaseAdmin
+		const { data: activeBundles } = await supabase
 			.from('offer_bundles')
 			.select(`
 				id,

@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 import { pushNotificationService } from "./pushNotifications";
 import { persistentAuthService, currentUser } from "./persistentAuth";
 import { pushNotificationProcessor } from "./pushNotificationProcessor";
@@ -457,7 +457,7 @@ export class NotificationManagementService {
         notificationPayload,
       );
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from("notifications")
         .insert(notificationPayload)
         .select("*")
@@ -499,7 +499,7 @@ export class NotificationManagementService {
     updates: UpdateNotificationRequest,
   ): Promise<NotificationItem> {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from("notifications")
         .update(updates)
         .eq("id", id)
@@ -522,7 +522,7 @@ export class NotificationManagementService {
    */
   async deleteNotification(id: string): Promise<{ success: boolean }> {
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from("notifications")
         .delete()
         .eq("id", id);
@@ -546,7 +546,7 @@ export class NotificationManagementService {
     userId: string,
   ): Promise<{ success: boolean }> {
     try {
-      const { error } = await supabaseAdmin.from("notification_read_states").upsert(
+      const { error } = await supabase.from("notification_read_states").upsert(
         {
           notification_id: notificationId,
           user_id: userId,
@@ -574,7 +574,7 @@ export class NotificationManagementService {
    */
   async markAsUnread(notificationId: string, userId: string): Promise<void> {
     try {
-      const { error } = await supabaseAdmin.from("notification_read_states").upsert(
+      const { error } = await supabase.from("notification_read_states").upsert(
         {
           notification_id: notificationId,
           user_id: userId,
@@ -633,7 +633,7 @@ export class NotificationManagementService {
 
       // Use upsert to insert or update records
       // onConflict specifies the unique constraint to check
-      const { error: upsertError } = await supabaseAdmin
+      const { error: upsertError } = await supabase
         .from("notification_read_states")
         .upsert(readStates, {
           onConflict: "notification_id,user_id",

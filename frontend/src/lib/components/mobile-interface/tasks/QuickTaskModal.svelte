@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
-	import { supabase, supabaseAdmin, uploadToSupabase } from '$lib/utils/supabase';
+	import { supabase, uploadToSupabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	const dispatch = createEventDispatcher();
@@ -162,7 +162,7 @@
 
 	async function loadUserPreferences() {
 		try {
-			const { data: preferences, error } = await supabaseAdmin
+			const { data: preferences, error } = await supabase
 				.from('quick_task_user_preferences')
 				.select('*')
 				.eq('user_id', $currentUser?.id)
@@ -345,7 +345,7 @@
 		})
 	};
 
-	const { error } = await supabaseAdmin
+	const { error } = await supabase
 		.from('quick_task_user_preferences')
 		.upsert(defaultsData, { onConflict: 'user_id' });			if (error) {
 				console.error('Error saving defaults:', error);
@@ -368,7 +368,7 @@
 		await saveAsDefaults();
 
 		// Create the quick task with completion requirements (use admin client to bypass RLS)
-		const { data: taskData, error: taskError } = await supabaseAdmin
+		const { data: taskData, error: taskError } = await supabase
 			.from('quick_tasks')
 			.insert({
 				title: taskTitle,
@@ -413,7 +413,7 @@
 						console.log('✅ [QuickTask] File uploaded successfully:', uploadResult.data);
 						
 						// Save file record to quick_task_files table (use admin client to bypass RLS)
-						const { error: fileError } = await supabaseAdmin
+						const { error: fileError } = await supabase
 							.from('quick_task_files')
 							.insert({
 								quick_task_id: taskData.id,
@@ -464,7 +464,7 @@
 			assignments: assignments.length
 		});
 
-		const { error: assignmentError } = await supabaseAdmin
+		const { error: assignmentError } = await supabase
 			.from('quick_task_assignments')
 			.insert(assignments);			if (assignmentError) {
 				console.error('Error creating assignments:', assignmentError);

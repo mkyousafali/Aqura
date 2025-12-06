@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	// Component state
@@ -550,7 +550,7 @@
 
 	async function loadVendorPayments() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('*')
 				.eq('due_date', selectedDate)
@@ -569,7 +569,7 @@
 
 	async function loadExpenseSchedules() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('expense_scheduler')
 				.select('*')
 				.eq('due_date', selectedDate)
@@ -587,7 +587,7 @@
 
 	async function loadNonApprovedPayments() {
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('vendor_payment_schedule')
 				.select('id, vendor_name, bill_amount, final_bill_amount, due_date, approval_status')
 				.eq('due_date', selectedDate)
@@ -675,7 +675,7 @@
 		try {
 			const tableName = rescheduleType === 'vendor' ? 'vendor_payment_schedule' : 'expense_scheduler';
 			
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from(tableName)
 				.update({ due_date: newDueDate })
 				.eq('id', rescheduleItem.id);
@@ -714,7 +714,7 @@
 		try {
 			if (splitType === 'vendor') {
 				// Create new vendor payment record for split amount
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('vendor_payment_schedule')
 					.insert({
 						bill_number: splitItem.bill_number + '-SPLIT',
@@ -743,7 +743,7 @@
 				if (insertError) throw insertError;
 
 				// Update original payment with remaining amount
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('vendor_payment_schedule')
 					.update({ 
 						final_bill_amount: remainingAmount,
@@ -755,7 +755,7 @@
 
 			} else {
 				// Handle expense scheduler split
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('expense_scheduler')
 					.insert({
 						branch_id: splitItem.branch_id,
@@ -783,7 +783,7 @@
 				if (insertError) throw insertError;
 
 				// Update original expense with remaining amount
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('expense_scheduler')
 					.update({ 
 						amount: remainingAmount,

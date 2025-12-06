@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { currentLocale } from '$lib/i18n';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+  import { supabase } from '$lib/utils/supabase';
   import { notifications } from '$lib/stores/notifications';
 
   export let editMode = false;
@@ -74,7 +74,7 @@
   }
 
   async function loadProducts() {
-    const { data, error: err } = await supabaseAdmin
+    const { data, error: err } = await supabase
       .from('products')
       .select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock, minim_qty, minimum_qty_alert')
       .eq('is_active', true)
@@ -103,7 +103,7 @@
   }
 
   async function loadProductsInOtherOffers() {
-    const { data: offerProducts } = await supabaseAdmin
+    const { data: offerProducts } = await supabase
       .from('offer_products')
       .select(`
         product_id,
@@ -113,7 +113,7 @@
       .gte('offers.end_date', new Date().toISOString())
       .neq('offers.id', offerId || 0);
 
-    const { data: bundleData } = await supabaseAdmin
+    const { data: bundleData } = await supabase
       .from('offer_bundles')
       .select(`
         required_products,
@@ -124,7 +124,7 @@
       .neq('offers.id', offerId || 0);
 
     // Load products from BOGO offers
-    let bogoQuery = supabaseAdmin
+    let bogoQuery = supabase
       .from('bogo_offer_rules')
       .select(`
         buy_product_id,
@@ -220,7 +220,7 @@
   async function loadOfferProducts() {
     if (!offerId) return;
 
-    const { data: offerProducts, error: err } = await supabaseAdmin
+    const { data: offerProducts, error: err } = await supabase
       .from('offer_products')
       .select('*')
       .eq('offer_id', offerId)
@@ -361,7 +361,7 @@
       let savedOfferId: number;
 
       if (editMode && offerId) {
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await supabase
           .from('offers')
           .update(offerPayload)
           .eq('id', offerId);
@@ -369,12 +369,12 @@
         if (updateError) throw updateError;
         savedOfferId = offerId;
 
-        await supabaseAdmin
+        await supabase
           .from('offer_products')
           .delete()
           .eq('offer_id', savedOfferId);
       } else {
-        const { data: newOffer, error: insertError } = await supabaseAdmin
+        const { data: newOffer, error: insertError } = await supabase
           .from('offers')
           .insert(offerPayload)
           .select()
@@ -401,7 +401,7 @@
         };
       });
 
-      const { error: productsError } = await supabaseAdmin
+      const { error: productsError } = await supabase
         .from('offer_products')
         .insert(offerProductsData);
 

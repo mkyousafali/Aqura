@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
-	import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
@@ -229,22 +229,20 @@
 					twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
 					const twoDaysDate = twoDaysFromNow.toISOString().split('T')[0];
 
-					const [reqResult, scheduleResult] = await Promise.all([
-						supabaseAdmin
-							.from('expense_requisitions')
-							.select('*', { count: 'exact', head: true })
-							.eq('approver_id', currentUserData.id)
-							.eq('status', 'pending'),
+				const [reqResult, scheduleResult] = await Promise.all([
+					supabase
+						.from('expense_requisitions')
+						.select('*', { count: 'exact', head: true })
+						.eq('approver_id', currentUserData.id)
+						.eq('status', 'pending'),
 
-						supabaseAdmin
-							.from('non_approved_payment_scheduler')
-							.select('*', { count: 'exact', head: true })
-							.eq('approver_id', currentUserData.id)
-							.eq('approval_status', 'pending')
-							.or('schedule_type.eq.multiple_bill,and(schedule_type.eq.single_bill,due_date.lte.' + twoDaysDate + ')')
-					]);
-
-					approvalCount = (reqResult.count || 0) + (scheduleResult.count || 0);
+					supabase
+						.from('non_approved_payment_scheduler')
+						.select('*', { count: 'exact', head: true })
+						.eq('approver_id', currentUserData.id)
+						.eq('approval_status', 'pending')
+						.or('schedule_type.eq.multiple_bill,and(schedule_type.eq.single_bill,due_date.lte.' + twoDaysDate + ')')
+				]);					approvalCount = (reqResult.count || 0) + (scheduleResult.count || 0);
 				} else {
 					approvalCount = 0;
 				}

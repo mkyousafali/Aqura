@@ -1,6 +1,6 @@
 <script>
 	import { onMount, createEventDispatcher } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { windowManager } from '$lib/stores/windowManager';
@@ -111,7 +111,7 @@
 	async function loadExistingBills(requestId) {
 		try {
 			// Load existing bills from expense_scheduler (closed_requisition_bill type)
-			const { data: existingBills, error } = await supabaseAdmin
+			const { data: existingBills, error } = await supabase
 				.from('expense_scheduler')
 				.select('*')
 				.eq('requisition_id', requestId)
@@ -161,7 +161,7 @@
 	async function loadInitialData() {
 		try {
 			// Load all active requests (approved or closed)
-			const { data: requestsData, error: requestsError } = await supabaseAdmin
+			const { data: requestsData, error: requestsError } = await supabase
 				.from('expense_requisitions')
 				.select(`
 					*,
@@ -176,7 +176,7 @@
 			// For each request, calculate remaining balance from expense_scheduler
 			const requestsWithBalance = await Promise.all((requestsData || []).map(async (req) => {
 				// Get the original scheduler entry (unpaid expense_requisition type)
-				const { data: schedulerData } = await supabaseAdmin
+				const { data: schedulerData } = await supabase
 					.from('expense_scheduler')
 					.select('amount, is_paid')
 					.eq('requisition_id', req.id)
@@ -204,7 +204,7 @@
 			filteredRequests = approvedRequests;
 
 			// Load categories
-			const { data: categoriesData, error: categoriesError } = await supabaseAdmin
+			const { data: categoriesData, error: categoriesError } = await supabase
 				.from('expense_sub_categories')
 				.select(`
 					*,
@@ -230,7 +230,7 @@
 		if (!selectedRequestBranchId) return;
 
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('users')
 				.select('*')
 				.or(`branch_id.eq.${selectedRequestBranchId},user_type.eq.global`)
@@ -506,14 +506,14 @@
 			const fileName = `${Date.now()}_bill${bill.number}.${fileExt}`;
 			const filePath = `${selectedRequestBranchId}/request_closures/${fileName}`;
 
-			const { data: uploadData, error: uploadError } = await supabaseAdmin
+			const { data: uploadData, error: uploadError } = await supabase
 				.storage
 				.from('expense-scheduler-bills')
 				.upload(filePath, bill.billFile);
 
 			if (uploadError) throw uploadError;
 
-			const { data: urlData } = supabaseAdmin
+			const { data: urlData } = supabase
 				.storage
 				.from('expense-scheduler-bills')
 				.getPublicUrl(filePath);
@@ -550,14 +550,14 @@
 					created_by: $currentUser?.id
 				};
 
-				const { error: insertError } = await supabaseAdmin
+				const { error: insertError } = await supabase
 					.from('expense_scheduler')
 					.insert([closedBillEntry]);
 
 				if (insertError) throw insertError;
 
 				// 2. Update original scheduler entry to reduce amount
-				const { data: originalScheduler } = await supabaseAdmin
+				const { data: originalScheduler } = await supabase
 					.from('expense_scheduler')
 					.select('*')
 					.eq('requisition_id', selectedRequestId)
@@ -569,7 +569,7 @@
 					const newAmount = parseFloat(originalScheduler.amount) - parseFloat(bill.amount);
 					if (newAmount > 0) {
 						// Update amount to remaining balance
-						await supabaseAdmin
+						await supabase
 							.from('expense_scheduler')
 							.update({ 
 								amount: newAmount,
@@ -579,7 +579,7 @@
 							.eq('id', originalScheduler.id);
 					} else {
 						// Fully closed - mark original as paid
-						await supabaseAdmin
+						await supabase
 							.from('expense_scheduler')
 							.update({ 
 								amount: 0,
@@ -597,7 +597,7 @@
 				const newUsedAmount = currentUsedAmount + parseFloat(bill.amount);
 				const newRemainingBalance = selectedRequestAmount - newUsedAmount;
 
-				const { error: updateError } = await supabaseAdmin
+				const { error: updateError } = await supabase
 					.from('expense_requisitions')
 					.update({ 
 						used_amount: newUsedAmount,
@@ -687,7 +687,7 @@
 			// WRITE-OFF: Mark everything as closed and paid
 			
 			// Mark original scheduler entry as fully paid
-			const { data: originalScheduler } = await supabaseAdmin
+			const { data: originalScheduler } = await supabase
 				.from('expense_scheduler')
 				.select('*')
 				.eq('requisition_id', selectedRequestId)
@@ -696,7 +696,7 @@
 				.maybeSingle();
 
 			if (originalScheduler) {
-				await supabaseAdmin
+				await supabase
 					.from('expense_scheduler')
 					.update({ 
 						amount: 0,
@@ -710,7 +710,7 @@
 			}
 
 			// Close the request completely
-			const { error: updateError } = await supabaseAdmin
+			const { error: updateError } = await supabase
 				.from('expense_requisitions')
 				.update({
 					status: 'closed',

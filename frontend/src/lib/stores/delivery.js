@@ -2,7 +2,7 @@
 // Manages delivery fee tiers and service settings
 
 import { writable, derived, get } from 'svelte/store';
-import { supabase, supabaseAdmin } from '$lib/utils/supabase';
+import { supabase } from '$lib/utils/supabase';
 import { orderFlow } from '$lib/stores/orderFlow.js';
 
 // Store for delivery fee tiers
@@ -188,7 +188,7 @@ export const deliveryActions = {
   // Add new tier (admin only)
   async addTier(tierData, branchId = null) {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('delivery_fee_tiers')
         .insert([{
           min_order_amount: tierData.minOrderAmount,
@@ -216,7 +216,7 @@ export const deliveryActions = {
   // Update tier (admin only)
   async updateTier(tierId, tierData, branchId = null) {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('delivery_fee_tiers')
         .update({
           min_order_amount: tierData.minOrderAmount,
@@ -244,7 +244,7 @@ export const deliveryActions = {
   // Delete tier (admin only)
   async deleteTier(tierId, branchId = null) {
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('delivery_fee_tiers')
         .delete()
         .eq('id', tierId);
@@ -263,7 +263,7 @@ export const deliveryActions = {
   // Update delivery service settings (admin only)
   async updateSettings(settings) {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('delivery_service_settings')
         .update({
           minimum_order_amount: settings.minimumOrderAmount,
@@ -337,7 +337,7 @@ export const deliveryActions = {
   // Update branch delivery settings (admin only)
   async updateBranchSettings(branchId, settings) {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('branches')
         .update({
           minimum_order_amount: settings.minimumOrderAmount,

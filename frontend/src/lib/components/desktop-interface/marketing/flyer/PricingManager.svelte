@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { supabaseAdmin } from '\$lib/utils/supabase';
+	import { supabase } from '\$lib/utils/supabase';
 	import { onMount, tick } from 'svelte';
 	import * as XLSX from 'xlsx';
 	import JsBarcode from 'jsbarcode';
@@ -41,7 +41,7 @@
 				const profitAfterOffer = calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty);
 				const decreaseAmount = calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty);
 				
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('flyer_offer_products')
 					.update({
 						cost: product.cost,
@@ -1279,7 +1279,7 @@
 		isLoading = true;
 		
 		try {
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('flyer_offers')
 				.select('*')
 				.eq('is_active', true)
@@ -1315,7 +1315,7 @@
 		
 		try {
 			// Get offer products with product details, cost, sales_price, qty, limit, free_qty, offer_price, profit_after_offer, decrease_amount
-			const { data, error } = await supabaseAdmin
+			const { data, error } = await supabase
 				.from('flyer_offer_products')
 				.select(`
 					id,

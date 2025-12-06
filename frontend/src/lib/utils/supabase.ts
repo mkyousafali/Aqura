@@ -5,8 +5,6 @@ import { browser } from "$app/environment";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://supabase.urbanaqura.com";
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY0ODc1NTI3LCJleHAiOjIwODA0NTE1Mjd9.IT_YSPU9oivuGveKfRarwccr59SNMzX_36cw04Lf448";
-const supabaseServiceKey =
-  import.meta.env.VITE_SUPABASE_SERVICE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3NjQ4NzU1MjcsImV4cCI6MjA4MDQ1MTUyN30.6mj0wiHW0ljpYNIEeYG-r--577LDNbxCLj7SZOghbv0";
 
 // Debug logging
 if (typeof window !== 'undefined') {
@@ -22,7 +20,6 @@ if (typeof window !== 'undefined') {
 
 // Singleton instances to prevent multiple client creation
 let _supabase: any = null;
-let _supabaseAdmin: any = null;
 
 // Create Supabase client with singleton pattern
 export const supabase = (() => {
@@ -52,30 +49,6 @@ export const supabase = (() => {
   // Mark as singleton to avoid recreation
   _supabase._isSingleton = true;
   return _supabase;
-})();
-
-// Service role client for administrative operations (bypasses RLS)
-export const supabaseAdmin = (() => {
-  if (_supabaseAdmin) {
-    return _supabaseAdmin;
-  }
-
-  _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      storageKey: "aqura-admin-auth-v2", // Use unique storage key
-    },
-    global: {
-      headers: {
-        "X-Client-Info": "aqura-pwa-admin-v2",
-      },
-    },
-  });
-
-  // Mark as singleton to avoid recreation
-  _supabaseAdmin._isSingleton = true;
-  return _supabaseAdmin;
 })();
 
 // Database types based on our models
@@ -1487,7 +1460,7 @@ export const storage = {
     );
 
     try {
-      const { data, error } = await supabaseAdmin.storage
+      const { data, error } = await supabase.storage
         .from(bucket)
         .upload(fileName, file, {
           cacheControl: "3600",
@@ -1542,8 +1515,8 @@ export const storage = {
         return { data: null, error };
       }
 
-      // Get public URL using admin client as well
-      const { data: publicUrlData } = supabaseAdmin.storage
+      // Get public URL
+      const { data: publicUrlData } = supabase.storage
         .from(bucket)
         .getPublicUrl(fileName);
 

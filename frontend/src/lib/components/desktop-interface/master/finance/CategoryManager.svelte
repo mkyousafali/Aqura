@@ -1,7 +1,7 @@
 <script>
 	// Category Manager Component
 	import { onMount } from 'svelte';
-	import { supabaseAdmin } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 
 	// Data variables
 	let parentCategories = [];
@@ -45,7 +45,7 @@
 			error = '';
 
 			// Load parent categories using admin client to bypass RLS
-			const { data: parentData, error: parentError } = await supabaseAdmin
+			const { data: parentData, error: parentError } = await supabase
 				.from('expense_parent_categories')
 				.select('*')
 				.order('name_en');
@@ -55,7 +55,7 @@
 			filteredParentCategories = parentCategories;
 
 			// Load sub categories using admin client to bypass RLS
-			const { data: subData, error: subError } = await supabaseAdmin
+			const { data: subData, error: subError } = await supabase
 				.from('expense_sub_categories')
 				.select(`
 					*,
@@ -176,7 +176,7 @@
 			}
 
 			if (isEditMode) {
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_parent_categories')
 					.update({
 						name_en: parentForm.name_en.trim(),
@@ -188,7 +188,7 @@
 				if (error) throw error;
 				alert('✅ Parent category updated successfully!');
 			} else {
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_parent_categories')
 					.insert({
 						name_en: parentForm.name_en.trim(),
@@ -219,7 +219,7 @@
 			const parentId = parseInt(subForm.parent_category_id);
 
 			if (isEditMode) {
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_sub_categories')
 					.update({
 						parent_category_id: parentId,
@@ -232,7 +232,7 @@
 				if (error) throw error;
 				alert('✅ Sub category updated successfully!');
 			} else {
-				const { error } = await supabaseAdmin
+				const { error } = await supabase
 					.from('expense_sub_categories')
 					.insert({
 						parent_category_id: parentId,
@@ -259,7 +259,7 @@
 		}
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_parent_categories')
 				.delete()
 				.eq('id', category.id);
@@ -280,7 +280,7 @@
 		}
 
 		try {
-			const { error } = await supabaseAdmin
+			const { error } = await supabase
 				.from('expense_sub_categories')
 				.delete()
 				.eq('id', category.id);

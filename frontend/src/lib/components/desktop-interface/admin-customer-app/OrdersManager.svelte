@@ -1,6 +1,6 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { supabase, supabaseAdmin } from '$lib/utils/supabase'; // Use admin client for RLS bypass
+  import { supabase } from '$lib/utils/supabase'; // Use admin client for RLS bypass
   import { currentUser } from '$lib/utils/persistentAuth';
   import { notifications } from '$lib/stores/notifications';
   import { t, currentLocale } from '$lib/i18n';
@@ -50,13 +50,13 @@
 
   // Status labels - reactive based on locale
   $: statusLabels = {
-    new: isRTL ? 'Ø¬Ø¯ÙŠØ¯' : 'New',
-    accepted: isRTL ? 'Ù…Ù‚Ø¨ÙˆÙ„' : 'Accepted',
-    in_picking: isRTL ? 'Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±' : 'In Picking',
-    ready: isRTL ? 'Ø¬Ø§Ù‡Ø²' : 'Ready',
-    out_for_delivery: isRTL ? 'Ù‚ÙŠØ¯ Ø§Ù„ØªÙˆØµÙŠÙ„' : 'Out for Delivery',
-    delivered: isRTL ? 'ØªÙ… Ø§Ù„ØªÙˆØµÙŠÙ„' : 'Delivered',
-    cancelled: isRTL ? 'Ù…Ù„ØºÙŠ' : 'Cancelled'
+    new: isRTL ? 'جديد' : 'New',
+    accepted: isRTL ? 'مقبول' : 'Accepted',
+    in_picking: isRTL ? 'قيد التحضير' : 'In Picking',
+    ready: isRTL ? 'جاهز' : 'Ready',
+    out_for_delivery: isRTL ? 'قيد التوصيل' : 'Out for Delivery',
+    delivered: isRTL ? 'تم التوصيل' : 'Delivered',
+    cancelled: isRTL ? 'ملغي' : 'Cancelled'
   };
 
   onMount(async () => {
@@ -68,13 +68,13 @@
 
   onDestroy(() => {
     if (ordersChannel) {
-      supabaseAdmin.removeChannel(ordersChannel);
+      supabase.removeChannel(ordersChannel);
     }
   });
 
   async function loadBranches() {
     try {
-      const { data, error } = await supabaseAdmin.from('branches')
+      const { data, error } = await supabase.from('branches')
         .select('id, name_ar, name_en')
         .order('name_ar');
 
@@ -90,10 +90,10 @@
   async function loadOrders() {
     loading = true;
     try {
-      console.log('ðŸ“¦ Loading orders...');
+      console.log('📦 Loading orders...');
       console.log('Current user:', $currentUser);
       
-      const { data, error } = await supabaseAdmin.from('orders')
+      const { data, error } = await supabase.from('orders')
         .select(`
           *,
           branch:branches(name_en, name_ar),
@@ -103,14 +103,14 @@
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('âŒ Error loading orders:', error);
+        console.error('❌ Error loading orders:', error);
         console.error('Error code:', error.code);
         console.error('Error details:', error.details);
         console.error('Error hint:', error.hint);
         throw error;
       }
 
-      console.log(`âœ… Loaded ${data?.length || 0} orders`);
+      console.log(`✅ Loaded ${data?.length || 0} orders`);
       console.log('Orders data:', data);
 
       orders = (data || []).map(order => ({
@@ -121,11 +121,11 @@
       }));
 
       filteredOrders = orders;
-      console.log('ðŸ“‹ Filtered orders:', filteredOrders.length);
+      console.log('📋 Filtered orders:', filteredOrders.length);
     } catch (error: any) {
-      console.error('âŒ Caught error loading orders:', error);
+      console.error('❌ Caught error loading orders:', error);
       notifications.add({
-        message: isRTL ? `ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª: ${error.message}` : `Failed to load orders: ${error.message}`,
+        message: isRTL ? `فشل تحميل الطلبات: ${error.message}` : `Failed to load orders: ${error.message}`,
         type: 'error'
       });
     } finally {
@@ -139,23 +139,23 @@
       today.setHours(0, 0, 0, 0);
 
       // Count new orders
-      const { count: newCount } = await supabaseAdmin.from('orders')
+      const { count: newCount } = await supabase.from('orders')
         .select('*', { count: 'exact', head: true })
         .eq('order_status', 'new');
 
       // Count in-progress orders
-      const { count: progressCount } = await supabaseAdmin.from('orders')
+      const { count: progressCount } = await supabase.from('orders')
         .select('*', { count: 'exact', head: true })
         .in('order_status', ['accepted', 'in_picking', 'ready', 'out_for_delivery']);
 
       // Count completed today
-      const { count: completedCount } = await supabaseAdmin.from('orders')
+      const { count: completedCount } = await supabase.from('orders')
         .select('*', { count: 'exact', head: true })
         .eq('order_status', 'delivered')
         .gte('updated_at', today.toISOString());
 
       // Calculate revenue today
-      const { data: revenueData } = await supabaseAdmin.from('orders')
+      const { data: revenueData } = await supabase.from('orders')
         .select('total_amount')
         .eq('order_status', 'delivered')
         .gte('updated_at', today.toISOString());
@@ -174,8 +174,8 @@
   }
 
   function setupRealtimeSubscription() {
-    console.log('📡 Setting up realtime subscription for orders...');
-    ordersChannel = supabaseAdmin
+    console.log('?? Setting up realtime subscription for orders...');
+    ordersChannel = supabase
       .channel('orders_changes')
       .on('postgres_changes', {
         event: '*',
@@ -190,7 +190,7 @@
         if (payload.eventType === 'INSERT') {
           playNotificationSound();
           notifications.add({
-            message: isRTL ? `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯: ${payload.new.order_number}` : `New order: ${payload.new.order_number}`,
+            message: isRTL ? `طلب جديد: ${payload.new.order_number}` : `New order: ${payload.new.order_number}`,
             type: 'info',
             duration: 5000
           });
@@ -262,14 +262,14 @@
 
   function selectOrder(order: any) {
     openWindow({
-      title: `${isRTL ? 'طلب' : 'Order'} ${order.order_number}`,
+      title: `${isRTL ? '???' : 'Order'} ${order.order_number}`,
       component: OrderDetailWindow,
       props: {
         orderId: order.id,
         orderNumber: order.order_number
       },
       size: { width: 800, height: 600 },
-      icon: '🛒'
+      icon: '??'
     });
   }
 
@@ -292,7 +292,7 @@
           </svg>
         </div>
         <div>
-          <h1 class="title">{t('orders.manager.title', 'ðŸ›’ Orders Manager')}</h1>
+          <h1 class="title">{t('orders.manager.title', '🛒 Orders Manager')}</h1>
           <p class="subtitle">{t('orders.manager.subtitle', 'Customer Order Management System')}</p>
         </div>
       </div>

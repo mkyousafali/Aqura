@@ -4,7 +4,7 @@
  * Created: 2025-10-30
  */
 
-import { supabaseAdmin } from "./supabase";
+import { supabase } from "./supabase";
 import html2canvas from "html2canvas";
 
 /**
@@ -112,7 +112,7 @@ export async function uploadWarningImage(
     console.log("   Path:", filePath);
 
     // Upload to Supabase Storage
-    const { data, error } = await supabaseAdmin.storage
+    const { data, error } = await supabase.storage
       .from("warning-documents")
       .upload(filePath, imageBlob, {
         contentType: "image/png",
@@ -126,7 +126,7 @@ export async function uploadWarningImage(
     }
 
     // Get public URL
-    const { data: urlData } = supabaseAdmin.storage
+    const { data: urlData } = supabase.storage
       .from("warning-documents")
       .getPublicUrl(filePath);
 
@@ -155,7 +155,7 @@ export async function uploadWarningImage(
  */
 export async function updateWarningWithImageUrl(warningId, imageUrl) {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("employee_warnings")
       .update({
         warning_document_url: imageUrl,
@@ -191,7 +191,7 @@ export async function deleteWarningImage(filePath) {
       extractedPath = filePath.split("warning-documents/")[1];
     }
 
-    const { data, error } = await supabaseAdmin.storage
+    const { data, error } = await supabase.storage
       .from("warning-documents")
       .remove([extractedPath]);
 
