@@ -5,6 +5,7 @@
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { supabase } from '$lib/utils/supabase';
+	import { dataService } from '$lib/utils/dataService';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
 	
@@ -76,27 +77,163 @@
 			const startTime = performance.now();
 			console.log('🔍 Loading mobile dashboard from Supabase...');
 			
-			// TODO: Replace with Supabase queries
-			// const { data, error } = await goAPI.mobileDashboard.getDashboardData(currentUserData.id);
-			const data = { stats: { pending_tasks: 0 }, punches: { records: [], loading: false, error: '' } };
-			const error = null;
+			// Step 1: Get current user's UUID
+			const userUuid = currentUserData?.id;
+			console.log('👤 Step 1 - Current user UUID:', userUuid);
 			
-			if (error) {
-				console.error('❌ Error loading dashboard:', error);
+			if (!userUuid) {
+				console.warn('⚠️ Current user UUID not found');
+				punches = {
+					records: [],
+					loading: false,
+					error: 'User ID not found'
+				};
 				return;
 			}
 			
-			// Update stats
-			stats.pendingTasks = data.stats.pending_tasks;
+			// Step 2: Look up user record to get employee_id field from users table
+			console.log('🔍 Step 2 - Looking up user record in users table...');
+			const { data: userRecord, error: userError } = await supabase
+				.from('users')
+				.select('id, employee_id')
+				.eq('id', userUuid)
+				.single();
 			
-			// Update punches
-			punches = data.punches;
+			if (userError || !userRecord) {
+				console.warn('⚠️ User record not found:', userError);
+				punches = {
+					records: [],
+					loading: false,
+					error: 'User record not found'
+				};
+				return;
+			}
+			
+			const employeeUuid = userRecord.employee_id;
+			console.log('👥 Step 2 - User employee_id (UUID):', employeeUuid);
+			
+			if (!employeeUuid) {
+				console.warn('⚠️ Employee ID not linked to user');
+				punches = {
+					records: [],
+					loading: false,
+					error: 'Employee not linked to user account'
+				};
+				return;
+			}
+			
+			// Step 3: Look up hr_employees to get employee_id code
+			console.log('🔍 Step 3 - Looking up employee record...');
+			const { data: employeeRecord, error: empError } = await supabase
+				.from('hr_employees')
+				.select('id, employee_id')
+				.eq('id', employeeUuid)
+				.single();
+			
+			if (empError || !employeeRecord) {
+				console.warn('⚠️ Employee record not found:', empError);
+				punches = {
+					records: [],
+					loading: false,
+					error: 'Employee record not found'
+				};
+				return;
+			}
+			
+			const employeeCode = employeeRecord.employee_id;
+			console.log('🎯 Step 3 - Found employee_id (code):', employeeCode);
+			
+			// Step 4: Get today's date
+			const today = new Date().toISOString().split('T')[0];
+			console.log('📅 Step 4 - Today\'s date:', today);
+			
+			// Step 5: Search hr_fingerprint_transactions for:
+			// - employee_id = employeeCode
+			// - date = today
+			// - order by time descending
+			console.log('🔍 Step 5 - Searching fingerprint transactions...');
+			const { data: punchData, error: punchError } = await supabase
+				.from('hr_fingerprint_transactions')
+				.select('*')
+				.eq('employee_id', employeeCode)
+				.eq('date', today)
+				.order('time', { ascending: false });
+			
+			console.log('📊 Step 5 - Punch data:', punchData);
+			console.log('❌ Step 5 - Error:', punchError);
+			
+			if (punchError) {
+				console.error('Error loading punches:', punchError);
+				punches = {
+					records: [],
+					loading: false,
+					error: punchError.message
+				};
+				return;
+			}
+			
+			// Step 6: Get latest 2 and display
+			if (punchData && punchData.length > 0) {
+				console.log('✅ Step 6 - Found', punchData.length, 'punch records');
+				
+				const punchRecords = punchData
+					.slice(0, 2) // Get last 2 punches (already sorted by time DESC)
+					.map(punch => {
+						// Convert time to 12-hour format
+						let formattedTime = punch.time || '';
+						if (formattedTime) {
+							try {
+								// Parse time string (HH:MM:SS or HH:MM)
+								const [hours, minutes] = formattedTime.split(':').slice(0, 2);
+								const hour = parseInt(hours, 10);
+								const minute = minutes || '00';
+								const ampm = hour >= 12 ? 'PM' : 'AM';
+								const hour12 = hour % 12 || 12;
+								formattedTime = `${hour12.toString().padStart(2, '0')}:${minute} ${ampm}`;
+							} catch (e) {
+								console.error('Error formatting time:', e);
+							}
+						}
+						
+						// Map database columns to display format
+						const mappedPunch = {
+							time: formattedTime,
+							date: punch.date || '',
+							status: punch.status === 'Check In' ? 'check-in' : 'check-out',
+							raw: punch
+						};
+						console.log('📍 Mapped punch:', mappedPunch);
+						return mappedPunch;
+					});
+				
+				console.log('✅ Step 6 - Displaying', punchRecords.length, 'punch records');
+				punches = {
+					records: punchRecords,
+					loading: false,
+					error: ''
+				};
+			} else {
+				console.log('ℹ️ Step 6 - No punch records found');
+				punches = {
+					records: [],
+					loading: false,
+					error: ''
+				};
+			}
+			
+			// Set pending tasks to 0 for now (TODO: implement task loading)
+			stats.pendingTasks = 0;
 			
 			const endTime = performance.now();
 			console.log(`✅ Dashboard loaded in ${(endTime - startTime).toFixed(2)}ms`);
 			
 		} catch (error) {
 			console.error('Error loading dashboard data:', error);
+			punches = {
+				records: [],
+				loading: false,
+				error: error instanceof Error ? error.message : 'Failed to load punch data'
+			};
 		}
 	}
 
