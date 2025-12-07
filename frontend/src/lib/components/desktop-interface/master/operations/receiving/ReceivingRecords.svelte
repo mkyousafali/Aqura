@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { realtimeService } from '$lib/utils/realtimeService';
 
 	// State for receiving records
 	let receivingRecords = [];
@@ -32,6 +33,10 @@
 	let totalPages = 1;
 	let totalRecords = 0;
 
+	// Real-time subscription unsubscribe functions
+	let unsubscribeReceivingRecords = null;
+	let unsubscribePaymentSchedule = null;
+
 	// Check if current user is master admin
 	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
 
@@ -48,6 +53,16 @@
 	onMount(() => {
 		loadBranches();
 		loadReceivingRecords();
+		setupRealtimeSubscriptions();
+		
+		return () => {
+			if (unsubscribeReceivingRecords) {
+				unsubscribeReceivingRecords();
+			}
+			if (unsubscribePaymentSchedule) {
+				unsubscribePaymentSchedule();
+			}
+		};
 	});
 
 	async function loadBranches() {
@@ -65,6 +80,61 @@
 		} catch (err) {
 			console.error('Error loading branches:', err);
 			branches = [];
+		}
+	}
+
+	async function setupRealtimeSubscriptions() {
+		try {
+			console.log('📡 Setting up real-time subscriptions for receiving records table...');
+
+			// Subscribe to receiving_records changes
+			unsubscribeReceivingRecords = realtimeService.subscribeToReceivingRecordsChanges(
+				async (payload) => {
+					console.log('🔔 Real-time receiving record update:', {
+						event: payload.eventType,
+						recordId: payload.new?.id || payload.old?.id
+					});
+
+					// Handle different event types
+					if (payload.eventType === 'INSERT') {
+						console.log('✨ New record inserted, reloading...');
+						await loadReceivingRecords();
+					} else if (payload.eventType === 'UPDATE') {
+						console.log('📝 Record updated, refreshing...');
+						// Update the specific record in the local array
+						const updatedRecord = payload.new;
+						const index = receivingRecords.findIndex(r => r.id === updatedRecord.id);
+						if (index !== -1) {
+							receivingRecords[index] = { ...receivingRecords[index], ...updatedRecord };
+							applyFilters();
+						}
+					} else if (payload.eventType === 'DELETE') {
+						console.log('🗑️ Record deleted, updating list...');
+						// Remove the deleted record from local array
+						receivingRecords = receivingRecords.filter(r => r.id !== payload.old?.id);
+						applyFilters();
+					}
+				}
+			);
+
+			// Subscribe to vendor_payment_schedule changes
+			unsubscribePaymentSchedule = realtimeService.subscribeToVendorPaymentScheduleChanges(
+				(payload) => {
+					console.log('💳 Real-time payment schedule update:', {
+						event: payload.eventType,
+						receivingRecordId: payload.new?.receiving_record_id || payload.old?.receiving_record_id
+					});
+
+					// Reload the page data to reflect payment schedule changes
+					if (receivingRecords.length > 0) {
+						loadPageData(currentPage);
+					}
+				}
+			);
+
+			console.log('✅ Real-time subscriptions setup complete');
+		} catch (error) {
+			console.error('❌ Error setting up real-time subscriptions:', error);
 		}
 	}
 
@@ -295,18 +365,388 @@
 	}
 
 	function applyFilters() {
-		// With on-demand loading, filters are applied on initial load
-		// Just reset to page 1 when filters change
+		// Apply filters based on filter state
+		let filtered = [...receivingRecords];
+
+		// Apply search term filter
+		if (searchTerm && String(searchTerm).trim() !== '') {
+			const searchLower = String(searchTerm).toLowerCase();
+			filtered = filtered.filter(record => {
+				const billNumber = (record.bill_number || '').toLowerCase();
+				const vendorName = (record.vendors?.vendor_name || '').toLowerCase();
+				const vatNumber = (record.vendors?.vat_number || '').toLowerCase();
+				const reviewerName = (record.users?.hr_employees?.name || record.users?.username || '').toLowerCase();
+				
+				return billNumber.includes(searchLower) ||
+					   vendorName.includes(searchLower) ||
+					   vatNumber.includes(searchLower) ||
+					   reviewerName.includes(searchLower);
+			});
+		}
+
+		// Apply branch filter
+		if (selectedBranch && String(selectedBranch).trim() !== '') {
+			filtered = filtered.filter(record => record.branch_id === selectedBranch);
+		}
+
+		// Apply vendor ID filter
+		if (filterVendorId && String(filterVendorId).trim() !== '') {
+			filtered = filtered.filter(record => {
+				const vendorId = (record.vendors?.erp_vendor_id || '').toString();
+				return vendorId.includes(String(filterVendorId).trim());
+			});
+		}
+
+		// Apply VAT number filter
+		if (filterVatNumber && String(filterVatNumber).trim() !== '') {
+			filtered = filtered.filter(record => {
+				const vatNumber = (record.vendors?.vat_number || '').toLowerCase();
+				return vatNumber.includes(String(filterVatNumber).toLowerCase());
+			});
+		}
+
+		// Apply vendor name filter
+		if (filterVendorName && String(filterVendorName).trim() !== '') {
+			filtered = filtered.filter(record => {
+				const vendorName = (record.vendors?.vendor_name || '').toLowerCase();
+				return vendorName.includes(String(filterVendorName).toLowerCase());
+			});
+		}
+
+		// Apply days range filter
+		if ((filterFromDays !== '' && filterFromDays !== null) || (filterToDays !== '' && filterToDays !== null)) {
+			filtered = filtered.filter(record => {
+				const billDate = new Date(record.bill_date);
+				const today = new Date();
+				const daysAgo = Math.floor((today - billDate) / (1000 * 60 * 60 * 24));
+				
+				const fromDays = filterFromDays !== '' && filterFromDays !== null ? parseInt(filterFromDays) : -Infinity;
+				const toDays = filterToDays !== '' && filterToDays !== null ? parseInt(filterToDays) : Infinity;
+				
+				return daysAgo >= fromDays && daysAgo <= toDays;
+			});
+		}
+
+		// Apply overdue days filter
+		if (filterOverdueDays !== '' && filterOverdueDays !== null) {
+			const overdueDays = parseInt(filterOverdueDays);
+			filtered = filtered.filter(record => {
+				const dueDate = new Date(record.due_date);
+				const today = new Date();
+				const daysSinceDue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+				return daysSinceDue >= overdueDays;
+			});
+		}
+
+		// Apply archived filter
+		if (showArchived) {
+			filtered = [...filtered, ...archivedRecords];
+		}
+
+		filteredRecords = filtered;
 		currentPage = 1;
-		console.log('🔍 Filters applied, resetting to page 1');
-		updatePaginatedRecords(); // ✅ Update display with current page data
+		console.log(`🔍 Filters applied: ${filtered.length} records match filters`);
+		updatePaginatedRecords();
+	}
+
+	// Load paginated data for filtered results - optimized to load only needed records
+	async function loadFilteredPageData(pageNum, filterCriteria) {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			console.log(`📄 Loading filtered page ${pageNum}...`);
+
+		// For branch filter, we can use database query
+		if (filterCriteria.selectedBranch && !filterCriteria.searchTerm && !filterCriteria.filterVatNumber && 
+		    !filterCriteria.filterVendorName && 
+		    filterCriteria.filterFromDays === null && filterCriteria.filterToDays === null && 
+		    filterCriteria.filterOverdueDays === null) {
+			// Simple branch filter (with optional vendor ID) - use database
+			const startIdx = (pageNum - 1) * pageSize;
+			const { data: records, error: recordsError, count } = await supabase
+				.from('receiving_records')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount', { count: 'exact' })
+				.eq('branch_id', filterCriteria.selectedBranch)
+				.order('created_at', { ascending: false })
+				.range(startIdx, startIdx + pageSize - 1);
+
+			if (recordsError) throw recordsError;
+
+			// Get total count for pagination
+			const { count: totalCount } = await supabase
+				.from('receiving_records')
+				.select('*', { count: 'exact', head: true })
+				.eq('branch_id', filterCriteria.selectedBranch);
+
+			totalRecords = totalCount || 0;
+			totalPages = Math.ceil(totalRecords / pageSize);
+
+			if (!records || records.length === 0) {
+				receivingRecords = [];
+				filteredRecords = [];
+				updatePaginatedRecords();
+				return;
+			}
+
+			// Fetch related data for these records only
+			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
+
+			const [branchResult, vendorResult, userResult] = await Promise.all([
+				supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds),
+				supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id').in('erp_vendor_id', uniqueVendorIds),
+				supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
+			]);
+
+			const branchMap = new Map(branchResult.data?.map(b => [b.id, b]) || []);
+			const vendorMap = new Map();
+			vendorResult.data?.forEach(vendor => {
+				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+				vendorMap.set(key, vendor);
+			});
+			const userMap = new Map(userResult.data?.map(u => [u.id, u]) || []);
+
+			let recordsWithDetails = records.map(record => ({
+				...record,
+				branches: branchMap.get(record.branch_id),
+				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
+				users: userMap.get(record.user_id)
+			}));
+
+			// Apply vendor ID filter if present
+			if (filterCriteria.filterVendorId) {
+				recordsWithDetails = recordsWithDetails.filter(r => {
+					if (r.vendors?.erp_vendor_id) {
+						return r.vendors.erp_vendor_id.toString().includes(filterCriteria.filterVendorId);
+					}
+					return r.vendor_id.toString().includes(filterCriteria.filterVendorId);
+				});
+			}
+
+			receivingRecords = recordsWithDetails;
+			filteredRecords = recordsWithDetails;
+			console.log(`✅ Loaded ${recordsWithDetails.length} filtered records for page ${pageNum}`);
+			updatePaginatedRecords();
+			return;
+		}
+
+		// Fast search-only path - load only first 200 records for searching
+		if (filterCriteria.searchTerm && !filterCriteria.selectedBranch && !filterCriteria.filterVendorId && 
+		    !filterCriteria.filterVatNumber && !filterCriteria.filterVendorName && 
+		    filterCriteria.filterFromDays === null && filterCriteria.filterToDays === null && 
+		    filterCriteria.filterOverdueDays === null) {
+			console.log(`📄 Fast search path - loading records for search...`);
+			
+			// Load records to search through
+			const { data: records, error: recordsError } = await supabase
+				.from('receiving_records')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.order('created_at', { ascending: false })
+				.limit(200);
+
+			if (recordsError) throw recordsError;
+
+			if (!records || records.length === 0) {
+				receivingRecords = [];
+				filteredRecords = [];
+				totalRecords = 0;
+				totalPages = 1;
+				updatePaginatedRecords();
+				return;
+			}
+
+			// Fetch related data in bulk
+			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
+
+			const [branchResult, vendorResult, userResult] = await Promise.all([
+				supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds),
+				supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id').in('erp_vendor_id', uniqueVendorIds),
+				supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
+			]);
+
+			const branchMap = new Map(branchResult.data?.map(b => [b.id, b]) || []);
+			const vendorMap = new Map();
+			vendorResult.data?.forEach(vendor => {
+				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+				vendorMap.set(key, vendor);
+			});
+			const userMap = new Map(userResult.data?.map(u => [u.id, u]) || []);
+
+			// Merge data
+			const recordsWithDetails = records.map(record => ({
+				...record,
+				branches: branchMap.get(record.branch_id),
+				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
+				users: userMap.get(record.user_id)
+			}));
+
+			// Apply search filter
+			let filtered = recordsWithDetails;
+			const searchLower = filterCriteria.searchTerm.toLowerCase();
+			filtered = filtered.filter(r => {
+				const billNumber = (r.bill_number || '').toLowerCase();
+				const vendorName = (r.vendors?.vendor_name || '').toLowerCase();
+				const vatNumber = (r.vendors?.vat_number || '').toLowerCase();
+				const reviewerName = (r.users?.hr_employees?.name || r.users?.username || '').toLowerCase();
+				return billNumber.includes(searchLower) || vendorName.includes(searchLower) || 
+				       vatNumber.includes(searchLower) || reviewerName.includes(searchLower);
+			});
+
+			// Paginate search results
+			const startIdx = (pageNum - 1) * pageSize;
+			const paginatedFiltered = filtered.slice(startIdx, startIdx + pageSize);
+			
+			totalRecords = filtered.length;
+			totalPages = Math.ceil(filtered.length / pageSize);
+			
+			receivingRecords = paginatedFiltered;
+			filteredRecords = filtered;
+			
+			console.log(`✅ Search found ${paginatedFiltered.length} matching records (total: ${filtered.length})`);
+			updatePaginatedRecords();
+			return;
+		}
+
+		// Complex filters - need to load more records for in-memory filtering
+			// Load first 500 records to filter from
+			const { data: records, error: recordsError } = await supabase
+				.from('receiving_records')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.order('created_at', { ascending: false })
+				.limit(500);
+
+			if (recordsError) throw recordsError;
+
+			if (!records || records.length === 0) {
+				receivingRecords = [];
+				filteredRecords = [];
+				totalRecords = 0;
+				totalPages = 1;
+				updatePaginatedRecords();
+				return;
+			}
+
+			// Fetch related data in bulk
+			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
+			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
+			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
+
+			const [branchResult, vendorResult, userResult] = await Promise.all([
+				supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds),
+				supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id').in('erp_vendor_id', uniqueVendorIds),
+				supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
+			]);
+
+			const branchMap = new Map(branchResult.data?.map(b => [b.id, b]) || []);
+			const vendorMap = new Map();
+			vendorResult.data?.forEach(vendor => {
+				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+				vendorMap.set(key, vendor);
+			});
+			const userMap = new Map(userResult.data?.map(u => [u.id, u]) || []);
+
+			// Merge data
+			const recordsWithDetails = records.map(record => ({
+				...record,
+				branches: branchMap.get(record.branch_id),
+				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
+				users: userMap.get(record.user_id)
+			}));
+
+			// Apply filters in-memory
+			let filtered = [...recordsWithDetails];
+
+			if (filterCriteria.searchTerm) {
+				const searchLower = filterCriteria.searchTerm.toLowerCase();
+				filtered = filtered.filter(r => {
+					const billNumber = (r.bill_number || '').toLowerCase();
+					const vendorName = (r.vendors?.vendor_name || '').toLowerCase();
+					const vatNumber = (r.vendors?.vat_number || '').toLowerCase();
+					const reviewerName = (r.users?.hr_employees?.name || r.users?.username || '').toLowerCase();
+					return billNumber.includes(searchLower) || vendorName.includes(searchLower) || 
+					       vatNumber.includes(searchLower) || reviewerName.includes(searchLower);
+				});
+			}
+
+			if (filterCriteria.selectedBranch) {
+				filtered = filtered.filter(r => r.branch_id === filterCriteria.selectedBranch);
+			}
+
+			if (filterCriteria.filterVendorId) {
+				filtered = filtered.filter(r => {
+					// Check if vendor data exists, if not, match against raw vendor_id
+					if (r.vendors?.erp_vendor_id) {
+						return r.vendors.erp_vendor_id.toString().includes(filterCriteria.filterVendorId);
+					}
+					// Fallback: match against raw vendor_id from receiving_records
+					return r.vendor_id.toString().includes(filterCriteria.filterVendorId);
+				});
+			}
+
+			if (filterCriteria.filterVatNumber) {
+				filtered = filtered.filter(r => {
+					const vatNumber = (r.vendors?.vat_number || '').toLowerCase();
+					return vatNumber.includes(filterCriteria.filterVatNumber.toLowerCase());
+				});
+			}
+
+			if (filterCriteria.filterVendorName) {
+				filtered = filtered.filter(r => {
+					const vendorName = (r.vendors?.vendor_name || '').toLowerCase();
+					return vendorName.includes(filterCriteria.filterVendorName.toLowerCase());
+				});
+			}
+
+			if (filterCriteria.filterFromDays !== null || filterCriteria.filterToDays !== null) {
+				filtered = filtered.filter(r => {
+					const billDate = new Date(r.bill_date);
+					const today = new Date();
+					const daysAgo = Math.floor((today - billDate) / (1000 * 60 * 60 * 24));
+					const fromDays = filterCriteria.filterFromDays !== null ? filterCriteria.filterFromDays : -Infinity;
+					const toDays = filterCriteria.filterToDays !== null ? filterCriteria.filterToDays : Infinity;
+					return daysAgo >= fromDays && daysAgo <= toDays;
+				});
+			}
+
+			if (filterCriteria.filterOverdueDays !== null) {
+				filtered = filtered.filter(r => {
+					const dueDate = new Date(r.due_date);
+					const today = new Date();
+					const daysSinceDue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+					return daysSinceDue >= filterCriteria.filterOverdueDays;
+				});
+			}
+
+			if (filterCriteria.showArchived) {
+				filtered = [...filtered, ...archivedRecords];
+			}
+
+			// Paginate filtered results
+			const startIdx = (pageNum - 1) * pageSize;
+			const paginatedFiltered = filtered.slice(startIdx, startIdx + pageSize);
+			
+			totalRecords = filtered.length;
+			totalPages = Math.ceil(filtered.length / pageSize);
+			
+			receivingRecords = paginatedFiltered;
+			filteredRecords = filtered;
+			
+			console.log(`✅ Loaded ${paginatedFiltered.length} filtered records for page ${pageNum} (total: ${filtered.length})`);
+			updatePaginatedRecords();
+		} catch (error) {
+			console.error(`Error loading filtered page:`, error);
+			alert('Error loading filtered records. Try again.');
+		}
 	}
 
 	// Update paginated records based on current page
 	function updatePaginatedRecords() {
-		// With on-demand loading, just assign receivingRecords to paginatedRecords
-		paginatedRecords = [...receivingRecords]; // Use spread operator to ensure reactivity
-		console.log(`📄 Page ${currentPage}/${totalPages}: showing ${paginatedRecords.length} records`);
+		// Use filteredRecords if filters are active, otherwise use receivingRecords
+		const recordsToDisplay = hasActiveFilters ? filteredRecords : receivingRecords;
+		paginatedRecords = [...recordsToDisplay]; // Use spread operator to ensure reactivity
+		console.log(`📄 Page ${currentPage}/${totalPages}: showing ${paginatedRecords.length} records (hasActiveFilters: ${hasActiveFilters})`);
 	}
 
 	// Pagination functions - load data on demand
@@ -337,12 +777,8 @@
 		}
 	}
 
-	// Reactive statements to trigger filtering when filter values change
-	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || 
-	      filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || 
-	      filterOverdueDays !== undefined || branchFilterMode !== undefined || selectedBranch !== undefined || showArchived !== undefined) {
-		applyFilters();
-	}
+	// Filter values change - do NOT apply filters automatically
+	// Filters only apply when user explicitly clicks "Load Records" button
 
 	function viewCertificate(certificateUrl) {
 		if (certificateUrl) {
@@ -865,140 +1301,254 @@
 		}
 	}
 
-	// Reactive statement to apply filters when search/filter values change
-	$: if (searchTerm !== undefined || filterVendorId !== undefined || filterVatNumber !== undefined || filterVendorName !== undefined || filterFromDays !== undefined || filterToDays !== undefined || filterOverdueDays !== undefined) {
-		applyFilters();
+	// Track which filter is active
+	let activeFilter = 'none'; // 'none', 'search', 'branch', 'vendor-id', 'vat-number', 'vendor-name', 'days-range', 'overdue-days'
+	let hasActiveFilters = false; // Track if any filters are actually applied
+
+	// Load button handler - applies filters and loads paginated data from database
+	async function applyFilterLoad() {
+		console.log(`🔍 Applying filter: ${activeFilter}`);
+		console.log(`📊 Current filter values:`, {
+			selectedBranch,
+			searchTerm,
+			filterVendorId,
+			filterVatNumber,
+			filterVendorName,
+			filterFromDays,
+			filterToDays,
+			filterOverdueDays
+		});
+		
+		hasActiveFilters = true;
+		currentPage = 1;
+		loading = true;
+		try {
+			// Build filter criteria - keep branch ID as is (don't convert to string/trim)
+			const filterCriteria = {
+				searchTerm: String(searchTerm).trim(),
+				selectedBranch: selectedBranch, // Keep as UUID, don't trim
+				filterVendorId: String(filterVendorId).trim(),
+				filterVatNumber: String(filterVatNumber).trim(),
+				filterVendorName: String(filterVendorName).trim(),
+				filterFromDays: filterFromDays !== '' && filterFromDays !== null ? parseInt(filterFromDays) : null,
+				filterToDays: filterToDays !== '' && filterToDays !== null ? parseInt(filterToDays) : null,
+				filterOverdueDays: filterOverdueDays !== '' && filterOverdueDays !== null ? parseInt(filterOverdueDays) : null
+			};
+
+			console.log(`🔍 Filter criteria built:`, filterCriteria);
+
+			// Load first page of filtered results (count handled inside function)
+			await loadFilteredPageData(1, filterCriteria);
+		} catch (error) {
+			console.error('❌ Error applying filters:', error);
+			alert('Failed to apply filters');
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Reset filters when "No Filter" is selected
+	$: if (activeFilter === 'none') {
+		hasActiveFilters = false;
+		searchTerm = '';
+		filterVendorId = '';
+		filterVatNumber = '';
+		filterVendorName = '';
+		filterFromDays = '';
+		filterToDays = '';
+		filterOverdueDays = '';
+		selectedBranch = '';
+		updatePaginatedRecords();
 	}
 </script>
 
 <!-- Receiving Records Window Content -->
 <div class="receiving-records-window">
-	<!-- Window Header -->
-	<div class="window-header">
-		<div class="window-title">
-			<h2>📦 Receiving Records</h2>
-			<p>Manage and track all receiving records</p>
-		</div>
-		<div class="window-actions">
+	<!-- Search and Filter Section - REORGANIZED -->
+	<div class="filters-section">
+		<!-- Filter Options Container -->
+		<div class="filter-options-container">
+			<!-- Filter Radio Buttons -->
+			<div class="filter-radio-group">
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="none"
+					/>
+					<span>No Filter</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="search"
+					/>
+					<span>Search</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="branch"
+					/>
+					<span>By Branch</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="vendor-id"
+					/>
+					<span>By Vendor ID</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="vat-number"
+					/>
+					<span>By VAT Number</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="vendor-name"
+					/>
+					<span>By Vendor Name</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="days-range"
+					/>
+					<span>By Days Range</span>
+				</label>
+				
+				<label class="filter-radio">
+					<input 
+						type="radio" 
+						bind:group={activeFilter} 
+						value="overdue-days"
+					/>
+					<span>By Overdue Days</span>
+				</label>
+			</div>
+
+			<!-- Conditional Filter Input Sections -->
+			<div class="filter-input-section">
+				<!-- Search Filter -->
+				{#if activeFilter === 'search'}
+					<div class="active-filter-content">
+						<input 
+							type="text" 
+							placeholder="🔍 Search by bill number, vendor name, VAT number, or reviewer..." 
+							bind:value={searchTerm}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+
+				<!-- Branch Filter -->
+				{#if activeFilter === 'branch'}
+					<div class="active-filter-content">
+						<select bind:value={selectedBranch} class="filter-select">
+							<option value="">Choose a branch...</option>
+							{#each branches as branch}
+								<option value={branch.id}>{branch.name_en}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
+
+				<!-- Vendor ID Filter -->
+				{#if activeFilter === 'vendor-id'}
+					<div class="active-filter-content">
+						<input 
+							type="text" 
+							placeholder="Enter vendor ID..." 
+							bind:value={filterVendorId}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+
+				<!-- VAT Number Filter -->
+				{#if activeFilter === 'vat-number'}
+					<div class="active-filter-content">
+						<input 
+							type="text" 
+							placeholder="Enter VAT number..." 
+							bind:value={filterVatNumber}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+
+				<!-- Vendor Name Filter -->
+				{#if activeFilter === 'vendor-name'}
+					<div class="active-filter-content">
+						<input 
+							type="text" 
+							placeholder="Enter vendor name..." 
+							bind:value={filterVendorName}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+
+				<!-- Days Range Filter -->
+				{#if activeFilter === 'days-range'}
+					<div class="active-filter-content">
+						<input 
+							type="number" 
+							placeholder="From Days (e.g., -10 for overdue)" 
+							bind:value={filterFromDays}
+							class="filter-input"
+						/>
+						<input 
+							type="number" 
+							placeholder="To Days (e.g., 30)" 
+							bind:value={filterToDays}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+
+				<!-- Overdue Days Filter -->
+				{#if activeFilter === 'overdue-days'}
+					<div class="active-filter-content">
+						<input 
+							type="number" 
+							placeholder="Overdue by at least X days" 
+							bind:value={filterOverdueDays}
+							class="filter-input"
+						/>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Load Button -->
 			<button 
-				class="refresh-btn" 
-				on:click={loadReceivingRecords}
+				class="load-filter-btn"
+				on:click={applyFilterLoad}
 				disabled={loading}
-				title="Refresh receiving records"
+				title="Apply selected filter and load records"
 			>
 				{#if loading}
-					<div class="spinner-small"></div>
+					<span>⏳ Loading...</span>
 				{:else}
-					<span>🔄</span>
+					<span>📂 Load Records</span>
 				{/if}
-				Refresh
 			</button>
-		</div>
-	</div>
-
-	<!-- Search and Filter Section -->
-	<div class="filters-section">
-		<div class="search-bar">
-			<input 
-				type="text" 
-				placeholder="Search by bill number, vendor name, VAT number, or reviewer..." 
-				bind:value={searchTerm}
-				class="search-input"
-			/>
-		</div>
-		
-		<!-- Show Archived Records Toggle -->
-		<div class="filter-section">
-			<label class="archived-toggle">
-				<input 
-					type="checkbox" 
-					bind:checked={showArchived}
-				/>
-				<span class="toggle-label">📦 Show Archived Records ({archivedRecords.length > 0 ? archivedRecords.length : 'none'})</span>
-			</label>
-		</div>
-		
-		<!-- Branch Filter -->
-		<div class="filter-section">
-			<div class="branch-filter">
-				<h4>🏢 Filter by Branch</h4>
-				<div class="filter-controls">
-					<div class="filter-options">
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={branchFilterMode} 
-								value="all"
-							/>
-							<span class="option-text">All Branches</span>
-						</label>
-						
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={branchFilterMode} 
-								value="branch"
-							/>
-							<span class="option-text">By Branch</span>
-						</label>
-					</div>
-					
-					{#if branchFilterMode === 'branch'}
-						<div class="branch-selector">
-							<select bind:value={selectedBranch} class="branch-select">
-								<option value="">Choose a branch...</option>
-								{#each branches as branch}
-									<option value={branch.id}>
-										{branch.name_en}
-									</option>
-								{/each}
-							</select>
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-		
-		<div class="filters-row">
-			<input 
-				type="text" 
-				placeholder="Filter by Vendor ID" 
-				bind:value={filterVendorId}
-				class="filter-input"
-			/>
-			<input 
-				type="text" 
-				placeholder="Filter by VAT Number" 
-				bind:value={filterVatNumber}
-				class="filter-input"
-			/>
-			<input 
-				type="text" 
-				placeholder="Filter by Vendor Name" 
-				bind:value={filterVendorName}
-				class="filter-input"
-			/>
-		</div>
-
-		<div class="filters-row">
-			<input 
-				type="number" 
-				placeholder="From Days (e.g., -10 for overdue)" 
-				bind:value={filterFromDays}
-				class="filter-input"
-			/>
-			<input 
-				type="number" 
-				placeholder="To Days (e.g., 30)" 
-				bind:value={filterToDays}
-				class="filter-input"
-			/>
-			<input 
-				type="number" 
-				placeholder="Overdue by at least X days" 
-				bind:value={filterOverdueDays}
-				class="filter-input"
-			/>
 		</div>
 	</div>
 
@@ -1440,7 +1990,7 @@
 	}
 
 	.search-bar {
-		margin-bottom: 16px;
+		margin-bottom: 20px;
 	}
 
 	.search-input {
@@ -1458,10 +2008,64 @@
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
-	.filters-row {
+	.filter-options-container {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.filter-radio-group {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 		gap: 12px;
+		padding: 16px;
+		background: white;
+		border-radius: 8px;
+		border: 1px solid #e2e8f0;
+	}
+
+	.filter-radio {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		padding: 8px;
+		border-radius: 6px;
+		transition: background-color 0.2s ease;
+		user-select: none;
+	}
+
+	.filter-radio:hover {
+		background-color: #f0f9ff;
+	}
+
+	.filter-radio input[type="radio"] {
+		margin: 0;
+		cursor: pointer;
+		width: 16px;
+		height: 16px;
+	}
+
+	.filter-radio span {
+		font-size: 14px;
+		font-weight: 500;
+		color: #475569;
+	}
+
+	.filter-input-section {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		flex-wrap: wrap;
+		min-height: 44px;
+	}
+
+	.active-filter-content {
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+		flex: 1;
+		align-items: center;
 	}
 
 	.filter-input {
@@ -1470,6 +2074,7 @@
 		border-radius: 6px;
 		font-size: 14px;
 		transition: border-color 0.2s ease;
+		width: 100%;
 	}
 
 	.filter-input:focus {
@@ -1478,12 +2083,48 @@
 		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 	}
 
-	.filter-section {
-		background: #f8fafc;
-		border: 1px solid #e2e8f0;
-		border-radius: 12px;
-		padding: 1.5rem;
-		margin-bottom: 16px;
+	.filter-select {
+		padding: 10px 12px;
+		border: 2px solid #e2e8f0;
+		border-radius: 6px;
+		font-size: 14px;
+		background: white;
+		color: #1e293b;
+		cursor: pointer;
+		min-width: 250px;
+		transition: border-color 0.2s ease;
+	}
+
+	.filter-select:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+	}
+
+	.load-filter-btn {
+		padding: 10px 24px;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+		white-space: nowrap;
+	}
+
+	.load-filter-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.load-filter-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
 	}
 
 	.archived-toggle {
@@ -1507,64 +2148,6 @@
 	.toggle-label {
 		font-size: 0.95rem;
 		user-select: none;
-	}
-
-	.branch-filter h4 {
-		margin: 0 0 1rem 0;
-		color: #1e293b;
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-
-	.filter-controls {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.filter-options {
-		display: flex;
-		gap: 2rem;
-		flex-wrap: wrap;
-	}
-
-	.filter-option {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		cursor: pointer;
-		font-weight: 500;
-		color: #475569;
-	}
-
-	.filter-option input[type="radio"] {
-		margin: 0;
-		transform: scale(1.2);
-	}
-
-	.option-text {
-		font-size: 0.95rem;
-	}
-
-	.branch-selector {
-		margin-top: 0.5rem;
-	}
-
-	.branch-select {
-		padding: 0.75rem 1rem;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px;
-		font-size: 1rem;
-		background: white;
-		color: #1e293b;
-		min-width: 300px;
-		cursor: pointer;
-	}
-
-	.branch-select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
 	.records-container {

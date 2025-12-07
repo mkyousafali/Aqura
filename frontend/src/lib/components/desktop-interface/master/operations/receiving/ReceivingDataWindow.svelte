@@ -1,6 +1,7 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
+	import { realtimeService } from '$lib/utils/realtimeService';
 
 	export let windowId;
 	export let dataType; // 'bills', 'tasks', 'completed', 'incomplete', 'no-original', 'no-erp'
@@ -11,6 +12,9 @@
 	export let initialDateFrom = ''; // Receive date from from parent
 	export let initialDateTo = ''; // Receive date to from parent
 	export let bind = undefined; // Optional callback to bind component instance
+	
+	// Real-time subscription tracking
+	let realtimeUnsubscribe = null;
 	
 	// Expose refresh function that window manager can call
 	export function onRefresh() {
@@ -27,6 +31,13 @@
 	let updatingBillId = null;
 	let sortBy = '';
 	let sortOrder = 'asc';
+	
+	// Pagination variables
+	let pageSize = 100; // Load 100 records per page
+	let currentPage = 0;
+	let totalRecords = 0;
+	let hasMoreRecords = true;
+	let allDataLoaded = false;
 	
 	// ERP Reference popup state
 	let showErpPopup = false;
@@ -218,10 +229,17 @@
 			}
 
 			// Transform data for display
-			data = transformData(result.data || []);
+			const transformedData = transformData(result.data || []);
+			
+			// Append to existing data for pagination (not replace)
+			if (currentPage === 0) {
+				data = transformedData; // First page: replace
+			} else {
+				data = [...data, ...transformedData]; // Subsequent pages: append
+			}
 			
 			const endTime = performance.now();
-			console.log(`✅ ${dataType} loaded in ${(endTime - startTime).toFixed(0)}ms (${data.length} records)`);
+			console.log(`✅ ${dataType} loaded in ${(endTime - startTime).toFixed(0)}ms (${transformedData.length} records, total: ${data.length}/${totalRecords})`);
 			
 		} catch (err) {
 			console.error('❌ Error loading data:', err);
@@ -234,11 +252,14 @@
 
 	// Optimized loaders using separate sequential queries (no nested JOINs)
 	async function loadBillsOptimized(supabase) {
-		// Step 1: Load receiving records with minimal columns and hard limit
+		// Step 1: Load receiving records with pagination using range
+		const from = currentPage * pageSize;
+		const to = from + pageSize - 1;
+		
 		let query = supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
-			.limit(200);
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url', { count: 'exact' })
+			.range(from, to);
 
 		// Apply branch filter
 		if (branchFilterMode === 'branch' && selectedBranch) {
@@ -248,25 +269,38 @@
 		// Apply date filter
 		query = applyDateFilter(query);
 
-		const { data: records, error } = await query.order('created_at', { ascending: false });
+		const { data: records, error, count } = await query.order('created_at', { ascending: false });
 
 		if (error) return { error };
-		if (!records || records.length === 0) return { data: [] };
+		if (!records || records.length === 0) {
+			allDataLoaded = true;
+			return { data: [] };
+		}
 
-		// Step 2: Load vendor details separately
+		// Update pagination state
+		totalRecords = count || 0;
+		hasMoreRecords = from + records.length < totalRecords;
+		
+		console.log(`📄 Loading page ${currentPage + 1} (offset: ${from}, limit: ${pageSize})... Total: ${totalRecords} records`);
+
+		// Step 2 & 3: Load vendor and branch details in parallel
 		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(Boolean))];
-		const { data: vendors = [] } = vendorIds.length > 0
-			? await supabase.from('vendors').select('id, vendor_name, vat_number').in('id', vendorIds)
-			: { data: [] };
-
-		// Step 3: Load branch details separately
 		const branchIds = [...new Set(records.map(r => r.branch_id).filter(Boolean))];
-		const { data: branches = [] } = branchIds.length > 0
-			? await supabase.from('branches').select('id, name_en').in('id', branchIds)
-			: { data: [] };
+
+		const [vendorResult, branchResult] = await Promise.all([
+			vendorIds.length > 0
+				? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds)
+				: Promise.resolve({ data: [] }),
+			branchIds.length > 0
+				? supabase.from('branches').select('id, name_en').in('id', branchIds)
+				: Promise.resolve({ data: [] })
+		]);
+
+		const { data: vendors = [] } = vendorResult;
+		const { data: branches = [] } = branchResult;
 
 		// Step 4: Merge in memory (no RLS overhead)
-		const vendorMap = new Map((vendors || []).map(v => [v.id, v]));
+		const vendorMap = new Map((vendors || []).map(v => [v.erp_vendor_id, v]));
 		const branchMap = new Map((branches || []).map(b => [b.id, b]));
 
 		const merged = records.map(record => ({
@@ -279,12 +313,15 @@
 	}
 
 	async function loadNoOriginalOptimized(supabase) {
-		// Step 1: Load records without original bill
+		// Step 1: Load records without original bill with pagination
+		const from = currentPage * pageSize;
+		const to = from + pageSize - 1;
+		
 		let query = supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url', { count: 'exact' })
 			.or('original_bill_url.is.null,original_bill_url.eq.')
-			.limit(200);
+			.range(from, to);
 
 		if (branchFilterMode === 'branch' && selectedBranch) {
 			query = query.eq('branch_id', selectedBranch);
@@ -292,40 +329,51 @@
 
 		query = applyDateFilter(query);
 
-		const { data: records, error } = await query.order('created_at', { ascending: false });
+		const { data: records, error, count } = await query.order('created_at', { ascending: false });
 
 		if (error) return { error };
-		if (!records || records.length === 0) return { data: [] };
-
-		// Step 2: Load vendor details separately
-		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
-		let vendors = [];
-		if (vendorIds.length > 0) {
-			try {
-				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
-				if (vendorError) {
-					console.warn('⚠️ Error loading vendors:', vendorError);
-				} else {
-					vendors = vendorData || [];
-				}
-			} catch (err) {
-				console.warn('⚠️ Exception loading vendors:', err);
-			}
+		if (!records || records.length === 0) {
+			allDataLoaded = true;
+			return { data: [] };
 		}
 
-		// Step 3: Load branch details separately
+		// Update pagination state
+		totalRecords = count || 0;
+		hasMoreRecords = from + records.length < totalRecords;
+		
+		console.log(`📄 Loading page ${currentPage + 1} (range: ${from}-${to}, limit: ${pageSize})... Total: ${totalRecords} records`);
+
+		// Step 2 & 3: Load vendor and branch details in parallel
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
 		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+
+		let vendors = [];
 		let branches = [];
-		if (branchIds.length > 0) {
+
+		if (vendorIds.length > 0 || branchIds.length > 0) {
 			try {
-				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
-				if (branchError) {
-					console.warn('⚠️ Error loading branches:', branchError);
+				const [vendorResult, branchResult] = await Promise.all([
+					vendorIds.length > 0
+						? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds)
+						: Promise.resolve({ data: [], error: null }),
+					branchIds.length > 0
+						? supabase.from('branches').select('id, name_en').in('id', branchIds)
+						: Promise.resolve({ data: [], error: null })
+				]);
+
+				if (vendorResult.error) {
+					console.warn('⚠️ Error loading vendors:', vendorResult.error);
 				} else {
-					branches = branchData || [];
+					vendors = vendorResult.data || [];
+				}
+
+				if (branchResult.error) {
+					console.warn('⚠️ Error loading branches:', branchResult.error);
+				} else {
+					branches = branchResult.data || [];
 				}
 			} catch (err) {
-				console.warn('⚠️ Exception loading branches:', err);
+				console.warn('⚠️ Exception loading vendors and branches:', err);
 			}
 		}
 
@@ -343,12 +391,15 @@
 	}
 
 	async function loadNoPrExcelOptimized(supabase) {
-		// Step 1: Load records without PR Excel file
+		// Step 1: Load records without PR Excel file with pagination
+		const from = currentPage * pageSize;
+		const to = from + pageSize - 1;
+		
 		let query = supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, branch_id, created_at, original_bill_url, pr_excel_file_url', { count: 'exact' })
 			.or('pr_excel_file_url.is.null,pr_excel_file_url.eq.')
-			.limit(200);
+			.range(from, to);
 
 		if (branchFilterMode === 'branch' && selectedBranch) {
 			query = query.eq('branch_id', selectedBranch);
@@ -356,40 +407,51 @@
 
 		query = applyDateFilter(query);
 
-		const { data: records, error } = await query.order('created_at', { ascending: false });
+		const { data: records, error, count } = await query.order('created_at', { ascending: false });
 
 		if (error) return { error };
-		if (!records || records.length === 0) return { data: [] };
-
-		// Step 2: Load vendor details separately
-		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
-		let vendors = [];
-		if (vendorIds.length > 0) {
-			try {
-				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
-				if (vendorError) {
-					console.warn('⚠️ Error loading vendors:', vendorError);
-				} else {
-					vendors = vendorData || [];
-				}
-			} catch (err) {
-				console.warn('⚠️ Exception loading vendors:', err);
-			}
+		if (!records || records.length === 0) {
+			allDataLoaded = true;
+			return { data: [] };
 		}
 
-		// Step 3: Load branch details separately
+		// Update pagination state
+		totalRecords = count || 0;
+		hasMoreRecords = from + records.length < totalRecords;
+		
+		console.log(`📄 Loading page ${currentPage + 1} (range: ${from}-${to}, limit: ${pageSize})... Total: ${totalRecords} records`);
+
+		// Step 2 & 3: Load vendor and branch details in parallel
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
 		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+
+		let vendors = [];
 		let branches = [];
-		if (branchIds.length > 0) {
+
+		if (vendorIds.length > 0 || branchIds.length > 0) {
 			try {
-				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
-				if (branchError) {
-					console.warn('⚠️ Error loading branches:', branchError);
+				const [vendorResult, branchResult] = await Promise.all([
+					vendorIds.length > 0
+						? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds)
+						: Promise.resolve({ data: [], error: null }),
+					branchIds.length > 0
+						? supabase.from('branches').select('id, name_en').in('id', branchIds)
+						: Promise.resolve({ data: [], error: null })
+				]);
+
+				if (vendorResult.error) {
+					console.warn('⚠️ Error loading vendors:', vendorResult.error);
 				} else {
-					branches = branchData || [];
+					vendors = vendorResult.data || [];
+				}
+
+				if (branchResult.error) {
+					console.warn('⚠️ Error loading branches:', branchResult.error);
+				} else {
+					branches = branchResult.data || [];
 				}
 			} catch (err) {
-				console.warn('⚠️ Exception loading branches:', err);
+				console.warn('⚠️ Exception loading vendors and branches:', err);
 			}
 		}
 
@@ -407,12 +469,15 @@
 	}
 
 	async function loadNoErpOptimized(supabase) {
-		// Step 1: Load records without ERP reference (no nested JOINs)
+		// Step 1: Load records without ERP reference with pagination
+		const from = currentPage * pageSize;
+		const to = from + pageSize - 1;
+		
 		let query = supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, bill_date, bill_amount, final_bill_amount, branch_id, created_at, erp_purchase_invoice_reference')
+			.select('id, bill_number, vendor_id, bill_date, bill_amount, final_bill_amount, branch_id, created_at, erp_purchase_invoice_reference', { count: 'exact' })
 			.or('erp_purchase_invoice_reference.is.null,erp_purchase_invoice_reference.eq.')
-			.limit(200);
+			.range(from, to);
 
 		if (branchFilterMode === 'branch' && selectedBranch) {
 			query = query.eq('branch_id', selectedBranch);
@@ -420,40 +485,51 @@
 
 		query = applyDateFilter(query);
 
-		const { data: records, error } = await query.order('created_at', { ascending: false });
+		const { data: records, error, count } = await query.order('created_at', { ascending: false });
 
 		if (error) return { error };
-		if (!records || records.length === 0) return { data: [] };
-
-		// Step 2: Load vendor details separately
-		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
-		let vendors = [];
-		if (vendorIds.length > 0) {
-			try {
-				const { data: vendorData, error: vendorError } = await supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds);
-				if (vendorError) {
-					console.warn('⚠️ Error loading vendors:', vendorError);
-				} else {
-					vendors = vendorData || [];
-				}
-			} catch (err) {
-				console.warn('⚠️ Exception loading vendors:', err);
-			}
+		if (!records || records.length === 0) {
+			allDataLoaded = true;
+			return { data: [] };
 		}
 
-		// Step 3: Load branch details separately
+		// Update pagination state
+		totalRecords = count || 0;
+		hasMoreRecords = from + records.length < totalRecords;
+		
+		console.log(`📄 Loading page ${currentPage + 1} (range: ${from}-${to}, limit: ${pageSize})... Total: ${totalRecords} records`);
+
+		// Step 2 & 3: Load vendor and branch details in parallel
+		const vendorIds = [...new Set(records.map(r => r.vendor_id).filter(v => v && v !== null && v !== undefined))];
 		const branchIds = [...new Set(records.map(r => r.branch_id).filter(b => b && b !== null && b !== undefined))];
+
+		let vendors = [];
 		let branches = [];
-		if (branchIds.length > 0) {
+
+		if (vendorIds.length > 0 || branchIds.length > 0) {
 			try {
-				const { data: branchData, error: branchError } = await supabase.from('branches').select('id, name_en').in('id', branchIds);
-				if (branchError) {
-					console.warn('⚠️ Error loading branches:', branchError);
+				const [vendorResult, branchResult] = await Promise.all([
+					vendorIds.length > 0
+						? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number').in('erp_vendor_id', vendorIds)
+						: Promise.resolve({ data: [], error: null }),
+					branchIds.length > 0
+						? supabase.from('branches').select('id, name_en').in('id', branchIds)
+						: Promise.resolve({ data: [], error: null })
+				]);
+
+				if (vendorResult.error) {
+					console.warn('⚠️ Error loading vendors:', vendorResult.error);
 				} else {
-					branches = branchData || [];
+					vendors = vendorResult.data || [];
+				}
+
+				if (branchResult.error) {
+					console.warn('⚠️ Error loading branches:', branchResult.error);
+				} else {
+					branches = branchResult.data || [];
 				}
 			} catch (err) {
-				console.warn('⚠️ Exception loading branches:', err);
+				console.warn('⚠️ Exception loading vendors and branches:', err);
 			}
 		}
 
@@ -471,18 +547,18 @@
 	}
 
 	async function loadTasksOptimized(supabase) {
-		// RPC functions already optimized, just add limit
-		const { data, error } = await supabase.rpc('get_all_receiving_tasks').limit(200);
+		// RPC functions already optimized, just remove limit to get all
+		const { data, error } = await supabase.rpc('get_all_receiving_tasks');
 		return { data: data || [], error };
 	}
 
 	async function loadCompletedTasksOptimized(supabase) {
-		const { data, error } = await supabase.rpc('get_completed_receiving_tasks').limit(200);
+		const { data, error } = await supabase.rpc('get_completed_receiving_tasks');
 		return { data: data || [], error };
 	}
 
 	async function loadIncompleteTasksOptimized(supabase) {
-		const { data, error } = await supabase.rpc('get_incomplete_receiving_tasks').limit(200);
+		const { data, error } = await supabase.rpc('get_incomplete_receiving_tasks');
 		return { data: data || [], error };
 	}
 
@@ -867,15 +943,66 @@
 		loadBranches();
 		loadData();
 		
+		// Setup real-time listening for receiving_records table
+		if (dataType === 'bills' || dataType === 'no-original' || dataType === 'no-pr-excel' || dataType === 'no-erp') {
+			setupRealtimeListener();
+		}
+		
 		// Call bind callback if provided
 		if (bind) {
 			bind({ onRefresh });
 		}
 	});
+
+	onDestroy(() => {
+		// Cleanup real-time subscription
+		if (realtimeUnsubscribe) {
+			realtimeUnsubscribe();
+		}
+	});
+
+	// Setup real-time listening for data changes
+	function setupRealtimeListener() {
+		try {
+			console.log('📡 Setting up real-time listener for receiving_records...');
+			
+			// Subscribe to receiving_records changes
+			realtimeUnsubscribe = realtimeService.subscribeToReceivingRecordsChanges((payload) => {
+				console.log('📡 Real-time event received:', payload.eventType);
+				
+				// Reset pagination and refresh data when changes are detected
+				currentPage = 0;
+				allDataLoaded = false;
+				loadData();
+			});
+		} catch (err) {
+			console.warn('⚠️ Real-time setup error:', err.message);
+			// Silently continue - data will load normally without real-time
+		}
+	}
 	
-	// Function to handle filter changes
+	// Function to handle filter changes - reset pagination
 	function handleFilterChange() {
+		currentPage = 0;
+		allDataLoaded = false;
+		data = [];
 		loadData();
+	}
+	
+	// Function to load next page
+	function loadNextPage() {
+		if (hasMoreRecords && !loading) {
+			currentPage++;
+			loadData();
+		}
+	}
+	
+	// Function to load all remaining records
+	async function loadAllRecords() {
+		while (hasMoreRecords && !loading) {
+			currentPage++;
+			await loadData();
+		}
 	}
 </script>
 
@@ -993,19 +1120,6 @@
 			/>
 			<span class="search-icon">🔍</span>
 		</div>
-		<button 
-			class="refresh-btn"
-			on:click={loadData}
-			disabled={loading}
-			title="Refresh data from database"
-		>
-			{#if loading}
-				<span class="refresh-icon spinning">🔄</span>
-			{:else}
-				<span class="refresh-icon">🔄</span>
-			{/if}
-			Refresh
-		</button>
 		<div class="record-count">
 			{filteredData.length} of {data.length} records
 		</div>
@@ -1133,6 +1247,48 @@
 				</tbody>
 			</table>
 		{/if}
+	</div>
+
+	<!-- Pagination Controls -->
+	<div class="pagination-container">
+		<div class="pagination-info">
+			<span class="record-info">Page {currentPage + 1} • Showing {data.length} of {totalRecords} records</span>
+		</div>
+		<div class="pagination-controls">
+			<button 
+				class="pagination-btn"
+				on:click={() => { currentPage = 0; loadData(); }}
+				disabled={currentPage === 0 || loading}
+				title="Go to first page"
+			>
+				⬅️ First
+			</button>
+			<button 
+				class="pagination-btn"
+				on:click={() => { currentPage = Math.max(0, currentPage - 1); loadData(); }}
+				disabled={currentPage === 0 || loading}
+				title="Go to previous page"
+			>
+				◀️ Previous
+			</button>
+			<span class="page-number">Page {currentPage + 1}</span>
+			<button 
+				class="pagination-btn"
+				on:click={loadNextPage}
+				disabled={!hasMoreRecords || loading}
+				title="Go to next page"
+			>
+				Next ▶️
+			</button>
+			<button 
+				class="pagination-btn"
+				on:click={loadAllRecords}
+				disabled={!hasMoreRecords || loading}
+				title="Load all remaining records"
+			>
+				Load All ⬇️
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -1357,38 +1513,6 @@
 	.record-count {
 		font-size: 14px;
 		color: #64748b;
-	}
-
-	.refresh-btn {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 8px 16px;
-		background: #3b82f6;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 14px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-	}
-
-	.refresh-btn:hover:not(:disabled) {
-		background: #2563eb;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-	}
-
-	.refresh-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.refresh-icon {
-		display: inline-block;
-		font-size: 16px;
-		transition: transform 0.3s ease;
 	}
 
 	.refresh-icon.spinning {
@@ -1659,5 +1783,79 @@
 	.erp-cancel-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* Pagination Styles */
+	.pagination-container {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 16px 20px;
+		border-top: 1px solid #e2e8f0;
+		background: #f8fafc;
+		gap: 20px;
+		flex-wrap: wrap;
+	}
+
+	.pagination-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 14px;
+		color: #475569;
+		font-weight: 500;
+	}
+
+	.record-info {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.pagination-controls {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.pagination-btn {
+		padding: 8px 12px;
+		background: #e2e8f0;
+		border: 1px solid #cbd5e1;
+		border-radius: 6px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #475569;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.pagination-btn:hover:not(:disabled) {
+		background: #cbd5e1;
+		border-color: #94a3b8;
+		color: #1e293b;
+	}
+
+	.pagination-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.pagination-btn:active:not(:disabled) {
+		background: #94a3b8;
+		transform: scale(0.98);
+	}
+
+	.page-number {
+		padding: 8px 12px;
+		background: #dbeafe;
+		border-radius: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #1e40af;
+		min-width: 80px;
+		text-align: center;
 	}
 </style>

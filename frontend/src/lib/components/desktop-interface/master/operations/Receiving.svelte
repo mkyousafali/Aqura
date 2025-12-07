@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { realtimeService } from '$lib/utils/realtimeService';
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import ReceivingDataWindow from '$lib/components/desktop-interface/master/operations/receiving/ReceivingDataWindow.svelte';
@@ -22,6 +23,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let dateFilterMode = 'all'; // 'all', 'today', 'yesterday', 'range'
 	let dateFrom = '';
 	let dateTo = '';
+	
+	// Real-time subscription unsubscribe function
+	let unsubscribeReceivingRecords = null;
 	
 	// Helper functions for date filtering
 	function getToday() {
@@ -196,7 +200,37 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	onMount(async () => {
 		await loadBranches();
 		await loadDashboardData();
+		setupRealtimeSubscriptions();
+
+		return () => {
+			if (unsubscribeReceivingRecords) {
+				unsubscribeReceivingRecords();
+			}
+		};
 	});
+
+	async function setupRealtimeSubscriptions() {
+		try {
+			console.log('📡 Setting up real-time subscriptions for Receiving dashboard...');
+
+			// Subscribe to receiving_records changes
+			unsubscribeReceivingRecords = realtimeService.subscribeToReceivingRecordsChanges(
+				async (payload) => {
+					console.log('🔔 Real-time receiving record update:', {
+						event: payload.eventType,
+						recordId: payload.new?.id || payload.old?.id
+					});
+
+					// Reload dashboard data on any change
+					await loadDashboardData();
+				}
+			);
+
+			console.log('✅ Real-time subscriptions setup complete');
+		} catch (error) {
+			console.error('Error setting up real-time subscriptions:', error);
+		}
+	}
 
 	// Reactive statements for branch filter changes
 	$: if (branchFilterMode === 'all') {
@@ -311,7 +345,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		openWindow({
 			id: windowId,
-			title: '📋 Receiving Records',
+			title: 'Receiving Records',
 			component: ReceivingRecords,
 			icon: '📋',
 			size: { width: 1400, height: 900 },
@@ -377,130 +411,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 <!-- Receiving Dashboard -->
 <div class="receiving-window">
-	<div class="header">
-		<div class="title-section">
-			<h1 class="title">📦 Receiving</h1>
-			<p class="subtitle">Manage incoming inventory and deliveries</p>
-		</div>
-		<div class="header-actions">
-			<button 
-				class="refresh-btn" 
-				on:click={refreshDashboard}
-				disabled={loading}
-				title="Refresh Dashboard Data"
-			>
-				<span class="refresh-icon" class:spinning={loading}>🔄</span>
-				<span class="refresh-text">{loading ? 'Refreshing...' : 'Refresh'}</span>
-			</button>
-		</div>
-	</div>
-
 	<!-- Top Dashboard Section with 5 Placeholders -->
 	<div class="dashboard-section">
-		<!-- Branch Filter Section -->
-		<div class="filter-section">
-			<div class="branch-filter">
-				<h4>🏢 Filter by Branch</h4>
-				<div class="filter-controls">
-					<div class="filter-options">
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={branchFilterMode} 
-								value="all"
-							/>
-							<span class="option-text">All Branches</span>
-						</label>
-						
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={branchFilterMode} 
-								value="branch"
-							/>
-							<span class="option-text">By Branch</span>
-						</label>
-					</div>
-					
-					{#if branchFilterMode === 'branch'}
-						<div class="branch-selector">
-							{#if loadingBranches}
-								<div class="loading-state">Loading branches...</div>
-							{:else}
-								<select bind:value={selectedBranch} class="branch-select">
-									<option value="">Choose a branch...</option>
-									{#each branches as branch}
-										<option value={branch.id}>
-											{branch.name_en} ({branch.name_ar}) - {branch.location_en}
-										</option>
-									{/each}
-								</select>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-		
-		<!-- Date Filter Section -->
-		<div class="filter-section">
-			<div class="date-filter">
-				<h4>📅 Filter by Date</h4>
-				<div class="filter-controls">
-					<div class="filter-options">
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={dateFilterMode} 
-								value="all"
-							/>
-							<span class="option-text">All Dates</span>
-						</label>
-						
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={dateFilterMode} 
-								value="today"
-							/>
-							<span class="option-text">Today</span>
-						</label>
-						
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={dateFilterMode} 
-								value="yesterday"
-							/>
-							<span class="option-text">Yesterday</span>
-						</label>
-						
-						<label class="filter-option">
-							<input 
-								type="radio" 
-								bind:group={dateFilterMode} 
-								value="range"
-							/>
-							<span class="option-text">Date Range</span>
-						</label>
-					</div>
-					
-					{#if dateFilterMode === 'range'}
-						<div class="date-range-selector">
-							<div class="date-input-group">
-								<span class="date-label">From:</span>
-								<input type="date" bind:value={dateFrom} class="date-input" />
-							</div>
-							<div class="date-input-group">
-								<span class="date-label">To:</span>
-								<input type="date" bind:value={dateTo} class="date-input" />
-							</div>
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-
 		<h2 class="section-title">Dashboard Overview</h2>
 		<div class="dashboard-grid">
 			{#each dashboardCards as card}
