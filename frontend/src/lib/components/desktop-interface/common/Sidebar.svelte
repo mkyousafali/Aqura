@@ -37,6 +37,7 @@
 	import MonthlyBreakdown from '$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte';
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
 	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
+	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
@@ -664,6 +665,26 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Paid Manager window
+	function openPaidManager() {
+		const windowId = generateWindowId('paid-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Paid Manager #${instanceNumber}`,
+			component: PaidManager,
+			icon: '💳',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 110 + (Math.random() * 100),
+				y: 110 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Monthly Manager window
 	function openMonthlyManager() {
 		const windowId = generateWindowId('monthly-manager');
@@ -1056,6 +1077,12 @@ function openApprovalCenter() {
 				<button class="submenu-item" on:click={openDayBudgetPlanner}>
 					<span class="menu-icon">📊</span>
 					<span class="menu-text">{t('nav.dayBudgetPlanner') || 'Day Budget Planner'}</span>
+				</button>
+			</div>
+			<div class="submenu-item-container">
+				<button class="submenu-item" on:click={openPaidManager}>
+					<span class="menu-icon">💳</span>
+					<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
 				</button>
 			</div>
 		</div>
