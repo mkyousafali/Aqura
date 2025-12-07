@@ -32,7 +32,6 @@
 	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
 	import CommunicationCenter from '$lib/components/desktop-interface/master/CommunicationCenter.svelte';
 	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
-	import ScheduledPayments from '$lib/components/desktop-interface/master/finance/ScheduledPayments.svelte';
 	import MonthlyManager from '$lib/components/desktop-interface/master/finance/MonthlyManager.svelte';
 	import MonthlyBreakdown from '$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte';
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
@@ -628,44 +627,6 @@ function openApprovalCenter() {
 		});
 	}
 
-	// Open Scheduled Payments window
-	function openScheduledPayments() {
-		const windowId = generateWindowId('scheduled-payments');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		let scheduledPaymentsRefreshFunction = null;
-		
-		openWindow({
-			id: windowId,
-			title: `Scheduled Payments #${instanceNumber}`,
-			component: ScheduledPayments,
-			props: {
-				setRefreshCallback: (fn) => {
-					console.log('📝 [Sidebar] Refresh function registered from ScheduledPayments');
-					scheduledPaymentsRefreshFunction = fn;
-				},
-				onRefresh: async () => {
-					console.log('🔄 [Sidebar] onRefresh called from window');
-					console.log('🔍 [Sidebar] scheduledPaymentsRefreshFunction:', scheduledPaymentsRefreshFunction);
-					if (scheduledPaymentsRefreshFunction) {
-						console.log('✅ [Sidebar] Calling ScheduledPayments refresh function');
-						return await scheduledPaymentsRefreshFunction();
-					} else {
-						console.log('❌ [Sidebar] No refresh function available');
-					}
-				}
-			},
-			icon: '💰',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 120 + (Math.random() * 100),
-				y: 120 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-		});
-	}
-
 	// Open Paid Manager window
 	function openPaidManager() {
 		const windowId = generateWindowId('paid-manager');
@@ -1077,12 +1038,6 @@ function openApprovalCenter() {
 					<button class="submenu-item" on:click={openStartReceiving}>
 						<span class="menu-icon">📦</span>
 						<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openScheduledPayments}>
-						<span class="menu-icon">💰</span>
-						<span class="menu-text">{t('nav.scheduledPayments') || 'Scheduled Payments'}</span>
 					</button>
 				</div>
 				<div class="submenu-item-container">

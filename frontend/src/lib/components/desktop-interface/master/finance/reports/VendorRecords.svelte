@@ -7,12 +7,13 @@
 	let records: any[] = [];
 	let totalCount = 0;
 	let searchQuery = '';
+	let searchType: 'bill' | 'vendor' | 'vendor_id' = 'bill'; // Search type: bill number, vendor name, or vendor ID
 	let branches: Array<{ id: number; name_en: string; name_ar: string }> = [];
 	let selectedBranchId = '';
 
 	// Server-side Pagination
 	let currentPage = 1;
-	let pageSize = 10;
+	let pageSize = 50;
 
 	// Track previous filter values
 	let prevSearchQuery = '';
@@ -22,14 +23,6 @@
 	$: totalPages = Math.ceil(totalCount / pageSize);
 	$: startRecord = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
 	$: endRecord = Math.min(currentPage * pageSize, totalCount);
-
-	// Reset to page 1 when filters change
-	$: if (searchQuery !== prevSearchQuery || selectedBranchId !== prevBranchId) {
-		prevSearchQuery = searchQuery;
-		prevBranchId = selectedBranchId;
-		currentPage = 1;
-		loadRecords();
-	}
 
 	onMount(async () => {
 		await loadBranches();
@@ -82,7 +75,7 @@
 						bank_name,
 						iban
 					),
-					branches!inner (
+					branches (
 						name_en,
 						name_ar
 					)
@@ -94,7 +87,16 @@
 			}
 
 			if (searchQuery) {
-				query = query.or(`bill_number.ilike.%${searchQuery}%,vendors.vendor_name.ilike.%${searchQuery}%`);
+				if (searchType === 'bill') {
+					query = query.ilike('bill_number', `%${searchQuery}%`);
+				} else if (searchType === 'vendor') {
+					// For vendor search, we need to filter the joined vendor data
+					// This requires using a filter on the relationship
+					query = query.ilike('vendors.vendor_name', `%${searchQuery}%`);
+				} else if (searchType === 'vendor_id') {
+					// Filter by vendor ID
+					query = query.eq('vendor_id', parseInt(searchQuery));
+				}
 			}
 
 			// Apply pagination
@@ -211,10 +213,39 @@
 							id="search"
 							type="text"
 							bind:value={searchQuery}
-							placeholder="Search by bill number or vendor name..."
+							placeholder="Search by bill number, vendor name, or vendor ID..."
 							class="search-input"
 							disabled={loadingRecords}
 						/>
+						<div class="search-type-radios">
+							<label class="radio-label">
+								<input 
+									type="radio" 
+									bind:group={searchType} 
+									value="bill"
+									disabled={loadingRecords}
+								/>
+								Bill Number
+							</label>
+							<label class="radio-label">
+								<input 
+									type="radio" 
+									bind:group={searchType} 
+									value="vendor"
+									disabled={loadingRecords}
+								/>
+								Vendor Name
+							</label>
+							<label class="radio-label">
+								<input 
+									type="radio" 
+									bind:group={searchType} 
+									value="vendor_id"
+									disabled={loadingRecords}
+								/>
+								Vendor ID
+							</label>
+						</div>
 					</div>
 					<div class="filter-group">
 						<label for="branch-filter">Branch:</label>
@@ -230,6 +261,9 @@
 							{/each}
 						</select>
 					</div>
+					<button class="load-btn" on:click={() => { currentPage = 1; loadRecords(); }} disabled={loadingRecords}>
+						{loadingRecords ? '⏳ Loading...' : '🔍 Load Results'}
+					</button>
 					{#if searchQuery || selectedBranchId}
 						<button class="reset-btn" on:click={resetFilters} disabled={loadingRecords}>
 							Clear Filters
@@ -558,6 +592,32 @@
 		cursor: pointer;
 	}
 
+	.search-type-radios {
+		display: flex;
+		gap: 1rem;
+		margin-top: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.radio-label input[type="radio"] {
+		cursor: pointer;
+		accent-color: #3b82f6;
+	}
+
+	.radio-label input[type="radio"]:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
 	.reset-btn {
 		padding: 0.625rem 1rem;
 		background: #ef4444;
@@ -577,6 +637,28 @@
 
 	.reset-btn:disabled {
 		background: #fca5a5;
+		cursor: not-allowed;
+	}
+
+	.load-btn {
+		padding: 0.625rem 1.5rem;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: background 0.2s;
+		white-space: nowrap;
+	}
+
+	.load-btn:hover:not(:disabled) {
+		background: #2563eb;
+	}
+
+	.load-btn:disabled {
+		background: #93c5fd;
 		cursor: not-allowed;
 	}
 

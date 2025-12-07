@@ -1168,108 +1168,11 @@
 					alert('Failed to update payment status');
 				}
 				return;
-			}				// Create task for accountant if we have accountant info
-				if (receivingRecord?.accountant_user_id) {
-					const receiverName = receivingRecord.users 
-						? receivingRecord.users.username
-						: 'Unknown';
+			}
 
-					const taskTitle = 'New payment made — enter into the ERP, update the ERP reference, and upload the payment receipt';
-					const taskDescription = `Payment Details:
-- Bill Number: ${payment.bill_number || 'N/A'}
-- Bill Amount: ${payment.bill_amount ? payment.bill_amount.toLocaleString() : 'N/A'}
-- Vendor Name: ${payment.vendor_name || 'N/A'}
-- Receiver: ${receiverName}
-- Payment Method: ${payment.payment_method || 'N/A'}`;
-
-					// Create the task
-					const { data: taskData, error: taskError } = await supabase
-						.from('tasks')
-						.insert({
-							title: taskTitle,
-							description: taskDescription,
-							created_by: $currentUser?.id,
-							created_by_name: $currentUser?.username || $currentUser?.displayName,
-							require_task_finished: true,
-							require_erp_reference: true, // MANDATORY: ERP reference required for payment tasks
-							priority: 'medium',
-							status: 'active',
-							metadata: {
-								payment_schedule_id: paymentId,
-								payment_type: 'vendor_payment',
-								bill_number: payment.bill_number,
-								vendor_name: payment.vendor_name
-							}
-						})
-						.select()
-						.single();
-
-					if (taskError) {
-						console.error('Error creating task:', taskError);
-					} else {
-						// Assign task to accountant
-						const { data: assignmentData, error: assignmentError } = await supabase
-							.from('task_assignments')
-							.insert({
-								task_id: taskData.id,
-								assignment_type: 'user',
-								assigned_to_user_id: receivingRecord.accountant_user_id,
-								assigned_by: $currentUser?.id,
-								assigned_by_name: $currentUser?.username || $currentUser?.displayName,
-								deadline_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Due tomorrow
-								require_task_finished: true,
-								require_erp_reference: true, // MANDATORY: ERP reference required for payment tasks
-								status: 'assigned'
-							})
-							.select()
-							.single();
-
-						if (assignmentError) {
-							console.error('Error assigning task:', assignmentError);
-						} else {
-							// Update vendor_payment_schedule with task and assignment IDs
-							const { error: updatePaymentError } = await supabase
-								.from('vendor_payment_schedule')
-								.update({
-									task_id: taskData.id,
-									task_assignment_id: assignmentData.id
-								})
-								.eq('id', paymentId);
-
-							if (updatePaymentError) {
-								console.error('Error updating payment with task IDs:', updatePaymentError);
-							}
-							
-							// Send notification to accountant
-							try {
-								const { error: notificationError } = await supabase
-									.from('notifications')
-									.insert({
-										title: 'New Payment Task Assigned',
-										message: `You have been assigned a payment processing task for ${payment.vendor_name || 'vendor'}. Bill Amount: ${payment.bill_amount ? payment.bill_amount.toLocaleString() : 'N/A'}`,
-										type: 'task_assigned',
-										priority: 'medium',
-										target_type: 'specific_users',
-										target_users: [receivingRecord.accountant_user_id],
-										created_by: $currentUser?.id,
-										created_by_name: $currentUser?.username || $currentUser?.displayName || 'System',
-										task_id: taskData.id,
-										task_assignment_id: assignmentData.id
-									});
-
-								if (notificationError) {
-									console.error('Error sending notification:', notificationError);
-								}
-							} catch (notificationErr) {
-								console.error('Error creating notification:', notificationErr);
-							}
-						}
-					}
-				}
-
-				if (!isAutoProcessed) {
-					alert('Payment marked as paid successfully and task created for accountant');
-				}
+			if (!isAutoProcessed) {
+				alert('Payment marked as paid successfully');
+			}
 		} else {
 			// Unmark as paid - update vendor_payment_schedule
 			const { error: updateError } = await supabase
