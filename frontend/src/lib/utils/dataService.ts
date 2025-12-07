@@ -669,6 +669,32 @@ export const dataService = {
       }
     },
 
+    async getAllLite(): Promise<{ data: any[] | null; error: any }> {
+      if (USE_SUPABASE) {
+        try {
+          console.log('📥 Fetching employees (lite version - no nested relations)');
+          const { data, error } = await supabase
+            .from("hr_employees")
+            .select("id, employee_id, branch_id, name")
+            .order("employee_id", { ascending: true });
+
+          if (error) {
+            console.error("Failed to fetch HR employees (lite):", error);
+            return { data: null, error: error.message };
+          }
+
+          console.log(`✅ Fetched ${data?.length || 0} employees (lite)`);
+          return { data, error: null };
+        } catch (error) {
+          console.error("Failed to fetch HR employees (lite):", error);
+          return { data: null, error: error.message };
+        }
+      } else {
+        await delay(MOCK_DATA_DELAY);
+        return { data: [], error: null };
+      }
+    },
+
     async getByBranch(
       branchId: string,
     ): Promise<{ data: any[] | null; error: any }> {

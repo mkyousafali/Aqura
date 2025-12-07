@@ -17,6 +17,8 @@
 	let allDates = []; // Store all unique dates for filter dropdown
 	let biometricConnections = []; // Store biometric connection sync status
 	let loading = true;
+	let loadingProgress = 0; // 0-100
+	let loadingStatus = ''; // Current loading status message
 	let refreshingSyncStatus = false;
 	let error = '';
 	let unsubscribeFingerprint: (() => void) | null = null;
@@ -52,42 +54,66 @@
 		try {
 			loading = true;
 			error = '';
+			console.time('⏱️ BiometricData loadData');
 
-			// Fetch employees data first
-			const { data: employees, error: empError } = await dataService.hrEmployees.getAll();
+			// Get today's date upfront
+			const today = new Date().toISOString().split('T')[0];
+
+			// Load all independent data in parallel instead of sequentially
+			console.log('📥 Starting parallel data load for:', loadingMode);
+			
+			// Always load today's data by default (fast path)
+			const fingerprintPromise = supabase
+				.from('hr_fingerprint_transactions')
+				.select('*')
+				.eq('date', today)
+				.order('time', { ascending: false });
+
+			// Execute all queries in parallel directly to Supabase (no dataService overhead)
+			const [employeesRes, branchesRes, positionsRes, fingerprintRes] = await Promise.all([
+				supabase.from('hr_employees').select('id, employee_id, branch_id, name').order('employee_id'),
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+				supabase.from('hr_position_assignments').select('employee_id, position:position_id(position_title_en, position_title_ar)').eq('is_current', true),
+				fingerprintPromise
+			]);
+
+			// Also load biometric connections in parallel (non-blocking)
+			loadBiometricConnections().catch(err => console.error('Error loading biometric connections:', err));
+
+			// Process employees
+			const employees = employeesRes.data || [];
+			const empError = employeesRes.error;
 			if (empError) {
 				console.error('Failed to load employees:', empError);
-			} else if (employees) {
-				// Build employee map by composite key: employee_id + branch_id
-				// This handles duplicate employee_ids across different branches
+			} else {
+				console.log(`✅ Loaded ${employees.length} employees`);
 				employees.forEach(emp => {
 					const compositeKey = `${emp.employee_id}_${emp.branch_id}`;
 					employeeMap.set(compositeKey, emp);
 				});
 			}
 
-			// Fetch branches data
-			const { data: branches, error: branchError } = await dataService.branches.getAll();
+			// Process branches
+			const branches = branchesRes.data || [];
+			const branchError = branchesRes.error;
 			if (branchError) {
 				console.error('Failed to load branches:', branchError);
-			} else if (branches) {
-				// Build branch map by id
+			} else {
+				console.log(`✅ Loaded ${branches.length} branches`);
 				branches.forEach(branch => {
 					branchMap.set(branch.id, branch);
 				});
 			}
 
-		// Fetch biometric connections for sync status
-		await loadBiometricConnections();			// Fetch position assignments and positions data
-			const { data: positionAssignments, error: posAssignError } = await dataService.hrAssignments.getAll();
-			if (posAssignError) {
-				console.error('Failed to load position assignments:', posAssignError);
-			} else if (positionAssignments) {
-				// Build position map by employee UUID id
-				// hrAssignments already includes position data in the 'position' nested field
+			// Process position assignments
+			const positionAssignments = positionsRes.data || [];
+			const posError = positionsRes.error;
+			if (posError) {
+				console.error('Failed to load position assignments:', posError);
+			} else {
+				console.log(`✅ Loaded ${positionAssignments.length} position assignments`);
 				positionAssignments.forEach(assignment => {
 					if (assignment.employee_id && assignment.position) {
-						// Store both English and Arabic titles for localization
 						positionMap.set(assignment.employee_id, {
 							en: assignment.position.position_title_en || 'N/A',
 							ar: assignment.position.position_title_ar || 'N/A'
@@ -96,51 +122,27 @@
 				});
 			}
 
-		// Get today's date
-		const today = new Date().toISOString().split('T')[0];
-
-		// Fetch fingerprint transactions based on loading mode
-		let fetchedData;
-		let fetchError;
-		
-		if (loadingMode === 'today') {
-			// Load only today's data with optimized query
-			const result = await dataService.hrFingerprint.getByDate(today);
-			fetchedData = result.data || [];
-			fetchError = result.error;
-		} else if (loadingMode === 'specific' && specificDate) {
-			// Load specific date data with optimized query
-			const result = await dataService.hrFingerprint.getByDate(specificDate);
-			fetchedData = result.data || [];
-			fetchError = result.error;
-		} else if (loadingMode === 'range' && startDate && endDate) {
-			// Load date range data with optimized query
-			const result = await dataService.hrFingerprint.getByDateRange(startDate, endDate);
-			fetchedData = result.data || [];
-			fetchError = result.error;
-		} else if (loadingMode === 'all') {
-			// Load all data (paginated in batches)
-			const result = await dataService.hrFingerprint.getAll();
-			fetchedData = result.data;
-			fetchError = result.error;
-		} else {
-			// Default to today if mode is not properly set
-			const result = await dataService.hrFingerprint.getByDate(today);
-			fetchedData = result.data || [];
-			fetchError = result.error;
-		}
-		
-		const data = fetchedData;			if (fetchError) {
+			// Process fingerprint data
+			const data = fingerprintRes.data || [];
+			const fetchError = fingerprintRes.error;
+			
+			if (fetchError) {
+				console.error('Failed to load fingerprint data:', fetchError);
 				error = 'Failed to load fingerprint data';
+				console.timeEnd('⏱️ BiometricData loadData');
 				return;
 			}
 
 			if (!data || data.length === 0) {
+				console.log('ℹ️ No fingerprint data found');
 				totalPresentToday = 0;
 				branchBreakdown = [];
 				allTransactions = [];
+				console.timeEnd('⏱️ BiometricData loadData');
 				return;
 			}
+
+			console.log(`✅ Loaded ${data.length} fingerprint transactions`);
 
 			// Store all transactions sorted by date and time (latest first)
 			allTransactions = data.sort((a, b) => {
@@ -150,18 +152,17 @@
 			});
 
 			// Filter for today's transactions
-			const todayTransactions = data.filter(transaction => {
-				const transactionDate = transaction.date;
-				return transactionDate === today;
-			});
+			const todayTransactions = data.filter(transaction => transaction.date === today);
 
 			if (todayTransactions.length === 0) {
 				totalPresentToday = 0;
 				branchBreakdown = [];
+				console.log('ℹ️ No transactions for today');
+				console.timeEnd('⏱️ BiometricData loadData');
 				return;
 			}
 
-			// Count unique employees present today (check-in entries)
+			// Count unique employees present today and build branch stats
 			const uniqueEmployees = new Set();
 			const branchStatsMap = new Map();
 
@@ -201,6 +202,8 @@
 					uniqueEmployees: branch.uniqueEmployees.size
 				}))
 				.sort((a, b) => b.uniqueEmployees - a.uniqueEmployees);
+
+			console.timeEnd('⏱️ BiometricData loadData');
 
 		} catch (err) {
 			console.error('Error loading data:', err);
@@ -361,6 +364,129 @@
 		applyFilters();
 	}
 
+	// Load today's data when switching to today mode
+	$: if (loadingMode === 'today') {
+		loadDataOnDemand('today', null, null);
+	}
+
+	// Load all data when switching to all mode
+	$: if (loadingMode === 'all') {
+		loadDataOnDemand('all', null, null);
+	}
+
+	async function loadDataOnDemand(mode, dateOrStart, endDateVal) {
+		try {
+			loading = true;
+			loadingProgress = 0;
+			loadingStatus = `${t('app.loading')}...`;
+			console.log('📥 Loading data on demand for mode:', mode);
+			const today = new Date().toISOString().split('T')[0];
+			let query = supabase.from('hr_fingerprint_transactions').select('*');
+
+			if (mode === 'today') {
+				loadingStatus = `${t('app.loading')} ${t('hr.loadToday')}...`;
+				query = query.eq('date', today).order('time', { ascending: false }).limit(1000);
+			} else if (mode === 'specific') {
+				loadingStatus = `${t('app.loading')} ${t('hr.loadSpecificDate')}...`;
+				query = query.eq('date', dateOrStart).order('time', { ascending: false }).limit(1000);
+			} else if (mode === 'range') {
+				loadingStatus = `${t('app.loading')} ${t('hr.loadDateRange')}...`;
+				query = query
+					.gte('date', dateOrStart)
+					.lte('date', endDateVal)
+					.order('date', { ascending: false })
+					.order('time', { ascending: false })
+					.limit(1000);
+			} else if (mode === 'all') {
+				loadingStatus = `${t('app.loading')} ${t('hr.loadAllData')}...`;
+				query = query.order('date', { ascending: false }).order('time', { ascending: false }).limit(1000);
+			}
+
+			loadingProgress = 10;
+
+			// Load fingerprint data and employee/branch data in parallel
+			const [fingerprintRes, employeesRes, branchesRes, positionsRes] = await Promise.all([
+				query,
+				supabase.from('hr_employees').select('id, employee_id, branch_id, name').order('employee_id'),
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar'),
+				supabase.from('hr_position_assignments').select('employee_id, position:position_id(position_title_en, position_title_ar)').eq('is_current', true)
+			]);
+
+			loadingProgress = 50;
+
+			const { data, error } = fingerprintRes;
+
+			if (error) {
+				console.error('Failed to load data on demand:', error);
+				loading = false;
+				return;
+			}
+
+			// Process employees in parallel
+			const employees = employeesRes.data || [];
+			const empError = employeesRes.error;
+			if (empError) {
+				console.error('Failed to load employees:', empError);
+			} else {
+				employees.forEach(emp => {
+					const compositeKey = `${emp.employee_id}_${emp.branch_id}`;
+					employeeMap.set(compositeKey, emp);
+				});
+			}
+
+			// Process branches
+			const branches = branchesRes.data || [];
+			const branchError = branchesRes.error;
+			if (branchError) {
+				console.error('Failed to load branches:', branchError);
+			} else {
+				branches.forEach(branch => {
+					branchMap.set(branch.id, branch);
+				});
+			}
+
+			// Process position assignments
+			const positionAssignments = positionsRes.data || [];
+			const posError = positionsRes.error;
+			if (posError) {
+				console.error('Failed to load position assignments:', posError);
+			} else {
+				positionAssignments.forEach(assignment => {
+					if (assignment.employee_id && assignment.position) {
+						positionMap.set(assignment.employee_id, {
+							en: assignment.position.position_title_en || 'N/A',
+							ar: assignment.position.position_title_ar || 'N/A'
+						});
+					}
+				});
+			}
+
+			loadingProgress = 75;
+			console.log(`✅ Loaded ${data?.length || 0} records on demand (mode: ${mode})`);
+			allTransactions = (data || []).sort((a, b) => {
+				const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime();
+				if (dateCompare !== 0) return dateCompare;
+				return b.time.localeCompare(a.time);
+			});
+
+			loadingProgress = 90;
+			// Re-extract unique values and apply filters
+			extractUniqueValues();
+			applyFilters();
+
+			loadingProgress = 100;
+			setTimeout(() => {
+				loading = false;
+				loadingProgress = 0;
+				loadingStatus = '';
+			}, 300);
+		} catch (err) {
+			console.error('Error loading data on demand:', err);
+			loading = false;
+			loadingProgress = 0;
+		}
+	}
+
 	function formatDate(dateString) {
 		// dateString is in YYYY-MM-DD format
 		// Parse and format as DD/MM/YYYY
@@ -494,7 +620,11 @@
 		{#if loading}
 			<div class="loading">
 				<div class="spinner"></div>
-				<p>{t('app.loading')}</p>
+				<p>{loadingStatus || t('app.loading')}</p>
+				<div class="progress-bar-container">
+					<div class="progress-bar" style="width: {loadingProgress}%"></div>
+				</div>
+				<p class="progress-text">{loadingProgress}%</p>
 			</div>
 		{:else if error}
 			<div class="error-message">
@@ -607,7 +737,7 @@
 			<div class="loading-mode-container">
 				<div class="radio-group-horizontal">
 					<label class="radio-label-mode">
-						<input type="radio" value="today" bind:group={loadingMode} class="radio-input" on:change={loadData} />
+						<input type="radio" value="today" bind:group={loadingMode} class="radio-input" />
 						<span class="radio-text">📅 {t('hr.loadToday')}</span>
 					</label>
 					
@@ -622,7 +752,7 @@
 					</label>
 					
 					<label class="radio-label-mode">
-						<input type="radio" value="all" bind:group={loadingMode} class="radio-input" on:change={loadData} />
+						<input type="radio" value="all" bind:group={loadingMode} class="radio-input" />
 						<span class="radio-text">📊 {t('hr.loadAllData')}</span>
 					</label>
 				</div>
@@ -636,7 +766,7 @@
 							class="date-input"
 							aria-label="Select specific date"
 						/>
-						<button class="load-btn" on:click={loadData} disabled={!specificDate}>
+						<button class="load-btn" on:click={() => loadDataOnDemand('specific', specificDate)} disabled={!specificDate}>
 							{t('hr.loadData')}
 						</button>
 					</div>
@@ -657,7 +787,7 @@
 							placeholder="End Date"
 							aria-label="Select end date"
 						/>
-						<button class="load-btn" on:click={loadData} disabled={!startDate || !endDate}>
+						<button class="load-btn" on:click={() => loadDataOnDemand('range', startDate, endDate)} disabled={!startDate || !endDate}>
 							{t('hr.loadData')}
 						</button>
 					</div>
@@ -797,6 +927,30 @@
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
+	}
+
+	.progress-bar-container {
+		width: 200px;
+		height: 8px;
+		background: #e5e7eb;
+		border-radius: 4px;
+		overflow: hidden;
+		margin-top: 16px;
+	}
+
+	.progress-bar {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #10b981);
+		border-radius: 4px;
+		transition: width 0.3s ease;
+	}
+
+	.progress-text {
+		font-size: 14px;
+		font-weight: 600;
+		color: #3b82f6;
+		margin: 0;
+		margin-top: 8px;
 	}
 
 	.error-message {
