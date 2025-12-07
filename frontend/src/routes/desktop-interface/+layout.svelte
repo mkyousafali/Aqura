@@ -180,10 +180,6 @@
 					component = MonthDetails;
 					console.log('🪟 MonthDetails component loaded:', component);
 					break;
-				case 'UnpaidScheduledDetails':
-					const { default: UnpaidScheduledDetails } = await import('$lib/components/desktop-interface/master/finance/UnpaidScheduledDetails.svelte');
-					component = UnpaidScheduledDetails;
-					break;
 				case 'TaskMaster':
 					const { default: TaskMaster } = await import('$lib/components/desktop-interface/master/TaskMaster.svelte');
 					component = TaskMaster;
