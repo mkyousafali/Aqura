@@ -166,10 +166,6 @@
 					const { default: ReceivingDataWindow } = await import('$lib/components/desktop-interface/master/operations/receiving/ReceivingDataWindow.svelte');
 					component = ReceivingDataWindow;
 					break;
-				case 'ScheduledPayments':
-					const { default: ScheduledPayments } = await import('$lib/components/desktop-interface/master/finance/ScheduledPayments.svelte');
-					component = ScheduledPayments;
-					break;
 				case 'PaymentManager':
 					const { default: PaymentManager } = await import('$lib/components/desktop-interface/master/finance/PaymentManager.svelte');
 					component = PaymentManager;

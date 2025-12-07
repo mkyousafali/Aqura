@@ -709,7 +709,6 @@ export const arabicLocale: LocaleData = {
       notes: "ملاحظات",
       approvalNotesPlaceholder: "أضف ملاحظات الموافقة أو تعليمات خاصة...",
       rejectionNotesPlaceholder: "قدم سبب الرفض...",
-      flyerMaster: "إدارة النشرات الإعلانية",
       flyer: {
         dashboard: "لوحة النشرات",
         productMaster: "إدارة المنتجات",
