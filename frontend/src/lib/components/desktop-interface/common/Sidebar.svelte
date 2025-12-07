@@ -51,6 +51,7 @@
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
+	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
@@ -738,6 +739,29 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Overdues Report window
+	function openOverduesReport() {
+		const windowId = generateWindowId('overdues-report');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Over dues #${instanceNumber}`,
+			component: OverduesReport,
+			icon: '⏰',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showReportsSubmenu = false;
+	}
+
 	// Open Expense Manager window
 	function openExpenseManager() {
 		const windowId = generateWindowId('expense-manager');
@@ -1216,11 +1240,17 @@ function openApprovalCenter() {
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openMonthlyBreakdown}>
 						<span class="menu-icon">📅</span>
-					<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
-				</button>
+						<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openOverduesReport}>
+						<span class="menu-icon">⏰</span>
+						<span class="menu-text">Over dues</span>
+					</button>
+				</div>
 			</div>
-		</div>
-	{/if}		<!-- Settings Section -->
+		{/if}		<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
