@@ -39,6 +39,7 @@ export const englishLocale: LocaleData = {
       user: "User Interface",
       work: "Work",
       customerApp: "Customer App",
+      customer: "Customer",
       reports: "Reports",
       settings: "Settings",
       finance: "Finance",
@@ -67,8 +68,13 @@ export const englishLocale: LocaleData = {
       approvalPermissions: "Approval Permissions",
       userPermissions: "User Permissions",
       marketingMaster: "Marketing Master",
+      marketing: "Marketing",
       erpConnections: "ERP Connections",
       clearTables: "Clear Tables",
+      vendor: "Vendor",
+      hr: "HR",
+      tasks: "Tasks",
+      notification: "Notification",
     },
 
     // Mobile page titles
@@ -663,6 +669,9 @@ export const englishLocale: LocaleData = {
       flyerMaster: "Flyer Master",
       userManagement: "User Management",
       importData: "Data Import",
+      uploadVendor: "Upload Vendor",
+      createVendor: "Create Vendor",
+      manageVendor: "Manage Vendor",
     },
 
     reports: {

@@ -1590,7 +1590,7 @@ function openApprovalCenter() {
 					}}
 					title="Dashboard"
 				>
-					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
@@ -1621,7 +1621,7 @@ function openApprovalCenter() {
 					}}
 					title="Manage"
 				>
-					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					
 					<span class="menu-text">Manage</span>
 				</button>
 			</div>
@@ -1664,7 +1664,7 @@ function openApprovalCenter() {
 					}}
 					title="Operations"
 				>
-					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
@@ -1701,7 +1701,7 @@ function openApprovalCenter() {
 					}}
 					title="Reports"
 				>
-					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
@@ -1749,7 +1749,7 @@ function openApprovalCenter() {
 					}}
 					title="Dashboard"
 				>
-					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
@@ -1775,7 +1775,7 @@ function openApprovalCenter() {
 					}}
 					title="Manage"
 				>
-					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					
 					<span class="menu-text">Manage</span>
 				</button>
 			</div>
@@ -1801,7 +1801,7 @@ function openApprovalCenter() {
 					}}
 					title="Operations"
 				>
-					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
@@ -1852,7 +1852,7 @@ function openApprovalCenter() {
 					}}
 					title="Reports"
 				>
-					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
@@ -1895,7 +1895,7 @@ function openApprovalCenter() {
 					}}
 					title="Dashboard"
 				>
-					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
@@ -1921,7 +1921,7 @@ function openApprovalCenter() {
 					}}
 					title="Manage"
 				>
-					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					
 					<span class="menu-text">Manage</span>
 				</button>
 			</div>
@@ -2006,7 +2006,7 @@ function openApprovalCenter() {
 					}}
 					title="Operations"
 				>
-					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
@@ -2032,7 +2032,7 @@ function openApprovalCenter() {
 					}}
 					title="Reports"
 				>
-					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
@@ -2086,7 +2086,7 @@ function openApprovalCenter() {
 					}}
 					title="Dashboard"
 				>
-					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
@@ -2115,7 +2115,7 @@ function openApprovalCenter() {
 					}}
 					title="Manage"
 				>
-					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					
 					<span class="menu-text">Manage</span>
 				</button>
 			</div>
@@ -2152,7 +2152,7 @@ function openApprovalCenter() {
 					}}
 					title="Operations"
 				>
-					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
@@ -2179,7 +2179,7 @@ function openApprovalCenter() {
 					}}
 					title="Reports"
 				>
-					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
@@ -2245,7 +2245,7 @@ function openApprovalCenter() {
 					}}
 					title="Dashboard"
 				>
-					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					
 					<span class="menu-text">Dashboard</span>
 				</button>
 			</div>
@@ -2276,7 +2276,7 @@ function openApprovalCenter() {
 					}}
 					title="Manage"
 				>
-					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					
 					<span class="menu-text">Manage</span>
 				</button>
 			</div>
@@ -2302,7 +2302,7 @@ function openApprovalCenter() {
 					}}
 					title="Operations"
 				>
-					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					
 					<span class="menu-text">Operations</span>
 				</button>
 			</div>
@@ -2328,7 +2328,7 @@ function openApprovalCenter() {
 					}}
 					title="Reports"
 				>
-					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					
 					<span class="menu-text">Reports</span>
 				</button>
 			</div>
@@ -2342,19 +2342,19 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
-	<!-- Customer App Section -->
+	<!-- Customer Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
 				on:click={() => showCustomerAppSubmenu = !showCustomerAppSubmenu}
 			>
 				<span class="section-icon">📱</span>
-				<span class="section-text">{t('nav.customerApp') || 'Customer App'}</span>
+				<span class="section-text">{t('nav.customer') || 'Customer'}</span>
 				<span class="arrow" class:expanded={showCustomerAppSubmenu}>▼</span>
 			</button>
 		</div>
 
-		<!-- Customer App Submenu - Inline below Customer App button -->
+		<!-- Customer Submenu - Inline below Customer button -->
 		{#if showCustomerAppSubmenu}
 			<div class="submenu-inline">
 				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
@@ -2398,14 +2398,14 @@ function openApprovalCenter() {
 			</div>
 		{/if}
 
-		<!-- Marketing Master Section -->
+		<!-- Marketing Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
 				on:click={() => showMarketingSubmenu = !showMarketingSubmenu}
 			>
 				<span class="section-icon">📢</span>
-				<span class="section-text">{t('nav.marketingMaster') || 'Marketing'}</span>
+				<span class="section-text">{t('nav.marketing') || 'Marketing'}</span>
 				<span class="arrow" class:expanded={showMarketingSubmenu}>▼</span>
 			</button>
 		</div>
