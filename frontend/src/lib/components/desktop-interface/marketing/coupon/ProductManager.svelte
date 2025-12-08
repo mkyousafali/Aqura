@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { t } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -19,7 +19,10 @@
 
 	// State
 	let loading = $state(false);
+	let loadingProgress = $state(0);
+	let totalCount = $state(0);
 	let saving = $state(false);
+	let error = $state<string | null>(null);
 	let campaigns: CouponCampaign[] = $state([]);
 	let selectedCampaignId = $state<string | null>(campaignId);
 	let products: CouponProduct[] = $state([]);
@@ -27,20 +30,36 @@
 	let selectedProducts: Map<string, any> = $state(new Map());
 	let searchQuery = $state('');
 	let filteredFlyerProducts = $state<any[]>([]);
+	let displayedProducts = $state<any[]>([]);
+	let searchTimeout: any;
 	let couponProductMapping: Map<string, string> = $state(new Map()); // Maps coupon_product.id to flyer_product.id
 
-	// Filter and sort products based on search and selection
-	$effect(() => {
+	// Debounce utility
+	function debounce(func: Function, wait: number) {
+		return function executedFunction(...args: any[]) {
+			const later = () => {
+				clearTimeout(searchTimeout);
+				func(...args);
+			};
+			clearTimeout(searchTimeout);
+			searchTimeout = setTimeout(later, wait);
+		};
+	}
+
+	// Optimized search and filter function
+	function handleSearch() {
 		let filtered: any[];
 		if (searchQuery.trim() === '') {
 			filtered = flyerProducts;
 		} else {
 			const query = searchQuery.toLowerCase();
-			filtered = flyerProducts.filter(p => 
-				p.product_name_en?.toLowerCase().includes(query) ||
-				p.product_name_ar?.toLowerCase().includes(query) ||
-				p.barcode?.toLowerCase().includes(query)
-			);
+			// Quick checks on main fields (short-circuit evaluation)
+			filtered = flyerProducts.filter(p => {
+				if (p.product_name_en?.toLowerCase().includes(query)) return true;
+				if (p.product_name_ar?.toLowerCase().includes(query)) return true;
+				if (p.barcode?.toLowerCase().includes(query)) return true;
+				return false;
+			});
 		}
 		
 		// Sort: selected products first, then unselected
@@ -48,6 +67,19 @@
 		const unselected = filtered.filter(p => !selectedProducts.has(p.id) || selectedProducts.get(p.id)?.markedForDeletion);
 		
 		filteredFlyerProducts = [...selected, ...unselected];
+		displayedProducts = filteredFlyerProducts.slice(0, 100); // Show only first 100
+		
+		console.log(`Search results: ${filteredFlyerProducts.length} products found, displaying ${displayedProducts.length}`);
+	}
+
+	// Debounced search
+	const debouncedSearch = debounce(handleSearch, 300);
+
+	// Watch search query changes
+	$effect(() => {
+		if (searchQuery !== undefined) {
+			debouncedSearch();
+		}
 	});
 
 	// Load campaigns
@@ -70,21 +102,68 @@
 		}
 	}
 
-	// Load flyer products from database
+	// Load flyer products from database with pagination
 	async function loadFlyerProducts() {
 		loading = true;
+		loadingProgress = 0;
+		error = null;
+		
 		try {
-			const { data, error } = await supabase
+			// Get total count first
+			const { count, error: countError } = await supabase
 				.from('flyer_products')
-				.select('*')
-				.order('product_name_en');
-
-			if (error) throw error;
+				.select('*', { count: 'exact', head: true });
 			
-			flyerProducts = data || [];
+			if (countError) throw countError;
+			
+			totalCount = count || 0;
+			loadingProgress = 10;
+			console.log(`Total flyer products: ${totalCount}`);
+
+			// Load in chunks for better performance
+			let allProducts: any[] = [];
+			const pageSize = 500;
+			let currentPage = 0;
+			let hasMore = true;
+
+			while (hasMore) {
+				const startRange = currentPage * pageSize;
+				const endRange = startRange + pageSize - 1;
+
+				const { data, error: fetchError } = await supabase
+					.from('flyer_products')
+					.select('id, product_name_en, product_name_ar, barcode, image_url')
+					.order('product_name_en', { ascending: true })
+					.range(startRange, endRange);
+
+				if (fetchError) throw fetchError;
+
+				if (data && data.length > 0) {
+					allProducts = [...allProducts, ...data];
+					currentPage++;
+					hasMore = data.length === pageSize;
+					
+					// Update progress
+					loadingProgress = Math.min(90, 10 + (allProducts.length / totalCount) * 80);
+					
+					// Allow UI to update
+					await tick();
+					
+					console.log(`Loaded ${allProducts.length}/${totalCount} products (${Math.round(loadingProgress)}%)`);
+				} else {
+					hasMore = false;
+				}
+			}
+
+			flyerProducts = allProducts;
 			filteredFlyerProducts = flyerProducts;
-		} catch (error: any) {
-			console.error('Error loading flyer products:', error);
+			displayedProducts = filteredFlyerProducts.slice(0, 100);
+			loadingProgress = 100;
+			console.log(`Flyer products loaded successfully: ${flyerProducts.length} total`);
+
+		} catch (err: any) {
+			console.error('Error loading flyer products:', err);
+			error = err.message || 'Failed to load products';
 			notifications.add({
 				message: 'Error loading products from flyer',
 				type: 'error'
@@ -196,6 +275,26 @@
 			product[field] = value;
 			selectedProducts.set(flyerProductId, product);
 			selectedProducts = new Map(selectedProducts); // Trigger reactivity
+		}
+	}
+
+	// Load more items (virtual scrolling)
+	function loadMoreItems() {
+		const currentLength = displayedProducts.length;
+		const nextBatch = filteredFlyerProducts.slice(currentLength, currentLength + 100);
+		if (nextBatch.length > 0) {
+			displayedProducts = [...displayedProducts, ...nextBatch];
+			console.log(`Loaded more items: ${displayedProducts.length}/${filteredFlyerProducts.length}`);
+		}
+	}
+
+	// Handle scroll event for lazy loading
+	function handleScroll(event: Event) {
+		const element = event.target as HTMLElement;
+		const scrolledToBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 200;
+		
+		if (scrolledToBottom && displayedProducts.length < filteredFlyerProducts.length && !loading) {
+			loadMoreItems();
 		}
 	}
 
@@ -423,7 +522,7 @@
 	</div>
 
 	<!-- Content -->
-	<div class="flex-1 overflow-auto p-6">
+	<div class="flex-1 overflow-auto p-6" onscroll={handleScroll}>
 		{#if !selectedCampaignId}
 			<div class="text-center py-12">
 				<div class="text-6xl mb-4">📦</div>
@@ -431,8 +530,48 @@
 				<p class="text-gray-600">{t('coupon.selectCampaignToManageProducts')}</p>
 			</div>
 		{:else if loading}
-			<div class="flex justify-center items-center py-12">
-				<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+			<div class="space-y-4">
+				<!-- Progress bar -->
+				<div class="w-full bg-gray-200 rounded-full h-2">
+					<div 
+						class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+						style="width: {loadingProgress}%"
+					></div>
+				</div>
+				
+				<!-- Loading message -->
+				<div class="flex items-center justify-center py-8">
+					<svg class="animate-spin w-8 h-8 text-blue-600 mr-3" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+					<span class="text-gray-700 font-medium">
+						Loading products... {loadingProgress}%
+					</span>
+				</div>
+				
+				<!-- Skeleton items -->
+				{#each Array(5) as _, i}
+					<div class="animate-pulse bg-gray-200 h-16 rounded-lg"></div>
+				{/each}
+			</div>
+		{:else if error}
+			<div class="bg-red-50 border border-red-200 rounded-lg p-6">
+				<div class="flex items-center gap-3">
+					<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+					</svg>
+					<div>
+						<h3 class="font-semibold text-red-900">Error Loading Data</h3>
+						<p class="text-red-700 text-sm">{error}</p>
+					</div>
+				</div>
+				<button 
+					onclick={loadFlyerProducts}
+					class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+				>
+					Retry
+				</button>
 			</div>
 		{:else if filteredFlyerProducts.length === 0}
 			<div class="text-center py-12">
@@ -471,7 +610,7 @@
 							</tr>
 						</thead>
 						<tbody class="bg-white divide-y divide-gray-200">
-							{#each filteredFlyerProducts as product (product.id)}
+							{#each displayedProducts as product (product.id)}
 								{@const isSelected = selectedProducts.has(product.id)}
 								{@const selectedData = selectedProducts.get(product.id) || {}}
 								{@const isMarkedForDeletion = selectedData.markedForDeletion}
@@ -492,6 +631,8 @@
 											<img 
 												src={product.image_url} 
 												alt={product.product_name_en}
+												loading="lazy"
+												decoding="async"
 												class="w-12 h-12 object-cover rounded border"
 											/>
 										{:else}
@@ -583,6 +724,14 @@
 					</table>
 				</div>
 			</div>
+
+			<!-- Lazy Loading Indicator -->
+			{#if displayedProducts.length < filteredFlyerProducts.length}
+				<div class="text-center p-4 text-gray-500 text-sm">
+					Showing {displayedProducts.length} of {filteredFlyerProducts.length} products
+					<span class="block mt-1 text-xs text-gray-400">Scroll down to load more</span>
+				</div>
+			{/if}
 
 			<!-- Summary -->
 			{#if selectedProducts.size > 0}
