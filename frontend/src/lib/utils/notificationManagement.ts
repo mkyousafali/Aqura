@@ -157,12 +157,30 @@ export class NotificationManagementService {
           throw error;
         }
 
-        // 🔴 DISABLED: Read states fetching causing CORS errors
-        console.warn('⚠️ [NotificationManagement] Read states fetching disabled');
+        // ✅ Fetch read states safely - single query filtered by user only (no long URLs)
         const readStatesMap = new Map<
           string,
           { is_read: boolean; read_at?: string }
         >();
+
+        try {
+          const { data: readStates, error: readError } = await supabase
+            .from("notification_read_states")
+            .select("notification_id, is_read, read_at")
+            .eq("user_id", userId)
+            .eq("is_read", true); // Only fetch read ones for efficiency
+
+          if (!readError && readStates) {
+            readStates.forEach((state) => {
+              readStatesMap.set(state.notification_id, {
+                is_read: state.is_read,
+                read_at: state.read_at,
+              });
+            });
+          }
+        } catch (readError) {
+          console.warn("⚠️ Could not fetch read states, continuing without:", readError);
+        }
 
         // Transform data to match NotificationItem interface
         return (

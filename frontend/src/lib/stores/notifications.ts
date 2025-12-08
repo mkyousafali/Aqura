@@ -113,11 +113,27 @@ export async function fetchNotificationCounts(userId?: string) {
       throw error;
     }
 
-    // 🔴 DISABLED: Read states fetching causing CORS errors
+    // ✅ Fetch read states safely - single query filtered by user only (no long URLs)
     const readNotificationIds = new Set<string>();
 
+    try {
+      const { data: readStates, error: readError } = await supabase
+        .from("notification_read_states")
+        .select("notification_id")
+        .eq("user_id", targetUserId)
+        .eq("is_read", true); // Only fetch read ones
+
+      if (!readError && readStates) {
+        readStates.forEach((state) => {
+          readNotificationIds.add(state.notification_id);
+        });
+      }
+    } catch (readError) {
+      console.warn("⚠️ Could not fetch read states for counts:", readError);
+    }
+
     const totalCount = recipients?.length || 0;
-    const unreadCount = totalCount; // Mark all as unread if we can't fetch read states
+    const unreadCount = totalCount - readNotificationIds.size;
 
     // Update store
     notificationCounts.set({
