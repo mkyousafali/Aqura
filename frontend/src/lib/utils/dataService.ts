@@ -2350,12 +2350,6 @@ export const dataService = {
 };
 
 // offlineDataManager removed - using localStorage caching instead
-// Initialize offline support using localStorage
-if (typeof window !== "undefined") {
-  // Periodically sync data to localStorage cache
-  setInterval(() => {
-    if (navigator.onLine) {
-      offline.syncOfflineData();
-    }
-  }, 60000); // Sync every minute
-}
+// Automatic background sync removed (Dec 8, 2025)
+// Caching now happens on-demand when data is requested
+// Each service method caches data to localStorage when called

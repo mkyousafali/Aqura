@@ -1570,14 +1570,10 @@ export const storage = {
 // Export the uploadToSupabase function for backward compatibility
 export const uploadToSupabase = storage.uploadFile;
 
-// Initialize offline sync
+// Initialize offline sync - removed (Dec 8, 2025)
+// Automatic background sync removed to prevent connection issues
+// Caching happens on-demand when data is requested
 if (browser) {
-  // Sync on app load
-  offline.syncOfflineData();
-
-  // Sync when coming back online
-  window.addEventListener("online", offline.syncOfflineData);
-
   // Expose supabase client globally for debugging (development only)
   if (typeof window !== "undefined") {
     (window as any).supabase = supabase;
