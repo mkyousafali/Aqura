@@ -411,6 +411,42 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 <!-- Receiving Dashboard -->
 <div class="receiving-window">
+	<!-- Branch Filter Section -->
+	<div class="filter-section">
+		<div class="filter-controls">
+			<div class="filter-options">
+				<label class="filter-option">
+					<input 
+						type="radio" 
+						bind:group={branchFilterMode}
+						value="all"
+					/>
+					<span class="option-text">All Branches</span>
+				</label>
+				
+				<label class="filter-option">
+					<input 
+						type="radio" 
+						bind:group={branchFilterMode}
+						value="branch"
+					/>
+					<span class="option-text">Filter by Branch</span>
+				</label>
+			</div>
+
+			{#if branchFilterMode === 'branch'}
+				<div class="branch-selector">
+					<select bind:value={selectedBranch} class="branch-select">
+						<option value="">-- Select a branch --</option>
+						{#each branches as branch}
+							<option value={branch.id}>{branch.name_en}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+		</div>
+	</div>
+
 	<!-- Top Dashboard Section with 5 Placeholders -->
 	<div class="dashboard-section">
 		<h2 class="section-title">Dashboard Overview</h2>
