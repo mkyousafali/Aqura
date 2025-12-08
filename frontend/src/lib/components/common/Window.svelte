@@ -501,15 +501,15 @@
 	}
 
 	.window.active .title-bar {
-		background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+		background: #0066b2;
 		color: white;
-		border-bottom-color: #4338CA;
+		border-bottom-color: #0066b2;
 	}
 
 	.window.modal .title-bar {
-		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
+		background: #0066b2;
 		color: white;
-		border-bottom-color: #16A34A;
+		border-bottom-color: #0066b2;
 	}
 
 	.title-bar-content {

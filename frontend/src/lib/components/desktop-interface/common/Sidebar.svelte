@@ -3402,26 +3402,31 @@ function openApprovalCenter() {
 
 	.submenu-item {
 		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 10px 12px;
-		background: none;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 10px 8px;
+		background: white;
 		border: none;
-		color: white;
+		color: #f97316;
 		cursor: pointer;
-		border-radius: 6px;
+		border-radius: 8px;
 		transition: all 0.2s ease;
-		font-size: 13px;
+		font-size: 11px;
 		width: 100%;
-		height: 40px; /* Fixed height for submenu items */
+		min-height: 40px;
 		text-align: left;
+		font-weight: 500;
 		margin-bottom: 2px;
 	}
 
 	.submenu-item:hover {
-		background: rgba(255, 255, 255, 0.15);
+		background: #3b82f6;
 		color: white;
 		transform: translateX(2px);
+	}
+
+	.submenu-item:active {
+		transform: translateX(2px) scale(0.98);
 	}
 
 	.submenu-item:last-child {
@@ -3486,34 +3491,40 @@ function openApprovalCenter() {
 	}
 
 	.submenu-inline .submenu-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 10px 8px;
+		background: white;
+		border: none;
+		color: #f97316;
+		cursor: pointer;
+		border-radius: 8px;
+		transition: all 0.2s ease;
 		font-size: 11px;
-		padding: 7px 6px 7px 5px;
-		height: auto;
-		min-height: 32px;
 		width: 100%;
-		background: linear-gradient(135deg, #1DBC83 0%, #15a375 100%);
-		align-items: center;
-		justify-content: center;
-		border-radius: 20px;
+		min-height: 40px;
+		text-align: left;
+		font-weight: 500;
 		margin-bottom: 4px;
-		box-shadow: 0 2px 10px rgba(29, 188, 131, 0.2);
-		transition: all 0.3s ease;
 	}
 
 	.submenu-inline .submenu-item:hover {
-		background: linear-gradient(135deg, #15a375 0%, #0d8859 100%);
-		transform: translateY(-2px);
-		box-shadow: 0 4px 15px rgba(29, 188, 131, 0.3);
+		background: #3b82f6;
+		color: white;
+		transform: translateX(2px);
 	}
 
 	.menu-icon {
-		font-size: 13px;
+		font-size: 16px;
 		flex-shrink: 0;
-		width: 16px;
+		width: 20px;
+		height: 16px;
 		text-align: center;
-		align-self: flex-start;
-		margin-top: 2px;
-		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: inherit;
 	}
 
 	.menu-icon-img {
@@ -3534,106 +3545,115 @@ function openApprovalCenter() {
 		word-break: break-word;
 		line-height: 1.3;
 		max-width: 100%;
+		color: inherit;
 	}
 
-	/* Subsection styling - Floating rounded design */
+	/* Subsection styling - Matching main section button style */
 	.submenu-subsection-button {
 		width: 100%;
 		margin: 0;
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		align-items: flex-start;
 		gap: 8px;
-		padding: 12px 16px;
-		background: linear-gradient(135deg, #0096FF 0%, #0077CC 100%);
+		padding: 10px 8px;
+		background: #1DBC83;
 		border: none;
 		color: white;
-		border-radius: 28px;
 		cursor: pointer;
+		border-radius: 8px;
+		transition: all 0.2s ease;
 		font-size: 11px;
-		font-weight: 600;
-		transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-		min-height: 44px;
-		box-shadow: 0 4px 15px rgba(0, 150, 255, 0.3), 0 0 1px rgba(0, 150, 255, 0.2);
-		position: relative;
-		overflow: hidden;
-	}
-
-	.submenu-subsection-button::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, transparent 100%);
-		pointer-events: none;
-		border-radius: 28px;
+		min-height: 40px;
+		text-align: left;
+		font-weight: 500;
 	}
 
 	.submenu-subsection-button:hover {
-		background: linear-gradient(135deg, #0077CC 0%, #0055AA 100%);
+		background: #3b82f6;
 		color: white;
-		transform: translateY(-6px);
-		box-shadow: 0 10px 30px rgba(0, 150, 255, 0.5), 0 0 2px rgba(0, 150, 255, 0.3);
+		transform: translateX(2px);
 	}
 
 	.submenu-subsection-button:active {
-		background: linear-gradient(135deg, #0055AA 0%, #003D7A 100%);
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0, 150, 255, 0.4), 0 0 1px rgba(0, 150, 255, 0.2);
+		transform: translateX(2px) scale(0.98);
 	}
 
 	.submenu-subsection-button .menu-icon {
-		font-size: 14px;
+		font-size: 16px;
 		margin: 0;
 		flex-shrink: 0;
-		position: relative;
-		z-index: 1;
+		width: 20px;
+		height: 16px;
+		text-align: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: white;
 	}
 
 	.submenu-subsection-button .menu-text {
 		flex: 1;
-		font-size: 11px;
-		white-space: nowrap;
-		position: relative;
-		z-index: 1;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: clip;
+		font-weight: 500;
+		line-height: 1.3;
+		word-wrap: break-word;
+		word-break: break-word;
+		max-width: 100%;
 	}
 
 	.submenu-subsection-button .arrow {
 		font-size: 10px;
+		opacity: 0.7;
 		transition: transform 0.2s ease;
-		position: relative;
-		z-index: 1;
+		flex-shrink: 0;
 	}
 
 	.submenu-subsection-button.icon-only {
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-		gap: 6px;
-		width: 70px;
-		height: auto;
-		padding: 12px 4px;
-		margin: 0 auto;
-		min-height: auto;
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 10px 8px;
+		background: #1DBC83;
+		border: none;
+		color: white;
+		cursor: pointer;
+		border-radius: 8px;
+		transition: all 0.2s ease;
+		font-size: 11px;
+		width: 100%;
+		min-height: 40px;
+		text-align: left;
+		margin: 0;
 	}
 
 	.submenu-subsection-button.icon-only .menu-icon-img {
 		margin: 0;
-		width: 24px;
-		height: 24px;
+		width: 20px;
+		height: 16px;
+		flex-shrink: 0;
+		object-fit: contain;
+		filter: brightness(0) saturate(100%) invert(85%) sepia(74%) saturate(487%) hue-rotate(169deg);
 	}
 
 	.submenu-subsection-button.icon-only .menu-text {
-		font-size: 9px;
+		flex: 1;
 		white-space: normal;
-		text-align: center;
-		line-height: 1.2;
+		overflow: visible;
+		text-overflow: clip;
+		font-weight: 500;
+		line-height: 1.3;
+		word-wrap: break-word;
+		word-break: break-word;
+		max-width: 100%;
+		font-size: 11px;
 	}
 
 	.submenu-subsection-button.icon-only .arrow {
-		display: none;
+		display: inline-block;
+		font-size: 10px;
+		opacity: 0.7;
 	}
 
 	.submenu-subsection-button .arrow.expanded {

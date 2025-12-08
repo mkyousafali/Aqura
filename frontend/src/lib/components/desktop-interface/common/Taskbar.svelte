@@ -543,17 +543,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		left: 0;
 		right: 0;
 		height: 56px;
-		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
-		border-top: 2px solid rgba(245, 158, 11, 0.3);
+		background: rgba(0, 102, 178, 0.75);
+		border-top: 1px solid rgba(255, 255, 255, 0.2);
 		display: flex;
 		align-items: center;
 		padding: 0 8px;
 		gap: 8px;
 		z-index: 2000;
 		box-shadow: 
-			0 -4px 20px rgba(11, 18, 32, 0.2),
-			0 -1px 3px rgba(245, 158, 11, 0.2);
-		backdrop-filter: blur(10px);
+			0 -4px 24px rgba(0, 0, 0, 0.15),
+			0 -1px 3px rgba(255, 255, 255, 0.1),
+			inset 0 1px 0 rgba(255, 255, 255, 0.1);
+		backdrop-filter: blur(20px) saturate(180%);
+		-webkit-backdrop-filter: blur(20px) saturate(180%);
 	}
 
 	.task-list {
