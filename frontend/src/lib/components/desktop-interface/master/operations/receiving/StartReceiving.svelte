@@ -228,9 +228,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   ];
 
   // Add reactive statement to reload vendors when branch changes
-  $: if (selectedBranch && !showBranchSelector) {
-    loadVendors();
-  }
+  // DISABLED: Don't auto-load vendors, only load branches initially
+  // $: if (selectedBranch && !showBranchSelector) {
+  //   loadVendors();
+  // }
 
   // Reactive statement to check if all required users are selected
   // Note: Night Supervisors require at least 1 selection (multiple selection but minimum 1)
@@ -244,16 +245,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedNightSupervisors.length > 0;
 
   onMount(async () => {
+    // Load only branches on startup, no other data
     await loadBranches();
-    // Check if user has a default branch
-    if ($currentUser?.branch_id) {
-      selectedBranch = $currentUser.branch_id;
-      selectedBranchName = $currentUser.branchName || '';
-      showBranchSelector = false;
-      // Stay on step 0 to select branch manager and other positions
-      // currentStep = 1; // Don't auto-advance to vendor selection
-      await loadVendors();
-    }
   });
 
   async function loadBranches() {
@@ -316,87 +309,74 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
+  // Optimized consolidated load function for all branch users and their roles
   async function loadBranchUsers(branchId) {
     try {
+      // Only set branch managers loading flag
       branchManagersLoading = true;
+
+      // Single query to get all active users with their positions in one go
+      const { data: usersWithPositions, error: loadError } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          hr_employees!inner(
+            id,
+            name,
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
+          )
+        `)
+        .eq('branch_id', branchId)
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
+
+      if (loadError) throw loadError;
+
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+        return {
+          id: user.id,
+          username: user.username,
+          employeeName: user.hr_employees?.name || 'N/A',
+          employeeId: user.hr_employees?.employee_id || 'N/A',
+          position: position
+        };
+      });
+
+      // Reset branch managers only
       branchManagers = [];
       actualBranchManagers = [];
       filteredBranchManagers = [];
       selectedBranchManager = null;
       showAllUsers = false;
 
-      // Query to get all active users from the selected branch with their employee info
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select(`
-          id,
-          username,
-          status,
-          hr_employees!inner(
-            id,
-            name,
-            employee_id
-          )
-        `)
-        .eq('branch_id', branchId)
-        .eq('status', 'active')
-        .order('username');
-
-      if (usersError) throw usersError;
-
-      // Now get position assignments for these employees
-      const employeeUUIDs = usersData?.map(user => user.hr_employees?.id).filter(Boolean) || [];
-      
-      let positionsData = [];
-      if (employeeUUIDs.length > 0) {
-        const { data: posData, error: posError } = await supabase
-          .from('hr_position_assignments')
-          .select(`
-            employee_id,
-            is_current,
-            hr_positions!inner(
-              position_title_en,
-              position_title_ar
-            )
-          `)
-          .in('employee_id', employeeUUIDs)
-          .eq('is_current', true);
-
-        if (posError) {
-          console.warn('Error loading positions:', posError);
-        } else {
-          positionsData = posData || [];
-        }
-      }
-
-      // Combine the data
-      branchManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
-        return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
-        };
-      });
-
-      // Filter for actual branch managers
-      actualBranchManagers = branchManagers.filter(user => 
-        user.position.toLowerCase().includes('branch') && 
-        user.position.toLowerCase().includes('manager')
+      // Filter for branch managers only
+      const branchManagersList = allBranchUsers.filter(u => 
+        u.position.toLowerCase().includes('branch') && 
+        u.position.toLowerCase().includes('manager')
       );
 
-      // If branch managers found, show only them. Otherwise, prepare to show all users
-      if (actualBranchManagers.length > 0) {
-        filteredBranchManagers = actualBranchManagers;
-        showAllUsers = false;
-        console.log('Found branch managers:', actualBranchManagers);
-      } else {
-        filteredBranchManagers = branchManagers;
-        showAllUsers = true;
-        console.log('No branch managers found, showing all users for selection');
-      }
+      // Apply filtered results for branch managers
+      branchManagers = allBranchUsers;
+      actualBranchManagers = branchManagersList;
+      filteredBranchManagers = actualBranchManagers.length > 0 ? actualBranchManagers : allBranchUsers;
+      showAllUsers = actualBranchManagers.length === 0;
+
+      console.log('✅ Loaded branch managers only:', {
+        total: allBranchUsers.length,
+        branchManagers: actualBranchManagers.length
+      });
 
       console.log('Loaded branch users for manager selection:', {
         totalUsers: branchManagers.length,
@@ -413,236 +393,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
-  // Load shelf stockers for the selected branch
-  async function loadShelfStockersForSelection() {
-    if (!selectedBranch) return;
-    
-    try {
-      shelfStockersLoading = true;
-      shelfStockers = [];
-      actualShelfStockers = [];
-      filteredShelfStockers = [];
-      selectedShelfStocker = null;
-
-      // Get all users for the selected branch
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select(`
-          id,
-          username,
-          hr_employees (
-            id,
-            name,
-            employee_id
-          )
-        `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active');
-
-      if (usersError) {
-        console.error('Error loading users:', usersError);
-        return;
-      }
-
-      // Get position assignments for the branch users using chunked queries
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches to avoid URL length limits
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data
-      shelfStockers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
-        return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
-        };
-      });
-
-      // Filter for actual shelf stockers
-      actualShelfStockers = shelfStockers.filter(user => 
-        user.position.toLowerCase().includes('shelf') && 
-        user.position.toLowerCase().includes('stocker')
-      );
-
-      // If shelf stockers found, show only them. Otherwise, prepare to show all users
-      if (actualShelfStockers.length > 0) {
-        filteredShelfStockers = actualShelfStockers;
-        showAllUsersForShelfStockers = false;
-        console.log('Found shelf stockers:', actualShelfStockers);
-      } else {
-        filteredShelfStockers = shelfStockers;
-        showAllUsersForShelfStockers = true;
-        console.log('No shelf stockers found, showing all users for selection');
-      }
-
-      console.log('Loaded branch users for shelf stocker selection:', {
-        totalUsers: shelfStockers.length,
-        shelfStockers: actualShelfStockers.length,
-        showingAllUsers: showAllUsersForShelfStockers
-      });
-    } catch (err) {
-      console.error('Error loading shelf stockers:', err);
-      shelfStockers = [];
-      actualShelfStockers = [];
-      filteredShelfStockers = [];
-    } finally {
-      shelfStockersLoading = false;
-    }
-  }
-
-  // Load accountants for the selected branch
-  async function loadAccountantsForSelection() {
-    if (!selectedBranch) return;
-    
-    try {
-      accountantsLoading = true;
-      accountants = [];
-      actualAccountants = [];
-      filteredAccountants = [];
-      selectedAccountant = null;
-
-      // Get all users for the selected branch
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select(`
-          id,
-          username,
-          hr_employees (
-            id,
-            name,
-            employee_id
-          )
-        `)
-        .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active');
-
-      if (usersError) {
-        console.error('Error loading users:', usersError);
-        return;
-      }
-
-      // Get position assignments for the branch users using chunked queries
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches to avoid URL length limits
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data
-      accountants = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
-        return {
-          id: user.id,
-          username: user.username,
-          employeeName: user.hr_employees?.name || 'N/A',
-          employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
-        };
-      });
-
-      // Filter for actual accountants
-      actualAccountants = accountants.filter(user => 
-        user.position.toLowerCase().includes('accountant')
-      );
-
-      // If accountants found, show only them. Otherwise, prepare to show all users
-      if (actualAccountants.length > 0) {
-        filteredAccountants = actualAccountants;
-        showAllUsersForAccountant = false;
-        console.log('Found accountants:', actualAccountants);
-      } else {
-        filteredAccountants = accountants;
-        showAllUsersForAccountant = true;
-        console.log('No accountants found, showing all users for selection');
-      }
-
-      console.log('Loaded branch users for accountant selection:', {
-        totalUsers: accountants.length,
-        accountants: actualAccountants.length,
-        showingAllUsers: showAllUsersForAccountant
-      });
-    } catch (err) {
-      console.error('Error loading accountants:', err);
-      accountants = [];
-      actualAccountants = [];
-      filteredAccountants = [];
-    } finally {
-      accountantsLoading = false;
-    }
-  }
-
-  // Load purchasing managers from ALL branches (not just selected branch)
+  // Load purchasing managers from ALL branches (called separately for cross-branch managers)
   async function loadPurchasingManagersForSelection() {
     try {
       purchasingManagersLoading = true;
@@ -651,87 +402,55 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       filteredPurchasingManagers = [];
       selectedPurchasingManager = null;
 
-      // Get all active users from ALL branches with their branch information
-      const { data: usersData, error: usersError } = await supabase
+      // Optimized query: Get users with their current position directly
+      const { data: usersWithPositions, error: loadError } = await supabase
         .from('users')
         .select(`
           id,
           username,
           branch_id,
-          branches!inner (
+          branches (
             id,
             name_en
           ),
-          hr_employees (
+          hr_employees!inner(
             id,
             name,
-            employee_id
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en
+              )
+            )
           )
         `)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .range(0, 999); // Pagination limit to optimize query size
 
-      if (usersError) {
-        console.error('Error loading users:', usersError);
+      if (loadError) {
+        console.error('Error loading users:', loadError);
+        purchasingManagersLoading = false;
         return;
       }
 
-      // Get position assignments for all users using chunked queries to avoid URL length limits
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches (max 25 per query to avoid URL length limits)
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          
-          // Combine results from all chunks
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data with branch information
-      purchasingManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
+      // Transform data into user objects
+      purchasingManagers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
         return {
           id: user.id,
           username: user.username,
           employeeName: user.hr_employees?.name || 'N/A',
           employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned',
+          position: position,
           branchName: user.branches?.name_en || 'Unknown Branch',
           branchId: user.branch_id
         };
       });
 
-      // Filter for actual purchasing managers from all branches
+      // Filter for actual purchasing managers
       actualPurchasingManagers = purchasingManagers.filter(user => 
         user.position.toLowerCase().includes('purchasing') && 
         user.position.toLowerCase().includes('manager')
@@ -748,7 +467,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         console.log('No purchasing managers found, showing all users for selection');
       }
 
-      console.log('Loaded users from all branches for purchasing manager selection:', {
+      console.log('Loaded purchasing managers efficiently:', {
         totalUsers: purchasingManagers.length,
         purchasingManagers: actualPurchasingManagers.length,
         showingAllUsers: showAllUsersForPurchasingManager
@@ -763,10 +482,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
-  // Load inventory managers for the selected branch
+  // Load inventory managers for the selected branch when purchasing manager is selected
   async function loadInventoryManagersForSelection() {
-    if (!selectedBranch) return;
-    
     try {
       inventoryManagersLoading = true;
       inventoryManagers = [];
@@ -774,100 +491,67 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       filteredInventoryManagers = [];
       selectedInventoryManager = null;
 
-      // Get all users for the selected branch
-      const { data: usersData, error: usersError } = await supabase
+      if (!selectedBranch) {
+        inventoryManagersLoading = false;
+        return;
+      }
+
+      // Get all active users from the selected branch
+      const { data: usersWithPositions, error: loadError } = await supabase
         .from('users')
         .select(`
           id,
           username,
-          hr_employees (
+          hr_employees!inner(
             id,
             name,
-            employee_id
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
           )
         `)
         .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
 
-      if (usersError) {
-        console.error('Error loading users:', usersError);
-        return;
-      }
+      if (loadError) throw loadError;
 
-      // Get position assignments for the branch users using chunked queries
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches to avoid URL length limits
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data
-      inventoryManagers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
         return {
           id: user.id,
           username: user.username,
           employeeName: user.hr_employees?.name || 'N/A',
           employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
+          position: position
         };
       });
 
-      // Filter for actual inventory managers
-      actualInventoryManagers = inventoryManagers.filter(user => 
-        user.position.toLowerCase().includes('inventory') && 
-        user.position.toLowerCase().includes('manager')
+      // Filter for inventory managers
+      const inventoryManagersList = allBranchUsers.filter(u => 
+        u.position.toLowerCase().includes('inventory') && 
+        u.position.toLowerCase().includes('manager')
       );
 
-      // If inventory managers found, show only them. Otherwise, prepare to show all users
-      if (actualInventoryManagers.length > 0) {
-        filteredInventoryManagers = actualInventoryManagers;
-        showAllUsersForInventoryManager = false;
-        console.log('Found inventory managers:', actualInventoryManagers);
-      } else {
-        filteredInventoryManagers = inventoryManagers;
-        showAllUsersForInventoryManager = true;
-        console.log('No inventory managers found, showing all users for selection');
-      }
+      // Apply filtered results
+      inventoryManagers = allBranchUsers;
+      actualInventoryManagers = inventoryManagersList;
+      filteredInventoryManagers = actualInventoryManagers.length > 0 ? actualInventoryManagers : allBranchUsers;
+      showAllUsersForInventoryManager = actualInventoryManagers.length === 0;
 
-      console.log('Loaded branch users for inventory manager selection:', {
-        totalUsers: inventoryManagers.length,
-        inventoryManagers: actualInventoryManagers.length,
-        showingAllUsers: showAllUsersForInventoryManager
+      console.log('✅ Loaded inventory managers for selected branch:', {
+        total: allBranchUsers.length,
+        inventoryManagers: actualInventoryManagers.length
       });
+
     } catch (err) {
       console.error('Error loading inventory managers:', err);
       inventoryManagers = [];
@@ -878,10 +562,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
-  // Load night supervisors for the selected branch
+  // Load night supervisors for the selected branch when inventory manager is selected
   async function loadNightSupervisorsForSelection() {
-    if (!selectedBranch) return;
-    
     try {
       nightSupervisorsLoading = true;
       nightSupervisors = [];
@@ -889,100 +571,67 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       filteredNightSupervisors = [];
       selectedNightSupervisors = [];
 
-      // Get all users for the selected branch
-      const { data: usersData, error: usersError } = await supabase
+      if (!selectedBranch) {
+        nightSupervisorsLoading = false;
+        return;
+      }
+
+      // Get all active users from the selected branch
+      const { data: usersWithPositions, error: loadError } = await supabase
         .from('users')
         .select(`
           id,
           username,
-          hr_employees (
+          hr_employees!inner(
             id,
             name,
-            employee_id
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
           )
         `)
         .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
 
-      if (usersError) {
-        console.error('Error loading users:', usersError);
-        return;
-      }
+      if (loadError) throw loadError;
 
-      // Get position assignments for the branch users using chunked queries
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches to avoid URL length limits
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data
-      nightSupervisors = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
         return {
           id: user.id,
           username: user.username,
           employeeName: user.hr_employees?.name || 'N/A',
           employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
+          position: position
         };
       });
 
-      // Filter for actual night supervisors
-      actualNightSupervisors = nightSupervisors.filter(user => 
-        user.position.toLowerCase().includes('night') && 
-        user.position.toLowerCase().includes('supervisor')
+      // Filter for night supervisors
+      const nightSupervisorsList = allBranchUsers.filter(u => 
+        u.position.toLowerCase().includes('night') && 
+        u.position.toLowerCase().includes('supervisor')
       );
 
-      // If night supervisors found, show only them. Otherwise, prepare to show all users
-      if (actualNightSupervisors.length > 0) {
-        filteredNightSupervisors = actualNightSupervisors;
-        showAllUsersForNightSupervisors = false;
-        console.log('Found night supervisors:', actualNightSupervisors);
-      } else {
-        filteredNightSupervisors = nightSupervisors;
-        showAllUsersForNightSupervisors = true;
-        console.log('No night supervisors found, showing all users for selection');
-      }
+      // Apply filtered results
+      nightSupervisors = allBranchUsers;
+      actualNightSupervisors = nightSupervisorsList;
+      filteredNightSupervisors = actualNightSupervisors.length > 0 ? actualNightSupervisors : allBranchUsers;
+      showAllUsersForNightSupervisors = actualNightSupervisors.length === 0;
 
-      console.log('Loaded branch users for night supervisor selection:', {
-        totalUsers: nightSupervisors.length,
-        nightSupervisors: actualNightSupervisors.length,
-        showingAllUsers: showAllUsersForNightSupervisors
+      console.log('✅ Loaded night supervisors for selected branch:', {
+        total: allBranchUsers.length,
+        nightSupervisors: actualNightSupervisors.length
       });
+
     } catch (err) {
       console.error('Error loading night supervisors:', err);
       nightSupervisors = [];
@@ -993,10 +642,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
-  // Load warehouse handlers for the selected branch
+  // Load warehouse & stock handlers for the selected branch when night supervisors are selected
   async function loadWarehouseHandlersForSelection() {
-    if (!selectedBranch) return;
-    
     try {
       warehouseHandlersLoading = true;
       warehouseHandlers = [];
@@ -1004,100 +651,67 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       filteredWarehouseHandlers = [];
       selectedWarehouseHandler = null;
 
-      // Get all users for the selected branch
-      const { data: usersData, error: usersError } = await supabase
+      if (!selectedBranch) {
+        warehouseHandlersLoading = false;
+        return;
+      }
+
+      // Get all active users from the selected branch
+      const { data: usersWithPositions, error: loadError } = await supabase
         .from('users')
         .select(`
           id,
           username,
-          hr_employees (
+          hr_employees!inner(
             id,
             name,
-            employee_id
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
           )
         `)
         .eq('branch_id', parseInt(selectedBranch))
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
 
-      if (usersError) {
-        console.error('Error loading users:', usersError);
-        return;
-      }
+      if (loadError) throw loadError;
 
-      // Get position assignments for the branch users using chunked queries
-      let positionsData = [];
-      if (usersData && usersData.length > 0) {
-        const employeeUUIDs = usersData
-          .filter(user => user.hr_employees?.id)
-          .map(user => user.hr_employees.id);
-
-        // Chunk the UUIDs into smaller batches to avoid URL length limits
-        const chunkSize = 25;
-        const positionPromises = [];
-        
-        for (let i = 0; i < employeeUUIDs.length; i += chunkSize) {
-          const chunk = employeeUUIDs.slice(i, i + chunkSize);
-          const promise = supabase
-            .from('hr_position_assignments')
-            .select(`
-              employee_id,
-              hr_positions (
-                position_title_en
-              )
-            `)
-            .in('employee_id', chunk)
-            .eq('is_current', true);
-          positionPromises.push(promise);
-        }
-
-        try {
-          const results = await Promise.all(positionPromises);
-          results.forEach(result => {
-            if (result.data) {
-              positionsData = positionsData.concat(result.data);
-            } else if (result.error) {
-              console.warn('Error in position chunk:', result.error);
-            }
-          });
-        } catch (chunkError) {
-          console.warn('Error loading positions in chunks:', chunkError);
-        }
-      }
-
-      // Combine the data
-      warehouseHandlers = (usersData || []).map(user => {
-        const positionAssignment = positionsData.find(pos => pos.employee_id === user.hr_employees?.id);
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
         return {
           id: user.id,
           username: user.username,
           employeeName: user.hr_employees?.name || 'N/A',
           employeeId: user.hr_employees?.employee_id || 'N/A',
-          position: positionAssignment?.hr_positions?.position_title_en || 'No Position Assigned'
+          position: position
         };
       });
 
-      // Filter for actual warehouse & stock handlers
-      actualWarehouseHandlers = warehouseHandlers.filter(user => 
-        (user.position.toLowerCase().includes('warehouse') || 
-         user.position.toLowerCase().includes('stock') && user.position.toLowerCase().includes('handler'))
+      // Filter for warehouse handlers & stock handlers
+      const warehouseHandlersList = allBranchUsers.filter(u => 
+        (u.position.toLowerCase().includes('warehouse') || 
+         (u.position.toLowerCase().includes('stock') && u.position.toLowerCase().includes('handler')))
       );
 
-      // If warehouse handlers found, show only them. Otherwise, prepare to show all users
-      if (actualWarehouseHandlers.length > 0) {
-        filteredWarehouseHandlers = actualWarehouseHandlers;
-        showAllUsersForWarehouseHandlers = false;
-        console.log('Found warehouse handlers:', actualWarehouseHandlers);
-      } else {
-        filteredWarehouseHandlers = warehouseHandlers;
-        showAllUsersForWarehouseHandlers = true;
-        console.log('No warehouse handlers found, showing all users for selection');
-      }
+      // Apply filtered results
+      warehouseHandlers = allBranchUsers;
+      actualWarehouseHandlers = warehouseHandlersList;
+      filteredWarehouseHandlers = actualWarehouseHandlers.length > 0 ? actualWarehouseHandlers : allBranchUsers;
+      showAllUsersForWarehouseHandlers = actualWarehouseHandlers.length === 0;
 
-      console.log('Loaded branch users for warehouse handler selection:', {
-        totalUsers: warehouseHandlers.length,
-        warehouseHandlers: actualWarehouseHandlers.length,
-        showingAllUsers: showAllUsersForWarehouseHandlers
+      console.log('✅ Loaded warehouse & stock handlers for selected branch:', {
+        total: allBranchUsers.length,
+        warehouseHandlers: actualWarehouseHandlers.length
       });
+
     } catch (err) {
       console.error('Error loading warehouse handlers:', err);
       warehouseHandlers = [];
@@ -1108,6 +722,166 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     }
   }
 
+  // Load shelf stockers for the selected branch when warehouse handler is selected
+  async function loadShelfStockersForSelection() {
+    try {
+      shelfStockersLoading = true;
+      shelfStockers = [];
+      actualShelfStockers = [];
+      filteredShelfStockers = [];
+      selectedShelfStocker = null;
+
+      if (!selectedBranch) {
+        shelfStockersLoading = false;
+        return;
+      }
+
+      // Get all active users from the selected branch
+      const { data: usersWithPositions, error: loadError } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          hr_employees!inner(
+            id,
+            name,
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
+          )
+        `)
+        .eq('branch_id', parseInt(selectedBranch))
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
+
+      if (loadError) throw loadError;
+
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+        return {
+          id: user.id,
+          username: user.username,
+          employeeName: user.hr_employees?.name || 'N/A',
+          employeeId: user.hr_employees?.employee_id || 'N/A',
+          position: position
+        };
+      });
+
+      // Filter for shelf stockers
+      const shelfStockersList = allBranchUsers.filter(u => 
+        u.position.toLowerCase().includes('shelf') && 
+        u.position.toLowerCase().includes('stocker')
+      );
+
+      // Apply filtered results
+      shelfStockers = allBranchUsers;
+      actualShelfStockers = shelfStockersList;
+      filteredShelfStockers = actualShelfStockers.length > 0 ? actualShelfStockers : allBranchUsers;
+      showAllUsersForShelfStockers = actualShelfStockers.length === 0;
+
+      console.log('✅ Loaded shelf stockers for selected branch:', {
+        total: allBranchUsers.length,
+        shelfStockers: actualShelfStockers.length
+      });
+
+    } catch (err) {
+      console.error('Error loading shelf stockers:', err);
+      shelfStockers = [];
+      actualShelfStockers = [];
+      filteredShelfStockers = [];
+    } finally {
+      shelfStockersLoading = false;
+    }
+  }
+
+  // Load accountants for the selected branch when shelf stocker is selected
+  async function loadAccountantsForSelection() {
+    try {
+      accountantsLoading = true;
+      accountants = [];
+      actualAccountants = [];
+      filteredAccountants = [];
+      selectedAccountant = null;
+
+      if (!selectedBranch) {
+        accountantsLoading = false;
+        return;
+      }
+
+      // Get all active users from the selected branch
+      const { data: usersWithPositions, error: loadError } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          hr_employees!inner(
+            id,
+            name,
+            employee_id,
+            hr_position_assignments!inner(
+              is_current,
+              hr_positions(
+                position_title_en,
+                position_title_ar
+              )
+            )
+          )
+        `)
+        .eq('branch_id', parseInt(selectedBranch))
+        .eq('status', 'active')
+        .eq('hr_employees.hr_position_assignments.is_current', true)
+        .order('username');
+
+      if (loadError) throw loadError;
+
+      // Transform data into user objects
+      const allBranchUsers = (usersWithPositions || []).map(user => {
+        const positions = user.hr_employees?.hr_position_assignments || [];
+        const position = positions[0]?.hr_positions?.position_title_en || 'No Position Assigned';
+        return {
+          id: user.id,
+          username: user.username,
+          employeeName: user.hr_employees?.name || 'N/A',
+          employeeId: user.hr_employees?.employee_id || 'N/A',
+          position: position
+        };
+      });
+
+      // Filter for accountants
+      const accountantsList = allBranchUsers.filter(u => 
+        u.position.toLowerCase().includes('accountant')
+      );
+
+      // Apply filtered results
+      accountants = allBranchUsers;
+      actualAccountants = accountantsList;
+      filteredAccountants = actualAccountants.length > 0 ? actualAccountants : allBranchUsers;
+      showAllUsersForAccountant = actualAccountants.length === 0;
+
+      console.log('✅ Loaded accountants for selected branch:', {
+        total: allBranchUsers.length,
+        accountants: actualAccountants.length
+      });
+
+    } catch (err) {
+      console.error('Error loading accountants:', err);
+      accountants = [];
+      actualAccountants = [];
+      filteredAccountants = [];
+    } finally {
+      accountantsLoading = false;
+    }
+  }
+
+  // Load inventory managers for the selected branch
   // Branch manager search functionality
   function handleBranchUserSearch() {
     const sourceList = showAllUsers ? branchManagers : actualBranchManagers;
@@ -1372,7 +1146,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedBranchName = branch ? branch.name_en : '';
     console.log('Reactive update - Found branch:', branch, 'selectedBranchName:', selectedBranchName);
     
-    // Load branch users for the selected branch
+    // Load branch users for the selected branch - ONLY branch managers
     loadBranchUsers(branchId);
   }
 
@@ -1408,34 +1182,34 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     handleVendorSearch();
   }
 
-  // Load shelf stockers when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
-    loadShelfStockersForSelection();
-  }
-
-  // Load accountants when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
-    loadAccountantsForSelection();
-  }
-
   // Load purchasing managers from all branches when branch manager is selected
   $: if (selectedBranchManager) {
     loadPurchasingManagersForSelection();
   }
 
-  // Load inventory managers when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
+  // Load inventory managers when purchasing manager is selected
+  $: if (selectedPurchasingManager) {
     loadInventoryManagersForSelection();
   }
 
-  // Load night supervisors when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
+  // Load night supervisors when inventory manager is selected
+  $: if (selectedInventoryManager) {
     loadNightSupervisorsForSelection();
   }
 
-  // Load warehouse handlers when branch manager is selected
-  $: if (selectedBranchManager && selectedBranch) {
+  // Load warehouse handlers when at least one night supervisor is selected
+  $: if (selectedNightSupervisors.length > 0) {
     loadWarehouseHandlersForSelection();
+  }
+
+  // Load shelf stockers when warehouse handler is selected
+  $: if (selectedWarehouseHandler) {
+    loadShelfStockersForSelection();
+  }
+
+  // Load accountants when shelf stocker is selected
+  $: if (selectedShelfStocker) {
+    loadAccountantsForSelection();
   }
 
   // Reactive calculations for return amounts
@@ -2662,101 +2436,107 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       </button>
     </div>
 
-    <!-- Branch Manager Selection -->
-    <div class="branch-users-section">
-      <h4>
-        {#if showAllUsers}
-          Select Responsible User
+    <!-- Manager Selection Container - Side by Side -->
+    <div class="managers-selection-container">
+      <!-- Branch Manager Selection -->
+      <div class="branch-users-section">
+        <h4>
+          {#if showAllUsers}
+            Select Responsible User
+          {:else}
+            Select Branch Manager
+          {/if}
+        </h4>
+        
+        {#if selectedBranchManager}
+          <div class="selected-user">
+            <div class="user-info">
+              <span class="user-label">
+                {#if showAllUsers}
+                  Selected Responsible User:
+                {:else}
+                  Selected Branch Manager:
+                {/if}
+              </span>
+              <span class="user-value">{selectedBranchManager.username} - {selectedBranchManager.employeeName}</span>
+            </div>
+            <button type="button" on:click={() => selectedBranchManager = null} class="change-user-btn">
+              Change Selection
+            </button>
+          </div>
         {:else}
-          Select Branch Manager
-        {/if}
-      </h4>
-      
-      {#if selectedBranchManager}
-        <div class="selected-user">
-          <div class="user-info">
-            <span class="user-label">
-              {#if showAllUsers}
-                Selected Responsible User:
-              {:else}
-                Selected Branch Manager:
-              {/if}
-            </span>
-            <span class="user-value">{selectedBranchManager.username} - {selectedBranchManager.employeeName}</span>
-          </div>
-          <button type="button" on:click={() => selectedBranchManager = null} class="change-user-btn">
-            Change Selection
-          </button>
-        </div>
-      {:else}
-        {#if branchManagersLoading}
-          <div class="users-loading">
-            <div class="spinner"></div>
-            <span>Loading branch users...</span>
-          </div>
-        {:else if actualBranchManagers.length === 0 && !showAllUsers}
-          <!-- No Branch Manager Found - Show Message -->
-          <div class="no-manager-found">
-            <div class="no-manager-message">
-              <span class="warning-icon">⚠️</span>
-              <div class="message-content">
-                <h5>No Branch Manager Found</h5>
-                <p>No user with "Branch Manager" position found for this branch.</p>
-                <button type="button" class="select-responsible-btn" on:click={showAllUsersForSelection}>
-                  Select Responsible User Instead
-                </button>
+          {#if branchManagersLoading}
+            <div class="users-loading">
+              <div class="spinner"></div>
+              <span>Loading branch users...</span>
+            </div>
+          {:else if actualBranchManagers.length === 0 && !showAllUsers}
+            <!-- No Branch Manager Found - Show Message -->
+            <div class="no-manager-found">
+              <div class="no-manager-message">
+                <span class="warning-icon">⚠️</span>
+                <div class="message-content">
+                  <h5>No Branch Manager Found</h5>
+                  <p>No user with "Branch Manager" position found for this branch.</p>
+                  <button type="button" class="select-responsible-btn" on:click={showAllUsersForSelection}>
+                    Select Responsible User Instead
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        {:else if filteredBranchManagers.length === 0}
-          <div class="no-users">
-            <span class="notice-icon">⚠️</span>
-            <span>No active users found for this branch</span>
-          </div>
-        {:else}
-          <!-- Show instructions based on current view -->
-          {#if showAllUsers}
-            <div class="fallback-notice">
-              <span class="info-icon">ℹ️</span>
-              <span>No branch manager found. Please select a responsible user from the list below:</span>
+          {:else if filteredBranchManagers.length === 0}
+            <div class="no-users">
+              <span class="notice-icon">⚠️</span>
+              <span>No active users found for this branch</span>
             </div>
-          {/if}
+          {:else}
+            <!-- Show instructions based on current view -->
+            {#if showAllUsers}
+              <div class="fallback-notice">
+                <span class="info-icon">ℹ️</span>
+                <span>No branch manager found. Please select a responsible user from the list below:</span>
+              </div>
+            {/if}
 
-          <!-- Search Box -->
-          <div class="user-search">
-            <input 
-              type="text" 
-              bind:value={branchManagerSearchQuery}
-              placeholder="Search by username, employee name, or position..."
-              class="search-input"
-            />
-          </div>
+            <!-- Search Box -->
+            <div class="user-search">
+              <input 
+                type="text" 
+                bind:value={branchManagerSearchQuery}
+                placeholder="Search by username, employee name, or position..."
+                class="search-input"
+              />
+            </div>
 
-          <!-- Users Table for Branch Manager Selection -->
-          <div class="users-table-container">
-            <table class="users-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Employee Name</th>
-                  <th>Employee ID</th>
-                  <th>Position</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
+            <!-- Users Card Grid for Branch Manager Selection -->
+            <div class="users-card-grid-container">
+              <div class="users-card-grid">
                 {#each filteredBranchManagers as user}
-                  <tr class="user-row" class:is-manager={user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}>
-                    <td class="username-cell">{user.username}</td>
-                    <td class="name-cell">{user.employeeName}</td>
-                    <td class="id-cell">{user.employeeId}</td>
-                    <td class="position-cell">
-                      {user.position}
-                      {#if user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}
-                        <span class="manager-badge">Branch Manager</span>
-                      {/if}
-                    </td>
-                    <td class="action-cell">
+                  <div class="user-card" class:is-manager={user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}>
+                    <div class="card-header">
+                      <div class="user-avatar">{user.username.charAt(0).toUpperCase()}</div>
+                      <div class="card-title">
+                        <div class="username">{user.username}</div>
+                        {#if user.position.toLowerCase().includes('branch') && user.position.toLowerCase().includes('manager')}
+                          <span class="manager-badge">Branch Manager</span>
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="card-body">
+                      <div class="info-row">
+                        <span class="label">Employee Name:</span>
+                        <span class="value">{user.employeeName}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="label">Employee ID:</span>
+                        <span class="value">{user.employeeId}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="label">Position:</span>
+                        <span class="value">{user.position}</span>
+                      </div>
+                    </div>
+                    <div class="card-footer">
                       <button 
                         type="button" 
                         class="select-user-btn"
@@ -2764,25 +2544,29 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                       >
                         Select
                       </button>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 {/each}
-              </tbody>
-            </table>
-            
-            {#if filteredBranchManagers.length === 0 && branchManagerSearchQuery}
-              <div class="no-search-results">
-                <p>No users found matching "{branchManagerSearchQuery}"</p>
               </div>
-            {/if}
-          </div>
+              
+              {#if filteredBranchManagers.length === 0 && branchManagerSearchQuery}
+                <div class="no-search-results">
+                  <p>No users found matching "{branchManagerSearchQuery}"</p>
+                </div>
+              {/if}
+            </div>
+          {/if}
         {/if}
-      {/if}
-    </div>
+      </div>
 
-    <!-- Purchasing Manager Selection (Single Selection) -->
-    {#if selectedBranchManager}
+      <!-- Purchasing Manager Selection (Single Selection) -->
       <div class="purchasing-manager-section">
+        {#if !selectedBranchManager}
+          <div class="section-disabled-notice">
+            <span class="info-icon">ℹ️</span>
+            <span>Please select a Branch Manager first to view Purchasing Manager options</span>
+          </div>
+        {:else}
         <h4>
           {#if showAllUsersForPurchasingManager}
             Select User as Purchasing Manager
@@ -2857,50 +2641,55 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
               />
             </div>
 
-            <!-- Purchasing Managers Table -->
-            <div class="purchasing-managers-table-container">
-              <table class="purchasing-managers-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Employee Name</th>
-                    <th>Employee ID</th>
-                    <th>Branch</th>
-                    <th>Position</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each filteredPurchasingManagers as user}
-                    <tr class="purchasing-manager-row" class:is-purchasing-manager={user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}>
-                      <td class="username-cell">{user.username}</td>
-                      <td class="name-cell">{user.employeeName}</td>
-                      <td class="id-cell">{user.employeeId}</td>
-                      <td class="branch-cell">
-                        <span class="branch-name">{user.branchName}</span>
-                        {#if user.branchId == selectedBranch}
-                          <span class="current-branch-badge">Current</span>
-                        {/if}
-                      </td>
-                      <td class="position-cell">
-                        {user.position}
+            <!-- Purchasing Managers Card Grid -->
+            <div class="purchasing-managers-card-grid-container">
+              <div class="purchasing-managers-card-grid">
+                {#each filteredPurchasingManagers as user}
+                  <div class="purchasing-manager-card" class:is-purchasing-manager={user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}>
+                    <div class="card-header">
+                      <div class="user-avatar" style="background: #ff9800;">{user.username.charAt(0).toUpperCase()}</div>
+                      <div class="card-title">
+                        <div class="username">{user.username}</div>
                         {#if user.position.toLowerCase().includes('purchasing') && user.position.toLowerCase().includes('manager')}
                           <span class="purchasing-manager-badge">Purchasing Manager</span>
                         {/if}
-                      </td>
-                      <td class="action-cell">
-                        <button 
-                          type="button" 
-                          class="select-purchasing-manager-btn"
-                          on:click={() => selectPurchasingManager(user)}
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                    <div class="card-body">
+                      <div class="info-row">
+                        <span class="label">Employee Name:</span>
+                        <span class="value">{user.employeeName}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="label">Employee ID:</span>
+                        <span class="value">{user.employeeId}</span>
+                      </div>
+                      <div class="info-row">
+                        <span class="label">Branch:</span>
+                        <span class="value">
+                          {user.branchName}
+                          {#if user.branchId == selectedBranch}
+                            <span class="current-branch-badge">Current</span>
+                          {/if}
+                        </span>
+                      </div>
+                      <div class="info-row">
+                        <span class="label">Position:</span>
+                        <span class="value">{user.position}</span>
+                      </div>
+                    </div>
+                    <div class="card-footer">
+                      <button 
+                        type="button" 
+                        class="select-purchasing-manager-btn"
+                        on:click={() => selectPurchasingManager(user)}
+                      >
+                        Select
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
               
               {#if filteredPurchasingManagers.length === 0 && purchasingManagerSearchQuery}
                 <div class="no-search-results">
@@ -2910,12 +2699,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             </div>
           {/if}
         {/if}
+        {/if}
       </div>
-    {/if}
+    </div>
 
-    <!-- Inventory Manager Selection (Single Selection) -->
-    {#if selectedBranchManager}
+    <!-- Inventory & Night Supervisors Container - Side by Side -->
+    <div class="inventory-night-supervisors-container">
+      <!-- Inventory Manager Selection (Single Selection) -->
       <div class="inventory-manager-section">
+      {#if !selectedBranchManager}
+        <div class="section-disabled-notice">
+          <span class="info-icon">ℹ️</span>
+          <span>Please select a Branch Manager first to view Inventory Manager options</span>
+        </div>
+      {:else}
         <h4>
           {#if showAllUsersForInventoryManager}
             Select User as Inventory Manager
@@ -3031,12 +2828,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             </div>
           {/if}
         {/if}
+        {/if}
       </div>
-    {/if}
 
     <!-- Night Supervisors Selection (Multiple Selection) -->
-    {#if selectedBranchManager}
-      <div class="night-supervisors-section">
+    <div class="night-supervisors-section">
+      {#if !selectedBranchManager}
+        <div class="section-disabled-notice">
+          <span class="info-icon">ℹ️</span>
+          <span>Please select a Branch Manager first to view Night Supervisors options</span>
+        </div>
+      {:else}
         <h4>
           {#if showAllUsersForNightSupervisors}
             Select Users as Night Supervisors (Multiple)
@@ -3166,12 +2968,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           </div>
         {/if}
+        {/if}
       </div>
-    {/if}
+    </div>
 
-    <!-- Warehouse & Stock Handlers Selection (Multiple Selection) -->
-    {#if selectedBranchManager}
+    <!-- Warehouse & Shelf Stockers Container - Side by Side -->
+    <div class="warehouse-shelf-container">
+      <!-- Warehouse & Stock Handlers Selection (Multiple Selection) -->
       <div class="warehouse-handlers-section">
+      {#if !selectedBranchManager}
+        <div class="section-disabled-notice">
+          <span class="info-icon">ℹ️</span>
+          <span>Please select a Branch Manager first to view Warehouse Handlers options</span>
+        </div>
+      {:else}
         <h4>
           {#if showAllUsersForWarehouseHandlers}
             Select User as Warehouse & Stock Handler
@@ -3297,8 +3107,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           </div>
         {/if}
+        {/if}
       </div>
-    {/if}
 
     <!-- Receiving User Information (Auto-selected: logged-in user) -->
     <div class="receiving-user-section">
@@ -3315,9 +3125,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       </div>
     </div>
 
-    <!-- Shelf Stockers Selection (Multiple Selection) -->
-    {#if selectedBranchManager}
+    <!-- Shelf Stockers & Accountant Group -->
+    <div class="shelf-accountant-group">
+      <!-- Shelf Stockers Selection (Multiple Selection) -->
       <div class="shelf-stockers-section">
+      {#if !selectedBranchManager}
+        <div class="section-disabled-notice">
+          <span class="info-icon">ℹ️</span>
+          <span>Please select a Branch Manager first to view Shelf Stockers options</span>
+        </div>
+      {:else}
         <h4>
           {#if showAllUsersForShelfStockers}
             Select User as Shelf Stocker
@@ -3448,12 +3265,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           </div>
         {/if}
+        {/if}
       </div>
-    {/if}
 
-    <!-- Accountant Selection (Single Selection) -->
-    {#if selectedBranchManager}
+      <!-- Accountant Selection (Single Selection) -->
       <div class="accountant-section">
+      {#if !selectedBranchManager}
+        <div class="section-disabled-notice">
+          <span class="info-icon">ℹ️</span>
+          <span>Please select a Branch Manager first to view Accountant options</span>
+        </div>
+      {:else}
         <h4>
           {#if showAllUsersForAccountant}
             Select User as Accountant
@@ -3573,8 +3395,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             </div>
           {/if}
         {/if}
+        {/if}
       </div>
-    {/if}
+    </div>
+    </div>
+
   {:else}
     <div class="branch-selector">
       {#if isLoading}
@@ -4832,12 +4657,96 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		margin-right: 0.5rem;
 	}
 
-	.branch-users-section {
+	/* Manager Selection Container - Side by Side */
+	.managers-selection-container {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.5rem;
 		margin-top: 1.5rem;
+	}
+
+	/* Inventory & Night Supervisors Container - Side by Side */
+	.inventory-night-supervisors-container {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.5rem;
+		margin-top: 1.5rem;
+	}
+
+	/* Warehouse & Shelf Stockers Container - Side by Side */
+	.warehouse-shelf-container {
+		display: flex;
+		gap: 1.5rem;
+		margin-top: 1.5rem;
+		flex-wrap: wrap;
+	}
+
+	.warehouse-shelf-container > .warehouse-handlers-section {
+		flex: 1;
+		min-width: 300px;
+	}
+
+	.warehouse-shelf-container > .shelf-accountant-group {
+		flex: 1;
+		min-width: 300px;
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	@media (max-width: 1200px) {
+		.warehouse-shelf-container {
+			flex-direction: column;
+		}
+
+		.warehouse-shelf-container > .warehouse-handlers-section {
+			flex: 1 1 100%;
+		}
+
+		.warehouse-shelf-container > .shelf-accountant-group {
+			flex: 1 1 100%;
+		}
+
+		.managers-selection-container {
+			grid-template-columns: 1fr;
+		}
+
+		.inventory-night-supervisors-container {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.branch-users-section {
+		margin-top: 0;
 		padding: 1rem;
 		background: #f8f9fa;
 		border-radius: 6px;
 		border: 1px solid #dee2e6;
+	}
+
+	.purchasing-manager-section {
+		margin-top: 0;
+		padding: 1rem;
+		background: #f8f9fa;
+		border-radius: 6px;
+		border: 1px solid #dee2e6;
+	}
+
+	.section-disabled-notice {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: #e7f3ff;
+		border: 1px solid #b3d9ff;
+		border-radius: 6px;
+		color: #004085;
+		font-size: 0.9rem;
+	}
+
+	.section-disabled-notice .info-icon {
+		font-size: 1.2rem;
+		flex-shrink: 0;
 	}
 
 	.branch-users-section h4 {
@@ -4992,6 +4901,80 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #218838;
 	}
 
+	/* Card Grid Styles */
+	.users-card-grid-container {
+		border: 1px solid #dee2e6;
+		border-radius: 6px;
+		background: white;
+		padding: 1rem;
+	}
+
+	.users-card-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.user-card {
+		background: white;
+		border: 1px solid #dee2e6;
+		border-radius: 8px;
+		overflow: hidden;
+		transition: all 0.3s ease;
+		display: flex;
+		flex-direction: column;
+		cursor: pointer;
+		height: 400px;
+		width: 100%;
+	}
+
+	.user-card:hover {
+		border-color: #007bff;
+		box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+		transform: translateY(-2px);
+	}
+
+	.user-card.is-manager {
+		border-color: #28a745;
+		background: #f8fff9;
+	}
+
+	.user-card.is-manager:hover {
+		border-color: #20c997;
+		box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+	}
+
+	.card-header {
+		background: #f8f9fa;
+		padding: 1rem;
+		border-bottom: 1px solid #dee2e6;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-shrink: 0;
+	}
+
+	.card-body {
+		padding: 1rem;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		overflow-y: auto;
+	}
+
+	.card-footer {
+		padding: 0.75rem 1rem;
+		border-top: 1px solid #dee2e6;
+		background: #f8f9fa;
+		flex-shrink: 0;
+	}
+
+	.card-footer .select-user-btn {
+		width: 100%;
+		padding: 0.5rem;
+	}
+
 	.no-search-results {
 		padding: 2rem;
 		text-align: center;
@@ -5054,7 +5037,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	/* Shelf Stockers Section Styles */
 	.shelf-stockers-section {
-		margin-top: 1.5rem;
+		margin-top: 0;
 		padding: 1rem;
 		background: #f0f8ff;
 		border-radius: 6px;
@@ -5591,9 +5574,64 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #7b1fa2;
 	}
 
+	/* Purchasing Managers Card Grid Styles */
+	.purchasing-managers-card-grid-container {
+		border: 1px solid #dee2e6;
+		border-radius: 6px;
+		background: white;
+		padding: 1rem;
+	}
+
+	.purchasing-managers-card-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.purchasing-manager-card {
+		background: white;
+		border: 1px solid #dee2e6;
+		border-radius: 8px;
+		overflow: hidden;
+		transition: all 0.3s ease;
+		display: flex;
+		flex-direction: column;
+		cursor: pointer;
+		height: 400px;
+		width: 100%;
+	}
+
+	.purchasing-manager-card:hover {
+		border-color: #ff9800;
+		box-shadow: 0 2px 8px rgba(255, 152, 0, 0.15);
+		transform: translateY(-2px);
+	}
+
+	.purchasing-manager-card.is-purchasing-manager {
+		border-color: #ff9800;
+		background: #fff8f0;
+	}
+
+	.purchasing-manager-card.is-purchasing-manager:hover {
+		border-color: #f57c00;
+		box-shadow: 0 2px 8px rgba(255, 152, 0, 0.25);
+	}
+
+	.purchasing-manager-card .card-body {
+		overflow-y: auto;
+	}
+
+	.purchasing-manager-card .card-header {
+		flex-shrink: 0;
+	}
+
+	.purchasing-manager-card .card-footer {
+		flex-shrink: 0;
+	}
+
 	/* Inventory Manager Section - Teal theme */
 	.inventory-manager-section {
-		margin-top: 20px;
+		margin-top: 0;
 		background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
 		border: 2px solid #38b2ac;
 		border-radius: 12px;
@@ -5751,7 +5789,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	/* Night Supervisors Section - Indigo theme */
 	.night-supervisors-section {
-		margin-top: 20px;
+		margin-top: 0;
 		background: linear-gradient(135deg, #ebf4ff 0%, #c3dafe 100%);
 		border: 2px solid #5a67d8;
 		border-radius: 12px;
@@ -5926,7 +5964,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	/* Warehouse Handlers Section - Red theme */
 	.warehouse-handlers-section {
-		margin-top: 20px;
+		margin-top: 0;
 		background: linear-gradient(135deg, #fed7d7 0%, #feb2b2 100%);
 		border: 2px solid #e53e3e;
 		border-radius: 12px;
