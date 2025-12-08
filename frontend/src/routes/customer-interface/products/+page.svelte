@@ -116,8 +116,13 @@
     window.addEventListener('storage', onStorage);
 
     // Real-time subscriptions for offers and products
+    // REALTIME SUBSCRIPTIONS DISABLED (Dec 8, 2025)
+    // Cause: 40-100+ reload requests per second during traffic spikes
+    // Fix: Disabled subscriptions temporarily
+    // TODO: Implement targeted updates instead of full reload
     const offersChannel = supabase
       .channel('offers-changes')
+      /* Commented out realtime listeners
       .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
         console.log('📊 Offers table changed, reloading products...');
         loadProducts();
@@ -134,6 +139,7 @@
         console.log('🛍️ Products changed, reloading products...');
         loadProducts();
       })
+      */
       .subscribe();
 
     return () => {

@@ -1,7 +1,6 @@
 import { writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { supabase } from "./supabase";
-import { pushNotificationService } from "./pushNotifications";
 import type { User, UserPermissions } from "$lib/types/auth";
 
 // Database types matching our deployed schema
@@ -294,26 +293,10 @@ export class PersistentAuthService {
       await this.setCurrentUser(userSession);
       console.log("✅ [PersistentAuth] Current user set successfully");
 
-      // Schedule delayed push notification initialization to avoid SW race conditions
+      // Push notification initialization removed
       console.log(
-        "🔔 [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...",
+        "✅ [PersistentAuth] Push notification initialization skipped (removed)",
       );
-      setTimeout(async () => {
-        try {
-          console.log(
-            "🔔 [PersistentAuth] Starting delayed push notification initialization...",
-          );
-          await pushNotificationService.initialize();
-          console.log(
-            "✅ [PersistentAuth] Delayed push notification initialization completed successfully",
-          );
-        } catch (error) {
-          console.warn(
-            "⚠️ [PersistentAuth] Delayed push notification initialization failed:",
-            error,
-          );
-        }
-      }, 5000); // Wait 5 seconds for all Service Worker operations to complete
 
       // Log login activity (with timeout protection)
       console.log("🔐 [PersistentAuth] Logging user activity...");
@@ -513,27 +496,6 @@ export class PersistentAuthService {
       await this.setCurrentUser(userSession);
       console.log("✅ [PersistentAuth] Current customer user set successfully");
 
-      // Initialize push notifications after successful login (with delay for Service Worker)
-      console.log(
-        "🔔 [PersistentAuth] Scheduling push notification initialization after Service Worker stabilization...",
-      );
-      setTimeout(async () => {
-        try {
-          console.log(
-            "🔔 [PersistentAuth] Starting delayed push notification initialization...",
-          );
-          await pushNotificationService.initialize();
-          console.log(
-            "✅ [PersistentAuth] Delayed push notification initialization completed successfully",
-          );
-        } catch (error) {
-          console.warn(
-            "⚠️ [PersistentAuth] Delayed push notification initialization failed:",
-            error,
-          );
-        }
-      }, 5000); // Wait 5 seconds for all Service Worker operations to complete
-
       console.log("✅ [PersistentAuth] Customer login completed successfully");
       return { success: true, user: userSession };
     } catch (error) {
@@ -668,9 +630,6 @@ export class PersistentAuthService {
       // Set as current user
       await this.setCurrentUser(userSession);
 
-      // Initialize push notifications
-      await pushNotificationService.initialize();
-
       // Log login activity
       await this.logUserActivity("login", userSession.id);
 
@@ -693,8 +652,7 @@ export class PersistentAuthService {
           console.warn("Failed to log logout activity:", err),
         );
 
-        // Unregister device from push notifications
-        await pushNotificationService.unregisterDevice();
+        // Push notification unregister removed
 
         // Remove user from device sessions
         await this.removeUserSession(current.id);
@@ -749,10 +707,6 @@ export class PersistentAuthService {
       deviceSession.currentUserId = userId;
       deviceSession.lastActivity = new Date().toISOString();
       await this.saveDeviceSession(deviceSession);
-
-      // Re-initialize push notifications for new user
-      await pushNotificationService.unregisterDevice();
-      await pushNotificationService.initialize();
 
       // Log switch activity
       await this.logUserActivity("switch", userId);

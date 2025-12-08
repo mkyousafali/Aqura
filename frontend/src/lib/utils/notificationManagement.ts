@@ -1,7 +1,5 @@
 import { supabase } from "./supabase";
-import { pushNotificationService } from "./pushNotifications";
 import { persistentAuthService, currentUser } from "./persistentAuth";
-import { pushNotificationProcessor } from "./pushNotificationProcessor";
 import { notificationSoundManager } from "./inAppNotificationSounds";
 
 // Types for notification management
@@ -1125,96 +1123,19 @@ export class NotificationManagementService {
     }
   }
 
-  /**
-   * Send a push notification to specific users or all users
-   */
-  async sendPushNotification(
-    title: string,
-    body: string,
-    userIds?: string[],
-    data?: any,
-  ): Promise<void> {
-    try {
-      // Send browser notification if user is online
-      await pushNotificationService.showNotification({
-        title,
-        body,
-        data,
-      });
 
-      // For offline users, the backend should handle push notifications
-      // This would typically be done via a server-side push service
-      console.log("Push notification sent:", { title, body, userIds, data });
-    } catch (error) {
-      console.error("Error sending push notification:", error);
-    }
-  }
 
-  /**
-   * Register current device for push notifications
-   */
-  async registerForPushNotifications(): Promise<boolean> {
-    try {
-      return await pushNotificationService.initialize();
-    } catch (error) {
-      console.error("Error registering for push notifications:", error);
-      return false;
-    }
-  }
 
-  /**
-   * Unregister device from push notifications
-   */
-  async unregisterFromPushNotifications(): Promise<void> {
-    try {
-      await pushNotificationService.unregisterDevice();
-    } catch (error) {
-      console.error("Error unregistering from push notifications:", error);
-    }
-  }
 
-  /**
-   * Check if push notifications are supported and enabled
-   */
-  isPushNotificationSupported(): boolean {
-    if (typeof window === "undefined") return false;
-    return (
-      "serviceWorker" in navigator &&
-      "PushManager" in window &&
-      "Notification" in window
-    );
-  }
 
-  /**
-   * Get push notification permission status
-   */
-  getPushNotificationPermission(): NotificationPermission {
-    if (typeof window === "undefined") return "denied";
-    return Notification.permission;
-  }
 
-  /**
-   * Request push notification permission
-   */
-  async requestPushNotificationPermission(): Promise<NotificationPermission> {
-    try {
-      return await pushNotificationService.requestPermission();
-    } catch (error) {
-      console.error("Error requesting push notification permission:", error);
-      return "denied";
-    }
-  }
 
-  /**
-   * Send test notification
-   */
-  async sendTestNotification(): Promise<void> {
-    try {
-      await pushNotificationService.sendTestNotification();
-    } catch (error) {
-      console.error("Error sending test notification:", error);
-    }
-  }
+
+
+
+
+
+
 
   /**
    * Listen for real-time notifications and show push notifications with error handling

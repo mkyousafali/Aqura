@@ -1624,47 +1624,46 @@ export const dataService = {
 
   // HR Fingerprint Transactions operations
   hrFingerprint: {
-    async getAll(): Promise<{ data: any[] | null; error: any }> {
+    async getAll(
+      limit: number = 50,
+      offset: number = 0
+    ): Promise<{ data: any[] | null; error: any; count?: number }> {
+      // Modified Dec 8, 2025: Changed from while loop (fetched 100K rows) to paginated query
+      // Impact: Fetch only 50 rows initially instead of loading all in memory
       if (USE_SUPABASE) {
         try {
-          const allData: any[] = [];
-          let page = 0;
-          const pageSize = 1000;
-          let hasMore = true;
+          const { data, error, count } = await supabase
+            .from("hr_fingerprint_transactions")
+            .select("*", { count: "exact" })
+            .order("date", { ascending: false })
+            .order("time", { ascending: false })
+            .range(offset, offset + limit - 1); // Paginated: fetch only this range
 
-          while (hasMore) {
-            const from = page * pageSize;
-            const to = from + pageSize - 1;
-
-            const { data, error, count } = await supabase
-              .from("hr_fingerprint_transactions")
-              .select("*", { count: "exact" })
-              .order("date", { ascending: false })
-              .order("time", { ascending: false })
-              .range(from, to);
-
-            if (error) {
-              console.error("Failed to fetch HR fingerprint transactions:", error);
-              return { data: null, error: error.message };
-            }
-
-            if (data && data.length > 0) {
-              allData.push(...data);
-            }
-
-            hasMore = data && data.length === pageSize;
-            page++;
+          if (error) {
+            console.error("Failed to fetch HR fingerprint transactions:", error);
+            return { data: null, error: error.message };
           }
 
-          return { data: allData, error: null };
+          return { data, error: null, count };
         } catch (error) {
           console.error("Failed to fetch HR fingerprint transactions:", error);
-          return { data: null, error: error.message };
+          return { data: null, error };
         }
       } else {
         await delay(MOCK_DATA_DELAY);
         return { data: [], error: null };
       }
+    },
+
+    // Helper method for pagination (new - Dec 8, 2025)
+    async getAllPaginated(page: number = 1, pageSize: number = 50) {
+      const offset = (page - 1) * pageSize;
+      return this.getAll(pageSize, offset);
+    },
+
+    // Helper for initial load (new - Dec 8, 2025)
+    async getInitial(limit: number = 50) {
+      return this.getAll(limit, 0);
     },
 
     async getByDate(date: string): Promise<{ data: any[] | null; error: any }> {
@@ -1721,54 +1720,46 @@ export const dataService = {
 
     async getByBranch(
       branchId: string,
-    ): Promise<{ data: any[] | null; error: any }> {
+      limit: number = 50,
+      offset: number = 0
+    ): Promise<{ data: any[] | null; error: any; count?: number }> {
+      // Modified Dec 8, 2025: Changed from while loop to paginated query
       if (USE_SUPABASE) {
         try {
-          const allData: any[] = [];
-          let page = 0;
-          const pageSize = 1000;
-          let hasMore = true;
+          const { data, error, count } = await supabase
+            .from("hr_fingerprint_transactions")
+            .select("*", { count: "exact" })
+            .eq("branch_id", branchId)
+            .order("date", { ascending: false })
+            .order("time", { ascending: false })
+            .range(offset, offset + limit - 1); // Paginated
 
-          while (hasMore) {
-            const from = page * pageSize;
-            const to = from + pageSize - 1;
-
-            const { data, error } = await supabase
-              .from("hr_fingerprint_transactions")
-              .select("*")
-              .eq("branch_id", branchId)
-              .order("date", { ascending: false })
-              .order("time", { ascending: false })
-              .range(from, to);
-
-            if (error) {
-              console.error(
-                "Failed to fetch HR fingerprint transactions by branch:",
-                error,
-              );
-              return { data: null, error: error.message };
-            }
-
-            if (data && data.length > 0) {
-              allData.push(...data);
-            }
-
-            hasMore = data && data.length === pageSize;
-            page++;
+          if (error) {
+            console.error(
+              "Failed to fetch HR fingerprint transactions by branch:",
+              error,
+            );
+            return { data: null, error: error.message };
           }
 
-          return { data: allData, error: null };
+          return { data, error: null, count };
         } catch (error) {
           console.error(
             "Failed to fetch HR fingerprint transactions by branch:",
             error,
           );
-          return { data: null, error: error.message };
+          return { data: null, error };
         }
       } else {
         await delay(MOCK_DATA_DELAY);
         return { data: [], error: null };
       }
+    },
+
+    // Helper for branch pagination (new - Dec 8, 2025)
+    async getByBranchPaginated(branchId: string, page: number = 1, pageSize: number = 50) {
+      const offset = (page - 1) * pageSize;
+      return this.getByBranch(branchId, pageSize, offset);
     },
 
     async create(transaction: {

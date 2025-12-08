@@ -503,13 +503,26 @@ export const db = {
 
   // Vendor operations
   vendors: {
-    async getAll() {
-      const { data, error } = await supabase
+    async getAll(limit: number = 50, offset: number = 0) {
+      // Modified Dec 8, 2025: Added pagination (was .limit(10000))
+      // Impact: Fetch 50 rows instead of 10,000 (200x faster)
+      const { data, error, count } = await supabase
         .from("vendors")
-        .select("*")
+        .select("*", { count: "exact" })
         .order("vendor_name")
-        .limit(10000); // Increase limit to show all vendors
-      return { data, error };
+        .range(offset, offset + limit - 1); // Paginate: fetch one page
+      return { data, error, count };
+    },
+
+    // Helper method for pagination (new)
+    async getAllPaginated(page: number = 1, pageSize: number = 50) {
+      const offset = (page - 1) * pageSize;
+      return this.getAll(pageSize, offset);
+    },
+
+    // Helper for initial load (new)
+    async getInitial(limit: number = 50) {
+      return this.getAll(limit, 0);
     },
 
     async getById(id: string) {

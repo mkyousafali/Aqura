@@ -12,14 +12,11 @@
 	import CommandPalette from '$lib/components/desktop-interface/common/CommandPalette.svelte';
 	import ToastNotifications from '$lib/components/common/ToastNotifications.svelte';
 	import UserSwitcher from '$lib/components/common/UserSwitcher.svelte';
-	import PushNotificationSettings from '$lib/components/desktop-interface/settings/PushNotificationSettings.svelte';
 	
-	// Enhanced imports for persistent auth and push notifications
+	// Enhanced imports for persistent auth
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { notificationService } from '$lib/utils/notificationManagement';
-	import { pushNotificationProcessor } from '$lib/utils/pushNotificationProcessor';
-	import { pushNotificationService } from '$lib/utils/pushNotifications';
 	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -897,35 +894,9 @@
 		isInitializingNotifications = true;
 		
 		try {
-			// Initialize push notification service first
-			console.log('🚀 Initializing push notification service...');
-			const initialized = await pushNotificationService.initialize();
-			
-			if (!initialized) {
-				console.warn('⚠️ Push notification service initialization failed');
-				return;
-			}
-			
-			// Check if push notifications are supported and user wants them
-			const isSupported = notificationService.isPushNotificationSupported();
-			const permission = notificationService.getPushNotificationPermission();
-			
-		if (isSupported && permission === 'granted') {
-			// Push notification services are configured
-		}			// Start the push notification processor
-			console.log('🚀 Starting push notification processor...');
-			pushNotificationProcessor.start();
-			
-			// Start push queue poller (processes pending push notifications)
-			// This is needed when pg_cron is not available (free tier)
-			console.log('🔄 Starting push queue poller...');
-			const { pushQueuePoller } = await import('$lib/utils/pushQueuePoller');
-			// 🔴 DISABLED: Push queue polling disabled
-			// pushQueuePoller.start();
-			
 			// Mark as initialized
 			notificationServicesInitialized = true;
-			console.log('✅ All notification services initialized successfully');
+			console.log('✅ Notification services initialization skipped (push removed)');
 			
 		} catch (error) {
 			console.error('❌ Error initializing notification services:', error);
@@ -1168,17 +1139,12 @@
 										<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 										</svg>
-									</button>
-								</div>
-								<div class="p-6">
-									<PushNotificationSettings />
-								</div>
+								</button>
 							</div>
 						</div>
 					</div>
-				{/if}
-				
-				<!-- PWA Update Prompt -->
+				</div>
+			{/if}				<!-- PWA Update Prompt -->
 				{#if showUpdatePrompt}
 					<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
 						<div class="max-w-md w-full mx-4">

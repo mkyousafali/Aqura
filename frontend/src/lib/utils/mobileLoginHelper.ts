@@ -1,13 +1,10 @@
 /**
  * Mobile Login Helper
- * This utility helps integrate push notification prompts into the login flow
+ * Push notification functionality removed
  */
-
-import { checkAndPromptPushNotifications } from "./pushNotificationProcessor";
 
 /**
  * Call this function after a successful user login
- * It will automatically check if the user should be prompted for push notifications
  */
 export async function handleUserLogin(
   userId: string,
@@ -15,19 +12,7 @@ export async function handleUserLogin(
 ): Promise<void> {
   try {
     console.log("🔐 User logged in:", userId);
-
-    // If this is explicitly marked as first login, or we detect mobile device
-    const isMobile =
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent,
-      );
-
-    if (isMobile || isFirstLogin) {
-      console.log(
-        "📱 Mobile device detected or first login, checking push notification prompt...",
-      );
-      await checkAndPromptPushNotifications(userId);
-    }
+    // Push notification prompts removed
   } catch (error) {
     console.error("❌ Error in user login handler:", error);
   }
@@ -35,20 +20,13 @@ export async function handleUserLogin(
 
 /**
  * Manually trigger push notification prompt for current user
- * Useful for settings page or manual activation
+ * Push notification functionality removed
  */
 export async function manuallyPromptPushNotifications(
   userId: string,
 ): Promise<boolean> {
-  try {
-    const { promptMobilePushNotifications } = await import(
-      "./pushNotificationProcessor"
-    );
-    return await promptMobilePushNotifications(userId);
-  } catch (error) {
-    console.error("❌ Error in manual push notification prompt:", error);
-    return false;
-  }
+  console.log("Push notification functionality removed");
+  return false;
 }
 
 /**
