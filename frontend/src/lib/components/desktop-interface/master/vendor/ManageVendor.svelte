@@ -1,17 +1,32 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EditVendor from './EditVendor.svelte';
 
+	// Debounce utility for search
+	let searchTimeout;
+	function debounce(func, wait) {
+		return function executedFunction(...args) {
+			const later = () => {
+				clearTimeout(searchTimeout);
+				func(...args);
+			};
+			clearTimeout(searchTimeout);
+			searchTimeout = setTimeout(later, wait);
+		};
+	}
+
 	// State management
 	let totalVendors = 0;
 	let vendors = [];
 	let filteredVendors = [];
+	let displayedVendors = []; // For virtual scrolling
 	let searchQuery = '';
 	let isLoading = true;
 	let error = null;
+	let loadingProgress = 0; // Track loading progress
 
 	// Branch filtering
 	let branches = [];
@@ -130,25 +145,28 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
-	// Load vendors from database
+	// Load vendors from database with optimization
 	async function loadVendors() {
 		try {
 			isLoading = true;
 			error = null;
+			loadingProgress = 0;
 
 			// If "By Branch" is selected but no branch is chosen, don't load vendors
 			if (branchFilterMode === 'branch' && !selectedBranch) {
 				vendors = [];
 				filteredVendors = [];
+				displayedVendors = [];
 				totalVendors = 0;
 				isLoading = false;
 				return;
 			}
 
-			// First get the total count
+			// First get the total count (optimized query)
+			// Note: Using erp_vendor_id instead of id as primary key
 			let countQuery = supabase
 				.from('vendors')
-				.select('*', { count: 'exact', head: true });
+				.select('erp_vendor_id', { count: 'exact', head: false });
 
 			// Apply branch filtering for count
 			if (branchFilterMode === 'branch' && selectedBranch) {
@@ -158,15 +176,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 
 			const { count, error: countError } = await countQuery;
-			if (countError) throw countError;
+			if (countError) {
+				console.error('❌ Count query error:', countError);
+				throw countError;
+			}
 
 			const totalCount = count || 0;
 			totalVendors = totalCount;
 			console.log('Total vendor count:', totalCount);
+			loadingProgress = 10;
 
-			// Fetch ALL vendors using pagination to bypass Supabase 1000 record limit
+			// Fetch vendors using optimized pagination
 			let allVendors = [];
-			const pageSize = 1000;
+			const pageSize = 500; // Reduced page size for faster initial load
 			let currentPage = 0;
 			let hasMore = true;
 
@@ -174,9 +196,39 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				const startRange = currentPage * pageSize;
 				const endRange = startRange + pageSize - 1;
 
+				// Optimized query - only fetch needed columns initially
 				let query = supabase
 					.from('vendors')
-					.select('*, branches(name_en)')
+					.select(`
+						erp_vendor_id,
+						vendor_name,
+						branch_id,
+						salesman_name,
+						salesman_contact,
+						supervisor_name,
+						supervisor_contact,
+						vendor_contact_number,
+						payment_method,
+						payment_priority,
+						credit_period,
+						bank_name,
+						iban,
+						place,
+						location_link,
+						categories,
+						delivery_modes,
+						status,
+						last_visit,
+						return_expired_products,
+						return_near_expiry_products,
+						return_over_stock,
+						return_damage_products,
+						no_return,
+						vat_applicable,
+						vat_number,
+						no_vat_note,
+						branches(name_en)
+					`)
 					.order('erp_vendor_id', { ascending: true })
 					.range(startRange, endRange);
 
@@ -193,8 +245,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				if (data && data.length > 0) {
 					allVendors = [...allVendors, ...data];
 					currentPage++;
-					hasMore = data.length === pageSize; // Continue if we got a full page
-					console.log(`Loaded page ${currentPage}, total vendors so far: ${allVendors.length}`);
+					hasMore = data.length === pageSize;
+					
+					// Update progress
+					loadingProgress = Math.min(90, 10 + (allVendors.length / totalCount) * 80);
+					
+					// Allow UI to update during loading
+					await tick();
+					
+					console.log(`Loaded page ${currentPage}, total vendors: ${allVendors.length}/${totalCount} (${Math.round(loadingProgress)}%)`);
 				} else {
 					hasMore = false;
 				}
@@ -202,49 +261,74 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 			vendors = allVendors;
 			filteredVendors = vendors;
+			displayedVendors = filteredVendors.slice(0, 100); // Initially show only 100 vendors
+			loadingProgress = 100;
 
-			console.log(`Successfully loaded ${vendors.length} vendors out of ${totalVendors} total`);
-
-
+			console.log(`✅ Successfully loaded ${vendors.length} vendors`);
 
 		} catch (err) {
+			console.error('❌ Error loading vendors:', err);
 			error = err.message;
 		} finally {
 			isLoading = false;
 		}
 	}
 
-	// Search functionality
+	// Optimized search functionality with debouncing
 	function handleSearch() {
 		if (!searchQuery.trim()) {
 			filteredVendors = vendors;
+			displayedVendors = filteredVendors.slice(0, 100);
 		} else {
 			const query = searchQuery.toLowerCase();
-			filteredVendors = vendors.filter(vendor => 
-				vendor.erp_vendor_id.toString().includes(query) ||
-				vendor.vendor_name.toLowerCase().includes(query) ||
-				(vendor.salesman_name && vendor.salesman_name.toLowerCase().includes(query)) ||
-				(vendor.salesman_contact && vendor.salesman_contact.toLowerCase().includes(query)) ||
-				(vendor.supervisor_name && vendor.supervisor_name.toLowerCase().includes(query)) ||
-				(vendor.supervisor_contact && vendor.supervisor_contact.toLowerCase().includes(query)) ||
-				(vendor.vendor_contact_number && vendor.vendor_contact_number.toLowerCase().includes(query)) ||
-				(vendor.payment_method && vendor.payment_method.toLowerCase().includes(query)) ||
-				(vendor.credit_period && vendor.credit_period.toString().includes(query)) ||
-				(vendor.bank_name && vendor.bank_name.toLowerCase().includes(query)) ||
-				(vendor.iban && vendor.iban.toLowerCase().includes(query)) ||
-				(vendor.status && vendor.status.toLowerCase().includes(query)) ||
-				(vendor.last_visit && vendor.last_visit.toLowerCase().includes(query)) ||
-				(vendor.place && vendor.place.toLowerCase().includes(query)) ||
-				(vendor.location_link && vendor.location_link.toLowerCase().includes(query)) ||
-				(vendor.categories && vendor.categories.some(cat => cat.toLowerCase().includes(query))) ||
-				(vendor.delivery_modes && vendor.delivery_modes.some(mode => mode.toLowerCase().includes(query)))
-			);
+			// Optimized search - check most common fields first
+			filteredVendors = vendors.filter(vendor => {
+				// Quick checks on main fields first
+				if (vendor.erp_vendor_id?.toString().includes(query)) return true;
+				if (vendor.vendor_name?.toLowerCase().includes(query)) return true;
+				if (vendor.salesman_name?.toLowerCase().includes(query)) return true;
+				if (vendor.vendor_contact_number?.toLowerCase().includes(query)) return true;
+				if (vendor.payment_method?.toLowerCase().includes(query)) return true;
+				if (vendor.place?.toLowerCase().includes(query)) return true;
+				if (vendor.status?.toLowerCase().includes(query)) return true;
+				
+				// Check arrays only if needed
+				if (vendor.categories?.some(cat => cat.toLowerCase().includes(query))) return true;
+				if (vendor.delivery_modes?.some(mode => mode.toLowerCase().includes(query))) return true;
+				
+				return false;
+			});
+			displayedVendors = filteredVendors.slice(0, 100);
+		}
+		console.log(`Search results: ${filteredVendors.length} vendors found`);
+	}
+
+	// Debounced search
+	const debouncedSearch = debounce(handleSearch, 300);
+
+	// Reactive search with debouncing
+	$: if (searchQuery !== undefined) {
+		debouncedSearch();
+	}
+
+	// Load more vendors function for lazy loading
+	function loadMoreVendors() {
+		const currentLength = displayedVendors.length;
+		const nextBatch = filteredVendors.slice(currentLength, currentLength + 100);
+		if (nextBatch.length > 0) {
+			displayedVendors = [...displayedVendors, ...nextBatch];
+			console.log(`Loaded ${nextBatch.length} more vendors, total displayed: ${displayedVendors.length}`);
 		}
 	}
 
-	// Reactive search
-	$: if (searchQuery !== undefined) {
-		handleSearch();
+	// Handle scroll for lazy loading
+	function handleTableScroll(event) {
+		const element = event.target;
+		const scrolledToBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 100;
+		
+		if (scrolledToBottom && displayedVendors.length < filteredVendors.length) {
+			loadMoreVendors();
+		}
 	}
 
 	// Refresh data
@@ -572,7 +656,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			{#if branchFilterMode === 'branch' && !selectedBranch}
 				<span class="branch-selection-hint">Please select a branch to view vendors</span>
 			{:else}
-				Showing {filteredVendors.length} of {totalVendors} vendors
+				Showing {displayedVendors.length} of {filteredVendors.length} vendors
+				{#if filteredVendors.length < totalVendors}
+					(filtered from {totalVendors} total)
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -620,6 +707,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			<div class="loading-table">
 				<div class="loading-spinner">⏳</div>
 				<p>Loading vendors...</p>
+				{#if loadingProgress > 0}
+					<div class="progress-bar">
+						<div class="progress-fill" style="width: {loadingProgress}%"></div>
+					</div>
+					<p class="progress-text">{Math.round(loadingProgress)}% loaded</p>
+				{/if}
 			</div>
 		{:else if filteredVendors.length === 0}
 			<div class="empty-state">
@@ -635,7 +728,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				{/if}
 			</div>
 		{:else}
-			<div class="vendor-table">
+			<div class="vendor-table" on:scroll={handleTableScroll}>
 				<table>
 					<thead>
 						<tr>
@@ -662,7 +755,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						</tr>
 					</thead>
 					<tbody>
-						{#each filteredVendors as vendor}
+						{#each displayedVendors as vendor}
 							<tr>
 								{#if visibleColumns.erp_vendor_id}
 									<td class="vendor-id">{vendor.erp_vendor_id}</td>
@@ -1990,5 +2083,49 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		padding: 0.5rem 1rem;
 		border-radius: 6px;
 		border: 1px solid #e2e8f0;
+	}
+
+	/* Loading Progress Bar */
+	.progress-bar {
+		width: 300px;
+		height: 8px;
+		background: #e5e7eb;
+		border-radius: 4px;
+		overflow: hidden;
+		margin: 1rem auto;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #60a5fa);
+		transition: width 0.3s ease;
+		border-radius: 4px;
+	}
+
+	.progress-text {
+		color: #64748b;
+		font-size: 0.875rem;
+		margin-top: 0.5rem;
+		font-weight: 500;
+	}
+
+	/* Loading and Error States */
+	.loading-table {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem;
+		color: #64748b;
+	}
+
+	.loading-spinner {
+		font-size: 3rem;
+		animation: spin 2s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

@@ -1,13 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { t } from '$lib/i18n';
-	import { windowManager } from '$lib/stores/windowManager';
 	import { getAllCampaigns } from '$lib/services/couponService';
 	import type { CouponCampaign } from '$lib/types/coupon';
-	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
-	import CustomerImporter from '$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte';
-	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
-	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
 
 	let campaigns: CouponCampaign[] = [];
 	let activeCampaigns: CouponCampaign[] = [];
@@ -28,71 +23,13 @@
 			loading = false;
 		}
 	}
-
-	function openCampaignManager() {
-		windowManager.openWindow({ 
-			title: t('coupon.manageCampaigns'),
-			component: CampaignManager, 
-			props: {} 
-		});
-	}
-
-	function openCustomerImporter() {
-		windowManager.openWindow({ 
-			title: t('coupon.importCustomers'),
-			component: CustomerImporter, 
-			props: {} 
-		});
-	}
-
-	function openProductManager() {
-		windowManager.openWindow({ 
-			title: t('coupon.manageProducts'),
-			component: ProductManager, 
-			props: {} 
-		});
-	}
-
-	function openReports() {
-		windowManager.openWindow({ 
-			title: t('coupon.reportsStats'),
-			component: CouponReports, 
-			props: {} 
-		});
-	}
 </script>
 
 <div class="coupon-dashboard">
 	<div class="dashboard-header">
 		<h1>🎁 {t('coupon.title') || 'Coupon Management System'}</h1>
 		<p class="subtitle">{t('coupon.subtitle') || 'Manage promotional campaigns and gift coupons'}</p>
-	</div>
-
-	<!-- Action Buttons -->
-	<div class="action-grid">
-		<button class="action-card campaigns" on:click={openCampaignManager}>
-			<div class="icon">📋</div>
-			<h3>{t('coupon.manageCampaigns') || 'Manage Campaigns'}</h3>
-			<p>{t('coupon.campaignsDesc') || 'Create and manage promotional campaigns'}</p>
-		</button>
-
-		<button class="action-card customers" on:click={openCustomerImporter}>
-			<div class="icon">👥</div>
-			<h3>{t('coupon.importCustomers') || 'Import Customers'}</h3>
-			<p>{t('coupon.customersDesc') || 'Upload eligible customer lists'}</p>
-		</button>
-
-		<button class="action-card products" on:click={openProductManager}>
-			<div class="icon">🎁</div>
-			<h3>{t('coupon.manageProducts') || 'Manage Products'}</h3>
-			<p>{t('coupon.productsDesc') || 'Add and manage gift products'}</p>
-		</button>
-
-		<button class="action-card reports" on:click={openReports}>
-			<div class="icon">📊</div>
-			<h3>{t('coupon.reportsStats') || 'Reports & Stats'}</h3>
-			<p>{t('coupon.reportsDesc') || 'View analytics and reports'}</p>
-		</button>
+		<p class="info-text">All features are now accessible from the Promo section in the sidebar</p>
 	</div>
 
 	<!-- Active Campaigns Overview -->
@@ -157,81 +94,15 @@
 		font-size: 1rem;
 	}
 
-	.action-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		gap: 1.5rem;
-		margin-bottom: 3rem;
-	}
-
-	.action-card {
-		background: white;
-		border: 2px solid #e0e0e0;
-		border-radius: 12px;
-		padding: 2rem;
-		text-align: center;
-		cursor: pointer;
-		transition: all 0.3s ease;
-	}
-
-	.action-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-	}
-
-	.action-card.campaigns {
-		border-color: #4CAF50;
-	}
-
-	.action-card.campaigns:hover {
-		background: #f1f8f4;
-		border-color: #45a049;
-	}
-
-	.action-card.customers {
-		border-color: #2196F3;
-	}
-
-	.action-card.customers:hover {
-		background: #e3f2fd;
-		border-color: #1976D2;
-	}
-
-	.action-card.products {
-		border-color: #FF9800;
-	}
-
-	.action-card.products:hover {
-		background: #fff3e0;
-		border-color: #F57C00;
-	}
-
-	.action-card.reports {
-		border-color: #9C27B0;
-	}
-
-	.action-card.reports:hover {
-		background: #f3e5f5;
-		border-color: #7B1FA2;
-	}
-
-	.action-card .icon {
-		font-size: 3rem;
-		margin-bottom: 1rem;
-	}
-
-	.action-card h3 {
-		font-size: 1.25rem;
-		margin-bottom: 0.5rem;
-		color: #1a1a1a;
-	}
-
-	.action-card p {
-		color: #666;
+	.info-text {
+		color: #2196F3;
 		font-size: 0.9rem;
+		margin-top: 0.5rem;
+		font-weight: 500;
 	}
 
 	.overview-section {
+		margin-top: 2rem;
 		background: white;
 		border-radius: 12px;
 		padding: 2rem;

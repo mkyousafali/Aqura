@@ -47,6 +47,16 @@
 	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte';
 	import FlyerMasterDashboard from '$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte';
+	import ProductMaster from '$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte';
+	import VariationManager from '$lib/components/desktop-interface/marketing/flyer/VariationManager.svelte';
+	import OfferTemplates from '$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte';
+	import OfferProductSelector from '$lib/components/desktop-interface/marketing/flyer/OfferProductSelector.svelte';
+	import OfferManager from '$lib/components/desktop-interface/marketing/flyer/OfferManager.svelte';
+	import PricingManager from '$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte';
+	import FlyerGenerator from '$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte';
+	import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
+	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
+	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
 	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
@@ -55,6 +65,10 @@
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
+	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
+	import CustomerImporter from '$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte';
+	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
+	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
@@ -80,8 +94,12 @@
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
-	let showMarketingSubmenu = false;
-	let showReportsSubmenu = false;
+
+	let showDeliverySubmenu = false;
+	let showDeliveryDashboardSubmenu = false;
+	let showDeliveryManageSubmenu = false;
+	let showDeliveryOperationsSubmenu = false;
+	let showDeliveryReportsSubmenu = false;
 	let showVendorSubmenu = false;
 	let showVendorManagerSubmenu = false;
 	let showVendorOperationsSubmenu = false;
@@ -107,6 +125,16 @@
 	let showNotificationsManageSubmenu = false;
 	let showNotificationsOperationsSubmenu = false;
 	let showNotificationsReportsSubmenu = false;
+	let showMediaSubmenu = false;
+	let showMediaDashboardSubmenu = false;
+	let showMediaManageSubmenu = false;
+	let showMediaOperationsSubmenu = false;
+	let showMediaReportsSubmenu = false;
+	let showPromoSubmenu = false;
+	let showPromoDashboardSubmenu = false;
+	let showPromoManageSubmenu = false;
+	let showPromoOperationsSubmenu = false;
+	let showPromoReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -799,7 +827,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `Customer Master #${instanceNumber}`,
+			title: `${t('admin.customerMaster') || 'Customer'} #${instanceNumber}`,
 			component: CustomerMaster,
 			icon: '👥',
 			size: { width: 1400, height: 900 },
@@ -834,7 +862,7 @@
 			maximizable: true,
 			closable: true
 		});
-		showCustomerAppSubmenu = false;
+		showDeliveryManageSubmenu = false;
 	}
 
 	function openDeliverySettings() {
@@ -856,7 +884,7 @@
 			maximizable: true,
 			closable: true
 		});
-		showCustomerAppSubmenu = false;
+		showDeliveryManageSubmenu = false;
 	}
 
 	function openProductsManager() {
@@ -878,7 +906,7 @@
 			maximizable: true,
 			closable: true
 		});
-		showCustomerAppSubmenu = false;
+		showDeliveryManageSubmenu = false;
 	}
 
 	function openOfferManagement() {
@@ -900,7 +928,7 @@
 			maximizable: true,
 			closable: true
 		});
-		showCustomerAppSubmenu = false;
+		showDeliveryOperationsSubmenu = false;
 	}
 
 	function openOrdersManager() {
@@ -922,7 +950,7 @@
 			maximizable: true,
 		closable: true
 	});
-	showCustomerAppSubmenu = false;
+	showDeliveryOperationsSubmenu = false;
 }
 
 function openApprovalCenter() {
@@ -1127,10 +1155,22 @@ function openApprovalCenter() {
 
 	// Open Receiving window
 	function collapseAllSubsections() {
+		showDeliveryDashboardSubmenu = false;
+		showDeliveryManageSubmenu = false;
+		showDeliveryOperationsSubmenu = false;
+		showDeliveryReportsSubmenu = false;
 		showVendorDashboardSubmenu = false;
 		showVendorManagerSubmenu = false;
 		showVendorOperationsSubmenu = false;
 		showVendorReportsSubmenu = false;
+		showMediaDashboardSubmenu = false;
+		showMediaManageSubmenu = false;
+		showMediaOperationsSubmenu = false;
+		showMediaReportsSubmenu = false;
+		showPromoDashboardSubmenu = false;
+		showPromoManageSubmenu = false;
+		showPromoOperationsSubmenu = false;
+		showPromoReportsSubmenu = false;
 		showFinanceDashboardSubmenu = false;
 		showFinanceManageSubmenu = false;
 		showFinanceOperationsSubmenu = false;
@@ -1152,6 +1192,8 @@ function openApprovalCenter() {
 	function collapseAllMenus() {
 		collapseAllSubsections();
 		showVendorSubmenu = false;
+		showMediaSubmenu = false;
+		showPromoSubmenu = false;
 		showFinanceSubmenu = false;
 		showHRSubmenu = false;
 		showTasksSubmenu = false;
@@ -1411,7 +1453,6 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showReportsSubmenu = false;
 	}
 
 	// Open Vendor Records window
@@ -1435,7 +1476,6 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showReportsSubmenu = false;
 	}
 
 	function openReceivingRecords() {
@@ -1461,27 +1501,203 @@ function openApprovalCenter() {
 		showVendorSubmenu = false;
 	}
 
-	// Open Flyer Master window
+	// Media section functions
 	function openFlyerMaster() {
 		const windowId = generateWindowId('flyer-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
 		openWindow({
 			id: windowId,
 			title: `Flyer Master #${instanceNumber}`,
 			component: FlyerMasterDashboard,
 			icon: '🏷️',
 			size: { width: 1400, height: 900 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
 			closable: true
 		});
-		showMarketingSubmenu = false;
+		showMediaSubmenu = false;
+	}
+
+	function openProductMaster() {
+		const windowId = generateWindowId('product-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Product Master #${instanceNumber}`,
+			component: ProductMaster,
+			icon: '📦',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openVariationManager() {
+		const windowId = generateWindowId('variation-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Variation Manager #${instanceNumber}`,
+			component: VariationManager,
+			icon: '🔗',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openOfferProductEditor() {
+		const windowId = generateWindowId('offer-product-editor');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Offer Product Editor #${instanceNumber}`,
+			component: OfferTemplates,
+			icon: '✅',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openCreateNewOffer() {
+		const windowId = generateWindowId('create-new-offer');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Create New Offer #${instanceNumber}`,
+			component: OfferProductSelector,
+			icon: '🏷️',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openOfferManager() {
+		const windowId = generateWindowId('offer-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Offer Manager #${instanceNumber}`,
+			component: OfferManager,
+			icon: '🎯',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openPricingManager() {
+		const windowId = generateWindowId('pricing-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Pricing Manager #${instanceNumber}`,
+			component: PricingManager,
+			icon: '💵',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openGenerateFlyers() {
+		const windowId = generateWindowId('generate-flyers');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Generate Flyers #${instanceNumber}`,
+			component: FlyerGenerator,
+			icon: '📄',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openFlyerTemplates() {
+		const windowId = generateWindowId('flyer-templates');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Flyer Templates #${instanceNumber}`,
+			component: FlyerTemplates,
+			icon: '🎨',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openFlyerSettings() {
+		const windowId = generateWindowId('flyer-settings');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Flyer Settings #${instanceNumber}`,
+			component: FlyerSettings,
+			icon: '⚙️',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
+	function openShelfPaperManager() {
+		const windowId = generateWindowId('shelf-paper-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Shelf Paper Manager #${instanceNumber}`,
+			component: DesignPlanner,
+			icon: '🏷️',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
 	}
 
 	function openCouponManagement() {
@@ -1503,7 +1719,98 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showMarketingSubmenu = false;
+
+	}
+
+	// Promo section functions
+	function openCouponDashboardPromo() {
+		const windowId = generateWindowId('coupon-dashboard-promo');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Coupon Dashboard #${instanceNumber}`,
+			component: CouponDashboard,
+			icon: '🎁',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
+	function openCampaignManager() {
+		const windowId = generateWindowId('campaign-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Campaign Manager #${instanceNumber}`,
+			component: CampaignManager,
+			icon: '📋',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
+	function openCustomerImporter() {
+		const windowId = generateWindowId('customer-importer');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Import Customers #${instanceNumber}`,
+			component: CustomerImporter,
+			icon: '👥',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
+	function openProductManagerPromo() {
+		const windowId = generateWindowId('product-manager-promo');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Product Manager #${instanceNumber}`,
+			component: ProductManager,
+			icon: '🎁',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
+	function openCouponReports() {
+		const windowId = generateWindowId('coupon-reports');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `Coupon Reports #${instanceNumber}`,
+			component: CouponReports,
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
 	}
 
 	function openERPConnections() {
@@ -1560,6 +1867,165 @@ function openApprovalCenter() {
 	
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
+
+	<!-- Delivery Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showDeliverySubmenu = !showDeliverySubmenu}
+		>
+			<span class="section-icon">🚚</span>
+			<span class="section-text">{t('nav.delivery') || 'Delivery'}</span>
+			<span class="arrow" class:expanded={showDeliverySubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Delivery Submenu - Inline below Delivery button -->
+	{#if showDeliverySubmenu}
+		<div class="submenu-inline delivery-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showDeliveryDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showDeliveryDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showDeliveryDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showDeliveryManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showDeliveryManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showDeliveryManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerMaster}>
+								<span class="menu-icon">🤝</span>
+								<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAdManager}>
+								<span class="menu-icon">📢</span>
+								<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductsManager}>
+								<span class="menu-icon">🛍️</span>
+								<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDeliverySettings}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showDeliveryOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showDeliveryOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showDeliveryOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOrdersManager}>
+								<span class="menu-icon">🛒</span>
+								<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOfferManagement}>
+								<span class="menu-icon">🎁</span>
+								<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showDeliveryReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showDeliveryReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showDeliveryReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Vendor Section -->
 	<div class="menu-section">
@@ -1715,12 +2181,341 @@ function openApprovalCenter() {
 							<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
 						</button>
 					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openVendorPendingPayments}>
+							<span class="menu-icon">💳</span>
+							<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
+						</button>
+					</div>
 				</div>
 			{/if}
 		</div>
 	{/if}
 
-	<!-- Finance Section -->
+	<!-- Media Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showMediaSubmenu = !showMediaSubmenu}
+		>
+			<span class="section-icon">🎬</span>
+			<span class="section-text">{t('nav.media') || 'Media'}</span>
+			<span class="arrow" class:expanded={showMediaSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Media Submenu - Inline below Media button -->
+	{#if showMediaSubmenu}
+		<div class="submenu-inline media-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showMediaDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showMediaDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showMediaDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openFlyerMaster}>
+							<span class="menu-icon">🏷️</span>
+							<span class="menu-text">Flyer Master</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showMediaManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showMediaManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manager Subsection Items -->
+			{#if showMediaManageSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openProductMaster}>
+							<span class="menu-icon">📦</span>
+							<span class="menu-text">Product Master</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openVariationManager}>
+							<span class="menu-icon">🔗</span>
+							<span class="menu-text">Variation Manager</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOfferManager}>
+							<span class="menu-icon">🎯</span>
+							<span class="menu-text">Offer Manager</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openFlyerTemplates}>
+							<span class="menu-icon">🎨</span>
+							<span class="menu-text">Flyer Templates</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openFlyerSettings}>
+							<span class="menu-icon">⚙️</span>
+							<span class="menu-text">Settings</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showMediaOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showMediaOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showMediaOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOfferProductEditor}>
+							<span class="menu-icon">✅</span>
+							<span class="menu-text">Offer Product Editor</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateNewOffer}>
+							<span class="menu-icon">🏷️</span>
+							<span class="menu-text">Create New Offer</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openPricingManager}>
+							<span class="menu-icon">💵</span>
+							<span class="menu-text">Pricing Manager</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openGenerateFlyers}>
+							<span class="menu-icon">📄</span>
+							<span class="menu-text">Generate Flyers</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openShelfPaperManager}>
+							<span class="menu-icon">🏷️</span>
+							<span class="menu-text">Shelf Paper Manager</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showMediaReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showMediaReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Promo Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showPromoSubmenu = !showPromoSubmenu}
+		>
+			<span class="section-icon">🎁</span>
+			<span class="section-text">{t('nav.promo') || 'Promo'}</span>
+			<span class="arrow" class:expanded={showPromoSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Promo Submenu - Inline below Promo button -->
+	{#if showPromoSubmenu}
+		<div class="submenu-inline promo-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showPromoDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showPromoDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					
+				
+				<span class="menu-text">Dashboard</span>
+			</button>
+		</div>
+
+		<!-- Dashboard Subsection Items -->
+		{#if showPromoDashboardSubmenu}
+			<div class="submenu-subitem-container">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCouponDashboardPromo}>
+						<span class="menu-icon">🎁</span>
+						<span class="menu-text">Coupon Dashboard</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Manage Subsection -->
+		<div class="submenu-item-container">
+			<button 
+				class="submenu-subsection-button icon-only"
+				on:click={() => {
+					if (showPromoManageSubmenu) {
+						collapseAllSubsections();
+					} else {
+						collapseAllSubsections();
+						showPromoManageSubmenu = true;
+					}
+				}}
+				title="Manage"
+			>
+				
+				<span class="menu-text">Manage</span>
+			</button>
+		</div>
+
+		<!-- Manage Subsection Items -->
+		{#if showPromoManageSubmenu}
+			<div class="submenu-subitem-container">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCampaignManager}>
+						<span class="menu-icon">📋</span>
+						<span class="menu-text">Manage Campaigns</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Operations Subsection -->
+		<div class="submenu-item-container">
+			<button 
+				class="submenu-subsection-button icon-only"
+				on:click={() => {
+					if (showPromoOperationsSubmenu) {
+						collapseAllSubsections();
+					} else {
+						collapseAllSubsections();
+						showPromoOperationsSubmenu = true;
+					}
+				}}
+				title="Operations"
+			>
+				
+				<span class="menu-text">Operations</span>
+			</button>
+		</div>
+
+		<!-- Operations Subsection Items -->
+		{#if showPromoOperationsSubmenu}
+			<div class="submenu-subitem-container">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCustomerImporter}>
+						<span class="menu-icon">👥</span>
+						<span class="menu-text">Import Customers</span>
+					</button>
+				</div>
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openProductManagerPromo}>
+						<span class="menu-icon">🎁</span>
+						<span class="menu-text">Manage Products</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Reports Subsection -->
+		<div class="submenu-item-container">
+			<button 
+				class="submenu-subsection-button icon-only"
+				on:click={() => {
+					if (showPromoReportsSubmenu) {
+						collapseAllSubsections();
+					} else {
+						collapseAllSubsections();
+						showPromoReportsSubmenu = true;
+					}
+				}}
+				title="Reports"
+			>
+				
+				<span class="menu-text">Reports</span>
+			</button>
+		</div>
+
+		<!-- Reports Subsection Items -->
+		{#if showPromoReportsSubmenu}
+			<div class="submenu-subitem-container">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCouponReports}>
+						<span class="menu-icon">📊</span>
+						<span class="menu-text">Reports & Stats</span>
+					</button>
+				</div>
+			</div>
+		{/if}
+	</div>
+{/if}	<!-- Finance Section -->
 	<div class="menu-section">
 		<button 
 			class="section-button"
@@ -1860,7 +2655,30 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showFinanceReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Reports items will be added here -->
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openExpenseTracker}>
+							<span class="menu-icon">💰</span>
+							<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openSalesReport}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openMonthlyBreakdown}>
+							<span class="menu-icon">📅</span>
+							<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openOverduesReport}>
+							<span class="menu-icon">⏰</span>
+							<span class="menu-text">Over dues</span>
+						</button>
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -2342,147 +3160,7 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
-	<!-- Customer Section -->
-		<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showCustomerAppSubmenu = !showCustomerAppSubmenu}
-			>
-				<span class="section-icon">📱</span>
-				<span class="section-text">{t('nav.customer') || 'Customer'}</span>
-				<span class="arrow" class:expanded={showCustomerAppSubmenu}>▼</span>
-			</button>
-		</div>
-
-		<!-- Customer Submenu - Inline below Customer button -->
-		{#if showCustomerAppSubmenu}
-			<div class="submenu-inline">
-				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCustomerMaster}>
-							<span class="menu-icon">🤝</span>
-							<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOrdersManager}>
-							<span class="menu-icon">🛒</span>
-							<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOfferManagement}>
-							<span class="menu-icon">🎁</span>
-							<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openAdManager}>
-							<span class="menu-icon">📢</span>
-							<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openProductsManager}>
-							<span class="menu-icon">🛍️</span>
-							<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openDeliverySettings}>
-							<span class="menu-icon">📦</span>
-							<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		<!-- Marketing Section -->
-		<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showMarketingSubmenu = !showMarketingSubmenu}
-			>
-				<span class="section-icon">📢</span>
-				<span class="section-text">{t('nav.marketing') || 'Marketing'}</span>
-				<span class="arrow" class:expanded={showMarketingSubmenu}>▼</span>
-			</button>
-		</div>
-
-		<!-- Marketing Submenu - Inline below Marketing button -->
-		{#if showMarketingSubmenu}
-			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openFlyerMaster}>
-						<span class="menu-icon">🏷️</span>
-						<span class="menu-text">{t('admin.flyerMaster') || 'Flyer Master'}</span>
-					</button>
-				</div>
-				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCouponManagement}>
-							<span class="menu-icon">🎁</span>
-							<span class="menu-text">{t('coupon.title') || 'Coupon Management'}</span>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		<!-- Reports Section -->
-		<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showReportsSubmenu = !showReportsSubmenu}
-			>
-				<span class="section-icon">📊</span>
-				<span class="section-text">{t('nav.reports') || 'Reports'}</span>
-				<span class="arrow" class:expanded={showReportsSubmenu}>▼</span>
-			</button>
-		</div>
-
-		<!-- Reports Submenu - Inline below Reports button -->
-		{#if showReportsSubmenu}
-			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openExpenseTracker}>
-						<span class="menu-icon">💰</span>
-						<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openSalesReport}>
-						<span class="menu-icon">📊</span>
-						<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openVendorPendingPayments}>
-						<span class="menu-icon">💳</span>
-						<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openVendorRecords}>
-						<span class="menu-icon">📋</span>
-						<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openMonthlyBreakdown}>
-						<span class="menu-icon">📅</span>
-						<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openOverduesReport}>
-						<span class="menu-icon">⏰</span>
-						<span class="menu-text">Over dues</span>
-					</button>
-				</div>
-			</div>
-		{/if}		<!-- Settings Section -->
+	<!-- Settings Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"

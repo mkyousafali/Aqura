@@ -519,17 +519,17 @@ Welcome aboard! 🚀
   <div class="header">
     <div class="header-content">
       <div class="header-text">
-        <h1>Customer Management</h1>
-        <p>Manage customer registrations and access approvals</p>
+        <h1>{t('admin.customerManagement') || 'Customer Management'}</h1>
+        <p>{t('admin.customerManagementDesc') || 'Manage customer registrations and access approvals'}</p>
       </div>
       <div class="header-actions">
         <button 
           class="account-recovery-btn"
           on:click={openAccountRecoveryManager}
-          title="Open Account Recovery Manager"
+          title="{t('admin.accountRecovery') || 'Open Account Recovery Manager'}"
         >
           <span class="btn-icon">🔐</span>
-          <span class="btn-text">Account Recovery</span>
+          <span class="btn-text">{t('admin.accountRecovery') || 'Account Recovery'}</span>
         </button>
       </div>
     </div>
@@ -558,18 +558,18 @@ Welcome aboard! 🚀
     <div class="search-box">
       <input
         type="text"
-        placeholder="Search..."
+        placeholder="{t('admin.searchPlaceholder') || 'Search...'}"
         bind:value={searchTerm}
         class="search-input"
       />
     </div>
     
     <select bind:value={statusFilter} class="status-filter">
-      <option value="all">All Statuses</option>
-      <option value="pending">Pending</option>
-      <option value="approved">Approved</option>
-      <option value="rejected">Rejected</option>
-      <option value="suspended">Suspended</option>
+      <option value="all">{t('admin.allStatuses') || 'All Statuses'}</option>
+      <option value="pending">{t('admin.pending') || 'Pending'}</option>
+      <option value="approved">{t('admin.approved') || 'Approved'}</option>
+      <option value="rejected">{t('admin.rejected') || 'Rejected'}</option>
+      <option value="suspended">{t('admin.suspended') || 'Suspended'}</option>
     </select>
   </div>
 
@@ -577,7 +577,7 @@ Welcome aboard! 🚀
   {#if loading}
     <div class="loading">
       <div class="spinner"></div>
-      <p>Loading...</p>
+      <p>{t('admin.loading') || 'Loading...'}</p>
     </div>
   {:else}
     <!-- Customers Table -->
@@ -585,13 +585,13 @@ Welcome aboard! 🚀
       <table class="customers-table">
         <thead>
           <tr>
-            <th>Customer Name</th>
-            <th>WhatsApp Number</th>
-            <th>Status</th>
-            <th>Registration Date</th>
-            <th>Last Login</th>
-            <th>Locations</th>
-            <th>Actions</th>
+            <th>{t('admin.customerName') || 'Customer Name'}</th>
+            <th>{t('admin.whatsappNumber') || 'WhatsApp Number'}</th>
+            <th>{t('admin.status') || 'Status'}</th>
+            <th>{t('admin.registrationDate') || 'Registration Date'}</th>
+            <th>{t('admin.lastLogin') || 'Last Login'}</th>
+            <th>{t('admin.locations') || 'Locations'}</th>
+            <th>{t('admin.actions') || 'Actions'}</th>
           </tr>
         </thead>
         <tbody>
@@ -601,18 +601,18 @@ Welcome aboard! 🚀
               <td>{customer.whatsapp_number || 'Not Provided'}</td>
               <td>
                 <span class="status-badge {getStatusColor(customer.registration_status)}">
-                  {customer.registration_status === "pending" ? "Pending" : 
-                   customer.registration_status === "approved" ? "Approved" : 
-                   customer.registration_status === "rejected" ? "Rejected" : 
-                   customer.registration_status === "suspended" ? "Suspended" : 
+                  {customer.registration_status === "pending" ? t('admin.pending') || "Pending" : 
+                   customer.registration_status === "approved" ? t('admin.approved') || "Approved" : 
+                   customer.registration_status === "rejected" ? t('admin.rejected') || "Rejected" : 
+                   customer.registration_status === "suspended" ? t('admin.suspended') || "Suspended" : 
                    customer.registration_status}
                 </span>
               </td>
               <td>{formatDate(customer.created_at)}</td>
-              <td>{customer.last_login_at ? formatDate(customer.last_login_at) : 'Never'}</td>
+              <td>{customer.last_login_at ? formatDate(customer.last_login_at) : t('admin.never') || 'Never'}</td>
               <td>
                 <div class="locations-cell">
-                  <button class="manage-locations-btn" on:click={() => openLocationModal(customer)}>📍 View</button>
+                  <button class="manage-locations-btn" on:click={() => openLocationModal(customer)}>📍 {t('admin.viewLocations') || 'View'}</button>
                 </div>
               </td>
               <td>
@@ -622,19 +622,19 @@ Welcome aboard! 🚀
                       class="approve-btn"
                       on:click={() => openApprovalModal(customer, "approve")}
                     >
-                      ✅ Approve
+                      ✅ {t('admin.approve') || 'Approve'}
                     </button>
                     <button
                       class="reject-btn"
                       on:click={() => openApprovalModal(customer, "reject")}
                     >
-                      ❌ Reject
+                      ❌ {t('admin.reject') || 'Reject'}
                     </button>
                   {:else}
                     <span class="status-text">
-                      {customer.registration_status === "approved" ? "Approved" : 
-                       customer.registration_status === "rejected" ? "Rejected" : 
-                       customer.registration_status === "suspended" ? "Suspended" : 
+                      {customer.registration_status === "approved" ? t('admin.approved') || "Approved" : 
+                       customer.registration_status === "rejected" ? t('admin.rejected') || "Rejected" : 
+                       customer.registration_status === "suspended" ? t('admin.suspended') || "Suspended" : 
                        customer.registration_status}
                     </span>
                     {#if customer.approved_at}
@@ -649,7 +649,7 @@ Welcome aboard! 🚀
           {:else}
             <tr>
               <td colspan="6" class="no-data">
-                No data found
+                {t('admin.noDataFound') || 'No data found'}
               </td>
             </tr>
           {/each}
@@ -665,30 +665,30 @@ Welcome aboard! 🚀
     <div class="modal-content" on:click|stopPropagation role="document" tabindex="-1">
       <div class="modal-header">
         <h3>
-          {actionType === "approve" ? "✅ Approve Customer" : "❌ Reject Customer"}
+          {actionType === "approve" ? `✅ ${t('admin.approveCustomer') || 'Approve Customer'}` : `❌ ${t('admin.rejectCustomer') || 'Reject Customer'}`}
         </h3>
         <button class="close-btn" on:click={closeApprovalModal}>✕</button>
       </div>
       
       <div class="modal-body">
         <div class="customer-info">
-          <p><strong>Customer Name:</strong> {selectedCustomer.name || 'Unknown Customer'}</p>
-          <p><strong>WhatsApp Number:</strong> {selectedCustomer.whatsapp_number || 'Not Provided'}</p>
-          <p><strong>Registration Date:</strong> {formatDate(selectedCustomer.created_at)}</p>
+          <p><strong>{t('admin.customerName') || 'Customer Name'}:</strong> {selectedCustomer.name || t('admin.unknownCustomer') || 'Unknown Customer'}</p>
+          <p><strong>{t('admin.whatsappNumber') || 'WhatsApp Number'}:</strong> {selectedCustomer.whatsapp_number || t('admin.notProvided') || 'Not Provided'}</p>
+          <p><strong>{t('admin.registrationDate') || 'Registration Date'}:</strong> {formatDate(selectedCustomer.created_at)}</p>
           {#if selectedCustomer.registration_notes}
-            <p><strong>Registration Notes:</strong> {selectedCustomer.registration_notes}</p>
+            <p><strong>{t('admin.registrationNotes') || 'Registration Notes'}:</strong> {selectedCustomer.registration_notes}</p>
           {/if}
         </div>
 
         {#if actionType === "approve" && showAccessCodeInput}
           <div class="access-code-section">
-            <label for="accessCode">Access Code:</label>
+            <label for="accessCode">{t('admin.accessCode') || 'Access Code'}:</label>
             <div class="access-code-input-group">
               <input
                 id="accessCode"
                 type="text"
                 bind:value={generatedAccessCode}
-                placeholder="Generate 6-digit access code"
+                placeholder="{t('admin.accessCodePlaceholder') || 'Generate 6-digit access code'}"
                 maxlength="6"
                 readonly
               />
@@ -698,22 +698,22 @@ Welcome aboard! 🚀
                 disabled={isGeneratingCode}
               >
                 {#if isGeneratingCode}
-                  Generating...
+                  {t('admin.generating') || 'Generating...'}
                 {:else}
-                  🎲 Generate
+                  🎲 {t('admin.generate') || 'Generate'}
                 {/if}
               </button>
             </div>
-            <p class="access-code-hint">Click "Generate" to create a 6-digit access code for the customer</p>
+            <p class="access-code-hint">{t('admin.generateAccessCodeHint') || "Click 'Generate' to create a 6-digit access code for the customer"}</p>
           </div>
         {/if}
         
         <div class="notes-section">
-          <label for="approvalNotes">Notes (Optional):</label>
+          <label for="approvalNotes">{t('admin.notesOptional') || 'Notes (Optional)'}:</label>
           <textarea
             id="approvalNotes"
             bind:value={approvalNotes}
-            placeholder={actionType === "approve" ? "Add approval notes or special instructions..." : "Provide reason for rejection..."}
+            placeholder={actionType === "approve" ? (t('admin.approvalNotesPlaceholder') || "Add approval notes or special instructions...") : (t('admin.rejectionNotesPlaceholder') || "Provide reason for rejection...")}
             rows="3"
           ></textarea>
         </div>
@@ -722,17 +722,17 @@ Welcome aboard! 🚀
       <div class="modal-footer">
         {#if showWhatsAppButton}
           <div class="whatsapp-section">
-            <p class="success-message">✅ Customer approved successfully!</p>
+            <p class="success-message">✅ {t('admin.customerApprovedSuccess') || 'Customer approved successfully!'}</p>
             <button class="whatsapp-btn" on:click={shareToWhatsApp}>
-              📱 Share Login via WhatsApp
+              📱 {t('admin.shareViaWhatsApp') || 'Share Login via WhatsApp'}
             </button>
             <button class="done-btn" on:click={closeApprovalModal}>
-              Done
+              {t('admin.done') || 'Done'}
             </button>
           </div>
         {:else}
           <button class="cancel-btn" on:click={closeApprovalModal}>
-            Cancel
+            {t('admin.cancel') || 'Cancel'}
           </button>
           <button 
             class="confirm-btn {actionType === 'approve' ? 'approve' : 'reject'}"
@@ -740,9 +740,9 @@ Welcome aboard! 🚀
             disabled={isSavingApproval || (actionType === 'approve' && !generatedAccessCode)}
           >
             {#if isSavingApproval}
-              Saving...
+              {t('admin.saving') || 'Saving...'}
             {:else}
-              {actionType === "approve" ? "Save & Approve" : "Reject"}
+              {actionType === "approve" ? (t('admin.saveAndApprove') || 'Save & Approve') : (t('admin.reject') || 'Reject')}
             {/if}
           </button>
         {/if}
@@ -756,24 +756,24 @@ Welcome aboard! 🚀
   <div class="modal-overlay" on:click={closeLocationModal}>
     <div class="modal-content location-modal-content" on:click|stopPropagation>
       <div class="modal-header">
-        <h3>📍 View Locations</h3>
+        <h3>📍 {t('admin.viewLocations') || 'View Locations'}</h3>
         <button class="close-btn" on:click={closeLocationModal}>✕</button>
       </div>
       <div class="modal-body">
         <div class="customer-info">
-          <p><strong>Customer:</strong> {locationCustomer.name || 'Unknown Customer'}</p>
-          <p><strong>WhatsApp:</strong> {locationCustomer.whatsapp_number || 'Not Provided'}</p>
+          <p><strong>{t('admin.customer') || 'Customer'}:</strong> {locationCustomer.name || t('admin.unknownCustomer') || 'Unknown Customer'}</p>
+          <p><strong>{t('admin.whatsapp') || 'WhatsApp'}:</strong> {locationCustomer.whatsapp_number || t('admin.notProvided') || 'Not Provided'}</p>
         </div>
         
         <div class="locations-tabs">
           <button class="location-tab {currentEditingLocation === 1 ? 'active' : ''}" on:click={() => currentEditingLocation = 1}>
-            📍 Location 1
+            📍 {t('admin.location') || 'Location'} 1
           </button>
           <button class="location-tab {currentEditingLocation === 2 ? 'active' : ''}" on:click={() => currentEditingLocation = 2}>
-            📍 Location 2
+            📍 {t('admin.location') || 'Location'} 2
           </button>
           <button class="location-tab {currentEditingLocation === 3 ? 'active' : ''}" on:click={() => currentEditingLocation = 3}>
-            📍 Location 3
+            📍 {t('admin.location') || 'Location'} 3
           </button>
         </div>
 
@@ -781,9 +781,9 @@ Welcome aboard! 🚀
           {#if currentEditingLocation === 1}
             {#if loc1_lat && loc1_lng}
               <div class="location-info-box">
-                <p><strong>Name:</strong> {loc1_name || 'Not set'}</p>
-                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc1_lat, loc1_lng)}</span></p>
-                <p><strong>Coordinates:</strong> {loc1_lat.toFixed(6)}, {loc1_lng.toFixed(6)}</p>
+                <p><strong>{t('admin.name') || 'Name'}:</strong> {loc1_name || t('admin.notSet') || 'Not set'}</p>
+                <p><strong>{t('admin.distance') || 'Distance'}:</strong> <span class="distance-value">{getDistanceToLocation(loc1_lat, loc1_lng)}</span></p>
+                <p><strong>{t('admin.coordinates') || 'Coordinates'}:</strong> {loc1_lat.toFixed(6)}, {loc1_lng.toFixed(6)}</p>
               </div>
               <div class="map-display-container">
                 {#key `loc1-${loc1_lat}-${loc1_lng}`}
@@ -801,14 +801,14 @@ Welcome aboard! 🚀
                 {/key}
               </div>
             {:else}
-              <p class="not-set-message">Location 1 is not set by the customer.</p>
+              <p class="not-set-message">{t('admin.location') || 'Location'} 1 {t('admin.locationNotSetMessage') || 'is not set by the customer'}.</p>
             {/if}
           {:else if currentEditingLocation === 2}
             {#if loc2_lat && loc2_lng}
               <div class="location-info-box">
-                <p><strong>Name:</strong> {loc2_name || 'Not set'}</p>
-                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc2_lat, loc2_lng)}</span></p>
-                <p><strong>Coordinates:</strong> {loc2_lat.toFixed(6)}, {loc2_lng.toFixed(6)}</p>
+                <p><strong>{t('admin.name') || 'Name'}:</strong> {loc2_name || t('admin.notSet') || 'Not set'}</p>
+                <p><strong>{t('admin.distance') || 'Distance'}:</strong> <span class="distance-value">{getDistanceToLocation(loc2_lat, loc2_lng)}</span></p>
+                <p><strong>{t('admin.coordinates') || 'Coordinates'}:</strong> {loc2_lat.toFixed(6)}, {loc2_lng.toFixed(6)}</p>
               </div>
               <div class="map-display-container">
                 {#key `loc2-${loc2_lat}-${loc2_lng}`}
@@ -826,14 +826,14 @@ Welcome aboard! 🚀
                 {/key}
               </div>
             {:else}
-              <p class="not-set-message">Location 2 is not set by the customer.</p>
+              <p class="not-set-message">{t('admin.location') || 'Location'} 2 {t('admin.locationNotSetMessage') || 'is not set by the customer'}.</p>
             {/if}
           {:else if currentEditingLocation === 3}
             {#if loc3_lat && loc3_lng}
               <div class="location-info-box">
-                <p><strong>Name:</strong> {loc3_name || 'Not set'}</p>
-                <p><strong>Distance:</strong> <span class="distance-value">{getDistanceToLocation(loc3_lat, loc3_lng)}</span></p>
-                <p><strong>Coordinates:</strong> {loc3_lat.toFixed(6)}, {loc3_lng.toFixed(6)}</p>
+                <p><strong>{t('admin.name') || 'Name'}:</strong> {loc3_name || t('admin.notSet') || 'Not set'}</p>
+                <p><strong>{t('admin.distance') || 'Distance'}:</strong> <span class="distance-value">{getDistanceToLocation(loc3_lat, loc3_lng)}</span></p>
+                <p><strong>{t('admin.coordinates') || 'Coordinates'}:</strong> {loc3_lat.toFixed(6)}, {loc3_lng.toFixed(6)}</p>
               </div>
               <div class="map-display-container">
                 {#key `loc3-${loc3_lat}-${loc3_lng}`}
@@ -851,13 +851,13 @@ Welcome aboard! 🚀
                 {/key}
               </div>
             {:else}
-              <p class="not-set-message">Location 3 is not set by the customer.</p>
+              <p class="not-set-message">{t('admin.location') || 'Location'} 3 {t('admin.locationNotSetMessage') || 'is not set by the customer'}.</p>
             {/if}
           {/if}
         </div>
       </div>
       <div class="modal-footer">
-        <button class="cancel-btn" on:click={closeLocationModal}>Close</button>
+        <button class="cancel-btn" on:click={closeLocationModal}>{t('admin.close') || 'Close'}</button>
       </div>
     </div>
   </div>

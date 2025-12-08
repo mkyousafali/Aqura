@@ -297,7 +297,7 @@ Thank you for using Aqura!`;
 
 <div class="customer-account-recovery-manager">
 	<div class="header">
-		<h2>{$_('admin.customerAccountRecoveryManager.title') || 'Customer Account Recovery Manager'}</h2>
+		<h2>{$_('admin.accountRecovery') || 'Customer Account Recovery Manager'}</h2>
 		<div class="header-controls">
 			<label class="toggle-container">
 				<input 
@@ -305,10 +305,10 @@ Thank you for using Aqura!`;
 					bind:checked={showResolvedRequests}
 					on:change={loadData}
 				/>
-				<span class="toggle-label">{$_('admin.customerAccountRecoveryManager.showResolvedRequests') || 'Show Resolved Requests'}</span>
+				<span class="toggle-label">{$_('common.showResolved') || 'Show Resolved Requests'}</span>
 			</label>
 			<button class="refresh-btn" on:click={loadData} disabled={loading}>
-				{loading ? ($_('admin.customerAccountRecoveryManager.loading') || 'Loading...') : ($_('admin.customerAccountRecoveryManager.refresh') || 'Refresh')}
+				{loading ? ($_('admin.loading') || 'Loading...') : ($_('common.refresh') || 'Refresh')}
 			</button>
 		</div>
 	</div>
@@ -317,34 +317,34 @@ Thank you for using Aqura!`;
 	<div class="stats-grid">
 		<div class="stat-card requests">
 			<div class="stat-number">{stats.accountRecoveryRequests}</div>
-			<div class="stat-label">{$_('admin.customerAccountRecoveryManager.pendingRecoveryRequests') || 'Pending Recovery Requests'}</div>
+			<div class="stat-label">{$_('admin.unresolvedAccountRecovery') || 'Pending Recovery Requests'}</div>
 		</div>
 		<div class="stat-card recovery">
 			<div class="stat-number">{stats.accessCodeRequests}</div>
-			<div class="stat-label">{$_('admin.customerAccountRecoveryManager.accessCodeRequests') || 'Access Code Requests'}</div>
+			<div class="stat-label">{$_('common.requests') || 'Access Code Requests'}</div>
 		</div>
 		<div class="stat-card processed">
 			<div class="stat-number">{stats.processedRequests || 0}</div>
-			<div class="stat-label">{$_('admin.customerAccountRecoveryManager.processedThisWeek') || 'Processed This Week'}</div>
+			<div class="stat-label">{$_('common.processedThisWeek') || 'Processed This Week'}</div>
 		</div>
 	</div>
 
 	{#if loading}
-		<div class="loading">{$_('admin.customerAccountRecoveryManager.loadingCustomerData') || 'Loading customer data...'}</div>
+		<div class="loading">{$_('admin.loading') || 'Loading customer data...'}</div>
 	{:else}
 		<!-- Account Recovery Requests -->
 		{#if accessCodeRequests.filter(r => r.request_type === 'account_recovery').length > 0}
 			<div class="section">
-				<h3>🔐 {$_('admin.customerAccountRecoveryManager.accountRecoveryRequests') || 'Account Recovery Requests'}</h3>
+				<h3>🔐 {$_('admin.accountRecovery') || 'Account Recovery Requests'}</h3>
 				<div class="table-container">
 					<table class="requests-table">
 						<thead>
 							<tr>
-								<th>{$_('admin.customerAccountRecoveryManager.customer') || 'Customer'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.whatsapp') || 'WhatsApp'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.requestTime') || 'Request Time'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.status') || 'Status'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.actions') || 'Actions'}</th>
+								<th>{$_('admin.customer') || 'Customer'}</th>
+								<th>{$_('admin.whatsapp') || 'WhatsApp'}</th>
+								<th>{$_('common.time') || 'Request Time'}</th>
+								<th>{$_('admin.status') || 'Status'}</th>
+								<th>{$_('admin.actions') || 'Actions'}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -354,9 +354,9 @@ Thank you for using Aqura!`;
 										<div class="customer-info">
 											<div class="name">{getRequestCustomerName(request)}</div>
 											{#if request.verification_status === 'pending'}
-												<span class="verification-badge">⚠️ {$_('admin.customerAccountRecoveryManager.verificationRequired') || 'Verification Required'}</span>
+												<span class="verification-badge">⚠️ {$_('common.verificationRequired') || 'Verification Required'}</span>
 											{:else if request.verification_status === 'processed'}
-												<span class="resolved-badge">✅ {$_('admin.customerAccountRecoveryManager.resolved') || 'Resolved'}</span>
+												<span class="resolved-badge">✅ {$_('common.resolved') || 'Resolved'}</span>
 											{/if}
 										</div>
 									</td>
@@ -384,7 +384,7 @@ Thank you for using Aqura!`;
 														}
 													}}
 												>
-													🔍 {$_('admin.customerAccountRecoveryManager.verifyIdentity') || 'Verify Identity'}
+													🔍 {$_('common.verifyIdentity') || 'Verify Identity'}
 												</button>
 												<button 
 													class="share-btn"
@@ -398,17 +398,17 @@ Thank you for using Aqura!`;
 														}
 													}}
 												>
-													📤 {$_('admin.customerAccountRecoveryManager.generateShareCode') || 'Generate & Share Code'}
+													📤 {$_('common.generateShare') || 'Generate & Share Code'}
 												</button>
 												<button 
 													class="resolve-btn"
 													on:click={() => markAsResolved(request.id)}
 												>
-													✅ {$_('admin.customerAccountRecoveryManager.markAsResolved') || 'Mark as Resolved'}
+													✅ {$_('common.markResolved') || 'Mark as Resolved'}
 												</button>
 											</div>
 										{:else}
-											<span class="resolved-indicator">{$_('admin.customerAccountRecoveryManager.requestResolved') || 'Request resolved'}</span>
+											<span class="resolved-indicator">{$_('common.requestResolved') || 'Request resolved'}</span>
 										{/if}
 									</td>
 								</tr>
@@ -427,11 +427,11 @@ Thank you for using Aqura!`;
 					<table class="requests-table">
 						<thead>
 							<tr>
-								<th>{$_('admin.customerAccountRecoveryManager.customer') || 'Customer'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.whatsapp') || 'WhatsApp'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.requestTime') || 'Request Time'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.status') || 'Status'}</th>
-								<th>{$_('admin.customerAccountRecoveryManager.actions') || 'Actions'}</th>
+								<th>{$_('admin.customer') || 'Customer'}</th>
+								<th>{$_('admin.whatsapp') || 'WhatsApp'}</th>
+								<th>{$_('common.time') || 'Request Time'}</th>
+								<th>{$_('admin.status') || 'Status'}</th>
+								<th>{$_('admin.actions') || 'Actions'}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -464,10 +464,10 @@ Thank you for using Aqura!`;
 												class="resolve-btn"
 												on:click={() => markAsResolved(request.id)}
 											>
-												✅ {$_('admin.customerAccountRecoveryManager.markAsResolved') || 'Mark as Resolved'}
+												✅ {$_('common.markResolved') || 'Mark as Resolved'}
 											</button>
 										{:else}
-											<span class="resolved-indicator">{$_('admin.customerAccountRecoveryManager.requestResolved') || 'Request resolved'}</span>
+											<span class="resolved-indicator">{$_('common.requestResolved') || 'Request resolved'}</span>
 										{/if}
 									</td>
 								</tr>
@@ -492,7 +492,7 @@ Thank you for using Aqura!`;
 				<div class="customer-details">
 					<h4>{getCustomerName(selectedCustomer)}</h4>
 					<p><strong>{$_('admin.customerAccountRecoveryManager.username') || 'Username'}:</strong> {getCustomerUsername(selectedCustomer)}</p>
-					<p><strong>{$_('admin.customerAccountRecoveryManager.whatsapp') || 'WhatsApp'}:</strong> {formatWhatsApp(selectedCustomer.whatsapp_number)}</p>
+					<p><strong>{$_('admin.whatsapp') || 'WhatsApp'}:</strong> {formatWhatsApp(selectedCustomer.whatsapp_number)}</p>
 				</div>
 				<div class="access-code-display">
 					<label>{$_('admin.customerAccountRecoveryManager.newAccessCode') || 'New Access Code'}:</label>

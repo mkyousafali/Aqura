@@ -1,27 +1,6 @@
 <script lang="ts">
-  import { openWindow } from '$lib/utils/windowManagerUtils';
   import { supabase } from '$lib/utils/supabase';
   import { onMount } from 'svelte';
-  import ProductMaster from '$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte';
-  import OfferTemplates from '$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte';
-  import OfferProductSelector from '$lib/components/desktop-interface/marketing/flyer/OfferProductSelector.svelte';
-  import OfferManager from '$lib/components/desktop-interface/marketing/flyer/OfferManager.svelte';
-  import PricingManager from '$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte';
-  import FlyerGenerator from '$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte';
-  import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
-  import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
-  import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
-  import ShelfPaperTemplateDesigner from '$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte';
-  import VariationManager from '$lib/components/desktop-interface/marketing/flyer/VariationManager.svelte';
-  
-  interface NavCard {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-    color: string;
-    component: any;
-  }
   
   // Stats
   let totalProducts = 0;
@@ -29,114 +8,6 @@
   let generatedFlyers = 0;
   let templates = 0;
   let isLoadingStats = true;
-  
-  const navCards: NavCard[] = [
-    {
-      id: 'products',
-      title: 'Product Master',
-      description: 'Manage products, import from Excel, add images',
-      icon: '📦',
-      color: 'from-blue-500 to-purple-500',
-      component: ProductMaster
-    },
-    {
-      id: 'variation-manager',
-      title: 'Variation Manager',
-      description: 'Group similar products for easier management',
-      icon: '🔗',
-      color: 'from-cyan-500 to-blue-500',
-      component: VariationManager
-    },
-    {
-      id: 'offers',
-      title: 'Offer Product Editor',
-      description: 'Add/remove products for offer templates',
-      icon: '✅',
-      color: 'from-purple-500 to-pink-500',
-      component: OfferTemplates
-    },
-    {
-      id: 'offer-selector',
-      title: 'Create New Offer',
-      description: 'Create new offer template with products',
-      icon: '🏷️',
-      color: 'from-green-500 to-emerald-500',
-      component: OfferProductSelector
-    },
-    {
-      id: 'offer-manager',
-      title: 'Offer Manager',
-      description: 'Manage active offers and linked products',
-      icon: '🎯',
-      color: 'from-orange-500 to-red-500',
-      component: OfferManager
-    },
-    {
-      id: 'pricing-manager',
-      title: 'Pricing Manager',
-      description: 'Set pricing, calculate profits for offers',
-      icon: '💵',
-      color: 'from-yellow-500 to-orange-500',
-      component: PricingManager
-    },
-    {
-      id: 'flyers',
-      title: 'Generate Flyers',
-      description: 'Create and export flyer designs',
-      icon: '📄',
-      color: 'from-indigo-500 to-blue-500',
-      component: FlyerGenerator
-    },
-    {
-      id: 'templates',
-      title: 'Flyer Templates',
-      description: 'Design templates for flyer layouts',
-      icon: '🎨',
-      color: 'from-pink-500 to-purple-500',
-      component: FlyerTemplates
-    },
-    {
-      id: 'settings',
-      title: 'Settings',
-      description: 'Configure Flyer Master preferences',
-      icon: '⚙️',
-      color: 'from-gray-500 to-slate-500',
-      component: FlyerSettings
-    },
-    {
-      id: 'shelf-paper-manager',
-      title: 'Shelf Paper Manager',
-      description: 'Plan and design shelf paper layouts',
-      icon: '🏷️',
-      color: 'from-teal-500 to-cyan-500',
-      component: DesignPlanner
-    }
-  ];
-  
-  function generateWindowId(prefix: string): string {
-    return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-  }
-  
-  function openFeature(card: NavCard) {
-    const windowId = generateWindowId(`flyer-${card.id}`);
-    const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-    
-    openWindow({
-      id: windowId,
-      title: `${card.title} #${instanceNumber}`,
-      component: card.component,
-      icon: card.icon,
-      size: { width: 1400, height: 900 },
-      position: { 
-        x: 50 + (Math.random() * 100),
-        y: 50 + (Math.random() * 100) 
-      },
-      resizable: true,
-      minimizable: true,
-      maximizable: true,
-      closable: true
-    });
-  }
   
   // Load stats
   async function loadStats() {
@@ -189,52 +60,16 @@
     <p class="text-gray-600 text-lg">
       AI-Powered Flyer Creation & Management System
     </p>
+    <p class="text-gray-500 text-sm mt-2">
+      All features are now accessible from the Media section in the sidebar
+    </p>
   </div>
   
-  <!-- Navigation Cards Grid -->
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-    {#each navCards as card (card.id)}
-      <button
-        on:click={() => openFeature(card)}
-        class="group relative bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-gray-100 text-left overflow-hidden"
-      >
-        <!-- Gradient Background -->
-        <div class="absolute inset-0 bg-gradient-to-br {card.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
-        
-        <!-- Content -->
-        <div class="relative z-10">
-          <!-- Icon -->
-          <div class="w-16 h-16 bg-gradient-to-br {card.color} rounded-xl flex items-center justify-center mb-4 shadow-md group-hover:scale-110 transition-transform duration-300">
-            <span class="text-3xl">{card.icon}</span>
-          </div>
-          
-          <!-- Title -->
-          <h3 class="text-xl font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors">
-            {card.title}
-          </h3>
-          
-          <!-- Description -->
-          <p class="text-sm text-gray-600 leading-relaxed">
-            {card.description}
-          </p>
-          
-          <!-- Arrow Icon -->
-          <div class="mt-4 flex items-center text-blue-600 font-semibold text-sm opacity-0 group-hover:opacity-100 transition-opacity">
-            Open
-            <svg class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
-          </div>
-        </div>
-      </button>
-    {/each}
-  </div>
-  
-  <!-- Quick Stats (Optional) -->
-  <div class="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
-    <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
-      <div class="text-sm text-gray-600">Total Products</div>
-      <div class="text-2xl font-bold text-blue-600">
+  <!-- Quick Stats -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl p-6 shadow-md border border-gray-100">
+      <div class="text-sm text-gray-600 mb-1">Total Products</div>
+      <div class="text-3xl font-bold text-blue-600">
         {#if isLoadingStats}
           <svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -245,9 +80,9 @@
         {/if}
       </div>
     </div>
-    <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
-      <div class="text-sm text-gray-600">Active Offers</div>
-      <div class="text-2xl font-bold text-green-600">
+    <div class="bg-white rounded-xl p-6 shadow-md border border-gray-100">
+      <div class="text-sm text-gray-600 mb-1">Active Offers</div>
+      <div class="text-3xl font-bold text-green-600">
         {#if isLoadingStats}
           <svg class="animate-spin w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -258,9 +93,9 @@
         {/if}
       </div>
     </div>
-    <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
-      <div class="text-sm text-gray-600">Generated Flyers</div>
-      <div class="text-2xl font-bold text-purple-600">
+    <div class="bg-white rounded-xl p-6 shadow-md border border-gray-100">
+      <div class="text-sm text-gray-600 mb-1">Generated Flyers</div>
+      <div class="text-3xl font-bold text-purple-600">
         {#if isLoadingStats}
           <svg class="animate-spin w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -271,9 +106,9 @@
         {/if}
       </div>
     </div>
-    <div class="bg-white rounded-xl p-4 shadow-md border border-gray-100">
-      <div class="text-sm text-gray-600">Templates</div>
-      <div class="text-2xl font-bold text-orange-600">
+    <div class="bg-white rounded-xl p-6 shadow-md border border-gray-100">
+      <div class="text-sm text-gray-600 mb-1">Templates</div>
+      <div class="text-3xl font-bold text-orange-600">
         {#if isLoadingStats}
           <svg class="animate-spin w-6 h-6 text-orange-600" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -282,6 +117,34 @@
         {:else}
           {templates}
         {/if}
+      </div>
+    </div>
+  </div>
+
+  <!-- Info Box -->
+  <div class="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
+    <h2 class="text-xl font-bold text-blue-900 mb-3">📍 Quick Access Guide</h2>
+    <p class="text-blue-800 mb-4">Access all Flyer Master features from the Media section in the sidebar:</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg p-4 border border-blue-100">
+        <h3 class="font-semibold text-blue-900 mb-2">📊 Manage</h3>
+        <ul class="text-sm text-gray-700 space-y-1">
+          <li>• Product Master</li>
+          <li>• Variation Manager</li>
+          <li>• Offer Manager</li>
+          <li>• Flyer Templates</li>
+          <li>• Settings</li>
+        </ul>
+      </div>
+      <div class="bg-white rounded-lg p-4 border border-blue-100">
+        <h3 class="font-semibold text-blue-900 mb-2">⚡ Operations</h3>
+        <ul class="text-sm text-gray-700 space-y-1">
+          <li>• Offer Product Editor</li>
+          <li>• Create New Offer</li>
+          <li>• Pricing Manager</li>
+          <li>• Generate Flyers</li>
+          <li>• Shelf Paper Manager</li>
+        </ul>
       </div>
     </div>
   </div>
