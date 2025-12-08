@@ -22,10 +22,10 @@
 	// Component imports
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/desktop-interface/master/TaskMaster.svelte';
-	import HRMaster from '$lib/components/desktop-interface/master/HRMaster.svelte';
 	import OperationsMaster from '$lib/components/desktop-interface/master/OperationsMaster.svelte';
-	import VendorMaster from '$lib/components/desktop-interface/master/VendorMaster.svelte';
-	import FinanceMaster from '$lib/components/desktop-interface/master/FinanceMaster.svelte';
+	import ManageVendor from '$lib/components/desktop-interface/master/vendor/ManageVendor.svelte';
+	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
+	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
@@ -36,6 +36,7 @@
 	import MonthlyBreakdown from '$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte';
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
 	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
+	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
@@ -51,18 +52,61 @@
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
+	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
+	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
+	import UploadEmployees from '$lib/components/desktop-interface/master/hr/UploadEmployees.svelte';
+	import CreateDepartment from '$lib/components/desktop-interface/master/hr/CreateDepartment.svelte';
+	import CreateLevel from '$lib/components/desktop-interface/master/hr/CreateLevel.svelte';
+	import CreatePosition from '$lib/components/desktop-interface/master/hr/CreatePosition.svelte';
+	import ReportingMap from '$lib/components/desktop-interface/master/hr/ReportingMap.svelte';
+	import AssignPositions from '$lib/components/desktop-interface/master/hr/AssignPositions.svelte';
+	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
+	import BiometricData from '$lib/components/desktop-interface/master/hr/BiometricData.svelte';
+	import DocumentManagement from '$lib/components/desktop-interface/master/hr/DocumentManagement.svelte';
+	import SalaryManagement from '$lib/components/desktop-interface/master/hr/SalaryManagement.svelte';
+	import WarningMaster from '$lib/components/desktop-interface/master/warnings/WarningMaster.svelte';
+	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
+	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
+	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
+	import MyTasksView from '$lib/components/desktop-interface/master/tasks/MyTasksView.svelte';
+	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
+	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
+	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
 
 	let showSettingsSubmenu = false;
-	let showMasterSubmenu = false;
-	let showWorkSubmenu = false;
 	let showCustomerAppSubmenu = false;
 	let showMarketingSubmenu = false;
 	let showReportsSubmenu = false;
+	let showVendorSubmenu = false;
+	let showVendorManagerSubmenu = false;
+	let showVendorOperationsSubmenu = false;
+	let showVendorReportsSubmenu = false;
+	let showVendorDashboardSubmenu = false;
+	let showFinanceSubmenu = false;
+	let showFinanceDashboardSubmenu = false;
+	let showFinanceManageSubmenu = false;
+	let showFinanceOperationsSubmenu = false;
+	let showFinanceReportsSubmenu = false;
+	let showHRSubmenu = false;
+	let showHRDashboardSubmenu = false;
+	let showHRManageSubmenu = false;
+	let showHROperationsSubmenu = false;
+	let showHRReportsSubmenu = false;
+	let showTasksSubmenu = false;
+	let showTasksDashboardSubmenu = false;
+	let showTasksManageSubmenu = false;
+	let showTasksOperationsSubmenu = false;
+	let showTasksReportsSubmenu = false;
+	let showNotificationsSubmenu = false;
+	let showNotificationsDashboardSubmenu = false;
+	let showNotificationsManageSubmenu = false;
+	let showNotificationsOperationsSubmenu = false;
+	let showNotificationsReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -206,21 +250,67 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showTasksSubmenu = false;
+		showTasksDashboardSubmenu = false;
 	}
 
-	function openHRMaster() {
-		const windowId = generateWindowId('hr-master');
+	function openCreateTask() {
+		const windowId = generateWindowId('create-task');
+		
+		openWindow({
+			id: windowId,
+			title: 'Create New Task Template',
+			component: TaskCreateForm,
+			icon: '📝',
+			size: { width: 600, height: 500 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksManageSubmenu = false;
+	}
+
+	function openViewTasks() {
+		const windowId = generateWindowId('view-tasks');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `HR Master #${instanceNumber}`,
-			component: HRMaster,
-			icon: '👥',
-			size: { width: 1200, height: 800 },
+			title: `View Task Templates #${instanceNumber}`,
+			component: TaskViewTable,
+			icon: '📋',
+			size: { width: 1200, height: 600 },
 			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				x: 100 + (Math.random() * 100), 
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksManageSubmenu = false;
+	}
+
+	function openMyTasks() {
+		const windowId = generateWindowId('my-tasks');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `My Tasks #${instanceNumber}`,
+			component: MyTasksView,
+			icon: '📋',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
 				y: 50 + (Math.random() * 100) 
 			},
 			resizable: true,
@@ -228,7 +318,374 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showTasksSubmenu = false;
+		showTasksReportsSubmenu = false;
+	}
+
+	function openMyAssignments() {
+		const windowId = generateWindowId('my-assignments');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `My Assignments #${instanceNumber}`,
+			component: MyAssignmentsView,
+			icon: '👨‍💼',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 75 + (Math.random() * 100), 
+				y: 75 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksReportsSubmenu = false;
+	}
+
+	function openTaskStatus() {
+		const windowId = generateWindowId('task-status');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Task Status #${instanceNumber}`,
+			component: TaskStatusView,
+			icon: '📊',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksReportsSubmenu = false;
+	}
+
+	function openAssignTasks() {
+		const windowId = generateWindowId('assign-tasks');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Assign Tasks #${instanceNumber}`,
+			component: TaskAssignmentView,
+			icon: '👥',
+			size: { width: 900, height: 600 },
+			position: { 
+				x: 100 + (Math.random() * 100), 
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksOperationsSubmenu = false;
+	}
+
+	function openBranchPerformanceWindow() {
+		const windowId = generateWindowId('branch-performance');
+		openWindow({
+			id: windowId,
+			title: 'Branch Performance Health',
+			component: BranchPerformanceWindow,
+			icon: '🏥',
+			size: { width: 1000, height: 700 },
+			position: {
+				x: 60 + (Math.random() * 80),
+				y: 60 + (Math.random() * 80)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksReportsSubmenu = false;
+	}
+
+	function openUploadEmployees() {
+		collapseAllMenus();
+		const windowId = generateWindowId('upload-employees');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Upload Employees #${instanceNumber}`,
+			component: UploadEmployees,
+			icon: '👥',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openCreateDepartment() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-department');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Create Department #${instanceNumber}`,
+			component: CreateDepartment,
+			icon: '🏢',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openCreateLevel() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-level');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Create Level #${instanceNumber}`,
+			component: CreateLevel,
+			icon: '📊',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openCreatePosition() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-position');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Create Position #${instanceNumber}`,
+			component: CreatePosition,
+			icon: '💼',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openReportingMap() {
+		collapseAllMenus();
+		const windowId = generateWindowId('reporting-map');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Reporting Map #${instanceNumber}`,
+			component: ReportingMap,
+			icon: '📈',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openAssignPositions() {
+		collapseAllMenus();
+		const windowId = generateWindowId('assign-positions');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Assign Positions #${instanceNumber}`,
+			component: AssignPositions,
+			icon: '🎯',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openContactManagement() {
+		collapseAllMenus();
+		const windowId = generateWindowId('contact-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Contact Management #${instanceNumber}`,
+			component: ContactManagement,
+			icon: '📞',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openDocumentManagement() {
+		collapseAllMenus();
+		const windowId = generateWindowId('document-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Document Management #${instanceNumber}`,
+			component: DocumentManagement,
+			icon: '📄',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openSalaryManagement() {
+		collapseAllMenus();
+		const windowId = generateWindowId('salary-management');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Salary & Wage Management #${instanceNumber}`,
+			component: SalaryManagement,
+			icon: '💰',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openWarningMaster() {
+		collapseAllMenus();
+		const windowId = generateWindowId('warning-master');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Warning Master #${instanceNumber}`,
+			component: WarningMaster,
+			icon: '⚠️',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openBiometricData() {
+		collapseAllMenus();
+		const windowId = generateWindowId('biometric-data');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Biometric Data #${instanceNumber}`,
+			component: BiometricData,
+			icon: '👆',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openExportBiometricData() {
+		collapseAllMenus();
+		const windowId = generateWindowId('export-biometric-data');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Export Biometric Data #${instanceNumber}`,
+			component: BiometricExport,
+			icon: '📊',
+			size: { width: 800, height: 600 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
 	}
 
 	function openOperationsMaster() {
@@ -253,18 +710,19 @@
 		showMasterSubmenu = false;
 	}
 
-	function openVendorMaster() {
-		const windowId = generateWindowId('vendor-master');
+	function openManageVendor() {
+		collapseAllMenus();
+		const windowId = generateWindowId('manage-vendor');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `Vendor Master #${instanceNumber}`,
-			component: VendorMaster,
-			icon: '🏪',
+			title: `Manage Vendor #${instanceNumber}`,
+			component: ManageVendor,
+			icon: '📋',
 			size: { width: 1200, height: 800 },
 			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
 			},
 			resizable: true,
@@ -272,21 +730,59 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showVendorSubmenu = false;
 	}
 
-	function openFinanceMaster() {
-		const windowId = generateWindowId('finance-master');
+	function openCreateVendor() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-vendor');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `Finance Master #${instanceNumber}`,
-			component: FinanceMaster,
-			icon: '💰',
-			size: { width: 1200, height: 800 },
+			title: `Create Vendor #${instanceNumber}`,
+			component: EditVendor,
+			icon: '➕',
+			size: { width: 800, height: 600 },
 			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				vendor: {
+					erp_vendor_id: '',
+					vendor_name: '',
+					salesman_name: '',
+					salesman_contact: '',
+					supervisor_name: '',
+					supervisor_contact: '',
+					vendor_contact: '',
+					payment_method: '',
+					payment_priority: '',
+					status: 'Active'
+				}
+			}
+		});
+		showVendorSubmenu = false;
+	}
+
+	function openUploadVendor() {
+		collapseAllMenus();
+		const windowId = generateWindowId('upload-vendor');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Upload Vendor #${instanceNumber}`,
+			component: UploadVendor,
+			icon: '📤',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
 			},
 			resizable: true,
@@ -294,7 +790,7 @@
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showVendorSubmenu = false;
 	}
 
 	function openCustomerMaster() {
@@ -604,11 +1100,13 @@ function openApprovalCenter() {
 			maximizable: true,
 			closable: true
 		});
-		showMasterSubmenu = false;
+		showNotificationsSubmenu = false;
+		showNotificationsDashboardSubmenu = false;
 	}
 
 	// Open Start Receiving window
 	function openStartReceiving() {
+		collapseAllMenus();
 		const windowId = generateWindowId('start-receiving');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -627,8 +1125,64 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Receiving window
+	function collapseAllSubsections() {
+		showVendorDashboardSubmenu = false;
+		showVendorManagerSubmenu = false;
+		showVendorOperationsSubmenu = false;
+		showVendorReportsSubmenu = false;
+		showFinanceDashboardSubmenu = false;
+		showFinanceManageSubmenu = false;
+		showFinanceOperationsSubmenu = false;
+		showFinanceReportsSubmenu = false;
+		showHRDashboardSubmenu = false;
+		showHRManageSubmenu = false;
+		showHROperationsSubmenu = false;
+		showHRReportsSubmenu = false;
+		showTasksDashboardSubmenu = false;
+		showTasksManageSubmenu = false;
+		showTasksOperationsSubmenu = false;
+		showTasksReportsSubmenu = false;
+		showNotificationsDashboardSubmenu = false;
+		showNotificationsManageSubmenu = false;
+		showNotificationsOperationsSubmenu = false;
+		showNotificationsReportsSubmenu = false;
+	}
+
+	function collapseAllMenus() {
+		collapseAllSubsections();
+		showVendorSubmenu = false;
+		showFinanceSubmenu = false;
+		showHRSubmenu = false;
+		showTasksSubmenu = false;
+		showNotificationsSubmenu = false;
+	}
+
+	function openReceiving() {
+		collapseAllMenus();
+		const windowId = generateWindowId('receiving');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Receiving #${instanceNumber}`,
+			component: Receiving,
+			icon: '📦',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// Open Paid Manager window
 	function openPaidManager() {
+		collapseAllMenus();
 		const windowId = generateWindowId('paid-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -649,6 +1203,7 @@ function openApprovalCenter() {
 
 	// Open Monthly Manager window
 	function openMonthlyManager() {
+		collapseAllMenus();
 		const windowId = generateWindowId('monthly-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -725,6 +1280,7 @@ function openApprovalCenter() {
 
 	// Open Expense Manager window
 	function openExpenseManager() {
+		collapseAllMenus();
 		const windowId = generateWindowId('expense-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -745,6 +1301,7 @@ function openApprovalCenter() {
 
 	// Open Day Budget Planner window
 	function openDayBudgetPlanner() {
+		collapseAllMenus();
 		const windowId = generateWindowId('day-budget-planner');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -757,6 +1314,29 @@ function openApprovalCenter() {
 			position: { 
 				x: 160 + (Math.random() * 100),
 				y: 160 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// Open Manual Scheduling window
+	function openManualScheduling() {
+		collapseAllMenus();
+		const windowId = generateWindowId('manual-scheduling');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Manual Scheduling #${instanceNumber}`,
+			component: ManualScheduling,
+			icon: '📅',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 140 + (Math.random() * 100),
+				y: 140 + (Math.random() * 100) 
 			},
 			resizable: true,
 			minimizable: true,
@@ -836,6 +1416,7 @@ function openApprovalCenter() {
 
 	// Open Vendor Records window
 	function openVendorRecords() {
+		collapseAllMenus();
 		const windowId = generateWindowId('vendor-records');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
@@ -855,6 +1436,29 @@ function openApprovalCenter() {
 			closable: true
 		});
 		showReportsSubmenu = false;
+	}
+
+	function openReceivingRecords() {
+		collapseAllMenus();
+		const windowId = generateWindowId('receiving-records');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Receiving Records #${instanceNumber}`,
+			component: ReceivingRecords,
+			icon: '📋',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showVendorSubmenu = false;
 	}
 
 	// Open Flyer Master window
@@ -957,115 +1561,788 @@ function openApprovalCenter() {
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
 
-	<!-- Master Section -->
+	<!-- Vendor Section -->
 	<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showMasterSubmenu = !showMasterSubmenu}
-			>
-				<span class="section-icon">📁</span>
-				<span class="section-text">{t('nav.master') || 'Master'}</span>
-				<span class="arrow" class:expanded={showMasterSubmenu}>▼</span>
-			</button>
-		</div>
+		<button 
+			class="section-button"
+			on:click={() => showVendorSubmenu = !showVendorSubmenu}
+		>
+			<span class="section-icon">📦</span>
+			<span class="section-text">{t('nav.vendor') || 'Vendor'}</span>
+			<span class="arrow" class:expanded={showVendorSubmenu}>▼</span>
+		</button>
+	</div>
 
-		<!-- Master Submenu - Inline below Master button -->
-		{#if showMasterSubmenu}
-			<div class="submenu-inline">
-				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+	<!-- Vendor Submenu - Inline below Vendor button -->
+	{#if showVendorSubmenu}
+		<div class="submenu-inline vendor-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showVendorDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showVendorDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showVendorDashboardSubmenu}
+				<div class="submenu-subitem-container">
 					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openBranches}>
-							<span class="menu-icon">🏢</span>
-							<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+						<button class="submenu-item" on:click={openReceiving}>
+							<span class="menu-icon">📦</span>
+							<span class="menu-text">Receiving</span>
 						</button>
 					</div>
-				{/if}
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openVendorMaster}>
-						<span class="menu-icon">🏪</span>
-						<span class="menu-text">{t('admin.vendorMaster') || 'Vendor Master'}</span>
-					</button>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openFinanceMaster}>
-						<span class="menu-icon">💰</span>
-						<span class="menu-text">{t('admin.financeMaster') || 'Finance Master'}</span>
-					</button>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showVendorManagerSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showVendorManagerSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manager Subsection Items -->
+			{#if showVendorManagerSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openUploadVendor}>
+							<span class="menu-icon">📤</span>
+							<span class="menu-text">{t('admin.uploadVendor') || 'Upload Vendor'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateVendor}>
+							<span class="menu-icon">➕</span>
+							<span class="menu-text">{t('admin.createVendor') || 'Create Vendor'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openManageVendor}>
+							<span class="menu-icon">📋</span>
+							<span class="menu-text">{t('admin.manageVendor') || 'Manage Vendor'}</span>
+						</button>
+					</div>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openHRMaster}>
-						<span class="menu-icon">👥</span>
-						<span class="menu-text">{t('admin.hrMaster') || 'HR Master'}</span>
-					</button>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showVendorOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showVendorOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showVendorOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openStartReceiving}>
+							<span class="menu-icon">🚀</span>
+							<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openReceivingRecords}>
+							<span class="menu-icon">📋</span>
+							<span class="menu-text">Receiving Records</span>
+						</button>
+					</div>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openOperationsMaster}>
-						<span class="menu-icon">⚙️</span>
-						<span class="menu-text">{t('admin.operationsMaster') || 'Operations Master'}</span>
-					</button>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showVendorReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showVendorReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showVendorReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openVendorRecords}>
+							<span class="menu-icon">📋</span>
+							<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
+						</button>
+					</div>
 				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Finance Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showFinanceSubmenu = !showFinanceSubmenu}
+		>
+			<span class="section-icon">💰</span>
+			<span class="section-text">{t('nav.finance') || 'Finance'}</span>
+			<span class="arrow" class:expanded={showFinanceSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Finance Submenu - Inline below Finance button -->
+	{#if showFinanceSubmenu}
+		<div class="submenu-inline finance-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showFinanceDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showFinanceDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showFinanceDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showFinanceManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showFinanceManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showFinanceManageSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Manage items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showFinanceOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showFinanceOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showFinanceOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openManualScheduling}>
+							<span class="menu-icon">📅</span>
+							<span class="menu-text">Manual Scheduling</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openDayBudgetPlanner}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">Day Budget Planner</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openMonthlyManager}>
+							<span class="menu-icon">📅</span>
+							<span class="menu-text">{t('nav.monthlyManager') || 'Monthly Manager'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openExpenseManager}>
+							<span class="menu-icon">💸</span>
+							<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openPaidManager}>
+							<span class="menu-icon">💳</span>
+							<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						collapseAllSubsections();
+						showFinanceReportsSubmenu = true;
+					}}
+					title="Reports"
+				>
+					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showFinanceReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- HR Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showHRSubmenu = !showHRSubmenu}
+		>
+			<span class="section-icon">👥</span>
+			<span class="section-text">{t('nav.hr') || 'HR'}</span>
+			<span class="arrow" class:expanded={showHRSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- HR Submenu - Inline below HR button -->
+	{#if showHRSubmenu}
+		<div class="submenu-inline hr-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showHRDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showHRDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showHRDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showHRManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showHRManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showHRManageSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openUploadEmployees}>
+							<span class="menu-icon">👥</span>
+							<span class="menu-text">Upload Employees</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateDepartment}>
+							<span class="menu-icon">🏢</span>
+							<span class="menu-text">Create Department</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateLevel}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">Create Level</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreatePosition}>
+							<span class="menu-icon">💼</span>
+							<span class="menu-text">Create Position</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openReportingMap}>
+							<span class="menu-icon">📈</span>
+							<span class="menu-text">Reporting Map</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openAssignPositions}>
+							<span class="menu-icon">🎯</span>
+							<span class="menu-text">Assign Positions</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openContactManagement}>
+							<span class="menu-icon">📞</span>
+							<span class="menu-text">Contact Management</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openDocumentManagement}>
+							<span class="menu-icon">📄</span>
+							<span class="menu-text">Document Management</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openSalaryManagement}>
+							<span class="menu-icon">💰</span>
+							<span class="menu-text">Salary & Wage Management</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openWarningMaster}>
+							<span class="menu-icon">⚠️</span>
+							<span class="menu-text">Warning Master</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showHROperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showHROperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showHROperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Operations items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showHRReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showHRReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showHRReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBiometricData}>
+							<span class="menu-icon">👆</span>
+							<span class="menu-text">Biometric Data</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openExportBiometricData}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">Export Biometric Data</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Tasks Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showTasksSubmenu = !showTasksSubmenu}
+		>
+			<span class="section-icon">✅</span>
+			<span class="section-text">{t('nav.tasks') || 'Tasks'}</span>
+			<span class="arrow" class:expanded={showTasksSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Tasks Submenu - Inline below Tasks button -->
+	{#if showTasksSubmenu}
+		<div class="submenu-inline tasks-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showTasksDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showTasksDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+		<!-- Dashboard Subsection Items -->
+		{#if showTasksDashboardSubmenu}
+			<div class="submenu-subitem-container">
 				<div class="submenu-item-container">
 					<button class="submenu-item" on:click={openTaskMaster}>
 						<span class="menu-icon">✅</span>
 						<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
 					</button>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCommunicationCenter}>
-						<span class="menu-icon">📞</span>
-						<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
-					</button>
-				</div>
 			</div>
-		{/if}
+		{/if}			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showTasksManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showTasksManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
 
-		<!-- Work Section -->
-		<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showWorkSubmenu = !showWorkSubmenu}
-			>
-				<span class="section-icon">💼</span>
-				<span class="section-text">{t('nav.work') || 'Work'}</span>
-				<span class="arrow" class:expanded={showWorkSubmenu}>▼</span>
-			</button>
-		</div>
+			<!-- Manage Subsection Items -->
+			{#if showTasksManageSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateTask}>
+							<span class="menu-icon">✨</span>
+							<span class="menu-text">Create Task Template</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openViewTasks}>
+							<span class="menu-icon">📋</span>
+							<span class="menu-text">View Task Templates</span>
+						</button>
+					</div>
+				</div>
+			{/if}
 
-		<!-- Work Submenu - Inline below Work button -->
-		{#if showWorkSubmenu}
-			<div class="submenu-inline">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openStartReceiving}>
-						<span class="menu-icon">📦</span>
-						<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
-					</button>
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showTasksOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showTasksOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showTasksOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openAssignTasks}>
+							<span class="menu-icon">👥</span>
+							<span class="menu-text">Assign Tasks</span>
+						</button>
+					</div>
 				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openMonthlyManager}>
-						<span class="menu-icon">📅</span>
-						<span class="menu-text">{t('nav.monthlyManager') || 'Monthly Manager'}</span>
-					</button>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						collapseAllSubsections();
+						showTasksReportsSubmenu = true;
+					}}
+					title="Reports"
+				>
+					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showTasksReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openMyTasks}>
+							<span class="menu-icon">📝</span>
+							<span class="menu-text">View My Tasks</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openMyAssignments}>
+							<span class="menu-icon">👨‍💼</span>
+							<span class="menu-text">View My Assignments</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openTaskStatus}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">Task Status</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBranchPerformanceWindow}>
+							<span class="menu-icon">🏥</span>
+							<span class="menu-text">Branch Performance</span>
+						</button>
+					</div>
 				</div>
-			<div class="submenu-item-container">
-				<button class="submenu-item" on:click={openExpenseManager}>
-					<span class="menu-icon">💸</span>
-					<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
-				</button>
-			</div>
-			<div class="submenu-item-container">
-				<button class="submenu-item" on:click={openDayBudgetPlanner}>
-					<span class="menu-icon">📊</span>
-					<span class="menu-text">{t('nav.dayBudgetPlanner') || 'Day Budget Planner'}</span>
-				</button>
-			</div>
-			<div class="submenu-item-container">
-				<button class="submenu-item" on:click={openPaidManager}>
-					<span class="menu-icon">💳</span>
-					<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
-				</button>
-			</div>
+			{/if}
 		</div>
-	{/if}		<!-- Customer App Section -->
+	{/if}
+
+	<!-- Notifications Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showNotificationsSubmenu = !showNotificationsSubmenu}
+		>
+			<span class="section-icon">🔔</span>
+			<span class="section-text">{t('nav.notification') || 'Notification'}</span>
+			<span class="arrow" class:expanded={showNotificationsSubmenu}>▼</span>
+		</button>
+	</div>
+
+	<!-- Notifications Submenu -->
+	{#if showNotificationsSubmenu}
+		<div class="submenu-inline">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showNotificationsDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showNotificationsDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					<img src="/sibar-submenu-icons/dashboard.svg" alt="Dashboard" class="menu-icon-img">
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showNotificationsDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCommunicationCenter}>
+							<span class="menu-icon">📞</span>
+							<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showNotificationsManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showNotificationsManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					<img src="/sibar-submenu-icons/manage.svg" alt="Manage" class="menu-icon-img">
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showNotificationsManageSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Manage items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showNotificationsOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showNotificationsOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					<img src="/sibar-submenu-icons/operations.svg" alt="Operations" class="menu-icon-img">
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showNotificationsOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Operations items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showNotificationsReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showNotificationsReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					<img src="/sibar-submenu-icons/reports.svg" alt="Reports" class="menu-icon-img">
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showNotificationsReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Customer App Section -->
 		<div class="menu-section">
 			<button 
 				class="section-button"
@@ -1222,6 +2499,12 @@ function openApprovalCenter() {
 			<div class="submenu-inline">
 				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
 					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openBranches}>
+							<span class="menu-icon">🏢</span>
+							<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openUserManagement}>
 							<span class="menu-icon">👤</span>
 							<span class="menu-text">{t('nav.users') || 'Users'}</span>
@@ -1334,13 +2617,13 @@ function openApprovalCenter() {
 		top: 0;
 		bottom: 56px; /* Fixed taskbar height */
 		width: 154px;
-		background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%);
-		color: white;
+		background: #374151;
+		color: #e5e7eb;
 		display: flex;
 		flex-direction: column;
 		box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
 		z-index: 1200;
-		border-right: 1px solid #4a5568;
+		border-right: 1px solid #1f2937;
 	}
 
 	.sidebar-content {
@@ -1366,9 +2649,9 @@ function openApprovalCenter() {
 		align-items: flex-start;
 		gap: 8px;
 		padding: 10px 8px;
-		background: none;
+		background: #1DBC83;
 		border: none;
-		color: #e2e8f0;
+		color: white;
 		cursor: pointer;
 		border-radius: 8px;
 		transition: all 0.2s ease;
@@ -1379,7 +2662,7 @@ function openApprovalCenter() {
 	}
 
 	.section-button:hover {
-		background: rgba(255, 255, 255, 0.1);
+		background: #3b82f6;
 		color: white;
 		transform: translateX(2px);
 	}
@@ -1413,6 +2696,7 @@ function openApprovalCenter() {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		color: white;
 	}
 
 	.section-text {
@@ -1445,7 +2729,7 @@ function openApprovalCenter() {
 		padding: 10px 12px;
 		background: none;
 		border: none;
-		color: #e2e8f0;
+		color: white;
 		cursor: pointer;
 		border-radius: 6px;
 		transition: all 0.2s ease;
@@ -1468,11 +2752,20 @@ function openApprovalCenter() {
 
 	/* Inline submenu below Work button */
 	.submenu-inline {
-		padding: 8px 0 8px 4px;
-		margin-bottom: 8px;
-		background: transparent; /* Changed from rgba(0, 0, 0, 0.2) to transparent */
+		padding: 0px 0 0px 0;
+		margin-bottom: 0px;
+		background: transparent;
 		border-radius: 8px;
 		animation: slideDown 0.2s ease;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		position: relative;
+	}
+
+	.submenu-inline.vendor-submenu {
+		padding: 0px 0 0px 4px;
+		margin-bottom: 0px;
 	}
 
 	@keyframes slideDown {
@@ -1490,11 +2783,14 @@ function openApprovalCenter() {
 
 	/* Individual container for each submenu button */
 	.submenu-item-container {
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 6px;
+		background: transparent;
+		border-radius: 0;
 		margin-bottom: 6px;
-		padding: 2px;
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		padding: 0;
+		border: none;
+		display: flex;
+		justify-content: center;
+		width: 100%;
 	}
 
 	.submenu-item-container:last-child {
@@ -1502,8 +2798,13 @@ function openApprovalCenter() {
 	}
 
 	.submenu-item-container:hover {
-		background: rgba(255, 255, 255, 0.1);
-		border-color: rgba(255, 255, 255, 0.2);
+		background: transparent;
+		border-color: transparent;
+	}
+
+	/* No margin bottom for manage subsection first item */
+	.submenu-inline.vendor-submenu > .submenu-item-container:first-child {
+		margin-bottom: 6px;
 	}
 
 	.submenu-inline .submenu-item {
@@ -1512,13 +2813,19 @@ function openApprovalCenter() {
 		height: auto;
 		min-height: 32px;
 		width: 100%;
-		background: transparent;
-		align-items: flex-start;
+		background: linear-gradient(135deg, #1DBC83 0%, #15a375 100%);
+		align-items: center;
+		justify-content: center;
+		border-radius: 20px;
+		margin-bottom: 4px;
+		box-shadow: 0 2px 10px rgba(29, 188, 131, 0.2);
+		transition: all 0.3s ease;
 	}
 
 	.submenu-inline .submenu-item:hover {
-		background: transparent;
-		transform: none;
+		background: linear-gradient(135deg, #15a375 0%, #0d8859 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 15px rgba(29, 188, 131, 0.3);
 	}
 
 	.menu-icon {
@@ -1528,6 +2835,15 @@ function openApprovalCenter() {
 		text-align: center;
 		align-self: flex-start;
 		margin-top: 2px;
+		color: white;
+	}
+
+	.menu-icon-img {
+		width: 32px;
+		height: 32px;
+		flex-shrink: 0;
+		object-fit: contain;
+		filter: brightness(0) saturate(100%) invert(85%) sepia(74%) saturate(487%) hue-rotate(169deg);
 	}
 
 	.menu-text {
@@ -1540,6 +2856,130 @@ function openApprovalCenter() {
 		word-break: break-word;
 		line-height: 1.3;
 		max-width: 100%;
+	}
+
+	/* Subsection styling - Floating rounded design */
+	.submenu-subsection-button {
+		width: 100%;
+		margin: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 12px 16px;
+		background: linear-gradient(135deg, #0096FF 0%, #0077CC 100%);
+		border: none;
+		color: white;
+		border-radius: 28px;
+		cursor: pointer;
+		font-size: 11px;
+		font-weight: 600;
+		transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+		min-height: 44px;
+		box-shadow: 0 4px 15px rgba(0, 150, 255, 0.3), 0 0 1px rgba(0, 150, 255, 0.2);
+		position: relative;
+		overflow: hidden;
+	}
+
+	.submenu-subsection-button::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, transparent 100%);
+		pointer-events: none;
+		border-radius: 28px;
+	}
+
+	.submenu-subsection-button:hover {
+		background: linear-gradient(135deg, #0077CC 0%, #0055AA 100%);
+		color: white;
+		transform: translateY(-6px);
+		box-shadow: 0 10px 30px rgba(0, 150, 255, 0.5), 0 0 2px rgba(0, 150, 255, 0.3);
+	}
+
+	.submenu-subsection-button:active {
+		background: linear-gradient(135deg, #0055AA 0%, #003D7A 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 150, 255, 0.4), 0 0 1px rgba(0, 150, 255, 0.2);
+	}
+
+	.submenu-subsection-button .menu-icon {
+		font-size: 14px;
+		margin: 0;
+		flex-shrink: 0;
+		position: relative;
+		z-index: 1;
+	}
+
+	.submenu-subsection-button .menu-text {
+		flex: 1;
+		font-size: 11px;
+		white-space: nowrap;
+		position: relative;
+		z-index: 1;
+	}
+
+	.submenu-subsection-button .arrow {
+		font-size: 10px;
+		transition: transform 0.2s ease;
+		position: relative;
+		z-index: 1;
+	}
+
+	.submenu-subsection-button.icon-only {
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		gap: 6px;
+		width: 70px;
+		height: auto;
+		padding: 12px 4px;
+		margin: 0 auto;
+		min-height: auto;
+	}
+
+	.submenu-subsection-button.icon-only .menu-icon-img {
+		margin: 0;
+		width: 24px;
+		height: 24px;
+	}
+
+	.submenu-subsection-button.icon-only .menu-text {
+		font-size: 9px;
+		white-space: normal;
+		text-align: center;
+		line-height: 1.2;
+	}
+
+	.submenu-subsection-button.icon-only .arrow {
+		display: none;
+	}
+
+	.submenu-subsection-button .arrow.expanded {
+		transform: rotate(180deg);
+	}
+
+	/* Nested submenu items container */
+	.submenu-subitem-container {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-left: 12px;
+		padding: 4px 0;
+		border-left: none;
+		padding-left: 8px;
+	}
+
+	.submenu-subitem-container .submenu-item-container {
+		margin-bottom: 0;
+	}
+
+	.submenu-subitem-container .submenu-item-container:hover {
+		background: transparent;
+		border-color: transparent;
 	}
 
 	/* Scrollbar styling */
@@ -1567,8 +3007,8 @@ function openApprovalCenter() {
 		left: 0;
 		right: 0;
 		padding: 10px 15px;
-		border-top: 1px solid #4a5568;
-		background: rgba(0, 0, 0, 0.3);
+		border-top: 1px solid #1f2937;
+		background: #374151;
 		backdrop-filter: blur(10px);
 	}
 
@@ -1641,12 +3081,12 @@ function openApprovalCenter() {
 	.version-info {
 		margin-top: 8px;
 		text-align: center;
-		border-top: 1px solid rgba(74, 85, 104, 0.5);
+		border-top: 1px solid rgba(107, 114, 128, 0.3);
 		padding-top: 6px;
 	}
 
 	.version-text {
-		background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		color: white;
 		font-size: 11px;
@@ -1753,9 +3193,10 @@ function openApprovalCenter() {
 	}
 
 	.speed-separator {
-		height: 1px;
-		background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+		height: 2px;
+		background: linear-gradient(90deg, transparent, rgba(156, 163, 175, 0.5), transparent);
 		margin: 12px 0;
+		border-top: 1px solid rgba(107, 114, 128, 0.3);
 	}
 </style>
 
