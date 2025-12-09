@@ -91,6 +91,7 @@
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
+	import NewStartReceiving from '$lib/components/desktop-interface/master/operations/NewStartReceiving.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -1222,6 +1223,29 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open New Start Receiving window
+	function openNewStartReceiving() {
+		collapseAllMenus();
+		const windowId = generateWindowId('new-start-receiving');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `New Start Receiving #${instanceNumber}`,
+			component: NewStartReceiving,
+			icon: '📦',
+			size: { width: 1200, height: 800 },
+			position: { 
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// Open Paid Manager window
 	function openPaidManager() {
 		collapseAllMenus();
@@ -1867,6 +1891,18 @@ function openApprovalCenter() {
 	
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
+
+	<!-- New Start Receiving Button -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={openNewStartReceiving}
+			title="Open New Start Receiving"
+		>
+			<span class="section-icon">📦</span>
+			<span class="section-text">New Start Receiving</span>
+		</button>
+	</div>
 
 	<!-- Delivery Section -->
 	<div class="menu-section">
