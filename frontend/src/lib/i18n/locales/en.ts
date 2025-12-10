@@ -73,6 +73,7 @@ export const englishLocale: LocaleData = {
       clearTables: "Clear Tables",
       delivery: "Delivery",
       vendor: "Vendor",
+      controls: "Controls",
       hr: "HR",
       tasks: "Tasks",
       notification: "Notification",

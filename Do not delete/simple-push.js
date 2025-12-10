@@ -138,6 +138,18 @@ if (fs.existsSync(cashierInterfacePath)) {
   console.log('✅ Updated Cashier Interface version display');
 }
 
+// Define interface names mapping
+const interfaceNames = {
+  desktop: 'Desktop',
+  mobile: 'Mobile',
+  cashier: 'Cashier',
+  customer: 'Customer',
+  all: 'All Interfaces'
+};
+
+const defaultMessage = `chore(version): bump ${interfaceNames[interfaceType]} to ${newVersion}`;
+const commitMessage = customMessage || defaultMessage;
+
 // Update VersionChangelog.svelte with new version and changelog entry
 const changelogPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'desktop-interface', 'common', 'VersionChangelog.svelte');
 
@@ -222,18 +234,6 @@ ${interfaceChanges.map(change => `\t\t\t\t\t<li>${change}</li>`).join('\n')}
   fs.writeFileSync(changelogPath, changelogContent, 'utf-8');
   console.log('✅ Updated VersionChangelog.svelte with new entry');
 }
-
-// Generate commit message
-const interfaceNames = {
-  desktop: 'Desktop',
-  mobile: 'Mobile',
-  cashier: 'Cashier',
-  customer: 'Customer',
-  all: 'All Interfaces'
-};
-
-const defaultMessage = `chore(version): bump ${interfaceNames[interfaceType]} to ${newVersion}`;
-const commitMessage = customMessage || defaultMessage;
 
 // Stage all changes
 try {

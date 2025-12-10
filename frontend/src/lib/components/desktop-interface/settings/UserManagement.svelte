@@ -4,12 +4,7 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { userManagement } from '$lib/utils/userManagement';
-	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import EditUser from '$lib/components/desktop-interface/settings/user/EditUser.svelte';
-	import AssignRoles from '$lib/components/desktop-interface/settings/user/AssignRoles.svelte';
-	import CreateUserRoles from '$lib/components/desktop-interface/settings/user/CreateUserRoles.svelte';
-	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
-	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
 
 	// Real user data from database
 	let users = [];
@@ -58,103 +53,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Get current user from persistent auth store with null safety
 	$: currentUserData = $currentUser || { roleType: 'Position-based' };
 	$: userRoleType = currentUserData?.roleType || 'Position-based';
-	const dashboardButtons = [
-		{
-			id: 'create-user',
-			title: 'Create User',
-			icon: '👤',
-			description: 'Add new user accounts',
-			color: 'bg-blue-500'
-		},
-		{
-			id: 'assign-roles',
-			title: 'Assign Roles',
-			icon: '🎯',
-			description: 'Manage user permissions and roles',
-			color: 'bg-green-500'
-		},
-		{
-			id: 'create-user-roles',
-			title: 'Create User Roles',
-			icon: '🔘',
-			description: 'Create custom roles and permissions',
-			color: 'bg-indigo-500'
-		},
-		{
-			id: 'manage-admin-users',
-			title: 'Manage Admin Users',
-			icon: '👥',
-			description: 'Administer admin user accounts',
-			color: 'bg-orange-500'
-		},
-		{
-			id: 'manage-master-admin',
-			title: 'Manage Master Admin',
-			icon: '🔐',
-			description: 'Master admin management (Master Admin only)',
-			color: 'bg-red-500'
-		}
-	];
 
 	// Generate unique window ID
 	function generateWindowId(type) {
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-	}
-
-	function openUserWindow(buttonId) {
-		const button = dashboardButtons.find(b => b.id === buttonId);
-		
-		const windowId = generateWindowId(buttonId);
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-
-		let component;
-		
-		switch(buttonId) {
-			case 'create-user':
-				component = CreateUser;
-				break;
-			case 'assign-roles':
-				component = AssignRoles;
-				break;
-			case 'manage-admin-users':
-				component = ManageAdminUsers;
-				break;
-			case 'manage-master-admin':
-				if (userRoleType !== 'Master Admin') {
-					alert('Access denied: Master Admin privileges required');
-					return;
-				}
-				component = ManageMasterAdmin;
-				break;
-			case 'create-user-roles':
-				if (userRoleType !== 'Master Admin' && userRoleType !== 'Admin') {
-					alert('Access denied: Admin or Master Admin privileges required');
-					return;
-				}
-				component = CreateUserRoles;
-				break;
-			default:
-				return;
-		}
-
-		openWindow({
-			id: windowId,
-			title: `${button.title} #${instanceNumber}`,
-			component: component,
-			icon: button.icon,
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true,
-			props: { 
-				onDataChanged: loadData // Pass reload function to child components
-			}
-		});
 	}
 
 	async function editUser(user) {
@@ -277,32 +179,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			</div>
 		</div>
 	{:else}
-		<!-- Dashboard Grid -->
-		<div class="dashboard-grid">
-			{#each dashboardButtons as button}
-				<!-- Hide Manage Master Admin for non-master admins -->
-				{#if button.id !== 'manage-master-admin' || userRoleType === 'Master Admin'}
-					<button 
-						class="dashboard-card" 
-						tabindex="0"
-						on:click={() => openUserWindow(button.id)}
-						on:keydown={(e) => e.key === 'Enter' && openUserWindow(button.id)}
-					>
-						<div class="card-icon {button.color}">
-							<span class="icon">{button.icon}</span>
-						</div>
-						<div class="card-content">
-							<h3 class="card-title">{button.title}</h3>
-							<p class="card-description">{button.description}</p>
-						</div>
-						<div class="card-arrow">
-							<span>→</span>
-						</div>
-					</button>
-				{/if}
-			{/each}
-		</div>
-
 		<!-- Available Users Section -->
 		<div class="users-section">
 			<div class="section-header">

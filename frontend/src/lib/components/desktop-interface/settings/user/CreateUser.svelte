@@ -4,6 +4,21 @@
 
 	const dispatch = createEventDispatcher();
 	
+	// Generate unique IDs for this component instance to avoid duplicate ID warnings
+	const componentId = Math.random().toString(36).substr(2, 9);
+	const usernameId = `username-${componentId}`;
+	const passwordId = `password-${componentId}`;
+	const confirmPasswordId = `confirmPassword-${componentId}`;
+	const quickAccessCodeId = `quickAccessCode-${componentId}`;
+	const confirmQuickAccessCodeId = `confirmQuickAccessCode-${componentId}`;
+	const userTypeId = `userType-${componentId}`;
+	const branchId = `branchId-${componentId}`;
+	const employeeId = `employeeId-${componentId}`;
+	const roleTypeId = `roleType-${componentId}`;
+	const roleIdField = `roleId-${componentId}`;
+	const positionIdField = `positionId-${componentId}`;
+	const avatarInputId = `avatar-input-${componentId}`;
+	
 	// Props from parent component
 	export let onDataChanged: (() => Promise<void>) | null = null;
 
@@ -380,10 +395,10 @@
 			
 			<div class="form-row">
 				<div class="form-group">
-					<label for="username" class="form-label">Username *</label>
+					<label for={usernameId} class="form-label">Username *</label>
 					<input
 						type="text"
-						id="username"
+						id={usernameId}
 						bind:value={formData.username}
 						class="form-input"
 						class:error={errors.username}
@@ -396,9 +411,9 @@
 				</div>
 
 				<div class="form-group">
-					<label for="userType" class="form-label">User Type *</label>
+					<label for={userTypeId} class="form-label">User Type *</label>
 					<select
-						id="userType"
+						id={userTypeId}
 						bind:value={formData.userType}
 						class="form-select"
 						class:error={errors.userType}
@@ -416,10 +431,10 @@
 			
 			<div class="form-row">
 				<div class="form-group">
-					<label for="password" class="form-label">Password *</label>
+					<label for={passwordId} class="form-label">Password *</label>
 					<input
 						type="password"
-						id="password"
+						id={passwordId}
 						bind:value={formData.password}
 						class="form-input"
 						class:error={errors.password}
@@ -432,10 +447,10 @@
 				</div>
 
 				<div class="form-group">
-					<label for="confirmPassword" class="form-label">Confirm Password *</label>
+					<label for={confirmPasswordId} class="form-label">Confirm Password *</label>
 					<input
 						type="password"
-						id="confirmPassword"
+						id={confirmPasswordId}
 						bind:value={formData.confirmPassword}
 						class="form-input"
 						class:error={errors.confirmPassword}
@@ -478,11 +493,11 @@
 			<!-- Quick Access Code -->
 			<div class="form-row">
 				<div class="form-group">
-					<label for="quickAccessCode" class="form-label">Quick Access Code (6 digits) *</label>
+					<label for={quickAccessCodeId} class="form-label">Quick Access Code (6 digits) *</label>
 					<div class="input-with-button">
 						<input
 							type="text"
-							id="quickAccessCode"
+							id={quickAccessCodeId}
 							bind:value={formData.quickAccessCode}
 							class="form-input"
 							class:error={errors.quickAccessCode}
@@ -505,10 +520,10 @@
 				</div>
 
 				<div class="form-group">
-					<label for="confirmQuickAccessCode" class="form-label">Confirm Quick Access Code *</label>
+					<label for={confirmQuickAccessCodeId} class="form-label">Confirm Quick Access Code *</label>
 					<input
 						type="text"
-						id="confirmQuickAccessCode"
+						id={confirmQuickAccessCodeId}
 						bind:value={formData.confirmQuickAccessCode}
 						class="form-input"
 						class:error={errors.confirmQuickAccessCode}
@@ -530,9 +545,9 @@
 			<!-- Branch Selection -->
 			{#if formData.userType === 'branch_specific'}
 				<div class="form-group full-width">
-					<label for="branchId" class="form-label">Branch *</label>
+					<label for={branchId} class="form-label">Branch *</label>
 					<select
-						id="branchId"
+						id={branchId}
 						bind:value={formData.branchId}
 						class="form-select"
 						class:error={errors.branchId}
@@ -646,9 +661,9 @@
 			<!-- Role Type Selection -->
 			<div class="form-row role-selection">
 				<div class="form-group">
-					<label for="roleType" class="form-label">Role Type *</label>
+					<label for={roleTypeId} class="form-label">Role Type *</label>
 					<select
-						id="roleType"
+						id={roleTypeId}
 						bind:value={formData.roleType}
 						class="form-select"
 						class:error={errors.roleType}
@@ -662,9 +677,9 @@
 				<!-- Position Selection (only for Position-based roles) -->
 				{#if formData.roleType === 'Position-based'}
 					<div class="form-group">
-						<label for="positionId" class="form-label">Position *</label>
+						<label for={positionIdField} class="form-label">Position *</label>
 						<select
-							id="positionId"
+							id={positionIdField}
 							bind:value={formData.positionId}
 							class="form-select"
 							class:error={errors.positionId}
@@ -681,9 +696,9 @@
 				{:else}
 					<!-- Role Selection for non-position-based roles -->
 					<div class="form-group">
-						<label for="roleId" class="form-label">Role *</label>
+						<label for={roleIdField} class="form-label">Role *</label>
 						<select
-							id="roleId"
+							id={roleIdField}
 							bind:value={formData.roleId}
 							class="form-select"
 							class:error={errors.roleId}
@@ -721,13 +736,13 @@
 				<div class="upload-controls">
 					<input
 						type="file"
-						id="avatar-input"
+						id={avatarInputId}
 						accept=".png,.jpg,.jpeg,.webp"
 						on:change={handleAvatarChange}
 						class="file-input"
 						hidden
 					>
-					<label for="avatar-input" class="upload-btn">
+					<label for={avatarInputId} class="upload-btn">
 						📷 Choose Image
 					</label>
 					<div class="upload-info">

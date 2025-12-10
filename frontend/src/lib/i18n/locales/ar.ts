@@ -75,6 +75,7 @@ export const arabicLocale: LocaleData = {
       clearTables: "مسح الجداول",
       delivery: "التوصيل",
       vendor: "الموردين",
+      controls: "التحكم",
       hr: "الموارد البشرية",
       tasks: "المهام",
       notification: "الإشعارات",

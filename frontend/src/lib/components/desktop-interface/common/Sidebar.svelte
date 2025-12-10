@@ -73,6 +73,11 @@
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
+	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
+	import AssignRoles from '$lib/components/desktop-interface/settings/user/AssignRoles.svelte';
+	import CreateUserRoles from '$lib/components/desktop-interface/settings/user/CreateUserRoles.svelte';
+	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
+	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
 	import UploadEmployees from '$lib/components/desktop-interface/master/hr/UploadEmployees.svelte';
 	import CreateDepartment from '$lib/components/desktop-interface/master/hr/CreateDepartment.svelte';
 	import CreateLevel from '$lib/components/desktop-interface/master/hr/CreateLevel.svelte';
@@ -91,7 +96,6 @@
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
-	import NewStartReceiving from '$lib/components/desktop-interface/master/operations/NewStartReceiving.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -126,6 +130,11 @@
 	let showNotificationsManageSubmenu = false;
 	let showNotificationsOperationsSubmenu = false;
 	let showNotificationsReportsSubmenu = false;
+	let showControlsSubmenu = false;
+	let showControlsDashboardSubmenu = false;
+	let showControlsManageSubmenu = false;
+	let showControlsOperationsSubmenu = false;
+	let showControlsReportsSubmenu = false;
 	let showMediaSubmenu = false;
 	let showMediaDashboardSubmenu = false;
 	let showMediaManageSubmenu = false;
@@ -136,6 +145,11 @@
 	let showPromoManageSubmenu = false;
 	let showPromoOperationsSubmenu = false;
 	let showPromoReportsSubmenu = false;
+	let showUserSubmenu = false;
+	let showUserDashboardSubmenu = false;
+	let showUserManageSubmenu = false;
+	let showUserOperationsSubmenu = false;
+	let showUserReportsSubmenu = false;
 	let hasApprovalPermission = false;
 	
 	// Get pending approvals count from store
@@ -1188,6 +1202,14 @@ function openApprovalCenter() {
 		showNotificationsManageSubmenu = false;
 		showNotificationsOperationsSubmenu = false;
 		showNotificationsReportsSubmenu = false;
+		showControlsDashboardSubmenu = false;
+		showControlsManageSubmenu = false;
+		showControlsOperationsSubmenu = false;
+		showControlsReportsSubmenu = false;
+		showUserDashboardSubmenu = false;
+		showUserManageSubmenu = false;
+		showUserOperationsSubmenu = false;
+		showUserReportsSubmenu = false;
 	}
 
 	function collapseAllMenus() {
@@ -1199,6 +1221,7 @@ function openApprovalCenter() {
 		showHRSubmenu = false;
 		showTasksSubmenu = false;
 		showNotificationsSubmenu = false;
+		showUserSubmenu = false;
 	}
 
 	function openReceiving() {
@@ -1210,29 +1233,6 @@ function openApprovalCenter() {
 			id: windowId,
 			title: `Receiving #${instanceNumber}`,
 			component: Receiving,
-			icon: '📦',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 100 + (Math.random() * 100),
-				y: 100 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	// Open New Start Receiving window
-	function openNewStartReceiving() {
-		collapseAllMenus();
-		const windowId = generateWindowId('new-start-receiving');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `New Start Receiving #${instanceNumber}`,
-			component: NewStartReceiving,
 			icon: '📦',
 			size: { width: 1200, height: 800 },
 			position: { 
@@ -1878,6 +1878,142 @@ function openApprovalCenter() {
 		});
 	}
 
+	// User Section Functions (Placeholder)
+	function openUserDashboard() {
+		collapseAllMenus();
+		// TODO: Add User Dashboard component
+	}
+
+	function openUserManage() {
+		collapseAllMenus();
+		// TODO: Add User Management component
+	}
+
+	function openUserOperations() {
+		collapseAllMenus();
+		// TODO: Add User Operations component
+	}
+
+	function openUserReports() {
+		collapseAllMenus();
+		// TODO: Add User Reports component
+	}
+
+	// User Management - Create User
+	function openCreateUser() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-user');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Create User #${instanceNumber}`,
+			component: CreateUser,
+			icon: '👤',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// User Management - Assign Roles
+	function openAssignRoles() {
+		collapseAllMenus();
+		const windowId = generateWindowId('assign-roles');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Assign Roles #${instanceNumber}`,
+			component: AssignRoles,
+			icon: '🎯',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// User Management - Create User Roles
+	function openCreateUserRoles() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-user-roles');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Create User Roles #${instanceNumber}`,
+			component: CreateUserRoles,
+			icon: '🔘',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// User Management - Manage Admin Users
+	function openManageAdminUsers() {
+		collapseAllMenus();
+		const windowId = generateWindowId('manage-admin-users');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Manage Admin Users #${instanceNumber}`,
+			component: ManageAdminUsers,
+			icon: '👥',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	// User Management - Manage Master Admin
+	function openManageMasterAdmin() {
+		collapseAllMenus();
+		const windowId = generateWindowId('manage-master-admin');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Manage Master Admin #${instanceNumber}`,
+			component: ManageMasterAdmin,
+			icon: '🔐',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 
 </script>
 
@@ -1891,18 +2027,6 @@ function openApprovalCenter() {
 	
 	<!-- Separator Line -->
 	<div class="speed-separator"></div>
-
-	<!-- New Start Receiving Button -->
-	<div class="menu-section">
-		<button 
-			class="section-button"
-			on:click={openNewStartReceiving}
-			title="Open New Start Receiving"
-		>
-			<span class="section-icon">📦</span>
-			<span class="section-text">New Start Receiving</span>
-		</button>
-	</div>
 
 	<!-- Delivery Section -->
 	<div class="menu-section">
@@ -3196,83 +3320,334 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
-	<!-- Settings Section -->
-		<div class="menu-section">
-			<button 
-				class="section-button"
-				on:click={() => showSettingsSubmenu = !showSettingsSubmenu}
-			>
-				<span class="section-icon">⚙️</span>
-				<span class="section-text">{t('nav.settings') || 'Settings'}</span>
-				<span class="arrow" class:expanded={showSettingsSubmenu}>▼</span>
-			</button>
-		</div>
+	<!-- User Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showUserSubmenu = !showUserSubmenu}
+		>
+			<span class="section-icon">👤</span>
+			<span class="section-text">{t('nav.users') || 'Users'}</span>
+			<span class="arrow" class:expanded={showUserSubmenu}>▼</span>
+		</button>
+	</div>
 
-		<!-- Settings Submenu - Inline below Settings button -->
-		{#if showSettingsSubmenu}
-			<div class="submenu-inline">
-				{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openBranches}>
-							<span class="menu-icon">🏢</span>
-							<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-						</button>
-					</div>
+	<!-- User Submenu - Inline below User button -->
+	{#if showUserSubmenu}
+		<div class="submenu-inline user-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showUserDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showUserDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showUserDashboardSubmenu}
+				<div class="submenu-subitem-container">
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openUserManagement}>
 							<span class="menu-icon">👤</span>
-							<span class="menu-text">{t('nav.users') || 'Users'}</span>
+							<span class="menu-text">Users</span>
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showUserManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showUserManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manager Subsection Items -->
+			{#if showUserManageSubmenu}
+				<div class="submenu-subitem-container">
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCreateUser}>
+							<span class="menu-icon">👤</span>
+							<span class="menu-text">Create User</span>
 						</button>
 					</div>
 					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openSettings}>
-							<span class="menu-icon">🔊</span>
-							<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+						<button class="submenu-item" on:click={openAssignRoles}>
+							<span class="menu-icon">🎯</span>
+							<span class="menu-text">Assign Roles</span>
 						</button>
 					</div>
 					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openERPConnections}>
-							<span class="menu-icon">🔌</span>
-							<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
+						<button class="submenu-item" on:click={openCreateUserRoles}>
+							<span class="menu-icon">🔘</span>
+							<span class="menu-text">Create User Roles</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openManageAdminUsers}>
+							<span class="menu-icon">👥</span>
+							<span class="menu-text">Manage Admin Users</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openManageMasterAdmin}>
+							<span class="menu-icon">🔐</span>
+							<span class="menu-text">Manage Master Admin</span>
 						</button>
 					</div>
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openInterfaceAccessManager}>
 							<span class="menu-icon">🔧</span>
-							<span class="menu-text">{t('nav.interfaceAccess') || 'Interface Access'}</span>
+							<span class="menu-text">Interface Access</span>
 						</button>
 					</div>
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openApprovalPermissions}>
 							<span class="menu-icon">🔐</span>
-							<span class="menu-text">{t('nav.approvalPermissions') || 'Approval Permissions'}</span>
+							<span class="menu-text">Approval Permissions</span>
 						</button>
 					</div>
-				{/if}
-				{#if $currentUser?.roleType === 'Master Admin'}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openUserPermissions}>
 							<span class="menu-icon">👥</span>
-							<span class="menu-text">{t('nav.userPermissions') || 'User Permissions'}</span>
+							<span class="menu-text">User Permissions</span>
 						</button>
 					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openClearTables}>
-							<span class="menu-icon">🗑️</span>
-							<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
-						</button>
-					</div>
-				{/if}
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showUserOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showUserOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					
+					<span class="menu-text">Operations</span>
+				</button>
 			</div>
-		{/if}
+
+			<!-- Operations Subsection Items -->
+			{#if showUserOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Operations items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showUserReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showUserReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showUserReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Controls Section -->
+	<div class="menu-section">
+		<button 
+			class="section-button"
+			on:click={() => showControlsSubmenu = !showControlsSubmenu}
+		>
+			<span class="section-icon">⚙️</span>
+			<span class="section-text">{t('nav.controls') || 'Controls'}</span>
+			<span class="arrow" class:expanded={showControlsSubmenu}>▼</span>
+		</button>
 	</div>
 
+	<!-- Controls Submenu - Inline below Controls button -->
+	{#if showControlsSubmenu}
+		<div class="submenu-inline controls-submenu">
+			<!-- Dashboard Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showControlsDashboardSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showControlsDashboardSubmenu = true;
+						}
+					}}
+					title="Dashboard"
+				>
+					
+					<span class="menu-text">Dashboard</span>
+				</button>
+			</div>
+
+			<!-- Dashboard Subsection Items -->
+			{#if showControlsDashboardSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Dashboard items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Manage Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showControlsManageSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showControlsManageSubmenu = true;
+						}
+					}}
+					title="Manage"
+				>
+					
+					<span class="menu-text">Manage</span>
+				</button>
+			</div>
+
+			<!-- Manage Subsection Items -->
+			{#if showControlsManageSubmenu}
+				<div class="submenu-subitem-container">
+					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBranches}>
+								<span class="menu-icon">🏢</span>
+								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSettings}>
+								<span class="menu-icon">🔊</span>
+								<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openERPConnections}>
+								<span class="menu-icon">🔌</span>
+								<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if $currentUser?.roleType === 'Master Admin'}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openClearTables}>
+								<span class="menu-icon">🗑️</span>
+								<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Operations Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showControlsOperationsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showControlsOperationsSubmenu = true;
+						}
+					}}
+					title="Operations"
+				>
+					
+					<span class="menu-text">Operations</span>
+				</button>
+			</div>
+
+			<!-- Operations Subsection Items -->
+			{#if showControlsOperationsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Operations items will be added here -->
+				</div>
+			{/if}
+
+			<!-- Reports Subsection -->
+			<div class="submenu-item-container">
+				<button 
+					class="submenu-subsection-button icon-only"
+					on:click={() => {
+						if (showControlsReportsSubmenu) {
+							collapseAllSubsections();
+						} else {
+							collapseAllSubsections();
+							showControlsReportsSubmenu = true;
+						}
+					}}
+					title="Reports"
+				>
+					
+					<span class="menu-text">Reports</span>
+				</button>
+			</div>
+
+			<!-- Reports Subsection Items -->
+			{#if showControlsReportsSubmenu}
+				<div class="submenu-subitem-container">
+					<!-- Reports items will be added here -->
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	</div>
 	<!-- Sidebar Footer -->
 	<div class="sidebar-footer">
 		<!-- Version Information -->
 		<div class="version-info">
 			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ27.12.7.7
+				AQ29.12.7.7
 			</button>
 		</div>
 	</div>
