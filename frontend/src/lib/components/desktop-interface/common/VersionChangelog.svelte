@@ -5,19 +5,19 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ25.10.5.5</p>
-			<p class="version-details">Desktop: 25 | Mobile: 10 | Cashier: 5 | Customer: 5</p>
+			<p class="version-title">Version AQ29.12.7.7</p>
+			<p class="version-details">Desktop: 29 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
 			<h3>✨ New Feature</h3>
-			<p class="change-description">Enhance version update script with automatic mobile interface and changelog updates</p>
+			<p class="change-description">Add user management and controls sections to sidebar</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Updated all interfaces (Desktop, Mobile, Cashier, Customer)</li>
-					<li>Enhance version update script with automatic mobile interface and changelog updates</li>
+					<li>Updated Desktop interface</li>
+					<li>Add user management and controls sections to sidebar</li>
 				</ul>
 			</div>
 			<p class="date">December 10, 2025</p>
