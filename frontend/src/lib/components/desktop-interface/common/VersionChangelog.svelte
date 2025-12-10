@@ -22,8 +22,6 @@
 			</div>
 			<p class="date">December 10, 2025</p>
 		</div>
-			<p class="date">December 10, 2025</p>
-		</div>
 
 		<div class="interface-info">
 			<div class="interface-card">

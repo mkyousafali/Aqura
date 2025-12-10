@@ -183,8 +183,8 @@ ${interfaceChanges.map(change => `\t\t\t\t\t<li>${change}</li>`).join('\n')}
   
   // Replace the entire window-content section up to interface-info
   changelogContent = changelogContent.replace(
-    /\t<div class="window-content">[\s\S]*?<div class="latest-change">[\s\S]*?<\/div>/,
-    newChangelogEntry
+    /\t<div class="window-content">[\s\S]*?\t\t<\/div>\n\n\t\t<div class="interface-info">/,
+    newChangelogEntry + '\n\n\t\t<div class="interface-info">'
   );
   
   fs.writeFileSync(changelogPath, changelogContent, 'utf-8');
