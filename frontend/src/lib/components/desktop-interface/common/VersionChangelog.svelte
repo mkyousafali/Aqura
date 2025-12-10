@@ -5,23 +5,24 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ23.8.3.3</p>
-			<p class="version-details">Desktop: 23 | Mobile: 8 | Cashier: 3 | Customer: 3</p>
+			<p class="version-title">Version AQ25.10.5.5</p>
+			<p class="version-details">Desktop: 25 | Mobile: 10 | Cashier: 5 | Customer: 5</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>🐛 Bug Fix</h3>
-			<p class="change-description">Fix basket amount display in sales report</p>
+			<h3>✨ New Feature</h3>
+			<p class="change-description">Enhance version update script with automatic mobile interface and changelog updates</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Fixed overflow hidden cutting off basket and return labels</li>
-					<li>Changed sale-item height to min-height with visible overflow</li>
-					<li>Applied fix to both desktop and mobile interfaces</li>
+					<li>Updated all interfaces (Desktop, Mobile, Cashier, Customer)</li>
+					<li>Enhance version update script with automatic mobile interface and changelog updates</li>
 				</ul>
 			</div>
-			<p class="date">December 3, 2025</p>
+			<p class="date">December 10, 2025</p>
+		</div>
+			<p class="date">December 10, 2025</p>
 		</div>
 
 		<div class="interface-info">

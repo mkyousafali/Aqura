@@ -75,19 +75,120 @@ fs.writeFileSync(frontendPackagePath, JSON.stringify(frontendPackage, null, 2) +
 console.log('✅ Updated package.json files');
 
 // Update Sidebar.svelte with new version
-const sidebarPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'desktop-interface', 'Sidebar.svelte');
+const sidebarPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'desktop-interface', 'common', 'Sidebar.svelte');
 
 if (fs.existsSync(sidebarPath)) {
   let sidebarContent = fs.readFileSync(sidebarPath, 'utf-8');
   
-  // Replace version in the version display section
+  // Replace version in the version display section (in the button)
   sidebarContent = sidebarContent.replace(
-    /const version = ['"]AQ[\d.]+['"];/,
-    `const version = '${newVersion}';`
+    /AQ\d+\.\d+\.\d+\.\d+/g,
+    newVersion
   );
   
   fs.writeFileSync(sidebarPath, sidebarContent, 'utf-8');
   console.log('✅ Updated Sidebar.svelte version display');
+}
+
+// Update Mobile Interface layout with new version
+const mobileLayoutPath = path.join(__dirname, '..', 'frontend', 'src', 'routes', 'mobile-interface', '+layout.svelte');
+
+if (fs.existsSync(mobileLayoutPath)) {
+  let mobileLayoutContent = fs.readFileSync(mobileLayoutPath, 'utf-8');
+  
+  // Update mobile version (format: AQ8 from AQ23.8.3.3, extract the mobile number)
+  mobileLayoutContent = mobileLayoutContent.replace(
+    /let mobileVersion = 'AQ\d+';/,
+    `let mobileVersion = 'AQ${mobile}';`
+  );
+  
+  fs.writeFileSync(mobileLayoutPath, mobileLayoutContent, 'utf-8');
+  console.log('✅ Updated Mobile Interface version display');
+}
+
+// Update VersionChangelog.svelte with new version and changelog entry
+const changelogPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'desktop-interface', 'common', 'VersionChangelog.svelte');
+
+if (fs.existsSync(changelogPath)) {
+  let changelogContent = fs.readFileSync(changelogPath, 'utf-8');
+  
+  // Get current date
+  const currentDate = new Date().toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  // Parse commit message to extract type and description
+  const commitMessageToUse = customMessage || defaultMessage;
+  const typeMatch = commitMessageToUse.match(/^(feat|fix|chore|docs|refactor|perf|test|style)(?:\(([^)]+)\))?:\s*(.+)$/);
+  
+  let changeType = '📝 Update';
+  let changeDescription = commitMessageToUse;
+  let changeScope = '';
+  
+  if (typeMatch) {
+    const [, type, scope, description] = typeMatch;
+    changeScope = scope || '';
+    changeDescription = description.charAt(0).toUpperCase() + description.slice(1);
+    
+    // Map commit types to display types
+    const typeMap = {
+      'feat': '✨ New Feature',
+      'fix': '🐛 Bug Fix',
+      'chore': '🔧 Maintenance',
+      'docs': '📚 Documentation',
+      'refactor': '♻️ Refactor',
+      'perf': '⚡ Performance',
+      'test': '🧪 Testing',
+      'style': '🎨 Styling'
+    };
+    
+    changeType = typeMap[type] || '📝 Update';
+  }
+  
+  // Generate changelog entry based on interface type
+  let interfaceChanges = [];
+  if (interfaceType === 'all') {
+    interfaceChanges = [
+      'Updated all interfaces (Desktop, Mobile, Cashier, Customer)',
+      `${changeDescription}`
+    ];
+  } else {
+    interfaceChanges = [
+      `Updated ${interfaceNames[interfaceType]} interface`,
+      `${changeDescription}`
+    ];
+  }
+  
+  // Create the new changelog HTML
+  const newChangelogEntry = `\t<div class="window-content">
+\t\t<div class="version-format">
+\t\t\t<p class="version-title">Version ${newVersion}</p>
+\t\t\t<p class="version-details">Desktop: ${desktop} | Mobile: ${mobile} | Cashier: ${cashier} | Customer: ${customer}</p>
+\t\t\t<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
+\t\t</div>
+
+\t\t<div class="latest-change">
+\t\t\t<h3>${changeType}</h3>
+\t\t\t<p class="change-description">${changeDescription}</p>
+\t\t\t<div class="change-details">
+\t\t\t\t<h4>What Changed:</h4>
+\t\t\t\t<ul>
+${interfaceChanges.map(change => `\t\t\t\t\t<li>${change}</li>`).join('\n')}
+\t\t\t\t</ul>
+\t\t\t</div>
+\t\t\t<p class="date">${currentDate}</p>
+\t\t</div>`;
+  
+  // Replace the entire window-content section up to interface-info
+  changelogContent = changelogContent.replace(
+    /\t<div class="window-content">[\s\S]*?<div class="latest-change">[\s\S]*?<\/div>/,
+    newChangelogEntry
+  );
+  
+  fs.writeFileSync(changelogPath, changelogContent, 'utf-8');
+  console.log('✅ Updated VersionChangelog.svelte with new entry');
 }
 
 // Generate commit message
