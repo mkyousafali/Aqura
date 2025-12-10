@@ -106,6 +106,38 @@ if (fs.existsSync(mobileLayoutPath)) {
   console.log('✅ Updated Mobile Interface version display');
 }
 
+// Update Customer Interface TopBar with new version
+const customerTopBarPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'customer-interface', 'common', 'TopBar.svelte');
+
+if (fs.existsSync(customerTopBarPath)) {
+  let customerTopBarContent = fs.readFileSync(customerTopBarPath, 'utf-8');
+  
+  // Update customer version (format: AQ6 from AQ23.8.3.3, extract the customer number)
+  customerTopBarContent = customerTopBarContent.replace(
+    /let customerVersion = 'AQ\d+';/,
+    `let customerVersion = 'AQ${customer}';`
+  );
+  
+  fs.writeFileSync(customerTopBarPath, customerTopBarContent, 'utf-8');
+  console.log('✅ Updated Customer Interface version display');
+}
+
+// Update Cashier Interface sidebar with new version
+const cashierInterfacePath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'cashier-interface', 'CashierInterface.svelte');
+
+if (fs.existsSync(cashierInterfacePath)) {
+  let cashierInterfaceContent = fs.readFileSync(cashierInterfacePath, 'utf-8');
+  
+  // Update cashier version (format: AQ5 from AQ23.8.3.3, extract the cashier number)
+  cashierInterfaceContent = cashierInterfaceContent.replace(
+    /let cashierVersion = 'AQ\d+';/,
+    `let cashierVersion = 'AQ${cashier}';`
+  );
+  
+  fs.writeFileSync(cashierInterfacePath, cashierInterfaceContent, 'utf-8');
+  console.log('✅ Updated Cashier Interface version display');
+}
+
 // Update VersionChangelog.svelte with new version and changelog entry
 const changelogPath = path.join(__dirname, '..', 'frontend', 'src', 'lib', 'components', 'desktop-interface', 'common', 'VersionChangelog.svelte');
 

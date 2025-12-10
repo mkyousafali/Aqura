@@ -7,6 +7,9 @@
 
   let currentLanguage = 'ar';
   let notificationCount = 0;
+  
+  // Customer interface version
+  let customerVersion = 'AQ7';
 
   // Subscribe to cart count updates using reactive syntax
   $: cartItemCount = $cartCount;
@@ -86,12 +89,15 @@
 
 <header class="top-bar">
   <div class="top-bar-content">
-    <!-- Left side - Back button -->
-    {#if showBackButton}
-      <button class="back-btn" on:click={goBack}>
-        <span class="back-icon">←</span>
-      </button>
-    {/if}
+    <!-- Left side - Back button and version -->
+    <div class="left-section">
+      {#if showBackButton}
+        <button class="back-btn" on:click={goBack}>
+          <span class="back-icon">←</span>
+        </button>
+      {/if}
+      <span class="version-badge">{customerVersion}</span>
+    </div>
     
     <!-- Right side actions -->
     <div class="top-actions" class:full-width={!showBackButton}>
@@ -188,6 +194,22 @@
     font-size: 1.2rem;
     font-weight: bold;
     line-height: 1;
+  }
+  
+  .left-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .version-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
   }
   
   .top-actions {

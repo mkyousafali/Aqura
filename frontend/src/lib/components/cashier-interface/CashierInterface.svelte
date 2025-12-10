@@ -14,6 +14,9 @@
 	export let branch: any;
 
 	let currentTime = '';
+	
+	// Cashier interface version
+	let cashierVersion = 'AQ7';
 
 	function updateTime() {
 		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';
@@ -101,6 +104,9 @@
 				</svg>
 				{t('auth.logout') || 'Logout'}
 			</button>
+			<div class="version-info">
+				<span class="version-badge">{cashierVersion}</span>
+			</div>
 		</div>
 	</aside>
 
@@ -316,6 +322,23 @@
 		border-color: #dc2626;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+	}
+
+	.version-info {
+		display: flex;
+		justify-content: center;
+		padding-top: 0.38rem;
+	}
+
+	.version-badge {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.8);
+		background: rgba(255, 255, 255, 0.15);
+		padding: 0.25rem 0.5rem;
+		border-radius: 6px;
+		letter-spacing: 0.5px;
+		border: 1px solid rgba(255, 255, 255, 0.2);
 	}
 
 	/* Main Area */
