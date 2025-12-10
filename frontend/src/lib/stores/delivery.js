@@ -69,12 +69,52 @@ export const deliveryActions = {
   // Load delivery service settings
   async loadSettings() {
     try {
-      // 🔴 TEMPORARILY DISABLED: RPC call to get_delivery_service_settings
-      // Using default values instead
-      console.warn('⚠️ [Delivery] loadSettings() temporarily disabled - using default values');
+      console.log('🔍 [Delivery] Loading settings from database using anon key...');
       
-      // Set default delivery settings
-      deliverySettings.set({
+      // Query delivery_service_settings table directly with anon key
+      const { data, error } = await supabase
+        .from('delivery_service_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('❌ [Delivery] Database error:', error.message, error.code);
+        throw error;
+      }
+
+      if (data) {
+        console.log('✅ [Delivery] Settings loaded from database:', data);
+        const settings = {
+          minimumOrderAmount: data.minimum_order_amount || 0,
+          is24Hours: data.is_24_hours !== false,
+          operatingStartTime: data.operating_start_time || '00:00',
+          operatingEndTime: data.operating_end_time || '23:59',
+          isActive: data.is_active !== false,
+          displayMessageAr: data.display_message_ar || 'خدمة التوصيل متاحة',
+          displayMessageEn: data.display_message_en || 'Delivery service available'
+        };
+        deliverySettings.set(settings);
+        console.log('✅ [Delivery] Settings applied:', settings);
+        return data;
+      } else {
+        console.warn('⚠️ [Delivery] No settings in database, using defaults');
+        const defaults = {
+          minimumOrderAmount: 0,
+          is24Hours: true,
+          operatingStartTime: '00:00',
+          operatingEndTime: '23:59',
+          isActive: true,
+          displayMessageAr: 'خدمة التوصيل متاحة',
+          displayMessageEn: 'Delivery service available'
+        };
+        deliverySettings.set(defaults);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ [Delivery] Failed to load delivery settings:', error);
+      // Fallback to defaults on error
+      const defaults = {
         minimumOrderAmount: 0,
         is24Hours: true,
         operatingStartTime: '00:00',
@@ -82,11 +122,8 @@ export const deliveryActions = {
         isActive: true,
         displayMessageAr: 'خدمة التوصيل متاحة',
         displayMessageEn: 'Delivery service available'
-      });
-      
-      return null;
-    } catch (error) {
-      console.error('Error loading delivery settings:', error);
+      };
+      deliverySettings.set(defaults);
       return null;
     }
   },

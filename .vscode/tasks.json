@@ -208,9 +208,19 @@
 				"run",
 				"dev"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
 			"isBackground": true,
 			"problemMatcher": [],
-			"group": "build"
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared",
+				"showReuseMessage": false
+			}
 		}
 	]
 }

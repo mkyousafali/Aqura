@@ -20,6 +20,12 @@
 	let isLoading = true;
 	let errorMessage = '';
 
+	// Pagination
+	let currentPage = 0;
+	let pageSize = 30;
+	let hasMoreNotifications = true;
+	let isLoadingMore = false;
+
 	// Image modal
 	let showImageModal = false;
 	let selectedImageUrl = '';
@@ -346,9 +352,28 @@
 		
 		window.addEventListener('refreshNotifications', handleRefresh);
 		
+		// Add scroll listener for infinite scroll
+		const handleScroll = () => {
+			const scrollContainer = document.querySelector('.notifications-list');
+			if (!scrollContainer) return;
+			
+			const scrollTop = scrollContainer.scrollTop;
+			const scrollHeight = scrollContainer.scrollHeight;
+			const clientHeight = scrollContainer.clientHeight;
+			
+			// Load more when user is 200px from bottom
+			if (scrollHeight - scrollTop - clientHeight < 200 && hasMoreNotifications && !isLoadingMore) {
+				loadMoreNotifications();
+			}
+		};
+		
+		const scrollContainer = document.querySelector('.notifications-list');
+		scrollContainer?.addEventListener('scroll', handleScroll);
+		
 		// Cleanup on component destroy
 		return () => {
 			window.removeEventListener('refreshNotifications', handleRefresh);
+			scrollContainer?.removeEventListener('scroll', handleScroll);
 		};
 	});
 
@@ -356,11 +381,13 @@
 		try {
 			isLoading = true;
 			errorMessage = '';
+			currentPage = 0;
 			
 			// All users should get the same notification format with full details
 			if ($currentUser?.id) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id);
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
 				allNotifications = await transformNotificationData(apiNotifications);
+				hasMoreNotifications = apiNotifications.length === pageSize;
 			}
 
 		} catch (error) {
@@ -374,7 +401,31 @@
 		await loadUserCache();
 	}
 
-	// Function to load and cache user information
+	// Load more notifications (infinite scroll)
+	async function loadMoreNotifications() {
+		if (isLoadingMore || !hasMoreNotifications) return;
+		
+		try {
+			isLoadingMore = true;
+			currentPage++;
+			
+			if ($currentUser?.id) {
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
+				const newNotifications = await transformNotificationData(apiNotifications);
+				allNotifications = [...allNotifications, ...newNotifications];
+				hasMoreNotifications = apiNotifications.length === pageSize;
+				
+				// Load user cache for new notifications
+				await loadUserCache();
+			}
+		} catch (error) {
+			console.error('❌ [Mobile Notification] Error loading more notifications:', error);
+		} finally {
+			isLoadingMore = false;
+		}
+	}
+
+	// Function to load and cache user information with batch optimization
 	async function loadUserCache() {
 		try {
 			// Extract all user IDs from notifications that we might need to display
@@ -412,99 +463,70 @@
 				}
 			}
 			
-			// Fetch usernames for all these user IDs from both users and hr_employees tables
-			if (userIds.size > 0) {
-				const userIdArray = Array.from(userIds);
-				
-			// Get comprehensive user data including employee information
-			const { data: users, error: usersError } = await supabase
-				.from('users')
-				.select(`
-					id, 
-					username,
-					employee_id
-				`)
-				.in('id', userIdArray);
+			// Only fetch users not already in cache
+			const uncachedUserIds = Array.from(userIds).filter(id => !userCache[id]);
 			
-			if (usersError) {
-				console.error('❌ [User Cache] Error fetching users:', usersError);
+			if (uncachedUserIds.length === 0) {
+				return; // All users already cached
 			}
 			
-			// Collect employee IDs to fetch from hr_employees
-			const employeeIds = users?.filter(u => u.employee_id).map(u => u.employee_id) || [];
-			let employeeMap = {};
-			
-			if (employeeIds.length > 0) {
-				const { data: employees } = await supabase
-					.from('hr_employees')
-					.select('id, name, employee_id')
-					.in('id', employeeIds);
+			// Batch load users in chunks of 50 to avoid URL length issues
+			const BATCH_SIZE = 50;
+			for (let i = 0; i < uncachedUserIds.length; i += BATCH_SIZE) {
+				const batch = uncachedUserIds.slice(i, i + BATCH_SIZE);
 				
-				if (employees) {
-					employeeMap = Object.fromEntries(
-						employees.map(emp => [emp.id, emp])
-					);
-				}
-			}
-			
-			if (users) {
-				// Populate the cache with the best available name
+				// Parallel fetch users and employees
+				const [usersResult, employeesResult] = await Promise.all([
+					supabase
+						.from('users')
+						.select('id, username, employee_id')
+						.in('id', batch),
+					supabase
+						.from('hr_employees')
+						.select('id, name, employee_id')
+						.in('id', batch)
+				]);
+				
+				const users = usersResult.data || [];
+				const employees = employeesResult.data || [];
+				
+				// Create employee map for quick lookup
+				const employeeMap = Object.fromEntries(
+					employees.map(emp => [emp.id, emp])
+				);
+				
+				// Cache users with employee names
 				for (const user of users) {
 					let displayName = 'Unknown User';
-					const employee = employeeMap[user.employee_id];
+					const employee = user.employee_id ? employeeMap[user.employee_id] : employeeMap[user.id];
 					
-					// Priority: employee name > username > employee ID > user ID
 					if (employee?.name) {
 						displayName = employee.name;
 					} else if (user.username) {
 						displayName = user.username;
-					} else if (employee?.employee_id) {
-						displayName = `Employee ${employee.employee_id}`;
 					} else {
 						displayName = `User ${user.id.substring(0, 8)}`;
 					}
 					
 					userCache[user.id] = displayName;
-					console.log(`👤 [User Cache] Cached user ${user.id}: ${displayName}`);
-				}
-			}				// For any remaining missing users, try to get from hr_employees table directly
-				const missingUserIds = userIdArray.filter(id => !userCache[id]);
-				if (missingUserIds.length > 0) {
-					console.log(`🔍 [User Cache] Looking up ${missingUserIds.length} missing users in hr_employees`);
-					
-					const { data: employees } = await supabase
-						.from('hr_employees')
-						.select('id, name, employee_id')
-						.in('id', missingUserIds);
-					
-					if (employees) {
-						// Populate the cache with names from hr_employees table
-						for (const employee of employees) {
-							let displayName = 'Unknown Employee';
-							
-							if (employee.name) {
-								displayName = employee.name;
-							} else if (employee.employee_id) {
-								displayName = `Employee ${employee.employee_id}`;
-							} else {
-								displayName = `Employee ${employee.id.substring(0, 8)}`;
-							}
-							
-							userCache[employee.id] = displayName;
-							console.log(`👤 [User Cache] Cached employee ${employee.id}: ${displayName}`);
-						}
-					}
-					
-					// For any still missing users, provide a readable fallback
-					const stillMissingIds = missingUserIds.filter(id => !userCache[id]);
-					stillMissingIds.forEach(id => {
-						userCache[id] = `User ${id.substring(0, 8)}`;
-						console.warn(`⚠️ [User Cache] Could not find user data for ${id}, using fallback`);
-					});
 				}
 				
-				console.log(`✅ [User Cache] Successfully cached ${Object.keys(userCache).length} users`);
+				// Cache employees not found in users table
+				for (const employee of employees) {
+					if (!userCache[employee.id]) {
+						userCache[employee.id] = employee.name || `Employee ${employee.employee_id || employee.id.substring(0, 8)}`;
+					}
+				}
+				
+				// Fallback for still missing users
+				batch.forEach(id => {
+					if (!userCache[id]) {
+						userCache[id] = `User ${id.substring(0, 8)}`;
+					}
+				});
 			}
+			
+			console.log(`✅ [User Cache] Successfully cached ${Object.keys(userCache).length} users`);
 		} catch (error) {
 			console.warn('Failed to load user cache:', error);
 		}
@@ -516,16 +538,18 @@
 				isLoading = true;
 			}
 			errorMessage = '';
+			currentPage = 0;
 			
 			if (!silent) {
 				
 			}
 			
 			if (isAdminOrMaster) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user');
+				const apiNotifications = await notificationManagement.getAllNotifications($currentUser?.id || 'default-user', currentPage, pageSize);
 				allNotifications = await transformNotificationData(apiNotifications);
+				hasMoreNotifications = apiNotifications.length === pageSize;
 			} else if ($currentUser?.id) {
-				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id);
+				const userNotifications = await notificationManagement.getUserNotifications($currentUser.id, currentPage, pageSize);
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -538,6 +562,7 @@
 					createdBy: notification.created_by_name,
 					attachments: notification.attachments || []
 				}));
+				hasMoreNotifications = userNotifications.length === pageSize;
 			}
 			
 			if (!silent) {
@@ -1359,6 +1384,20 @@
 						</div>
 					</div>
 				{/each}
+				
+				<!-- Load More Indicator -->
+				{#if isLoadingMore}
+					<div class="loading-more">
+						<div class="spinner"></div>
+						<p>Loading more notifications...</p>
+					</div>
+				{/if}
+				
+				{#if !hasMoreNotifications && filteredNotifications.length > 0}
+					<div class="end-message">
+						<p>✓ All notifications loaded</p>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{/if}
@@ -1963,6 +2002,48 @@
 		.notifications-list {
 			padding-bottom: max(1rem, env(safe-area-inset-bottom));
 		}
+	}
+
+	/* Loading More Indicator */
+	.loading-more {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem 1rem;
+		gap: 0.5rem;
+	}
+
+	.loading-more .spinner {
+		width: 32px;
+		height: 32px;
+		border: 3px solid #E5E7EB;
+		border-top: 3px solid #3B82F6;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	.loading-more p {
+		font-size: 0.875rem;
+		color: #6B7280;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.end-message {
+		text-align: center;
+		padding: 2rem 1rem;
+		color: #6B7280;
+		font-size: 0.875rem;
+	}
+
+	.end-message p {
+		margin: 0;
+		opacity: 0.7;
 	}
 </style>
 

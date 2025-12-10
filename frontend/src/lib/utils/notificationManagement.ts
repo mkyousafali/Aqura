@@ -117,12 +117,19 @@ export class NotificationManagementService {
   }
 
   /**
-   * Get all notifications (admin view)
+   * Get all notifications (admin view) with pagination
    */
-  async getAllNotifications(userId?: string): Promise<NotificationItem[]> {
+  async getAllNotifications(
+    userId?: string,
+    page: number = 0,
+    pageSize: number = 30
+  ): Promise<NotificationItem[]> {
     try {
       if (userId) {
-        // Query from notification_recipients to only get notifications targeted to this user
+        // Query from notification_recipients with pagination
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
         const { data, error } = await supabase
           .from("notification_recipients")
           .select(
@@ -151,35 +158,40 @@ export class NotificationManagementService {
           .eq("user_id", userId)
           .eq("notifications.status", "published")
           .order("created_at", { ascending: false, foreignTable: "notifications" })
-          .limit(100);
+          .range(from, to);
 
         if (error) {
           throw error;
         }
 
-        // ✅ Fetch read states safely - single query filtered by user only (no long URLs)
+        // ✅ Fetch read states in batches - only for returned notifications
         const readStatesMap = new Map<
           string,
           { is_read: boolean; read_at?: string }
         >();
 
-        try {
-          const { data: readStates, error: readError } = await supabase
-            .from("notification_read_states")
-            .select("notification_id, is_read, read_at")
-            .eq("user_id", userId)
-            .eq("is_read", true); // Only fetch read ones for efficiency
+        if (data && data.length > 0) {
+          const notificationIds = data.map(d => d.notification_id);
+          
+          try {
+            // Batch read states query - only for these specific notifications
+            const { data: readStates, error: readError } = await supabase
+              .from("notification_read_states")
+              .select("notification_id, is_read, read_at")
+              .eq("user_id", userId)
+              .in("notification_id", notificationIds);
 
-          if (!readError && readStates) {
-            readStates.forEach((state) => {
-              readStatesMap.set(state.notification_id, {
-                is_read: state.is_read,
-                read_at: state.read_at,
+            if (!readError && readStates) {
+              readStates.forEach((state) => {
+                readStatesMap.set(state.notification_id, {
+                  is_read: state.is_read,
+                  read_at: state.read_at,
+                });
               });
-            });
+            }
+          } catch (readError) {
+            console.warn("⚠️ Could not fetch read states, continuing without:", readError);
           }
-        } catch (readError) {
-          console.warn("⚠️ Could not fetch read states, continuing without:", readError);
         }
 
         // Transform data to match NotificationItem interface
@@ -209,11 +221,18 @@ export class NotificationManagementService {
   }
 
   /**
-   * Get notifications for a specific user
+   * Get notifications for a specific user with pagination
    */
-  async getUserNotifications(userId: string): Promise<UserNotificationItem[]> {
+  async getUserNotifications(
+    userId: string,
+    page: number = 0,
+    pageSize: number = 30
+  ): Promise<UserNotificationItem[]> {
     try {
-      // Query from notification_recipients to only get notifications targeted to this user
+      // Query from notification_recipients with pagination
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       const { data, error } = await supabase
         .from("notification_recipients")
         .select(
@@ -240,16 +259,46 @@ export class NotificationManagementService {
         .eq("user_id", userId)
         .eq("notifications.status", "published")
         .order("created_at", { ascending: false, foreignTable: "notifications" })
-        .limit(100);
+        .range(from, to);
 
       if (error) {
         throw error;
+      }
+
+      // Fetch read states only for returned notifications
+      const readStatesMap = new Map<
+        string,
+        { is_read: boolean; read_at?: string }
+      >();
+
+      if (data && data.length > 0) {
+        const notificationIds = data.map(d => d.notification_id);
+
+        try {
+          const { data: readStates, error: readError } = await supabase
+            .from("notification_read_states")
+            .select("notification_id, is_read, read_at")
+            .eq("user_id", userId)
+            .in("notification_id", notificationIds);
+
+          if (!readError && readStates) {
+            readStates.forEach((state) => {
+              readStatesMap.set(state.notification_id, {
+                is_read: state.is_read,
+                read_at: state.read_at,
+              });
+            });
+          }
+        } catch (readError) {
+          console.warn("⚠️ Could not fetch read states, continuing without:", readError);
+        }
       }
 
       // Transform data to match UserNotificationItem interface
       const userNotifications =
         data?.map((recipient) => {
           const notification = recipient.notifications;
+          const readState = readStatesMap.get(recipient.notification_id);
 
           return {
             id: notification.id,
@@ -258,8 +307,8 @@ export class NotificationManagementService {
             message: notification.message,
             type: notification.type,
             priority: notification.priority,
-            is_read: false,
-            read_at: undefined,
+            is_read: readState?.is_read || false,
+            read_at: readState?.read_at || undefined,
             created_at: notification.created_at,
             created_by_name: notification.created_by_name,
             recipient_id: recipient.user_id,
