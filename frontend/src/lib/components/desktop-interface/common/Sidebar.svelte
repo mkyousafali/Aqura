@@ -2341,12 +2341,6 @@ function openApprovalCenter() {
 							<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
 						</button>
 					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openVendorPendingPayments}>
-							<span class="menu-icon">💳</span>
-							<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
-						</button>
-					</div>
 				</div>
 			{/if}
 		</div>
@@ -2837,6 +2831,12 @@ function openApprovalCenter() {
 						<button class="submenu-item" on:click={openOverduesReport}>
 							<span class="menu-icon">⏰</span>
 							<span class="menu-text">Over dues</span>
+						</button>
+					</div>
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openVendorPendingPayments}>
+							<span class="menu-icon">💳</span>
+							<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
 						</button>
 					</div>
 				</div>
