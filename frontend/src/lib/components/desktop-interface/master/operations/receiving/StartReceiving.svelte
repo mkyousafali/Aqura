@@ -106,6 +106,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let updatedVatNumber = '';
   let isUpdatingVendor = false;
 
+  // Popup state for receiving process
+  let showPaymentUpdateModal = false;
+  let paymentUpdateMessage = '';
+  let pendingPaymentUpdate = false;
+  let showVendorUpdatedModal = false;
+  let vendorUpdateMessage = '';
+  let showReceivingSuccessModal = false;
+  let receivingSuccessMessage = '';
+  let showVendorInfoUpdatedModal = false;
+  let vendorInfoUpdatedMessage = '';
+
   // Date information for Step 3
   let currentDateTime = '';
   let billDate = '';
@@ -120,6 +131,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let paymentChanged = false;
   let paymentUpdateChoice = ''; // 'vendor' or 'receiving'
   let dueDate = ''; // Calculated from bill date + credit period
+  let dueDateReady = false; // Track if due date is properly calculated/set
+  let paymentMethodExplicitlySelected = false; // Track if user explicitly selected payment method
 
   // VAT verification information
   let vendorVatNumber = ''; // VAT number from vendor record
@@ -1226,17 +1239,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     if (paymentMethod === 'Cash on Delivery' || paymentMethod === 'Bank on Delivery') {
       // For delivery methods, due date is the same as bill date (payment on delivery)
       dueDate = billDate || '';
+      dueDateReady = billDate ? true : false;
     } else if (billDate && creditPeriod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')) {
       // For credit methods, due date is bill date + credit period
       const billDateObj = new Date(billDate);
       const dueDateObj = new Date(billDateObj);
       dueDateObj.setDate(billDateObj.getDate() + parseInt(creditPeriod));
       dueDate = dueDateObj.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      dueDateReady = true;
     } else {
       dueDate = '';
+      dueDateReady = false;
     }
   } else {
     dueDate = '';
+    dueDateReady = false;
   }
 
   // Reactive statement to check VAT number match
@@ -1306,7 +1323,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     const missingVatNumber = !vendor.vat_number || vendor.vat_number.trim() === '';
 
     if (missingSalesmanName || missingSalesmanContact || missingVatNumber) {
-      // Show popup to update vendor information
+      // Show popup to update vendor information (VAT number is mandatory)
       vendorToUpdate = vendor;
       updatedSalesmanName = vendor.salesman_name || '';
       updatedSalesmanContact = vendor.salesman_contact || '';
@@ -1327,6 +1344,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // Handle vendor update popup actions
   async function updateVendorInformation() {
     if (!vendorToUpdate) return;
+
+    // VAT Number is mandatory
+    if (!updatedVatNumber || updatedVatNumber.trim() === '') {
+      alert('VAT Number is required to continue. Please enter a valid VAT number.');
+      return;
+    }
 
     isUpdatingVendor = true;
     try {
@@ -1369,10 +1392,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         // Update vendorToUpdate with new values
         vendorToUpdate = { ...vendorToUpdate, ...updateData };
         
-        alert('Vendor information updated successfully!');
+        vendorInfoUpdatedMessage = 'Vendor information updated successfully!';
+        showVendorInfoUpdatedModal = true;
       }
 
-      // Proceed with vendor selection
+      // Proceed with vendor selection after modal is closed
       proceedWithVendorSelection();
       
     } catch (error) {
@@ -1502,6 +1526,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       alert('Please enter a valid bill amount before proceeding.');
       return;
     }
+    if (!paymentMethod || paymentMethod.trim() === '') {
+      alert('Payment Method is required before proceeding. Please select a payment method.');
+      return;
+    }
     if ((paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit') && !creditPeriod) {
       alert('Please enter credit period for credit payment methods.');
       return;
@@ -1616,11 +1644,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // Clearance Certification Functions
   async function saveReceivingData() {
     // Validate required fields before saving
-    if (!billDate || !billAmount || !billNumber || !billNumber.trim()) {
+    if (!billDate || !billAmount || !billNumber || !billNumber.trim() || !paymentMethodExplicitlySelected || !dueDateReady) {
       const missingFields = [];
       if (!billDate) missingFields.push('Bill Date');
       if (!billAmount) missingFields.push('Bill Amount');
       if (!billNumber || !billNumber.trim()) missingFields.push('Bill Number');
+      if (!paymentMethodExplicitlySelected) missingFields.push('Payment Method (must be explicitly selected)');
+      if (!dueDateReady) missingFields.push('Due Date (needs bill date and credit period if applicable)');
       
       alert(`Please fill in the following required fields:\n• ${missingFields.join('\n• ')}`);
       return;
@@ -1776,49 +1806,87 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                           iban !== selectedVendor.iban;
 
       if (paymentMethodChanged || bankNameChanged || ibanChanged) {
-        const shouldUpdateVendor = confirm(
-          `Payment information differs from vendor's default settings:\n\n` +
+        // Show modal instead of confirm dialog
+        paymentUpdateMessage = `Payment information differs from vendor's default settings:\n\n` +
           (paymentMethodChanged ? `• Payment Method: ${selectedVendor.payment_method} → ${paymentMethod}\n` : '') +
           (bankNameChanged ? `• Bank Name: ${selectedVendor.bank_name} → ${bankName}\n` : '') +
           (ibanChanged ? `• IBAN: ${selectedVendor.iban} → ${iban}\n` : '') +
-          `\nWould you like to update the vendor table with these new payment details?`
-        );
-
-        if (shouldUpdateVendor) {
-          try {
-            const vendorUpdateData = {};
-            if (paymentMethodChanged) vendorUpdateData.payment_method = paymentMethod;
-            if (bankNameChanged) vendorUpdateData.bank_name = bankName;
-            if (ibanChanged) vendorUpdateData.iban = iban;
-
-            const { error: vendorError } = await supabase
-              .from('vendors')
-              .update(vendorUpdateData)
-              .eq('erp_vendor_id', selectedVendor.erp_vendor_id)
-              .eq('branch_id', selectedBranch);
-
-            if (vendorError) {
-              console.error('Error updating vendor:', vendorError);
-              alert('Failed to update vendor table: ' + vendorError.message);
-            } else {
-              alert('Vendor table updated successfully with new payment information!');
-            }
-          } catch (error) {
-            console.error('Error updating vendor:', error);
-            alert('Error updating vendor: ' + error.message);
-          }
-        }
+          `\nWould you like to update the vendor table with these new payment details?`;
+        showPaymentUpdateModal = true;
+        pendingPaymentUpdate = true;
+        return; // Wait for user response
+      } else {
+        // No payment changes, proceed directly to success
+        receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+        showReceivingSuccessModal = true;
+        currentStep = 3;
       }
-      
-      // Move to step 4 for certification generation
-      currentStep = 3;
-      
-      alert('Receiving data saved successfully! You can now generate the clearance certification.');
-
     } catch (error) {
       console.error('Error saving receiving data:', error);
       alert('Error saving receiving data: ' + error.message);
     }
+  }
+
+  async function handlePaymentUpdateConfirm() {
+    showPaymentUpdateModal = false;
+    
+    try {
+      // Get the current values from the form to determine what changed
+      const paymentMethodChanged = paymentMethod && selectedVendor?.payment_method && 
+                                   paymentMethod !== selectedVendor.payment_method;
+      const bankNameChanged = bankName && selectedVendor?.bank_name && 
+                              bankName !== selectedVendor.bank_name;
+      const ibanChanged = iban && selectedVendor?.iban && 
+                          iban !== selectedVendor.iban;
+
+      const vendorUpdateData = {};
+      if (paymentMethodChanged) vendorUpdateData.payment_method = paymentMethod;
+      if (bankNameChanged) vendorUpdateData.bank_name = bankName;
+      if (ibanChanged) vendorUpdateData.iban = iban;
+
+      const { error: vendorError } = await supabase
+        .from('vendors')
+        .update(vendorUpdateData)
+        .eq('erp_vendor_id', selectedVendor.erp_vendor_id)
+        .eq('branch_id', selectedBranch);
+
+      if (vendorError) {
+        console.error('Error updating vendor:', vendorError);
+        alert('Failed to update vendor table: ' + vendorError.message);
+      } else {
+        vendorUpdateMessage = 'Vendor table updated successfully with new payment information!';
+        showVendorUpdatedModal = true;
+      }
+    } catch (error) {
+      console.error('Error updating vendor:', error);
+      alert('Error updating vendor: ' + error.message);
+    }
+
+    // After vendor update (or cancellation), show success message
+    receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+    showReceivingSuccessModal = true;
+    currentStep = 3;
+  }
+
+  function handlePaymentUpdateCancel() {
+    showPaymentUpdateModal = false;
+    
+    // Still show success message even if vendor wasn't updated
+    receivingSuccessMessage = 'Receiving data saved successfully! You can now generate the clearance certification.';
+    showReceivingSuccessModal = true;
+    currentStep = 3;
+  }
+
+  function closeVendorUpdatedModal() {
+    showVendorUpdatedModal = false;
+  }
+
+  function closeVendorInfoUpdatedModal() {
+    showVendorInfoUpdatedModal = false;
+  }
+
+  function closeReceivingSuccessModal() {
+    showReceivingSuccessModal = false;
   }
 
   async function generateClearanceCertification() {
@@ -4118,12 +4186,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         
         <div class="payment-grid">
           <div class="payment-field">
-            <label for="paymentMethod">Payment Method:</label>
+            <label for="paymentMethod">Payment Method: <span class="required">*</span></label>
             <select 
               id="paymentMethod"
               bind:value={paymentMethod}
-              on:change={() => paymentChanged = true}
+              on:change={() => {
+                paymentChanged = true;
+                paymentMethodExplicitlySelected = true;
+              }}
               class="editable-input"
+              required
             >
               <option value="">Select Payment Method</option>
               <option value="Cash on Delivery">Cash on Delivery</option>
@@ -4331,7 +4403,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && billNumber && billNumber.trim() && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
+{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && billNumber && billNumber.trim() && paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
@@ -4339,6 +4411,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     </div>
     <button type="button" on:click={saveReceivingData} class="save-continue-btn">
       💾 Save & Continue to Certification →
+    </button>
+  </div>
+{:else if currentStep === 2}
+  <div class="step-navigation">
+    <div class="step-incomplete-info">
+      <span class="step-incomplete-icon">⏳</span>
+      <span class="step-incomplete-text">
+        {#if !paymentMethodExplicitlySelected}
+          Please select a Payment Method to continue
+        {:else if !dueDateReady}
+          Please complete Due Date information (set bill date and credit period if applicable)
+        {:else if !billDate || !billAmount || !billNumber || !billNumber.trim()}
+          Please fill in all required fields (Bill Date, Amount, Number)
+        {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
+          Please enter VAT Number from Bill
+        {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && billVatNumber && vatNumbersMatch === false && !vatMismatchReason}
+          Please provide reason for VAT Number mismatch
+        {:else}
+          Complete all required fields to continue
+        {/if}
+      </span>
+    </div>
+    <button type="button" disabled class="save-continue-btn disabled">
+      💾 Complete Step 3 to Continue →
     </button>
   </div>
 {/if}
@@ -7338,11 +7434,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-radius: 12px;
 	}
 
+	.step-navigation:has(.step-incomplete-info) {
+		background: linear-gradient(135deg, #fff3cd 0%, #fffbeb 100%);
+		border: 2px solid #ffc107;
+	}
+
 	.step-complete-info {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		color: #2e7d32;
+		font-weight: 600;
+		font-size: 16px;
+	}
+
+	.step-incomplete-info {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		color: #f57c00;
 		font-weight: 600;
 		font-size: 16px;
 	}
@@ -7422,6 +7532,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.save-continue-btn:active {
 		transform: translateY(0);
 		box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+	}
+
+	.save-continue-btn.disabled {
+		background: #d0d0d0;
+		color: #909090;
+		cursor: not-allowed;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		opacity: 0.6;
+	}
+
+	.save-continue-btn.disabled:hover {
+		background: #d0d0d0;
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
 	.secondary-btn {
@@ -8232,6 +8356,81 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #9ca3af;
 		cursor: not-allowed;
 	}
+
+	/* Additional Modal Styles for Receiving Process */
+	.payment-update-modal,
+	.success-modal {
+		background: white;
+		border-radius: 12px;
+		width: 90%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+		animation: modalSlideIn 0.3s ease-out;
+	}
+
+	.modal-header {
+		padding: 1.5rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 12px 12px 0 0;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+	}
+
+	.modal-message {
+		white-space: pre-wrap;
+		word-wrap: break-word;
+		color: #374151;
+		line-height: 1.6;
+		margin: 0;
+	}
+
+	.success-message {
+		color: #059669;
+		font-size: 1rem;
+		font-weight: 500;
+		margin: 0;
+		line-height: 1.6;
+	}
+
+	.btn-confirm {
+		flex: 1;
+		background: #10b981;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.btn-confirm:hover {
+		background: #059669;
+	}
+
+	.btn-cancel {
+		flex: 1;
+		background: #6b7280;
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 6px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.2s;
+	}
+
+	.btn-cancel:hover {
+		background: #4b5563;
+	}
 </style>
 
 <!-- Vendor Update Popup -->
@@ -8293,12 +8492,100 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       >
         {isUpdatingVendor ? 'Updating...' : 'Update & Continue'}
       </button>
-      <button 
-        class="btn-skip" 
-        on:click={skipVendorUpdate}
-        disabled={isUpdatingVendor}
-      >
-        Not Now
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Payment Update Confirmation Modal -->
+{#if showPaymentUpdateModal}
+<div class="modal-overlay" on:click={() => handlePaymentUpdateCancel()}>
+  <div class="payment-update-modal" on:click|stopPropagation>
+    <div class="modal-header">
+      <h3>Payment Information Update</h3>
+    </div>
+    
+    <div class="modal-content">
+      <p class="modal-message">
+        {paymentUpdateMessage}
+      </p>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn-cancel" on:click={() => handlePaymentUpdateCancel()}>
+        Cancel
+      </button>
+      <button class="btn-confirm" on:click={() => handlePaymentUpdateConfirm()}>
+        OK
+      </button>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Vendor Updated Modal -->
+{#if showVendorUpdatedModal}
+<div class="modal-overlay" on:click={() => closeVendorUpdatedModal()}>
+  <div class="success-modal" on:click|stopPropagation>
+    <div class="modal-header">
+      <h3>Success</h3>
+    </div>
+    
+    <div class="modal-content">
+      <p class="success-message">
+        ✅ {vendorUpdateMessage}
+      </p>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn-confirm" on:click={() => closeVendorUpdatedModal()}>
+        OK
+      </button>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Vendor Info Updated Modal -->
+{#if showVendorInfoUpdatedModal}
+<div class="modal-overlay" on:click={() => closeVendorInfoUpdatedModal()}>
+  <div class="success-modal" on:click|stopPropagation>
+    <div class="modal-header">
+      <h3>Success</h3>
+    </div>
+    
+    <div class="modal-content">
+      <p class="success-message">
+        ✅ {vendorInfoUpdatedMessage}
+      </p>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn-confirm" on:click={() => closeVendorInfoUpdatedModal()}>
+        OK
+      </button>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Receiving Success Modal -->
+{#if showReceivingSuccessModal}
+<div class="modal-overlay" on:click={() => closeReceivingSuccessModal()}>
+  <div class="success-modal" on:click|stopPropagation>
+    <div class="modal-header">
+      <h3>Success</h3>
+    </div>
+    
+    <div class="modal-content">
+      <p class="success-message">
+        ✅ {receivingSuccessMessage}
+      </p>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn-confirm" on:click={() => closeReceivingSuccessModal()}>
+        OK
       </button>
     </div>
   </div>

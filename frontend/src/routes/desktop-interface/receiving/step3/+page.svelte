@@ -14,6 +14,9 @@
   let loading = false;
   let errorMessage = '';
 
+  // Payment method selection
+  let selectedPaymentMethod = '';
+
   // VAT verification variables
   let billVatNumber = '';
   let vatNumbersMatch = null;
@@ -28,8 +31,8 @@
     vatNumbersMatch = null;
   }
 
-  // Check if form is complete including VAT verification
-  $: isFormComplete = billDate && billAmount && isVatVerificationComplete;
+  // Check if form is complete including VAT verification and payment method
+  $: isFormComplete = billDate && billAmount && selectedPaymentMethod && isVatVerificationComplete;
   
   // VAT verification completion check
   $: isVatVerificationComplete = (() => {
@@ -105,8 +108,8 @@
   }
 
   function continueToStep4() {
-    if (!billDate || !billAmount) {
-      alert('Please fill in all required fields (Date and Bill Amount)');
+    if (!billDate || !billAmount || !selectedPaymentMethod) {
+      alert('Please fill in all required fields (Date, Bill Amount, and Payment Method)');
       return;
     }
     
@@ -130,7 +133,8 @@
       billAmount,
       billNumber: billNumber || '',
       billVatNumber: billVatNumber || '',
-      vatMismatchReason: vatMismatchReason || ''
+      vatMismatchReason: vatMismatchReason || '',
+      paymentMethod: selectedPaymentMethod
     });
     
     goto(`/desktop-interface/receiving/step4?${params.toString()}`);
@@ -287,6 +291,59 @@
         </div>
       {/if}
 
+      <!-- Payment Method Selection -->
+      <div class="payment-method-selection">
+        <h4>Select Payment Method <span class="required">*</span></h4>
+        <div class="payment-method-options">
+          <label class="payment-option">
+            <input 
+              type="radio" 
+              name="paymentMethod" 
+              value="Cash"
+              bind:group={selectedPaymentMethod}
+              class="payment-radio"
+            />
+            <span class="payment-label">💰 Cash</span>
+          </label>
+          <label class="payment-option">
+            <input 
+              type="radio" 
+              name="paymentMethod" 
+              value="Check"
+              bind:group={selectedPaymentMethod}
+              class="payment-radio"
+            />
+            <span class="payment-label">🏦 Check</span>
+          </label>
+          <label class="payment-option">
+            <input 
+              type="radio" 
+              name="paymentMethod" 
+              value="Bank Transfer"
+              bind:group={selectedPaymentMethod}
+              class="payment-radio"
+            />
+            <span class="payment-label">🔄 Bank Transfer</span>
+          </label>
+          <label class="payment-option">
+            <input 
+              type="radio" 
+              name="paymentMethod" 
+              value="Credit"
+              bind:group={selectedPaymentMethod}
+              class="payment-radio"
+            />
+            <span class="payment-label">📊 Credit</span>
+          </label>
+        </div>
+        {#if selectedPaymentMethod}
+          <div class="payment-selected">
+            <span class="check-icon">✓</span>
+            <span>Payment Method Selected: <strong>{selectedPaymentMethod}</strong></span>
+          </div>
+        {/if}
+      </div>
+
       <!-- VAT Information -->
       {#if selectedVendor.vat_number}
         <div class="vat-info">
@@ -384,15 +441,17 @@
         {#if isFormComplete}
           <div class="step-complete-info">
             <span class="step-complete-icon">✅</span>
-            <span class="step-complete-text">Step 3 Complete: Bill Information & VAT Verification</span>
+            <span class="step-complete-text">Step 3 Complete: Bill Information, Payment Method & VAT Verification</span>
           </div>
           <button type="button" on:click={continueToStep4} class="continue-step-btn">
-            Continue to Step 4: Receive Items →
+            Save & Continue to Step 4: Receive Items →
           </button>
         {:else}
           <button type="button" disabled class="continue-step-btn disabled">
             {#if !billDate || !billAmount}
               Fill Required Fields to Continue
+            {:else if !selectedPaymentMethod}
+              Select Payment Method to Continue
             {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && (!billVatNumber || !billVatNumber.trim())}
               Enter VAT Number from Bill to Continue
             {:else if !isVatVerificationComplete}
@@ -928,8 +987,104 @@
     color: #6b7280;
   }
 
+  /* Payment Method Selection Styles */
+  .payment-method-selection {
+    background: #fef3c7;
+    border: 2px solid #fbbf24;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .payment-method-selection h4 {
+    margin: 0 0 15px 0;
+    color: #92400e;
+    font-weight: 600;
+    font-size: 1.1rem;
+  }
+
+  .payment-method-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .payment-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: white;
+    border: 2px solid #fbbf24;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .payment-option:hover {
+    background: #fffbeb;
+    border-color: #f59e0b;
+  }
+
+  .payment-option input[type="radio"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+  }
+
+  .payment-option input[type="radio"]:checked + .payment-label {
+    font-weight: 600;
+    color: #92400e;
+  }
+
+  .payment-label {
+    font-size: 15px;
+    color: #78350f;
+    user-select: none;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .payment-option input[type="radio"]:checked ~ .payment-label {
+    color: #92400e;
+  }
+
+  .payment-selected {
+    background: #dcfce7;
+    border: 2px solid #86efac;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #15803d;
+    font-weight: 500;
+    animation: slideIn 0.3s ease;
+  }
+
+  .check-icon {
+    font-size: 18px;
+    font-weight: bold;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   @media (max-width: 768px) {
     .vat-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .payment-method-options {
       grid-template-columns: 1fr;
     }
   }
