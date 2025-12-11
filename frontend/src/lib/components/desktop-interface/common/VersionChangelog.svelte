@@ -5,19 +5,22 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ30.12.7.7</p>
-			<p class="version-details">Desktop: 30 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
+			<p class="version-title">Version AQ31.12.7.7</p>
+			<p class="version-details">Desktop: 31 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>🔧 Maintenance</h3>
-			<p class="change-description">Improve payment and vendor update modals with validation</p>
+			<h3>🐛 Bug Fix + Code Cleanup</h3>
+			<p class="change-description">Fix payment method validation and remove 227 lines of orphaned code</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
-					<li>Updated Desktop interface</li>
-					<li>Improve payment and vendor update modals with validation</li>
+					<li>✅ Fixed: Allow auto-populated vendor payment methods to be saved without manual reselection</li>
+					<li>✅ Fixed: Payment method now marked as "explicitly selected" when vendor data loads</li>
+					<li>🧹 Cleanup: Removed 227 lines of dead/orphaned code (receivingUser, setAsDefaultBranch, old certification modal)</li>
+					<li>📉 File optimized: StartReceiving.svelte reduced from 8600 to 8373 lines</li>
+					<li>🔍 Verification: No duplicate code or breaking changes detected</li>
 				</ul>
 			</div>
 			<p class="date">December 11, 2025</p>
