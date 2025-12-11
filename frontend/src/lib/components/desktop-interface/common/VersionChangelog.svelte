@@ -5,22 +5,22 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ29.12.7.7</p>
-			<p class="version-details">Desktop: 29 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
+			<p class="version-title">Version AQ30.12.7.7</p>
+			<p class="version-details">Desktop: 30 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>✨ New Feature</h3>
-			<p class="change-description">Add user management and controls sections to sidebar</p>
+			<h3>🔧 Maintenance</h3>
+			<p class="change-description">Improve payment and vendor update modals with validation</p>
 			<div class="change-details">
 				<h4>What Changed:</h4>
 				<ul>
 					<li>Updated Desktop interface</li>
-					<li>Add user management and controls sections to sidebar</li>
+					<li>Improve payment and vendor update modals with validation</li>
 				</ul>
 			</div>
-			<p class="date">December 10, 2025</p>
+			<p class="date">December 11, 2025</p>
 		</div>
 
 		<div class="interface-info">
