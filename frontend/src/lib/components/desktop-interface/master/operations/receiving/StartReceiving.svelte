@@ -14,7 +14,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let allRequiredUsersSelected = false; // Track if all required users are selected
   
   // Clearance Certification state
-  let showCertification = false;
   let showCertificateManager = false;
   let currentReceivingRecord = null;
   let savedReceivingId = null; // Track the saved receiving record ID
@@ -24,7 +23,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let selectedBranch = '';
   let selectedBranchName = '';
   let showBranchSelector = true;
-  let setAsDefaultBranch = false;
   let isLoading = false;
   let errorMessage = '';
   let branchManagers = []; // All users from selected branch
@@ -33,7 +31,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let selectedBranchManager = null;
   let branchManagersLoading = false;
   let branchManagerSearchQuery = '';
-  let receivingUser = null; // Current logged-in user (auto-selected)
   let showAllUsers = false; // Flag to show all users when no branch manager found
 
   // Shelf Stocker selection state
@@ -1284,6 +1281,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     bankName = selectedVendor.bank_name || '';
     iban = selectedVendor.iban || '';
     vendorVatNumber = selectedVendor.vat_number || '';
+    // Auto-mark as explicitly selected when vendor data is populated
+    if (paymentMethod) {
+      paymentMethodExplicitlySelected = true;
+    }
   }
 
   function confirmBranchSelection() {
@@ -1294,11 +1295,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       
       // Load vendors for step 2 (but don't go there yet)
       loadVendors();
-      
-      // TODO: Save as default if checkbox is checked
-      if (setAsDefaultBranch) {
-        console.log('Would save branch as default:', selectedBranch);
-      }
     }
   }
 
@@ -3498,11 +3494,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         
         {#if selectedBranch}
           <div class="branch-actions">
-            <label class="checkbox-label">
-              <input type="checkbox" bind:checked={setAsDefaultBranch} />
-              <span class="checkmark"></span>
-              Set as default branch
-            </label>
             <button type="button" on:click={confirmBranchSelection} class="confirm-btn">
               ✓ Confirm Branch
             </button>
@@ -4462,224 +4453,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       {/if}
     </div>
 
-    <!-- Clearance Certification Modal -->
-    {#if showCertification}
-      <div class="certification-modal" on:click|self={() => showCertification = false}>
-        <div class="certification-content">
-          <div class="certification-header">
-            <button class="close-btn" on:click={() => showCertification = false}>×</button>
-            <button class="print-btn" on:click={printCertification}>🖨️ Print</button>
-          </div>
-          
-          <div class="certification-template" id="certification-template">
-            <!-- Company Logo - Top Center -->
-            <div class="cert-header">
-              <div class="cert-logo">
-                <img src="/icons/icon-192x192.png" alt="Company Logo" class="logo" />
-              </div>
-              
-              <!-- Bilingual Title -->
-              <div class="cert-title">
-                <h2 class="title-english">CLEARANCE CERTIFICATION</h2>
-                <h2 class="title-arabic">شهادة تخليص البضائع</h2>
-              </div>
-            </div>
-            
-            <!-- Certification Details - Bilingual -->
-            <div class="cert-details">
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Bill Number:</label>
-                  <label class="label-arabic">رقم الفاتورة:</label>
-                </div>
-                <span class="value">{billNumber || 'N/A'}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Bill Date:</label>
-                  <label class="label-arabic">تاريخ الفاتورة:</label>
-                </div>
-                <span class="value">{billDate}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Branch:</label>
-                  <label class="label-arabic">الفرع:</label>
-                </div>
-                <span class="value">{selectedBranchName}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Bill Amount:</label>
-                  <label class="label-arabic">مبلغ الفاتورة:</label>
-                </div>
-                <span class="value">{parseFloat(billAmount || '0').toFixed(2)}</span>
-              </div>
-              
-              <!-- Returns Section -->
-              <div class="returns-section">
-                <div class="returns-header">
-                  <div class="label-group">
-                    <label class="label-english">Returns Summary:</label>
-                    <label class="label-arabic">ملخص المرتجعات:</label>
-                  </div>
-                </div>
-                
-                <!-- Expired Returns -->
-                <div class="return-row">
-                  <div class="return-type">
-                    <span class="type-english">Expired Returns</span>
-                    <span class="type-arabic">مرتجعات منتهية الصلاحية</span>
-                  </div>
-                  <div class="return-details">
-                    <span class="status {returns.expired.hasReturn === 'yes' ? 'yes' : 'no'}">
-                      {returns.expired.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
-                    </span>
-                    <span class="amount">
-                      {returns.expired.hasReturn === 'yes' ? parseFloat(returns.expired.amount || '0').toFixed(2) : '0.00'}
-                    </span>
-                  </div>
-                </div>
-                
-                <!-- Near Expiry Returns -->
-                <div class="return-row">
-                  <div class="return-type">
-                    <span class="type-english">Near Expiry Returns</span>
-                    <span class="type-arabic">مرتجعات قريبة الانتهاء</span>
-                  </div>
-                  <div class="return-details">
-                    <span class="status {returns.nearExpiry.hasReturn === 'yes' ? 'yes' : 'no'}">
-                      {returns.nearExpiry.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
-                    </span>
-                    <span class="amount">
-                      {returns.nearExpiry.hasReturn === 'yes' ? parseFloat(returns.nearExpiry.amount || '0').toFixed(2) : '0.00'}
-                    </span>
-                  </div>
-                </div>
-                
-                <!-- Over Stock Returns -->
-                <div class="return-row">
-                  <div class="return-type">
-                    <span class="type-english">Over Stock Returns</span>
-                    <span class="type-arabic">مرتجعات فائض المخزون</span>
-                  </div>
-                  <div class="return-details">
-                    <span class="status {returns.overStock.hasReturn === 'yes' ? 'yes' : 'no'}">
-                      {returns.overStock.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
-                    </span>
-                    <span class="amount">
-                      {returns.overStock.hasReturn === 'yes' ? parseFloat(returns.overStock.amount || '0').toFixed(2) : '0.00'}
-                    </span>
-                  </div>
-                </div>
-                
-                <!-- Damage Returns -->
-                <div class="return-row">
-                  <div class="return-type">
-                    <span class="type-english">Damage Returns</span>
-                    <span class="type-arabic">مرتجعات تالفة</span>
-                  </div>
-                  <div class="return-details">
-                    <span class="status {returns.damage.hasReturn === 'yes' ? 'yes' : 'no'}">
-                      {returns.damage.hasReturn === 'yes' ? 'Yes / نعم' : 'No / لا'}
-                    </span>
-                    <span class="amount">
-                      {returns.damage.hasReturn === 'yes' ? parseFloat(returns.damage.amount || '0').toFixed(2) : '0.00'}
-                    </span>
-                  </div>
-                </div>
-                
-                <!-- Total Returns -->
-                <div class="return-row total-returns">
-                  <div class="return-type">
-                    <span class="type-english">Total Returns</span>
-                    <span class="type-arabic">إجمالي المرتجعات</span>
-                  </div>
-                  <div class="return-details">
-                    <span class="amount total">{totalReturnAmount.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div class="cert-row final-amount">
-                <div class="label-group">
-                  <label class="label-english">Final Amount:</label>
-                  <label class="label-arabic">المبلغ النهائي:</label>
-                </div>
-                <span class="value">{finalBillAmount.toFixed(2)}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Salesman Name:</label>
-                  <label class="label-arabic">اسم البائع:</label>
-                </div>
-                <span class="value">{selectedVendor?.salesman_name || 'N/A'}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Salesman Contact:</label>
-                  <label class="label-arabic">رقم البائع:</label>
-                </div>
-                <span class="value">{selectedVendor?.salesman_contact || 'N/A'}</span>
-              </div>
-              
-              <div class="cert-row">
-                <div class="label-group">
-                  <label class="label-english">Logged Employee:</label>
-                  <label class="label-arabic">الموظف المسجل:</label>
-                </div>
-                <span class="value">{$currentUser?.employeeName || $currentUser?.username}</span>
-              </div>
-            </div>
-
-            <!-- Signatures Section - Bilingual -->
-            <div class="signatures-section">
-              <div class="signature-box">
-                <div class="signature-line"></div>
-                <div class="signature-labels">
-                  <label class="label-english">Salesman Signature</label>
-                  <label class="label-arabic">توقيع البائع</label>
-                </div>
-                <p>{selectedVendor?.salesman_name || 'N/A'}</p>
-              </div>
-              <div class="signature-box">
-                <div class="signature-line"></div>
-                <div class="signature-labels">
-                  <label class="label-english">Receiver Signature</label>
-                  <label class="label-arabic">توقيع المستلم</label>
-                </div>
-                <p>{$currentUser?.employeeName || $currentUser?.username}</p>
-              </div>
-            </div>
-
-            <!-- Certification Footer - Bilingual -->
-            <div class="cert-footer">
-              <p class="footer-english">This certification confirms the receipt of goods as per the details mentioned above.</p>
-              <p class="footer-arabic">تؤكد هذه الشهادة استلام البضائع وفقاً للتفاصيل المذكورة أعلاه.</p>
-              <div class="date-stamp">
-                <span class="date-english"><strong>Date: {new Date().toLocaleDateString()}</strong></span>
-                <span class="date-arabic"><strong>التاريخ: {new Date().toLocaleDateString()}</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="cert-actions">
-            <button type="button" class="save-btn" on:click={saveClearanceCertification}>
-              ✅ Confirm Certification
-            </button>
-            <button type="button" class="cancel-btn" on:click={() => showCertification = false}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
     
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={() => currentStep = 2}>
