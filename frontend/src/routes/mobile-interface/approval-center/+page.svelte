@@ -53,6 +53,11 @@
 		total: 0
 	};
 
+	// Bulk approval state
+	let selectedItems = new Set(); // Track selected item IDs
+	let showBulkConfirmModal = false; // Show bulk approval confirmation modal
+	let bulkApproveCount = 0; // Number of items to bulk approve
+
 	onMount(() => {
 		loadRequisitions();
 	});
@@ -918,6 +923,110 @@ async function rejectRequisition(reason) {
 		});
 	}
 
+	function toggleItemSelection(itemId) {
+		if (selectedItems.has(itemId)) {
+			selectedItems.delete(itemId);
+		} else {
+			selectedItems.add(itemId);
+		}
+		selectedItems = selectedItems; // Trigger reactivity
+	}
+
+	function toggleSelectAll() {
+		if (selectedItems.size === 0) {
+			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
+			selectedItems = new Set(displayedItems.map(item => item.id || item.requisition_number));
+		} else {
+			selectedItems = new Set();
+		}
+	}
+
+	function bulkApprove() {
+		if (selectedItems.size === 0) {
+			notifications.add({ type: 'warning', message: 'Please select items to approve' });
+			return;
+		}
+
+		bulkApproveCount = selectedItems.size;
+		showBulkConfirmModal = true;
+	}
+
+	async function confirmBulkApprove() {
+		showBulkConfirmModal = false;
+		isProcessing = true;
+		const { supabase } = await import('$lib/utils/supabase');
+		try {
+			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
+			const itemsToApprove = displayedItems.filter(item => selectedItems.has(item.id || item.requisition_number));
+
+			let approvedCount = 0;
+			let failedCount = 0;
+
+			for (const item of itemsToApprove) {
+				try {
+					if (item.item_type === 'requisition') {
+						const { error } = await supabase
+							.from('expense_requisitions')
+							.update({
+								status: 'approved',
+								approved_at: new Date().toISOString(),
+								approval_notes: 'Bulk approved from Mobile Approval Center'
+							})
+							.eq('id', item.id);
+
+						if (error) throw error;
+						approvedCount++;
+					} else if (item.item_type === 'payment_schedule') {
+						const { error } = await supabase
+							.from('non_approved_payment_scheduler')
+							.update({
+								approval_status: 'approved',
+								updated_at: new Date().toISOString()
+							})
+							.eq('id', item.id);
+
+						if (error) throw error;
+						approvedCount++;
+					} else if (item.item_type === 'vendor_payment') {
+						const { error } = await supabase
+							.from('vendor_payment_schedule')
+							.update({
+								approval_status: 'approved',
+								approved_at: new Date().toISOString()
+							})
+							.eq('id', item.id);
+
+						if (error) throw error;
+						approvedCount++;
+					}
+				} catch (err) {
+					console.error('Error approving item:', err);
+					failedCount++;
+				}
+			}
+
+			if (approvedCount > 0) {
+				notifications.add({ 
+					type: 'success', 
+					message: `✅ ${approvedCount} item(s) approved successfully` + (failedCount > 0 ? ` (${failedCount} failed)` : '') 
+				});
+			}
+
+			selectedItems = new Set();
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error in bulk approve:', err);
+			notifications.add({ type: 'error', message: 'Error approving items: ' + err.message });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	function cancelBulkApprove() {
+		showBulkConfirmModal = false;
+		bulkApproveCount = 0;
+	}
+
 	function formatAmount(amount) {
 		if (!amount) return '0.00';
 		return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -992,6 +1101,22 @@ async function rejectRequisition(reason) {
 			{/if}
 		</div>
 
+		<!-- Bulk Action Buttons -->
+		<div class="bulk-actions">
+			{#if selectedItems.size > 0}
+				<button class="btn-approve-bulk" on:click={bulkApprove} disabled={isProcessing}>
+					✅ Approve {selectedItems.size}
+				</button>
+				<button class="btn-clear-bulk" on:click={() => { selectedItems = new Set(); }}>
+					✕ Clear
+				</button>
+			{:else}
+				<button class="btn-mark-all" on:click={toggleSelectAll}>
+					☑️ Mark All
+				</button>
+			{/if}
+		</div>
+
 		<!-- Requisitions List -->
 		<div class="requisitions-list">
 		{#if activeSection === 'approvals' && filteredRequisitions.length === 0}
@@ -1005,8 +1130,18 @@ async function rejectRequisition(reason) {
 				<p>You haven't created any requests yet</p>
 			</div>
 			{:else}
-				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req}
-					<div class="req-card" on:click={() => openDetail(req)}>
+				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
+					<div 
+						class="req-card {selectedItems.has(req.id || req.requisition_number) ? 'selected' : ''}"
+						on:click={() => openDetail(req)}
+					>
+						<div class="card-checkbox" on:click|stopPropagation={() => toggleItemSelection(req.id || req.requisition_number)}>
+							<input 
+								type="checkbox" 
+								checked={selectedItems.has(req.id || req.requisition_number)}
+								on:change|stopPropagation={() => toggleItemSelection(req.id || req.requisition_number)}
+							/>
+						</div>
 						{#if req.item_type === 'requisition'}
 							<!-- Expense Requisition Card -->
 							<div class="req-header">
@@ -1410,6 +1545,40 @@ async function rejectRequisition(reason) {
 		</div>
 	</div>
 </div>
+{/if}
+
+<!-- Bulk Approve Confirmation Modal -->
+{#if showBulkConfirmModal}
+	<div class="modal-overlay" on:click={cancelBulkApprove}>
+		<div class="modal-content bulk-confirm-modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h2>✅ Confirm Bulk Approval</h2>
+				<button class="modal-close" on:click={cancelBulkApprove}>×</button>
+			</div>
+
+			<div class="modal-body">
+				<p class="bulk-confirm-message">
+					Are you sure you want to approve <strong>{bulkApproveCount}</strong> selected item(s)?
+				</p>
+				<p class="bulk-confirm-note">
+					This action will mark all selected items as approved and cannot be undone immediately.
+				</p>
+			</div>
+
+			<div class="modal-footer">
+				<button class="btn-cancel" on:click={cancelBulkApprove} disabled={isProcessing}>
+					Cancel
+				</button>
+				<button class="btn-approve-bulk-modal" on:click={confirmBulkApprove} disabled={isProcessing}>
+					{#if isProcessing}
+						<span class="spinner-small"></span> Processing...
+					{:else}
+						✅ Approve All
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -1965,6 +2134,220 @@ async function rejectRequisition(reason) {
 	.btn-confirm-ok:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* Bulk Actions */
+	.bulk-actions {
+		display: flex;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: white;
+		border-radius: 12px;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.btn-approve-bulk,
+	.btn-clear-bulk,
+	.btn-mark-all {
+		flex: 1;
+		padding: 0.75rem 1rem;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		min-width: 120px;
+		white-space: nowrap;
+	}
+
+	.btn-approve-bulk {
+		background: #10b981;
+		color: white;
+	}
+
+	.btn-approve-bulk:active:not(:disabled) {
+		background: #059669;
+	}
+
+	.btn-approve-bulk:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.btn-clear-bulk {
+		background: #ef4444;
+		color: white;
+	}
+
+	.btn-clear-bulk:active {
+		background: #dc2626;
+	}
+
+	.btn-mark-all {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.btn-mark-all:active {
+		background: #7c3aed;
+	}
+
+	/* Card Checkbox */
+	.card-checkbox {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		z-index: 10;
+	}
+
+	.card-checkbox input[type="checkbox"] {
+		width: 20px;
+		height: 20px;
+		cursor: pointer;
+		accent-color: #3b82f6;
+	}
+
+	.req-card.selected {
+		background: #eff6ff;
+		border: 2px solid #3b82f6;
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+	}
+
+	.req-card.selected::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		width: 4px;
+		background: #3b82f6;
+		border-radius: 8px 0 0 8px;
+	}
+
+	/* Bulk Confirmation Modal */
+	.bulk-confirm-modal {
+		min-width: 300px;
+		max-width: 90vw;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1.5rem;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		color: #1e293b;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: #64748b;
+		cursor: pointer;
+		padding: 0;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.modal-close:active {
+		color: #1e293b;
+	}
+
+	.modal-body {
+		margin-bottom: 1.5rem;
+	}
+
+	.bulk-confirm-message {
+		font-size: 1rem;
+		color: #1e293b;
+		margin-bottom: 1rem;
+		line-height: 1.6;
+	}
+
+	.bulk-confirm-message strong {
+		color: #10b981;
+		font-weight: 700;
+		font-size: 1.1rem;
+	}
+
+	.bulk-confirm-note {
+		color: #64748b;
+		font-size: 0.875rem;
+		font-style: italic;
+		margin: 0;
+		line-height: 1.5;
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+	}
+
+	.btn-cancel {
+		padding: 0.75rem 1.5rem;
+		background: #e2e8f0;
+		color: #475569;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: 600;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel:active:not(:disabled) {
+		background: #cbd5e1;
+	}
+
+	.btn-cancel:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.btn-approve-bulk-modal {
+		padding: 0.75rem 1.5rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-weight: 600;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.btn-approve-bulk-modal:active:not(:disabled) {
+		background: #059669;
+	}
+
+	.btn-approve-bulk-modal:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.spinner-small {
+		display: inline-block;
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: white;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
 	}
 </style>
 
