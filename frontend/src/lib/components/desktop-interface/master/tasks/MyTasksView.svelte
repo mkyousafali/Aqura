@@ -44,8 +44,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: searchTerm, filterStatus, filterPriority, filterTaskType, filterDateRange, showCompleted, filterTasks();
 
 	// Load task types when filter changes
-	$: if (authenticated && activeUser?.id && hasInitialized && filterTaskType !== 'all') {
-		loadTasksByType(filterTaskType);
+	$: if (authenticated && activeUser?.id && hasInitialized) {
+		if (filterTaskType === 'all') {
+			loadTasksByType('all'); // Load all types when 'all' is selected
+		} else if (filterTaskType !== 'all') {
+			loadTasksByType(filterTaskType);
+		}
 	}
 
 	// Load completed tasks when checkbox is checked
@@ -163,7 +167,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				const startTime = performance.now();
 				const { data: regularTasks, error: regularError } = await supabase
 					.from('task_assignments')
-					.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, created_by, created_by_name')
+					.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, assigned_by, assigned_by_name')
 					.eq('assigned_to_user_id', userId)
 					.in('status', ['pending', 'assigned', 'in_progress'])  // ONLY active tasks
 					.limit(200);  // Hard limit
@@ -200,8 +204,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 							assignment_id: assignment.id,
 							assignment_status: assignment.status,
 							assigned_at: assignment.assigned_at,
-							assigned_by: assignment.created_by,
-							assigned_by_name: assignment.created_by_name || 'Unknown User',
+							assigned_by: assignment.assigned_by,
+							assigned_by_name: assignment.assigned_by_name || 'Unknown User',
 							assigned_to_user_id: assignment.assigned_to_user_id,
 							schedule_date: null,
 							schedule_time: null,
@@ -363,7 +367,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Load completed regular tasks
 			const { data: completedRegular, error: regError } = await supabase
 				.from('task_assignments')
-				.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, created_by, created_by_name')
+				.select('id, task_id, assigned_to_user_id, status, assigned_at, deadline_datetime, assigned_by, assigned_by_name')
 				.eq('assigned_to_user_id', userId)
 				.neq('status', 'pending')
 				.neq('status', 'assigned')
@@ -401,8 +405,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						assignment_id: assignment.id,
 						assignment_status: assignment.status,
 						assigned_at: assignment.assigned_at,
-						assigned_by: assignment.created_by,
-						assigned_by_name: assignment.created_by_name || 'Unknown User',
+						assigned_by: assignment.assigned_by,
+						assigned_by_name: assignment.assigned_by_name || 'Unknown User',
 						assigned_to_user_id: assignment.assigned_to_user_id,
 						schedule_date: null,
 						schedule_time: null,
@@ -533,9 +537,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			const matchesStatus = filterStatus === 'all' || task.assignment_status === filterStatus;
 			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
 			const matchesTaskType = filterTaskType === 'all' || 
-				(filterTaskType === 'regular' && task.task_type !== 'quick_task' && task.task_type !== 'receiving') ||
-				(filterTaskType === 'quick_task' && task.task_type === 'quick_task') ||
-				(filterTaskType === 'receiving' && task.task_type === 'receiving');
+				task.task_type === filterTaskType;
 			
 			// Date range filtering
 			let matchesDateRange = true;
@@ -1172,8 +1174,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 											{formatDate(task.assigned_at)}
 										</div>
 										<div>
-											<span class="font-medium">Created by:</span> 
-											{task.created_by_name || task.created_by || 'Unknown'}
+											<span class="font-medium">Assigned by:</span> 
+											{task.assigned_by_name || 'Unknown'}
 										</div>
 									</div>
 
