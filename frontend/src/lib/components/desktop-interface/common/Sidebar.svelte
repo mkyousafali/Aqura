@@ -71,6 +71,8 @@
 	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
+	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
+	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
 	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
@@ -1122,6 +1124,52 @@ function openApprovalCenter() {
 			closable: true
 		});
 		showSettingsSubmenu = false;
+	}
+
+	function openButtonAccessControl() {
+		const windowId = generateWindowId('button-access-control');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Button Access Control #${instanceNumber}`,
+			component: ButtonAccessControl,
+			icon: '🎛️',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
+	}
+
+	function openButtonGenerator() {
+		const windowId = generateWindowId('button-generator');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Button Generator #${instanceNumber}`,
+			component: ButtonGenerator,
+			icon: '🔨',
+			size: { width: 1400, height: 900 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showControlsSubmenu = false;
+		showControlsManageSubmenu = false;
 	}
 
 	function openCommunicationCenter() {
@@ -3581,6 +3629,18 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openClearTables}>
 								<span class="menu-icon">🗑️</span>
 								<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openButtonAccessControl}>
+								<span class="menu-icon">🎛️</span>
+								<span class="menu-text">Button Access Control</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openButtonGenerator}>
+								<span class="menu-icon">🔨</span>
+								<span class="menu-text">Button Generator</span>
 							</button>
 						</div>
 					{/if}
