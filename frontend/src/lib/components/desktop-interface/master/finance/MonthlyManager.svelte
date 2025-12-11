@@ -146,7 +146,7 @@
 
 			const { data: scheduleData, error } = await supabase
 				.from('vendor_payment_schedule')
-				.select('id, bill_number, vendor_name, final_bill_amount, bill_date, branch_id, payment_method, bank_name, iban, is_paid, paid_date, approval_status, due_date')
+				.select('*')
 				.eq('due_date', selectedDate)
 				.limit(5000);
 
@@ -370,15 +370,34 @@
 			}
 
 			// Create new payment with split amount
-			const { id, ...paymentData } = splitPayment;
+			// Add "SPLIT_" prefix to bill number
+			const splitBillNumber = `SPLIT_${splitPayment.bill_number || ''}`;
+			
 			const { error: insertError } = await supabase
 				.from('vendor_payment_schedule')
 				.insert({
-					...paymentData,
+					bill_number: splitBillNumber,
+					vendor_id: splitPayment.vendor_id,
+					vendor_name: splitPayment.vendor_name,
+					branch_id: splitPayment.branch_id,
+					branch_name: splitPayment.branch_name,
+					bill_amount: splitPayment.bill_amount,
 					final_bill_amount: splitAmount,
+					payment_method: splitPayment.payment_method,
+					bank_name: splitPayment.bank_name,
+					iban: splitPayment.iban,
+					vat_number: splitPayment.vat_number,
+					task_id: splitPayment.task_id,
+					task_assignment_id: splitPayment.task_assignment_id,
+					receiver_user_id: splitPayment.receiver_user_id,
+					accountant_user_id: splitPayment.accountant_user_id,
+					original_bill_url: splitPayment.original_bill_url,
+					receiving_record_id: splitPayment.receiving_record_id,
 					due_date: newDateInput,
 					is_paid: false,
-					paid_date: null
+					paid_date: null,
+					approval_status: 'pending',
+					bill_date: splitPayment.bill_date
 				});
 
 			if (insertError) {
@@ -389,7 +408,7 @@
 
 			showSplitModal = false;
 			splitPayment = null;
-			showSuccess('Payment split successfully ✓');
+			showSuccess('Payment split successfully ✓ - Approval required for split amount');
 			await loadScheduledPayments();
 		} catch (error) {
 			console.error('Error splitting payment:', error);
