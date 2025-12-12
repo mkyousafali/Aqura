@@ -490,7 +490,7 @@
         <h3>✅ Currently Authenticated</h3>
         <div class="status-info">
           <p><strong>User:</strong> {$currentUser.username}</p>
-          <p><strong>Role:</strong> {$currentUser.roleType || $currentUser.role}</p>
+          <p><strong>Role:</strong> {$currentUser.isMasterAdmin ? 'Master Admin' : $currentUser.isAdmin ? 'Admin' : 'Position-based'}</p>
           <p><strong>User ID:</strong> {$currentUser.id}</p>
           <p><strong>Login Time:</strong> {new Date($currentUser.loginTime).toLocaleString()}</p>
         </div>

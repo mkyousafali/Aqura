@@ -671,10 +671,10 @@
   function isMasterAdmin() {
     console.log('Checking master admin:', {
       currentUser: $currentUser,
-      roleType: $currentUser?.roleType,
-      check: $currentUser && $currentUser.roleType === 'Master Admin'
+      isMasterAdmin: $currentUser?.isMasterAdmin,
+      check: $currentUser && $currentUser.isMasterAdmin
     });
-    return $currentUser && $currentUser.roleType === 'Master Admin';
+    return $currentUser && $currentUser.isMasterAdmin;
   }
 
   // Delete task

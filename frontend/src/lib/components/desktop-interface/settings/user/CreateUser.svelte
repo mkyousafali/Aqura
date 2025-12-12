@@ -14,9 +14,9 @@
 	const userTypeId = `userType-${componentId}`;
 	const branchId = `branchId-${componentId}`;
 	const employeeId = `employeeId-${componentId}`;
-	const roleTypeId = `roleType-${componentId}`;
-	const roleIdField = `roleId-${componentId}`;
 	const positionIdField = `positionId-${componentId}`;
+	const isMasterAdminId = `isMasterAdmin-${componentId}`;
+	const isAdminId = `isAdmin-${componentId}`;
 	const avatarInputId = `avatar-input-${componentId}`;
 	
 	// Props from parent component
@@ -32,8 +32,8 @@
 		userType: 'branch_specific',
 		branchId: '',
 		employeeId: '',
-		roleType: 'Position-based',
-		roleId: '',
+		isMasterAdmin: false,
+		isAdmin: false,
 		positionId: '',
 		avatar: null
 	};
@@ -41,7 +41,6 @@
 	// Real data from database
 	let branches: any[] = [];
 	let employees: any[] = [];
-	let roles: any[] = [];
 	let positions: any[] = [];
 
 	// State variables
@@ -61,44 +60,42 @@
 			loadingData = true;
 			dataError = '';
 
-			console.log('🔄 [CreateUser] Loading initial data...');
+		console.log('🔄 [CreateUser] Loading initial data...');
 
-			// Load all necessary data concurrently
-			const [branchesResult, rolesResult, employeesResult, positionsResult] = await Promise.all([
-				userManagement.getBranches(),
-				userManagement.getUserRoles(),
-				userManagement.getEmployees(),
-				userManagement.getPositions()
-			]);
+		// Load all necessary data concurrently
+		const [branchesResult, employeesResult, positionsResult] = await Promise.all([
+			userManagement.getBranches(),
+			userManagement.getEmployees(),
+			userManagement.getPositions()
+		]);
 
-			branches = branchesResult;
-			roles = rolesResult;
-			employees = employeesResult;
-			positions = positionsResult;
+		branches = branchesResult;
+		employees = employeesResult;
+		positions = positionsResult;
 
-			console.log('✅ [CreateUser] Loaded branches:', branches?.length || 0, branches);
-			console.log('✅ [CreateUser] Loaded roles:', roles?.length || 0, roles);
-			console.log('✅ [CreateUser] Loaded employees:', employees?.length || 0, employees);
-			console.log('✅ [CreateUser] Loaded positions:', positions?.length || 0, positions);
-
-			// Check if any data is missing
-			if (!employees || employees.length === 0) {
-				console.warn('⚠️ [CreateUser] No employees loaded - this will prevent user creation');
-			}
-
-		} catch (err) {
-			console.error('❌ [CreateUser] Error loading create user data:', err);
-			dataError = err.message;
-		} finally {
-			loadingData = false;
+		console.log('✅ [CreateUser] Loaded branches:', branches?.length || 0, branches);
+		console.log('✅ [CreateUser] Loaded employees:', employees?.length || 0, employees);
+		console.log('✅ [CreateUser] Loaded positions:', positions?.length || 0, positions);		// Check if any data is missing
+		if (!employees || employees.length === 0) {
+			console.warn('⚠️ [CreateUser] No employees loaded - this will prevent user creation');
 		}
+
+	} catch (err) {
+		console.error('❌ [CreateUser] Error loading create user data:', err);
+		dataError = err.message;
+	} finally {
+		loadingData = false;
+	}
+}
+
+	// Reactive: Master Admin implies Admin
+	$: if (formData.isMasterAdmin) {
+		formData.isAdmin = true;
 	}
 
 	// Avatar handling
 	let avatarPreview = null;
-	let avatarFile = null;
-
-	// Password validation
+	let avatarFile = null;	// Password validation
 	let passwordChecks = {
 		minLength: false,
 		hasUppercase: false,
@@ -162,14 +159,7 @@
 		previousBranchId = formData.branchId;
 	}
 
-	// Clear role/position selection when role type changes
-	$: if (formData.roleType) {
-		if (formData.roleType === 'Position-based') {
-			formData.roleId = '';
-		} else {
-			formData.positionId = '';
-		}
-	}
+
 
 	// Password validation reactive
 	$: {
@@ -266,12 +256,6 @@
 			errors.employeeId = 'Employee selection is required';
 		}
 
-		if (formData.roleType === 'Position-based' && !formData.positionId) {
-			errors.positionId = 'Position is required for position-based roles';
-		} else if (formData.roleType !== 'Position-based' && !formData.roleId) {
-			errors.roleId = 'Role is required';
-		}
-
 		return Object.keys(errors).length === 0;
 	}
 
@@ -305,7 +289,8 @@
 			const userData = {
 				username: formData.username,
 				password: formData.password,
-				roleType: formData.roleType as any,
+				isMasterAdmin: formData.isMasterAdmin,
+				isAdmin: formData.isAdmin,
 				userType: formData.userType as any,
 				branchId: formData.branchId ? parseInt(formData.branchId) : null,
 				employeeId: formData.employeeId || null,
@@ -350,8 +335,8 @@
 			userType: 'branch_specific',
 			branchId: '',
 			employeeId: '',
-			roleType: 'Position-based',
-			roleId: '',
+			isMasterAdmin: false,
+			isAdmin: false,
 			positionId: '',
 			avatar: null
 		};
@@ -658,61 +643,55 @@
 				{/if}
 			{/if}
 
-			<!-- Role Type Selection -->
-			<div class="form-row role-selection">
+			<!-- Admin Privileges Section -->
+			<div class="form-row admin-section">
 				<div class="form-group">
-					<label for={roleTypeId} class="form-label">Role Type *</label>
-					<select
-						id={roleTypeId}
-						bind:value={formData.roleType}
-						class="form-select"
-						class:error={errors.roleType}
-					>
-						<option value="Position-based">Position-based</option>
-						<option value="Admin">Admin</option>
-						<option value="Master Admin">Master Admin</option>
-					</select>
+					<label class="checkbox-label">
+						<input
+							type="checkbox"
+							id={isMasterAdminId}
+							bind:checked={formData.isMasterAdmin}
+							class="form-checkbox"
+						/>
+						<span>Make Master Admin</span>
+					</label>
+					<small class="help-text">Master Admins have full system access</small>
 				</div>
 
-				<!-- Position Selection (only for Position-based roles) -->
-				{#if formData.roleType === 'Position-based'}
-					<div class="form-group">
-						<label for={positionIdField} class="form-label">Position *</label>
-						<select
-							id={positionIdField}
-							bind:value={formData.positionId}
-							class="form-select"
-							class:error={errors.positionId}
-						>
-							<option value="">Select Position</option>
-							{#each positions as position}
-								<option value={position.id}>{position.position_title_en}</option>
-							{/each}
-						</select>
-						{#if errors.positionId}
-							<span class="error-message">{errors.positionId}</span>
-						{/if}
-					</div>
-				{:else}
-					<!-- Role Selection for non-position-based roles -->
-					<div class="form-group">
-						<label for={roleIdField} class="form-label">Role *</label>
-						<select
-							id={roleIdField}
-							bind:value={formData.roleId}
-							class="form-select"
-							class:error={errors.roleId}
-						>
-							<option value="">Select Role</option>
-							{#each roles as role}
-								<option value={role.id}>{role.role_name}</option>
-							{/each}
-						</select>
-						{#if errors.roleId}
-							<span class="error-message">{errors.roleId}</span>
-						{/if}
-					</div>
-				{/if}
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input
+							type="checkbox"
+							id={isAdminId}
+							bind:checked={formData.isAdmin}
+							disabled={formData.isMasterAdmin}
+							class="form-checkbox"
+						/>
+						<span>Make Admin</span>
+					</label>
+					<small class="help-text">Admins can manage users and approve workflows (disabled if Master Admin)</small>
+				</div>
+			</div>
+
+			<!-- Position Selection -->
+			<div class="form-row">
+				<div class="form-group">
+					<label for={positionIdField} class="form-label">Position</label>
+					<select
+						id={positionIdField}
+						bind:value={formData.positionId}
+						class="form-select"
+						class:error={errors.positionId}
+					>
+						<option value="">Select Position (Optional)</option>
+						{#each positions as position}
+							<option value={position.id}>{position.position_title_en}</option>
+						{/each}
+					</select>
+					{#if errors.positionId}
+						<span class="error-message">{errors.positionId}</span>
+					{/if}
+				</div>
 			</div>
 		</div>
 
@@ -1406,6 +1385,44 @@
 
 	.icon {
 		font-size: 16px;
+	}
+
+	.checkbox-group {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		padding: 8px;
+		border-radius: 6px;
+		transition: background-color 0.2s;
+	}
+
+	.checkbox-label:hover {
+		background: #f9fafb;
+	}
+
+	.form-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #3b82f6;
+	}
+
+	.form-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.checkbox-hint {
+		color: #6b7280;
+		font-size: 12px;
+		margin-left: 4px;
 	}
 
 	@media (max-width: 768px) {

@@ -3,7 +3,8 @@ export interface User {
   id: string;
   username: string;
   role: string;
-  roleType: "Master Admin" | "Admin" | "Position-based" | "Customer";
+  isMasterAdmin: boolean;
+  isAdmin: boolean;
   userType: "global" | "branch_specific" | "customer";
   avatar?: string;
   employeeName?: string;

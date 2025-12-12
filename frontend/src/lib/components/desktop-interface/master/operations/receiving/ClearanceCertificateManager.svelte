@@ -934,7 +934,7 @@
           clearance_certificate_url: certificateImageUrl, // Use the saved image URL
           generated_by_user_id: user.id,
           generated_by_name: user.username || user.displayName,
-          generated_by_role: user.roleType
+          generated_by_role: user.isMasterAdmin ? 'Master Admin' : user.isAdmin ? 'Admin' : 'User'
         })
       });
       

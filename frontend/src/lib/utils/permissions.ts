@@ -121,9 +121,9 @@ export function hasPermission(functionCode: string, action: PermissionAction): b
   }
 
   // Master Admin and Admin always have full access (backward compatibility)
-  if (user.roleType === 'Master Admin' || user.roleType === 'Admin') {
+  if (user.isMasterAdmin || user.isAdmin) {
     // However, only Master Admin can delete
-    if (action === 'can_delete' && user.roleType === 'Admin') {
+    if (action === 'can_delete' && user.isAdmin && !user.isMasterAdmin) {
       return false;
     }
     return true;
@@ -190,7 +190,7 @@ export function getPermissions(functionCode: string) {
   }
 
   // Master Admin full access
-  if (user.roleType === 'Master Admin') {
+  if (user.isMasterAdmin) {
     return {
       can_view: true,
       can_add: true,
@@ -201,7 +201,7 @@ export function getPermissions(functionCode: string) {
   }
 
   // Admin access (no delete)
-  if (user.roleType === 'Admin') {
+  if (user.isAdmin) {
     return {
       can_view: true,
       can_add: true,
@@ -227,19 +227,11 @@ export function getPermissions(functionCode: string) {
 }
 
 /**
- * Get user's role type
- */
-export function getUserRole(): string | undefined {
-  const user = get(currentUser);
-  return user?.roleType;
-}
-
-/**
  * Check if user is admin (Master Admin or Admin)
  */
 export function isAdmin(): boolean {
   const user = get(currentUser);
-  return user?.roleType === 'Master Admin' || user?.roleType === 'Admin';
+  return (user?.isMasterAdmin || user?.isAdmin) ?? false;
 }
 
 /**
@@ -247,7 +239,7 @@ export function isAdmin(): boolean {
  */
 export function isMasterAdmin(): boolean {
   const user = get(currentUser);
-  return user?.roleType === 'Master Admin';
+  return user?.isMasterAdmin ?? false;
 }
 
 /**
@@ -278,7 +270,7 @@ export function getAccessibleFunctions(): string[] {
   }
 
   // Master Admin and Admin have access to all
-  if (user.roleType === 'Master Admin' || user.roleType === 'Admin') {
+  if (user.isMasterAdmin || user.isAdmin) {
     return Object.values(FUNCTION_CODES);
   }
 

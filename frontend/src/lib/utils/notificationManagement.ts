@@ -346,7 +346,7 @@ export class NotificationManagementService {
         );
         const { data: uuidUser, error: uuidError } = await supabase
           .from("users")
-          .select("id, username, role_type")
+          .select("id, username")
           .eq("id", createdBy)
           .maybeSingle();
 
@@ -367,7 +367,7 @@ export class NotificationManagementService {
         // Get user UUID - createdBy could be username or employee name
         const { data: usernameUser, error: userError } = await supabase
           .from("users")
-          .select("id, username, role_type")
+          .select("id, username")
           .eq("username", createdBy)
           .maybeSingle();
 
@@ -399,7 +399,6 @@ export class NotificationManagementService {
             `
 						id, 
 						username, 
-						role_type,
 						hr_employees!inner(name)
 					`,
           )
@@ -416,7 +415,7 @@ export class NotificationManagementService {
           // Try case-insensitive username search as final fallback
           const { data: caseInsensitiveUser, error: caseError } = await supabase
             .from("users")
-            .select("id, username, role_type")
+            .select("id, username")
             .ilike("username", createdBy)
             .maybeSingle();
 
@@ -456,7 +455,6 @@ export class NotificationManagementService {
 
       const currentUserId = userData.id; // Use UUID from database
       const currentUserName = userData.username;
-      const currentUserRole = userData.role_type || "Admin";
 
       // Fix enum values to match database schema
       let validType = notification.type;

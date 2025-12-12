@@ -4,7 +4,8 @@ import { supabase } from "./supabase";
 interface CreateUserRequest {
   username: string;
   password: string;
-  roleType: "Master Admin" | "Admin" | "Position-based";
+  isMasterAdmin?: boolean;
+  isAdmin?: boolean;
   userType: "global" | "branch_specific";
   branchId?: number;
   employeeId?: string;
@@ -14,11 +15,12 @@ interface CreateUserRequest {
 
 interface UpdateUserRequest {
   username?: string;
-  roleType?: "Master Admin" | "Admin" | "Position-based";
-  userType?: "global" | "branch_specific";
-  branchId?: number;
-  employeeId?: string;
-  positionId?: string;
+  p_is_master_admin?: boolean;
+  p_is_admin?: boolean;
+  user_type?: "global" | "branch_specific";
+  branch_id?: number | null;
+  employee_id?: string | null;
+  position_id?: string | null;
   status?: "active" | "inactive" | "locked";
   avatar?: string;
 }
@@ -29,7 +31,8 @@ interface UserListItem {
   employee_name: string;
   branch_name: string;
   position_title: string;
-  role_type: "Master Admin" | "Admin" | "Position-based";
+  is_master_admin: boolean;
+  is_admin: boolean;
   status: "active" | "inactive" | "locked";
   avatar?: string;
   last_login?: string;
@@ -105,7 +108,8 @@ export class UserManagementService {
       const { data, error } = await supabase.rpc("create_user", {
         p_username: userData.username,
         p_password: userData.password,
-        p_role_type: userData.roleType,
+        p_is_master_admin: userData.isMasterAdmin || false,
+        p_is_admin: userData.isAdmin || false,
         p_user_type: userData.userType,
         p_branch_id: userData.branchId || null,
         p_employee_id: userData.employeeId || null,
@@ -144,7 +148,15 @@ export class UserManagementService {
       // Use RPC function with SECURITY DEFINER that bypasses RLS
       const { data, error } = await supabase.rpc('update_user', {
         p_user_id: userId,
-        p_updates: updates
+        p_username: updates.username ?? null,
+        p_is_master_admin: updates.p_is_master_admin ?? null,
+        p_is_admin: updates.p_is_admin ?? null,
+        p_user_type: updates.user_type ?? null,
+        p_branch_id: updates.branch_id ?? null,
+        p_employee_id: updates.employee_id && updates.employee_id.trim() !== '' ? updates.employee_id : null,
+        p_position_id: updates.position_id && updates.position_id.trim() !== '' ? updates.position_id : null,
+        p_status: updates.status ?? null,
+        p_avatar: updates.avatar ?? null
       });
 
       if (error) {
@@ -350,28 +362,11 @@ export class UserManagementService {
 
   /**
    * Get user roles for dropdown
+   * NOTE: This function is deprecated - user_roles table removed in favor of button permissions system
    */
-  async getUserRoles(): Promise<
-    Array<{
-      id: string;
-      role_name: string;
-      role_code: string;
-      is_system_role: boolean;
-    }>
-  > {
-    const { data, error } = await supabase
-      .from("user_roles")
-      .select("id, role_name, role_code, is_system_role")
-      .eq("is_active", true)
-      .order("is_system_role", { ascending: false })
-      .order("role_name");
-
-    if (error) {
-      console.error("Error fetching user roles:", error);
-      return [];
-    }
-
-    return data || [];
+  async getUserRoles(): Promise<Array<any>> {
+    console.warn("getUserRoles is deprecated - user_roles table no longer exists");
+    return [];
   }
 
   /**

@@ -23,8 +23,8 @@
 
 	onMount(() => {
 		// Check if user has required role
-		const userRole = $currentUser?.roleType;
-		if (userRole !== 'Master Admin' && userRole !== 'Admin') {
+		const isMasterOrAdmin = $currentUser?.isMasterAdmin || $currentUser?.isAdmin;
+		if (!isMasterOrAdmin) {
 			// Redirect to mobile home if not authorized
 			goto('/mobile-interface');
 			return;

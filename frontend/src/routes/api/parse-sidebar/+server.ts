@@ -1,9 +1,45 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import fs from 'fs';
 import path from 'path';
+import { supabase } from '$lib/utils/supabase';
 
-export async function GET() {
+export const GET: RequestHandler = async ({ url }) => {
   try {
+    // Get user ID from query parameter
+    const userId = url.searchParams.get('userId');
+    let allowedButtonCodes: Set<string> | null = null;
+
+    // If user ID is provided, get their button permissions
+    if (userId) {
+      try {
+        // Fetch user's button permissions
+        const { data: permissions, error } = await supabase
+          .from('button_permissions')
+          .select('button_id')
+          .eq('user_id', userId)
+          .eq('is_enabled', true);
+
+        if (error) {
+          console.error('Error fetching permissions:', error);
+        } else if (permissions && permissions.length > 0) {
+          // Map button_ids to button codes
+          const buttonIds = permissions.map(p => p.button_id);
+          const { data: buttons } = await supabase
+            .from('sidebar_buttons')
+            .select('id, code')
+            .in('id', buttonIds);
+
+          if (buttons) {
+            allowedButtonCodes = new Set(buttons.map(b => b.code));
+          }
+        }
+      } catch (authError) {
+        // If auth fails, continue without filtering
+        console.error('Error fetching button permissions:', authError);
+      }
+    }
+
     const sidebarPath = path.join(
       process.cwd(),
       'src/lib/components/desktop-interface/common/Sidebar.svelte'
@@ -93,6 +129,18 @@ export async function GET() {
           }
         }
       }
+    }
+
+    // Filter buttons if user has permissions set
+    if (allowedButtonCodes !== null) {
+      Object.keys(sectionData).forEach(sectionName => {
+        Object.keys(sectionData[sectionName].subsections).forEach(subsectionName => {
+          sectionData[sectionName].subsections[subsectionName] = 
+            sectionData[sectionName].subsections[subsectionName].filter((btn: any) =>
+              allowedButtonCodes!.has(btn.code)
+            );
+        });
+      });
     }
 
     // Format response

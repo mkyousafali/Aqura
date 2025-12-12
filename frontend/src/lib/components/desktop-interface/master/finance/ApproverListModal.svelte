@@ -76,14 +76,12 @@
 					// Otherwise check if limit is >= payment amount
 					return perm.vendor_payment_amount_limit >= paymentAmount;
 				})
-				.map(perm => ({
-					userId: perm.user_id,
-					username: perm.users?.username || 'Unknown',
-					roleType: perm.users?.role_type || '',
-					amountLimit: perm.vendor_payment_amount_limit
-				}));
-
-			if (approvers.length === 0) {
+			.map(perm => ({
+				userId: perm.user_id,
+				username: perm.users?.username || 'Unknown',
+				roleType: perm.users?.is_master_admin ? 'Master Admin' : perm.users?.is_admin ? 'Admin' : 'User',
+				amountLimit: perm.vendor_payment_amount_limit
+			}));			if (approvers.length === 0) {
 				error = 'No eligible approvers found for this payment amount.';
 			}
 		} catch (err) {

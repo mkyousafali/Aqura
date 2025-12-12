@@ -19,6 +19,12 @@
 	let searchTimeout: any = null;
 	let selectedUserId: string | null = null;
 	let currentStep = 1;
+	let allButtons: any[] = [];
+	let permittedButtons: any[] = [];
+	let nonPermittedButtons: any[] = [];
+	let buttonsLoading = false;
+	let selectedNonPermitted: Set<string> = new Set();
+	let buttonCodeToIdMap: Map<string, number> = new Map();
 
 	onMount(async () => {
 		// Parallel loading of all filter data
@@ -49,19 +55,13 @@
 	}
 
 	async function fetchRoles() {
+		// Role system removed - no longer needed
+		roles = [];
 		try {
-			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase
-				.from('users')
-				.select('role_type', { count: 'exact' })
-				.not('role_type', 'is', null);
-
-			if (!error && data) {
-				const uniqueRoles = [...new Set(data.map(u => u.role_type))].sort();
-				roles = uniqueRoles.map(role => ({ id: role, role_name: role }));
-			}
+			// Roles are no longer used in the system
+			console.log('Role filtering disabled - using admin flags instead');
 		} catch (err) {
-			console.error('Error fetching roles:', err);
+			console.error('Error in fetchRoles:', err);
 		}
 	}
 
@@ -109,7 +109,7 @@
 			let countQuery = supabase.from('users').select('id', { count: 'exact' });
 			let dataQuery = supabase
 				.from('users')
-				.select(`id, username, role_type, branch_id, position_id, employee_id, branches (name_en)`, 
+				.select(`id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches (name_en)`, 
 					{ count: 'exact' })
 				.order('username', { ascending: true })
 				.range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
@@ -120,10 +120,8 @@
 				countQuery = countQuery.eq('branch_id', branchIdInt);
 				dataQuery = dataQuery.eq('branch_id', branchIdInt);
 			}
-			if (selectedRole && selectedRole !== '') {
-				countQuery = countQuery.eq('role_type', selectedRole);
-				dataQuery = dataQuery.eq('role_type', selectedRole);
-			}
+			// Role filtering removed - roles no longer exist
+			// Users now have is_master_admin and is_admin boolean flags
 			if (selectedPosition && selectedPosition !== '') {
 				countQuery = countQuery.eq('position_id', selectedPosition);
 				dataQuery = dataQuery.eq('position_id', selectedPosition);
@@ -221,11 +219,186 @@
 	function goToStep2() {
 		if (selectedUserId) {
 			currentStep = 2;
+			loadButtonPermissions();
+		}
+	}
+
+	async function loadButtonPermissions() {
+		buttonsLoading = true;
+		try {
+			// Fetch all buttons from API - pass current user ID for permission filtering
+			const userId = selectedUserId || '';
+			const response = await fetch(`/api/parse-sidebar?userId=${userId}`);
+			const data = await response.json();
+			
+			// Flatten all buttons into a single array
+			const allButtonsFlat: any[] = [];
+			if (data.sections) {
+				data.sections.forEach((section: any) => {
+					section.subsections.forEach((subsection: any) => {
+						subsection.buttons.forEach((button: any) => {
+							allButtonsFlat.push({
+								code: button.code,
+								name: button.name,
+								section: section.name,
+								subsection: subsection.name
+							});
+						});
+					});
+				});
+			}
+			
+			allButtons = allButtonsFlat;
+			console.log('All buttons from API:', allButtons.length);
+
+			// Fetch all button IDs from database
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: dbButtons, error: btnError } = await supabase
+				.from('sidebar_buttons')
+				.select('id')
+				.order('id');
+
+			if (btnError) {
+				console.error('Error fetching buttons:', btnError);
+				return;
+			}
+
+			// Create a map of button codes to IDs - assume they match order with our buttons array
+			buttonCodeToIdMap.clear();
+			if (dbButtons && dbButtons.length > 0) {
+				dbButtons.forEach((btn: any, index: number) => {
+					if (index < allButtons.length) {
+						buttonCodeToIdMap.set(allButtons[index].code, btn.id);
+					}
+				});
+			}
+
+			console.log('Button code to ID map size:', buttonCodeToIdMap.size);
+
+			// Fetch user's permissions
+			const { data: permissions, error } = await supabase
+				.from('button_permissions')
+				.select('button_id, is_enabled')
+				.eq('user_id', selectedUserId);
+
+			if (error) {
+				console.error('Error fetching permissions:', error);
+				return;
+			}
+
+			console.log('User permissions count:', permissions?.length);
+
+			// Create a set of enabled button IDs
+			const enabledButtonIds = new Set();
+			const disabledButtonIds = new Set();
+			if (permissions) {
+				permissions.forEach((p: any) => {
+					if (p.is_enabled) {
+						enabledButtonIds.add(p.button_id);
+					} else {
+						disabledButtonIds.add(p.button_id);
+					}
+				});
+			}
+
+			// Separate buttons into permitted and non-permitted
+			permittedButtons = allButtons.filter(btn => {
+				const id = buttonCodeToIdMap.get(btn.code);
+				return id && enabledButtonIds.has(id);
+			});
+			
+			nonPermittedButtons = allButtons.filter(btn => {
+				const id = buttonCodeToIdMap.get(btn.code);
+				return id && disabledButtonIds.has(id);
+			});
+
+			console.log('Permitted:', permittedButtons.length, 'Non-permitted:', nonPermittedButtons.length);
+		} catch (err) {
+			console.error('Error loading button permissions:', err);
+		} finally {
+			buttonsLoading = false;
 		}
 	}
 
 	function goBackToStep1() {
 		currentStep = 1;
+	}
+
+	async function savePermissionChanges() {
+		if (selectedNonPermitted.size === 0) {
+			console.log('No changes to save');
+			return;
+		}
+
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+
+			// Get button codes selected (to enable)
+			const buttonCodesToEnable = Array.from(selectedNonPermitted);
+			
+			console.log('Enabling button codes:', buttonCodesToEnable);
+
+			// Update permissions to true for selected buttons
+			for (const buttonCode of buttonCodesToEnable) {
+				const buttonId = buttonCodeToIdMap.get(buttonCode);
+				
+				if (!buttonId) {
+					console.warn(`Button ID not found for code: ${buttonCode}`);
+					continue;
+				}
+
+				console.log(`Updating button ${buttonCode} (ID: ${buttonId}) to enabled`);
+
+				const { error } = await supabase
+					.from('button_permissions')
+					.update({ is_enabled: true })
+					.eq('user_id', selectedUserId)
+					.eq('button_id', buttonId);
+
+				if (error) {
+					console.error(`Error updating button ${buttonId}:`, error);
+				} else {
+					console.log(`Successfully updated button ${buttonCode}`);
+				}
+			}
+
+			// Reload the permissions
+			selectedNonPermitted.clear();
+			await loadButtonPermissions();
+			console.log('Permissions saved successfully');
+		} catch (err) {
+			console.error('Error saving permissions:', err);
+		}
+	}
+
+	async function disableButtonPermission(buttonCode: string) {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const buttonId = buttonCodeToIdMap.get(buttonCode);
+
+			if (!buttonId) {
+				console.warn(`Button ID not found for code: ${buttonCode}`);
+				return;
+			}
+
+			console.log(`Disabling button ${buttonCode} (ID: ${buttonId})`);
+
+			const { error } = await supabase
+				.from('button_permissions')
+				.update({ is_enabled: false })
+				.eq('user_id', selectedUserId)
+				.eq('button_id', buttonId);
+
+			if (error) {
+				console.error(`Error disabling button ${buttonId}:`, error);
+			} else {
+				console.log(`Successfully disabled button ${buttonCode}`);
+				// Reload permissions
+				await loadButtonPermissions();
+			}
+		} catch (err) {
+			console.error('Error disabling permission:', err);
+		}
 	}
 
 
@@ -355,7 +528,7 @@
 						<td>{user.branches?.name_en || '-'}</td>
 						<td>
 							<span class="badge" style="background: #dbeafe; color: #1e40af;">
-								{user.role_type || '-'}
+								{user.is_master_admin ? 'Master Admin' : user.is_admin ? 'Admin' : 'User'}
 							</span>
 						</td>
 						<td>{user.position_title || '-'}</td>
@@ -399,7 +572,7 @@
 	</div>
 </div>
 
-{:else if currentStep === 2}
+	{:else if currentStep === 2}
 <!-- Step 2: Button Control Configuration -->
 <div class="step-2-container">
 	<div class="step-header">
@@ -408,18 +581,123 @@
 	</div>
 
 	<div class="step-content">
-		<!-- Placeholder for step 2 content -->
+		{#if buttonsLoading}
+			<div class="loading-spinner">
+				<div class="spinner"></div>
+				<p>Loading button permissions...</p>
+			</div>
+		{:else}
+			<div class="cards-grid">
+				<!-- Card 1: Permitted Buttons -->
+				<div class="config-card permitted-card">
+					<div class="card-number">1</div>
+					<div class="card-content">
+						<h3>Permitted Buttons ({permittedButtons.length})</h3>
+						<div class="buttons-wrapper">
+							{#if permittedButtons.length === 0}
+								<div class="empty-message">No permitted buttons</div>
+							{:else}
+								<div class="table-wrapper">
+									<table class="button-table">
+										<thead>
+											<tr>
+												<th style="width: 60px;">#</th>
+												<th>Button Name</th>
+												<th>Section • Subsection</th>
+												<th style="width: 90px;">Status</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each permittedButtons as button, idx (button.code)}
+												<tr>
+													<td>{idx + 1}</td>
+													<td>{button.name}</td>
+													<td>{button.section} • {button.subsection}</td>
+													<td>
+														<input 
+															type="checkbox"
+															checked={true}
+															on:change={() => {
+																disableButtonPermission(button.code);
+															}}
+														/>
+													</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<!-- Card 2: Non-Permitted Buttons -->
+				<div class="config-card non-permitted-card">
+					<div class="card-number">2</div>
+					<div class="card-content">
+						<h3>Non-Permitted Buttons ({nonPermittedButtons.length})</h3>
+						<div class="buttons-wrapper">
+							{#if nonPermittedButtons.length === 0}
+								<div class="empty-message">No non-permitted buttons</div>
+							{:else}
+								<div class="table-wrapper">
+									<table class="button-table">
+										<thead>
+											<tr>
+												<th style="width: 60px;">#</th>
+												<th>Button Name</th>
+												<th>Section • Subsection</th>
+												<th style="width: 90px;">Status</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each nonPermittedButtons as button, idx (button.code)}
+												<tr>
+													<td>{idx + 1}</td>
+													<td>{button.name}</td>
+													<td>{button.section} • {button.subsection}</td>
+													<td>
+														<input 
+															type="checkbox"
+															checked={selectedNonPermitted.has(button.code)}
+															on:change={(e) => {
+																if (e.currentTarget.checked) {
+																	selectedNonPermitted.add(button.code);
+																} else {
+																	selectedNonPermitted.delete(button.code);
+																}
+																selectedNonPermitted = selectedNonPermitted;
+															}}
+														/>
+													</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							{/if}
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<div class="step-actions">
 		<button class="back-btn" on:click={goBackToStep1}>
 			← Back to Step 1
 		</button>
+		<button 
+			class="save-btn" 
+			disabled={selectedNonPermitted.size === 0}
+			on:click={savePermissionChanges}
+		>
+			💾 Save Changes ({selectedNonPermitted.size})
+		</button>
 	</div>
 </div>
-{/if}
-
-<style>
+{/if}<style>
 	.search-bar-container {
 		padding: 16px;
 		background: white;
@@ -794,6 +1072,235 @@
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 	}
 
+	.cards-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 24px;
+	}
+
+	.config-card {
+		position: relative;
+		background: #f9fafb;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 24px;
+		transition: all 0.3s ease;
+		cursor: pointer;
+		min-height: 900px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.config-card:hover {
+		border-color: #10b981;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
+	}
+
+	.card-number {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		width: 32px;
+		height: 32px;
+		background: #10b981;
+		color: white;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 700;
+		font-size: 16px;
+	}
+
+	.card-content {
+		padding-right: 40px;
+	}
+
+	.card-content h3 {
+		margin: 0 0 12px 0;
+		font-size: 18px;
+		font-weight: 600;
+		color: #1f2937;
+	}
+
+	.card-content p {
+		margin: 0;
+		font-size: 14px;
+		color: #4b5563;
+	}
+
+	.buttons-wrapper {
+		margin-top: 16px;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.table-wrapper {
+		flex: 1;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+	}
+
+	.button-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: white;
+		font-size: 13px;
+		table-layout: fixed;
+	}
+
+	.button-table thead {
+		background: #f3f4f6;
+		border-bottom: 2px solid #10b981;
+	}
+
+	.button-table th {
+		padding: 12px 12px;
+		text-align: left;
+		font-weight: 600;
+		font-size: 11px;
+		color: #374151;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		border-right: 1px solid #e5e7eb;
+		white-space: nowrap;
+		word-break: break-word;
+		overflow-wrap: break-word;
+	}
+
+	.button-table th:first-child {
+		width: 40px;
+		text-align: center;
+	}
+
+	.button-table th:last-child {
+		border-right: none;
+	}
+
+	.button-table tbody {
+		display: block;
+		overflow-y: scroll;
+		max-height: 630px;
+		width: 100%;
+	}
+
+	.button-table thead tr {
+		display: table;
+		width: calc(100% - 17px);
+		table-layout: fixed;
+	}
+
+	.button-table tbody tr {
+		display: table;
+		width: 100%;
+		table-layout: fixed;
+		border-bottom: 1px solid #e5e7eb;
+		transition: background 0.2s ease;
+	}
+
+	.button-table tbody tr:hover {
+		background: #f9fafb;
+	}
+
+	.button-table td {
+		padding: 10px 12px;
+		font-size: 13px;
+		color: #4b5563;
+		border-right: 1px solid #e5e7eb;
+		vertical-align: middle;
+		word-break: break-word;
+		overflow-wrap: break-word;
+	}
+
+	.button-table td:first-child {
+		width: 60px;
+		text-align: center;
+		font-weight: 600;
+		color: #10b981;
+	}
+
+	.button-table td:last-child {
+		border-right: none;
+		text-align: center !important;
+		padding: 8px !important;
+	}
+
+	.button-table td:last-child input[type="checkbox"] {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #10b981;
+		margin: 0;
+		display: inline-block;
+	}
+
+	.button-table td:last-child input[type="checkbox"]:disabled {
+		cursor: default;
+		opacity: 1;
+	}
+
+	.badge-enabled {
+		display: inline-block;
+		padding: 4px 8px;
+		background: #dcfce7;
+		color: #15803d;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.badge-disabled {
+		display: inline-block;
+		padding: 4px 8px;
+		background: #fee2e2;
+		color: #b91c1c;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.empty-message {
+		padding: 24px;
+		text-align: center;
+		color: #9ca3af;
+		font-size: 14px;
+	}
+
+	.loading-spinner {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		min-height: 300px;
+		gap: 16px;
+	}
+
+	.spinner {
+		width: 40px;
+		height: 40px;
+		border: 4px solid #e5e7eb;
+		border-top: 4px solid #10b981;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		0% {
+			transform: rotate(0deg);
+		}
+		100% {
+			transform: rotate(360deg);
+		}
+	}
+
 	.step-actions {
 		display: flex;
 		gap: 12px;
@@ -814,6 +1321,29 @@
 
 	.back-btn:hover {
 		background: #4b5563;
+	}
+
+	.save-btn {
+		padding: 10px 16px;
+		background: #0ea5e9;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		font-size: 13px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.save-btn:hover:not(:disabled) {
+		background: #0284c7;
+		box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
+	}
+
+	.save-btn:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	@keyframes slideIn {

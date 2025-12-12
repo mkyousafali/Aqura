@@ -20,7 +20,7 @@
 	];
 
 	$: daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 
 	// Data
 	let scheduledPayments = [];

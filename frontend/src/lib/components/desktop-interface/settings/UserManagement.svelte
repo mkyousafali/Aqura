@@ -9,13 +9,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Real user data from database
 	let users = [];
 	let branches = [];
-	let roles = [];
 	let loading = true;
 	let error = null;
 
 	let searchQuery = '';
 	let branchFilter = '';
-	let roleFilter = '';
 	let statusFilter = '';
 
 	// Load data from database on mount
@@ -29,19 +27,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			error = null;
 
 			// Load all necessary data concurrently
-			const [usersResult, branchesResult, rolesResult] = await Promise.all([
+			const [usersResult, branchesResult] = await Promise.all([
 				userManagement.getAllUsers(),
-				userManagement.getBranches(),
-				userManagement.getUserRoles()
+				userManagement.getBranches()
 			]);
 
 			users = usersResult;
 			branches = branchesResult;
-			roles = rolesResult;
 
 			console.log('Loaded users:', users);
 			console.log('Loaded branches:', branches);
-			console.log('Loaded roles:', roles);
 		} catch (err) {
 			console.error('Error loading user management data:', err);
 			error = err.message;
@@ -51,8 +46,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	// Get current user from persistent auth store with null safety
-	$: currentUserData = $currentUser || { roleType: 'Position-based' };
-	$: userRoleType = currentUserData?.roleType || 'Position-based';
+	$: currentUserData = $currentUser || { isMasterAdmin: false, isAdmin: false };
+	$: userIsAdmin = currentUserData?.isMasterAdmin || currentUserData?.isAdmin || false;
 
 	// Generate unique window ID
 	function generateWindowId(type) {
@@ -134,7 +129,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Convert map to array: [{ id: branchId, name: branchName }, ...]
 	$: uniqueBranches = Array.from(uniqueBranchesMap.entries()).map(([id, name]) => ({ id, name }));
 	
-	$: uniqueRoles = [...new Set(users.map(user => user.role_type).filter(Boolean))];
 	$: uniqueStatuses = ['active', 'inactive', 'locked'];
 
 	// Filtered users based on search and filters
@@ -146,10 +140,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		
 		// Filter by branch_id when a filter is selected
 		const matchesBranch = branchFilter === '' || (user.branch_id && user.branch_id.toString() === branchFilter.toString());
-		const matchesRole = roleFilter === '' || user.role_type === roleFilter;
 		const matchesStatus = statusFilter === '' || user.status === statusFilter;
 
-		return matchesSearch && matchesBranch && matchesRole && matchesStatus;
+		return matchesSearch && matchesBranch && matchesStatus;
 	});
 </script>
 
@@ -194,19 +187,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						>
 					</div>
 					<div class="filters">
-						<select bind:value={branchFilter} class="filter-select">
-							<option value="">All Branches</option>
-							{#each uniqueBranches as branch}
-								<option value={branch.id.toString()}>{branch.name}</option>
-							{/each}
-						</select>
-						<select bind:value={roleFilter} class="filter-select">
-							<option value="">All Roles</option>
-							{#each uniqueRoles as role}
-								<option value={role}>{role}</option>
-							{/each}
-						</select>
-						<select bind:value={statusFilter} class="filter-select">
+					<select bind:value={branchFilter} class="filter-select">
+						<option value="">All Branches</option>
+						{#each uniqueBranches as branch}
+							<option value={branch.id.toString()}>{branch.name}</option>
+						{/each}
+					</select>
+					<select bind:value={statusFilter} class="filter-select">
 							<option value="">All Status</option>
 							{#each uniqueStatuses as status}
 								<option value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
@@ -223,11 +210,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						<div class="empty-icon">👤</div>
 						<h3>No Users Found</h3>
 						<p>No users match your current search and filter criteria.</p>
-						{#if searchQuery || branchFilter || roleFilter || statusFilter}
+						{#if searchQuery || branchFilter || statusFilter}
 							<button class="clear-filters-btn" on:click={() => {
 								searchQuery = '';
 								branchFilter = '';
-								roleFilter = '';
 								statusFilter = '';
 							}}>
 								Clear Filters
@@ -245,7 +231,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								<th>Position</th>
 								<th>Branch</th>
 								<th>Quick Access</th>
-								<th>Role Type</th>
+								<th>Admin Status</th>
 								<th>Status</th>
 								<th>Last Login</th>
 								<th>Actions</th>
@@ -291,11 +277,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 											<span class="no-code">None</span>
 										{/if}
 									</td>
-									<td class="role-cell">
-										<span class="role-badge role-{user.role_type.toLowerCase().replace(/\s+/g, '-')}">
-											{user.role_type}
-										</span>
-									</td>
+								<td class="role-cell">
+									{#if user.is_master_admin}
+										<span class="role-badge role-master-admin">Master Admin</span>
+									{:else if user.is_admin}
+										<span class="role-badge role-admin">Admin</span>
+									{:else}
+										<span class="role-badge role-user">User</span>
+									{/if}
+								</td>
 									<td class="status-cell">
 										<span class="status-badge status-{user.status}">
 											{user.status}
@@ -321,26 +311,26 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 											>
 												✏️
 											</button>
-											<button 
-												class="action-btn status-btn"
-												class:activate={user.status === 'inactive'}
-												class:deactivate={user.status === 'active'}
-												on:click={() => toggleUserStatus(user)}
-												title={user.status === 'active' ? 'Deactivate' : 'Activate'}
-												disabled={user.role_type === 'Master Admin'}
-											>
-												{user.status === 'active' ? '🔴' : '🟢'}
-											</button>
-											<button 
-												class="action-btn lock-btn"
-												class:unlock={user.status === 'locked'}
-												class:lock={user.status !== 'locked'}
-												on:click={() => toggleUserLock(user)}
-												title={user.status === 'locked' ? 'Unlock' : 'Lock'}
-												disabled={user.role_type === 'Master Admin'}
-											>
-												{user.status === 'locked' ? '🔓' : '🔒'}
-											</button>
+										<button 
+											class="action-btn status-btn"
+											class:activate={user.status === 'inactive'}
+											class:deactivate={user.status === 'active'}
+											on:click={() => toggleUserStatus(user)}
+											title={user.status === 'active' ? 'Deactivate' : 'Activate'}
+											disabled={user.is_master_admin}
+										>
+											{user.status === 'active' ? '🔴' : '🟢'}
+										</button>
+										<button 
+											class="action-btn lock-btn"
+											class:unlock={user.status === 'locked'}
+											class:lock={user.status !== 'locked'}
+											on:click={() => toggleUserLock(user)}
+											title={user.status === 'locked' ? 'Unlock' : 'Lock'}
+											disabled={user.is_master_admin}
+										>
+											{user.status === 'locked' ? '🔓' : '🔒'}
+										</button>
 										</div>
 									</td>
 								</tr>

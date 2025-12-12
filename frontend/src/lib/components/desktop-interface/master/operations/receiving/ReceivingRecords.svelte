@@ -38,7 +38,7 @@
 	let unsubscribePaymentSchedule = null;
 
 	// Check if current user is master admin
-	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 
 	// Certificate generation state
 	let showCertificateModal = false;

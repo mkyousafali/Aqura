@@ -235,7 +235,7 @@
 	}
 
 	// Check if current user is Master Admin
-	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 </script>
 
 {#if !isMasterAdmin}

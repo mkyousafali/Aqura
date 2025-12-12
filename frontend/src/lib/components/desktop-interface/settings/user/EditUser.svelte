@@ -19,8 +19,8 @@
 		userType: user?.user_type || 'branch_specific',
 		branchId: user?.branch_id || '',
 		employeeId: user?.employee_id || '',
-		roleType: user?.role_type || 'Position-based',
-		roleId: user?.role_id || '',
+		isMasterAdmin: user?.is_master_admin || false,
+		isAdmin: user?.is_admin || false,
 		positionId: user?.position_id || '',
 		status: user?.status || 'active',
 		avatar: null
@@ -29,7 +29,6 @@
 	// Real data from database
 	let branches: Array<{ id: string; name: string }> = [];
 	let employees: Array<{ id: string; name: string; branch_id: string; employee_id: string; position_title_en: string }> = [];
-	let roles: Array<{ id: string; name: string; code: string }> = [];
 	let positions: Array<{ id: string; position_title_en: string; position_title_ar: string }> = [];
 
 	// Search and filtering for employees
@@ -50,27 +49,23 @@
 			console.log('🔄 [EditUser] Loading initial data...');
 
 			// Load all necessary data concurrently
-			const [branchesResult, rolesResult, employeesResult, positionsResult] = await Promise.all([
+			const [branchesResult, employeesResult, positionsResult] = await Promise.all([
 				userManagement.getBranches(),
-				userManagement.getUserRoles(),
 				userManagement.getEmployees(),
 				userManagement.getPositions()
 			]);
 
 			// Transform and set data exactly like CreateUser
 			branches = branchesResult;
-			roles = rolesResult;
 			employees = employeesResult;
 			positions = positionsResult;
 
 			console.log('✅ [EditUser] Data loaded successfully:', {
 				branches: branches.length,
-				roles: roles.length,
 				employees: employees.length,
 				positions: positions.length
 			});
 			console.log('🔍 [EditUser] Loaded branches:', branches);
-			console.log('🔍 [EditUser] Loaded roles:', roles);
 			console.log('🔍 [EditUser] Loaded positions:', positions);
 			console.log('🔍 [EditUser] Loaded employees:', employees.slice(0, 3), '...');
 
@@ -153,13 +148,14 @@
 
 	// Current user permissions (mock)
 	let currentUser = {
-		role_type: 'Master Admin' // or 'Admin'
+		isMasterAdmin: true, // or just isAdmin: true
+		isAdmin: true
 	};
 
 	// Check if current user can edit this user
 	let canEdit = true;
-	let canChangeStatus = currentUser.role_type === 'Master Admin' || 
-		(currentUser.role_type === 'Admin' && user?.role_type !== 'Master Admin');
+	let canChangeStatus = currentUser.isMasterAdmin || 
+		(currentUser.isAdmin && !user?.is_master_admin);
 
 	// Filtered employees based on selected branch (enhanced like CreateUser)
 	$: filteredEmployees = formData.branchId 
@@ -191,16 +187,9 @@
 		previousBranchId = formData.branchId;
 	}
 
-	// Clear role/position selection when role type changes (exactly like CreateUser)
-	let previousRoleType = '';
-	$: if (formData.roleType !== previousRoleType) {
-		console.log('🔄 [EditUser] Role type changed from', previousRoleType, 'to', formData.roleType);
-		if (previousRoleType !== '' && loadingData === false) { // Only clear if this isn't the initial load and data is loaded
-			formData.roleId = '';
-			formData.positionId = '';
-			console.log('🔄 [EditUser] Cleared role/position selection due to role type change');
-		}
-		previousRoleType = formData.roleType;
+	// Reactive: Master Admin implies Admin
+	$: if (formData.isMasterAdmin) {
+		formData.isAdmin = true;
 	}
 
 	// Password validation reactive
@@ -314,12 +303,6 @@
 			errors.employeeId = 'Employee selection is required';
 		}
 
-		if (formData.roleType === 'Position-based' && !formData.positionId) {
-			errors.positionId = 'Position is required for position-based roles';
-		} else if (formData.roleType !== 'Position-based' && !formData.roleId) {
-			errors.roleId = 'Role is required';
-		}
-
 		return Object.keys(errors).length === 0;
 	}
 
@@ -335,7 +318,8 @@
 			// Prepare update data in the format expected by the database
 			const updateData = {
 				username: formData.username,
-				role_type: formData.roleType,
+				p_is_master_admin: formData.isMasterAdmin,
+				p_is_admin: formData.isAdmin,
 				user_type: formData.userType,
 				branch_id: formData.branchId ? parseInt(formData.branchId) : null,
 				employee_id: formData.employeeId || null,
@@ -383,7 +367,7 @@
 
 	// Safeguard check for Master Admin
 	function checkMasterAdminSafeguard() {
-		if (user?.role_type === 'Master Admin' && formData.status === 'inactive') {
+		if (user?.is_master_admin && formData.status === 'inactive') {
 			// Check if this is the last active Master Admin (mock check)
 			const activeMasterAdmins = 1; // This would come from API
 			if (activeMasterAdmins <= 1) {
@@ -751,61 +735,52 @@
 						{/if}
 				</div>
 
-				<!-- Role Assignment -->
+				<!-- Admin Permissions -->
 				<div class="form-row">
 					<div class="form-group">
-						<label for="roleType" class="form-label">Role Type *</label>
-						<select
-							id="roleType"
-							bind:value={formData.roleType}
-							class="form-select"
-							class:error={errors.roleType}
-						>
-							<option value="Position-based">Position-based</option>
-							<option value="Admin">Admin</option>
-							<option value="Master Admin">Master Admin</option>
-						</select>
+						<label class="form-label">Admin Permissions</label>
+						<div class="checkbox-group">
+							<label class="checkbox-label">
+								<input
+									type="checkbox"
+									bind:checked={formData.isMasterAdmin}
+									class="form-checkbox"
+								/>
+								<span>Master Admin</span>
+								<span class="checkbox-hint">(Full system access, implies Admin)</span>
+							</label>
+							<label class="checkbox-label">
+								<input
+									type="checkbox"
+									bind:checked={formData.isAdmin}
+									disabled={formData.isMasterAdmin}
+									class="form-checkbox"
+								/>
+								<span>Admin</span>
+								<span class="checkbox-hint">(Administrative access)</span>
+							</label>
+						</div>
 					</div>
 
-					{#if formData.roleType === 'Position-based'}
-						<div class="form-group">
-							<label for="positionId" class="form-label">Position *</label>
-							{#key formData.positionId}
-								<select
-									id="positionId"
-									bind:value={formData.positionId}
-									class="form-select"
-									class:error={errors.positionId}
-								>
-									<option value="">Select Position</option>
-									{#each positions as position}
-										<option value={position.id}>{position.position_title_en}</option>
-									{/each}
-								</select>
-							{/key}
-							{#if errors.positionId}
-								<span class="error-message">{errors.positionId}</span>
-							{/if}
-						</div>
-					{:else}
-						<div class="form-group">
-							<label for="roleId" class="form-label">Role *</label>
+					<div class="form-group">
+						<label for="positionId" class="form-label">Position</label>
+						{#key formData.positionId}
 							<select
-								id="roleId"
-								bind:value={formData.roleId}
+								id="positionId"
+								bind:value={formData.positionId}
 								class="form-select"
-								class:error={errors.roleId}
+								class:error={errors.positionId}
 							>
-								<option value="">Select Role</option>
-								{#each roles as role}
-									<option value={role.id}>{role.role_name}</option>
+								<option value="">Select Position</option>
+								{#each positions as position}
+									<option value={position.id}>{position.position_title_en}</option>
 								{/each}
 							</select>
-							{#if errors.roleId}
-								<span class="error-message">{errors.roleId}</span>
-							{/if}
-						</div>
-					{/if}
+						{/key}
+						{#if errors.positionId}
+							<span class="error-message">{errors.positionId}</span>
+						{/if}
+					</div>
 				</div>
 			</div>
 
@@ -1546,6 +1521,44 @@
 
 	.icon {
 		font-size: 16px;
+	}
+
+	.checkbox-group {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		padding: 8px;
+		border-radius: 6px;
+		transition: background-color 0.2s;
+	}
+
+	.checkbox-label:hover {
+		background: #f9fafb;
+	}
+
+	.form-checkbox {
+		width: 18px;
+		height: 18px;
+		cursor: pointer;
+		accent-color: #3b82f6;
+	}
+
+	.form-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.checkbox-hint {
+		color: #6b7280;
+		font-size: 12px;
+		margin-left: 4px;
 	}
 
 	@media (max-width: 768px) {

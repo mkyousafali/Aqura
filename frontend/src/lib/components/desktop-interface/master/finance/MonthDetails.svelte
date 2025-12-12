@@ -39,7 +39,7 @@
 	let selectedDate = null; // Track which date is currently selected/highlighted
 	
 	// Check if current user is Master Admin
-	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 	
 	// Filter state
 	let filterBranch = '';

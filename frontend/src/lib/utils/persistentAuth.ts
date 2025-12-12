@@ -14,7 +14,8 @@ interface DatabaseUser {
   user_type: "global" | "branch_specific";
   employee_id?: string;
   branch_id?: number;
-  role_type: "Master Admin" | "Admin" | "Position-based";
+  is_master_admin: boolean;
+  is_admin: boolean;
   position_id?: string;
   avatar?: string;
   status: "active" | "inactive" | "locked";
@@ -30,7 +31,8 @@ interface DatabaseUserView {
   username: string;
   employee_name: string;
   branch_name: string;
-  role_type: "Master Admin" | "Admin" | "Position-based";
+  is_master_admin: boolean;
+  is_admin: boolean;
   status: "active" | "inactive" | "locked";
   avatar?: string;
   last_login?: string;
@@ -62,8 +64,8 @@ export interface UserSession {
   id: string;
   username: string;
   email?: string;
-  role?: string;
-  roleType?: string;
+  isMasterAdmin?: boolean;
+  isAdmin?: boolean;
   userType?: string;
   avatar?: string;
   employeeName?: string;
@@ -175,7 +177,8 @@ export class PersistentAuthService {
 					user_type,
 					employee_id,
 					branch_id,
-					role_type,
+					is_master_admin,
+					is_admin,
 					position_id,
 					avatar
 				`,
@@ -250,7 +253,8 @@ export class PersistentAuthService {
       try {
         await supabase.rpc('set_user_context', {
           user_id: dbUser.id,
-          role_type: userDetails.role_type
+          is_master_admin: dbUser.is_master_admin || false,
+          is_admin: dbUser.is_admin || false
         });
         console.log("✅ [PersistentAuth] User context set successfully for RLS");
       } catch (contextError) {
@@ -266,8 +270,8 @@ export class PersistentAuthService {
       const userSession: UserSession = {
         id: userDetails.id,
         username: userDetails.username,
-        role: userDetails.role_type,
-        roleType: userDetails.role_type,
+        isMasterAdmin: userDetails.is_master_admin,
+        isAdmin: userDetails.is_admin,
         userType: userDetails.user_type,
         avatar: userDetails.avatar,
         employeeName: userDetails.employee_name,
@@ -468,8 +472,8 @@ export class PersistentAuthService {
       const userSession: UserSession = {
         id: userDetails.id,
         username: userDetails.username,
-        role: userDetails.role_type,
-        roleType: userDetails.role_type,
+        isMasterAdmin: userDetails.is_master_admin,
+        isAdmin: userDetails.is_admin,
         userType: "customer",
         avatar: userDetails.avatar,
         employeeName: userDetails.employee_name,
@@ -557,9 +561,9 @@ export class PersistentAuthService {
           `
 					id,
 					username,
-					email,
-					role,
-					role_type,
+					is_master_admin,
+					is_admin,
+					user_type,
 					hr_employees (
 						id,
 						employee_id,
@@ -579,7 +583,8 @@ export class PersistentAuthService {
       try {
         await supabase.rpc('set_user_context', {
           user_id: userData.id,
-          role_type: userData.role_type
+          is_master_admin: userData.is_master_admin || false,
+          is_admin: userData.is_admin || false
         });
         console.log("✅ [PersistentAuth] User context set successfully for RLS");
       } catch (contextError) {
@@ -613,8 +618,9 @@ export class PersistentAuthService {
       const userSession: UserSession = {
         id: userData.id,
         username: userData.username,
-        role: userData.role,
-        roleType: userData.role_type,
+        isMasterAdmin: userData.is_master_admin,
+        isAdmin: userData.is_admin,
+        userType: userData.user_type,
         employee_id: userData.hr_employees?.[0]?.employee_id,
         branch_id: userData.hr_employees?.[0]?.branch_id,
         loginTime: new Date().toISOString(),

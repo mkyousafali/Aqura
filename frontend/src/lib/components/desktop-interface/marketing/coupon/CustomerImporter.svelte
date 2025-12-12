@@ -274,7 +274,7 @@
 
 	// Delete customer from campaign
 	async function handleDeleteCustomer(customerId: string) {
-		if (get(currentUser)?.roleType !== 'Master Admin') {
+		if (!get(currentUser)?.isMasterAdmin) {
 			notifications.add({
 				message: t('coupon.notAuthorized'),
 				type: 'error'
@@ -590,21 +590,21 @@
 								<div class="flex-1 overflow-y-auto space-y-2 pr-2 min-w-0">
 									{#each importedCustomers as customer, idx}
 										<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-orange-50 transition-colors duration-300 flex-shrink-0 {idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'} min-w-0 group">
-											<span class="text-sm font-bold text-orange-500 flex-shrink-0">✔️</span>
-											<span class="font-mono text-xs text-gray-700 flex-1 truncate">{customer.mobile_number || customer.phone || 'N/A'}</span>
-											{#if currentUserData?.roleType === 'Master Admin'}
-												<button
-													onclick={() => handleDeleteCustomer(customer.id)}
+										<span class="text-sm font-bold text-orange-500 flex-shrink-0">✔️</span>
+										<span class="font-mono text-xs text-gray-700 flex-1 truncate">{customer.mobile_number || customer.phone || 'N/A'}</span>
+										{#if currentUserData?.isMasterAdmin}
+											<button
+												onclick={() => handleDeleteCustomer(customer.id)}
 													disabled={deletingCustomerId === customer.id}
 													class="text-xs text-red-500 hover:text-red-700 hover:bg-red-100 px-2 py-1 rounded transition-all duration-300 disabled:opacity-50 flex-shrink-0 font-semibold"
 													title="Delete customer"
 												>
 													{deletingCustomerId === customer.id ? '⏳' : '✕'}
-												</button>
-											{:else}
-												<span class="text-xs text-gray-400 flex-shrink-0">{currentUserData?.roleType || 'No role'}</span>
-											{/if}
-											<span class="text-xs text-gray-400 font-semibold flex-shrink-0">{idx + 1}</span>
+											</button>
+										{:else}
+											<span class="text-xs text-gray-400 flex-shrink-0">{currentUserData?.isMasterAdmin ? 'Master Admin' : currentUserData?.isAdmin ? 'Admin' : 'User'}</span>
+										{/if}
+										<span class="text-xs text-gray-400 font-semibold flex-shrink-0">{idx + 1}</span>
 										</div>
 									{/each}
 								</div>

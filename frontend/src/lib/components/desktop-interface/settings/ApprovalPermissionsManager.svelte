@@ -12,7 +12,7 @@
 	let permissionFilter = 'all'; // all, with-permissions, without-permissions
 
 	// Check if current user is master admin
-	$: isMasterAdmin = $currentUser?.roleType === 'Master Admin';
+	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 
 	onMount(async () => {
 		if (!isMasterAdmin) {

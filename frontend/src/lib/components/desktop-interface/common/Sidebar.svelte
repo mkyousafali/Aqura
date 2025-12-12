@@ -221,6 +221,73 @@
 	// Re-check approval permission when user changes
 	$: if ($currentUser) {
 		checkApprovalPermission();
+		loadButtonPermissions();
+	}
+
+	// Button permissions state
+	let allowedButtonCodes: Set<string> = new Set();
+	let buttonPermissionsLoaded = false;
+
+	// Load button permissions for current user
+	async function loadButtonPermissions() {
+		if (!$currentUser?.id) {
+			allowedButtonCodes = new Set();
+			buttonPermissionsLoaded = false;
+			return;
+		}
+
+		console.log('🔍 [Sidebar] Loading button permissions for user:', $currentUser.id);
+
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: permissions, error } = await supabase
+				.from('button_permissions')
+				.select('button_id')
+				.eq('user_id', $currentUser.id)
+				.eq('is_enabled', true);
+
+			console.log('🔍 [Sidebar] Button permissions:', permissions?.length, 'enabled');
+
+			if (error) {
+				console.error('❌ [Sidebar] Error fetching button permissions:', error);
+				allowedButtonCodes = new Set();
+			} else if (permissions && permissions.length > 0) {
+				// Map button_ids to button codes
+				const buttonIds = permissions.map(p => p.button_id);
+				const { data: buttons, error: btnError } = await supabase
+					.from('sidebar_buttons')
+					.select('id, button_code')
+					.in('id', buttonIds);
+
+				if (btnError) {
+					console.error('❌ [Sidebar] Error fetching button codes:', btnError);
+					allowedButtonCodes = new Set();
+				} else if (buttons) {
+					allowedButtonCodes = new Set(buttons.map(b => b.button_code));
+					console.log('✅ [Sidebar] Loaded', allowedButtonCodes.size, 'allowed button codes');
+				}
+			} else {
+				console.warn('⚠️  [Sidebar] No button permissions found');
+				allowedButtonCodes = new Set();
+			}
+			buttonPermissionsLoaded = true;
+		} catch (err) {
+			console.error('❌ [Sidebar] Error loading button permissions:', err);
+			allowedButtonCodes = new Set();
+			buttonPermissionsLoaded = true;
+		}
+	}
+
+	// Helper function to check if a button is allowed
+	function isButtonAllowed(buttonCode: string): boolean {
+		// If no permissions loaded yet, show all buttons (allow full access initially)
+		if (!buttonPermissionsLoaded) return true;
+		
+		// If permissions loaded but set is empty, user has no permissions
+		if (allowedButtonCodes.size === 0) return false;
+		
+		// Check if button code is in allowed set
+		return allowedButtonCodes.has(buttonCode);
 	}
 
 	// Switch to mobile interface
@@ -2139,31 +2206,39 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showDeliveryManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCustomerMaster}>
-								<span class="menu-icon">🤝</span>
-								<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openAdManager}>
-								<span class="menu-icon">📢</span>
-								<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openProductsManager}>
-								<span class="menu-icon">🛍️</span>
-								<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openDeliverySettings}>
-								<span class="menu-icon">📦</span>
-								<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
-							</button>
-						</div>
+					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
+						{#if isButtonAllowed('CUSTOMER_MASTER')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openCustomerMaster}>
+									<span class="menu-icon">🤝</span>
+									<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('AD_MANAGER')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openAdManager}>
+									<span class="menu-icon">📢</span>
+									<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('PRODUCTS_MANAGER')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openProductsManager}>
+									<span class="menu-icon">🛍️</span>
+									<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('DELIVERY_SETTINGS')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openDeliverySettings}>
+									<span class="menu-icon">📦</span>
+									<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
+								</button>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}
@@ -2190,19 +2265,23 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showDeliveryOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openOrdersManager}>
-								<span class="menu-icon">🛒</span>
-								<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openOfferManagement}>
-								<span class="menu-icon">🎁</span>
-								<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
-							</button>
-						</div>
+					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
+						{#if isButtonAllowed('ORDERS_MANAGER')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openOrdersManager}>
+									<span class="menu-icon">🛒</span>
+									<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('OFFER_MANAGEMENT')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openOfferManagement}>
+									<span class="menu-icon">🎁</span>
+									<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
+								</button>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}
@@ -3604,7 +3683,7 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showControlsManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.roleType === 'Master Admin' || $currentUser?.roleType === 'Admin'}
+					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBranches}>
 								<span class="menu-icon">🏢</span>
@@ -3624,7 +3703,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if $currentUser?.roleType === 'Master Admin'}
+					{#if $currentUser?.isMasterAdmin}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openClearTables}>
 								<span class="menu-icon">🗑️</span>
