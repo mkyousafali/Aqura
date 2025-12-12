@@ -2351,12 +2351,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showVendorDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openReceiving}>
-							<span class="menu-icon">📦</span>
-							<span class="menu-text">Receiving</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('RECEIVING')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openReceiving}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">Receiving</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2382,24 +2384,30 @@ function openApprovalCenter() {
 			<!-- Manager Subsection Items -->
 			{#if showVendorManagerSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openUploadVendor}>
-							<span class="menu-icon">📤</span>
-							<span class="menu-text">{t('admin.uploadVendor') || 'Upload Vendor'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateVendor}>
-							<span class="menu-icon">➕</span>
-							<span class="menu-text">{t('admin.createVendor') || 'Create Vendor'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openManageVendor}>
-							<span class="menu-icon">📋</span>
-							<span class="menu-text">{t('admin.manageVendor') || 'Manage Vendor'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('UPLOAD_VENDOR')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openUploadVendor}>
+								<span class="menu-icon">📤</span>
+								<span class="menu-text">{t('admin.uploadVendor') || 'Upload Vendor'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_VENDOR')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateVendor}>
+								<span class="menu-icon">➕</span>
+								<span class="menu-text">{t('admin.createVendor') || 'Create Vendor'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MANAGE_VENDOR')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageVendor}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('admin.manageVendor') || 'Manage Vendor'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2425,18 +2433,22 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showVendorOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openStartReceiving}>
-							<span class="menu-icon">🚀</span>
-							<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openReceivingRecords}>
-							<span class="menu-icon">📋</span>
-							<span class="menu-text">Receiving Records</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('START_RECEIVING')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStartReceiving}>
+								<span class="menu-icon">🚀</span>
+								<span class="menu-text">{t('nav.startReceiving') || 'Start Receiving'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('RECEIVING_RECORDS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openReceivingRecords}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">Receiving Records</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2462,12 +2474,14 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showVendorReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openVendorRecords}>
-							<span class="menu-icon">📋</span>
-							<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('VENDOR_RECORDS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openVendorRecords}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('reports.vendorRecords') || 'Vendor Records'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -2507,19 +2521,19 @@ function openApprovalCenter() {
 				</button>
 			</div>
 
-			<!-- Dashboard Subsection Items -->
-			{#if showMediaDashboardSubmenu}
-				<div class="submenu-subitem-container">
+		<!-- Dashboard Subsection Items -->
+		{#if showMediaDashboardSubmenu}
+			<div class="submenu-subitem-container">
+				{#if isButtonAllowed('FLYER_MASTER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openFlyerMaster}>
 							<span class="menu-icon">🏷️</span>
 							<span class="menu-text">Flyer Master</span>
 						</button>
 					</div>
-				</div>
-			{/if}
-
-			<!-- Manage Subsection -->
+				{/if}
+			</div>
+		{/if}			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
@@ -2541,36 +2555,46 @@ function openApprovalCenter() {
 			<!-- Manager Subsection Items -->
 			{#if showMediaManageSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openProductMaster}>
-							<span class="menu-icon">📦</span>
-							<span class="menu-text">Product Master</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openVariationManager}>
-							<span class="menu-icon">🔗</span>
-							<span class="menu-text">Variation Manager</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOfferManager}>
-							<span class="menu-icon">🎯</span>
-							<span class="menu-text">Offer Manager</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openFlyerTemplates}>
-							<span class="menu-icon">🎨</span>
-							<span class="menu-text">Flyer Templates</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openFlyerSettings}>
-							<span class="menu-icon">⚙️</span>
-							<span class="menu-text">Settings</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('PRODUCT_MASTER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductMaster}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">Product Master</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('VARIATION_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openVariationManager}>
+								<span class="menu-icon">🔗</span>
+								<span class="menu-text">Variation Manager</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('OFFER_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOfferManager}>
+								<span class="menu-icon">🎯</span>
+								<span class="menu-text">Offer Manager</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('FLYER_TEMPLATES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openFlyerTemplates}>
+								<span class="menu-icon">🎨</span>
+								<span class="menu-text">Flyer Templates</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('FLYER_SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openFlyerSettings}>
+								<span class="menu-icon">⚙️</span>
+								<span class="menu-text">Settings</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2596,36 +2620,46 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showMediaOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOfferProductEditor}>
-							<span class="menu-icon">✅</span>
-							<span class="menu-text">Offer Product Editor</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateNewOffer}>
-							<span class="menu-icon">🏷️</span>
-							<span class="menu-text">Create New Offer</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openPricingManager}>
-							<span class="menu-icon">💵</span>
-							<span class="menu-text">Pricing Manager</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openGenerateFlyers}>
-							<span class="menu-icon">📄</span>
-							<span class="menu-text">Generate Flyers</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openShelfPaperManager}>
-							<span class="menu-icon">🏷️</span>
-							<span class="menu-text">Shelf Paper Manager</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('OFFER_PRODUCT_EDITOR')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOfferProductEditor}>
+								<span class="menu-icon">✅</span>
+								<span class="menu-text">Offer Product Editor</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_NEW_OFFER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateNewOffer}>
+								<span class="menu-icon">🏷️</span>
+								<span class="menu-text">Create New Offer</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PRICING_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPricingManager}>
+								<span class="menu-icon">💵</span>
+								<span class="menu-text">Pricing Manager</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('GENERATE_FLYERS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openGenerateFlyers}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">Generate Flyers</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SHELF_PAPER_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openShelfPaperManager}>
+								<span class="menu-icon">🏷️</span>
+								<span class="menu-text">Shelf Paper Manager</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2688,12 +2722,14 @@ function openApprovalCenter() {
 		<!-- Dashboard Subsection Items -->
 		{#if showPromoDashboardSubmenu}
 			<div class="submenu-subitem-container">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCouponDashboardPromo}>
-						<span class="menu-icon">🎁</span>
-						<span class="menu-text">Coupon Dashboard</span>
-					</button>
-				</div>
+				{#if isButtonAllowed('COUPON_DASHBOARD_PROMO')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCouponDashboardPromo}>
+							<span class="menu-icon">🎁</span>
+							<span class="menu-text">Coupon Dashboard</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -2719,12 +2755,14 @@ function openApprovalCenter() {
 		<!-- Manage Subsection Items -->
 		{#if showPromoManageSubmenu}
 			<div class="submenu-subitem-container">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCampaignManager}>
-						<span class="menu-icon">📋</span>
-						<span class="menu-text">Manage Campaigns</span>
-					</button>
-				</div>
+				{#if isButtonAllowed('CAMPAIGN_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCampaignManager}>
+							<span class="menu-icon">📋</span>
+							<span class="menu-text">Manage Campaigns</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -2750,18 +2788,22 @@ function openApprovalCenter() {
 		<!-- Operations Subsection Items -->
 		{#if showPromoOperationsSubmenu}
 			<div class="submenu-subitem-container">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCustomerImporter}>
-						<span class="menu-icon">👥</span>
-						<span class="menu-text">Import Customers</span>
-					</button>
-				</div>
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openProductManagerPromo}>
-						<span class="menu-icon">🎁</span>
-						<span class="menu-text">Manage Products</span>
-					</button>
-				</div>
+				{#if isButtonAllowed('CUSTOMER_IMPORTER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCustomerImporter}>
+							<span class="menu-icon">👥</span>
+							<span class="menu-text">Import Customers</span>
+						</button>
+					</div>
+				{/if}
+				{#if isButtonAllowed('PRODUCT_MANAGER_PROMO')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openProductManagerPromo}>
+							<span class="menu-icon">🎁</span>
+							<span class="menu-text">Manage Products</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -2787,12 +2829,14 @@ function openApprovalCenter() {
 		<!-- Reports Subsection Items -->
 		{#if showPromoReportsSubmenu}
 			<div class="submenu-subitem-container">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openCouponReports}>
-						<span class="menu-icon">📊</span>
-						<span class="menu-text">Reports & Stats</span>
-					</button>
-				</div>
+				{#if isButtonAllowed('COUPON_REPORTS')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openCouponReports}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">Reports & Stats</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -2885,36 +2929,46 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showFinanceOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openManualScheduling}>
-							<span class="menu-icon">📅</span>
-							<span class="menu-text">Manual Scheduling</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openDayBudgetPlanner}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">Day Budget Planner</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openMonthlyManager}>
-							<span class="menu-icon">📅</span>
-							<span class="menu-text">{t('nav.monthlyManager') || 'Monthly Manager'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openExpenseManager}>
-							<span class="menu-icon">💸</span>
-							<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openPaidManager}>
-							<span class="menu-icon">💳</span>
-							<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('MANUAL_SCHEDULING')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManualScheduling}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">Manual Scheduling</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DAY_BUDGET_PLANNER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDayBudgetPlanner}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">Day Budget Planner</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MONTHLY_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openMonthlyManager}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">{t('nav.monthlyManager') || 'Monthly Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EXPENSE_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openExpenseManager}>
+								<span class="menu-icon">💸</span>
+								<span class="menu-text">{t('nav.expenseManager') || 'Expense Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PAID_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPaidManager}>
+								<span class="menu-icon">💳</span>
+								<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -2936,36 +2990,46 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showFinanceReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openExpenseTracker}>
-							<span class="menu-icon">💰</span>
-							<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openSalesReport}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openMonthlyBreakdown}>
-							<span class="menu-icon">📅</span>
-							<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openOverduesReport}>
-							<span class="menu-icon">⏰</span>
-							<span class="menu-text">Over dues</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openVendorPendingPayments}>
-							<span class="menu-icon">💳</span>
-							<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('EXPENSE_TRACKER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openExpenseTracker}>
+								<span class="menu-icon">💰</span>
+								<span class="menu-text">{t('reports.expenseTracker') || 'Expense Tracker'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SALES_REPORT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSalesReport}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MONTHLY_BREAKDOWN')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openMonthlyBreakdown}>
+								<span class="menu-icon">📅</span>
+								<span class="menu-text">{t('nav.monthlyBreakdown') || 'Monthly Breakdown'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('OVERDUES_REPORT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOverduesReport}>
+								<span class="menu-icon">⏰</span>
+								<span class="menu-text">Over dues</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('VENDOR_PENDING_PAYMENTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openVendorPendingPayments}>
+								<span class="menu-icon">💳</span>
+								<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -3034,66 +3098,86 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showHRManageSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openUploadEmployees}>
-							<span class="menu-icon">👥</span>
-							<span class="menu-text">Upload Employees</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateDepartment}>
-							<span class="menu-icon">🏢</span>
-							<span class="menu-text">Create Department</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateLevel}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">Create Level</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreatePosition}>
-							<span class="menu-icon">💼</span>
-							<span class="menu-text">Create Position</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openReportingMap}>
-							<span class="menu-icon">📈</span>
-							<span class="menu-text">Reporting Map</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openAssignPositions}>
-							<span class="menu-icon">🎯</span>
-							<span class="menu-text">Assign Positions</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openContactManagement}>
-							<span class="menu-icon">📞</span>
-							<span class="menu-text">Contact Management</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openDocumentManagement}>
-							<span class="menu-icon">📄</span>
-							<span class="menu-text">Document Management</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openSalaryManagement}>
-							<span class="menu-icon">💰</span>
-							<span class="menu-text">Salary & Wage Management</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openWarningMaster}>
-							<span class="menu-icon">⚠️</span>
-							<span class="menu-text">Warning Master</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('UPLOAD_EMPLOYEES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openUploadEmployees}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">Upload Employees</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_DEPARTMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateDepartment}>
+								<span class="menu-icon">🏢</span>
+								<span class="menu-text">Create Department</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_LEVEL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateLevel}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">Create Level</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_POSITION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreatePosition}>
+								<span class="menu-icon">💼</span>
+								<span class="menu-text">Create Position</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('REPORTING_MAP')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openReportingMap}>
+								<span class="menu-icon">📈</span>
+								<span class="menu-text">Reporting Map</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ASSIGN_POSITIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAssignPositions}>
+								<span class="menu-icon">🎯</span>
+								<span class="menu-text">Assign Positions</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CONTACT_MANAGEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openContactManagement}>
+								<span class="menu-icon">📞</span>
+								<span class="menu-text">Contact Management</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DOCUMENT_MANAGEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDocumentManagement}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">Document Management</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SALARY_MANAGEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSalaryManagement}>
+								<span class="menu-icon">💰</span>
+								<span class="menu-text">Salary & Wage Management</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('WARNING_MASTER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openWarningMaster}>
+								<span class="menu-icon">⚠️</span>
+								<span class="menu-text">Warning Master</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3145,18 +3229,22 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showHRReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openBiometricData}>
-							<span class="menu-icon">👆</span>
-							<span class="menu-text">Biometric Data</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openExportBiometricData}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">Export Biometric Data</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('BIOMETRIC_DATA')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBiometricData}>
+								<span class="menu-icon">👆</span>
+								<span class="menu-text">Biometric Data</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('EXPORT_BIOMETRIC_DATA')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openExportBiometricData}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">Export Biometric Data</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -3199,12 +3287,14 @@ function openApprovalCenter() {
 		<!-- Dashboard Subsection Items -->
 		{#if showTasksDashboardSubmenu}
 			<div class="submenu-subitem-container">
-				<div class="submenu-item-container">
-					<button class="submenu-item" on:click={openTaskMaster}>
-						<span class="menu-icon">✅</span>
-						<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
-					</button>
-				</div>
+				{#if isButtonAllowed('TASK_MASTER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openTaskMaster}>
+							<span class="menu-icon">✅</span>
+							<span class="menu-text">{t('admin.taskMaster') || 'Task Master'}</span>
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}			<!-- Manage Subsection -->
 			<div class="submenu-item-container">
@@ -3228,18 +3318,22 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showTasksManageSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateTask}>
-							<span class="menu-icon">✨</span>
-							<span class="menu-text">Create Task Template</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openViewTasks}>
-							<span class="menu-icon">📋</span>
-							<span class="menu-text">View Task Templates</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('CREATE_TASK')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateTask}>
+								<span class="menu-icon">✨</span>
+								<span class="menu-text">Create Task Template</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('VIEW_TASKS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openViewTasks}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">View Task Templates</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3265,12 +3359,14 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showTasksOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openAssignTasks}>
-							<span class="menu-icon">👥</span>
-							<span class="menu-text">Assign Tasks</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('ASSIGN_TASKS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAssignTasks}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">Assign Tasks</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3292,30 +3388,38 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showTasksReportsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openMyTasks}>
-							<span class="menu-icon">📝</span>
-							<span class="menu-text">View My Tasks</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openMyAssignments}>
-							<span class="menu-icon">👨‍💼</span>
-							<span class="menu-text">View My Assignments</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openTaskStatus}>
-							<span class="menu-icon">📊</span>
-							<span class="menu-text">Task Status</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openBranchPerformanceWindow}>
-							<span class="menu-icon">🏥</span>
-							<span class="menu-text">Branch Performance</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('MY_TASKS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openMyTasks}>
+								<span class="menu-icon">📝</span>
+								<span class="menu-text">View My Tasks</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MY_ASSIGNMENTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openMyAssignments}>
+								<span class="menu-icon">👨‍💼</span>
+								<span class="menu-text">View My Assignments</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('TASK_STATUS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openTaskStatus}>
+								<span class="menu-icon">📊</span>
+								<span class="menu-text">Task Status</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('BRANCH_PERFORMANCE_WINDOW')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBranchPerformanceWindow}>
+								<span class="menu-icon">🏥</span>
+								<span class="menu-text">Branch Performance</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -3358,12 +3462,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showNotificationsDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCommunicationCenter}>
-							<span class="menu-icon">📞</span>
-							<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('COMMUNICATION_CENTER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCommunicationCenter}>
+								<span class="menu-icon">📞</span>
+								<span class="menu-text">{t('admin.communicationCenter') || 'Com Center'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3484,12 +3590,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showUserDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openUserManagement}>
-							<span class="menu-icon">👤</span>
-							<span class="menu-text">Users</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('USER_MANAGEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openUserManagement}>
+								<span class="menu-icon">👤</span>
+								<span class="menu-text">Users</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3515,54 +3623,70 @@ function openApprovalCenter() {
 			<!-- Manager Subsection Items -->
 			{#if showUserManageSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateUser}>
-							<span class="menu-icon">👤</span>
-							<span class="menu-text">Create User</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openAssignRoles}>
-							<span class="menu-icon">🎯</span>
-							<span class="menu-text">Assign Roles</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openCreateUserRoles}>
-							<span class="menu-icon">🔘</span>
-							<span class="menu-text">Create User Roles</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openManageAdminUsers}>
-							<span class="menu-icon">👥</span>
-							<span class="menu-text">Manage Admin Users</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openManageMasterAdmin}>
-							<span class="menu-icon">🔐</span>
-							<span class="menu-text">Manage Master Admin</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openInterfaceAccessManager}>
-							<span class="menu-icon">🔧</span>
-							<span class="menu-text">Interface Access</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openApprovalPermissions}>
-							<span class="menu-icon">🔐</span>
-							<span class="menu-text">Approval Permissions</span>
-						</button>
-					</div>
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openUserPermissions}>
-							<span class="menu-icon">👥</span>
-							<span class="menu-text">User Permissions</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('CREATE_USER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateUser}>
+								<span class="menu-icon">👤</span>
+								<span class="menu-text">Create User</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ASSIGN_ROLES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAssignRoles}>
+								<span class="menu-icon">🎯</span>
+								<span class="menu-text">Assign Roles</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CREATE_USER_ROLES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateUserRoles}>
+								<span class="menu-icon">🔘</span>
+								<span class="menu-text">Create User Roles</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MANAGE_ADMIN_USERS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageAdminUsers}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">Manage Admin Users</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('MANAGE_MASTER_ADMIN')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openManageMasterAdmin}>
+								<span class="menu-icon">🔐</span>
+								<span class="menu-text">Manage Master Admin</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('INTERFACE_ACCESS_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openInterfaceAccessManager}>
+								<span class="menu-icon">🔧</span>
+								<span class="menu-text">Interface Access</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('APPROVAL_PERMISSIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openApprovalPermissions}>
+								<span class="menu-icon">🔐</span>
+								<span class="menu-text">Approval Permissions</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('USER_PERMISSIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openUserPermissions}>
+								<span class="menu-icon">👥</span>
+								<span class="menu-text">User Permissions</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3684,44 +3808,56 @@ function openApprovalCenter() {
 			{#if showControlsManageSubmenu}
 				<div class="submenu-subitem-container">
 					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBranches}>
-								<span class="menu-icon">🏢</span>
-								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openSettings}>
-								<span class="menu-icon">🔊</span>
-								<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openERPConnections}>
-								<span class="menu-icon">🔌</span>
-								<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
-							</button>
-						</div>
+						{#if isButtonAllowed('BRANCHES')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openBranches}>
+									<span class="menu-icon">🏢</span>
+									<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('SETTINGS')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openSettings}>
+									<span class="menu-icon">🔊</span>
+									<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('E_R_P_CONNECTIONS')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openERPConnections}>
+									<span class="menu-icon">🔌</span>
+									<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
+								</button>
+							</div>
+						{/if}
 					{/if}
 					{#if $currentUser?.isMasterAdmin}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openClearTables}>
-								<span class="menu-icon">🗑️</span>
-								<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openButtonAccessControl}>
-								<span class="menu-icon">🎛️</span>
-								<span class="menu-text">Button Access Control</span>
-							</button>
-						</div>
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openButtonGenerator}>
-								<span class="menu-icon">🔨</span>
-								<span class="menu-text">Button Generator</span>
-							</button>
-						</div>
+						{#if isButtonAllowed('CLEAR_TABLES')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openClearTables}>
+									<span class="menu-icon">🗑️</span>
+									<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openButtonAccessControl}>
+									<span class="menu-icon">🎛️</span>
+									<span class="menu-text">Button Access Control</span>
+								</button>
+							</div>
+						{/if}
+						{#if isButtonAllowed('BUTTON_GENERATOR')}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openButtonGenerator}>
+									<span class="menu-icon">🔨</span>
+									<span class="menu-text">Button Generator</span>
+								</button>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}

@@ -20,7 +20,8 @@ interface CreateNotificationRequest {
     | "assignment_updated"
     | "deadline_reminder"
     | "assignment_rejected"
-    | "assignment_approved";
+    | "assignment_approved"
+    | "approval_request";
   priority: "low" | "medium" | "high" | "urgent";
   target_type:
     | "all_users"
@@ -61,7 +62,8 @@ interface NotificationItem {
     | "assignment_updated"
     | "deadline_reminder"
     | "assignment_rejected"
-    | "assignment_approved";
+    | "assignment_approved"
+    | "approval_request";
   priority: "low" | "medium" | "high" | "urgent";
   status: "draft" | "published" | "scheduled" | "expired" | "cancelled";
   target_type: string;
@@ -94,7 +96,8 @@ interface UserNotificationItem {
     | "assignment_updated"
     | "deadline_reminder"
     | "assignment_rejected"
-    | "assignment_approved";
+    | "assignment_approved"
+    | "approval_request";
   priority: "low" | "medium" | "high" | "urgent";
   is_read: boolean;
   read_at?: string;
@@ -346,7 +349,7 @@ export class NotificationManagementService {
         );
         const { data: uuidUser, error: uuidError } = await supabase
           .from("users")
-          .select("id, username")
+          .select("id, username, is_master_admin, is_admin")
           .eq("id", createdBy)
           .maybeSingle();
 
@@ -367,7 +370,7 @@ export class NotificationManagementService {
         // Get user UUID - createdBy could be username or employee name
         const { data: usernameUser, error: userError } = await supabase
           .from("users")
-          .select("id, username")
+          .select("id, username, is_master_admin, is_admin")
           .eq("username", createdBy)
           .maybeSingle();
 
@@ -398,7 +401,9 @@ export class NotificationManagementService {
           .select(
             `
 						id, 
-						username, 
+						username,
+						is_master_admin,
+						is_admin, 
 						hr_employees!inner(name)
 					`,
           )
@@ -415,7 +420,7 @@ export class NotificationManagementService {
           // Try case-insensitive username search as final fallback
           const { data: caseInsensitiveUser, error: caseError } = await supabase
             .from("users")
-            .select("id, username")
+            .select("id, username, is_master_admin, is_admin")
             .ilike("username", createdBy)
             .maybeSingle();
 
@@ -455,6 +460,7 @@ export class NotificationManagementService {
 
       const currentUserId = userData.id; // Use UUID from database
       const currentUserName = userData.username;
+      const currentUserRole = userData.is_master_admin ? 'Master Admin' : userData.is_admin ? 'Admin' : 'User';
 
       // Fix enum values to match database schema
       let validType = notification.type;
@@ -475,6 +481,7 @@ export class NotificationManagementService {
           "leave_rejected",
           "document_uploaded",
           "meeting_scheduled",
+          "approval_request",
         ].includes(notification.type)
       ) {
         validType = "info"; // Default fallback

@@ -54,7 +54,8 @@
 					users!approval_permissions_user_id_fkey (
 						id,
 						username,
-						role_type
+						is_master_admin,
+						is_admin
 					)
 				`)
 				.eq('can_approve_vendor_payments', true)

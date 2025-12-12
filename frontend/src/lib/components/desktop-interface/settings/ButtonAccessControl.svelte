@@ -17,7 +17,7 @@
 	let totalUsers = 0;
 	let filterTimeout: any = null;
 	let searchTimeout: any = null;
-	let selectedUserId: string | null = null;
+	let selectedUserIds: Set<string> = new Set();
 	let currentStep = 1;
 	let allButtons: any[] = [];
 	let permittedButtons: any[] = [];
@@ -213,11 +213,16 @@
 	}
 
 	function selectUser(userId: string) {
-		selectedUserId = selectedUserId === userId ? null : userId;
+		if (selectedUserIds.has(userId)) {
+			selectedUserIds.delete(userId);
+		} else {
+			selectedUserIds.add(userId);
+		}
+		selectedUserIds = selectedUserIds; // Trigger reactivity
 	}
 
 	function goToStep2() {
-		if (selectedUserId) {
+		if (selectedUserIds.size > 0) {
 			currentStep = 2;
 			loadButtonPermissions();
 		}
@@ -226,8 +231,8 @@
 	async function loadButtonPermissions() {
 		buttonsLoading = true;
 		try {
-			// Fetch all buttons from API - pass current user ID for permission filtering
-			const userId = selectedUserId || '';
+			// Fetch all buttons from API - pass first selected user ID for permission filtering
+			const userId = Array.from(selectedUserIds)[0] || '';
 			const response = await fetch(`/api/parse-sidebar?userId=${userId}`);
 			const data = await response.json();
 			
@@ -275,18 +280,18 @@
 
 			console.log('Button code to ID map size:', buttonCodeToIdMap.size);
 
-			// Fetch user's permissions
+			// Fetch permissions for all selected users
 			const { data: permissions, error } = await supabase
 				.from('button_permissions')
 				.select('button_id, is_enabled')
-				.eq('user_id', selectedUserId);
+				.in('user_id', Array.from(selectedUserIds));
 
 			if (error) {
 				console.error('Error fetching permissions:', error);
 				return;
 			}
 
-			console.log('User permissions count:', permissions?.length);
+			console.log('Permissions count for selected users:', permissions?.length);
 
 			// Create a set of enabled button IDs
 			const enabledButtonIds = new Set();
@@ -338,7 +343,7 @@
 			
 			console.log('Enabling button codes:', buttonCodesToEnable);
 
-			// Update permissions to true for selected buttons
+			// Update permissions to true for selected buttons for ALL selected users
 			for (const buttonCode of buttonCodesToEnable) {
 				const buttonId = buttonCodeToIdMap.get(buttonCode);
 				
@@ -347,18 +352,19 @@
 					continue;
 				}
 
-				console.log(`Updating button ${buttonCode} (ID: ${buttonId}) to enabled`);
+				console.log(`Updating button ${buttonCode} (ID: ${buttonId}) to enabled for ${selectedUserIds.size} users`);
 
-				const { error } = await supabase
-					.from('button_permissions')
-					.update({ is_enabled: true })
-					.eq('user_id', selectedUserId)
-					.eq('button_id', buttonId);
+				// Update for all selected users
+				for (const userId of selectedUserIds) {
+					const { error } = await supabase
+						.from('button_permissions')
+						.update({ is_enabled: true })
+						.eq('user_id', userId)
+						.eq('button_id', buttonId);
 
-				if (error) {
-					console.error(`Error updating button ${buttonId}:`, error);
-				} else {
-					console.log(`Successfully updated button ${buttonCode}`);
+					if (error) {
+						console.error(`Error updating button ${buttonId} for user ${userId}:`, error);
+					}
 				}
 			}
 
@@ -381,21 +387,24 @@
 				return;
 			}
 
-			console.log(`Disabling button ${buttonCode} (ID: ${buttonId})`);
+			console.log(`Disabling button ${buttonCode} (ID: ${buttonId}) for ${selectedUserIds.size} users`);
 
-			const { error } = await supabase
-				.from('button_permissions')
-				.update({ is_enabled: false })
-				.eq('user_id', selectedUserId)
-				.eq('button_id', buttonId);
+			// Disable for all selected users
+			for (const userId of selectedUserIds) {
+				const { error } = await supabase
+					.from('button_permissions')
+					.update({ is_enabled: false })
+					.eq('user_id', userId)
+					.eq('button_id', buttonId);
 
-			if (error) {
-				console.error(`Error disabling button ${buttonId}:`, error);
-			} else {
-				console.log(`Successfully disabled button ${buttonCode}`);
-				// Reload permissions
-				await loadButtonPermissions();
+				if (error) {
+					console.error(`Error disabling button ${buttonId} for user ${userId}:`, error);
+				}
 			}
+			
+			console.log(`Successfully disabled button ${buttonCode} for all selected users`);
+			// Reload permissions
+			await loadButtonPermissions();
 		} catch (err) {
 			console.error('Error disabling permission:', err);
 		}
@@ -442,14 +451,6 @@
 	</div>
 
 	<div class="card">
-		<select bind:value={selectedRole} class="branch-select">
-			<option value="">All Roles</option>
-			{#each roles as role (role.id)}
-				<option value={role.id}>{role.role_name}</option>
-			{/each}
-		</select>
-	</div>
-	<div class="card">
 		<select bind:value={selectedPosition} class="branch-select">
 			<option value="">All Positions</option>
 			{#each positions as position (position.id)}
@@ -494,7 +495,20 @@
 			<thead>
 				<tr>
 					<th style="width: 40px; text-align: center;">
-						<input type="checkbox" disabled title="Select user" />
+						<input 
+							type="checkbox" 
+							checked={users.length > 0 && selectedUserIds.size === users.length}
+							indeterminate={selectedUserIds.size > 0 && selectedUserIds.size < users.length}
+							on:change={() => {
+								if (selectedUserIds.size === users.length) {
+									selectedUserIds.clear();
+								} else {
+									users.forEach(u => selectedUserIds.add(u.id));
+								}
+								selectedUserIds = selectedUserIds;
+							}}
+							title="Select all users" 
+						/>
 					</th>
 					<th>Employee Name</th>
 					<th>Username</th>
@@ -512,11 +526,11 @@
 				</tr>
 			{:else}
 				{#each users as user (user.id)}
-					<tr class={selectedUserId === user.id ? 'selected-row' : ''}>
+					<tr class={selectedUserIds.has(user.id) ? 'selected-row' : ''}>
 						<td style="text-align: center;">
 							<input 
 								type="checkbox" 
-								checked={selectedUserId === user.id}
+								checked={selectedUserIds.has(user.id)}
 								on:change={() => selectUser(user.id)}
 								title="Select this user"
 							/>
@@ -564,7 +578,7 @@
 
 		<button 
 			class="pagination-btn step-btn"
-			disabled={!selectedUserId}
+			disabled={selectedUserIds.size === 0}
 			on:click={goToStep2}
 		>
 			Proceed to Step 2 ✓
@@ -577,7 +591,7 @@
 <div class="step-2-container">
 	<div class="step-header">
 		<h2>Step 2: Configure Button Access</h2>
-		<p>User: <strong>{users.find(u => u.id === selectedUserId)?.employee_name || 'Unknown'}</strong></p>
+		<p>Selected Users: <strong>{selectedUserIds.size} user{selectedUserIds.size !== 1 ? 's' : ''}</strong></p>
 	</div>
 
 	<div class="step-content">
