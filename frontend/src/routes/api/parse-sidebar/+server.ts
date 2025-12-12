@@ -1,19 +1,33 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import fs from 'fs';
-import path from 'path';
 import { supabase } from '$lib/utils/supabase';
 
 export const GET: RequestHandler = async ({ url }) => {
   try {
     // Get user ID from query parameter
     const userId = url.searchParams.get('userId');
-    let allowedButtonCodes: Set<string> | null = null;
+
+    // Fetch all buttons from the database with section and subsection info
+    const { data: allButtons, error: buttonsError } = await supabase
+      .from('sidebar_buttons')
+      .select(`
+        id,
+        button_code,
+        button_name_en,
+        button_main_sections!inner(section_name_en),
+        button_sub_sections!inner(subsection_name_en)
+      `)
+      .order('button_code', { ascending: true });
+
+    if (buttonsError) {
+      console.error('Error fetching buttons:', buttonsError);
+      throw new Error('Failed to fetch buttons from database');
+    }
 
     // If user ID is provided, get their button permissions
+    let allowedButtonCodes: Set<string> | null = null;
     if (userId) {
       try {
-        // Fetch user's button permissions
         const { data: permissions, error } = await supabase
           .from('button_permissions')
           .select('button_code')
@@ -23,117 +37,42 @@ export const GET: RequestHandler = async ({ url }) => {
         if (error) {
           console.error('Error fetching permissions:', error);
         } else if (permissions && permissions.length > 0) {
-          // Create a set of allowed button codes
           allowedButtonCodes = new Set(permissions.map(p => p.button_code));
         }
       } catch (authError) {
-        // If auth fails, continue without filtering
         console.error('Error fetching button permissions:', authError);
       }
     }
 
-    const sidebarPath = path.join(
-      process.cwd(),
-      'src/lib/components/desktop-interface/common/Sidebar.svelte'
-    );
-
-    const content = fs.readFileSync(sidebarPath, 'utf-8');
-    const lines = content.split('\n');
-
-    let currentSection = null;
-    let currentSubsection = null;
+    // Organize buttons by section and subsection
     const sectionData: Record<string, any> = {};
 
-    // Parse line by line
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+    // Filter buttons based on permissions if userId provided
+    const buttons = allowedButtonCodes 
+      ? allButtons?.filter(btn => allowedButtonCodes.has(btn.button_code))
+      : allButtons;
 
-      // Detect section start - e.g., "<!-- Delivery Section -->"
-      const sectionMatch = content.substring(content.indexOf(lines[i])).match(/<!-- (\w+[\w\s]*) Section -->/);
-      if (line.match(/<!-- (\w+[\w\s]*) Section -->/)) {
-        const sectionRegex = line.match(/<!-- (\w+[\w\s]*) Section -->/);
-        if (sectionRegex) {
-          currentSection = sectionRegex[1].trim();
-          sectionData[currentSection] = {
-            subsections: {}
-          };
-        }
-        continue;
+    // Group buttons by section and subsection
+    buttons?.forEach(button => {
+      const section = button.button_main_sections?.section_name_en || 'Other';
+      const subsection = button.button_sub_sections?.subsection_name_en || 'Dashboard';
+
+      if (!sectionData[section]) {
+        sectionData[section] = {
+          subsections: {}
+        };
       }
 
-      if (!currentSection) continue;
-
-      // Detect subsection headers - look for title="Dashboard|Manage|Operations|Reports"
-      if (line.includes('title="') && (line.includes('Dashboard') || line.includes('Manage') || line.includes('Operations') || line.includes('Reports'))) {
-        const subsectionMatch = line.match(/title="(Dashboard|Manage|Operations|Reports)"/);
-        if (subsectionMatch) {
-          currentSubsection = subsectionMatch[1];
-          if (!sectionData[currentSection].subsections[currentSubsection]) {
-            sectionData[currentSection].subsections[currentSubsection] = [];
-          }
-        }
-        continue;
+      if (!sectionData[section].subsections[subsection]) {
+        sectionData[section].subsections[subsection] = [];
       }
 
-      // Detect actual menu buttons with on:click={open...}
-      // These are inside submenu-subitem-container divs with on:click handlers
-      if (line.includes('on:click={open') && line.includes('<button')) {
-        const funcMatch = line.match(/on:click={(\w+)}/);
-        if (funcMatch) {
-          const handlerFunc = funcMatch[1];
-          
-          // Convert function name to button code (e.g., openCustomerMaster -> CUSTOMER_MASTER)
-          let buttonCode = handlerFunc.replace(/^open/, '');
-          buttonCode = buttonCode.replace(/([A-Z])/g, '_$1').replace(/^_/, '');
-          buttonCode = buttonCode.toUpperCase();
-          
-          // Look for button text in next 15 lines (more generous search)
-          let buttonText = '';
-          for (let j = i; j < Math.min(i + 15, lines.length); j++) {
-            const searchLine = lines[j];
-            
-            // Match patterns like:
-            // {t('admin.customerMaster') || 'Customer Master'}
-            // {t('key') || 'Fallback'}
-            // 'Plain Text'
-            const match1 = searchLine.match(/\{t\(['"]([\w.]+)['"]\)\s*\|\|\s*['"]([^'"]+)['"]\}/);
-            if (match1) {
-              buttonText = match1[2]; // Get fallback text
-              break;
-            }
-            
-            // Also try matching just the plain text in menu-text span
-            const match2 = searchLine.match(/class="menu-text"[^>]*>([^<{]+)<\/span>/);
-            if (match2) {
-              const text = match2[1].trim();
-              if (text && !text.includes('{')) {
-                buttonText = text;
-                break;
-              }
-            }
-          }
-
-          if (buttonText && currentSubsection) {
-            sectionData[currentSection].subsections[currentSubsection].push({
-              code: buttonCode,
-              name: buttonText
-            });
-          }
-        }
-      }
-    }
-
-    // Filter buttons if user has permissions set
-    if (allowedButtonCodes !== null) {
-      Object.keys(sectionData).forEach(sectionName => {
-        Object.keys(sectionData[sectionName].subsections).forEach(subsectionName => {
-          sectionData[sectionName].subsections[subsectionName] = 
-            sectionData[sectionName].subsections[subsectionName].filter((btn: any) =>
-              allowedButtonCodes!.has(btn.code)
-            );
-        });
+      sectionData[section].subsections[subsection].push({
+        code: button.button_code,
+        name: button.button_name_en,
+        id: button.id
       });
-    }
+    });
 
     // Format response
     const subsectionOrder = ['Dashboard', 'Manage', 'Operations', 'Reports'];
