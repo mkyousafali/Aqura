@@ -703,10 +703,11 @@ manage_todo_list({
 
 **Database:**
 - PostgreSQL 15 (self-hosted Supabase)
-- 65 tables across 8 categories
-- 305 RPC functions
-- 71 triggers
-- 21 storage buckets
+- 65+ tables across 8 categories
+- 305+ RPC functions
+- 71+ triggers
+- 21+ storage buckets
+- Button permission system with 75 controlled buttons
 
 ### Interface Organization
 
@@ -737,11 +738,39 @@ manage_todo_list({
 **State Management:**
 - `windowManager` - Desktop window system
 - `notifications` - Notification center
-- `sidebar` - Navigation state
+- `sidebar` - Navigation state (with button permissions)
 - `taskCount` - Real-time task counts
 - `cart` - Shopping cart (customer)
 - `delivery` - Delivery settings (customer)
 - `cashierAuth` - Cashier authentication
+
+### Button Permission System
+
+**75 Sidebar Buttons with Permission Control:**
+
+The application uses a comprehensive button permission system where each sidebar button's visibility is controlled through the `button_permissions` table.
+
+**Database Tables:**
+- `sidebar_buttons` - All 75 available buttons with codes (e.g., `AD_MANAGER`, `FLYER_MASTER`)
+- `button_permissions` - User-specific permissions (`user_id`, `button_code`, `is_enabled`)
+- `button_main_sections` - Main sections (Delivery, Vendor, Media, Promo, Finance, HR, Tasks, Notifications, User, Controls)
+- `button_sub_sections` - Subsections (Dashboard, Manage, Operations, Reports)
+
+**Implementation:**
+- Sidebar.svelte loads permissions on mount via `loadButtonPermissions()`
+- Each button wrapped with `{#if isButtonAllowed('BUTTON_CODE')}`
+- ButtonAccessControl.svelte manages per-user button visibility
+- Query: `.eq('is_enabled', true)` filters enabled buttons only
+
+**API Endpoint:**
+- `/api/parse-sidebar` - Returns buttons from database with section/subsection joins
+- Used by ButtonAccessControl to display available buttons
+- Filters by user permissions when `userId` provided
+
+**Documentation:**
+- See `BUTTON_PERMISSION_SYSTEM.md` for complete implementation guide
+- Includes step-by-step instructions for adding new buttons
+- Lists all 75 buttons organized by section
 
 ### Database Entity Types
 
@@ -923,6 +952,7 @@ git push
 - `DATABASE_FUNCTIONS.md` - Available functions (regenerate if stale)
 - `STORAGE_INFO.md` - Storage buckets (regenerate if stale)
 - `GO_BACKEND_IMPLEMENTATION_PLAN.md` - Go backend patterns
+- `BUTTON_PERMISSION_SYSTEM.md` - Button permission system guide
 
 **Use these scripts:**
 - `scripts/create-schema-md.js` - Generate schema docs
