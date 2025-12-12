@@ -2140,39 +2140,37 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showDeliveryManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
-						{#if isButtonAllowed('CUSTOMER_MASTER')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openCustomerMaster}>
-									<span class="menu-icon">🤝</span>
-									<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('AD_MANAGER')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openAdManager}>
-									<span class="menu-icon">📢</span>
-									<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('PRODUCTS_MANAGER')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openProductsManager}>
-									<span class="menu-icon">🛍️</span>
-									<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('DELIVERY_SETTINGS')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openDeliverySettings}>
-									<span class="menu-icon">📦</span>
-									<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
-								</button>
-							</div>
-						{/if}
+					{#if isButtonAllowed('CUSTOMER_MASTER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCustomerMaster}>
+								<span class="menu-icon">🤝</span>
+								<span class="menu-text">{t('admin.customerMaster') || 'Customer Master'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('AD_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAdManager}>
+								<span class="menu-icon">📢</span>
+								<span class="menu-text">{t('admin.adManager') || 'Ad Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PRODUCTS_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProductsManager}>
+								<span class="menu-icon">🛍️</span>
+								<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DELIVERY_SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDeliverySettings}>
+								<span class="menu-icon">📦</span>
+								<span class="menu-text">{t('admin.deliverySettings') || 'Delivery Settings'}</span>
+							</button>
+						</div>
 					{/if}
 				</div>
 			{/if}
@@ -2199,23 +2197,21 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showDeliveryOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
-						{#if isButtonAllowed('ORDERS_MANAGER')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openOrdersManager}>
-									<span class="menu-icon">🛒</span>
-									<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('OFFER_MANAGEMENT')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openOfferManagement}>
-									<span class="menu-icon">🎁</span>
-									<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
-								</button>
-							</div>
-						{/if}
+					{#if isButtonAllowed('ORDERS_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOrdersManager}>
+								<span class="menu-icon">🛒</span>
+								<span class="menu-text">{t('admin.ordersManager') || 'Orders Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('OFFER_MANAGEMENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOfferManagement}>
+								<span class="menu-icon">🎁</span>
+								<span class="menu-text">{t('admin.offerManagement') || 'Offer Management'}</span>
+							</button>
+						</div>
 					{/if}
 				</div>
 			{/if}
@@ -3733,62 +3729,56 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showControlsManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if $currentUser?.isMasterAdmin || $currentUser?.isAdmin}
-						{#if isButtonAllowed('BRANCHES')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openBranches}>
-									<span class="menu-icon">🏢</span>
-									<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('SETTINGS')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openSettings}>
-									<span class="menu-icon">🔊</span>
-									<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('E_R_P_CONNECTIONS')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openERPConnections}>
-									<span class="menu-icon">🔌</span>
-									<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
-								</button>
-							</div>
-						{/if}
+					{#if isButtonAllowed('BRANCHES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBranches}>
+								<span class="menu-icon">🏢</span>
+								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
+							</button>
+						</div>
 					{/if}
-					{#if $currentUser?.isMasterAdmin}
-						{#if isButtonAllowed('CLEAR_TABLES')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openClearTables}>
-									<span class="menu-icon">🗑️</span>
-									<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openButtonAccessControl}>
-									<span class="menu-icon">🎛️</span>
-									<span class="menu-text">Button Access Control</span>
-								</button>
-							</div>
-						{/if}
-						{#if isButtonAllowed('BUTTON_GENERATOR')}
-							<div class="submenu-item-container">
-								<button class="submenu-item" on:click={openButtonGenerator}>
-									<span class="menu-icon">🔨</span>
-									<span class="menu-text">Button Generator</span>
-								</button>
-							</div>
-						{/if}
+					{#if isButtonAllowed('SETTINGS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSettings}>
+								<span class="menu-icon">🔊</span>
+								<span class="menu-text">{t('nav.soundSettings') || 'Sound Settings'}</span>
+							</button>
+						</div>
 					{/if}
-				</div>
-			{/if}
-
-			<!-- Operations Subsection -->
+					{#if isButtonAllowed('E_R_P_CONNECTIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openERPConnections}>
+								<span class="menu-icon">🔌</span>
+								<span class="menu-text">{t('nav.erpConnections') || 'ERP Connections'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CLEAR_TABLES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openClearTables}>
+								<span class="menu-icon">🗑️</span>
+								<span class="menu-text">{t('nav.clearTables') || 'Clear Tables'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openButtonAccessControl}>
+								<span class="menu-icon">🎛️</span>
+								<span class="menu-text">Button Access Control</span>
+							</button>
+						</div>
+					{/if}
+				{#if isButtonAllowed('BUTTON_GENERATOR')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openButtonGenerator}>
+							<span class="menu-icon">🔨</span>
+							<span class="menu-text">Button Generator</span>
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/if}			<!-- Operations Subsection -->
 			<div class="submenu-item-container">
 				<button 
 					class="submenu-subsection-button icon-only"
