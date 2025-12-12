@@ -73,11 +73,8 @@
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
 	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
 	import ButtonGenerator from '$lib/components/desktop-interface/settings/ButtonGenerator.svelte';
-	import UserPermissionsWindow from '$lib/components/desktop-interface/settings/user/UserPermissionsWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
-	import AssignRoles from '$lib/components/desktop-interface/settings/user/AssignRoles.svelte';
-	import CreateUserRoles from '$lib/components/desktop-interface/settings/user/CreateUserRoles.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
 	import UploadEmployees from '$lib/components/desktop-interface/master/hr/UploadEmployees.svelte';
@@ -280,8 +277,11 @@
 
 	// Helper function to check if a button is allowed
 	function isButtonAllowed(buttonCode: string): boolean {
-		// If no permissions loaded yet, show all buttons (allow full access initially)
-		if (!buttonPermissionsLoaded) return true;
+		// If permissions not loaded yet, don't show buttons (wait for loading)
+		if (!buttonPermissionsLoaded) return false;
+		
+		// If master admin, show all buttons
+		if ($currentUser?.isMasterAdmin) return true;
 		
 		// If permissions loaded but set is empty, user has no permissions
 		if (allowedButtonCodes.size === 0) return false;
@@ -1149,27 +1149,7 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
-	function openUserPermissions() {
-		const windowId = generateWindowId('user-permissions');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `User Permissions Manager #${instanceNumber}`,
-			component: UserPermissionsWindow,
-			icon: '👥',
-			size: { width: 1500, height: 900 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showSettingsSubmenu = false;
-	}
+
 
 	function openClearTables() {
 		const windowId = generateWindowId('clear-tables');
@@ -2025,52 +2005,6 @@ function openApprovalCenter() {
 			title: `Create User #${instanceNumber}`,
 			component: CreateUser,
 			icon: '👤',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	// User Management - Assign Roles
-	function openAssignRoles() {
-		collapseAllMenus();
-		const windowId = generateWindowId('assign-roles');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Assign Roles #${instanceNumber}`,
-			component: AssignRoles,
-			icon: '🎯',
-			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
-
-	// User Management - Create User Roles
-	function openCreateUserRoles() {
-		collapseAllMenus();
-		const windowId = generateWindowId('create-user-roles');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Create User Roles #${instanceNumber}`,
-			component: CreateUserRoles,
-			icon: '🔘',
 			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -3676,14 +3610,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openApprovalPermissions}>
 								<span class="menu-icon">🔐</span>
 								<span class="menu-text">Approval Permissions</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('USER_PERMISSIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openUserPermissions}>
-								<span class="menu-icon">👥</span>
-								<span class="menu-text">User Permissions</span>
 							</button>
 						</div>
 					{/if}

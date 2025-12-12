@@ -78,8 +78,7 @@
 				throw allUsersError;
 			}
 
-			// Load all permissions in a single query
-			const userIds = allUsers.map(user => user.id);
+			// Load ALL permissions without filtering - avoids CORS issues with long URLs
 			const { data: allPermissions, error: permissionsError } = await supabase
 				.from('interface_permissions')
 				.select(`
@@ -90,8 +89,7 @@
 					cashier_enabled,
 					updated_at,
 					notes
-				`)
-				.in('user_id', userIds);
+				`);
 
 			if (permissionsError) {
 				console.error('❌ Permissions query error:', permissionsError);

@@ -3,11 +3,9 @@
 
 	// Button Access Control Component
 	let selectedBranch = '';
-	let selectedRole = '';
 	let selectedPosition = '';
 	let searchUsername = '';
 	let branches: any[] = [];
-	let roles: any[] = [];
 	let positions: any[] = [];
 	let users: any[] = [];
 	let loading = false;
@@ -30,7 +28,6 @@
 		// Parallel loading of all filter data
 		await Promise.all([
 			fetchBranches(),
-			fetchRoles(),
 			fetchPositions()
 		]);
 		
@@ -38,7 +35,7 @@
 		await loadUsers();
 	});
 	
-	$: if (selectedBranch !== undefined && selectedRole !== undefined && selectedPosition !== undefined) {
+	$: if (selectedBranch !== undefined && selectedPosition !== undefined) {
 		currentPage = 0; // Reset to first page on filter change
 		clearTimeout(filterTimeout);
 		filterTimeout = setTimeout(() => {
@@ -52,17 +49,6 @@
 		searchTimeout = setTimeout(() => {
 			loadUsers();
 		}, 300); // Debounce search by 300ms
-	}
-
-	async function fetchRoles() {
-		// Role system removed - no longer needed
-		roles = [];
-		try {
-			// Roles are no longer used in the system
-			console.log('Role filtering disabled - using admin flags instead');
-		} catch (err) {
-			console.error('Error in fetchRoles:', err);
-		}
 	}
 
 	async function fetchPositions() {
@@ -231,52 +217,50 @@
 	async function loadButtonPermissions() {
 		buttonsLoading = true;
 		try {
-			// Fetch all buttons from API - pass first selected user ID for permission filtering
-			const userId = Array.from(selectedUserIds)[0] || '';
-			const response = await fetch(`/api/parse-sidebar?userId=${userId}`);
-			const data = await response.json();
-			
-			// Flatten all buttons into a single array
-			const allButtonsFlat: any[] = [];
-			if (data.sections) {
-				data.sections.forEach((section: any) => {
-					section.subsections.forEach((subsection: any) => {
-						subsection.buttons.forEach((button: any) => {
-							allButtonsFlat.push({
-								code: button.code,
-								name: button.name,
-								section: section.name,
-								subsection: subsection.name
-							});
-						});
-					});
-				});
-			}
-			
-			allButtons = allButtonsFlat;
-			console.log('All buttons from API:', allButtons.length);
-
-			// Fetch all button IDs from database
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data: dbButtons, error: btnError } = await supabase
-				.from('sidebar_buttons')
-				.select('id')
-				.order('id');
+			
+		// Fetch ALL buttons directly from database with section/subsection info
+		const { data: dbButtons, error: btnError } = await supabase
+			.from('sidebar_buttons')
+			.select(`
+				id,
+				button_code,
+				button_name_en,
+				main_section_id,
+				subsection_id
+			`)
+			.order('button_code');
+		
+		// Fetch sections and subsections separately
+		const { data: mainSections } = await supabase.from('button_main_sections').select('id, section_name_en');
+		const { data: subSections } = await supabase.from('button_sub_sections').select('id, subsection_name_en');
+		
+		const mainSectionsMap = new Map(mainSections?.map(s => [s.id, s.section_name_en]) || []);
+		const subSectionsMap = new Map(subSections?.map(s => [s.id, s.subsection_name_en]) || []);
+		
+		if (btnError) {
+			console.error('Error fetching buttons:', btnError);
+			return;
+		}
 
-			if (btnError) {
-				console.error('Error fetching buttons:', btnError);
-				return;
-			}
+		if (!dbButtons || dbButtons.length === 0) {
+			console.error('No buttons found in database');
+			return;
+		}
 
-			// Create a map of button codes to IDs - assume they match order with our buttons array
+		console.log('✅ Loaded', dbButtons.length, 'buttons from database');
+
+		// Create button list and map
+		allButtons = dbButtons.map(btn => ({
+			code: btn.button_code,
+			name: btn.button_name_en,
+			section: mainSectionsMap.get(btn.main_section_id) || 'Unknown',
+			subsection: subSectionsMap.get(btn.subsection_id) || 'Unknown'
+		}));			// Create a map of button codes to IDs
 			buttonCodeToIdMap.clear();
-			if (dbButtons && dbButtons.length > 0) {
-				dbButtons.forEach((btn: any, index: number) => {
-					if (index < allButtons.length) {
-						buttonCodeToIdMap.set(allButtons[index].code, btn.id);
-					}
-				});
-			}
+			dbButtons.forEach((btn: any) => {
+				buttonCodeToIdMap.set(btn.button_code, btn.id);
+			});
 
 			console.log('Button code to ID map size:', buttonCodeToIdMap.size);
 
@@ -293,10 +277,11 @@
 
 			console.log('Permissions count for selected users:', permissions?.length);
 
-			// Create a set of enabled button IDs
+			// Create a set of enabled and disabled button IDs
 			const enabledButtonIds = new Set();
 			const disabledButtonIds = new Set();
-			if (permissions) {
+			
+			if (permissions && permissions.length > 0) {
 				permissions.forEach((p: any) => {
 					if (p.is_enabled) {
 						enabledButtonIds.add(p.button_id);
@@ -317,7 +302,7 @@
 				return id && disabledButtonIds.has(id);
 			});
 
-			console.log('Permitted:', permittedButtons.length, 'Non-permitted:', nonPermittedButtons.length);
+			console.log('✅ Permitted:', permittedButtons.length, '❌ Non-permitted:', nonPermittedButtons.length);
 		} catch (err) {
 			console.error('Error loading button permissions:', err);
 		} finally {
