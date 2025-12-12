@@ -16,23 +16,15 @@ export const GET: RequestHandler = async ({ url }) => {
         // Fetch user's button permissions
         const { data: permissions, error } = await supabase
           .from('button_permissions')
-          .select('button_id')
+          .select('button_code')
           .eq('user_id', userId)
           .eq('is_enabled', true);
 
         if (error) {
           console.error('Error fetching permissions:', error);
         } else if (permissions && permissions.length > 0) {
-          // Map button_ids to button codes
-          const buttonIds = permissions.map(p => p.button_id);
-          const { data: buttons } = await supabase
-            .from('sidebar_buttons')
-            .select('id, code')
-            .in('id', buttonIds);
-
-          if (buttons) {
-            allowedButtonCodes = new Set(buttons.map(b => b.code));
-          }
+          // Create a set of allowed button codes
+          allowedButtonCodes = new Set(permissions.map(p => p.button_code));
         }
       } catch (authError) {
         // If auth fails, continue without filtering
