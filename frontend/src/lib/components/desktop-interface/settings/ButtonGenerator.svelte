@@ -136,6 +136,241 @@
 		showMissingModal = false;
 	}
 
+	async function addMissingButtonsToDatabase() {
+		if (missingButtons.length === 0) {
+			showMessage('No missing buttons to add', 'info');
+			return;
+		}
+
+		loading = true;
+		try {
+			// Get all existing sections and subsections from database
+			const { data: dbSections } = await supabase.from('button_main_sections').select('id, section_code, section_name_en');
+			const { data: dbSubsections } = await supabase.from('button_sub_sections').select('id, main_section_id, subsection_code, subsection_name_en');
+			const { data: allUsers } = await supabase.from('users').select('id');
+
+			const sectionCodeMap: Record<string, number> = {};
+			const subsectionMap: Record<string, number> = {};
+			let addedSectionsCount = 0;
+			let addedSubsectionsCount = 0;
+
+			// Build existing maps
+			dbSections?.forEach(section => {
+				sectionCodeMap[section.section_code] = section.id;
+			});
+
+			dbSubsections?.forEach(subsection => {
+				subsectionMap[`${subsection.main_section_id}_${subsection.subsection_code}`] = subsection.id;
+			});
+
+			// Process missing buttons and add any missing sections/subsections
+			const buttonsToInsert: any[] = [];
+			const permissionsToInsert: any[] = [];
+
+			for (const button of missingButtons) {
+				// Convert section name to code format (e.g., "Delivery" -> "DELIVERY")
+				const sectionCode = button.section.toUpperCase();
+				const subsectionCode = button.subsection.toUpperCase();
+
+				// Check if section exists, if not create it
+				let sectionId = sectionCodeMap[sectionCode];
+				if (!sectionId) {
+					const { error: sectionError } = await supabase
+						.from('button_main_sections')
+						.insert({
+							section_code: sectionCode,
+							section_name_en: button.section,
+							section_name_ar: button.section,
+							display_order: Object.keys(sectionCodeMap).length + 1,
+							is_active: true
+						});
+
+					if (!sectionError) {
+						const { data: fetchedSection } = await supabase
+							.from('button_main_sections')
+							.select('id')
+							.eq('section_code', sectionCode)
+							.order('created_at', { ascending: false })
+							.limit(1)
+							.single();
+
+						if (fetchedSection?.id) {
+							sectionId = fetchedSection.id;
+							sectionCodeMap[sectionCode] = sectionId;
+							addedSectionsCount++;
+						}
+					}
+				}
+
+				// Check if subsection exists, if not create it
+				const subsectionKey = `${sectionId}_${subsectionCode}`;
+				let subsectionId = subsectionMap[subsectionKey];
+				if (!subsectionId && sectionId) {
+					const { error: subsectionError } = await supabase
+						.from('button_sub_sections')
+						.insert({
+							main_section_id: sectionId,
+							subsection_code: subsectionCode,
+							subsection_name_en: button.subsection,
+							subsection_name_ar: button.subsection,
+							display_order: Object.values(subsectionMap).filter(
+								id => dbSubsections?.find(s => s.id === id)?.main_section_id === sectionId
+							).length + 1,
+							is_active: true
+						});
+
+					if (!subsectionError) {
+						const { data: fetchedSubsection } = await supabase
+							.from('button_sub_sections')
+							.select('id')
+							.eq('main_section_id', sectionId)
+							.eq('subsection_code', subsectionCode)
+							.order('created_at', { ascending: false })
+							.limit(1)
+							.single();
+
+						if (fetchedSubsection?.id) {
+							subsectionId = fetchedSubsection.id;
+							subsectionMap[subsectionKey] = subsectionId;
+							addedSubsectionsCount++;
+						}
+					}
+				}
+
+				// Prepare button insert
+				if (sectionId && subsectionId) {
+					buttonsToInsert.push({
+						main_section_id: sectionId,
+						subsection_id: subsectionId,
+						button_name_en: button.name,
+						button_name_ar: button.name, // Fallback to English
+						button_code: button.code,
+						icon: '📌',
+						display_order: 1,
+						is_active: true
+					});
+				}
+			}
+
+		// Insert all buttons
+		let addedButtonsCount = 0;
+		if (buttonsToInsert.length > 0) {
+			const { error: buttonError } = await supabase
+				.from('sidebar_buttons')
+				.insert(buttonsToInsert);
+
+			if (!buttonError) {
+				const { data: insertedButtons } = await supabase
+					.from('sidebar_buttons')
+					.select('id')
+					.order('created_at', { ascending: false })
+					.limit(buttonsToInsert.length);
+
+				if (insertedButtons && insertedButtons.length > 0) {
+					addedButtonsCount = insertedButtons.length;
+
+					// Create permission records for all users for newly added buttons
+					for (const button of insertedButtons) {
+						for (const user of allUsers || []) {
+							permissionsToInsert.push({
+								user_id: user.id,
+								button_id: button.id,
+								is_enabled: true
+							});
+						}
+					}
+
+					// Insert permissions in batches
+					const batchSize = 100;
+					let insertedPermissionsCount = 0;
+					for (let i = 0; i < permissionsToInsert.length; i += batchSize) {
+						const batch = permissionsToInsert.slice(i, i + batchSize);
+						const { error: permError } = await supabase.from('button_permissions').insert(batch);
+
+						if (!permError) {
+							insertedPermissionsCount += batch.length;
+						}
+					}
+
+					showMessage(
+						`✓ Added ${addedButtonsCount} button(s), ${addedSectionsCount} section(s), ${addedSubsectionsCount} subsection(s) + ${insertedPermissionsCount} permission(s)`,
+						'success'
+					);
+				} else {
+					throw buttonError;
+				}
+			} else {
+				throw buttonError;
+			}
+		}
+
+		// Refresh database view
+		await generateFromDatabase();
+	} catch (error) {
+		showMessage('Error adding buttons: ' + (error as Error).message, 'error');
+	} finally {
+		loading = false;
+	}
+}
+
+	async function updatePermissionsTable() {
+		loading = true;
+		try {
+			// Get all buttons and users
+			const { data: allButtons } = await supabase.from('sidebar_buttons').select('id');
+			const { data: allUsers } = await supabase.from('users').select('id');
+
+			if (!allButtons || !allUsers) {
+				showMessage('Error fetching buttons or users', 'error');
+				return;
+			}
+
+			const batchSize = 100;
+			let insertedCount = 0;
+
+			// Insert permissions in batches
+			for (let i = 0; i < allUsers.length; i += batchSize) {
+				const userBatch = allUsers.slice(i, i + batchSize);
+
+				const permissionRecords = [];
+				for (const user of userBatch) {
+					for (const button of allButtons) {
+						// Check if permission already exists
+						const { data: existing } = await supabase
+							.from('button_permissions')
+							.select('id')
+							.eq('user_id', user.id)
+							.eq('button_id', button.id)
+							.single();
+
+						if (!existing) {
+							permissionRecords.push({
+								user_id: user.id,
+								button_id: button.id,
+								is_enabled: true
+							});
+						}
+					}
+				}
+
+				if (permissionRecords.length > 0) {
+					const { error } = await supabase.from('button_permissions').insert(permissionRecords);
+
+					if (!error) {
+						insertedCount += permissionRecords.length;
+					} else {
+						console.error(`Batch error:`, error.message);
+					}
+				}
+			}
+
+			showMessage(`✓ Updated permissions table with ${insertedCount} new records`, 'success');
+		} catch (error) {
+			showMessage('Error updating permissions: ' + (error as Error).message, 'error');
+		}
+		loading = false;
+	}
+
 	function showMessage(msg: string, type: 'success' | 'error' | 'info') {
 		message = msg;
 		messageType = type;
@@ -301,7 +536,27 @@
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button class="close-modal-btn" on:click={closeMissingModal}>Close</button>
+				<button 
+					class="action-btn add-btn"
+					on:click={addMissingButtonsToDatabase}
+					disabled={loading}
+				>
+					{loading ? 'Adding...' : '✓ Add Buttons'}
+				</button>
+				<button 
+					class="action-btn update-btn"
+					on:click={updatePermissionsTable}
+					disabled={loading}
+				>
+					{loading ? 'Updating...' : '🔄 Update Permissions'}
+				</button>
+				<button 
+					class="action-btn close-modal-btn"
+					on:click={closeMissingModal}
+					disabled={loading}
+				>
+					Close
+				</button>
 			</div>
 		</div>
 	</div>
@@ -705,9 +960,8 @@
 		gap: 10px;
 	}
 
-	.close-modal-btn {
-		padding: 8px 16px;
-		background: #3b82f6;
+	.action-btn {
+		padding: 10px 16px;
 		color: white;
 		border: none;
 		border-radius: 6px;
@@ -716,8 +970,33 @@
 		cursor: pointer;
 		transition: background 0.2s;
 
-		&:hover {
-			background: #2563eb;
+		&:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+		}
+	}
+
+	.add-btn {
+		background: #10b981;
+
+		&:hover:not(:disabled) {
+			background: #059669;
+		}
+	}
+
+	.update-btn {
+		background: #8b5cf6;
+
+		&:hover:not(:disabled) {
+			background: #7c3aed;
+		}
+	}
+
+	.close-modal-btn {
+		background: #6b7280;
+
+		&:hover:not(:disabled) {
+			background: #4b5563;
 		}
 	}
 
