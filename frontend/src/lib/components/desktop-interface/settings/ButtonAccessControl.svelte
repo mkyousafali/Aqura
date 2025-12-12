@@ -22,6 +22,7 @@
 	let nonPermittedButtons: any[] = [];
 	let buttonsLoading = false;
 	let selectedNonPermitted: Set<string> = new Set();
+	let selectedToDisable: Set<string> = new Set();
 	let buttonCodeToIdMap: Map<string, number> = new Map();
 
 	onMount(async () => {
@@ -315,7 +316,7 @@
 	}
 
 	async function savePermissionChanges() {
-		if (selectedNonPermitted.size === 0) {
+		if (selectedNonPermitted.size === 0 && selectedToDisable.size === 0) {
 			console.log('No changes to save');
 			return;
 		}
@@ -353,45 +354,31 @@
 				}
 			}
 
+			// Also disable buttons in selectedToDisable
+			for (const buttonCode of selectedToDisable) {
+				const buttonId = buttonCodeToIdMap.get(buttonCode);
+				if (!buttonId) continue;
+
+				for (const userId of selectedUserIds) {
+					const { error } = await supabase
+						.from('button_permissions')
+						.update({ is_enabled: false })
+						.eq('user_id', userId)
+						.eq('button_id', buttonId);
+
+					if (error) {
+						console.error(`Error disabling button ${buttonId} for user ${userId}:`, error);
+					}
+				}
+			}
+
 			// Reload the permissions
 			selectedNonPermitted.clear();
+			selectedToDisable.clear();
 			await loadButtonPermissions();
 			console.log('Permissions saved successfully');
 		} catch (err) {
 			console.error('Error saving permissions:', err);
-		}
-	}
-
-	async function disableButtonPermission(buttonCode: string) {
-		try {
-			const { supabase } = await import('$lib/utils/supabase');
-			const buttonId = buttonCodeToIdMap.get(buttonCode);
-
-			if (!buttonId) {
-				console.warn(`Button ID not found for code: ${buttonCode}`);
-				return;
-			}
-
-			console.log(`Disabling button ${buttonCode} (ID: ${buttonId}) for ${selectedUserIds.size} users`);
-
-			// Disable for all selected users
-			for (const userId of selectedUserIds) {
-				const { error } = await supabase
-					.from('button_permissions')
-					.update({ is_enabled: false })
-					.eq('user_id', userId)
-					.eq('button_id', buttonId);
-
-				if (error) {
-					console.error(`Error disabling button ${buttonId} for user ${userId}:`, error);
-				}
-			}
-			
-			console.log(`Successfully disabled button ${buttonCode} for all selected users`);
-			// Reload permissions
-			await loadButtonPermissions();
-		} catch (err) {
-			console.error('Error disabling permission:', err);
 		}
 	}
 
@@ -615,9 +602,14 @@
 													<td>
 														<input 
 															type="checkbox"
-															checked={true}
-															on:change={() => {
-																disableButtonPermission(button.code);
+															checked={!selectedToDisable.has(button.code)}
+															on:change={(e) => {
+																if (!e.currentTarget.checked) {
+																	selectedToDisable.add(button.code);
+																} else {
+																	selectedToDisable.delete(button.code);
+																}
+																selectedToDisable = selectedToDisable;
 															}}
 														/>
 													</td>
@@ -689,10 +681,10 @@
 		</button>
 		<button 
 			class="save-btn" 
-			disabled={selectedNonPermitted.size === 0}
+			disabled={selectedNonPermitted.size === 0 && selectedToDisable.size === 0}
 			on:click={savePermissionChanges}
 		>
-			💾 Save Changes ({selectedNonPermitted.size})
+			💾 Save Changes ({selectedNonPermitted.size + selectedToDisable.size})
 		</button>
 	</div>
 </div>
