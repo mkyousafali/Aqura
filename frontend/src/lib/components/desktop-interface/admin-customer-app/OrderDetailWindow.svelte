@@ -498,6 +498,7 @@
           .insert({
             quick_task_id: taskData.id,
             assigned_to_user_id: pickerId,
+            status: 'assigned',
             require_task_finished: true,
             require_photo_upload: false,
             require_erp_reference: false
@@ -595,6 +596,7 @@
           .insert({
             quick_task_id: taskData.id,
             assigned_to_user_id: deliveryId,
+            status: 'assigned',
             require_task_finished: true,
             require_photo_upload: true,
             require_erp_reference: false

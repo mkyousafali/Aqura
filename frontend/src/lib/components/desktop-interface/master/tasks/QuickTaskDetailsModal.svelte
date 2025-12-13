@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { db } from '$lib/utils/supabase';
+	import { supabase } from '$lib/utils/supabase';
 	import { windowManager } from '$lib/stores/windowManager';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -78,19 +78,23 @@
 
 	async function completeQuickTask() {
 		try {
+			console.log('🔵 [QuickTaskDetails] Completing task:', { taskId: task.id, assignmentId: task.assignment_id });
+			
 			// Update the quick task assignment status to completed
-			const { error } = await db.from('quick_task_assignments')
+			const { data, error } = await supabase.from('quick_task_assignments')
 				.update({ 
-					assignment_status: 'completed',
+					status: 'completed',
 					completed_at: new Date().toISOString()
 				})
-				.eq('quick_task_id', task.id);
+				.eq('id', task.assignment_id);
 
 			if (error) {
-				console.error('Error completing quick task:', error);
-				alert('Error completing task. Please try again.');
+				console.error('❌ [QuickTaskDetails] Error completing quick task:', error);
+				alert('Error completing task: ' + (error.message || 'Unknown error'));
 				return;
 			}
+
+			console.log('✅ [QuickTaskDetails] Quick task completed successfully:', data);
 
 			// Update the task object to reflect completion
 			task.assignment_status = 'completed';
@@ -103,8 +107,8 @@
 
 			alert('Quick Task completed successfully!');
 		} catch (error) {
-			console.error('Error completing quick task:', error);
-			alert('Error completing task. Please try again.');
+			console.error('❌ [QuickTaskDetails] Error completing quick task:', error);
+			alert('Error completing task: ' + (error.message || 'Unknown error'));
 		}
 	}
 </script>

@@ -58,7 +58,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	onMount(() => {
-		// Don't load anything on mount - let user trigger it via filter selection
+		// Auto-load quick tasks (picking/delivery) since those are created from orders
+		const checkAndLoadQuickTasks = async () => {
+			if ($isCashierAuthenticated || $isAuthenticated) {
+				const user = $cashierUser || $currentUser;
+				if (user?.id && !loadedTaskTypes.has('quick_task')) {
+					await loadTasksByType('quick_task');
+					filterTaskType = 'quick_task'; // Set the filter to show loaded tasks
+				}
+			}
+		};
+		
+		checkAndLoadQuickTasks();
 		startCountdownTimer();
 		
 		// Cleanup on unmount
@@ -233,16 +244,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					.from('quick_task_assignments')
 					.select('id, quick_task_id, assigned_to_user_id, status, created_at')
 					.eq('assigned_to_user_id', userId)
-					.in('status', ['assigned', 'in_progress'])  // ONLY active assignments
-					.limit(200);  // Hard limit
+					.limit(200);  // Hard limit - removed status filter to debug
 
 				if (quickError) {
 					console.warn('⚠️ [MyTasks] Error loading quick tasks:', quickError);
 				}
 
 				if (quickTasks && quickTasks.length > 0) {
+					console.log('🔍 [MyTasks] Found quick task assignments:', { 
+						count: quickTasks.length, 
+						statuses: quickTasks.map(q => q.status),
+						firstTask: quickTasks[0]
+					});
+					
+					// Log all unique statuses
+					const uniqueStatuses = [...new Set(quickTasks.map(q => q.status))];
+					console.log('📋 [MyTasks] Unique statuses found:', uniqueStatuses);
+					
+					// Filter to only active statuses (pending or in_progress, not completed)
+					const activeQuickTasks = quickTasks.filter(q => 
+						q.status === 'pending' || q.status === 'in_progress' || q.status === 'assigned'
+					);
+					
+					console.log('🔍 [MyTasks] Filtered active quick tasks:', { 
+						totalFound: quickTasks.length,
+						activeCount: activeQuickTasks.length,
+						filtered: activeQuickTasks
+					});
+					
 					// Get quick task details separately
-					const quickTaskIds = quickTasks.map(a => a.quick_task_id);
+					const quickTaskIds = activeQuickTasks.map(a => a.quick_task_id);
 					const { data: qtDetails } = await supabase
 						.from('quick_tasks')
 						.select('id, title, description, priority, status, created_at, deadline_datetime, assigned_by')
@@ -253,7 +284,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						qtMap[qt.id] = qt;
 					});
 
-					const quickTasksFormatted = quickTasks.map(assignment => {
+					const quickTasksFormatted = activeQuickTasks.map(assignment => {
 						const qt = qtMap[assignment.quick_task_id] || {};
 						return {
 							id: assignment.quick_task_id,
@@ -289,14 +320,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				}
 			}
 
-			// Merge with existing tasks
-			tasks = [...tasks, ...newTasks];
+			// Merge with existing tasks - avoid duplicates
+			const existingIds = new Set(tasks.map(t => t.assignment_id));
+			const uniqueNewTasks = newTasks.filter(t => !existingIds.has(t.assignment_id));
+			tasks = [...tasks, ...uniqueNewTasks];
 			tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 			filterTasks();
 			
 			console.log('✅ [MyTasks] Successfully loaded all tasks:', { 
 				total: tasks.length, 
-				loadedTypes: Array.from(loadedTaskTypes)
+				loadedTypes: Array.from(loadedTaskTypes),
+				newTasksAdded: uniqueNewTasks.length,
+				duplicatesFiltered: newTasks.length - uniqueNewTasks.length
 			});
 		} catch (error) {
 			console.error('❌ [MyTasks] Error loading tasks:', error);
@@ -984,7 +1019,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				>
 					<option value="all">All Types</option>
 					<option value="regular">Regular Tasks</option>
-					<option value="quick">Quick Tasks</option>
+					<option value="quick_task">Quick Tasks (Picking/Delivery)</option>
 					<option value="receiving">Receiving Tasks</option>
 				</select>
 			</div>
@@ -1182,9 +1217,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 								</div>
 								
 								<div class="ml-4 flex flex-col space-y-2">
-									{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled' && task.assigned_to_user_id === currentUserData?.id}
+									{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
 										<button
-											on:click={() => openTaskCompletion(task)}
+											on:click={() => {
+												console.log('🔵 [MyTasks] Complete button clicked:', { task, currentUserData });
+												openTaskCompletion(task);
+											}}
 											class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
 										>
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1195,7 +1233,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 									{/if}
 									
 									<button
-										on:click={() => openTaskDetails(task)}
+										on:click={() => {
+											console.log('🔵 [MyTasks] View Details button clicked:', { task, currentUserData });
+											openTaskDetails(task);
+										}}
 										class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
 									>
 										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
