@@ -83,16 +83,15 @@ export const GET: RequestHandler = async ({ url }) => {
 								sale_price,
 								image_url,
 								category_id,
-								category_name_ar,
-								category_name_en,
-								unit_name_ar,
-								unit_name_en,
+								unit_id,
 								unit_qty,
-								barcode
+								barcode,
+								product_categories(name_ar, name_en)
 							)
 						`)
 						.eq('offer_id', offer.id);
 					products = offerProducts || [];
+					console.log(`  ✅ Found ${products.length} products for offer ${offer.id}`);
 				}
 
 				// Get bundle items for bundle offers

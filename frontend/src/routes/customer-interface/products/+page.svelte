@@ -115,36 +115,76 @@
     const onStorage = (e) => { if (e.key === 'language') currentLanguage = e.newValue || 'ar'; };
     window.addEventListener('storage', onStorage);
 
-    // Real-time subscriptions for offers and products
-    // REALTIME SUBSCRIPTIONS DISABLED (Dec 8, 2025)
-    // Cause: 40-100+ reload requests per second during traffic spikes
-    // Fix: Disabled subscriptions temporarily
-    // TODO: Implement targeted updates instead of full reload
+    // Real-time subscriptions for products and related offer data
+    const productsChannel = supabase
+      .channel('products-changes', { filter: `branch_id=eq.${flow.branchId}` })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, () => {
+        console.log('✨ New product added, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload) => {
+        console.log('🔄 Product updated:', payload.new.id);
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, () => {
+        console.log('🗑️ Product deleted, reloading products...');
+        loadProducts();
+      })
+      .subscribe();
+
     const offersChannel = supabase
       .channel('offers-changes')
-      /* Commented out realtime listeners
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => {
-        console.log('📊 Offers table changed, reloading products...');
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 New offer product added, reloading products...');
         loadProducts();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'offer_products' }, () => {
-        console.log('📦 Offer products changed, reloading products...');
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'offer_products' }, (payload) => {
+        console.log('🔄 Offer product updated:', payload.new.id);
         loadProducts();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bogo_offer_rules' }, () => {
-        console.log('🎁 BOGO rules changed, reloading products...');
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'offer_products' }, () => {
+        console.log('📦 Offer product deleted, reloading products...');
         loadProducts();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-        console.log('🛍️ Products changed, reloading products...');
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 New BOGO offer created, reloading products...');
         loadProducts();
       })
-      */
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bogo_offer_rules' }, (payload) => {
+        console.log('🔄 BOGO offer updated:', payload.new.id);
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'bogo_offer_rules' }, () => {
+        console.log('🎁 BOGO offer deleted, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 New offer created, reloading products...');
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'offers' }, (payload) => {
+        console.log('🔄 Offer updated:', payload.new.id);
+        loadProducts();
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'offers' }, () => {
+        console.log('📊 Offer deleted, reloading products...');
+        loadProducts();
+      })
+      .subscribe();
+
+    const categoriesChannel = supabase
+      .channel('categories-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_categories' }, () => {
+        console.log('🏷️ Product categories changed, reloading categories...');
+        loadCategories();
+      })
       .subscribe();
 
     return () => {
       window.removeEventListener('storage', onStorage);
+      supabase.removeChannel(productsChannel);
       supabase.removeChannel(offersChannel);
+      supabase.removeChannel(categoriesChannel);
     };
   });
 

@@ -18,8 +18,8 @@
 		name_en: '',
 		description_ar: '',
 		description_en: '',
-		start_date: new Date().toISOString().slice(0, 16),
-		end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+		start_date: getSaudiLocalDateTime(),
+		end_date: getSaudiLocalDateTime(30),
 		branch_id: null as number | null,
 		service_type: 'both' as 'delivery' | 'pickup' | 'both',
 		is_active: true
@@ -33,6 +33,25 @@
 	let productSearchTerm = '';
 	let selectedProductsForBundle: any[] = [];
 	let calculatedBundlePrice: number | null = null;
+
+	// Get current Saudi local time in datetime-local format
+	function getSaudiLocalDateTime(daysToAdd: number = 0): string {
+		const now = new Date();
+		// Add days if specified
+		now.setDate(now.getDate() + daysToAdd);
+		
+		// Convert to Saudi time (UTC+3)
+		const saudiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+		
+		// Format as datetime-local (YYYY-MM-DDTHH:mm)
+		const year = saudiTime.getFullYear();
+		const month = String(saudiTime.getMonth() + 1).padStart(2, '0');
+		const day = String(saudiTime.getDate()).padStart(2, '0');
+		const hours = String(saudiTime.getHours()).padStart(2, '0');
+		const minutes = String(saudiTime.getMinutes()).padStart(2, '0');
+		
+		return `${year}-${month}-${day}T${hours}:${minutes}`;
+	}
 
 	$: isRTL = $currentLocale === 'ar';
 	$: filteredProducts = products.filter(p => 
@@ -126,95 +145,115 @@
 	}
 
 	async function loadProducts() {
-		const { data, error: err } = await supabase
-			.from('products')
-			.select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock')
-			.eq('is_active', true)
-			.order('product_serial');
+		loading = true;
+		try {
+			const pageSize = 500;
+			let allProducts: any[] = [];
+			let page = 0;
+			let hasMore = true;
 
-		if (!err && data) {
-			// Get products already in active offers (product, bogo, bundle)
-			const { data: offerProducts } = await supabase
-				.from('offer_products')
-				.select(`
-					product_id,
-					offers!inner(id, is_active, end_date, type)
-				`)
-				.eq('offers.is_active', true)
-				.gte('offers.end_date', new Date().toISOString())
-				.neq('offers.id', offerId || 0);
+			while (hasMore) {
+				const { data, error: err } = await supabase
+					.from('products')
+					.select('*')
+					.range(page * pageSize, (page + 1) * pageSize - 1);
 
-			// Get products in active bundles
-			const { data: bundleData } = await supabase
-				.from('offer_bundles')
-				.select(`
-					required_products,
-					offers!inner(id, is_active, end_date)
-				`)
-				.eq('offers.is_active', true)
-				.gte('offers.end_date', new Date().toISOString())
-				.neq('offers.id', offerId || 0);
+				if (err || !data) {
+					hasMore = false;
+					break;
+				}
 
-			// Get products from BOGO offers
-			let bogoQuery = supabase
-				.from('bogo_offer_rules')
-				.select(`
-					buy_product_id,
-					get_product_id,
-					offers!inner(id, is_active, end_date)
-				`)
-				.eq('offers.is_active', true)
-				.gte('offers.end_date', new Date().toISOString());
-			
-			if (editMode && offerId) {
-				bogoQuery = bogoQuery.neq('offers.id', offerId);
+				allProducts = [...allProducts, ...data];
+				hasMore = data.length === pageSize;
+				page++;
 			}
 
-			const { data: bogoData } = await bogoQuery;
+			if (allProducts.length > 0) {
+				// Get products already in active offers (product, bogo, bundle)
+				const { data: offerProducts } = await supabase
+					.from('offer_products')
+					.select(`
+						product_id,
+						offers!inner(id, is_active, end_date, type)
+					`)
+					.eq('offers.is_active', true)
+					.gte('offers.end_date', new Date().toISOString())
+					.neq('offers.id', offerId || 0);
 
-			const usedProductIds = new Set();
-			
-			// Add products from offer_products
-			offerProducts?.forEach(op => {
-				usedProductIds.add(op.product_id);
-			});
+				// Get products in active bundles
+				const { data: bundleData } = await supabase
+					.from('offer_bundles')
+					.select(`
+						required_products,
+						offers!inner(id, is_active, end_date)
+					`)
+					.eq('offers.is_active', true)
+					.gte('offers.end_date', new Date().toISOString())
+					.neq('offers.id', offerId || 0);
 
-			// Add products from bundles
-			bundleData?.forEach(bundle => {
-				if (bundle.required_products && Array.isArray(bundle.required_products)) {
-					bundle.required_products.forEach((p: any) => {
-						usedProductIds.add(p.product_id);
-					});
+				// Get products from BOGO offers
+				let bogoQuery = supabase
+					.from('bogo_offer_rules')
+					.select(`
+						buy_product_id,
+						get_product_id,
+						offers!inner(id, is_active, end_date)
+					`)
+					.eq('offers.is_active', true)
+					.gte('offers.end_date', new Date().toISOString());
+				
+				if (editMode && offerId) {
+					bogoQuery = bogoQuery.neq('offers.id', offerId);
 				}
-			});
 
-			// Add products from BOGO offers
-			bogoData?.forEach((rule: any) => {
-				if (rule.buy_product_id) {
-					usedProductIds.add(rule.buy_product_id);
-				}
-				if (rule.get_product_id) {
-					usedProductIds.add(rule.get_product_id);
-				}
-			});
+				const { data: bogoData } = await bogoQuery;
 
-			// Filter out used products
-			products = data
-				.filter(p => !usedProductIds.has(p.id))
-				.map(p => ({
-					id: p.id,
-					name_ar: p.product_name_ar,
-					name_en: p.product_name_en,
-					barcode: p.barcode,
-					product_serial: p.product_serial || '',
-					price: parseFloat(p.sale_price) || 0,
-					cost: parseFloat(p.cost) || 0,
-					unit_name_en: p.unit_name_en || '',
-					unit_name_ar: p.unit_name_ar || '',
-					unit_qty: p.unit_qty || 1,
-					image_url: p.image_url,
-					stock: p.current_stock || 0
-				}));
+				const usedProductIds = new Set();
+				
+				// Add products from offer_products
+				offerProducts?.forEach(op => {
+					usedProductIds.add(op.product_id);
+				});
+
+				// Add products from bundles
+				bundleData?.forEach(bundle => {
+					if (bundle.required_products && Array.isArray(bundle.required_products)) {
+						bundle.required_products.forEach((p: any) => {
+							usedProductIds.add(p.product_id);
+						});
+					}
+				});
+
+				// Add products from BOGO offers
+				bogoData?.forEach((rule: any) => {
+					if (rule.buy_product_id) {
+						usedProductIds.add(rule.buy_product_id);
+					}
+					if (rule.get_product_id) {
+						usedProductIds.add(rule.get_product_id);
+					}
+				});
+
+				// Filter out used products and inactive products
+				products = allProducts
+					.filter(p => !usedProductIds.has(p.id) && p.is_active !== false && p.is_customer_product !== false)
+					.map(p => ({
+						id: p.id,
+						name_ar: p.product_name_ar,
+						name_en: p.product_name_en,
+						barcode: p.barcode,
+						product_serial: p.barcode || '',
+						price: parseFloat(p.sale_price) || 0,
+						cost: parseFloat(p.cost) || 0,
+						unit_name_en: p.unit_name_en || '',
+						unit_name_ar: p.unit_name_ar || '',
+						unit_qty: p.unit_qty || 1,
+						image_url: p.image_url,
+						stock: p.current_stock || 0
+					}));
+			}
+		} finally {
+			loading = false;
 		}
 	}
 

@@ -212,7 +212,7 @@
     let tableRows = '';
     order.items.forEach((item: any, index: number) => {
       const imageHtml = item.product?.image_url 
-        ? `<img src="${item.product.image_url}" alt="${item.product_name_en}" class="product-print-image" />`
+        ? `<img src="${item.product.image_url}" alt="${item.product_name_en}" class="product-print-image" style="width: 50px !important; height: 50px !important; max-width: 50px !important; max-height: 50px !important; object-fit: contain !important; display: block !important;" />`
         : `<div class="product-image-placeholder">📦</div>`;
 
       const barcodeHtml = barcodeImages[index]
@@ -299,37 +299,44 @@
         <meta charset="UTF-8">
         <title>Order Slip - ${order.order_number}</title>
         <style>
-          @page { size: A4; margin: 1cm; }
+          @page { size: A4; margin: 0.5cm; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 1cm;
+            padding: 0.5cm;
             background: white;
           }
-          .print-order-header { text-align: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 2px solid #e5e7eb; }
-          .print-order-header h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-          .order-info-row { display: flex; justify-content: space-between; font-size: 0.875rem; color: #6b7280; }
-          .print-section { margin-bottom: 1.5rem; }
-          .print-section-title { font-size: 1.125rem; font-weight: 600; color: #1f2937; margin: 0 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; }
-          .print-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; font-size: 0.875rem; }
-          .print-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin-top: 1rem; }
+          .print-order-header { text-align: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 2px solid #e5e7eb; }
+          .print-order-header h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+          .order-info-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: #6b7280; }
+          .print-section { margin-bottom: 1rem; }
+          .print-section-title { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 0 0 0.75rem 0; padding-bottom: 0.375rem; border-bottom: 2px solid #e5e7eb; }
+          .print-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.75rem; }
+          .print-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 0.75rem; }
           .print-table thead { background: #f9fafb; }
-          .print-table th { padding: 0.75rem; text-align: left; font-weight: 600; color: #374151; border: 1px solid #e5e7eb; }
-          .print-table td { padding: 0.75rem; border: 1px solid #e5e7eb; color: #6b7280; }
-          .product-name { font-weight: 500; color: #374151; font-size: 0.875rem; }
-          .product-name-ar { font-size: 0.75rem; color: #6b7280; margin-top: 0.125rem; direction: rtl; }
-          .unit-names { margin-top: 0.25rem; font-size: 0.75rem; color: #6b7280; }
-          .unit-name-ar { direction: rtl; color: #9ca3af; font-size: 0.7rem; }
-          .product-image-cell { display: flex; align-items: center; justify-content: center; padding: 0.25rem; }
-          .product-print-image { width: 60px; height: 60px; object-fit: cover; border-radius: 0.375rem; border: 1px solid #e5e7eb; }
-          .product-image-placeholder { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; background: #f3f4f6; border-radius: 0.375rem; border: 1px solid #e5e7eb; font-size: 1.5rem; }
-          .product-barcode-cell { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
-          .barcode-text { font-size: 0.75rem; color: #6b7280; font-family: monospace; }
-          .print-summary { margin-top: 1.5rem; padding: 1rem; background: #f9fafb; border-radius: 0.5rem; }
-          .summary-row { display: flex; justify-content: space-between; padding: 0.5rem 0; font-size: 0.875rem; }
+          .print-table th { padding: 0.35rem 0.5rem; text-align: left; font-weight: 600; color: #374151; border: 1px solid #e5e7eb; }
+          .print-table td { padding: 0.35rem 0.5rem; border: 1px solid #e5e7eb; color: #6b7280; }
+          .print-table th:nth-child(1), .print-table td:nth-child(1) { width: 16px; max-width: 16px; }
+          .print-table th:nth-child(2), .print-table td:nth-child(2) { width: 65px; max-width: 65px; }
+          .print-table th:nth-child(3), .print-table td:nth-child(3) { width: auto; max-width: 50px; }
+          .print-table th:nth-child(4), .print-table td:nth-child(4) { width: 155px; max-width: 155px; }
+          .print-table th:nth-child(5), .print-table td:nth-child(5) { width: 45px; max-width: 45px; }
+          .print-table th:nth-child(6), .print-table td:nth-child(6) { width: 65px; max-width: 65px; }
+          .print-table th:nth-child(7), .print-table td:nth-child(7) { width: 65px; max-width: 65px; }
+          .product-name { font-weight: 500; color: #374151; font-size: 0.75rem; }
+          .product-name-ar { font-size: 0.7rem; color: #6b7280; margin-top: 0.063rem; direction: rtl; }
+          .unit-names { margin-top: 0.125rem; font-size: 0.7rem; color: #6b7280; }
+          .unit-name-ar { direction: rtl; color: #9ca3af; font-size: 0.65rem; }
+          .product-image-cell { width: 50px !important; height: 50px !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; }
+          .product-print-image { width: 50px !important; height: 50px !important; max-width: 50px !important; max-height: 50px !important; min-width: 50px !important; min-height: 50px !important; object-fit: contain !important; border-radius: 0.375rem; border: 1px solid #e5e7eb; display: block !important; margin: 0 !important; padding: 0 !important; }
+          .product-image-placeholder { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; background: #f3f4f6; border-radius: 0.375rem; border: 1px solid #e5e7eb; font-size: 0.75rem; }
+          .product-barcode-cell { display: flex; flex-direction: column; align-items: center; gap: 0.125rem; }
+          .barcode-text { font-size: 0.7rem; color: #6b7280; font-family: monospace; }
+          .print-summary { margin-top: 1rem; padding: 0.75rem; background: #f9fafb; border-radius: 0.5rem; }
+          .summary-row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.75rem; }
           .summary-row.discount { color: #059669; }
-          .summary-row.total { font-size: 1.125rem; border-top: 2px solid #10b981; padding-top: 1rem; margin-top: 0.5rem; font-weight: bold; }
-          .print-footer { text-align: center; margin-top: 3rem; padding-top: 1.5rem; border-top: 2px solid #e5e7eb; color: #9ca3af; font-size: 0.875rem; }
+          .summary-row.total { font-size: 1rem; border-top: 2px solid #10b981; padding-top: 0.5rem; margin-top: 0.25rem; font-weight: bold; }
+          .print-footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 2px solid #e5e7eb; color: #9ca3af; font-size: 0.75rem; }
         </style>
       </head>
       <body>
@@ -1745,14 +1752,14 @@
 
   .item-image-container {
     flex-shrink: 0;
-    width: 80px;
-    height: 80px;
+    width: 50px;
+    height: 50px;
   }
 
   .item-image {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     border-radius: 0.375rem;
     background: white;
   }

@@ -43,12 +43,17 @@ export const GET: RequestHandler = async ({ url }) => {
 		.eq('is_active', true)
 		.in('type', ['product', 'bogo', 'bundle'])
 		.lte('start_date', now)
-		.gte('end_date', now);		if (offersError) {
+		.gte('end_date', now);
+
+		if (offersError) {
 			console.error('Error fetching offers:', offersError);
 			return json({ error: 'Failed to fetch offers' }, { status: 500 });
 		}
 
 		console.log(`📊 Found ${offers?.length || 0} active offers (product + BOGO + bundle)`);
+		if (offers && offers.length > 0) {
+			console.log('📋 Offer details:', offers.map(o => ({ id: o.id, name: o.name_en, type: o.type, start: o.start_date, end: o.end_date })));
+		}
 
 		// Filter offers by branch and service type
 		const filteredOffers = (offers || []).filter((offer) => {
@@ -72,6 +77,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		// Step 2: Get products for these offers (only special price offers)
 		const offerIds = filteredOffers.map((o) => o.id);
+		console.log(`🔍 Offer IDs to query: ${JSON.stringify(offerIds)}`);
 		
 		if (offerIds.length === 0) {
 		// No offers, return regular products with proper field transformation
@@ -162,15 +168,26 @@ export const GET: RequestHandler = async ({ url }) => {
 					current_stock,
 					minimum_qty_alert,
 					is_active,
+					is_customer_product,
 					product_categories(name_en, name_ar)
 				)
 			`)
-			.in('offer_id', offerIds);		if (offerProductsError) {
+			.in('offer_id', offerIds);
+
+		if (offerProductsError) {
 			console.error('Error fetching offer products:', offerProductsError);
 			return json({ error: 'Failed to fetch offer products' }, { status: 500 });
 		}
 
-		console.log(`📦 Found ${offerProducts?.length || 0} offer products`);
+		console.log(`📦 Found ${offerProducts?.length || 0} offer products for ${offerIds.length} offers`);
+		if (offerProducts && offerProducts.length > 0) {
+			console.log('🛒 Sample offer product:', { id: offerProducts[0].id, product_id: offerProducts[0].product_id, product_name: offerProducts[0].products?.product_name_en });
+		}
+
+		// Debug: Log all offer products
+		(offerProducts || []).forEach((op) => {
+			console.log(`  📦 Offer product: ${op.product_id} (${op.products?.product_name_en}), percentage: ${op.offer_percentage}, price: ${op.offer_price}`);
+		});
 
 	// Step 3: Get BOGO offer rules
 	const { data: bogoRules, error: bogoError } = await supabase
@@ -197,6 +214,7 @@ export const GET: RequestHandler = async ({ url }) => {
 					current_stock,
 					minimum_qty_alert,
 					is_active,
+					is_customer_product,
 					product_categories(name_en, name_ar)
 				),
 				get_product:get_product_id (
@@ -212,6 +230,7 @@ export const GET: RequestHandler = async ({ url }) => {
 					current_stock,
 					minimum_qty_alert,
 					is_active,
+					is_customer_product,
 					product_categories(name_en, name_ar)
 				)
 			`)
@@ -223,23 +242,32 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		console.log(`🎁 Found ${bogoRules?.length || 0} BOGO rules`);
 
-		// Step 4: Enrich products with offer data
-		const productMap = new Map();
+	// Step 4: Enrich products with offer data
+	const productMap = new Map();
 
-		(offerProducts || []).forEach((offerProduct) => {
-			const product = offerProduct.products;
-			if (!product || !product.is_active || !product.is_customer_product) return;
+	(offerProducts || []).forEach((offerProduct) => {
+		const product = offerProduct.products;
+		if (!product || !product.is_active || !product.is_customer_product) {
+			console.log(`  ⚠️ Skipping offer product: product=${product?.id}, is_active=${product?.is_active}, is_customer_product=${product?.is_customer_product}`);
+			return;
+		}
 
-			const offer = filteredOffers.find((o) => o.id === offerProduct.offer_id);
-			if (!offer) return;
+		const offer = filteredOffers.find((o) => o.id === offerProduct.offer_id);
+		if (!offer) {
+			console.log(`  ⚠️ Offer not found for offer_id ${offerProduct.offer_id}`);
+			return;
+		}
 
-			// Check if this is a percentage offer or special price offer
-			const hasPercentage = offerProduct.offer_percentage && offerProduct.offer_percentage > 0;
-			const hasSpecialPrice = offerProduct.offer_price && offerProduct.offer_price > 0;
-			
-			if (!hasPercentage && !hasSpecialPrice) return;
+		// Check if this is a percentage offer or special price offer
+		const hasPercentage = offerProduct.offer_percentage && offerProduct.offer_percentage > 0;
+		const hasSpecialPrice = offerProduct.offer_price && offerProduct.offer_price > 0;
+		
+		if (!hasPercentage && !hasSpecialPrice) {
+			console.log(`  ⚠️ No offer value for product ${product.id}: percentage=${offerProduct.offer_percentage}, price=${offerProduct.offer_price}`);
+			return;
+		}
 
-			const productBarcode = product.barcode;
+		console.log(`  ✅ Adding offer product: ${product.product_name_en} (${product.id}) with ${hasPercentage ? 'percentage' : 'price'} offer`);			const productBarcode = product.barcode;
 			const productId = product.id;
 
 			// Calculate offer details

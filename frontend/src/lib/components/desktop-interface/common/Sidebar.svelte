@@ -43,7 +43,6 @@
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
 	import DeliverySettings from '$lib/components/desktop-interface/admin-customer-app/DeliverySettings.svelte';
 	import ProductsManager from '$lib/components/desktop-interface/admin-customer-app/ProductsManager.svelte';
-	import ProductsManagerNew from '$lib/components/desktop-interface/admin-customer-app/ProductsManagerNew.svelte';
 	import OfferManagement from '$lib/components/desktop-interface/admin-customer-app/OfferManagement.svelte';
 	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
 	import OrdersManager from '$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte';
@@ -1001,7 +1000,7 @@
 		openWindow({
 			id: windowId,
 			title: `Products Manager New #${instanceNumber}`,
-			component: ProductsManagerNew,
+			component: ProductsManager,
 			icon: '🛍️',
 			size: { width: 1400, height: 900 },
 			position: { 
@@ -2184,14 +2183,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openProductsManager}>
 								<span class="menu-icon">🛍️</span>
 								<span class="menu-text">{t('admin.productsManager') || 'Products Manager'}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('PRODUCTS_MANAGER_NEW')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openProductsManagerNew}>
-								<span class="menu-icon">🆕</span>
-								<span class="menu-text">Products Manager New</span>
 							</button>
 						</div>
 					{/if}

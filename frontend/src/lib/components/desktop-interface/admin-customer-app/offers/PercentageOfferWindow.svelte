@@ -19,8 +19,8 @@
     name_en: '',
     description_ar: '',
     description_en: '',
-    start_date: new Date().toISOString().slice(0, 16),
-    end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    start_date: getSaudiLocalDateTime(),
+    end_date: getSaudiLocalDateTime(30),
     branch_id: null as number | null,
     service_type: 'both' as 'delivery' | 'pickup' | 'both',
     is_active: true
@@ -32,6 +32,25 @@
   let percentageOffers: any[] = [];
   let editingOfferId: number | null = null;
   let productsInOtherOffers: Set<string> = new Set();
+
+  // Get current Saudi local time in datetime-local format
+  function getSaudiLocalDateTime(daysToAdd: number = 0): string {
+    const now = new Date();
+    // Add days if specified
+    now.setDate(now.getDate() + daysToAdd);
+    
+    // Convert to Saudi time (UTC+3)
+    const saudiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    
+    // Format as datetime-local (YYYY-MM-DDTHH:mm)
+    const year = saudiTime.getFullYear();
+    const month = String(saudiTime.getMonth() + 1).padStart(2, '0');
+    const day = String(saudiTime.getDate()).padStart(2, '0');
+    const hours = String(saudiTime.getHours()).padStart(2, '0');
+    const minutes = String(saudiTime.getMinutes()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
 
   $: isRTL = $currentLocale === 'ar';
   
@@ -74,19 +93,37 @@
   }
 
   async function loadProducts() {
-    const { data, error: err } = await supabase
-      .from('products')
-      .select('id, product_name_ar, product_name_en, barcode, product_serial, sale_price, cost, unit_name_en, unit_name_ar, unit_qty, image_url, current_stock, minim_qty, minimum_qty_alert')
-      .eq('is_active', true)
-      .order('product_serial');
+    loading = true;
+    try {
+      const pageSize = 500;
+      let allProducts: any[] = [];
+      let page = 0;
+      let hasMore = true;
 
-    if (!err && data) {
-      products = data.map(p => ({
+      while (hasMore) {
+        const { data, error: err } = await supabase
+          .from('products')
+          .select('*')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (err || !data) {
+          hasMore = false;
+          break;
+        }
+
+        allProducts = [...allProducts, ...data];
+        hasMore = data.length === pageSize;
+        page++;
+      }
+
+      products = allProducts
+        .filter(p => p.is_active !== false && p.is_customer_product !== false)
+        .map(p => ({
         id: p.id,
         name_ar: p.product_name_ar,
         name_en: p.product_name_en,
         barcode: p.barcode,
-        product_serial: p.product_serial || '',
+        product_serial: p.barcode || '',
         price: parseFloat(p.sale_price) || 0,
         cost: parseFloat(p.cost) || 0,
         unit_name_en: p.unit_name_en || '',
@@ -94,9 +131,11 @@
         unit_qty: p.unit_qty || 1,
         image_url: p.image_url,
         stock: p.current_stock || 0,
-        minim_qty: p.minim_qty || 1,
-        minimum_qty_alert: p.minimum_qty_alert || 0
+        minim_qty: 1,
+        minimum_qty_alert: 0
       }));
+    } finally {
+      loading = false;
     }
 
     await loadProductsInOtherOffers();

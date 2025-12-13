@@ -309,12 +309,13 @@
       const totalSavings = usageLogs?.reduce((sum, log) => sum + (parseFloat(log.discount_applied) || 0), 0) || 0;
       
       // Get most used offer
-      const { data: mostUsedData } = await supabase
+      const { data: mostUsedArray } = await supabase
         .from('offers')
         .select('name_ar, name_en, current_total_uses')
         .order('current_total_uses', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
+      
+      const mostUsedData = mostUsedArray && mostUsedArray.length > 0 ? mostUsedArray[0] : null;
       
       // Get expiring soon count (within 7 days)
       const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
