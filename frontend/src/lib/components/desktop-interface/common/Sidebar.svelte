@@ -3592,14 +3592,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('CREATE_USER_ROLES')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openCreateUserRoles}>
-								<span class="menu-icon">🔘</span>
-								<span class="menu-text">Create User Roles</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('MANAGE_ADMIN_USERS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openManageAdminUsers}>
