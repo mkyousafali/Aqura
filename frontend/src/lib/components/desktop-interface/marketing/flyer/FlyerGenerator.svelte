@@ -203,9 +203,9 @@
       
       const barcodes = data.map(op => op.product_barcode);
       
-      // Get product details from flyer_products (including variation fields)
+      // Get product details from products (including variation fields)
       const { data: productDetails, error: productError } = await supabase
-        .from('flyer_products')
+        .from('products')
         .select('barcode, product_name_en, product_name_ar, unit_name, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar, variation_image_override, variation_order')
         .in('barcode', barcodes);
       
@@ -259,7 +259,7 @@
           
           // Fetch variation images
           const { data: variationImgData } = await supabase
-            .from('flyer_products')
+            .from('products')
             .select('image_url, variation_order')
             .in('barcode', offerVariationBarcodes)
             .order('variation_order', { ascending: true });

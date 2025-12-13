@@ -307,7 +307,7 @@
 	// Load products from database on mount
 	async function loadProducts() {
 		const { data, error } = await supabase
-			.from('flyer_products')
+			.from('products')
 			.select('*')
 			.order('created_at', { ascending: false });
 		
@@ -335,7 +335,7 @@
 		try {
 			// Get total products count
 			const { count: totalCount, error: countError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*', { count: 'exact', head: true });
 			
 			if (countError) {
@@ -346,7 +346,7 @@
 			
 			// Get products with images count
 			const { count: withImageCount, error: withImageError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*', { count: 'exact', head: true })
 				.not('image_url', 'is', null)
 				.neq('image_url', '');
@@ -359,7 +359,7 @@
 			
 			// Get products without images count
 			const { count: noImageCount, error: noImageError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*', { count: 'exact', head: true })
 				.or('image_url.is.null,image_url.eq.');
 			
@@ -433,7 +433,7 @@
 		
 		try {
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.or('image_url.is.null,image_url.eq.')
 				.order('created_at', { ascending: false });
@@ -481,7 +481,7 @@
 				
 				// Update the product in database with image URL
 				const { error: updateError } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.update({ 
 						image_url: urlData.publicUrl,
 						updated_at: new Date().toISOString()
@@ -523,7 +523,7 @@
 		
 		try {
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.order('product_name_en', { ascending: true });
 			
@@ -567,7 +567,7 @@
 	async function loadAllProductsForDropdowns() {
 		try {
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('unit_name, parent_category, parent_sub_category, sub_category');
 			
 			if (!error && data) {
@@ -785,7 +785,7 @@
 				
 				// Update the product in database with image URL
 				const { error: updateError } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.update({ 
 						image_url: urlData.publicUrl,
 						updated_at: new Date().toISOString()
@@ -856,7 +856,7 @@
 				
 				// Update the product in database with image URL
 				const { error: updateError } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.update({ image_url: urlData.publicUrl })
 					.eq('barcode', previewBarcode);
 				
@@ -909,7 +909,7 @@
 		isSavingEdit = true;
 		try {
 			const { error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.update({
 					product_name_en: editingProduct.product_name_en,
 					product_name_ar: editingProduct.product_name_ar,
@@ -992,7 +992,7 @@
 		try {
 			// Check if barcode already exists
 			const { data: existingProduct, error: checkError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('barcode')
 				.eq('barcode', newProduct.barcode.trim())
 				.maybeSingle();
@@ -1004,7 +1004,7 @@
 			}
 			
 			const { error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.insert({
 					barcode: newProduct.barcode.trim(),
 					product_name_en: newProduct.product_name_en.trim(),
@@ -1267,7 +1267,7 @@
 				// Insert or update product in database
 				// upsert will automatically handle both new and existing products
 				const { error: dbError } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.upsert({
 						barcode: barcode,
 						product_name_en: product['Product name english'] || product['Product name_en'] || '',

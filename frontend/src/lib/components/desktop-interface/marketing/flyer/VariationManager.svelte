@@ -50,7 +50,7 @@
 		isLoading = true;
 		try {
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.order('product_name_en', { ascending: true });
 			
@@ -73,7 +73,7 @@
 	async function loadStats() {
 		try {
 			const { data: allProducts, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('id, is_variation, parent_product_barcode');
 			
 			if (error) throw error;
@@ -94,7 +94,7 @@
 		try {
 			// Get all parent products (is_variation=true and variation_order=0, meaning they are parents)
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.eq('is_variation', true)
 				.eq('variation_order', 0)
@@ -106,7 +106,7 @@
 			const groupsWithVariations = await Promise.all(
 				(data || []).map(async (parent) => {
 					const { data: variations, error: varError } = await supabase
-						.from('flyer_products')
+						.from('products')
 						.select('*')
 						.eq('parent_product_barcode', parent.barcode)
 						.order('variation_order', { ascending: true });
@@ -225,7 +225,7 @@
 		
 		// Load all products in this group
 		const { data: groupProducts, error } = await supabase
-			.from('flyer_products')
+			.from('products')
 			.select('barcode')
 			.eq('parent_product_barcode', parentBarcode);
 		
@@ -286,7 +286,7 @@
 				
 				// Step 1: Ensure parent product has correct variation_order = 0 and group names
 				await supabase
-					.from('flyer_products')
+					.from('products')
 					.update({
 						is_variation: true,
 						parent_product_barcode: groupParentBarcode,
@@ -299,7 +299,7 @@
 				
 				// Step 2: Get all existing variations in this group
 				const { data: existingVariations } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.select('barcode')
 					.eq('parent_product_barcode', groupParentBarcode)
 					.neq('barcode', groupParentBarcode); // Exclude parent itself
@@ -322,7 +322,7 @@
 				// Step 5: Remove unselected products from group
 				for (const barcode of barcodesToRemove) {
 					await supabase
-						.from('flyer_products')
+						.from('products')
 						.update({
 							is_variation: false,
 							parent_product_barcode: null,
@@ -337,7 +337,7 @@
 				// Step 6: Add new selected products to group
 				for (const barcode of barcodesToAdd) {
 					await supabase
-						.from('flyer_products')
+						.from('products')
 						.update({
 							is_variation: true,
 							parent_product_barcode: groupParentBarcode,
@@ -351,7 +351,7 @@
 				
 				// Step 7: Re-number all remaining variations sequentially (1, 2, 3...)
 				const { data: finalVariations } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.select('barcode')
 					.eq('parent_product_barcode', groupParentBarcode)
 					.neq('barcode', groupParentBarcode)
@@ -360,7 +360,7 @@
 				let orderCounter = 1;
 				for (const variation of (finalVariations || [])) {
 					await supabase
-						.from('flyer_products')
+						.from('products')
 						.update({
 							variation_order: orderCounter++,
 							variation_group_name_en: groupNameEn,
@@ -448,7 +448,7 @@
 		try {
 			// Get all products in the group
 			const { data: groupProducts, error: fetchError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('barcode')
 				.or(`barcode.eq.${parentBarcode},parent_product_barcode.eq.${parentBarcode}`);
 			
@@ -458,7 +458,7 @@
 			const barcodes = groupProducts?.map(p => p.barcode) || [];
 			
 			const { error: updateError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.update({
 					is_variation: false,
 					parent_product_barcode: null,

@@ -15,7 +15,7 @@
     try {
       // Count total products
       const { count: productsCount, error: productsError } = await supabase
-        .from('flyer_products')
+        .from('products')
         .select('*', { count: 'exact', head: true });
       
       if (!productsError) {

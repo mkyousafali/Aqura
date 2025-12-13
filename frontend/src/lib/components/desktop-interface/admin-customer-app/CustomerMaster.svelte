@@ -277,6 +277,23 @@
         return;
       }
 
+      // Check if user has admin privileges
+      if (!user.isAdmin && !user.isMasterAdmin) {
+        console.error("❌ Access denied: User lacks admin privileges", {
+          username: user.username,
+          isAdmin: user.isAdmin,
+          isMasterAdmin: user.isMasterAdmin
+        });
+        alert("Access denied. Admin privileges required to approve/reject customers.\n\nYour account does not have admin permissions. Please contact your system administrator.");
+        return;
+      }
+
+      console.log("✅ Admin check passed:", {
+        username: user.username,
+        isAdmin: user.isAdmin,
+        isMasterAdmin: user.isMasterAdmin
+      });
+
       // First update the access code if provided (for approved customers)
       if (status === "approved" && accessCode) {
         const { error: codeError } = await supabase

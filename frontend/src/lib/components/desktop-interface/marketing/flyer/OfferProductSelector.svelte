@@ -465,7 +465,7 @@
 		
 		try {
 			const { data, error } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.order('product_name_en', { ascending: true });
 			

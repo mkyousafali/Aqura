@@ -122,7 +122,8 @@ export const GET: RequestHandler = async ({ url }) => {
 								const { data: products, error: prodError } = await supabase
 									.from('products')
 									.select('*')
-									.in('id', productIds);
+									.in('id', productIds)
+									.eq('is_customer_product', true);
 								
 								if (prodError) {
 									console.error(`    ❌ Product fetch error:`, prodError);
@@ -167,12 +168,14 @@ export const GET: RequestHandler = async ({ url }) => {
 								.from('products')
 								.select('*')
 								.eq('id', rule.buy_product_id)
+								.eq('is_customer_product', true)
 								.single();
 							
 							const { data: getProduct, error: getError } = await supabase
 								.from('products')
 								.select('*')
 								.eq('id', rule.get_product_id)
+								.eq('is_customer_product', true)
 								.single();
 							
 							if (buyError) console.error(`    ❌ Buy product error:`, buyError);

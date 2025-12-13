@@ -2,6 +2,29 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/utils/supabase';
 
+// Unit ID to name mapping (from product_units table)
+const UNIT_MAP: Record<string, { name_en: string; name_ar: string }> = {
+	'UNIT001': { name_en: 'Piece', name_ar: 'حبه' },
+	'UNIT002': { name_en: 'Dozen', name_ar: 'شده' },
+	'UNIT003': { name_en: 'Packet', name_ar: 'باكت' },
+	'UNIT004': { name_en: 'Carton', name_ar: 'كرتون' },
+	'UNIT005': { name_en: 'Bag', name_ar: 'كيس' },
+	'UNIT006': { name_en: 'Box', name_ar: 'طبق' },
+	'UNIT007': { name_en: 'PCs', name_ar: 'PCs' },
+	'UNIT008': { name_en: 'Unit', name_ar: 'وحدة' },
+	'UNIT009': { name_en: 'Unit', name_ar: 'وحدة' },
+	'UNIT010': { name_en: 'Unit', name_ar: 'وحدة' },
+	'UNIT011': { name_en: 'Unit', name_ar: 'وحدة' },
+	'UNIT012': { name_en: 'Carton', name_ar: 'كرتون-' }
+};
+
+function getUnitName(unitId: string | null): { name_en: string; name_ar: string } {
+	if (!unitId) {
+		return { name_en: 'Unit', name_ar: 'وحدة' };
+	}
+	return UNIT_MAP[unitId] || { name_en: 'Unit', name_ar: 'وحدة' };
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const branchId = url.searchParams.get('branchId');
 	const serviceType = url.searchParams.get('serviceType'); // 'delivery' or 'pickup'
@@ -54,46 +77,62 @@ export const GET: RequestHandler = async ({ url }) => {
 		// No offers, return regular products with proper field transformation
 		const { data: products, error: productsError } = await supabase
 			.from('products')
-			.select('*')
+			.select(`
+				id,
+				barcode,
+				product_name_en,
+				product_name_ar,
+				category_id,
+				image_url,
+				current_stock,
+				minimum_qty_alert,
+				sale_price,
+				unit_id,
+				unit_qty,
+				product_categories(name_en, name_ar)
+			`)
 			.eq('is_active', true)
+			.eq('is_customer_product', true)
 			.order('product_name_en');			if (productsError) {
 				console.error('Error fetching products:', productsError);
 				return json({ error: 'Failed to fetch products' }, { status: 500 });
 			}
 
 			// Transform field names to match expected format
-			const transformedProducts = (products || []).map(product => ({
-				id: product.id,
-				product_serial: product.product_serial,
+			const transformedProducts = (products || []).map(product => {
+				const unit = getUnitName(product.unit_id);
+				return {
+					id: product.id,
+				barcode: product.barcode,
 				nameEn: product.product_name_en,
 				nameAr: product.product_name_ar,
 				category: product.category_id,
-				categoryNameEn: product.category_name_en,
-				categoryNameAr: product.category_name_ar,
-				image: product.image_url,
-				barcode: product.barcode,
-				stock: product.current_stock,
-				lowStockThreshold: product.minimum_qty_alert,
-				
-				unitEn: product.unit_name_en,
-				unitAr: product.unit_name_ar,
-				unitQty: product.unit_qty,
-				
-				originalPrice: parseFloat(product.sale_price),
-				offerPrice: null,
-				savings: 0,
-				discountPercentage: 0,
-				
-				hasOffer: false,
-				offerType: null,
-				offerId: null,
-				offerNameEn: null,
-				offerNameAr: null,
-				offerQty: null,
-				maxUses: null,
-				offerEndDate: null,
-				isExpiringSoon: false
-			}));
+				categoryNameEn: product.product_categories?.name_en || 'Uncategorized',
+				categoryNameAr: product.product_categories?.name_ar || 'غير مصنف',
+					image: product.image_url,
+					stock: product.current_stock,
+					lowStockThreshold: product.minimum_qty_alert,
+					
+					unitEn: unit.name_en,
+					unitAr: unit.name_ar,
+					unitQty: product.unit_qty || 1,
+					
+					originalPrice: parseFloat(product.sale_price),
+					offerPrice: null,
+					savings: 0,
+					discountPercentage: 0,
+					
+					hasOffer: false,
+					offerType: null,
+					offerId: null,
+					offerNameEn: null,
+					offerNameAr: null,
+					offerQty: null,
+					maxUses: null,
+					offerEndDate: null,
+					isExpiringSoon: false
+				};
+			});
 
 			return json({ products: transformedProducts, offersCount: 0 });
 		}
@@ -111,27 +150,22 @@ export const GET: RequestHandler = async ({ url }) => {
 				max_uses,
 				products:product_id (
 					id,
-					product_serial,
 					product_name_ar,
 					product_name_en,
 					sale_price,
 					cost,
 					image_url,
 					category_id,
-					category_name_ar,
-					category_name_en,
-					unit_name_ar,
-					unit_name_en,
 					unit_qty,
+					unit_id,
 					barcode,
 					current_stock,
 					minimum_qty_alert,
-					is_active
+					is_active,
+					product_categories(name_en, name_ar)
 				)
 			`)
-			.in('offer_id', offerIds);
-
-		if (offerProductsError) {
+			.in('offer_id', offerIds);		if (offerProductsError) {
 			console.error('Error fetching offer products:', offerProductsError);
 			return json({ error: 'Failed to fetch offer products' }, { status: 500 });
 		}
@@ -152,39 +186,33 @@ export const GET: RequestHandler = async ({ url }) => {
 				discount_value,
 				buy_product:buy_product_id (
 					id,
-					product_serial,
 					product_name_ar,
 					product_name_en,
 					sale_price,
 					image_url,
 					category_id,
-					category_name_ar,
-					category_name_en,
-					unit_name_ar,
-					unit_name_en,
 					unit_qty,
+					unit_id,
 					barcode,
 					current_stock,
 					minimum_qty_alert,
-					is_active
+					is_active,
+					product_categories(name_en, name_ar)
 				),
 				get_product:get_product_id (
 					id,
-					product_serial,
 					product_name_ar,
 					product_name_en,
 					sale_price,
 					image_url,
 					category_id,
-					category_name_ar,
-					category_name_en,
-					unit_name_ar,
-					unit_name_en,
 					unit_qty,
+					unit_id,
 					barcode,
 					current_stock,
 					minimum_qty_alert,
-					is_active
+					is_active,
+					product_categories(name_en, name_ar)
 				)
 			`)
 			.in('offer_id', offerIds);
@@ -200,7 +228,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		(offerProducts || []).forEach((offerProduct) => {
 			const product = offerProduct.products;
-			if (!product || !product.is_active) return;
+			if (!product || !product.is_active || !product.is_customer_product) return;
 
 			const offer = filteredOffers.find((o) => o.id === offerProduct.offer_id);
 			if (!offer) return;
@@ -211,7 +239,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			
 			if (!hasPercentage && !hasSpecialPrice) return;
 
-			const productSerial = product.product_serial;
+			const productBarcode = product.barcode;
 			const productId = product.id;
 
 			// Calculate offer details
@@ -234,23 +262,23 @@ export const GET: RequestHandler = async ({ url }) => {
 
 			const savings = originalPrice - offerPrice;
 
+			const unit = getUnitName(product.unit_id);
 			const enrichedProduct = {
 				id: productId,
-				product_serial: productSerial,
 				nameEn: product.product_name_en,
 				nameAr: product.product_name_ar,
 				category: product.category_id,
-				categoryNameEn: product.category_name_en,
-				categoryNameAr: product.category_name_ar,
+				categoryNameEn: product.product_categories?.name_en || 'Uncategorized',
+				categoryNameAr: product.product_categories?.name_ar || 'غير مصنف',
 				image: product.image_url,
 				barcode: product.barcode,
 				stock: product.current_stock,
 				lowStockThreshold: product.minimum_qty_alert,
 				
 				// Unit info
-				unitEn: product.unit_name_en,
-				unitAr: product.unit_name_ar,
-				unitQty: product.unit_qty,
+				unitEn: unit.name_en,
+				unitAr: unit.name_ar,
+				unitQty: product.unit_qty || 1,
 				
 				// Pricing
 				originalPrice: originalPrice,
@@ -272,8 +300,8 @@ export const GET: RequestHandler = async ({ url }) => {
 				isExpiringSoon: isExpiringSoon(offer.end_date)
 			};
 
-			// Use product_id as key (not serial) to handle multi-unit products
-			const key = `${productSerial}-${productId}`;
+			// Use barcode as key (not serial) to handle multi-unit products
+			const key = `${product.barcode}-${productId}`;
 			productMap.set(key, enrichedProduct);
 		});
 
@@ -295,35 +323,47 @@ export const GET: RequestHandler = async ({ url }) => {
 	// Step 5: Also get regular products (without offers)
 	const { data: allProducts, error: allProductsError } = await supabase
 		.from('products')
-		.select('*')
+		.select(`
+			id,
+			barcode,
+			product_name_en,
+			product_name_ar,
+			category_id,
+			image_url,
+			current_stock,
+			minimum_qty_alert,
+			sale_price,
+			unit_id,
+			unit_qty,
+			product_categories(name_en, name_ar)
+		`)
 		.eq('is_active', true)
+		.eq('is_customer_product', true)
 		.order('product_name_en');		if (allProductsError) {
 			console.error('Error fetching all products:', allProductsError);
 		}
 
 		// Add regular products that don't have offers
 		(allProducts || []).forEach((product) => {
-			const key = `${product.product_serial}-${product.id}`;
+			const key = `${product.barcode}-${product.id}`;
 			
 			if (!productMap.has(key)) {
+				const unit = getUnitName(product.unit_id);
 				productMap.set(key, {
-					id: product.id,
-					product_serial: product.product_serial,
-					nameEn: product.product_name_en,
-					nameAr: product.product_name_ar,
-					category: product.category_id,
-					categoryNameEn: product.category_name_en,
-					categoryNameAr: product.category_name_ar,
-					image: product.image_url,
+				id: product.id,
+				nameEn: product.product_name_en,
+				nameAr: product.product_name_ar,
+				category: product.category_id,
+				categoryNameEn: product.product_categories?.name_en || 'Uncategorized',
+				categoryNameAr: product.product_categories?.name_ar || 'غير مصنف',
+				image: product.image_url,
 					barcode: product.barcode,
-					stock: product.current_stock,
-					lowStockThreshold: product.minimum_qty_alert,
-					
-					unitEn: product.unit_name_en,
-					unitAr: product.unit_name_ar,
-					unitQty: product.unit_qty,
-					
-					originalPrice: parseFloat(product.sale_price),
+				stock: product.current_stock,
+				lowStockThreshold: product.minimum_qty_alert,
+				
+				unitEn: unit.name_en,
+				unitAr: unit.name_ar,
+				unitQty: product.unit_qty || 1,					originalPrice: parseFloat(product.sale_price),
 					offerPrice: null,
 					savings: 0,
 					discountPercentage: 0,
@@ -368,45 +408,43 @@ export const GET: RequestHandler = async ({ url }) => {
 				effectivePrice = getProductPrice - (getProductPrice * discountPercentage / 100);
 			}
 
-			return {
-				id: `bogo-${rule.id}`,
-				type: 'bogo_offer',
-				offerId: offer.id,
-				offerNameEn: offer.name_en,
-				offerNameAr: offer.name_ar,
-				isExpiringSoon: isExpiringSoon(offer.end_date),
-				offerEndDate: offer.end_date,
-				
-				// Buy product details
-				buyProduct: {
-					id: buyProduct.id,
-					product_serial: buyProduct.product_serial,
-					nameEn: buyProduct.product_name_en,
-					nameAr: buyProduct.product_name_ar,
-					image: buyProduct.image_url,
-					unitEn: buyProduct.unit_name_en,
-					unitAr: buyProduct.unit_name_ar,
-					unitQty: buyProduct.unit_qty,
+		return {
+			id: `bogo-${rule.id}`,
+			type: 'bogo_offer',
+			offerId: offer.id,
+			offerNameEn: offer.name_en,
+			offerNameAr: offer.name_ar,
+			isExpiringSoon: isExpiringSoon(offer.end_date),
+			offerEndDate: offer.end_date,
+			
+			// Buy product details
+			buyProduct: {
+				id: buyProduct.id,
+				nameEn: buyProduct.product_name_en,
+				nameAr: buyProduct.product_name_ar,
+				image: buyProduct.image_url,
+				unitEn: getUnitName(buyProduct.unit_id).name_en,
+				unitAr: getUnitName(buyProduct.unit_id).name_ar,
+				unitQty: buyProduct.unit_qty || 1,
 					price: parseFloat(buyProduct.sale_price),
 					quantity: rule.buy_quantity,
 					stock: buyProduct.current_stock,
 					lowStockThreshold: buyProduct.minimum_qty_alert,
-					barcode: buyProduct.barcode,
-					category: buyProduct.category_id,
-					categoryNameEn: buyProduct.category_name_en,
-					categoryNameAr: buyProduct.category_name_ar
+				barcode: buyProduct.barcode,
+				category: buyProduct.category_id,
+				categoryNameEn: buyProduct.product_categories?.name_en || 'Uncategorized',
+				categoryNameAr: buyProduct.product_categories?.name_ar || 'غير مصنف'
 				},
 				
 				// Get product details
-				getProduct: {
-					id: getProduct.id,
-					product_serial: getProduct.product_serial,
-					nameEn: getProduct.product_name_en,
-					nameAr: getProduct.product_name_ar,
-					image: getProduct.image_url,
-					unitEn: getProduct.unit_name_en,
-					unitAr: getProduct.unit_name_ar,
-					unitQty: getProduct.unit_qty,
+			getProduct: {
+				id: getProduct.id,
+				nameEn: getProduct.product_name_en,
+				nameAr: getProduct.product_name_ar,
+				image: getProduct.image_url,
+				unitEn: getUnitName(getProduct.unit_id).name_en,
+				unitAr: getUnitName(getProduct.unit_id).name_ar,
+				unitQty: getProduct.unit_qty || 1,
 					originalPrice: getProductPrice,
 					offerPrice: effectivePrice,
 					quantity: rule.get_quantity,
@@ -414,10 +452,10 @@ export const GET: RequestHandler = async ({ url }) => {
 					discountPercentage: discountPercentage,
 					stock: getProduct.current_stock,
 					lowStockThreshold: getProduct.minimum_qty_alert,
-					barcode: getProduct.barcode,
-					category: getProduct.category_id,
-					categoryNameEn: getProduct.category_name_en,
-					categoryNameAr: getProduct.category_name_ar
+				barcode: getProduct.barcode,
+				category: getProduct.category_id,
+				categoryNameEn: getProduct.product_categories?.name_en || 'Uncategorized',
+				categoryNameAr: getProduct.product_categories?.name_ar || 'غير مصنف'
 				},
 				
 				// Bundle pricing
@@ -457,25 +495,38 @@ export const GET: RequestHandler = async ({ url }) => {
 				const productPromises = requiredProducts.map(async (req) => {
 					const { data: prod, error: prodError } = await supabase
 						.from('products')
-						.select('*')
+						.select(`
+							id,
+							product_name_en,
+							product_name_ar,
+							image_url,
+							sale_price,
+							unit_qty,
+							unit_id,
+							barcode,
+							current_stock
+						`)
 						.eq('id', req.product_id)
-						.single();						if (prodError || !prod) return null;
+						.eq('is_customer_product', true)
+						.single();
 
-						return {
-							id: req.product_id,
-							unitId: req.unit_id,
-							product_serial: prod.product_serial,
-							nameEn: prod.product_name_en,
-							nameAr: prod.product_name_ar,
-							image: prod.image_url,
-							price: parseFloat(prod.sale_price),
-							quantity: req.quantity || 1,
-							unitQty: prod.unit_qty,
-							unitEn: prod.unit_name_en,
-							unitAr: prod.unit_name_ar,
-							stock: prod.current_stock,
-							barcode: prod.barcode
-						};
+					if (prodError || !prod) return null;
+
+					const unit = getUnitName(prod.unit_id);
+					return {
+						id: prod.id,
+						unitId: prod.unit_id,
+						nameEn: prod.product_name_en,
+						nameAr: prod.product_name_ar,
+						image: prod.image_url,
+						price: parseFloat(prod.sale_price),
+						quantity: req.quantity || 1,
+						unitQty: prod.unit_qty || 1,
+						unitEn: unit.name_en,
+						unitAr: unit.name_ar,
+						stock: prod.current_stock,
+						barcode: prod.barcode
+					};
 					});
 
 					const bundleProducts = (await Promise.all(productPromises)).filter(p => p !== null);

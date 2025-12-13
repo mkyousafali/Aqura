@@ -801,23 +801,24 @@
       orderId = orderData.order_id;
       orderNumber = orderData.order_number;
       
-      // Lookup product UUIDs for cart items (cart uses product_serial, DB needs UUID)
-      console.log('Looking up product UUIDs for cart items...');
-      const productSerials = cartItems.map(item => item.id);
+      // Lookup product data for cart items (cart uses barcode as id, DB stores barcode but needs product id)
+      console.log('Looking up product data for cart items...');
+      console.log('Cart items:', cartItems.map(item => ({ id: item.id, name: item.nameEn, quantity: item.quantity })));
+      const barcodes = cartItems.map(item => item.id);
       const { data: productsData, error: productsError } = await supabase
         .from('products')
-        .select('id, product_serial, unit_id')
-        .in('product_serial', productSerials);
+        .select('id, barcode, unit_id')
+        .in('barcode', barcodes);
       
       if (productsError) {
         console.error('Error looking up products:', productsError);
-        throw new Error('Failed to lookup product UUIDs');
+        throw new Error('Failed to lookup product data');
       }
       
-      // Create a map of product_serial -> {UUID, unit_id}
+      // Create a map of barcode -> {id (product id), unit_id}
       const productDataMap = {};
       productsData.forEach(p => {
-        productDataMap[p.product_serial] = {
+        productDataMap[p.barcode] = {
           id: p.id,
           unit_id: p.unit_id
         };
@@ -828,13 +829,14 @@
       const orderItems = cartItems.map(item => {
         const productData = productDataMap[item.id];
         if (!productData) {
-          console.warn('⚠️ Product data not found for:', item.id);
+          console.warn('⚠️ Product data not found for barcode:', item.id, 'Available barcodes:', Object.keys(productDataMap));
+          throw new Error(`Product data not found for barcode: ${item.id}. This product may have been deleted or is inactive.`);
         }
         
         return {
           order_id: orderData.order_id,
-          product_id: productData?.id,
-          unit_id: productData?.unit_id || null,
+          product_id: productData.id,
+          unit_id: productData.unit_id || null,
           product_name_ar: item.name,
           product_name_en: item.nameEn,
           unit_name_ar: item.selectedUnit?.nameAr || '',

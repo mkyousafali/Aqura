@@ -838,6 +838,38 @@ export class PersistentAuthService {
       return null;
     }
 
+    // Refresh admin flags from database to ensure they're current
+    try {
+      const { data: freshUserData, error } = await supabase
+        .from('users')
+        .select('is_admin, is_master_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && freshUserData) {
+        // Update the user session with fresh admin flags
+        user.isAdmin = freshUserData.is_admin;
+        user.isMasterAdmin = freshUserData.is_master_admin;
+        
+        // Update the session in storage
+        if (deviceSession) {
+          const userIndex = deviceSession.users.findIndex(u => u.id === user.id);
+          if (userIndex !== -1) {
+            deviceSession.users[userIndex] = user;
+            await this.saveDeviceSession(deviceSession);
+          }
+        }
+        
+        console.log('🔄 [PersistentAuth] Refreshed admin flags for user:', user.username, {
+          isAdmin: user.isAdmin,
+          isMasterAdmin: user.isMasterAdmin
+        });
+      }
+    } catch (refreshError) {
+      console.warn('⚠️ [PersistentAuth] Failed to refresh admin flags:', refreshError);
+      // Continue with cached data if refresh fails
+    }
+
     return user;
   }
 

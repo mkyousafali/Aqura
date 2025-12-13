@@ -111,7 +111,7 @@
 		try {
 			// Get total count first
 			const { count, error: countError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*', { count: 'exact', head: true });
 			
 			if (countError) throw countError;
@@ -131,7 +131,7 @@
 				const endRange = startRange + pageSize - 1;
 
 				const { data, error: fetchError } = await supabase
-					.from('flyer_products')
+					.from('products')
 					.select('id, product_name_en, product_name_ar, barcode, image_url')
 					.order('product_name_en', { ascending: true })
 					.range(startRange, endRange);

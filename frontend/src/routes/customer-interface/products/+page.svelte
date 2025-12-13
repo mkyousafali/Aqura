@@ -213,18 +213,22 @@
       // Debug first product
       if (data.products && data.products.length > 0) {
         console.log('🔍 First product data:', data.products[0]);
+        console.log('📊 All products barcodes:', data.products.map(p => p.barcode));
       }
       
       // Store BOGO and bundle offers
       bogoOffers = data.bogoOffers || [];
       bundleOffers = data.bundleOffers || [];
 
-      // Group products by serial (for multi-unit products)
+      // Group products by barcode or name (since product_serial was removed)
+      // Use barcode as primary identifier since it's unique per product
       const productMap = new Map();
       (data.products || []).forEach(product => {
-        if (!productMap.has(product.product_serial)) {
-          productMap.set(product.product_serial, {
-            id: product.product_serial,
+        const key = product.barcode || product.nameEn; // Use barcode as unique key, fallback to name
+        
+        if (!productMap.has(key)) {
+          productMap.set(key, {
+            id: product.barcode || product.id, // Use barcode as product ID
             nameEn: product.nameEn,
             nameAr: product.nameAr,
             category: product.category,
@@ -235,7 +239,7 @@
           });
         }
         
-        const p = productMap.get(product.product_serial);
+        const p = productMap.get(key);
         p.units.push({
           id: product.id,
           nameEn: `${product.unitQty} ${product.unitEn}`,
@@ -286,6 +290,9 @@
         });
         return { ...product, baseUnit: sorted[0], additionalUnits: sorted.slice(1) };
       });
+
+      console.log('📊 Final products after grouping:', products.length, 'products');
+      products.forEach((p, i) => console.log(`  Product ${i}:`, p.nameEn, 'with', p.units.length, 'units'));
 
       products.forEach(p => selectedUnits.set(p.id, p.baseUnit));
       selectedUnits = selectedUnits;
@@ -391,7 +398,7 @@
     // CRITICAL: Create completely separate BOGO selectedUnit objects (no shared references with regular products)
     // Add buy product with adjusted price
     const buyProduct = {
-      id: buyProd.product_serial,
+      id: buyProd.barcode,
       name: buyProd.nameAr,
       nameEn: buyProd.nameEn,
       image: buyProd.image,
@@ -420,7 +427,7 @@
     
     // Add get product (free or discounted)
     const getProduct = {
-      id: getProd.product_serial,
+      id: getProd.barcode,
       name: getProd.nameAr,
       nameEn: getProd.nameEn,
       image: getProd.image,
@@ -452,7 +459,7 @@
     // Add each product in the bundle with bundle-specific metadata
     bundleOffer.bundleProducts.forEach((prod, index) => {
       const bundleProduct = {
-        id: prod.product_serial,
+        id: prod.barcode,
         name: prod.nameAr,
         nameEn: prod.nameEn,
         image: prod.image,
@@ -1526,13 +1533,16 @@
     background: #f5f5f5;
     overflow: hidden;
     box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .product-image img{ 
     display: block;
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    object-fit: cover;
+    width: 70%;
+    height: 70%;
+    max-width: 70%;
+    object-fit: contain;
   }
 
   .image-placeholder{ 
@@ -2086,12 +2096,15 @@
     border-radius: 8px;
     overflow: visible;
     margin-bottom: 0.3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .bogo-product-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
     border-radius: 8px;
   }
 
@@ -2328,12 +2341,15 @@
     border-radius: 6px;
     overflow: hidden;
     margin-bottom: 0.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .bundle-product-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
     border-radius: 6px;
   }
 

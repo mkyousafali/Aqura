@@ -49,7 +49,7 @@
 		try {
 			// Load all products
 			const { data: products, error: productsError } = await supabase
-				.from('flyer_products')
+				.from('products')
 				.select('*')
 				.order('barcode', { ascending: true });
 

@@ -1330,7 +1330,7 @@
 					offer_price,
 					profit_after_offer,
 					decrease_amount,
-					flyer_products (
+					products (
 						barcode,
 						product_name_en,
 						product_name_ar,
@@ -1351,7 +1351,7 @@
 				alert('Error loading products. Please try again.');
 			} else {
 				selectedProducts = data?.map(item => ({
-					...item.flyer_products,
+					...item.products,
 					offer_product_id: item.id,
 					cost: item.cost,
 					sales_price: item.sales_price,
