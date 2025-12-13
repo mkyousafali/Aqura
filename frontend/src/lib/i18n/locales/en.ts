@@ -1362,6 +1362,7 @@ export const englishLocale: LocaleData = {
       autoDetected: "Auto-detected",
       users: "Users",
       customer: "Customer",
+      employeeLogin: "Team Login",
       all: "All",
       sar: "SAR",
       print: "Print",

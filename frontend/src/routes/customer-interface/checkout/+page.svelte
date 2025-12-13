@@ -704,7 +704,7 @@
     const { customerId } = getLocalCustomerSession();
     if (!customerId) {
       alert(currentLanguage === 'ar' ? 'يرجى تسجيل الدخول أولاً' : 'Please log in first');
-      goto('/customer-interface/login');
+      goto('/login');
       return;
     }
 

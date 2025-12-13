@@ -385,30 +385,7 @@
 	whatsappNumber = value;
 	input.value = value;
 }
-</script><div class="customer-login-container">
-	<!-- Language Toggle Button -->
-	<div class="language-toggle-wrapper">
-		<button 
-			type="button"
-			class="language-toggle-btn" 
-			on:click={() => {
-				switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
-				setTimeout(() => {
-					window.location.reload();
-				}, 100);
-			}}
-			title={$_('nav.languageToggle')}
-		>
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<circle cx="12" cy="12" r="10"/>
-				<path d="M8 12h8"/>
-				<path d="M12 8v8"/>
-			</svg>
-			{$currentLocale === 'ar' ? 'English' : 'العربية'}
-		</button>
-	</div>
-
-	{#if currentView === 'login'}
+</script><div class="customer-login-container">	{#if currentView === 'login'}
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
 
@@ -739,34 +716,6 @@
 		width: 100%;
 		margin: 0;
 		padding: 0;
-	}
-
-	.language-toggle-wrapper {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 1.5rem;
-	}
-
-	.language-toggle-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		background: #F8FAFC;
-		border: 1px solid #CBD5E1;
-		border-radius: 8px;
-		color: #475569;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.3s ease;
-		touch-action: manipulation;
-	}
-
-	.language-toggle-btn:hover {
-		background: #F1F5F9;
-		border-color: #94A3B8;
-		color: #334155;
 	}
 
 	.form-fields {

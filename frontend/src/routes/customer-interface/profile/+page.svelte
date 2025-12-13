@@ -158,7 +158,7 @@
           unsubscribe();
           // Provide a gentle redirect after short delay so user can read message
           setTimeout(() => {
-            if (!customerRecord) goto('/customer-interface/login');
+            if (!customerRecord) goto('/login');
           }, 1500);
         }
       }, MAX_WAIT_MS);
@@ -413,7 +413,7 @@
     try {
       localStorage.clear();
       console.log('🔄 [Profile] Navigating to customer login page...');
-      goto('/customer-interface/login');
+      goto('/login');
     } catch (error) {
       console.error('❌ [Profile] Logout error:', error);
     }

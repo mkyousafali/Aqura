@@ -32,7 +32,7 @@
     </div>
 
     <div class="registration-footer">
-      <p>Already have an account? <a href="/customer-interface/login">Sign in here</a></p>
+      <p>Already have an account? <a href="/login">Sign in here</a></p>
     </div>
   </div>
 </div>

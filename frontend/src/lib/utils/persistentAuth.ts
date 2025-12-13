@@ -97,8 +97,11 @@ export const deviceSessions = writable<DeviceSession | null>(null);
 export class PersistentAuthService {
   private sessionCheckInterval: NodeJS.Timeout | null = null;
   private activityTrackingInterval: NodeJS.Timeout | null = null;
-  private readonly SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+  // 🔄 CHANGED: Removed SESSION_DURATION - users stay logged in indefinitely
+  // Only logout on explicit logout, cache clear, or admin block (status change)
+  // private readonly SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
   private readonly ACTIVITY_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  private readonly STATUS_CHECK_INTERVAL = 5 * 60 * 1000; // Check user status every 5 minutes
 
   constructor() {
     // Don't auto-initialize in constructor to avoid race conditions
@@ -143,6 +146,89 @@ export class PersistentAuthService {
       // Ensure auth state is properly set to false on error
       currentUser.set(null);
       isAuthenticated.set(false);
+    }
+  }
+
+  /**
+   * Validate quick access code and get user permissions (without full login)
+   */
+  async validateQuickAccessCode(
+    quickAccessCode: string
+  ): Promise<{ 
+    success: boolean; 
+    error?: string; 
+    userId?: string;
+    userType?: string;
+    permissions?: UserPermissions;
+    interfacePermissions?: {
+      desktop?: boolean;
+      mobile?: boolean;
+      cashier?: boolean;
+    };
+  }> {
+    try {
+      console.log("🔐 [PersistentAuth] Validating quick access code");
+
+      // Validate code format
+      if (!/^[0-9]{6}$/.test(quickAccessCode)) {
+        console.error("❌ [PersistentAuth] Invalid access code format:", quickAccessCode);
+        return { success: false, error: "Invalid access code format" };
+      }
+
+      // Get user by quick access code
+      const { data: users, error: userError } = await supabase
+        .from("users")
+        .select(
+          `
+          id,
+          username,
+          user_type,
+          status,
+          is_master_admin,
+          is_admin,
+          employee_id,
+          branch_id
+        `,
+        )
+        .eq("status", "active")
+        .eq("quick_access_code", quickAccessCode)
+        .limit(1);
+
+      if (userError) {
+        console.error("❌ [PersistentAuth] Database error:", userError);
+        return { success: false, error: "Database connection error. Please try again." };
+      }
+
+      if (!users || users.length === 0) {
+        console.error("❌ [PersistentAuth] No user found with quick access code");
+        return { success: false, error: "Invalid access code" };
+      }
+
+      const dbUser = users[0];
+      console.log("✅ [PersistentAuth] Quick access code validated for user:", dbUser.username);
+
+      // Get user permissions
+      const permissions = await this.getUserPermissions(dbUser.id);
+
+      // Check interface permissions
+      const interfacePermissions = {
+        desktop: dbUser.is_master_admin || dbUser.is_admin || false,
+        mobile: dbUser.is_master_admin || dbUser.is_admin || false,
+        cashier: dbUser.is_master_admin || dbUser.is_admin || false
+      };
+
+      console.log("✅ [PersistentAuth] Interface permissions determined:", interfacePermissions);
+
+      return {
+        success: true,
+        userId: dbUser.id,
+        userType: dbUser.user_type,
+        permissions,
+        interfacePermissions
+      };
+    } catch (error) {
+      console.error("❌ [PersistentAuth] Error validating quick access code:", error);
+      return { success: false, error: "Validation failed. Please try again." };
     }
   }
 
@@ -695,14 +781,14 @@ export class PersistentAuthService {
         return { success: false, error: "User not found on this device" };
       }
 
-      // Check if session is still valid
-      const sessionAge = Date.now() - new Date(targetUser.loginTime).getTime();
-      if (sessionAge > this.SESSION_DURATION) {
-        // Session expired, remove it
-        await this.removeUserSession(userId);
+      // Check if session is still valid (only checks user status, not time)
+      const isValid = await this.isSessionValid(userId);
+      if (!isValid) {
+        // Session expired or user blocked/locked
+        await this.logout();
         return {
           success: false,
-          error: "Session expired. Please login again.",
+          error: "Your account has been locked or deactivated. Please contact your administrator.",
         };
       }
 
@@ -734,6 +820,8 @@ export class PersistentAuthService {
 
   /**
    * Check if user session is valid
+   * 🔄 CHANGED: Only checks if user status is active, not time-based expiration
+   * Users stay logged in until explicit logout, cache clear, or admin blocks them
    */
   async isSessionValid(userId: string): Promise<boolean> {
     const deviceSession = await this.getDeviceSession();
@@ -742,8 +830,32 @@ export class PersistentAuthService {
     const user = deviceSession.users.find((u) => u.id === userId);
     if (!user) return false;
 
-    const sessionAge = Date.now() - new Date(user.loginTime).getTime();
-    return sessionAge <= this.SESSION_DURATION;
+    // Check if user status is still active in database
+    try {
+      const { data: dbUser, error } = await supabase
+        .from("users")
+        .select("status")
+        .eq("id", userId)
+        .single();
+
+      if (error || !dbUser) {
+        console.warn("⚠️ [PersistentAuth] Could not verify user status, keeping session valid");
+        return true;
+      }
+
+      // Logout if user is locked or inactive
+      if (dbUser.status === "locked" || dbUser.status === "inactive") {
+        console.log(`⚠️ [PersistentAuth] User account is ${dbUser.status}, session invalid`);
+        return false;
+      }
+
+      // User is active, session remains valid (no time-based expiration)
+      return true;
+    } catch (error) {
+      console.warn("⚠️ [PersistentAuth] Error checking session validity:", error);
+      // Keep session valid if we can't check (network issue)
+      return true;
+    }
   }
 
   /**
@@ -905,16 +1017,20 @@ export class PersistentAuthService {
   }
 
   private startSessionMonitoring(): void {
-    // Check session validity every minute
+    // 🔄 CHANGED: Check user status instead of session age
+    // Every 5 minutes, verify user is still active (not locked/inactive by admin)
     this.sessionCheckInterval = setInterval(async () => {
       const current = await this.getCurrentUser();
       if (current) {
         const isValid = await this.isSessionValid(current.id);
         if (!isValid) {
+          console.log("🔐 [PersistentAuth] User account no longer active, logging out");
           await this.logout();
+        } else {
+          console.log("✅ [PersistentAuth] Session valid - user still active");
         }
       }
-    }, 60 * 1000);
+    }, this.STATUS_CHECK_INTERVAL);
 
     // Update activity every 5 minutes
     // 🔴 DISABLED: updateLastActivity disabled

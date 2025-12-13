@@ -1332,6 +1332,7 @@ export const arabicLocale: LocaleData = {
       autoDetected: "تم الكشف تلقائياً",
       users: "المستخدمين",
       customer: "العميل",
+      employeeLogin: "تسجيل دخول الفريق",
       all: "الكل",
       sar: "ريال",
       print: "طباعة",
