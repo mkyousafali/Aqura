@@ -3592,14 +3592,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('ASSIGN_ROLES')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openAssignRoles}>
-								<span class="menu-icon">🎯</span>
-								<span class="menu-text">Assign Roles</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('CREATE_USER_ROLES')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateUserRoles}>
