@@ -306,7 +306,12 @@
       // Apply filters if provided
       if (filters) {
         Object.entries(filters).forEach(([key, value]) => {
-          query = query.eq(key, value);
+          if (key.includes('.')) {
+            // For nested filters, use or() for more flexibility
+            query = query.filter(key, 'eq', value);
+          } else {
+            query = query.eq(key, value);
+          }
         });
       }
 
@@ -348,7 +353,6 @@
     error = null;
 
     try {
-      let currentPeriodStr, previousPeriodStr;
       let currentPeriodStart, currentPeriodEnd, previousPeriodStart, previousPeriodEnd;
 
       // Calculate date ranges based on filter type
@@ -356,8 +360,8 @@
         const today = new Date();
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
-        currentPeriodStr = today.toISOString().split('T')[0];
-        previousPeriodStr = yesterday.toISOString().split('T')[0];
+        const currentPeriodStr = today.toISOString().split('T')[0];
+        const previousPeriodStr = yesterday.toISOString().split('T')[0];
         currentPeriodStart = currentPeriodEnd = currentPeriodStr;
         previousPeriodStart = previousPeriodEnd = previousPeriodStr;
         
@@ -417,34 +421,136 @@
         
         currentPeriodLabel = formatMonth(currentMonthStart);
         previousPeriodLabel = formatMonth(previousMonthStart);
+      } else {
+        // Default to 'today' if no filter type matches
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const currentPeriodStr = today.toISOString().split('T')[0];
+        const previousPeriodStr = yesterday.toISOString().split('T')[0];
+        currentPeriodStart = currentPeriodEnd = currentPeriodStr;
+        previousPeriodStart = previousPeriodEnd = previousPeriodStr;
+        
+        currentPeriodLabel = formatDate(today);
+        previousPeriodLabel = formatDate(yesterday);
+      }
+
+      // Verify date ranges are set
+      if (!currentPeriodStart || !currentPeriodEnd || !previousPeriodStart || !previousPeriodEnd) {
+        error = 'Error calculating date ranges';
+        loading = false;
+        return;
       }
 
       // Fetch all data with pagination to avoid Supabase limits
       let receiving, tasks, quick;
       
+      // Calculate the earliest start date to fetch from database
+      const queryStartDate = previousPeriodStart < currentPeriodStart ? previousPeriodStart : currentPeriodStart;
+      const queryEndDate = currentPeriodEnd > previousPeriodEnd ? currentPeriodEnd : previousPeriodEnd;
+      
+      console.log('🔄 [BranchPerformance] Loading data - Filter:', filterType, 'Query Range:', queryStartDate, 'to', queryEndDate);
+      
       if (selectedBranch !== 'all') {
         const branchId = parseInt(selectedBranch);
-        receiving = await fetchAllData('receiving_tasks', 'id, task_status, created_at, assigned_user_id, receiving_records!inner(branch_id, user_id)', { 'receiving_records.branch_id': branchId });
-        tasks = await fetchAllData('task_assignments', 'id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id', { 'assigned_to_branch_id': branchId });
-        quick = (await fetchAllData('quick_task_assignments', 'id, status, created_at, assigned_to_user_id, quick_tasks!inner(assigned_to_branch_id, assigned_by)', { 'quick_tasks.assigned_to_branch_id': branchId })).filter(q => q.quick_tasks && q.quick_tasks.assigned_to_branch_id);
+        console.log('📍 [BranchPerformance] Filtering by branch ID:', branchId);
+        
+        // Fetch receiving tasks - need to include receiving_records to filter by branch
+        const receivingQuery = supabase
+          .from('receiving_tasks')
+          .select('id, task_status, created_at, assigned_user_id, receiving_record_id, receiving_records!inner(branch_id)')
+          .eq('receiving_records.branch_id', branchId)
+          .neq('task_status', 'cancelled')
+          .gte('created_at', `${queryStartDate}T00:00:00`)
+          .lte('created_at', `${queryEndDate}T23:59:59`);
+        
+        // Fetch task assignments with branch filter
+        const tasksQuery = supabase
+          .from('task_assignments')
+          .select('id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id')
+          .eq('assigned_to_branch_id', branchId)
+          .neq('status', 'cancelled')
+          .gte('assigned_at', `${queryStartDate}T00:00:00`)
+          .lte('assigned_at', `${queryEndDate}T23:59:59`);
+        
+        // Fetch quick task assignments - need to join with quick_tasks to filter by branch
+        const quickQuery = supabase
+          .from('quick_task_assignments')
+          .select('id, status, created_at, assigned_to_user_id, quick_task_id, quick_tasks!inner(assigned_to_branch_id)')
+          .eq('quick_tasks.assigned_to_branch_id', branchId)
+          .neq('status', 'cancelled')
+          .gte('created_at', `${queryStartDate}T00:00:00`)
+          .lte('created_at', `${queryEndDate}T23:59:59`);
+
+        const [recRes, taskRes, quickRes] = await Promise.all([
+          receivingQuery,
+          tasksQuery,
+          quickQuery
+        ]);
+
+        receiving = recRes.data || [];
+        tasks = taskRes.data || [];
+        quick = quickRes.data || [];
+        
+        console.log(`✅ [BranchPerformance] Loaded Branch ${branchId} - Receiving: ${receiving.length}, Tasks: ${tasks.length}, Quick: ${quick.length}`);
       } else {
-        receiving = await fetchAllData('receiving_tasks', 'id, task_status, created_at, assigned_user_id, receiving_records!inner(branch_id, user_id)', null);
-        tasks = await fetchAllData('task_assignments', 'id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id', null);
-        quick = (await fetchAllData('quick_task_assignments', 'id, status, created_at, assigned_to_user_id, quick_tasks!inner(assigned_to_branch_id, assigned_by)', null)).filter(q => q.quick_tasks && q.quick_tasks.assigned_to_branch_id);
+        // Fetch all branches data in parallel with date filters
+        const receivingQuery = supabase
+          .from('receiving_tasks')
+          .select('id, task_status, created_at, assigned_user_id, receiving_record_id')
+          .neq('task_status', 'cancelled')
+          .gte('created_at', `${queryStartDate}T00:00:00`)
+          .lte('created_at', `${queryEndDate}T23:59:59`);
+        
+        const tasksQuery = supabase
+          .from('task_assignments')
+          .select('id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id')
+          .neq('status', 'cancelled')
+          .gte('assigned_at', `${queryStartDate}T00:00:00`)
+          .lte('assigned_at', `${queryEndDate}T23:59:59`);
+        
+        const quickQuery = supabase
+          .from('quick_task_assignments')
+          .select('id, status, created_at, assigned_to_user_id, quick_task_id')
+          .neq('status', 'cancelled')
+          .gte('created_at', `${queryStartDate}T00:00:00`)
+          .lte('created_at', `${queryEndDate}T23:59:59`);
+
+        const [recRes, taskRes, quickRes] = await Promise.all([
+          receivingQuery,
+          tasksQuery,
+          quickQuery
+        ]);
+
+        receiving = recRes.data || [];
+        tasks = taskRes.data || [];
+        quick = quickRes.data || [];
+        
+        console.log(`✅ [BranchPerformance] Loaded All - Receiving: ${receiving.length}, Tasks: ${tasks.length}, Quick: ${quick.length}`);
       }
 
-      // Filter by date ranges
-      const isInCurrentPeriod = (dateStr) => dateStr >= currentPeriodStart && dateStr <= currentPeriodEnd;
-      const isInPreviousPeriod = (dateStr) => dateStr >= previousPeriodStart && dateStr <= previousPeriodEnd;
+      // Filter by date ranges (database already filtered, this is for current vs previous period)
+      const isInCurrentPeriod = (dateStr) => {
+        if (!dateStr) return false;
+        const date = dateStr.split('T')[0];
+        return date >= currentPeriodStart && date <= currentPeriodEnd;
+      };
+      const isInPreviousPeriod = (dateStr) => {
+        if (!dateStr) return false;
+        const date = dateStr.split('T')[0];
+        return date >= previousPeriodStart && date <= previousPeriodEnd;
+      };
       
-      const todayReceiving = receiving.filter(r => r.created_at && isInCurrentPeriod(r.created_at.split('T')[0]));
-      const yesterdayReceiving = receiving.filter(r => r.created_at && isInPreviousPeriod(r.created_at.split('T')[0]));
+      const todayReceiving = receiving.filter(r => isInCurrentPeriod(r.created_at));
+      const yesterdayReceiving = receiving.filter(r => isInPreviousPeriod(r.created_at));
       
-      const todayTasks = tasks.filter(t => t.assigned_at && isInCurrentPeriod(t.assigned_at.split('T')[0]));
-      const yesterdayTasks = tasks.filter(t => t.assigned_at && isInPreviousPeriod(t.assigned_at.split('T')[0]));
+      const todayTasks = tasks.filter(t => isInCurrentPeriod(t.assigned_at));
+      const yesterdayTasks = tasks.filter(t => isInPreviousPeriod(t.assigned_at));
       
-      const todayQuick = quick.filter(q => q.created_at && isInCurrentPeriod(q.created_at.split('T')[0]));
-      const yesterdayQuick = quick.filter(q => q.created_at && isInPreviousPeriod(q.created_at.split('T')[0]));
+      const todayQuick = quick.filter(q => isInCurrentPeriod(q.created_at));
+      const yesterdayQuick = quick.filter(q => isInPreviousPeriod(q.created_at));
+
+      console.log('📊 [BranchPerformance] Date filtered - Current Period:', todayReceiving.length + todayTasks.length + todayQuick.length, 'Previous Period:', yesterdayReceiving.length + yesterdayTasks.length + yesterdayQuick.length);
 
       // Calculate total counts
       const recCount = receiving.length;

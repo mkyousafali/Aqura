@@ -145,8 +145,18 @@ export const arabicLocale: LocaleData = {
         },
         branchPerformance: {
           title: "أداء الفرع",
+          dateRange: "📅 نطاق التاريخ",
+          specificDate: "📅 تاريخ معين",
+          fromDate: "من التاريخ",
+          toDate: "إلى التاريخ",
+          selectDate: "اختر التاريخ",
           todayPerformance: "أداء اليوم",
           yesterdayPerformance: "أداء الأمس",
+          totalPerformance: "📊 الأداء الإجمالي",
+          branchWisePerformance: "🏢 أداء الفروع",
+          last3Days: "أداء آخر 3 أيام",
+          selectBranch: "اختر الفرع:",
+          loadPerformance: "📊 تحميل الأداء",
           loadingData: "جارٍ تحميل بيانات الأداء...",
           loadingDashboard: "جارٍ تحميل لوحة التحكم...",
           completed: "مكتمل",
@@ -154,6 +164,10 @@ export const arabicLocale: LocaleData = {
           total: "المجموع",
           complete: "مكتمل",
           noTasks: "لا توجد مهام",
+          noDataToday: "لا توجد بيانات لليوم",
+          noDataYesterday: "لا توجد بيانات للأمس",
+          noDataTwoDaysAgo: "لا توجد بيانات لقبل يومين",
+          twoDaysAgo: "قبل يومين",
         },
         recentNotifications: {
           title: "الإشعارات الأخيرة",
@@ -1326,6 +1340,9 @@ export const arabicLocale: LocaleData = {
       noData: "لا توجد بيانات",
       status: "الحالة",
       loading: "جاري التحميل...",
+      today: "اليوم",
+      yesterday: "أمس",
+      chooseBranch: "اختر الفرع",
       error: "حدث خطأ",
       rememberDevice: "تذكر هذا الجهاز",
       optional: "اختياري",
