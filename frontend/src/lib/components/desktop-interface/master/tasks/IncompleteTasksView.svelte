@@ -27,6 +27,21 @@
 	let quickTaskAssignmentsOffset = 0;
 	let receivingTasksOffset = 0;
 
+	// Track unique task keys to prevent duplicates
+	let loadedTaskKeys = new Set<string>();
+
+	function addTasksToLoaded(newTasks: any[]) {
+		const tasksToAdd = newTasks.filter(task => {
+			if (loadedTaskKeys.has(task._unique_key)) {
+				console.warn(`⚠️ [IncompleteTasksView] Skipping duplicate task: ${task._unique_key}`);
+				return false;
+			}
+			loadedTaskKeys.add(task._unique_key);
+			return true;
+		});
+		allLoadedTasks = [...allLoadedTasks, ...tasksToAdd];
+	}
+
 	onMount(async () => {
 		await loadFiltersInParallel();
 		await loadTasks();
@@ -62,6 +77,7 @@
 			currentPage = 0;
 			allLoadedTasks = [];
 			tasks = [];
+			loadedTaskKeys.clear();
 			taskAssignmentsOffset = 0;
 			quickTaskAssignmentsOffset = 0;
 			receivingTasksOffset = 0;
@@ -195,6 +211,7 @@
 				console.log(`⏳ Incomplete Task ${ta.id}: branches=${JSON.stringify(ta.branches)}, branch_id=${ta.assigned_to_branch_id}, final=${branchName}`);
 				return {
 					...ta,
+					_unique_key: `task_assignment:${ta.id}`,
 					task_title: ta.task?.title || `📋 Task Assignment #${ta.id.slice(-8)}`,
 					task_description: ta.task?.description || 'Incomplete task',
 					task_type: 'regular',
@@ -206,7 +223,7 @@
 					assigned_to_name: ta.assigned_to_user?.username || 'Unassigned'
 					};
 				});
-				allLoadedTasks = [...allLoadedTasks, ...processedTasks];
+				addTasksToLoaded(processedTasks);
 			}
 
 			if (quickAssignmentsData.length > 0) {
@@ -280,6 +297,7 @@
 					const quickTask = quickTaskMap.get(qa.quick_task_id) || {};
 					return {
 						...qa,
+						_unique_key: `quick_task_assignment:${qa.id}`,
 						task_title: quickTask.title || `⚡ Quick Task #${qa.id.slice(-8)}`,
 						task_description: quickTask.description || 'Incomplete quick task',
 						task_type: 'quick',
@@ -292,7 +310,7 @@
 						assigned_to_name: userMap.get(`assigned:${qa.assigned_to_user_id}`) || 'Unassigned'
 					};
 				});
-				allLoadedTasks = [...allLoadedTasks, ...processedQuickTasks];
+				addTasksToLoaded(processedQuickTasks);
 			}
 
 			if (receivingTasksData.length > 0) {
@@ -365,6 +383,7 @@
 					const record = recordMap.get(rt.receiving_record_id) || {};
 					return {
 						...rt,
+						_unique_key: `receiving_task:${rt.id}`,
 						task_title: rt.title || `📦 Receiving Task #${rt.id.slice(-8)}`,
 						task_description: rt.description || 'Incomplete receiving task',
 						task_type: 'receiving',
@@ -376,7 +395,7 @@
 						assigned_to_name: rt.assigned_user_id ? userMap.get(`assigned:${rt.assigned_user_id}`) || 'Unassigned' : 'Unassigned'
 					};
 				});
-				allLoadedTasks = [...allLoadedTasks, ...processedReceivingTasks];
+				addTasksToLoaded(processedReceivingTasks);
 			}
 
 			console.log(`✅ [IncompleteTasksView] Total incomplete tasks loaded=${allLoadedTasks.length}`);
@@ -410,9 +429,16 @@
 		if (!date) return 'N/A';
 		try {
 			const d = new Date(date);
-			const dateStr = d.toLocaleDateString();
-			const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-			return `${dateStr} ${timeStr}`;
+			const day = String(d.getDate()).padStart(2, '0');
+			const month = String(d.getMonth() + 1).padStart(2, '0');
+			const year = d.getFullYear();
+			let hours = d.getHours();
+			const minutes = String(d.getMinutes()).padStart(2, '0');
+			const ampm = hours >= 12 ? 'PM' : 'AM';
+			hours = hours % 12;
+			hours = hours ? hours : 12;
+			const hoursStr = String(hours).padStart(2, '0');
+			return `${day}/${month}/${year} ${hoursStr}:${minutes} ${ampm}`;
 		} catch {
 			return 'Invalid';
 		}
@@ -435,11 +461,6 @@
 </script>
 
 <div class="task-view">
-	<div class="header">
-		<h1 class="title">⏳ Incomplete Tasks</h1>
-		<button class="close-btn" on:click={onClose}>✕</button>
-	</div>
-
 	<div class="filters-section">
 		<div class="search-box">
 			<input 
@@ -485,12 +506,13 @@
 						<th>Type</th>
 						<th>Branch</th>
 						<th>Assigned To</th>
+						<th>Assigned Date</th>
 						<th>Deadline</th>
 						<th>Status</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each filteredTasks as task, index (`${task.id || index}`)}
+					{#each filteredTasks as task, index (task._unique_key || `${task.id}:${task.task_type}`)}
 						<tr class="clickable-row">
 							<td>
 								<strong>{task.task_title}</strong>
@@ -503,9 +525,10 @@
 									{task.task_type === 'quick' ? 'Quick' : task.task_type === 'receiving' ? 'Receiving' : 'Regular'}
 								</span>
 							</td>
-							<td>{task.branch_name}</td>
-							<td>{task.assigned_to_name || 'N/A'}</td>
-							<td>
+						<td>{task.branch_name}</td>
+						<td>{task.assigned_to_name || 'N/A'}</td>
+						<td>{formatDate(task.assigned_date)}</td>
+						<td>
 								{#if task.deadline}
 									{@const dueStatus = getDueStatus(task.deadline)}
 									<span class="badge {dueStatus.class}">
@@ -548,32 +571,6 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-	}
-
-	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 20px 24px;
-		border-bottom: 2px solid #e5e7eb;
-		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-	}
-
-	.title {
-		font-size: 24px;
-		font-weight: 700;
-		margin: 0;
-		color: white;
-	}
-
-	.close-btn {
-		background: rgba(255, 255, 255, 0.2);
-		border: none;
-		width: 36px;
-		height: 36px;
-		border-radius: 8px;
-		cursor: pointer;
-		color: white;
 	}
 
 	.filters-section {

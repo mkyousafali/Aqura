@@ -540,13 +540,6 @@
 </script>
 
 <div class="task-details-view">
-	<div class="header">
-		<div class="header-left">
-			<h1 class="title">📋 Total Tasks</h1>
-		</div>
-		<button class="close-btn" on:click={onClose}>✕</button>
-	</div>
-
 	<div class="filters-section">
 		<div class="search-box">
 			<svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -694,47 +687,6 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-	}
-
-	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 20px 24px;
-		border-bottom: 2px solid #e5e7eb;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-	}
-
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-	}
-
-	.title {
-		font-size: 24px;
-		font-weight: 700;
-		margin: 0;
-		color: white;
-	}
-
-	.close-btn {
-		background: rgba(255, 255, 255, 0.2);
-		border: none;
-		width: 36px;
-		height: 36px;
-		border-radius: 8px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.2s ease;
-		color: white;
-	}
-
-	.close-btn:hover {
-		background: rgba(255, 255, 255, 0.3);
-		transform: scale(1.05);
 	}
 
 	.filters-section {
