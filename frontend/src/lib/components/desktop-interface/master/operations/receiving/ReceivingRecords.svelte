@@ -125,14 +125,30 @@
 			// Subscribe to vendor_payment_schedule changes
 			unsubscribePaymentSchedule = realtimeService.subscribeToVendorPaymentScheduleChanges(
 				(payload) => {
+					const receivingRecordId = payload.new?.receiving_record_id || payload.old?.receiving_record_id;
 					console.log('💳 Real-time payment schedule update:', {
 						event: payload.eventType,
-						receivingRecordId: payload.new?.receiving_record_id || payload.old?.receiving_record_id
+						receivingRecordId: receivingRecordId,
+						newData: payload.new
 					});
 
-					// Reload the page data to reflect payment schedule changes
-					if (receivingRecords.length > 0) {
-						loadPageData(currentPage);
+					// Update the specific record's verification status from the payment schedule change
+					if (payload.eventType === 'UPDATE' && payload.new) {
+						const recordIndex = receivingRecords.findIndex(r => r.id === receivingRecordId);
+						if (recordIndex !== -1) {
+							console.log('📝 Updating verification status for record:', receivingRecordId);
+							// Update verification status from the payment schedule
+							receivingRecords[recordIndex].pr_excel_verified = payload.new.pr_excel_verified;
+							receivingRecords[recordIndex].pr_excel_verified_by = payload.new.pr_excel_verified_by;
+							receivingRecords[recordIndex].pr_excel_verified_date = payload.new.pr_excel_verified_date;
+							if (receivingRecords[recordIndex].schedule_status) {
+								receivingRecords[recordIndex].schedule_status.pr_excel_verified = payload.new.pr_excel_verified;
+								receivingRecords[recordIndex].schedule_status.pr_excel_verified_by = payload.new.pr_excel_verified_by;
+								receivingRecords[recordIndex].schedule_status.pr_excel_verified_date = payload.new.pr_excel_verified_date;
+							}
+							receivingRecords = [...receivingRecords]; // Trigger reactivity
+							applyFilters();
+						}
 					}
 				}
 			);
@@ -187,7 +203,7 @@
 			// Note: order BEFORE range for proper pagination
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
-				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
 				.order('created_at', { ascending: false })
 				.range(startIdx, startIdx + pageSize - 1);
 
@@ -207,7 +223,7 @@
 
 		// Get uncached IDs only - avoid refetching known data
 		const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))].filter(id => !branchCache.has(id));
-		const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))].filter(id => !vendorCache.has(id));
+		const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
 		const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))].filter(id => !userCache.has(id));
 		const recordIds = records.map(r => r.id);
 		
@@ -220,7 +236,7 @@
 		};
 
 		const scheduleChunks = chunkArray(recordIds, 25);
-		console.log(`⚡ Loading in parallel: ${uniqueBranchIds.length ? 'branches' : 'cache'}, ${uniqueVendorIds.length ? 'vendors' : 'cache'}, ${uniqueUserIds.length ? 'users' : 'cache'}, payment schedules (${scheduleChunks.length} chunks)...`);
+		console.log(`⚡ Loading in parallel: ${uniqueBranchIds.length ? 'branches' : 'cache'}, vendors (${uniqueVendorIds.length} IDs), ${uniqueUserIds.length ? 'users' : 'cache'}, payment schedules (${scheduleChunks.length} chunks)...`);
 		
 		// Load branches, vendors, users FIRST (fast queries)
 		const [branchResult, vendorResult, userResult] = await Promise.all([
@@ -237,16 +253,16 @@
 
 		// Update caches with newly fetched data
 		branchResult.data?.forEach(b => branchCache.set(b.id, b));
-		vendorResult.data?.forEach(v => vendorCache.set(v.erp_vendor_id, v));
+		// Store vendors by composite key in vendorCache
+		vendorResult.data?.forEach(v => {
+			const compositeKey = `${v.erp_vendor_id}_${v.branch_id}`;
+			vendorCache.set(compositeKey, v);
+		});
 		userResult.data?.forEach(u => userCache.set(u.id, u));
 
 		// Get all data from cache (old + new)
 		const branchMap = new Map([...Array.from(branchCache.entries())]);
-		const vendorMap = new Map();
-		Array.from(vendorCache.values()).forEach(vendor => {
-			const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
-			vendorMap.set(key, vendor);
-		});
+		const vendorMap = new Map([...Array.from(vendorCache.entries())]);
 		const userMap = new Map([...Array.from(userCache.entries())]);
 		
 		// SHOW RECORDS IMMEDIATELY without waiting for payment schedules
@@ -271,7 +287,7 @@
 		scheduleChunks.forEach((chunk, idx) => {
 			supabase
 				.from('vendor_payment_schedule')
-				.select('receiving_record_id, is_paid')
+				.select('receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
 				.in('receiving_record_id', chunk)
 				.then(result => {
 					if (!result.error && result.data) {
@@ -282,9 +298,14 @@
 								receivingRecords[recordIdx].schedule_status = schedule;
 								receivingRecords[recordIdx].is_paid = schedule.is_paid;
 								receivingRecords[recordIdx].is_scheduled = true;
+								// Pull verification status from payment schedule
+								receivingRecords[recordIdx].pr_excel_verified = schedule.pr_excel_verified;
+								receivingRecords[recordIdx].pr_excel_verified_by = schedule.pr_excel_verified_by;
+								receivingRecords[recordIdx].pr_excel_verified_date = schedule.pr_excel_verified_date;
 							}
 						});
 						receivingRecords = [...receivingRecords]; // Trigger reactivity
+						updatePaginatedRecords(); // Update the visible records
 						console.log(`📦 Schedule chunk ${idx + 1} loaded in background`);
 					}
 				})
@@ -307,7 +328,7 @@
 			
 		const { data: records, error: recordsError } = await supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
 			.order('created_at', { ascending: false })
 			.limit(200);			if (recordsError) throw recordsError;
 
@@ -456,7 +477,7 @@
 			const startIdx = (pageNum - 1) * pageSize;
 			const { data: records, error: recordsError, count } = await supabase
 				.from('receiving_records')
-				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount', { count: 'exact' })
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban', { count: 'exact' })
 				.eq('branch_id', filterCriteria.selectedBranch)
 				.order('created_at', { ascending: false })
 				.range(startIdx, startIdx + pageSize - 1);
@@ -532,7 +553,7 @@
 			// Load records to search through
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
-				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
 				.order('created_at', { ascending: false })
 				.limit(200);
 
@@ -605,7 +626,7 @@
 			// Load first 500 records to filter from
 			const { data: records, error: recordsError } = await supabase
 				.from('receiving_records')
-				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount')
+				.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
 				.order('created_at', { ascending: false })
 				.limit(500);
 
@@ -1020,26 +1041,28 @@
 
 			// Update ALL payment schedules for this receiving record
 			// This is important for split payments where there might be multiple schedules
-			const { data, error } = await supabase
+			const { data: scheduleData, error: scheduleError } = await supabase
 				.from('vendor_payment_schedule')
 				.update(updateData)
 				.eq('receiving_record_id', recordId)
 				.select();
 
-			if (error) {
-				console.error('Supabase error details:', error);
-				throw error;
+			if (scheduleError) {
+				console.error('Supabase error updating payment schedules:', scheduleError);
+				throw scheduleError;
 			}
 
-			console.log('Update successful for payment schedules:', data);
+			console.log('✅ Update successful for payment schedules:', scheduleData);
 
-		// Also verify we have a payment schedule for this record
-		if (!data || data.length === 0) {
-			console.warn(
-				`No payment schedules found for receiving record ${recordId}`);
-			alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
-			return;
-		}			// Update local state instead of reloading everything
+			// Verify we have a payment schedule for this record
+			if (!scheduleData || scheduleData.length === 0) {
+				console.warn(
+					`No payment schedules found for receiving record ${recordId}`);
+				alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
+				return;
+			}
+
+			// Update local state to reflect changes immediately
 			receivingRecords = receivingRecords.map(record => {
 				if (record.id === recordId) {
 					return {
