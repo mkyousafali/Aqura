@@ -1,1860 +1,1381 @@
-<script>
-  import { onMount } from 'svelte';
-  import { supabase } from '$lib/utils/supabase';
-  import { currentUser } from '$lib/utils/persistentAuth';
-  import { notifications } from '$lib/stores/notifications';
-
-  let branches = [];
-  let selectedBranch = 'all';
-  let loading = false;
-  let error = null;
-  
-  // Filter options
-  let filterType = 'today'; // 'today', 'week', 'date', 'month'
-  let customDate = '';
-  let selectedMonth = '';
-  let showDatePicker = false;
-  let showMonthPicker = false;
-  
-  // Date labels for charts
-  let currentPeriodLabel = '';
-  let previousPeriodLabel = '';
-  
-  // Task data storage for detail view
-  let allTasksData = {
-    current: [],
-    previous: [],
-    total: []
-  };
-  
-  // Detail window state
-  let showDetailWindow = false;
-  let detailWindowTasks = [];
-  let detailWindowTitle = '';
-
-  // Bilingual text content
-  const text = {
-    title: {
-      ar: 'صحة أداء الفروع',
-      en: 'Branch Performance Health'
-    },
-    filterBy: {
-      ar: 'تصفية حسب الفرع:',
-      en: 'Filter by branch:'
-    },
-    allBranches: {
-      ar: 'جميع الفروع',
-      en: 'All Branches'
-    },
-    refresh: {
-      ar: 'تحديث',
-      en: 'Refresh'
-    },
-    loading: {
-      ar: 'جاري التحميل...',
-      en: 'Loading...'
-    },
-    todayPerformance: {
-      ar: 'أداء اليوم',
-      en: "Today's Performance"
-    },
-    yesterdayPerformance: {
-      ar: 'أداء الأمس',
-      en: "Yesterday's Performance"
-    },
-    totalPerformance: {
-      ar: 'الأداء الإجمالي',
-      en: 'Total Performance'
-    },
-    completedTasks: {
-      ar: 'المهام المكتملة',
-      en: 'Completed Tasks'
-    },
-    notCompleted: {
-      ar: 'غير مكتملة',
-      en: 'Not Completed'
-    },
-    today: {
-      ar: 'اليوم',
-      en: 'TODAY'
-    },
-    yesterday: {
-      ar: 'أمس',
-      en: 'YESTERDAY'
-    },
-    total: {
-      ar: 'المجموع',
-      en: 'TOTAL'
-    },
-    detailedBreakdown: {
-      ar: 'التفصيل المفصل',
-      en: 'Detailed Breakdown'
-    },
-    receivingTotal: {
-      ar: 'إجمالي الاستلام:',
-      en: 'Receiving Total:'
-    },
-    receivingCompleted: {
-      ar: 'الاستلام المكتمل:',
-      en: 'Receiving Completed:'
-    },
-    receivingPending: {
-      ar: 'الاستلام المعلق:',
-      en: 'Receiving Pending:'
-    },
-    taskAssignmentsCompleted: {
-      ar: 'تعيينات المهام المكتملة:',
-      en: 'Task Assignments Completed:'
-    },
-    taskAssignmentsPending: {
-      ar: 'تعيينات المهام المعلقة:',
-      en: 'Task Assignments Pending:'
-    },
-    quickTasksCompleted: {
-      ar: 'المهام السريعة المكتملة:',
-      en: 'Quick Tasks Completed:'
-    },
-    quickTasksPending: {
-      ar: 'المهام السريعة المعلقة:',
-      en: 'Quick Tasks Pending:'
-    },
-    filterType: {
-      ar: 'نوع الفلتر:',
-      en: 'Filter Type:'
-    },
-    today: {
-      ar: 'اليوم والأمس',
-      en: 'Today & Yesterday'
-    },
-    thisWeek: {
-      ar: 'هذا الأسبوع',
-      en: 'This Week'
-    },
-    customDate: {
-      ar: 'تاريخ محدد',
-      en: 'Custom Date'
-    },
-    customMonth: {
-      ar: 'شهر محدد',
-      en: 'Custom Month'
-    },
-    selectDate: {
-      ar: 'اختر التاريخ:',
-      en: 'Select Date:'
-    },
-    selectMonth: {
-      ar: 'اختر الشهر:',
-      en: 'Select Month:'
-    },
-    apply: {
-      ar: 'تطبيق',
-      en: 'Apply'
-    },
-    currentPeriod: {
-      ar: 'الفترة الحالية',
-      en: 'Current Period'
-    },
-    previousPeriod: {
-      ar: 'الفترة السابقة',
-      en: 'Previous Period'
-    },
-    thisWeekLabel: {
-      ar: 'هذا الأسبوع',
-      en: 'THIS WEEK'
-    },
-    lastWeekLabel: {
-      ar: 'الأسبوع الماضي',
-      en: 'LAST WEEK'
-    },
-    selectedDateLabel: {
-      ar: 'التاريخ المحدد',
-      en: 'SELECTED DATE'
-    },
-    previousDayLabel: {
-      ar: 'اليوم السابق',
-      en: 'PREVIOUS DAY'
-    },
-    selectedMonthLabel: {
-      ar: 'الشهر المحدد',
-      en: 'SELECTED MONTH'
-    },
-    previousMonthLabel: {
-      ar: 'الشهر السابق',
-      en: 'PREVIOUS MONTH'
-    },
-    taskDetails: {
-      ar: 'تفاصيل المهام',
-      en: 'Task Details'
-    },
-    close: {
-      ar: 'إغلاق',
-      en: 'Close'
-    },
-    taskType: {
-      ar: 'نوع المهمة',
-      en: 'Task Type'
-    },
-    status: {
-      ar: 'الحالة',
-      en: 'Status'
-    },
-    date: {
-      ar: 'التاريخ',
-      en: 'Date'
-    },
-    branch: {
-      ar: 'الفرع',
-      en: 'Branch'
-    },
-    taskId: {
-      ar: 'رقم المهمة',
-      en: 'Task ID'
-    },
-    completed: {
-      ar: 'مكتمل',
-      en: 'Completed'
-    },
-    pending: {
-      ar: 'معلق',
-      en: 'Pending'
-    },
-    receiving: {
-      ar: 'استلام',
-      en: 'Receiving'
-    },
-    taskAssignment: {
-      ar: 'تعيين مهمة',
-      en: 'Task Assignment'
-    },
-    quickTask: {
-      ar: 'مهمة سريعة',
-      en: 'Quick Task'
-    },
-    clickToViewDetails: {
-      ar: 'انقر لعرض التفاصيل',
-      en: 'Click to view details'
-    },
-    assignedBy: {
-      ar: 'تم التعيين بواسطة',
-      en: 'Assigned By'
-    },
-    assignedTo: {
-      ar: 'تم التعيين إلى',
-      en: 'Assigned To'
-    },
-    delete: {
-      ar: 'حذف',
-      en: 'Delete'
-    },
-    confirmDelete: {
-      ar: 'هل أنت متأكد من حذف هذه المهمة؟',
-      en: 'Are you sure you want to delete this task?'
-    },
-    deleteSuccess: {
-      ar: 'تم حذف المهمة بنجاح',
-      en: 'Task deleted successfully'
-    },
-    deleteFailed: {
-      ar: 'فشل حذف المهمة',
-      en: 'Failed to delete task'
-    },
-    actions: {
-      ar: 'الإجراءات',
-      en: 'Actions'
-    }
-  };
-
-  // Aggregated stats for chart and details
-  let stats = {
-    receiving: 0,
-    completed: 0,
-    notCompleted: 0,
-    total: 0,
-    details: {}
-  };
-
-  let todayStats = {
-    completed: 0,
-    notCompleted: 0,
-    total: 0
-  };
-
-  let yesterdayStats = {
-    completed: 0,
-    notCompleted: 0,
-    total: 0
-  };
-
-  onMount(() => {
-    loadBranches();
-    loadStats();
-  });
-
-  // Helper function to fetch all data with pagination
-  async function fetchAllData(table, selectQuery, filters = null) {
-    const BATCH_SIZE = 1000;
-    let allData = [];
-    let from = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      let query = supabase
-        .from(table)
-        .select(selectQuery, { count: 'exact' })
-        .range(from, from + BATCH_SIZE - 1);
-
-      // Apply filters if provided
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (key.includes('.')) {
-            // For nested filters, use or() for more flexibility
-            query = query.filter(key, 'eq', value);
-          } else {
-            query = query.eq(key, value);
-          }
-        });
-      }
-
-      const { data, error, count } = await query;
-
-      if (error) {
-        console.error(`Error fetching ${table}:`, error);
-        throw error;
-      }
-
-      if (data && data.length > 0) {
-        allData = allData.concat(data);
-        from += BATCH_SIZE;
-        hasMore = data.length === BATCH_SIZE;
-      } else {
-        hasMore = false;
-      }
-    }
-
-    return allData;
-  }
-
-  async function loadBranches() {
-    try {
-      const { data, error: err } = await supabase.from('branches').select('id, name_ar, name_en').order('name_en');
-      if (err) throw err;
-      branches = (data || []).map(b => ({ 
-        id: b.id, 
-        name: `${b.name_ar || ''} ${b.name_en || ''}`.trim() || b.name_en || b.name_ar 
-      }));
-    } catch (e) {
-      console.error('Failed to load branches', e);
-      error = 'Failed to load branches';
-    }
-  }
-
-  async function loadStats() {
-    loading = true;
-    error = null;
-
-    try {
-      let currentPeriodStart, currentPeriodEnd, previousPeriodStart, previousPeriodEnd;
-
-      // Calculate date ranges based on filter type
-      if (filterType === 'today') {
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const currentPeriodStr = today.toISOString().split('T')[0];
-        const previousPeriodStr = yesterday.toISOString().split('T')[0];
-        currentPeriodStart = currentPeriodEnd = currentPeriodStr;
-        previousPeriodStart = previousPeriodEnd = previousPeriodStr;
-        
-        currentPeriodLabel = formatDate(today);
-        previousPeriodLabel = formatDate(yesterday);
-      } else if (filterType === 'week') {
-        const today = new Date();
-        const currentWeekStart = new Date(today);
-        currentWeekStart.setDate(today.getDate() - today.getDay()); // Start of this week (Sunday)
-        const currentWeekEnd = new Date(currentWeekStart);
-        currentWeekEnd.setDate(currentWeekStart.getDate() + 6); // End of this week (Saturday)
-        
-        const lastWeekStart = new Date(currentWeekStart);
-        lastWeekStart.setDate(currentWeekStart.getDate() - 7);
-        const lastWeekEnd = new Date(lastWeekStart);
-        lastWeekEnd.setDate(lastWeekStart.getDate() + 6);
-        
-        currentPeriodStart = currentWeekStart.toISOString().split('T')[0];
-        currentPeriodEnd = currentWeekEnd.toISOString().split('T')[0];
-        previousPeriodStart = lastWeekStart.toISOString().split('T')[0];
-        previousPeriodEnd = lastWeekEnd.toISOString().split('T')[0];
-        
-        currentPeriodLabel = `${formatDate(currentWeekStart)} - ${formatDate(currentWeekEnd)}`;
-        previousPeriodLabel = `${formatDate(lastWeekStart)} - ${formatDate(lastWeekEnd)}`;
-      } else if (filterType === 'date') {
-        if (!customDate) {
-          error = 'Please select a date';
-          loading = false;
-          return;
-        }
-        const selectedDate = new Date(customDate + 'T00:00:00');
-        const previousDate = new Date(selectedDate);
-        previousDate.setDate(selectedDate.getDate() - 1);
-        
-        currentPeriodStart = currentPeriodEnd = customDate;
-        previousPeriodStart = previousPeriodEnd = previousDate.toISOString().split('T')[0];
-        
-        currentPeriodLabel = formatDate(selectedDate);
-        previousPeriodLabel = formatDate(previousDate);
-      } else if (filterType === 'month') {
-        if (!selectedMonth) {
-          error = 'Please select a month';
-          loading = false;
-          return;
-        }
-        const [year, month] = selectedMonth.split('-').map(Number);
-        const currentMonthStart = new Date(year, month - 1, 1);
-        const currentMonthEnd = new Date(year, month, 0);
-        
-        const previousMonthStart = new Date(year, month - 2, 1);
-        const previousMonthEnd = new Date(year, month - 1, 0);
-        
-        currentPeriodStart = currentMonthStart.toISOString().split('T')[0];
-        currentPeriodEnd = currentMonthEnd.toISOString().split('T')[0];
-        previousPeriodStart = previousMonthStart.toISOString().split('T')[0];
-        previousPeriodEnd = previousMonthEnd.toISOString().split('T')[0];
-        
-        currentPeriodLabel = formatMonth(currentMonthStart);
-        previousPeriodLabel = formatMonth(previousMonthStart);
-      } else {
-        // Default to 'today' if no filter type matches
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const currentPeriodStr = today.toISOString().split('T')[0];
-        const previousPeriodStr = yesterday.toISOString().split('T')[0];
-        currentPeriodStart = currentPeriodEnd = currentPeriodStr;
-        previousPeriodStart = previousPeriodEnd = previousPeriodStr;
-        
-        currentPeriodLabel = formatDate(today);
-        previousPeriodLabel = formatDate(yesterday);
-      }
-
-      // Verify date ranges are set
-      if (!currentPeriodStart || !currentPeriodEnd || !previousPeriodStart || !previousPeriodEnd) {
-        error = 'Error calculating date ranges';
-        loading = false;
-        return;
-      }
-
-      // Fetch all data with pagination to avoid Supabase limits
-      let receiving, tasks, quick;
-      
-      // Calculate the earliest start date to fetch from database
-      const queryStartDate = previousPeriodStart < currentPeriodStart ? previousPeriodStart : currentPeriodStart;
-      const queryEndDate = currentPeriodEnd > previousPeriodEnd ? currentPeriodEnd : previousPeriodEnd;
-      
-      console.log('🔄 [BranchPerformance] Loading data - Filter:', filterType, 'Query Range:', queryStartDate, 'to', queryEndDate);
-      
-      if (selectedBranch !== 'all') {
-        const branchId = parseInt(selectedBranch);
-        console.log('📍 [BranchPerformance] Filtering by branch ID:', branchId);
-        
-        // Fetch receiving tasks - need to include receiving_records to filter by branch
-        const receivingQuery = supabase
-          .from('receiving_tasks')
-          .select('id, task_status, created_at, assigned_user_id, receiving_record_id, receiving_records!inner(branch_id)')
-          .eq('receiving_records.branch_id', branchId)
-          .neq('task_status', 'cancelled')
-          .gte('created_at', `${queryStartDate}T00:00:00`)
-          .lte('created_at', `${queryEndDate}T23:59:59`);
-        
-        // Fetch task assignments with branch filter
-        const tasksQuery = supabase
-          .from('task_assignments')
-          .select('id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id')
-          .eq('assigned_to_branch_id', branchId)
-          .neq('status', 'cancelled')
-          .gte('assigned_at', `${queryStartDate}T00:00:00`)
-          .lte('assigned_at', `${queryEndDate}T23:59:59`);
-        
-        // Fetch quick task assignments - need to join with quick_tasks to filter by branch
-        const quickQuery = supabase
-          .from('quick_task_assignments')
-          .select('id, status, created_at, assigned_to_user_id, quick_task_id, quick_tasks!inner(assigned_to_branch_id)')
-          .eq('quick_tasks.assigned_to_branch_id', branchId)
-          .neq('status', 'cancelled')
-          .gte('created_at', `${queryStartDate}T00:00:00`)
-          .lte('created_at', `${queryEndDate}T23:59:59`);
-
-        const [recRes, taskRes, quickRes] = await Promise.all([
-          receivingQuery,
-          tasksQuery,
-          quickQuery
-        ]);
-
-        receiving = recRes.data || [];
-        tasks = taskRes.data || [];
-        quick = quickRes.data || [];
-        
-        console.log(`✅ [BranchPerformance] Loaded Branch ${branchId} - Receiving: ${receiving.length}, Tasks: ${tasks.length}, Quick: ${quick.length}`);
-      } else {
-        // Fetch all branches data in parallel with date filters
-        const receivingQuery = supabase
-          .from('receiving_tasks')
-          .select('id, task_status, created_at, assigned_user_id, receiving_record_id')
-          .neq('task_status', 'cancelled')
-          .gte('created_at', `${queryStartDate}T00:00:00`)
-          .lte('created_at', `${queryEndDate}T23:59:59`);
-        
-        const tasksQuery = supabase
-          .from('task_assignments')
-          .select('id, status, assigned_at, assigned_to_branch_id, assigned_by, assigned_to_user_id')
-          .neq('status', 'cancelled')
-          .gte('assigned_at', `${queryStartDate}T00:00:00`)
-          .lte('assigned_at', `${queryEndDate}T23:59:59`);
-        
-        const quickQuery = supabase
-          .from('quick_task_assignments')
-          .select('id, status, created_at, assigned_to_user_id, quick_task_id')
-          .neq('status', 'cancelled')
-          .gte('created_at', `${queryStartDate}T00:00:00`)
-          .lte('created_at', `${queryEndDate}T23:59:59`);
-
-        const [recRes, taskRes, quickRes] = await Promise.all([
-          receivingQuery,
-          tasksQuery,
-          quickQuery
-        ]);
-
-        receiving = recRes.data || [];
-        tasks = taskRes.data || [];
-        quick = quickRes.data || [];
-        
-        console.log(`✅ [BranchPerformance] Loaded All - Receiving: ${receiving.length}, Tasks: ${tasks.length}, Quick: ${quick.length}`);
-      }
-
-      // Filter by date ranges (database already filtered, this is for current vs previous period)
-      const isInCurrentPeriod = (dateStr) => {
-        if (!dateStr) return false;
-        const date = dateStr.split('T')[0];
-        return date >= currentPeriodStart && date <= currentPeriodEnd;
-      };
-      const isInPreviousPeriod = (dateStr) => {
-        if (!dateStr) return false;
-        const date = dateStr.split('T')[0];
-        return date >= previousPeriodStart && date <= previousPeriodEnd;
-      };
-      
-      const todayReceiving = receiving.filter(r => isInCurrentPeriod(r.created_at));
-      const yesterdayReceiving = receiving.filter(r => isInPreviousPeriod(r.created_at));
-      
-      const todayTasks = tasks.filter(t => isInCurrentPeriod(t.assigned_at));
-      const yesterdayTasks = tasks.filter(t => isInPreviousPeriod(t.assigned_at));
-      
-      const todayQuick = quick.filter(q => isInCurrentPeriod(q.created_at));
-      const yesterdayQuick = quick.filter(q => isInPreviousPeriod(q.created_at));
-
-      console.log('📊 [BranchPerformance] Date filtered - Current Period:', todayReceiving.length + todayTasks.length + todayQuick.length, 'Previous Period:', yesterdayReceiving.length + yesterdayTasks.length + yesterdayQuick.length);
-
-      // Calculate total counts
-      const recCount = receiving.length;
-      const recCompleted = receiving.filter(r => r.task_status === 'completed').length;
-      const recPending = recCount - recCompleted;
-
-      const taskCompleted = tasks.filter(t => t.status === 'completed').length;
-      const taskPending = tasks.length - taskCompleted;
-
-      const quickCompleted = quick.filter(q => q.status === 'completed').length;
-      const quickPending = quick.length - quickCompleted;
-
-      const totalCompleted = recCompleted + taskCompleted + quickCompleted;
-      const totalPending = recPending + taskPending + quickPending;
-      const totalTasks = recCount + tasks.length + quick.length;
-
-      // Calculate today's counts
-      const todayRecCompleted = todayReceiving.filter(r => r.task_status === 'completed').length;
-      const todayTaskCompleted = todayTasks.filter(t => t.status === 'completed').length;
-      const todayQuickCompleted = todayQuick.filter(q => q.status === 'completed').length;
-      const todayTotalCompleted = todayRecCompleted + todayTaskCompleted + todayQuickCompleted;
-      const todayTotal = todayReceiving.length + todayTasks.length + todayQuick.length;
-
-      // Calculate yesterday's counts
-      const yesterdayRecCompleted = yesterdayReceiving.filter(r => r.task_status === 'completed').length;
-      const yesterdayTaskCompleted = yesterdayTasks.filter(t => t.status === 'completed').length;
-      const yesterdayQuickCompleted = yesterdayQuick.filter(q => q.status === 'completed').length;
-      const yesterdayTotalCompleted = yesterdayRecCompleted + yesterdayTaskCompleted + yesterdayQuickCompleted;
-      const yesterdayTotal = yesterdayReceiving.length + yesterdayTasks.length + yesterdayQuick.length;
-
-      // Store task data for detail view
-      allTasksData = {
-        current: [
-          ...todayReceiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
-          ...todayTasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
-          ...todayQuick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
-        ],
-        previous: [
-          ...yesterdayReceiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
-          ...yesterdayTasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
-          ...yesterdayQuick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
-        ],
-        total: [
-          ...receiving.map(r => ({ ...r, taskType: 'receiving', date: r.created_at, assigned_by: r.receiving_records?.user_id, assigned_to: r.assigned_user_id })),
-          ...tasks.map(t => ({ ...t, taskType: 'task_assignment', date: t.assigned_at, assigned_by: t.assigned_by, assigned_to: t.assigned_to_user_id })),
-          ...quick.map(q => ({ ...q, taskType: 'quick_task', date: q.created_at, assigned_by: q.quick_tasks?.assigned_by, assigned_to: q.assigned_to_user_id }))
-        ]
-      };
-
-      stats = {
-        receiving: recCount,
-        completed: totalCompleted,
-        notCompleted: totalPending,
-        total: totalTasks,
-        details: {
-          recCount,
-          recCompleted,
-          recPending,
-          taskCompleted,
-          taskPending,
-          quickCompleted,
-          quickPending
-        }
-      };
-
-      todayStats = {
-        completed: todayTotalCompleted,
-        notCompleted: todayTotal - todayTotalCompleted,
-        total: todayTotal
-      };
-
-      yesterdayStats = {
-        completed: yesterdayTotalCompleted,
-        notCompleted: yesterdayTotal - yesterdayTotalCompleted,
-        total: yesterdayTotal
-      };
-
-    } catch (e) {
-      console.error('Failed to load stats', e);
-      error = 'Failed to load branch stats';
-    } finally {
-      loading = false;
-    }
-  }
-
-  function onBranchChange(e) {
-    selectedBranch = e.target.value;
-    console.log('Selected branch:', selectedBranch, typeof selectedBranch);
-    loadStats();
-  }
-
-  function onFilterTypeChange(e) {
-    filterType = e.target.value;
-    showDatePicker = filterType === 'date';
-    showMonthPicker = filterType === 'month';
-    
-    // Auto-load for 'today' and 'week', wait for user input for 'date' and 'month'
-    if (filterType === 'today' || filterType === 'week') {
-      loadStats();
-    }
-  }
-
-  function onApplyCustomFilter() {
-    loadStats();
-  }
-
-  function getCurrentLabel() {
-    if (filterType === 'today') return text.today.ar;
-    if (filterType === 'week') return text.thisWeekLabel.ar;
-    if (filterType === 'date') return text.selectedDateLabel.ar;
-    if (filterType === 'month') return text.selectedMonthLabel.ar;
-    return text.today.ar;
-  }
-
-  function getPreviousLabel() {
-    if (filterType === 'today') return text.yesterday.ar;
-    if (filterType === 'week') return text.lastWeekLabel.ar;
-    if (filterType === 'date') return text.previousDayLabel.ar;
-    if (filterType === 'month') return text.previousMonthLabel.ar;
-    return text.yesterday.ar;
-  }
-
-  // Format date as DD/MM/YYYY
-  function formatDate(date) {
-    const d = new Date(date);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-  }
-
-  // Format month name and year
-  function formatMonth(date) {
-    const d = new Date(date);
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthNamesAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-    return `${monthNamesAr[d.getMonth()]} ${d.getFullYear()} / ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-  }
-
-  // Show task details in a window
-  function showTaskDetails(period) {
-    const tasks = allTasksData[period] || [];
-    
-    // Sort: incomplete tasks first, then completed
-    const sortedTasks = [...tasks].sort((a, b) => {
-      const aCompleted = getTaskStatus(a) === 'completed';
-      const bCompleted = getTaskStatus(b) === 'completed';
-      if (aCompleted === bCompleted) return 0;
-      return aCompleted ? 1 : -1;
-    });
-    
-    detailWindowTasks = sortedTasks;
-    
-    if (period === 'current') {
-      detailWindowTitle = `${text.currentPeriod.ar} - ${currentPeriodLabel}`;
-    } else if (period === 'previous') {
-      detailWindowTitle = `${text.previousPeriod.ar} - ${previousPeriodLabel}`;
-    } else {
-      detailWindowTitle = `${text.totalPerformance.ar}`;
-    }
-    
-    showDetailWindow = true;
-    
-    // Fetch user names for the tasks
-    fetchUserNames(sortedTasks);
-  }
-
-  async function fetchUserNames(tasks) {
-    const userIds = new Set();
-    tasks.forEach(task => {
-      if (task.assigned_by) userIds.add(task.assigned_by);
-      if (task.assigned_to) userIds.add(task.assigned_to);
-    });
-
-    if (userIds.size === 0) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, username, employee_id')
-        .in('id', Array.from(userIds));
-
-      if (error) throw error;
-
-      const userMap = {};
-      (data || []).forEach(user => {
-        userMap[user.id] = user.username || `User ${user.id}`;
-      });
-
-      // Update tasks with user names
-      detailWindowTasks = detailWindowTasks.map(task => ({
-        ...task,
-        assigned_by_name: task.assigned_by ? userMap[task.assigned_by] : null,
-        assigned_to_name: task.assigned_to ? userMap[task.assigned_to] : null
-      }));
-    } catch (e) {
-      console.error('Failed to fetch user names', e);
-    }
-  }
-
-  function getTaskStatus(task) {
-    if (task.taskType === 'receiving') return task.task_status;
-    return task.status;
-  }
-
-  function getTaskTypeLabel(type) {
-    if (type === 'receiving') return text.receiving;
-    if (type === 'task_assignment') return text.taskAssignment;
-    if (type === 'quick_task') return text.quickTask;
-    return { ar: type, en: type };
-  }
-
-  function getStatusLabel(status) {
-    return status === 'completed' ? text.completed : text.pending;
-  }
-
-  function closeDetailWindow() {
-    showDetailWindow = false;
-    detailWindowTasks = [];
-    detailWindowTitle = '';
-  }
-
-  // Check if current user is master admin
-  function isMasterAdmin() {
-    console.log('Checking master admin:', {
-      currentUser: $currentUser,
-      isMasterAdmin: $currentUser?.isMasterAdmin,
-      check: $currentUser && $currentUser.isMasterAdmin
-    });
-    return $currentUser && $currentUser.isMasterAdmin;
-  }
-
-  // Delete task
-  async function deleteTask(task) {
-    if (!confirm(`${text.confirmDelete.ar}\n${text.confirmDelete.en}`)) {
-      return;
-    }
-
-    try {
-      let deleteError = null;
-
-      if (task.taskType === 'receiving') {
-        const { error } = await supabase
-          .from('receiving_tasks')
-          .delete()
-          .eq('id', task.id);
-        deleteError = error;
-      } else if (task.taskType === 'task_assignment') {
-        const { error } = await supabase
-          .from('task_assignments')
-          .delete()
-          .eq('id', task.id);
-        deleteError = error;
-      } else if (task.taskType === 'quick_task') {
-        const { error } = await supabase
-          .from('quick_task_assignments')
-          .delete()
-          .eq('id', task.id);
-        deleteError = error;
-      }
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      // Remove from display
-      detailWindowTasks = detailWindowTasks.filter(t => t.id !== task.id);
-      
-      // Reload stats to update charts
-      loadStats();
-
-      notifications.add({
-        message: `${text.deleteSuccess.ar} / ${text.deleteSuccess.en}`,
-        type: 'success',
-        duration: 3000
-      });
-    } catch (err) {
-      console.error('Failed to delete task:', err);
-      notifications.add({
-        message: `${text.deleteFailed.ar} / ${text.deleteFailed.en}`,
-        type: 'error',
-        duration: 5000
-      });
-    }
-  }
-
-  // Calculate percentage
-  function getPercentage(value, total) {
-    if (total === 0) return 0;
-    return Math.round((value / total) * 100);
-  }
-
-  // Calculate SVG path for pie segments
-  function createArcPath(centerX, centerY, radius, startAngle, endAngle) {
-    const start = polarToCartesian(centerX, centerY, radius, endAngle);
-    const end = polarToCartesian(centerX, centerY, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-    
-    return [
-      "M", centerX, centerY,
-      "L", start.x, start.y,
-      "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-      "Z"
-    ].join(" ");
-  }
-
-  function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
-    const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-    return {
-      x: centerX + (radius * Math.cos(angleInRadians)),
-      y: centerY + (radius * Math.sin(angleInRadians))
-    };
-  }
-
-  // Calculate text position for percentage labels
-  function getTextPosition(centerX, centerY, radius, startAngle, endAngle) {
-    const midAngle = (startAngle + endAngle) / 2;
-    const textRadius = radius * 0.7; // Position text at 70% of radius
-    return polarToCartesian(centerX, centerY, textRadius, midAngle);
-  }
-
-  // Generate chart data for any stats object
-  function createChartData(statsObj) {
-    return [
-      { 
-        label: text.completedTasks,
-        value: statsObj.completed, 
-        percentage: getPercentage(statsObj.completed, statsObj.total),
-        color: '#22c55e',
-        shadowColor: '#16a34a'
-      },
-      { 
-        label: text.notCompleted,
-        value: statsObj.notCompleted, 
-        percentage: getPercentage(statsObj.notCompleted, statsObj.total),
-        color: '#ef4444',
-        shadowColor: '#dc2626'
-      }
-    ].filter(item => item.value > 0);
-  }
-
-  // Generate segments for any chart data
-  function createSegments(chartData, total) {
-    let currentAngle = 0;
-    return chartData.map(item => {
-      const angle = total > 0 ? (item.value / total) * 360 : 0;
-      const textPos = getTextPosition(150, 150, 120, currentAngle, currentAngle + angle);
-      const segment = {
-        ...item,
-        startAngle: currentAngle,
-        endAngle: currentAngle + angle,
-        path: createArcPath(150, 150, 120, currentAngle, currentAngle + angle),
-        textX: textPos.x,
-        textY: textPos.y
-      };
-      currentAngle += angle;
-      return segment;
-    });
-  }
-
-  // Create chart data
-  $: totalChartData = createChartData(stats);
-  $: todayChartData = createChartData(todayStats);
-  $: yesterdayChartData = createChartData(yesterdayStats);
-
-  // Calculate segments for each chart
-  $: totalSegments = createSegments(totalChartData, stats.total);
-  $: todaySegments = createSegments(todayChartData, todayStats.total);
-  $: yesterdaySegments = createSegments(yesterdayChartData, yesterdayStats.total);
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { supabase } from '$lib/utils/supabase';
+	import { t, currentLocale } from '$lib/i18n';
+
+	export let onClose: () => void;
+
+	let loading = false;
+	let fromDate = '';
+	let toDate = '';
+	let specificDate = '';
+	let loadingCard2 = false;
+	
+	// Stats for pie chart
+	let stats = {
+		completed: 0,
+		notCompleted: 0,
+		total: 0
+	};
+
+	// Card 2 stats
+	let statsCard2 = {
+		completed: 0,
+		notCompleted: 0,
+		total: 0
+	};
+
+	// Branch-wise stats
+	let branchStats: Record<string, { name: string; completed: number; notCompleted: number; total: number }> = {};
+	
+	// Card 2 branch-wise stats
+	let branchStatsCard2: Record<string, { name: string; completed: number; notCompleted: number; total: number }> = {};
+
+	// Card 3 - Last 3 Days
+	let selectedBranchCard3 = '';
+	let loadingCard3 = false;
+	let allBranches: Array<{ id: string; name_en: string; name_ar: string }> = [];
+	
+	// Card 3 stats for each day
+	let statsCard3Day1: Record<string, number> = {}; // Today
+	let statsCard3Day2: Record<string, number> = {}; // Yesterday
+	let statsCard3Day3: Record<string, number> = {}; // 2 days ago
+
+	onMount(async () => {
+		console.log('📊 [BranchPerformanceWindow] Component initialized');
+		// Load all branches for Card 3 dropdown
+		const { data: branchesData } = await supabase
+			.from('branches')
+			.select('id, name_en, name_ar');
+		if (branchesData) {
+			allBranches = branchesData;
+		}
+	});
+
+	async function loadBranchPerformance() {
+		if (!fromDate || !toDate) {
+			alert('Please select both From Date and To Date');
+			return;
+		}
+
+		loading = true;
+		console.log('📊 Loading branch performance for period:', fromDate, 'to', toDate);
+
+		try {
+			const startDate = `${fromDate}T00:00:00`;
+			const endDate = `${toDate}T23:59:59`;
+
+			// Fetch receiving tasks
+			const { data: receivingData, error: recError } = await supabase
+				.from('receiving_tasks')
+				.select('id, task_status, created_at, receiving_record_id')
+				.gte('created_at', startDate)
+				.lte('created_at', endDate);
+
+			if (recError) throw recError;
+
+			// Fetch task assignments with branch ID
+			const { data: tasksData, error: taskError } = await supabase
+				.from('task_assignments')
+				.select('id, status, assigned_at, assigned_to_branch_id')
+				.gte('assigned_at', startDate)
+				.lte('assigned_at', endDate);
+
+			if (taskError) throw taskError;
+
+			// Fetch quick task assignments
+			const { data: quickData, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select('id, status, created_at, quick_task_id')
+				.gte('created_at', startDate)
+				.lte('created_at', endDate);
+
+			if (quickError) throw quickError;
+
+			// Fetch receiving records to map to branches
+			let recordMap: Record<string, string> = {};
+			const receiving = receivingData || [];
+			if (receiving.length > 0) {
+				const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
+				if (recordIds.length > 0) {
+					const { data: records } = await supabase
+						.from('receiving_records')
+						.select('id, branch_id');
+					if (records) {
+						records.forEach((r: any) => {
+							recordMap[r.id] = r.branch_id;
+						});
+					}
+				}
+			}
+
+			// Fetch all branches
+			const { data: branchesData } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar');
+			const branchMap: Record<string, string> = {};
+			if (branchesData) {
+				branchesData.forEach((b: any) => {
+					branchMap[b.id] = b.name_en || b.name_ar || `Branch ${b.id}`;
+				});
+			}
+
+			// Fetch quick tasks for branch mapping
+			let quickTaskMap: Record<string, string> = {};
+			const quick = quickData || [];
+			if (quick.length > 0) {
+				const quickTaskIds = [...new Set(quick.map((q: any) => q.quick_task_id).filter(Boolean))];
+				if (quickTaskIds.length > 0) {
+					const { data: quickTasks } = await supabase
+						.from('quick_tasks')
+						.select('id, assigned_to_branch_id');
+					if (quickTasks) {
+						quickTasks.forEach((qt: any) => {
+							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
+						});
+					}
+				}
+			}
+
+			// Initialize branch stats
+			branchStats = {};
+
+			// Process receiving tasks
+			let totalCompleted = 0;
+			let totalTasks = 0;
+			
+			console.log('📦 Receiving tasks fetched:', receiving.length);
+			receiving.forEach((item: any) => {
+				if (item.task_status === 'cancelled') return;
+				
+				const branchId = recordMap[item.receiving_record_id];
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.task_status === 'completed';
+
+				if (branchId) {
+					if (!branchStats[branchId]) {
+						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStats[branchId].total++;
+					if (isCompleted) branchStats[branchId].completed++;
+					else branchStats[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Process task assignments
+			const tasks = tasksData || [];
+			console.log('📋 Task assignments fetched:', tasks.length);
+			tasks.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				
+				const branchId = item.assigned_to_branch_id;
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.status === 'completed';
+
+				if (branchId) {
+					if (!branchStats[branchId]) {
+						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStats[branchId].total++;
+					if (isCompleted) branchStats[branchId].completed++;
+					else branchStats[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Process quick task assignments
+			console.log('⚡ Quick tasks fetched:', quick.length);
+			quick.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				
+				const branchId = quickTaskMap[item.quick_task_id];
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.status === 'completed';
+
+				if (branchId) {
+					if (!branchStats[branchId]) {
+						branchStats[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStats[branchId].total++;
+					if (isCompleted) branchStats[branchId].completed++;
+					else branchStats[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Set total stats
+			stats = {
+				completed: totalCompleted,
+				notCompleted: totalTasks - totalCompleted,
+				total: totalTasks
+			};
+
+			console.log('✅ Branch performance loaded:', stats);
+			console.log('🏢 Branch breakdown:', branchStats);
+		} catch (error) {
+			console.error('❌ Error loading branch performance:', error);
+			alert('Error loading branch performance data');
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadSpecificDatePerformance() {
+		if (!specificDate) {
+			alert('Please select a specific date');
+			return;
+		}
+
+		loadingCard2 = true;
+		console.log('📊 Loading specific date performance for:', specificDate);
+
+		try {
+			const startDate = `${specificDate}T00:00:00`;
+			const endDate = `${specificDate}T23:59:59`;
+
+			// Fetch receiving tasks
+			const { data: receivingData, error: recError } = await supabase
+				.from('receiving_tasks')
+				.select('id, task_status, created_at, receiving_record_id')
+				.gte('created_at', startDate)
+				.lte('created_at', endDate);
+
+			if (recError) throw recError;
+
+			// Fetch task assignments with branch ID
+			const { data: tasksData, error: taskError } = await supabase
+				.from('task_assignments')
+				.select('id, status, assigned_at, assigned_to_branch_id')
+				.gte('assigned_at', startDate)
+				.lte('assigned_at', endDate);
+
+			if (taskError) throw taskError;
+
+			// Fetch quick task assignments
+			const { data: quickData, error: quickError } = await supabase
+				.from('quick_task_assignments')
+				.select('id, status, created_at, quick_task_id')
+				.gte('created_at', startDate)
+				.lte('created_at', endDate);
+
+			if (quickError) throw quickError;
+
+			// Fetch receiving records to map to branches
+			let recordMap: Record<string, string> = {};
+			const receiving = receivingData || [];
+			if (receiving.length > 0) {
+				const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
+				if (recordIds.length > 0) {
+					const { data: records } = await supabase
+						.from('receiving_records')
+						.select('id, branch_id');
+					if (records) {
+						records.forEach((r: any) => {
+							recordMap[r.id] = r.branch_id;
+						});
+					}
+				}
+			}
+
+			// Fetch all branches
+			const { data: branchesData } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar');
+			const branchMap: Record<string, string> = {};
+			if (branchesData) {
+				branchesData.forEach((b: any) => {
+					branchMap[b.id] = b.name_en || b.name_ar || `Branch ${b.id}`;
+				});
+			}
+
+			// Fetch quick tasks for branch mapping
+			let quickTaskMap: Record<string, string> = {};
+			const quick = quickData || [];
+			if (quick.length > 0) {
+				const quickTaskIds = [...new Set(quick.map((q: any) => q.quick_task_id).filter(Boolean))];
+				if (quickTaskIds.length > 0) {
+					const { data: quickTasks } = await supabase
+						.from('quick_tasks')
+						.select('id, assigned_to_branch_id');
+					if (quickTasks) {
+						quickTasks.forEach((qt: any) => {
+							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
+						});
+					}
+				}
+			}
+
+			// Initialize branch stats
+			branchStatsCard2 = {};
+
+			// Process receiving tasks
+			let totalCompleted = 0;
+			let totalTasks = 0;
+			
+			console.log('📦 Receiving tasks fetched:', receiving.length);
+			receiving.forEach((item: any) => {
+				if (item.task_status === 'cancelled') return;
+				
+				const branchId = recordMap[item.receiving_record_id];
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.task_status === 'completed';
+
+				if (branchId) {
+					if (!branchStatsCard2[branchId]) {
+						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStatsCard2[branchId].total++;
+					if (isCompleted) branchStatsCard2[branchId].completed++;
+					else branchStatsCard2[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Process task assignments
+			const tasks = tasksData || [];
+			console.log('📋 Task assignments fetched:', tasks.length);
+			tasks.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				
+				const branchId = item.assigned_to_branch_id;
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.status === 'completed';
+
+				if (branchId) {
+					if (!branchStatsCard2[branchId]) {
+						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStatsCard2[branchId].total++;
+					if (isCompleted) branchStatsCard2[branchId].completed++;
+					else branchStatsCard2[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Process quick task assignments
+			console.log('⚡ Quick tasks fetched:', quick.length);
+			quick.forEach((item: any) => {
+				if (item.status === 'cancelled') return;
+				
+				const branchId = quickTaskMap[item.quick_task_id];
+				const branchName = branchId ? (branchMap[branchId] || 'Unknown') : 'Unknown';
+				const isCompleted = item.status === 'completed';
+
+				if (branchId) {
+					if (!branchStatsCard2[branchId]) {
+						branchStatsCard2[branchId] = { name: branchName, completed: 0, notCompleted: 0, total: 0 };
+					}
+					branchStatsCard2[branchId].total++;
+					if (isCompleted) branchStatsCard2[branchId].completed++;
+					else branchStatsCard2[branchId].notCompleted++;
+				}
+
+				totalTasks++;
+				if (isCompleted) totalCompleted++;
+			});
+
+			// Set total stats for card 2
+			statsCard2 = {
+				completed: totalCompleted,
+				notCompleted: totalTasks - totalCompleted,
+				total: totalTasks
+			};
+
+			console.log('✅ Specific date performance loaded:', statsCard2);
+			console.log('🏢 Branch breakdown:', branchStatsCard2);
+		} catch (error) {
+			console.error('❌ Error loading specific date performance:', error);
+			alert('Error loading specific date performance data');
+		} finally {
+			loadingCard2 = false;
+		}
+	}
+
+	function calculatePieChart() {
+		if (stats.total === 0) return { completed: 0, notCompleted: 0 };
+
+		const completedPercent = (stats.completed / stats.total) * 100;
+		const notCompletedPercent = (stats.notCompleted / stats.total) * 100;
+
+		return { completedPercent, notCompletedPercent };
+	}
+
+	async function loadCard3Performance() {
+		if (!selectedBranchCard3) {
+			alert('Please select a branch');
+			return;
+		}
+
+		loadingCard3 = true;
+		console.log('📊 Loading Card 3 performance for branch:', selectedBranchCard3);
+
+		try {
+			// Get today's date
+			const today = new Date();
+			const day1 = new Date(today);
+			day1.setDate(day1.getDate()); // Today
+			const day2 = new Date(today);
+			day2.setDate(day2.getDate() - 1); // Yesterday
+			const day3 = new Date(today);
+			day3.setDate(day3.getDate() - 2); // 2 days ago
+
+			const formatDate = (date: Date) => date.toISOString().split('T')[0];
+			const dateStr1 = formatDate(day1);
+			const dateStr2 = formatDate(day2);
+			const dateStr3 = formatDate(day3);
+
+			console.log('📊 Card 3 dates:', dateStr1, dateStr2, dateStr3);
+
+			// Helper function to fetch stats for a specific date
+			const fetchDayStats = async (dateStr: string) => {
+				const startTime = `${dateStr}T00:00:00`;
+				const endTime = `${dateStr}T23:59:59`;
+
+				// Fetch receiving tasks
+				const { data: receivingData } = await supabase
+					.from('receiving_tasks')
+					.select('id, task_status, receiving_record_id')
+					.gte('created_at', startTime)
+					.lte('created_at', endTime);
+
+				// Fetch task assignments
+				const { data: tasksData } = await supabase
+					.from('task_assignments')
+					.select('id, status, assigned_to_branch_id')
+					.gte('assigned_at', startTime)
+					.lte('assigned_at', endTime);
+
+				// Fetch receiving records to map to branches
+				let recordMap: Record<string, string> = {};
+				const receiving = receivingData || [];
+				if (receiving.length > 0) {
+					const recordIds = [...new Set(receiving.map((r: any) => r.receiving_record_id).filter(Boolean))];
+					if (recordIds.length > 0) {
+						const { data: records } = await supabase
+							.from('receiving_records')
+							.select('id, branch_id');
+						if (records) {
+							records.forEach((r: any) => {
+								recordMap[r.id] = r.branch_id;
+							});
+						}
+					}
+				}
+
+				// Count tasks for selected branch
+				let completed = 0;
+				let notCompleted = 0;
+
+				// Count receiving tasks for branch
+				receiving.forEach((task: any) => {
+					const branchId = recordMap[task.receiving_record_id];
+					if (branchId === selectedBranchCard3) {
+						if (task.task_status === 'completed') {
+							completed++;
+						} else {
+							notCompleted++;
+						}
+					}
+				});
+
+				// Count task assignments for branch
+				(tasksData || []).forEach((task: any) => {
+					if (task.assigned_to_branch_id === selectedBranchCard3) {
+						if (task.status === 'completed') {
+							completed++;
+						} else {
+							notCompleted++;
+						}
+					}
+				});
+
+				return { completed, notCompleted, total: completed + notCompleted };
+			};
+
+			// Fetch stats for all 3 days
+			const [day1Stats, day2Stats, day3Stats] = await Promise.all([
+				fetchDayStats(dateStr1),
+				fetchDayStats(dateStr2),
+				fetchDayStats(dateStr3)
+			]);
+
+			statsCard3Day1 = day1Stats;
+			statsCard3Day2 = day2Stats;
+			statsCard3Day3 = day3Stats;
+
+			console.log('📊 Card 3 stats:', { day1: statsCard3Day1, day2: statsCard3Day2, day3: statsCard3Day3 });
+		} catch (error) {
+			console.error('❌ Error loading Card 3 performance:', error);
+			alert('Error loading performance data');
+		} finally {
+			loadingCard3 = false;
+		}
+	}
+
+	function polarToCartesian(centerX: number, centerY: number, radius: number, angleInDegrees: number) {
+		const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+		return {
+			x: centerX + (radius * Math.cos(angleInRadians)),
+			y: centerY + (radius * Math.sin(angleInRadians))
+		};
+	}
+
+	function createArcPath(centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number) {
+		const start = polarToCartesian(centerX, centerY, radius, endAngle);
+		const end = polarToCartesian(centerX, centerY, radius, startAngle);
+		const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+		
+		return [
+			"M", centerX, centerY,
+			"L", start.x, start.y,
+			"A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
+			"Z"
+		].join(" ");
+	}
+
+	function createPieSegments(total: number, completed: number) {
+		if (total === 0) return [];
+		
+		const completedAngle = (completed / total) * 360;
+		const segments = [];
+		const notCompleted = total - completed;
+
+		// If no completed tasks, show full red circle (split into two 180° arcs)
+		if (completed === 0) {
+			segments.push({
+				path: createArcPath(60, 60, 50, 0, 180),
+				shadowPath: createArcPath(60, 62, 50, 0, 180),
+				color: '#fa003f',
+				shadowColor: '#c90030',
+				label: 'Not Completed'
+			});
+			segments.push({
+				path: createArcPath(60, 60, 50, 180, 360),
+				shadowPath: createArcPath(60, 62, 50, 180, 360),
+				color: '#fa003f',
+				shadowColor: '#c90030',
+				label: 'Not Completed'
+			});
+		} else {
+			// Not completed segment (drawn first for layering) - RED
+			if (notCompleted > 0) {
+				segments.push({
+					path: createArcPath(60, 60, 50, completedAngle, 360),
+					shadowPath: createArcPath(60, 62, 50, completedAngle, 360),
+					color: '#fa003f',
+					shadowColor: '#c90030',
+					label: 'Not Completed'
+				});
+			}
+
+			// Completed segment (drawn last to appear on top) - GREEN
+			segments.push({
+				path: createArcPath(60, 60, 50, 0, completedAngle),
+				shadowPath: createArcPath(60, 62, 50, 0, completedAngle),
+				color: '#008000',
+				shadowColor: '#005500',
+				label: 'Completed'
+			});
+		}
+
+		return segments;
+	}
+
+	function createSmallPieSegments(total: number, completed: number) {
+		if (total === 0) return [];
+		
+		const completedAngle = (completed / total) * 360;
+		const segments = [];
+		const notCompleted = total - completed;
+
+		// If no completed tasks, show full red circle (split into two 180° arcs)
+		if (completed === 0) {
+			segments.push({
+				path: createArcPath(50, 50, 40, 0, 180),
+				shadowPath: createArcPath(50, 51, 40, 0, 180),
+				color: '#fa003f',
+				shadowColor: '#c90030',
+				label: 'Not Completed'
+			});
+			segments.push({
+				path: createArcPath(50, 50, 40, 180, 360),
+				shadowPath: createArcPath(50, 51, 40, 180, 360),
+				color: '#fa003f',
+				shadowColor: '#c90030',
+				label: 'Not Completed'
+			});
+		} else {
+			// Not completed segment (drawn first for layering) - RED
+			if (notCompleted > 0) {
+				segments.push({
+					path: createArcPath(50, 50, 40, completedAngle, 360),
+					shadowPath: createArcPath(50, 51, 40, completedAngle, 360),
+					color: '#fa003f',
+					shadowColor: '#c90030',
+					label: 'Not Completed'
+				});
+			}
+
+			// Completed segment (drawn last to appear on top) - GREEN
+			segments.push({
+				path: createArcPath(50, 50, 40, 0, completedAngle),
+				shadowPath: createArcPath(50, 51, 40, 0, completedAngle),
+				color: '#008000',
+				shadowColor: '#005500',
+				label: 'Completed'
+			});
+		}
+
+		return segments;
+	}
+
 </script>
 
-<style>
-  .bp-container {
-    padding: 20px;
-    font-family: var(--font-family, 'Inter', Arial);
-    background: white;
-    max-height: 100vh;
-    overflow-y: auto;
-    direction: rtl;
-  }
-
-  .bilingual-text {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .arabic-text {
-    font-weight: 600;
-    color: #1f2937;
-  }
-
-  .english-text {
-    font-weight: 500;
-    color: #6b7280;
-    font-size: 0.9em;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid #e5e7eb;
-  }
-
-  .header h3 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-    color: #1f2937;
-  }
-
-  .controls {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    margin-bottom: 24px;
-    padding: 16px;
-    background: #f9fafb;
-    border-radius: 8px;
-    border: 1px solid #e5e7eb;
-    direction: ltr;
-    flex-wrap: wrap;
-  }
-
-  .controls label {
-    font-weight: 500;
-    color: #374151;
-    direction: rtl;
-  }
-
-  .controls select,
-  .controls input[type="date"],
-  .controls input[type="month"] {
-    padding: 8px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background: white;
-    font-size: 14px;
-  }
-
-  .controls button {
-    padding: 8px 16px;
-    background: #3b82f6;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .controls button:hover {
-    background: #2563eb;
-  }
-
-  .controls button.apply-btn {
-    background: #10b981;
-  }
-
-  .controls button.apply-btn:hover {
-    background: #059669;
-  }
-
-  .filter-group {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    padding: 8px 12px;
-    background: white;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
-  }
-
-  .chart-container {
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
-    margin: 40px 0;
-    padding: 20px;
-    background: #f8fafc;
-    border-radius: 12px;
-    border: 1px solid #e2e8f0;
-  }
-
-  .charts-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
-    gap: 30px;
-    flex-wrap: wrap;
-  }
-
-  .chart-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    min-width: 280px;
-  }
-
-  .chart-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #1f2937;
-    text-align: center;
-    margin-bottom: 8px;
-  }
-
-  .pie-chart {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: transform 0.2s ease;
-  }
-
-  .pie-chart:hover {
-    transform: scale(1.02);
-  }
-
-  .pie-svg {
-    width: 250px;
-    height: 250px;
-    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.15));
-  }
-
-  .pie-segment {
-    cursor: pointer;
-    transition: all 0.3s ease;
-    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
-  }
-
-  .pie-segment:hover {
-    transform: scale(1.05);
-    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.3)) brightness(1.1);
-  }
-
-  .pie-shadow {
-    filter: blur(2px);
-    opacity: 0.6;
-    transform: translate(3px, 3px);
-  }
-
-  .segment-text {
-    font-size: 16px;
-    font-weight: 700;
-    fill: white;
-    text-anchor: middle;
-    dominant-baseline: middle;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    pointer-events: none;
-  }
-
-  .chart-center {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 50%, #1e40af 100%);
-    border-radius: 50%;
-    width: 100px;
-    height: 100px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4), inset 0 2px 4px rgba(255,255,255,0.2);
-    border: 2px solid #1e40af;
-  }
-
-  .total-number {
-    font-size: 28px;
-    font-weight: 700;
-    color: white;
-    line-height: 1;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-  }
-
-  .total-label {
-    font-size: 10px;
-    color: rgba(255,255,255,0.9);
-    font-weight: 600;
-    margin-top: 2px;
-    letter-spacing: 1px;
-  }
-
-  .legend {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    min-width: 200px;
-  }
-
-  .legend-color {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .legend-text {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-  }
-
-  .legend-label {
-    font-size: 14px;
-    font-weight: 500;
-    color: #1f2937;
-  }
-
-  .legend-stats {
-    font-size: 12px;
-    color: #6b7280;
-    margin-top: 2px;
-  }
-
-  .legend-percentage {
-    font-size: 18px;
-    font-weight: 600;
-    color: #1f2937;
-  }
-
-  .details {
-    margin-top: 24px;
-    border-top: 1px solid #e5e7eb;
-    padding-top: 24px;
-  }
-
-  .details h4 {
-    margin: 0 0 16px 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: #1f2937;
-  }
-
-  .details-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-  }
-
-  .detail-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: #f9fafb;
-    border-radius: 6px;
-    border-left: 4px solid #3b82f6;
-  }
-
-  .detail-label {
-    color: #6b7280;
-    font-size: 14px;
-  }
-
-  .detail-value {
-    font-weight: 600;
-    font-size: 16px;
-    color: #1f2937;
-  }
-
-  .error {
-    padding: 12px 16px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    border-radius: 6px;
-    color: #dc2626;
-    margin-bottom: 16px;
-  }
-
-  .loading {
-    color: #6b7280;
-    font-style: italic;
-  }
-
-  .detail-window-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    padding: 20px;
-  }
-
-  .detail-window {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    max-width: 1200px;
-    width: 100%;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    direction: rtl;
-  }
-
-  .detail-window-header {
-    padding: 20px 24px;
-    border-bottom: 2px solid #e5e7eb;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-    color: white;
-    border-radius: 12px 12px 0 0;
-  }
-
-  .detail-window-header h3 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
-  }
-
-  .detail-window-header button {
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background 0.2s ease;
-  }
-
-  .detail-window-header button:hover {
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .detail-window-body {
-    padding: 24px;
-    overflow-y: auto;
-    flex: 1;
-  }
-
-  .task-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  }
-
-  .task-table thead {
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .task-table th {
-    padding: 12px 16px;
-    text-align: right;
-    font-weight: 600;
-    color: #1f2937;
-    border-bottom: 2px solid #d1d5db;
-    font-size: 14px;
-  }
-
-  .task-table td {
-    padding: 12px 16px;
-    text-align: right;
-    border-bottom: 1px solid #e5e7eb;
-    font-size: 14px;
-    color: #374151;
-  }
-
-  .task-table tbody tr {
-    transition: background 0.2s ease;
-  }
-
-  .task-table tbody tr:hover {
-    background: #f9fafb;
-  }
-
-  .task-table tbody tr.incomplete {
-    background: #fef2f2;
-  }
-
-  .task-table tbody tr.incomplete:hover {
-    background: #fee2e2;
-  }
-
-  .task-table tbody tr.completed {
-    opacity: 0.7;
-  }
-
-  .status-badge {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .status-badge.completed {
-    background: #d1fae5;
-    color: #065f46;
-  }
-
-  .status-badge.pending {
-    background: #fee2e2;
-    color: #991b1b;
-  }
-
-  .task-type-badge {
-    display: inline-block;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 500;
-    background: #dbeafe;
-    color: #1e40af;
-  }
-
-  .no-tasks {
-    text-align: center;
-    padding: 40px;
-    color: #6b7280;
-    font-size: 16px;
-  }
-
-  .click-hint {
-    font-size: 11px;
-    color: #6b7280;
-    text-align: center;
-    margin-top: 8px;
-    font-style: italic;
-  }
-
-  .delete-btn {
-    background: #ef4444;
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: background 0.2s ease;
-  }
-
-  .delete-btn:hover {
-    background: #dc2626;
-  }
-
-  .delete-btn:disabled {
-    background: #9ca3af;
-    cursor: not-allowed;
-  }
-</style>
-
 <div class="bp-container">
-  <div class="header">
-    <h3 class="bilingual-text">
-      <span class="arabic-text">📊 {text.title.ar}</span>
-      <span class="english-text">({text.title.en})</span>
-    </h3>
-  </div>
+	<div class="content">
+		<div class="cards-grid">
+			<!-- Card 1: Date Range -->
+			<div class="card">
+				<div class="card-header">
+					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.dateRange') || '📅 Date Range'}</h3>
+				</div>
+				<div class="card-body">
+					<div class="date-range-form">
+						<div class="form-group">
+							<label for="from-date">{t('mobile.dashboardContent.branchPerformance.fromDate') || 'From Date'}</label>
+							<input
+								id="from-date"
+								type="date"
+								bind:value={fromDate}
+								class="date-input"
+								disabled={loading}
+							/>
+						</div>
+						<div class="form-group">
+							<label for="to-date">{t('mobile.dashboardContent.branchPerformance.toDate') || 'To Date'}</label>
+							<input
+								id="to-date"
+								type="date"
+								bind:value={toDate}
+								class="date-input"
+								disabled={loading}
+							/>
+						</div>
+						<button class="apply-btn" on:click={loadBranchPerformance} disabled={loading}>
+							{loading ? t('common.loading') || 'Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || 'Load Performance'}
+						</button>
+					</div>
 
-  <div class="controls">
-    <div class="filter-group">
-      <label for="branch-select" class="bilingual-text">
-        <span class="arabic-text">{text.filterBy.ar}</span>
-        <span class="english-text">({text.filterBy.en})</span>
-      </label>
-      <select id="branch-select" on:change={onBranchChange} bind:value={selectedBranch}>
-        <option value="all">{text.allBranches.ar} ({text.allBranches.en})</option>
-        {#each branches as b}
-          <option value={String(b.id)}>{b.name}</option>
-        {/each}
-      </select>
-    </div>
+					{#if stats.total > 0}
+						{@const { completedPercent } = calculatePieChart()}
+						{@const segments = createPieSegments(stats.total, stats.completed)}
+						<div class="pie-chart-container">
+							<div class="pie-wrapper">
+								<h4 class="pie-title">📊 Total Performance</h4>
+							<div class="pie-chart-wrapper">
+								<svg class="pie-svg" viewBox="0 0 120 120">
+									<defs>
+										<filter id="shadow-large" x="-50%" y="-50%" width="200%" height="200%">
+											<feDropShadow dx="0" dy="3" stdDeviation="2" flood-opacity="0.3" flood-color="#000000" />
+										</filter>
+										<radialGradient id="grad-green" cx="35%" cy="35%">
+											<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+											<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+										</radialGradient>
+										<radialGradient id="grad-red" cx="35%" cy="35%">
+											<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+											<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+										</radialGradient>
+									</defs>
+									<!-- Shadow layer -->
+									{#each segments as segment}
+										<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+									{/each}
+									<!-- Main segments with gradient -->
+									{#each segments as segment}
+										<path 
+											d={segment.path} 
+											fill={segment.color === '#008000' ? 'url(#grad-green)' : 'url(#grad-red)'}
+											filter="url(#shadow-large)"
+											stroke="white"
+											stroke-width="1"
+										/>
+									{/each}
+								</svg>
+								<!-- Center text overlay -->
+								<div class="pie-text">
+									<div class="pie-percent">{completedPercent.toFixed(0)}%</div>
+									<div class="pie-count">{stats.completed}/{stats.total}</div>
+								</div>
+							</div>
+							</div>
+						</div>
 
-    <div class="filter-group">
-      <label for="filter-type" class="bilingual-text">
-        <span class="arabic-text">{text.filterType.ar}</span>
-        <span class="english-text">({text.filterType.en})</span>
-      </label>
-      <select id="filter-type" on:change={onFilterTypeChange} bind:value={filterType}>
-        <option value="today">{text.today.ar} ({text.today.en})</option>
-        <option value="week">{text.thisWeek.ar} ({text.thisWeek.en})</option>
-        <option value="date">{text.customDate.ar} ({text.customDate.en})</option>
-        <option value="month">{text.customMonth.ar} ({text.customMonth.en})</option>
-      </select>
-    </div>
+						<!-- Branch-wise performance -->
+						{#if Object.keys(branchStats).length > 0}
+							<div class="branches-grid">
+								<h4 class="branches-title">🏢 Branch-wise Performance</h4>
+								<div class="branches-container">
+									{#each Object.entries(branchStats) as [branchId, branch]}
+										{@const branchCompleted = branch.completed}
+										{@const branchTotal = branch.total}
+										{@const branchPercent = branchTotal > 0 ? (branchCompleted / branchTotal) * 100 : 0}
+										{@const branchSegments = createSmallPieSegments(branchTotal, branchCompleted)}
+										<div class="branch-item">
+											<h5 class="branch-name">{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</h5>
+										<div class="pie-chart-wrapper-small">
+											<svg class="pie-svg-small" viewBox="0 0 100 100">
+												<defs>
+													<filter id="shadow-small-{branchId}" x="-50%" y="-50%" width="200%" height="200%">
+														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
+													</filter>
+													<radialGradient id="grad-green-small-{branchId}" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+													</radialGradient>
+													<radialGradient id="grad-red-small-{branchId}" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+													</radialGradient>
+												</defs>
+												<!-- Shadow layer -->
+												{#each branchSegments as segment}
+													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+												{/each}
+												<!-- Main segments with gradient -->
+												{#each branchSegments as segment}
+													<path 
+														d={segment.path} 
+														fill={segment.color === '#008000' ? `url(#grad-green-small-${branchId})` : `url(#grad-red-small-${branchId})`}
+														filter="url(#shadow-small-{branchId})"
+														stroke="white"
+														stroke-width="0.8"
+													/>
+												{/each}
+											</svg>
+											<div class="pie-text-small">
+												<div class="pie-percent-small">{branchPercent.toFixed(0)}%</div>
+												<div class="pie-count-small">{branchCompleted}/{branchTotal}</div>
+											</div>
+										</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			</div>
 
-    {#if showDatePicker}
-      <div class="filter-group">
-        <label for="custom-date" class="bilingual-text">
-          <span class="arabic-text">{text.selectDate.ar}</span>
-          <span class="english-text">({text.selectDate.en})</span>
-        </label>
-        <input type="date" id="custom-date" bind:value={customDate} />
-        <button class="apply-btn" on:click={onApplyCustomFilter}>✓ {text.apply.ar}</button>
-      </div>
-    {/if}
+			<!-- Card 2: Specific Date -->
+			<div class="card">
+				<div class="card-header">
+					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.specificDate') || '📅 Specific Date'}</h3>
+				</div>
+				<div class="card-body">
+					<div class="date-range-form">
+						<div class="form-group">
+							<label for="specific-date">{t('mobile.dashboardContent.branchPerformance.selectDate') || 'Select Date'}</label>
+							<input
+								id="specific-date"
+								type="date"
+								bind:value={specificDate}
+								class="date-input"
+								disabled={loadingCard2}
+							/>
+						</div>
+						<button class="apply-btn" on:click={loadSpecificDatePerformance} disabled={loadingCard2}>
+							{loadingCard2 ? t('common.loading') || 'Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || 'Load Performance'}
+						</button>
+					</div>
 
-    {#if showMonthPicker}
-      <div class="filter-group">
-        <label for="custom-month" class="bilingual-text">
-          <span class="arabic-text">{text.selectMonth.ar}</span>
-          <span class="english-text">({text.selectMonth.en})</span>
-        </label>
-        <input type="month" id="custom-month" bind:value={selectedMonth} />
-        <button class="apply-btn" on:click={onApplyCustomFilter}>✓ {text.apply.ar}</button>
-      </div>
-    {/if}
+					{#if statsCard2.total > 0}
+						{@const { completedPercent: completedPercentCard2 } = (() => {
+							const completed = (statsCard2.completed / statsCard2.total) * 100;
+							return { completedPercent: completed };
+						})()}
+						{@const segmentsCard2 = createPieSegments(statsCard2.total, statsCard2.completed)}
+						<div class="pie-chart-container">
+							<div class="pie-wrapper">
+								<h4 class="pie-title">📊 Total Performance</h4>
+							<div class="pie-chart-wrapper">
+								<svg class="pie-svg" viewBox="0 0 120 120">
+									<defs>
+										<filter id="shadow-large-card2" x="-50%" y="-50%" width="200%" height="200%">
+											<feDropShadow dx="0" dy="3" stdDeviation="2" flood-opacity="0.3" flood-color="#000000" />
+										</filter>
+										<radialGradient id="grad-green-card2" cx="35%" cy="35%">
+											<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+											<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+										</radialGradient>
+										<radialGradient id="grad-red-card2" cx="35%" cy="35%">
+											<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+											<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+										</radialGradient>
+									</defs>
+									<!-- Shadow layer -->
+									{#each segmentsCard2 as segment}
+										<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+									{/each}
+									<!-- Main segments with gradient -->
+									{#each segmentsCard2 as segment}
+										<path 
+											d={segment.path} 
+											fill={segment.color === '#008000' ? 'url(#grad-green-card2)' : 'url(#grad-red-card2)'}
+											filter="url(#shadow-large-card2)"
+											stroke="white"
+											stroke-width="1"
+										/>
+									{/each}
+								</svg>
+								<!-- Center text overlay -->
+								<div class="pie-text">
+									<div class="pie-percent">{completedPercentCard2.toFixed(0)}%</div>
+									<div class="pie-count">{statsCard2.completed}/{statsCard2.total}</div>
+								</div>
+							</div>
+							</div>
+						</div>
 
-    <button on:click={loadStats}>🔄 {text.refresh.ar} ({text.refresh.en})</button>
-    {#if loading}
-      <span class="loading">{text.loading.ar} ({text.loading.en})</span>
-    {/if}
-  </div>
+						<!-- Branch-wise performance -->
+						{#if Object.keys(branchStatsCard2).length > 0}
+							<div class="branches-grid">
+								<h4 class="branches-title">🏢 Branch-wise Performance</h4>
+								<div class="branches-container">
+									{#each Object.entries(branchStatsCard2) as [branchId, branch]}
+										{@const branchCompleted = branch.completed}
+										{@const branchTotal = branch.total}
+										{@const branchPercent = branchTotal > 0 ? (branchCompleted / branchTotal) * 100 : 0}
+										{@const branchSegmentsCard2 = createSmallPieSegments(branchTotal, branchCompleted)}
+										<div class="branch-item">
+											<h5 class="branch-name">{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</h5>
+										<div class="pie-chart-wrapper-small">
+											<svg class="pie-svg-small" viewBox="0 0 100 100">
+												<defs>
+													<filter id="shadow-small-card2-{branchId}" x="-50%" y="-50%" width="200%" height="200%">
+														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
+													</filter>
+													<radialGradient id="grad-green-small-card2-{branchId}" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+													</radialGradient>
+													<radialGradient id="grad-red-small-card2-{branchId}" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+													</radialGradient>
+												</defs>
+												<!-- Shadow layer -->
+												{#each branchSegmentsCard2 as segment}
+													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+												{/each}
+												<!-- Main segments with gradient -->
+												{#each branchSegmentsCard2 as segment}
+													<path 
+														d={segment.path} 
+														fill={segment.color === '#008000' ? `url(#grad-green-small-card2-${branchId})` : `url(#grad-red-small-card2-${branchId})`}
+														filter="url(#shadow-small-card2-{branchId})"
+														stroke="white"
+														stroke-width="0.8"
+													/>
+												{/each}
+											</svg>
+											<div class="pie-text-small">
+												<div class="pie-percent-small">{branchPercent.toFixed(0)}%</div>
+												<div class="pie-count-small">{branchCompleted}/{branchTotal}</div>
+											</div>
+										</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			</div>
 
-  {#if error}
-    <div class="error">❌ {error}</div>
-  {/if}
+			<!-- Card 3 -->
+			<div class="card">
+				<div class="card-header">
+					<h3 class="card-title">{t('mobile.dashboardContent.branchPerformance.last3Days') || 'Last 3 Days Performance'}</h3>
+				</div>
+				<div class="card-body">
+					<div class="input-group">
+						<label>{t('mobile.dashboardContent.branchPerformance.selectBranch') || 'Select Branch:'}</label>
+						<select bind:value={selectedBranchCard3}>
+							<option value="">{t('common.chooseBranch') || '-- Choose Branch --'}</option>
+							{#each allBranches as branch (branch.id)}
+								<option value={branch.id}>{$currentLocale === 'ar' ? branch.name_ar : branch.name_en}</option>
+							{/each}
+						</select>
+					</div>
 
-  {#if stats.total > 0 || todayStats.total > 0 || yesterdayStats.total > 0}
-    <div class="chart-container">
-      <div class="charts-row">
-        <!-- Current Period Chart -->
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📅 {text.currentPeriod.ar}</span>
-            <span class="english-text">({text.currentPeriod.en})</span>
-          </h4>
-          {#if currentPeriodLabel}
-            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
-              {currentPeriodLabel}
-            </div>
-          {/if}
-          <div class="pie-chart" on:click={() => showTaskDetails('current')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <defs>
-                {#each todaySegments as segment, i}
-                  <radialGradient id="today-gradient-{i}" cx="30%" cy="30%">
-                    <stop offset="0%" style="stop-color:{segment.color};stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:{segment.shadowColor};stop-opacity:1" />
-                  </radialGradient>
-                {/each}
-              </defs>
-              
-              {#if todayStats.total > 0}
-                <!-- Shadow layer -->
-                {#each todaySegments as segment, i}
-                  <path d={segment.path} fill={segment.shadowColor} class="pie-shadow" opacity="0.3" />
-                {/each}
-                
-                <!-- Main segments -->
-                {#each todaySegments as segment, i}
-                  <path d={segment.path} fill="url(#today-gradient-{i})" class="pie-segment" 
-                        title="{segment.label}: {segment.value} ({segment.percentage}%)" />
-                {/each}
-                
-                <!-- Percentage text -->
-                {#each todaySegments as segment}
-                  {#if segment.percentage >= 5}
-                    <text x={segment.textX} y={segment.textY} class="segment-text">{segment.percentage}%</text>
-                  {/if}
-                {/each}
-              {:else}
-                <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-              {/if}
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">{todayStats.total}</div>
-              <div class="total-label">{getCurrentLabel()}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
+				<button class="load-btn" on:click={loadCard3Performance} disabled={loadingCard3}>
+					{loadingCard3 ? t('common.loading') || '⏳ Loading...' : t('mobile.dashboardContent.branchPerformance.loadPerformance') || '📊 Load Performance'}
+				</button>					{#if !loadingCard3}
+						<div class="days-container">
+							<!-- Day 1: Today -->
+							<div class="day-card">
+								{#if true}
+									{@const today = new Date()}
+									{@const day1Str = today.toLocaleDateString('en-GB')}
+									{@const day1Str2 = today.getDate()}
+									<h4 class="day-title">{t('common.today') || 'Today'} ({day1Str})</h4>
+									{#if statsCard3Day1 && statsCard3Day1.total > 0}
+										{@const day1Segments = createSmallPieSegments(statsCard3Day1.total, statsCard3Day1.completed)}
+										{@const day1Percent = statsCard3Day1.total > 0 ? (statsCard3Day1.completed / statsCard3Day1.total) * 100 : 0}
+										<div class="pie-chart-wrapper-small">
+											<svg class="pie-svg-small" viewBox="0 0 100 100">
+												<defs>
+													<filter id="shadow-day1" x="-50%" y="-50%" width="200%" height="200%">
+														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
+													</filter>
+													<radialGradient id="grad-green-day1" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+													</radialGradient>
+													<radialGradient id="grad-red-day1" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+													</radialGradient>
+												</defs>
+												<!-- Shadow layer -->
+												{#each day1Segments as segment}
+													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+												{/each}
+												<!-- Main segments with gradient -->
+												{#each day1Segments as segment}
+													<path 
+														d={segment.path} 
+														fill={segment.color === '#008000' ? 'url(#grad-green-day1)' : 'url(#grad-red-day1)'}
+														filter="url(#shadow-day1)"
+														stroke="white"
+														stroke-width="0.8"
+													/>
+												{/each}
+											</svg>
+											<div class="pie-text-small">
+												<div class="pie-percent-small">{day1Percent.toFixed(0)}%</div>
+												<div class="pie-count-small">{statsCard3Day1.completed}/{statsCard3Day1.total}</div>
+											</div>
+										</div>
+									{:else}
+										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataToday') || 'No data for today'}</div>
+									{/if}
+								{/if}
+							</div>
 
-        <!-- Previous Period Chart -->
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📆 {text.previousPeriod.ar}</span>
-            <span class="english-text">({text.previousPeriod.en})</span>
-          </h4>
-          {#if previousPeriodLabel}
-            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
-              {previousPeriodLabel}
-            </div>
-          {/if}
-          <div class="pie-chart" on:click={() => showTaskDetails('previous')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <defs>
-                {#each yesterdaySegments as segment, i}
-                  <radialGradient id="yesterday-gradient-{i}" cx="30%" cy="30%">
-                    <stop offset="0%" style="stop-color:{segment.color};stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:{segment.shadowColor};stop-opacity:1" />
-                  </radialGradient>
-                {/each}
-              </defs>
-              
-              {#if yesterdayStats.total > 0}
-                <!-- Shadow layer -->
-                {#each yesterdaySegments as segment, i}
-                  <path d={segment.path} fill={segment.shadowColor} class="pie-shadow" opacity="0.3" />
-                {/each}
-                
-                <!-- Main segments -->
-                {#each yesterdaySegments as segment, i}
-                  <path d={segment.path} fill="url(#yesterday-gradient-{i})" class="pie-segment" 
-                        title="{segment.label}: {segment.value} ({segment.percentage}%)" />
-                {/each}
-                
-                <!-- Percentage text -->
-                {#each yesterdaySegments as segment}
-                  {#if segment.percentage >= 5}
-                    <text x={segment.textX} y={segment.textY} class="segment-text">{segment.percentage}%</text>
-                  {/if}
-                {/each}
-              {:else}
-                <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-              {/if}
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">{yesterdayStats.total}</div>
-              <div class="total-label">{getPreviousLabel()}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
+							<!-- Day 2: Yesterday -->
+							<div class="day-card">
+								{#if true}
+									{@const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })()}
+									{@const day2Str = yesterday.toLocaleDateString('en-GB')}
+									<h4 class="day-title">{t('common.yesterday') || 'Yesterday'} ({day2Str})</h4>
+									{#if statsCard3Day2 && statsCard3Day2.total > 0}
+										{@const day2Segments = createSmallPieSegments(statsCard3Day2.total, statsCard3Day2.completed)}
+										{@const day2Percent = statsCard3Day2.total > 0 ? (statsCard3Day2.completed / statsCard3Day2.total) * 100 : 0}
+										<div class="pie-chart-wrapper-small">
+											<svg class="pie-svg-small" viewBox="0 0 100 100">
+												<defs>
+													<filter id="shadow-day2" x="-50%" y="-50%" width="200%" height="200%">
+														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
+													</filter>
+													<radialGradient id="grad-green-day2" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+													</radialGradient>
+													<radialGradient id="grad-red-day2" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+													</radialGradient>
+												</defs>
+												<!-- Shadow layer -->
+												{#each day2Segments as segment}
+													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+												{/each}
+												<!-- Main segments with gradient -->
+												{#each day2Segments as segment}
+													<path 
+														d={segment.path} 
+														fill={segment.color === '#008000' ? 'url(#grad-green-day2)' : 'url(#grad-red-day2)'}
+														filter="url(#shadow-day2)"
+														stroke="white"
+														stroke-width="0.8"
+													/>
+												{/each}
+											</svg>
+											<div class="pie-text-small">
+												<div class="pie-percent-small">{day2Percent.toFixed(0)}%</div>
+												<div class="pie-count-small">{statsCard3Day2.completed}/{statsCard3Day2.total}</div>
+											</div>
+										</div>
+									{:else}
+										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataYesterday') || 'No data for yesterday'}</div>
+									{/if}
+								{/if}
+							</div>
 
-        <!-- Combined Total Chart -->
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📊 {text.totalPerformance.ar}</span>
-            <span class="english-text">({text.totalPerformance.en})</span>
-          </h4>
-          <div class="pie-chart" on:click={() => showTaskDetails('total')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <defs>
-                {#each totalSegments as segment, i}
-                  <radialGradient id="total-gradient-{i}" cx="30%" cy="30%">
-                    <stop offset="0%" style="stop-color:{segment.color};stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:{segment.shadowColor};stop-opacity:1" />
-                  </radialGradient>
-                {/each}
-              </defs>
-              
-              {#if stats.total > 0}
-                <!-- Shadow layer -->
-                {#each totalSegments as segment, i}
-                  <path d={segment.path} fill={segment.shadowColor} class="pie-shadow" opacity="0.3" />
-                {/each}
-                
-                <!-- Main segments -->
-                {#each totalSegments as segment, i}
-                  <path d={segment.path} fill="url(#total-gradient-{i})" class="pie-segment" 
-                        title="{segment.label}: {segment.value} ({segment.percentage}%)" />
-                {/each}
-                
-                <!-- Percentage text -->
-                {#each totalSegments as segment}
-                  {#if segment.percentage >= 5}
-                    <text x={segment.textX} y={segment.textY} class="segment-text">{segment.percentage}%</text>
-                  {/if}
-                {/each}
-              {:else}
-                <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-              {/if}
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">{stats.total}</div>
-              <div class="total-label">{text.total.ar}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
-      </div>
-
-      <!-- Legend for all charts -->
-      <div class="legend">
-        {#each totalChartData as item, index}
-          <div class="legend-item">
-            <div class="legend-color" style="background: linear-gradient(135deg, {item.color} 0%, {item.shadowColor} 100%); box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
-            <div class="legend-text">
-              <div class="legend-label bilingual-text">
-                <span class="arabic-text">{item.label.ar}</span>
-                <span class="english-text">({item.label.en})</span>
-              </div>
-              <div class="legend-stats">
-                {text.total.ar}: {item.value} | {getCurrentLabel()}: {todayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']} | {getPreviousLabel()}: {yesterdayStats[item.label.ar === text.completedTasks.ar ? 'completed' : 'notCompleted']}
-              </div>
-            </div>
-            <div class="legend-percentage">{item.percentage}%</div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  {:else}
-    <div class="chart-container">
-      <div class="charts-row">
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📅 {text.currentPeriod.ar}</span>
-            <span class="english-text">({text.currentPeriod.en})</span>
-          </h4>
-          {#if currentPeriodLabel}
-            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
-              {currentPeriodLabel}
-            </div>
-          {/if}
-          <div class="pie-chart" on:click={() => showTaskDetails('current')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">0</div>
-              <div class="total-label">{getCurrentLabel()}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
-        
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📆 {text.previousPeriod.ar}</span>
-            <span class="english-text">({text.previousPeriod.en})</span>
-          </h4>
-          {#if previousPeriodLabel}
-            <div style="text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 8px; font-weight: 500;">
-              {previousPeriodLabel}
-            </div>
-          {/if}
-          <div class="pie-chart" on:click={() => showTaskDetails('previous')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">0</div>
-              <div class="total-label">{getPreviousLabel()}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
-        
-        <div class="chart-section">
-          <h4 class="chart-title bilingual-text">
-            <span class="arabic-text">📊 {text.totalPerformance.ar}</span>
-            <span class="english-text">({text.totalPerformance.en})</span>
-          </h4>
-          <div class="pie-chart" on:click={() => showTaskDetails('total')} title="{text.clickToViewDetails.ar} ({text.clickToViewDetails.en})" role="button" tabindex="0">
-            <svg class="pie-svg" viewBox="0 0 300 300">
-              <circle cx="150" cy="150" r="120" fill="#e5e7eb" />
-            </svg>
-            <div class="chart-center">
-              <div class="total-number">0</div>
-              <div class="total-label">{text.total.ar}</div>
-            </div>
-          </div>
-          <div class="click-hint">👆 {text.clickToViewDetails.ar}</div>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <div class="details">
-    <h4 class="bilingual-text">
-      <span class="arabic-text">📋 {text.detailedBreakdown.ar}</span>
-      <span class="english-text">({text.detailedBreakdown.en})</span>
-    </h4>
-    <div class="details-grid">
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.receivingTotal.ar}</span>
-          <span class="english-text">({text.receivingTotal.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.recCount ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.receivingCompleted.ar}</span>
-          <span class="english-text">({text.receivingCompleted.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.recCompleted ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.receivingPending.ar}</span>
-          <span class="english-text">({text.receivingPending.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.recPending ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.taskAssignmentsCompleted.ar}</span>
-          <span class="english-text">({text.taskAssignmentsCompleted.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.taskCompleted ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.taskAssignmentsPending.ar}</span>
-          <span class="english-text">({text.taskAssignmentsPending.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.taskPending ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.quickTasksCompleted.ar}</span>
-          <span class="english-text">({text.quickTasksCompleted.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.quickCompleted ?? 0}</span>
-      </div>
-      <div class="detail-item">
-        <span class="detail-label bilingual-text">
-          <span class="arabic-text">{text.quickTasksPending.ar}</span>
-          <span class="english-text">({text.quickTasksPending.en})</span>
-        </span>
-        <span class="detail-value">{stats.details.quickPending ?? 0}</span>
-      </div>
-    </div>
-  </div>
+							<!-- Day 3: 2 Days Ago -->
+							<div class="day-card">
+								{#if true}
+									{@const twodaysago = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return d; })()}
+									{@const day3Str = twodaysago.toLocaleDateString('en-GB')}
+									<h4 class="day-title">{t('mobile.dashboardContent.branchPerformance.twoDaysAgo') || '2 Days Ago'} ({day3Str})</h4>
+									{#if statsCard3Day3 && statsCard3Day3.total > 0}
+										{@const day3Segments = createSmallPieSegments(statsCard3Day3.total, statsCard3Day3.completed)}
+										{@const day3Percent = statsCard3Day3.total > 0 ? (statsCard3Day3.completed / statsCard3Day3.total) * 100 : 0}
+										<div class="pie-chart-wrapper-small">
+											<svg class="pie-svg-small" viewBox="0 0 100 100">
+												<defs>
+													<filter id="shadow-day3" x="-50%" y="-50%" width="200%" height="200%">
+														<feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3" flood-color="#000000" />
+													</filter>
+													<radialGradient id="grad-green-day3" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#00cc00;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#008000;stop-opacity:1" />
+													</radialGradient>
+													<radialGradient id="grad-red-day3" cx="35%" cy="35%">
+														<stop offset="0%" style="stop-color:#ff3366;stop-opacity:1" />
+														<stop offset="100%" style="stop-color:#fa003f;stop-opacity:1" />
+													</radialGradient>
+												</defs>
+												<!-- Shadow layer -->
+												{#each day3Segments as segment}
+													<path d={segment.shadowPath} fill={segment.shadowColor} opacity="0.3" />
+												{/each}
+												<!-- Main segments with gradient -->
+												{#each day3Segments as segment}
+													<path 
+														d={segment.path} 
+														fill={segment.color === '#008000' ? 'url(#grad-green-day3)' : 'url(#grad-red-day3)'}
+														filter="url(#shadow-day3)"
+														stroke="white"
+														stroke-width="0.8"
+													/>
+												{/each}
+											</svg>
+											<div class="pie-text-small">
+												<div class="pie-percent-small">{day3Percent.toFixed(0)}%</div>
+												<div class="pie-count-small">{statsCard3Day3.completed}/{statsCard3Day3.total}</div>
+											</div>
+										</div>
+									{:else}
+										<div class="no-data">{t('mobile.dashboardContent.branchPerformance.noDataTwoDaysAgo') || 'No data for 2 days ago'}</div>
+									{/if}
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
 </div>
 
-{#if showDetailWindow}
-  <div class="detail-window-overlay" on:click={closeDetailWindow}>
-    <div class="detail-window" on:click|stopPropagation>
-      <div class="detail-window-header">
-        <h3 class="bilingual-text">
-          <span class="arabic-text">📋 {text.taskDetails.ar} - {detailWindowTitle}</span>
-        </h3>
-        <button on:click={closeDetailWindow}>✕ {text.close.ar} ({text.close.en})</button>
-      </div>
-      <div class="detail-window-body">
-        {#if detailWindowTasks.length > 0}
-          <table class="task-table">
-            <thead>
-              <tr>
-                <th>{text.taskId.ar} ({text.taskId.en})</th>
-                <th>{text.taskType.ar} ({text.taskType.en})</th>
-                <th>{text.status.ar} ({text.status.en})</th>
-                <th>{text.assignedBy.ar} ({text.assignedBy.en})</th>
-                <th>{text.assignedTo.ar} ({text.assignedTo.en})</th>
-                <th>{text.date.ar} ({text.date.en})</th>
-                {#if isMasterAdmin()}
-                  <th>{text.actions.ar} ({text.actions.en})</th>
-                {/if}
-              </tr>
-            </thead>
-            <tbody>
-              {#each detailWindowTasks as task}
-                {@const taskStatus = getTaskStatus(task)}
-                {@const isCompleted = taskStatus === 'completed'}
-                <tr class={isCompleted ? 'completed' : 'incomplete'}>
-                  <td>#{task.id}</td>
-                  <td>
-                    <span class="task-type-badge">
-                      {getTaskTypeLabel(task.taskType).ar} ({getTaskTypeLabel(task.taskType).en})
-                    </span>
-                  </td>
-                  <td>
-                    <span class="status-badge {taskStatus}">
-                      {getStatusLabel(taskStatus).ar} ({getStatusLabel(taskStatus).en})
-                    </span>
-                  </td>
-                  <td>{task.assigned_by_name || '-'}</td>
-                  <td>{task.assigned_to_name || '-'}</td>
-                  <td>{task.date ? formatDate(new Date(task.date)) : '-'}</td>
-                  {#if isMasterAdmin()}
-                    <td>
-                      <button class="delete-btn" on:click={() => deleteTask(task)} title="{text.delete.ar} ({text.delete.en})">
-                        🗑️ {text.delete.ar}
-                      </button>
-                    </td>
-                  {/if}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <div class="no-tasks">
-            لا توجد مهام لعرضها<br>
-            <span style="font-size: 14px; color: #9ca3af;">(No tasks to display)</span>
-          </div>
-        {/if}
-      </div>
-    </div>
-  </div>
-{/if}
+<style>
+	.bp-container {
+		background: white;
+		border-radius: 12px;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		padding: 24px;
+	}
+
+	.content {
+		flex: 1;
+		overflow-y: auto;
+	}
+
+	.cards-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 20px;
+	}
+
+	.card {
+		background: white;
+		border: 2px solid #ff9800;
+		border-radius: 8px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		overflow: hidden;
+		transition: all 0.2s ease;
+	}
+
+	.card:hover {
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		transform: translateY(-2px);
+		border-color: #f57c00;
+	}
+
+	.card-header {
+		padding: 16px;
+		background: white;
+		border-bottom: 2px solid #ff9800;
+	}
+
+	.card-title {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: #ff9800;
+	}
+
+	.card-body {
+		padding: 16px;
+		min-height: auto;
+		color: #9ca3af;
+		font-size: 14px;
+	}
+
+	.card:first-child .card-body {
+		display: flex;
+		flex-direction: column;
+		min-height: auto;
+	}
+
+	.date-range-form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.form-group label {
+		font-size: 13px;
+		font-weight: 500;
+		color: #374151;
+	}
+
+	.date-input {
+		padding: 8px 12px;
+		border: 1px solid #ff9800;
+		border-radius: 6px;
+		font-size: 14px;
+		font-family: inherit;
+	}
+
+	.date-input:focus {
+		outline: none;
+		border-color: #f57c00;
+		box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+	}
+
+	.apply-btn {
+		padding: 10px 16px;
+		background: #ff9800;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.apply-btn:hover {
+		background: #f57c00;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(255, 152, 0, 0.3);
+	}
+
+	.apply-btn:active {
+		transform: translateY(0);
+	}
+
+	.apply-btn:disabled {
+		background: #d3d3d3;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.pie-chart-container {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		margin-top: 20px;
+		padding-top: 20px;
+		border-top: 1px solid #f3f4f6;
+	}
+
+	.pie-wrapper {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.pie-title {
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+		margin: 0;
+	}
+
+	.pie-svg {
+		width: 180px;
+		height: 180px;
+	}
+
+	.pie-svg-small {
+		width: 140px;
+		height: 140px;
+	}
+
+	.pie-percent {
+		font-size: 22px;
+		font-weight: bold;
+		color: #0066cc;
+	}
+
+	.pie-percent-small {
+		font-size: 16px;
+		font-weight: bold;
+		color: #0066cc;
+	}
+
+	.pie-label {
+		font-size: 12px;
+		color: #0066cc;
+		font-weight: 500;
+	}
+
+	.pie-count {
+		font-size: 11px;
+		color: #0066cc;
+	}
+
+	.pie-count-small {
+		font-size: 10px;
+		color: #0066cc;
+	}
+
+	.branches-grid {
+		margin-top: 24px;
+		padding-top: 24px;
+		border-top: 1px solid #f3f4f6;
+	}
+
+	.branches-title {
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+		margin: 0 0 16px 0;
+	}
+
+	.branches-container {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 16px;
+	}
+
+	.branch-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 12px;
+		background: #fafafa;
+		border-radius: 8px;
+		border: 1px solid #f0f0f0;
+	}
+
+	.branch-name {
+		font-size: 12px;
+		font-weight: 600;
+		color: #008000;
+		text-align: center;
+	}
+
+	.input-group {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+
+	.input-group label {
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.input-group select {
+		padding: 8px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		background-color: white;
+		color: #374151;
+		cursor: pointer;
+		background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+		background-repeat: no-repeat;
+		background-position: right 8px center;
+		padding-right: 32px;
+		appearance: none;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+	}
+
+	:global([dir="rtl"]) .input-group select {
+		background-position: left 8px center;
+		padding-right: 12px;
+		padding-left: 32px;
+	}
+
+	.input-group select:focus {
+		outline: none;
+		border-color: #ff9800;
+		box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+	}
+
+	.days-container {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		margin-top: 20px;
+	}
+
+	.day-card {
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 12px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.day-title {
+		font-size: 13px;
+		font-weight: 600;
+		color: #374151;
+		margin: 0;
+		text-align: center;
+	}
+
+	.no-data {
+		font-size: 12px;
+		color: #9ca3af;
+		text-align: center;
+		padding: 20px 0;
+	}
+</style>

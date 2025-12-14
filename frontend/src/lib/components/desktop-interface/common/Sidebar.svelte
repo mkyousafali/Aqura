@@ -95,7 +95,6 @@
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
-	import BranchPerformanceWindowNew from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindowNew.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -508,29 +507,8 @@
 		const windowId = generateWindowId('branch-performance');
 		openWindow({
 			id: windowId,
-			title: 'Branch Performance Health',
+			title: 'Branch Performance',
 			component: BranchPerformanceWindow,
-			icon: '🏥',
-			size: { width: 1000, height: 700 },
-			position: {
-				x: 60 + (Math.random() * 80),
-				y: 60 + (Math.random() * 80)
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showTasksSubmenu = false;
-		showTasksReportsSubmenu = false;
-	}
-
-	function openBranchPerformanceWindowNew() {
-		const windowId = generateWindowId('branch-performance-new');
-		openWindow({
-			id: windowId,
-			title: 'Branch Performance (New)',
-			component: BranchPerformanceWindowNew,
 			icon: '📊',
 			size: { width: 1000, height: 700 },
 			position: {
@@ -3389,16 +3367,8 @@ function openApprovalCenter() {
 					{#if isButtonAllowed('BRANCH_PERFORMANCE_WINDOW')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBranchPerformanceWindow}>
-								<span class="menu-icon">🏥</span>
-								<span class="menu-text">Branch Performance</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('BRANCH_PERFORMANCE_WINDOW')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBranchPerformanceWindowNew}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Branch Performance (New)</span>
+								<span class="menu-text">Branch Performance</span>
 							</button>
 						</div>
 					{/if}

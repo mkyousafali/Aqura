@@ -8,7 +8,6 @@
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
 	import MyTasksView from '$lib/components/desktop-interface/master/tasks/MyTasksView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
-	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import QuickTaskWindow from '$lib/components/desktop-interface/master/tasks/QuickTaskWindow.svelte';
 	
@@ -290,24 +289,6 @@
 		});
 	}
 
-	function openBranchPerformanceWindow() {
-		const windowId = generateWindowId('branch-performance');
-		openWindow({
-			id: windowId,
-			title: 'Branch Performance Health',
-			component: BranchPerformanceWindow,
-			icon: '🏥',
-			size: { width: 1000, height: 700 },
-			position: {
-				x: 60 + (Math.random() * 80),
-				y: 60 + (Math.random() * 80)
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
 
 	function openTaskDetails(cardType: string) {
 		const windowId = generateWindowId('task-details');
@@ -455,16 +436,7 @@
 					</svg>
 					<span>Refresh</span>
 				</button>
-				<button
-					on:click={openBranchPerformanceWindow}
-					class="branch-performance-btn"
-					title="Branch Performance"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4v10H3zM10 4h4v13h-4zM18 9h4v8h-4z"/>
-					</svg>
-					<span>Branch Performance</span>
-				</button>
+
 			</div>
 		</div>
 	</div>
