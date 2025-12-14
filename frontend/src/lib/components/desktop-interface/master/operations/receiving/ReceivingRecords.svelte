@@ -27,11 +27,16 @@
 	let deletingRecordId = null;
 	let showArchived = false; // Toggle for archived records
 
-	// Pagination state
+	// Pagination state (disabled UI but optimized loading)
 	let currentPage = 1;
-	let pageSize = 10; // Show 10 records per page
+	let pageSize = 50; // Load 50 records at once (faster initial load, less data per query)
 	let totalPages = 1;
 	let totalRecords = 0;
+
+	// Cache for branches, vendors, users to avoid refetching
+	let branchCache = new Map();
+	let vendorCache = new Map();
+	let userCache = new Map();
 
 	// Real-time subscription unsubscribe functions
 	let unsubscribeReceivingRecords = null;
@@ -144,7 +149,7 @@
 			const startTime = performance.now();
 			const { supabase } = await import('$lib/utils/supabase');
 			
-			console.log('📋 Starting optimized receiving records load (on-demand pagination)...');
+			console.log('📋 Starting optimized receiving records load (lazy loading - load on scroll)...');
 			
 			// First, get the TOTAL COUNT of records (no limit)
 			const { count: totalCount, error: countError } = await supabase
@@ -157,11 +162,11 @@
 			totalPages = Math.ceil(totalRecords / pageSize);
 			console.log(`📊 Total receiving records available: ${totalRecords}, Pages: ${totalPages}`);
 
-			// Load only the CURRENT PAGE of records
-			await loadPageData(currentPage);
+			// Load ONLY the first page initially (2000 records)
+			await loadPageData(1);
 			
 			const endTime = performance.now();
-			console.log(`✅ Page 1 loaded in ${(endTime - startTime).toFixed(0)}ms`);
+			console.log(`✅ First batch (2000 records) loaded in ${(endTime - startTime).toFixed(0)}ms. More loads on scroll...`);
 		} catch (err) {
 			console.error('Error in loadReceivingRecords:', err);
 			receivingRecords = [];
@@ -198,110 +203,97 @@
 				return;
 			}
 
-			console.log(`📊 Loaded ${records.length} records for page ${pageNum}`);
+		console.log(`📊 Loaded ${records.length} records for page ${pageNum}`);
 
-			// 2️⃣ Fetch branch details in bulk
-			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
-			const { data: branchDetails } = await supabase
-				.from('branches')
-				.select('id, name_en')
-				.in('id', uniqueBranchIds);
+		// Get uncached IDs only - avoid refetching known data
+		const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))].filter(id => !branchCache.has(id));
+		const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))].filter(id => !vendorCache.has(id));
+		const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))].filter(id => !userCache.has(id));
+		const recordIds = records.map(r => r.id);
+		
+		const chunkArray = (array, size) => {
+			const chunks = [];
+			for (let i = 0; i < array.length; i += size) {
+				chunks.push(array.slice(i, i + size));
+			}
+			return chunks;
+		};
 
-			// 3️⃣ Fetch vendor details in bulk
-			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
-			const { data: vendorDetails } = await supabase
-				.from('vendors')
-				.select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id')
-				.in('erp_vendor_id', uniqueVendorIds);
+		const scheduleChunks = chunkArray(recordIds, 25);
+		console.log(`⚡ Loading in parallel: ${uniqueBranchIds.length ? 'branches' : 'cache'}, ${uniqueVendorIds.length ? 'vendors' : 'cache'}, ${uniqueUserIds.length ? 'users' : 'cache'}, payment schedules (${scheduleChunks.length} chunks)...`);
+		
+		// Load branches, vendors, users FIRST (fast queries)
+		const [branchResult, vendorResult, userResult] = await Promise.all([
+			uniqueBranchIds.length > 0 
+				? supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds)
+				: Promise.resolve({ data: [] }),
+			uniqueVendorIds.length > 0
+				? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, branch_id').in('erp_vendor_id', uniqueVendorIds)
+				: Promise.resolve({ data: [] }),
+			uniqueUserIds.length > 0
+				? supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
+				: Promise.resolve({ data: [] })
+		]);
 
-			// 4️⃣ Fetch user/creator details in bulk
-			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
-			const { data: userDetails } = await supabase
-				.from('users')
-				.select('id, username, hr_employees(name)')
-				.in('id', uniqueUserIds);
+		// Update caches with newly fetched data
+		branchResult.data?.forEach(b => branchCache.set(b.id, b));
+		vendorResult.data?.forEach(v => vendorCache.set(v.erp_vendor_id, v));
+		userResult.data?.forEach(u => userCache.set(u.id, u));
 
-			// 5️⃣ Fetch payment schedules in bulk with chunking
-			const recordIds = records.map(r => r.id);
-			const chunkArray = (array, size) => {
-				const chunks = [];
-				for (let i = 0; i < array.length; i += size) {
-					chunks.push(array.slice(i, i + size));
-				}
-				return chunks;
-			};
+		// Get all data from cache (old + new)
+		const branchMap = new Map([...Array.from(branchCache.entries())]);
+		const vendorMap = new Map();
+		Array.from(vendorCache.values()).forEach(vendor => {
+			const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
+			vendorMap.set(key, vendor);
+		});
+		const userMap = new Map([...Array.from(userCache.entries())]);
+		
+		// SHOW RECORDS IMMEDIATELY without waiting for payment schedules
+		const recordsWithDetails = records.map(record => ({
+			...record,
+			branches: branchMap.get(record.branch_id),
+			vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
+			users: userMap.get(record.user_id),
+			schedule_status: null, // Will be updated when payment schedules load
+			is_scheduled: false,
+			has_multiple_schedules: false,
+			pr_excel_verified: false,
+			pr_excel_verified_by: null,
+			pr_excel_verified_date: null
+		}));
 
-			const scheduleChunks = chunkArray(recordIds, 50);
-			console.log(`📦 Fetching payment schedules in ${scheduleChunks.length} chunks...`);
-			
-			const schedulesPromises = scheduleChunks.map((chunk, idx) =>
-				supabase
-					.from('vendor_payment_schedule')
-					.select('id, receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
-					.in('receiving_record_id', chunk)
-					.then(result => {
-						if (!result.error) {
-							console.log(`  ✅ Schedule chunk ${idx + 1} loaded (${result.data?.length || 0} records)`);
-						}
-						return result;
-					})
-			);
+		receivingRecords = recordsWithDetails;
+		updatePaginatedRecords();
+		console.log(`✅ Page ${pageNum} data shown immediately (${recordsWithDetails.length} records) - loading payment schedules in background...`);
 
-			const scheduleResults = await Promise.all(schedulesPromises);
-			const allSchedules = [];
-			scheduleResults.forEach((result, index) => {
-				if (result.error) {
-					console.error(`❌ Error fetching schedule chunk ${index + 1}:`, result.error);
-				} else {
-					allSchedules.push(...(result.data || []));
-				}
-			});
-
-			// 6️⃣ Create lookup maps for O(1) merge operations
-			const branchMap = new Map(branchDetails?.map(b => [b.id, b]) || []);
-			const vendorMap = new Map();
-			vendorDetails?.forEach(vendor => {
-				const key = `${vendor.erp_vendor_id}_${vendor.branch_id}`;
-				vendorMap.set(key, vendor);
-			});
-			const userMap = new Map(userDetails?.map(u => [u.id, u]) || []);
-			const scheduleMap = new Map();
-			allSchedules.forEach(schedule => {
-				if (!scheduleMap.has(schedule.receiving_record_id)) {
-					scheduleMap.set(schedule.receiving_record_id, []);
-				}
-				scheduleMap.get(schedule.receiving_record_id).push(schedule);
-			});
-
-			// 7️⃣ Merge data in-memory (no RLS evaluation cost)
-			const recordsWithDetails = records.map(record => {
-				const branch = branchMap.get(record.branch_id);
-				const vendor = vendorMap.get(`${record.vendor_id}_${record.branch_id}`);
-				const creator = userMap.get(record.user_id);
-				const schedules = scheduleMap.get(record.id) || [];
-				const scheduleData = schedules[0] || null;
-
-				return {
-					...record,
-					branches: branch,
-					vendors: vendor,
-					users: creator,
-					schedule_status: scheduleData,
-					is_scheduled: !!scheduleData,
-					has_multiple_schedules: schedules.length > 1,
-					pr_excel_verified: scheduleData?.pr_excel_verified || false,
-					pr_excel_verified_by: scheduleData?.pr_excel_verified_by,
-					pr_excel_verified_date: scheduleData?.pr_excel_verified_date
-				};
-			});
-
-			receivingRecords = recordsWithDetails;
-			updatePaginatedRecords();
-			console.log(`✅ Page ${pageNum} data merged and ready (${recordsWithDetails.length} records)`);
-		} catch (err) {
-			console.error(`Error loading page ${pageNum}:`, err);
-			receivingRecords = [];
-			updatePaginatedRecords();
+		// Load payment schedules in background (don't wait for this)
+		scheduleChunks.forEach((chunk, idx) => {
+			supabase
+				.from('vendor_payment_schedule')
+				.select('receiving_record_id, is_paid')
+				.in('receiving_record_id', chunk)
+				.then(result => {
+					if (!result.error && result.data) {
+						// Update the records with schedule data
+						result.data.forEach(schedule => {
+							const recordIdx = receivingRecords.findIndex(r => r.id === schedule.receiving_record_id);
+							if (recordIdx >= 0) {
+								receivingRecords[recordIdx].schedule_status = schedule;
+								receivingRecords[recordIdx].is_paid = schedule.is_paid;
+								receivingRecords[recordIdx].is_scheduled = true;
+							}
+						});
+						receivingRecords = [...receivingRecords]; // Trigger reactivity
+						console.log(`📦 Schedule chunk ${idx + 1} loaded in background`);
+					}
+				})
+				.catch(err => console.warn(`⚠️ Schedule chunk ${idx + 1} error:`, err.message));
+		});
+	} catch (err) {
+		console.error(`Error loading page ${pageNum}:`, err);
+		receivingRecords = [];
+		updatePaginatedRecords();
 		}
 	}
 
@@ -1041,14 +1033,13 @@
 
 			console.log('Update successful for payment schedules:', data);
 
-			// Also verify we have a payment schedule for this record
-			if (!data || data.length === 0) {
-				console.warn(`No payment schedules found for receiving record ${recordId}`);
-				alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
-				return;
-			}
-
-			// Update local state instead of reloading everything
+		// Also verify we have a payment schedule for this record
+		if (!data || data.length === 0) {
+			console.warn(
+				`No payment schedules found for receiving record ${recordId}`);
+			alert(`Warning: No payment schedules found for this receiving record. Please ensure the record is properly scheduled before verification.`);
+			return;
+		}			// Update local state instead of reloading everything
 			receivingRecords = receivingRecords.map(record => {
 				if (record.id === recordId) {
 					return {
@@ -1360,10 +1351,35 @@
 		selectedBranch = '';
 		updatePaginatedRecords();
 	}
+
+	// Lazy loading - load more records as user scrolls
+	let scrollContainer = null;
+	let isLoadingMore = false;
+
+	function handleScroll() {
+		if (!scrollContainer || isLoadingMore || loading) return;
+
+		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+		const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+
+		// Load more when user scrolls to 80% of the table
+		if (scrollPercentage > 0.8 && currentPage < totalPages) {
+			isLoadingMore = true;
+			currentPage++;
+			console.log(`📄 Auto-loading page ${currentPage}/${totalPages} (scroll detected at ${(scrollPercentage * 100).toFixed(0)}%)`);
+			
+			loadPageData(currentPage).then(() => {
+				isLoadingMore = false;
+			}).catch(err => {
+				console.error('Error loading more records on scroll:', err);
+				isLoadingMore = false;
+			});
+		}
+	}
 </script>
 
 <!-- Receiving Records Window Content -->
-<div class="receiving-records-window">
+<div class="receiving-records-window" bind:this={scrollContainer} on:scroll={handleScroll}>
 	<!-- Search and Filter Section - REORGANIZED -->
 	<div class="filters-section">
 		<!-- Filter Options Container -->
@@ -1557,15 +1573,16 @@
 		{#if loading}
 			<div class="loading">
 				<div class="spinner"></div>
-				<p>Loading receiving records...</p>
+				<p>⏳ Loading receiving records...</p>
 			</div>
 		{:else if paginatedRecords.length === 0}
 			<div class="no-records">
-				<p>No receiving records found.</p>
+				<p>📭 No receiving records found.</p>
 			</div>
 		{:else}
 			<div class="records-table">
 				<div class="table-header">
+					<div class="header-cell serial-number-cell">#</div>
 					<div class="header-cell">Certificate</div>
 					<div class="header-cell">Original Bill</div>
 					<div class="header-cell">PR Excel</div>
@@ -1584,9 +1601,12 @@
 					{/if}
 				</div>
 				
-				{#each paginatedRecords as record}
+				{#each paginatedRecords as record, index}
 					<div class="table-row">
-						<div class="cell certificate-cell">
+					<div class="cell serial-number-cell">
+						<strong>{index + 1 + (currentPage - 1) * pageSize}</strong>
+					</div>
+					<div class="cell certificate-cell">
 							{#if record.certificate_url}
 								<div class="certificate-thumbnail" on:click={() => viewCertificate(record.certificate_url)}>
 									<img src={record.certificate_url} alt="Certificate" loading="lazy" />
@@ -1609,9 +1629,8 @@
 									{/if}
 								</div>
 							{/if}
-						</div>
-						
-						<div class="cell certificate-cell">
+											</div>
+					<div class="cell certificate-cell">
 							{#if record.original_bill_url}
 								<div class="original-bill-with-update">
 									<div class="certificate-thumbnail" on:click={() => viewOriginalBill(record.original_bill_url)}>
@@ -1656,9 +1675,8 @@
 									{/if}
 								</div>
 							{/if}
-						</div>
-						
-						<div class="cell certificate-cell">
+											</div>
+					<div class="cell certificate-cell">
 							{#if record.pr_excel_file_url}
 								<div class="excel-file-container">
 									<button 
@@ -1808,33 +1826,29 @@
 						{/if}
 					</div>
 				{/each}
-				
-				<!-- Pagination Controls at Bottom -->
-				{#if totalRecords > pageSize}
-					<div class="pagination-controls">
-						<button 
-							class="pagination-btn" 
-							on:click={previousPage} 
-							disabled={currentPage === 1}
-							title="Previous page"
-						>
-							← Previous
-						</button>
-						<div class="pagination-info">
-							<span class="page-number">Page {currentPage} of {totalPages}</span>
-							<span class="record-count">({totalRecords} records total)</span>
-						</div>
-						<button 
-							class="pagination-btn" 
-							on:click={nextPage} 
-							disabled={currentPage === totalPages}
-							title="Next page"
-						>
-							Next →
-						</button>
-					</div>
-				{/if}
-			</div>
+<!-- Load More Button -->
+			{#if receivingRecords.length < totalRecords && currentPage < totalPages}
+				<div class="load-more-container">
+					<button 
+						class="load-more-btn" 
+						on:click={() => {
+							isLoadingMore = true;
+							currentPage++;
+							console.log(`📄 Loading page ${currentPage}/${totalPages}...`);
+							loadPageData(currentPage).then(() => {
+								isLoadingMore = false;
+							}).catch(err => {
+								console.error('Error loading more records:', err);
+								isLoadingMore = false;
+							});
+						}}
+						disabled={isLoadingMore || loading}
+					>
+						{isLoadingMore ? '⏳ Loading...' : '📥 Load More Records'}
+					</button>
+				</div>
+			{/if}
+		</div>
 		{/if}
 	</div>
 </div>
@@ -2196,7 +2210,7 @@
 
 	.table-header {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
+		grid-template-columns: 40px 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		background: #f8fafc;
@@ -2212,7 +2226,7 @@
 
 	.table-row {
 		display: grid;
-		grid-template-columns: 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
+		grid-template-columns: 40px 120px 120px 80px 1fr 1fr 1fr 120px 1fr 120px 120px 1fr 140px 100px 80px;
 		gap: 16px;
 		padding: 16px;
 		border-bottom: 1px solid #f1f5f9;
@@ -2228,6 +2242,15 @@
 		align-items: center;
 		font-size: 14px;
 		color: #374151;
+	}
+
+	.serial-number-cell {
+		justify-content: center;
+		font-weight: 600;
+		color: #64748b;
+		background: #f0f4f8;
+		border-radius: 4px;
+		padding: 8px;
 	}
 
 	.certificate-cell {
@@ -2993,6 +3016,50 @@
 		opacity: 0.6;
 	}
 
+	.load-more-container {
+		display: flex;
+		justify-content: center;
+		padding: 24px 16px;
+		background: #f8fafc;
+		border-top: 1px solid #e2e8f0;
+		margin-top: 12px;
+	}
+
+	.load-more-btn {
+		padding: 10px 20px;
+		background: #059669;
+		color: white;
+		border: 1px solid #059669;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 500;
+		white-space: nowrap;
+		transition: all 0.2s ease;
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.load-more-btn:hover:not(:disabled) {
+		background: #047857;
+		border-color: #047857;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 6px rgba(5, 150, 105, 0.2);
+	}
+
+	.load-more-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.load-more-btn:disabled {
+		background: #d1d5db;
+		border-color: #d1d5db;
+		color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
 	.pagination-info {
 		display: flex;
 		align-items: center;
@@ -3013,6 +3080,7 @@
 		font-size: 12px;
 	}
 
+	/* Table Footer Styles */
 	/* Responsive adjustments */
 	@media (max-width: 768px) {
 		.receiving-records-window {
@@ -3139,3 +3207,8 @@
 		}
 	}
 </style>
+
+
+
+
+

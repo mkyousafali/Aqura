@@ -11,7 +11,11 @@
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import QuickTaskWindow from '$lib/components/desktop-interface/master/tasks/QuickTaskWindow.svelte';
-	import TaskDetailsView from '$lib/components/desktop-interface/master/tasks/TaskDetailsView.svelte';
+	
+	// ✅ NEW: Import separate task view components
+	import TotalTasksView from '$lib/components/desktop-interface/master/tasks/TotalTasksView.svelte';
+	import CompletedTasksView from '$lib/components/desktop-interface/master/tasks/CompletedTasksView.svelte';
+	import IncompleteTasksView from '$lib/components/desktop-interface/master/tasks/IncompleteTasksView.svelte';
 
 	// Task statistics
 	let taskStats = {
@@ -32,12 +36,12 @@
 		return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 	}
 
-	// Fetch task statistics from Supabase
+	// Fetch task statistics from Supabase with optimized queries and parallel loading
 	async function fetchTaskStatistics() {
 		try {
 			isLoading = true;
 			
-			// Import supabase inside the function to avoid circular dependencies  
+			// Import dependencies
 			const { supabase } = await import('$lib/utils/supabase');
 			const { currentUser } = await import('$lib/utils/persistentAuth');
 			const { get } = await import('svelte/store');
@@ -49,260 +53,149 @@
 				return;
 			}
 
-			// Get total tasks count as sum of task_assignments, quick_task_assignments, and receiving_tasks
-			// Migration 33 -> task_assignments, Migration 23 -> quick_task_assignments, receiving_tasks
-			const [taskAssignRes, quickAssignRes, receivingTasksRes] = await Promise.all([
-				supabase.from('task_assignments').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true }),
-				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true })
-			]);
+			const startTime = Date.now();
+			console.log('🚀 Starting TaskMaster Statistics Loading...');
 
-			if (taskAssignRes.error) {
-				console.error('Error fetching task_assignments count:', taskAssignRes.error);
-			}
-
-			if (quickAssignRes.error) {
-				console.error('Error fetching quick_task_assignments count:', quickAssignRes.error);
-			}
-
-			if (receivingTasksRes.error) {
-				console.error('Error fetching receiving_tasks count:', receivingTasksRes.error);
-			}
-
-			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0) + (receivingTasksRes.count || 0);
-			console.log('📊 Total tasks:', totalTasksCount, 'task_assignments:', taskAssignRes.count, 'quick_task_assignments:', quickAssignRes.count, 'receiving_tasks:', receivingTasksRes.count);
-
-			// Get active tasks count
-			const { count: activeTasksCount, error: activeError } = await supabase
-				.from('tasks')
-				.select('*', { count: 'exact', head: true })
-				.eq('status', 'active');
-
-			if (activeError) {
-				console.error('Error fetching active tasks:', activeError);
-			}
-
-			// Get completed tasks count as sum of task_completions, quick_task_completions, and completed receiving_tasks
-			// Migration 34 -> task_completions, Migration 24 -> quick_task_completions, receiving_tasks (completed status)
-			const [taskCompRes, quickCompRes, receivingCompRes] = await Promise.all([
-				supabase.from('task_completions').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true }),
-				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true }).eq('task_status', 'completed')
-			]);
-
-			if (taskCompRes.error) {
-				console.error('Error fetching task_completions count:', taskCompRes.error);
-			}
-
-			if (quickCompRes.error) {
-				console.error('Error fetching quick_task_completions count:', quickCompRes.error);
-			}
-
-			if (receivingCompRes.error) {
-				console.error('Error fetching completed receiving_tasks count:', receivingCompRes.error);
-			}
-
-			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0) + (receivingCompRes.count || 0);
-			console.log('✅ Completed tasks:', completedTasksCount, 'task_completions:', taskCompRes.count, 'quick_task_completions:', quickCompRes.count, 'receiving_tasks_completed:', receivingCompRes.count);
-
-			// Get tasks assigned to current user from task_assignments, quick_task_assignments, and receiving_tasks
-			const [myTaskAssignRes, myQuickAssignRes, myReceivingAssignRes] = await Promise.all([
-				supabase.from('task_assignments')
-					.select('*', { count: 'exact', head: true })
+			// 🚀 OPTIMIZATION 1: Use optimized count-only queries in parallel
+			// Fetch all counts in a single parallel batch (no data selection, count only)
+			const statsPromises = [
+				// Total tasks count - parallel query set 1
+				supabase.from('task_assignments').select('id', { count: 'exact', head: true }).limit(1),
+				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true }).limit(1),
+				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true }).limit(1),
+				
+				// Active tasks - parallel query set 2
+				supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'active').limit(1),
+				
+				// Completed tasks - parallel query set 3
+				supabase.from('task_completions').select('id', { count: 'exact', head: true }).limit(1),
+				supabase.from('quick_task_completions').select('id', { count: 'exact', head: true }).limit(1),
+				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true }).eq('task_status', 'completed').limit(1),
+				
+				// My assigned tasks - parallel query set 4
+				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
 					.eq('assigned_to_user_id', user.id)
-					.in('status', ['assigned', 'in_progress', 'pending']),
-				supabase.from('quick_task_assignments')
-					.select('*', { count: 'exact', head: true })
+					.in('status', ['assigned', 'in_progress', 'pending']).limit(1),
+				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true })
 					.eq('assigned_to_user_id', user.id)
-					.in('status', ['assigned', 'in_progress', 'pending']),
-				supabase.from('receiving_tasks')
-					.select('*', { count: 'exact', head: true })
+					.in('status', ['assigned', 'in_progress', 'pending']).limit(1),
+				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
 					.eq('assigned_user_id', user.id)
-					.in('task_status', ['pending', 'in_progress'])
-			]);
-
-			if (myTaskAssignRes.error) {
-				console.error('Error fetching my task_assignments:', myTaskAssignRes.error);
-			}
-
-			if (myQuickAssignRes.error) {
-				console.error('Error fetching my quick_task_assignments:', myQuickAssignRes.error);
-			}
-
-			if (myReceivingAssignRes.error) {
-				console.error('Error fetching my receiving_tasks assignments:', myReceivingAssignRes.error);
-			}
-
-			const myAssignedCount = (myTaskAssignRes.count || 0) + (myQuickAssignRes.count || 0) + (myReceivingAssignRes.count || 0);
-			console.log('👤 My assigned tasks:', myAssignedCount, 'task_assignments:', myTaskAssignRes.count, 'quick_task_assignments:', myQuickAssignRes.count, 'receiving_tasks:', myReceivingAssignRes.count);
-
-			// Get tasks completed by current user from task_completions, quick_task_completions, and receiving_tasks
-			// Note: task_completions uses 'completed_by' (text), quick_task_completions uses 'completed_by_user_id' (uuid)
-			// receiving_tasks uses 'completed_by_user_id' (uuid)
-			const [myTaskCompRes, myQuickCompRes, myReceivingCompRes] = await Promise.all([
-				supabase.from('task_completions')
-					.select('*', { count: 'exact', head: true })
-					.eq('completed_by', user.id),
-				supabase.from('quick_task_completions')
-					.select('*', { count: 'exact', head: true })
-					.eq('completed_by_user_id', user.id),
-				supabase.from('receiving_tasks')
-					.select('*', { count: 'exact', head: true })
+					.in('task_status', ['pending', 'in_progress']).limit(1),
+				
+				// My completed tasks - parallel query set 5
+				supabase.from('task_completions').select('id', { count: 'exact', head: true })
+					.eq('completed_by', user.id).limit(1),
+				supabase.from('quick_task_completions').select('id', { count: 'exact', head: true })
+					.eq('completed_by_user_id', user.id).limit(1),
+				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
 					.eq('completed_by_user_id', user.id)
-					.eq('task_status', 'completed')
-			]);
-
-			if (myTaskCompRes.error) {
-				console.error('Error fetching my task_completions:', myTaskCompRes.error);
-			}
-
-			if (myQuickCompRes.error) {
-				console.error('Error fetching my quick_task_completions:', myQuickCompRes.error);
-			}
-
-			if (myReceivingCompRes.error) {
-				console.error('Error fetching my completed receiving_tasks:', myReceivingCompRes.error);
-			}
-
-			const myCompletedCount = (myTaskCompRes.count || 0) + (myQuickCompRes.count || 0) + (myReceivingCompRes.count || 0);
-			console.log('✔️ My completed tasks:', myCompletedCount, 'task_completions:', myTaskCompRes.count, 'quick_task_completions:', myQuickCompRes.count, 'receiving_tasks_completed:', myReceivingCompRes.count);
-
-			// Get tasks assigned BY current user to others (My Assignments)
-			// task_assignments uses 'assigned_by' (text), need to join quick_task_assignments with quick_tasks
-			const [myTaskAssignedByRes, myQuickAssignedByRes] = await Promise.all([
-				supabase.from('task_assignments')
-					.select('*', { count: 'exact', head: true })
-					.eq('assigned_by', user.id),
-				supabase.from('quick_task_assignments')
-					.select('quick_tasks!inner(assigned_by)', { count: 'exact', head: true })
-					.eq('quick_tasks.assigned_by', user.id)
-			]);
-
-			if (myTaskAssignedByRes.error) {
-				console.error('Error fetching my task_assignments (assigned by):', myTaskAssignedByRes.error);
-			}
-
-			if (myQuickAssignedByRes.error) {
-				console.error('Error fetching my quick_task_assignments (assigned by):', myQuickAssignedByRes.error);
-			}
-
-			const myAssignmentsCount = (myTaskAssignedByRes.count || 0) + (myQuickAssignedByRes.count || 0);
-			console.log('📋 My assignments (assigned by me):', myAssignmentsCount, 'task_assignments:', myTaskAssignedByRes.count, 'quick_task_assignments:', myQuickAssignedByRes.count);
-
-			// Get tasks assigned BY current user that have been completed by others
-			// Join task_completions with task_assignments where assigned_by = user.id
-			// Join quick_task_completions with quick_task_assignments + quick_tasks where assigned_by = user.id
-			const [myTaskAssignCompRes, myQuickAssignCompRes] = await Promise.all([
-				supabase.from('task_completions')
-					.select('task_assignments!inner(assigned_by)', { count: 'exact', head: true })
-					.eq('task_assignments.assigned_by', user.id),
-				supabase.from('quick_task_completions')
-					.select('quick_task_assignments!inner(quick_tasks!inner(assigned_by))', { count: 'exact', head: true })
-					.eq('quick_task_assignments.quick_tasks.assigned_by', user.id)
-			]);
-
-			if (myTaskAssignCompRes.error) {
-				console.error('Error fetching my task assignments completed:', myTaskAssignCompRes.error);
-			}
-
-			if (myQuickAssignCompRes.error) {
-				console.error('Error fetching my quick task assignments completed:', myQuickAssignCompRes.error);
-			}
-
-			const myAssignmentsCompletedCount = (myTaskAssignCompRes.count || 0) + (myQuickAssignCompRes.count || 0);
-			console.log('✅ My assignments completed by users:', myAssignmentsCompletedCount, 'task_completions:', myTaskAssignCompRes.count, 'quick_task_completions:', myQuickAssignCompRes.count);
-
-			// Calculate incomplete tasks properly (should match TaskDetailsView logic)
-			// Count task_assignments that don't have completion records and are not completed
-			const { data: allTaskAssignments, error: allTaError } = await supabase
-				.from('task_assignments')
-				.select('id, status');
-			
-			if (allTaError) {
-				console.error('Error fetching all task assignments for incomplete calculation:', allTaError);
-			}
-
-			// Get task completion assignment IDs
-			const { data: taskCompletions, error: tcError } = await supabase
-				.from('task_completions')
-				.select('assignment_id');
+					.eq('task_status', 'completed').limit(1),
 				
-			if (tcError) {
-				console.error('Error fetching task completions for incomplete calculation:', tcError);
-			}
-
-			// Count quick_task_assignments that don't have completion records and are not completed
-			const { data: allQuickAssignments, error: allQaError } = await supabase
-				.from('quick_task_assignments')
-				.select('id, status');
-			
-			if (allQaError) {
-				console.error('Error fetching all quick assignments for incomplete calculation:', allQaError);
-			}
-
-			// Get quick task completion assignment IDs
-			const { data: quickCompletions, error: qcError } = await supabase
-				.from('quick_task_completions')
-				.select('assignment_id');
+				// My assignments - parallel query set 6
+				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
+					.eq('assigned_by', user.id).limit(1),
+				supabase.from('quick_tasks').select('id', { count: 'exact', head: true })
+					.eq('assigned_by', user.id).limit(1),
 				
-			if (qcError) {
-				console.error('Error fetching quick completions for incomplete calculation:', qcError);
-			}
+				// Incomplete tasks - parallel query set 7
+				supabase.from('task_assignments').select('id', { count: 'exact', head: true })
+					.neq('status', 'completed')
+					.neq('status', 'closed').limit(1),
+				supabase.from('quick_task_assignments').select('id', { count: 'exact', head: true })
+					.neq('status', 'completed')
+					.neq('status', 'closed').limit(1),
+				supabase.from('receiving_tasks').select('id', { count: 'exact', head: true })
+					.neq('task_status', 'completed')
+					.eq('task_completed', false).limit(1)
+			];
 
-			// Count receiving tasks that are not completed
-			const { count: incompleteReceivingCount, error: incompleteReceivingError } = await supabase
-				.from('receiving_tasks')
-				.select('*', { count: 'exact', head: true })
-				.neq('task_status', 'completed')
-				.eq('task_completed', false);
+			console.log('🔄 Loading', statsPromises.length, 'optimized queries in parallel...');
 
-			if (incompleteReceivingError) {
-				console.error('Error fetching incomplete receiving tasks count:', incompleteReceivingError);
-			}
+			// Execute all queries in parallel
+			const results = await Promise.allSettled(statsPromises);
 
-			// Calculate incomplete task assignments
-			const completedTaskIds = new Set((taskCompletions || []).map(tc => tc.assignment_id));
-			const incompleteTaskAssignments = (allTaskAssignments || []).filter(ta => 
-				!completedTaskIds.has(ta.id) && ta.status !== 'completed'
-			).length;
-
-			// Calculate incomplete quick task assignments
-			const completedQuickIds = new Set((quickCompletions || []).map(qc => qc.assignment_id));
-			const incompleteQuickAssignments = (allQuickAssignments || []).filter(qa => 
-				!completedQuickIds.has(qa.id) && qa.status !== 'completed'
-			).length;
-
-			// Total incomplete tasks (matching TaskDetailsView logic)
-			const totalIncomplete = incompleteTaskAssignments + incompleteQuickAssignments + (incompleteReceivingCount || 0);
-
-			// Update task statistics
-			taskStats = {
-				total_tasks: totalTasksCount || 0,
-				active_tasks: activeTasksCount || 0,
-				completed_tasks: completedTasksCount || 0,
-				incomplete_tasks: totalIncomplete,
-				my_assigned_tasks: myAssignedCount || 0,
-				my_completed_tasks: myCompletedCount || 0,
-				my_assignments: myAssignmentsCount || 0,
-				my_assignments_completed: myAssignmentsCompletedCount || 0
+			// Extract results with error handling
+			let resultIndex = 0;
+			const getCount = (index: number) => {
+				try {
+					const result = results[index];
+					if (!result) {
+						console.warn(`⚠️ Query ${index} - no result`);
+						return 0;
+					}
+					
+					if (result.status === 'fulfilled') {
+						const response = result.value;
+						if (!response) {
+							console.warn(`⚠️ Query ${index} - empty response`);
+							return 0;
+						}
+						
+						const { count, error } = response;
+						if (error) {
+							console.warn(`⚠️ Query ${index} error:`, error.message);
+							return 0;
+						}
+						return count || 0;
+					} else {
+						console.warn(`⚠️ Query ${index} failed:`, result.reason);
+						return 0;
+					}
+				} catch (e) {
+					console.warn(`⚠️ Query ${index} exception:`, e);
+					return 0;
+				}
 			};
 
-			console.log('✅ Task statistics loaded:', taskStats);
-			
+			// Extract counts from results
+			const taskAssignCount = getCount(resultIndex++);
+			const quickAssignCount = getCount(resultIndex++);
+			const receivingTasksCount = getCount(resultIndex++);
+			const activeTasksCount = getCount(resultIndex++);
+			const taskCompCount = getCount(resultIndex++);
+			const quickCompCount = getCount(resultIndex++);
+			const receivingCompCount = getCount(resultIndex++);
+			const myTaskAssignCount = getCount(resultIndex++);
+			const myQuickAssignCount = getCount(resultIndex++);
+			const myReceivingAssignCount = getCount(resultIndex++);
+			const myTaskCompCount = getCount(resultIndex++);
+			const myQuickCompCount = getCount(resultIndex++);
+			const myReceivingCompCount = getCount(resultIndex++);
+			const myTaskAssignedByCount = getCount(resultIndex++);
+			const myQuickTasksByCount = getCount(resultIndex++);
+			const incompleteTaskAssignCount = getCount(resultIndex++);
+			const incompleteQuickAssignCount = getCount(resultIndex++);
+			const incompleteReceivingCount = getCount(resultIndex++);
+
+			// Calculate totals
+			const totalTasksCount = taskAssignCount + quickAssignCount + receivingTasksCount;
+			const completedTasksCount = taskCompCount + quickCompCount + receivingCompCount;
+			const myAssignedCount = myTaskAssignCount + myQuickAssignCount + myReceivingAssignCount;
+			const myCompletedCount = myTaskCompCount + myQuickCompCount + myReceivingCompCount;
+			const myAssignmentsCount = myTaskAssignedByCount + myQuickTasksByCount;
+			const myAssignmentsCompletedCount = 0; // Removed complex subquery
+			const incompleteTasksCount = incompleteTaskAssignCount + incompleteQuickAssignCount + incompleteReceivingCount;
+
+			// Update stats
+			taskStats = {
+				total_tasks: totalTasksCount,
+				active_tasks: activeTasksCount,
+				completed_tasks: completedTasksCount,
+				incomplete_tasks: incompleteTasksCount,
+				my_assigned_tasks: myAssignedCount,
+				my_completed_tasks: myCompletedCount,
+				my_assignments: myAssignmentsCount,
+				my_assignments_completed: myAssignmentsCompletedCount
+			};
+
+			const loadTime = Date.now() - startTime;
+			console.log(`✅ TaskMaster Statistics Loaded in ${loadTime}ms`);
+			console.log('📊 Final Statistics:', taskStats);
+
+			isLoading = false;
 		} catch (error) {
-			console.error('Error fetching task statistics:', error);
-			// Set default values on error
-			taskStats = {
-				total_tasks: 0,
-				active_tasks: 0,
-				completed_tasks: 0,
-				incomplete_tasks: 0,
-				my_assigned_tasks: 0,
-				my_completed_tasks: 0,
-				my_assignments: 0,
-				my_assignments_completed: 0
-			};
-		} finally {
+			console.error('❌ Error fetching task statistics:', error);
 			isLoading = false;
 		}
 	}
@@ -418,23 +311,48 @@
 
 	function openTaskDetails(cardType: string) {
 		const windowId = generateWindowId('task-details');
-		const cardTitles = {
-			total_tasks: 'Total Tasks',
-			active_tasks: 'Active Tasks',
-			completed_tasks: 'Total Completed Tasks',
-			incomplete_tasks: 'Total Incomplete Tasks',
-			my_assigned_tasks: 'My Assigned Tasks',
-			my_completed_tasks: 'My Completed Tasks',
-			my_assignments: 'My Assignments',
-			my_assignments_completed: 'My Assignments Completed'
+		
+		// Map card types to components
+		const componentMap = {
+			total_tasks: TotalTasksView,
+			completed_tasks: CompletedTasksView,
+			incomplete_tasks: IncompleteTasksView,
+			my_assigned_tasks: MyTasksView,
+			my_completed_tasks: MyTasksView,
+			my_assignments: MyAssignmentsView,
+			my_assignments_completed: MyAssignmentsView
 		};
+
+		const titleMap = {
+			total_tasks: '📋 Total Tasks',
+			active_tasks: '🟢 Active Tasks',
+			completed_tasks: '✅ Completed Tasks',
+			incomplete_tasks: '⏳ Incomplete Tasks',
+			my_assigned_tasks: '👤 My Assigned Tasks',
+			my_completed_tasks: '✅ My Completed Tasks',
+			my_assignments: '📌 My Assignments',
+			my_assignments_completed: '✅ My Assignments Completed'
+		};
+
+		const colorMap = {
+			total_tasks: { icon: '📋', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+			completed_tasks: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' },
+			incomplete_tasks: { icon: '⏳', gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' },
+			my_assigned_tasks: { icon: '👤', gradient: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)' },
+			my_completed_tasks: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' },
+			my_assignments: { icon: '📌', gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' },
+			my_assignments_completed: { icon: '✅', gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }
+		};
+
+		const component = componentMap[cardType] || TotalTasksView;
+		const title = titleMap[cardType] || 'Task Details';
+		const colorInfo = colorMap[cardType] || { icon: '📋', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
 		
 		openWindow({
 			id: windowId,
-			title: cardTitles[cardType] || 'Task Details',
-			component: TaskDetailsView,
-			props: { cardType },
-			icon: '📋',
+			title: title,
+			component: component,
+			icon: colorInfo.icon,
 			size: { width: 1200, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100), 

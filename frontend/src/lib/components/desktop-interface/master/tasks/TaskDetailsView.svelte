@@ -21,6 +21,24 @@
 	let users: any[] = [];
 	let branches: any[] = [];
 	
+	// 🚀 PAGINATION & OPTIMIZATION
+	const PAGE_SIZE = 50; // Show 50 tasks per page
+	let currentPage = 0;
+	let totalTaskCount = 0;
+	let isLoadingMore = false;
+	let hasMorePages = true;
+	let allLoadedTasks: any[] = []; // Store all loaded tasks for client-side filtering
+	
+	// Track offsets for each table separately (they have different sizes)
+	let taskAssignmentsOffset = 0;
+	let quickTaskAssignmentsOffset = 0;
+	let receivingTasksOffset = 0;
+	
+	// Track total counts for each table
+	let taskAssignmentsTotal = 0;
+	let quickTaskAssignmentsTotal = 0;
+	let receivingTasksTotal = 0;
+	
 	// Computed property: users who have tasks assigned
 	$: usersWithTasks = (() => {
 		if (!tasks.length || !users.length) return [];
@@ -67,62 +85,65 @@
 	};
 
 	onMount(async () => {
-		await loadFilters();
+		await loadFiltersInParallel();
 		await loadTasks();
 		await loadAutoReminderCount();
 	});
 
-	async function loadFilters() {
+	// 🚀 OPTIMIZATION: Load filters in parallel instead of sequentially
+	async function loadFiltersInParallel() {
 		try {
-			// Load users
-			const { data: userData } = await supabase
-				.from('users')
-				.select('id, username, username')
-				.order('username');
+			console.log('🔄 Loading filters in parallel...');
 			
-			if (userData) users = userData;
+			const [usersResult, branchesResult] = await Promise.allSettled([
+				supabase
+					.from('users')
+					.select('id, username')
+					.order('username')
+					.limit(1000),
+				supabase
+					.from('branches')
+					.select('id, name_en, name_ar')
+					.order('name_en')
+					.limit(500)
+			]);
 
-			// Load branches
-			const { data: branchData } = await supabase
-				.from('branches')
-				.select('id, name_en, name_ar')
-				.order('name_en');
-			
-			if (branchData) branches = branchData;
+			if (usersResult.status === 'fulfilled' && usersResult.value.data) {
+				users = usersResult.value.data;
+				console.log('✅ Loaded users:', users.length);
+			}
+
+			if (branchesResult.status === 'fulfilled' && branchesResult.value.data) {
+				branches = branchesResult.value.data;
+				console.log('✅ Loaded branches:', branches.length);
+			}
 
 		} catch (error) {
 			console.error('Error loading filters:', error);
 		}
 	}
 
+	// 🚀 OPTIMIZATION: Pagination-based task loading
 	async function loadTasks() {
 		try {
 			isLoading = true;
+			currentPage = 0;
+			allLoadedTasks = [];
 			tasks = [];
+			
+			// Reset all offsets when loading new view
+			taskAssignmentsOffset = 0;
+			quickTaskAssignmentsOffset = 0;
+			receivingTasksOffset = 0;
+			taskAssignmentsTotal = 0;
+			quickTaskAssignmentsTotal = 0;
+			receivingTasksTotal = 0;
 
 			const user = $currentUser;
 			if (!user) return;
 
-			if (cardType === 'total_tasks') {
-				await loadTotalTasks();
-			} else if (cardType === 'active_tasks') {
-				await loadActiveTasks();
-			} else if (cardType === 'completed_tasks') {
-				await loadCompletedTasks();
-			} else if (cardType === 'incomplete_tasks') {
-				await loadIncompleteTasks();
-			} else if (cardType === 'my_assigned_tasks') {
-				await loadMyAssignedTasks(user);
-			} else if (cardType === 'my_completed_tasks') {
-				await loadMyCompletedTasks(user);
-			} else if (cardType === 'my_assignments') {
-				await loadMyAssignments(user);
-			} else if (cardType === 'my_assignments_completed') {
-				await loadMyAssignmentsCompleted(user);
-			}
-
-			filteredTasks = [...tasks];
-			applyFilters();
+			// Load first page of tasks
+			await loadTasksPage(0, user);
 		} catch (error) {
 			console.error('Error loading tasks:', error);
 		} finally {
@@ -130,93 +151,152 @@
 		}
 	}
 
-	async function loadTotalTasks() {
-		console.log('🔍 Loading total tasks...');
+	// 🚀 OPTIMIZATION: Load tasks by page with proper limits
+	async function loadTasksPage(page: number, user: any) {
+		try {
+			isLoadingMore = true;
+			const startIndex = page * PAGE_SIZE;
+
+			if (cardType === 'total_tasks') {
+				await loadTotalTasksPage(startIndex);
+			} else if (cardType === 'active_tasks') {
+				await loadActiveTasksPage(startIndex);
+			} else if (cardType === 'completed_tasks') {
+				await loadCompletedTasksPage(startIndex);
+			} else if (cardType === 'incomplete_tasks') {
+				await loadIncompleteTasksPage(startIndex);
+			} else if (cardType === 'my_assigned_tasks') {
+				await loadMyAssignedTasksPage(startIndex, user);
+			} else if (cardType === 'my_completed_tasks') {
+				await loadMyCompletedTasksPage(startIndex, user);
+			} else if (cardType === 'my_assignments') {
+				await loadMyAssignmentsPage(startIndex, user);
+			} else if (cardType === 'my_assignments_completed') {
+				await loadMyAssignmentsCompletedPage(startIndex, user);
+			}
+
+			// Update tasks to show current page
+			tasks = allLoadedTasks.slice(0, (page + 1) * PAGE_SIZE);
+			currentPage = page;
+			applyFilters();
+		} catch (error) {
+			console.error('Error loading task page:', error);
+		} finally {
+			isLoadingMore = false;
+		}
+	}
+
+	// Load next page of tasks
+	async function loadNextPage() {
+		const user = $currentUser;
+		if (user && hasMorePages) {
+			await loadTasksPage(currentPage + 1, user);
+		}
+	}
+
+	async function loadTotalTasksPage(startIndex: number) {
+		console.log('🔍 Loading total tasks page starting at index:', startIndex);
 		
 		try {
-			// Load ALL task_assignments using pagination with joins for branch and user data
-			let allTaskAssignments = [];
-			let page = 0;
-			const pageSize = 1000;
-			let hasMore = true;
-
-			while (hasMore) {
-				const start = page * pageSize;
-				const end = start + pageSize - 1;
-				
-				const { data: batch, error: batchError } = await supabase
+			// 🚀 OPTIMIZATION: Load all task sources in parallel with proper limits
+			// IMPORTANT: Each table has different sizes, so we need separate offsets
+			const pageSize = 100;
+			
+			// On first load, get totals and set initial offsets
+			if (startIndex === 0) {
+				taskAssignmentsOffset = 0;
+				quickTaskAssignmentsOffset = 0;
+				receivingTasksOffset = 0;
+			}
+			
+			const results = await Promise.allSettled([
+				// Load task_assignments with its own offset
+				supabase
 					.from('task_assignments')
-					.select(`
-						*,
+					.select(`*,
 						assigned_to_branch:assigned_to_branch_id(id, name_en),
 						assigned_by_user:assigned_by(id, username),
 						assigned_to_user:assigned_to_user_id(id, username),
 						task:task_id(id, title, description)
-					`)
-					.range(start, end);
+					`, { count: 'exact' })
+					.order('assigned_at', { ascending: false })
+					.range(taskAssignmentsOffset, taskAssignmentsOffset + pageSize - 1),
+				
+				// Load quick_task_assignments with its own offset
+				supabase
+					.from('quick_task_assignments')
+					.select('*', { count: 'exact' })
+					.order('created_at', { ascending: false })
+					.range(quickTaskAssignmentsOffset, quickTaskAssignmentsOffset + pageSize - 1),
+				
+				// Load receiving_tasks with its own offset
+				supabase
+					.from('receiving_tasks')
+					.select('*', { count: 'exact' })
+					.order('created_at', { ascending: false })
+					.range(receivingTasksOffset, receivingTasksOffset + pageSize - 1)
+			]);
 
-				if (batchError) {
-					console.error(`❌ Error loading task_assignments batch ${page}:`, batchError);
-					break;
-				}
+			// Extract results with proper error handling
+			let taskAssignmentsData: any[] = [];
+			let quickAssignmentsData: any[] = [];
+			let receivingTasksData: any[] = [];
+			
+			let totalTaskAssignmentCount = 0;
+			let totalQuickCount = 0;
+			let totalReceivingCount = 0;
 
-				if (batch && batch.length > 0) {
-					allTaskAssignments = [...allTaskAssignments, ...batch];
-					console.log(`📋 Loaded batch ${page}: ${batch.length} records (total: ${allTaskAssignments.length})`);
-					
-					// If we got less than pageSize, we're done
-					if (batch.length < pageSize) {
-						hasMore = false;
-					} else {
-						page++;
-					}
+			if (results[0].status === 'fulfilled') {
+				const res = results[0].value;
+				if (res.error) {
+					console.error('❌ Error loading task_assignments:', res.error);
 				} else {
-					hasMore = false;
+					taskAssignmentsData = res.data || [];
+					totalTaskAssignmentCount = res.count || 0;
+					taskAssignmentsTotal = totalTaskAssignmentCount;
+					console.log(`📋 Loaded task_assignments: ${taskAssignmentsData.length}/${totalTaskAssignmentCount} (offset: ${taskAssignmentsOffset})`);
+					taskAssignmentsOffset += taskAssignmentsData.length;
 				}
 			}
 
-			console.log('📋 Total task_assignments loaded:', allTaskAssignments.length);
-
-			// Load from quick_task_assignments simplified
-			const { data: quickAssignments, error: qaError } = await supabase
-				.from('quick_task_assignments')
-				.select('*')
-				.limit(1000);
-
-			if (qaError) {
-				console.error('❌ Error loading quick_task_assignments:', qaError);
-			} else {
-				console.log('⚡ Loaded quick_task_assignments:', quickAssignments?.length || 0);
-			}
-
-			// Load receiving_tasks with receiving record information
-			const { data: receivingTasks, error: rtError } = await supabase
-				.from('receiving_tasks')
-				.select(`
-					*,
-					receiving_record:receiving_record_id(
-						id,
-						user_id,
-						branch:branch_id(id, name_en)
-					)
-				`)
-				.limit(1000);
-
-			if (rtError) {
-				console.error('❌ Error loading receiving_tasks:', rtError);
-			} else {
-				console.log('📦 Loaded receiving_tasks:', receivingTasks?.length || 0);
-				if (receivingTasks && receivingTasks.length > 0) {
-					console.log('📦 Sample receiving task:', receivingTasks[0]);
+			if (results[1].status === 'fulfilled') {
+				const res = results[1].value;
+				if (res.error) {
+					console.error('❌ Error loading quick_task_assignments:', res.error);
+				} else {
+					quickAssignmentsData = res.data || [];
+					totalQuickCount = res.count || 0;
+					quickTaskAssignmentsTotal = totalQuickCount;
+					console.log(`⚡ Loaded quick_task_assignments: ${quickAssignmentsData.length}/${totalQuickCount} (offset: ${quickTaskAssignmentsOffset})`);
+					quickTaskAssignmentsOffset += quickAssignmentsData.length;
 				}
 			}
 
-			// Process all the data
-			tasks = [];
+			if (results[2].status === 'fulfilled') {
+				const res = results[2].value;
+				if (res.error) {
+					console.error('❌ Error loading receiving_tasks:', res.error);
+				} else {
+					receivingTasksData = res.data || [];
+					totalReceivingCount = res.count || 0;
+					receivingTasksTotal = totalReceivingCount;
+					console.log(`📦 Loaded receiving_tasks: ${receivingTasksData.length}/${totalReceivingCount} (offset: ${receivingTasksOffset})`);
+					receivingTasksOffset += receivingTasksData.length;
+				}
+			}
 
-			if (allTaskAssignments) {
-				console.log('📝 Processing task_assignments:', allTaskAssignments.length);
-				const processedTasks = allTaskAssignments.map(ta => ({
+			// Update total count
+			totalTaskCount = totalTaskAssignmentCount + totalQuickCount + totalReceivingCount;
+			
+			// Check if any table has more data
+			const hasMoreTaskAssignments = taskAssignmentsOffset < totalTaskAssignmentCount;
+			const hasMoreQuickAssignments = quickTaskAssignmentsOffset < totalQuickCount;
+			const hasMoreReceivingTasks = receivingTasksOffset < totalReceivingCount;
+			hasMorePages = hasMoreTaskAssignments || hasMoreQuickAssignments || hasMoreReceivingTasks;
+
+			// Process and add to allLoadedTasks
+			if (taskAssignmentsData.length > 0) {
+				const processedTasks = taskAssignmentsData.map(ta => ({
 					...ta,
 					task_title: ta.task?.title || `📋 Task Assignment #${ta.id.slice(-8)}`,
 					task_description: ta.task?.description || ta.task_description || ta.description || 'Regular task assignment',
@@ -229,12 +309,11 @@
 					assigned_to_name: ta.assigned_to_user?.username || 'Unassigned',
 					assigned_to_user_id: ta.assigned_to_user_id
 				}));
-				tasks = [...tasks, ...processedTasks];
+				allLoadedTasks = [...allLoadedTasks, ...processedTasks];
 			}
 
-			if (quickAssignments) {
-				console.log('⚡ Processing quick_task_assignments:', quickAssignments.length);
-				const processedQuickTasks = quickAssignments.map(qa => ({
+			if (quickAssignmentsData.length > 0) {
+				const processedQuickTasks = quickAssignmentsData.map(qa => ({
 					...qa,
 					task_title: `⚡ Quick Task #${qa.id}`,
 					task_description: qa.description || 'Quick task assignment',
@@ -247,100 +326,66 @@
 					assigned_to_name: 'TBD',
 					assigned_to_user_id: qa.assigned_to_user_id
 				}));
-				tasks = [...tasks, ...processedQuickTasks];
+				allLoadedTasks = [...allLoadedTasks, ...processedQuickTasks];
 			}
 
-			if (receivingTasks) {
-				// Get unique user IDs (both creators and assigned users)
-				const creatorUserIds = [...new Set(receivingTasks.map(rt => rt.receiving_record?.user_id).filter(Boolean))];
-				const assignedUserIds = [...new Set(receivingTasks.map(rt => rt.assigned_user_id).filter(Boolean))];
-				const allUserIds = [...new Set([...creatorUserIds, ...assignedUserIds])];
-				
-				// Fetch user information for all users with IDs
-				let userMap = new Map();
-				if (allUserIds.length > 0) {
-					const { data: users, error: usersError } = await supabase
-						.from('users')
-						.select('id, username')
-						.in('id', allUserIds);
-					
-					if (usersError) {
-						console.error('❌ Error fetching users:', usersError);
-					}
-					
-					if (users) {
-						users.forEach(user => userMap.set(user.id, user.username));
-					}
-				}
-				
-				// For tasks with null assigned_user_id, find users by role and branch
-				const tasksWithNullAssignment = receivingTasks.filter(rt => !rt.assigned_user_id && rt.role_type && rt.receiving_record?.branch?.id);
-				let roleUserMap = new Map(); // Map of "role|branchId" -> username
-				
-				if (tasksWithNullAssignment.length > 0) {
-					// Get unique role+branch combinations using a better delimiter
-					const rolesByBranch = [...new Set(tasksWithNullAssignment.map(rt => 
-						`${rt.role_type}|${rt.receiving_record.branch.id}`
-					))];
-					
-					console.log('🔍 Role+Branch combinations found:', rolesByBranch);
-					
-					// Since all users have user_type='branch_specific', we can't match by role
-					// Let's just skip the user lookup and use role names directly
-					console.log('ℹ️ All users have user_type="branch_specific", skipping role-based user lookup');
-					console.log('ℹ️ Will use role types directly as assignee names for receiving tasks');
-				}
-				
-				const receivingTasksFormatted = receivingTasks.map(rt => {
-					const branchId = rt.receiving_record?.branch?.id;
-					let assignedToUsername;
-					
-					if (rt.assigned_user_id) {
-						// Use direct user ID mapping
-						assignedToUsername = userMap.get(rt.assigned_user_id);
-					} else if (rt.role_type && branchId) {
-						// Since users don't have specific role types, format the role name nicely
-						assignedToUsername = rt.role_type
-							.split('_')
-							.map(word => word.charAt(0).toUpperCase() + word.slice(1))
-							.join(' ');
-					}
-					
-					// Fallback to role_type if no username found
-					assignedToUsername = assignedToUsername || rt.role_type || 'Unassigned';
-					
-					return {
-						...rt,
-						task_title: `📦 ${rt.title || `Receiving Task #${rt.id}`}`,
-						task_description: rt.description || 'Receiving task for inventory management',
-						task_type: 'receiving',
-						branch_name: rt.receiving_record?.branch?.name_en || 'No Branch',
-						branch_id: branchId || null,
-						assigned_date: rt.created_at,
-						deadline: rt.due_date,
-						assigned_by_name: userMap.get(rt.receiving_record?.user_id) || 'System',
-						assigned_to_name: assignedToUsername,
-						assigned_to_user_id: rt.assigned_user_id,
-						role_type: rt.role_type,
-						task_status: rt.task_status,
-						priority: rt.priority
-					};
-				});
-
-				tasks = [...tasks, ...receivingTasksFormatted];
-				console.log('📦 Added receiving tasks to main list. Total receiving tasks:', receivingTasksFormatted.length);
+			if (receivingTasksData.length > 0) {
+				const processedReceivingTasks = receivingTasksData.map(rt => ({
+					...rt,
+					task_title: `📦 Receiving Task #${rt.id}`,
+					task_description: rt.notes || 'Receiving task',
+					task_type: 'receiving',
+					branch_name: rt.receiving_record?.branch?.name_en || 'No Branch',
+					branch_id: rt.receiving_record?.branch?.id,
+					assigned_date: rt.created_at,
+					deadline: null,
+					assigned_by_name: 'System',
+					assigned_to_name: 'TBD',
+					assigned_to_user_id: rt.assigned_user_id
+				}));
+				allLoadedTasks = [...allLoadedTasks, ...processedReceivingTasks];
 			}
 
-			console.log('🎯 Total tasks loaded:', tasks.length);
-			console.log('📊 Task types breakdown:', {
-				regular: tasks.filter(t => t.task_type === 'regular').length,
-				quick: tasks.filter(t => t.task_type === 'quick').length,
-				receiving: tasks.filter(t => t.task_type === 'receiving').length
-			});
+			console.log(`✅ Page ${Math.floor(startIndex / pageSize)}: Total tasks loaded=${allLoadedTasks.length}, HasMore=${hasMorePages}`);
 
 		} catch (error) {
-			console.error('💥 Fatal error in loadTotalTasks:', error);
+			console.error('Error loading total tasks page:', error);
 		}
+	}
+
+	async function loadActiveTasksPage(startIndex: number) {
+		// TODO: Implement pagination for active tasks
+		console.log('Loading active tasks page:', startIndex);
+	}
+
+	async function loadCompletedTasksPage(startIndex: number) {
+		// TODO: Implement pagination for completed tasks
+		console.log('Loading completed tasks page:', startIndex);
+	}
+
+	async function loadIncompleteTasksPage(startIndex: number) {
+		// TODO: Implement pagination for incomplete tasks
+		console.log('Loading incomplete tasks page:', startIndex);
+	}
+
+	async function loadMyAssignedTasksPage(startIndex: number, user: any) {
+		// TODO: Implement pagination for my assigned tasks
+		console.log('Loading my assigned tasks page:', startIndex);
+	}
+
+	async function loadMyCompletedTasksPage(startIndex: number, user: any) {
+		// TODO: Implement pagination for my completed tasks
+		console.log('Loading my completed tasks page:', startIndex);
+	}
+
+	async function loadMyAssignmentsPage(startIndex: number, user: any) {
+		// TODO: Implement pagination for my assignments
+		console.log('Loading my assignments page:', startIndex);
+	}
+
+	async function loadMyAssignmentsCompletedPage(startIndex: number, user: any) {
+		// TODO: Implement pagination for my assignments completed
+		console.log('Loading my assignments completed page:', startIndex);
 	}
 
 	async function loadActiveTasks() {
@@ -571,19 +616,10 @@
 
 		// Load incomplete receiving tasks (not completed)
 		const { data: receivingTasks, error: rtError } = await supabase
-			.from('receiving_tasks')
-			.select(`
-				*,
-				receiving_record:receiving_record_id(
-					id,
-					user_id,
-					branch:branch_id(id, name_en)
-				)
-			`)
-			.neq('task_status', 'completed')
-			.eq('task_completed', false);
-
-		if (rtError) {
+					.from('receiving_tasks')
+					.select(`*`)
+					.neq('task_status', 'completed')
+					.eq('task_completed', false);		if (rtError) {
 			console.error('Error loading incomplete receiving_tasks:', rtError);
 		} else {
 			if (receivingTasks && receivingTasks.length > 0) {
@@ -1582,6 +1618,21 @@
 			</table>
 		{/if}
 	</div>
+
+	{#if !isLoading && hasMorePages && filteredTasks.length > 0}
+		<div class="pagination-container">
+			<button 
+				class="load-more-btn"
+				on:click={loadNextPage}
+				disabled={isLoadingMore}
+			>
+				{isLoadingMore ? 'Loading...' : 'Load More Tasks'}
+			</button>
+			<span class="page-info">
+				Page {currentPage + 1} of ~{Math.ceil(totalTaskCount / PAGE_SIZE)} | {allLoadedTasks.length} of {totalTaskCount} tasks loaded
+			</span>
+		</div>
+	{/if}
 </div>
 
 {#if showTaskDetail && selectedTask}
@@ -2414,6 +2465,52 @@
 	.btn-close-stats:hover {
 		background: #5568d3;
 		transform: translateY(-1px);
+	}
+
+	/* Pagination Container */
+	.pagination-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		padding: 24px;
+		background: #f9fafb;
+		border-top: 1px solid #e5e7eb;
+		text-align: center;
+	}
+
+	.load-more-btn {
+		padding: 12px 32px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 15px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 200px;
+		justify-content: center;
+	}
+
+	.load-more-btn:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+	}
+
+	.load-more-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.page-info {
+		font-size: 13px;
+		color: #6b7280;
+		font-weight: 500;
 	}
 </style>
 
