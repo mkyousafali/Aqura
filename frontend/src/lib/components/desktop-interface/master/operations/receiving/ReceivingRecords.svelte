@@ -523,7 +523,13 @@
 				...record,
 				branches: branchMap.get(record.branch_id),
 				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
-				users: userMap.get(record.user_id)
+				users: userMap.get(record.user_id),
+				schedule_status: null, // Will be updated when payment schedules load
+				is_scheduled: false,
+				has_multiple_schedules: false,
+				pr_excel_verified: false,
+				pr_excel_verified_by: null,
+				pr_excel_verified_date: null
 			}));
 
 			// Apply vendor ID filter if present
@@ -538,8 +544,49 @@
 
 			receivingRecords = recordsWithDetails;
 			filteredRecords = recordsWithDetails;
-			console.log(`✅ Loaded ${recordsWithDetails.length} filtered records for page ${pageNum}`);
 			updatePaginatedRecords();
+
+			// Load payment schedules for the fetched records
+			const recordIds = records.map(r => r.id);
+			const chunkArray = (array, size) => {
+				const chunks = [];
+				for (let i = 0; i < array.length; i += size) {
+					chunks.push(array.slice(i, i + size));
+				}
+				return chunks;
+			};
+
+			const scheduleChunks = chunkArray(recordIds, 25);
+			console.log(`⚡ Loading payment schedules for branch filter (${scheduleChunks.length} chunks)...`);
+			
+			// Load payment schedules in parallel
+			scheduleChunks.forEach((chunk, idx) => {
+				supabase
+					.from('vendor_payment_schedule')
+					.select('receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
+					.in('receiving_record_id', chunk)
+					.then(result => {
+						if (!result.error && result.data) {
+							// Update the records with schedule data
+							result.data.forEach(schedule => {
+								const recordIdx = receivingRecords.findIndex(r => r.id === schedule.receiving_record_id);
+								if (recordIdx >= 0) {
+									receivingRecords[recordIdx].schedule_status = schedule;
+									receivingRecords[recordIdx].is_paid = schedule.is_paid;
+									receivingRecords[recordIdx].is_scheduled = true;
+									// Pull verification status from payment schedule
+									receivingRecords[recordIdx].pr_excel_verified = schedule.pr_excel_verified;
+									receivingRecords[recordIdx].pr_excel_verified_by = schedule.pr_excel_verified_by;
+									receivingRecords[recordIdx].pr_excel_verified_date = schedule.pr_excel_verified_date;
+								}
+							});
+							receivingRecords = [...receivingRecords]; // Trigger reactivity
+							updatePaginatedRecords(); // Update the visible records
+							console.log(`📦 Schedule chunk ${idx + 1} loaded for branch filter`);
+						}
+					})
+					.catch(err => console.warn(`⚠️ Schedule chunk ${idx + 1} error (branch filter):`, err.message));
+			});
 			return;
 		}
 
@@ -592,7 +639,13 @@
 				...record,
 				branches: branchMap.get(record.branch_id),
 				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
-				users: userMap.get(record.user_id)
+				users: userMap.get(record.user_id),
+				schedule_status: null, // Will be updated when payment schedules load
+				is_scheduled: false,
+				has_multiple_schedules: false,
+				pr_excel_verified: false,
+				pr_excel_verified_by: null,
+				pr_excel_verified_date: null
 			}));
 
 			// Apply search filter
@@ -616,9 +669,49 @@
 			
 			receivingRecords = paginatedFiltered;
 			filteredRecords = filtered;
-			
-			console.log(`✅ Search found ${paginatedFiltered.length} matching records (total: ${filtered.length})`);
 			updatePaginatedRecords();
+
+			// Load payment schedules for the fetched records
+			const recordIds = records.map(r => r.id);
+			const chunkArray = (array, size) => {
+				const chunks = [];
+				for (let i = 0; i < array.length; i += size) {
+					chunks.push(array.slice(i, i + size));
+				}
+				return chunks;
+			};
+
+			const scheduleChunks = chunkArray(recordIds, 25);
+			console.log(`⚡ Loading payment schedules for search filter (${scheduleChunks.length} chunks)...`);
+			
+			// Load payment schedules in parallel
+			scheduleChunks.forEach((chunk, idx) => {
+				supabase
+					.from('vendor_payment_schedule')
+					.select('receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
+					.in('receiving_record_id', chunk)
+					.then(result => {
+						if (!result.error && result.data) {
+							// Update the records with schedule data
+							result.data.forEach(schedule => {
+								const recordIdx = receivingRecords.findIndex(r => r.id === schedule.receiving_record_id);
+								if (recordIdx >= 0) {
+									receivingRecords[recordIdx].schedule_status = schedule;
+									receivingRecords[recordIdx].is_paid = schedule.is_paid;
+									receivingRecords[recordIdx].is_scheduled = true;
+									// Pull verification status from payment schedule
+									receivingRecords[recordIdx].pr_excel_verified = schedule.pr_excel_verified;
+									receivingRecords[recordIdx].pr_excel_verified_by = schedule.pr_excel_verified_by;
+									receivingRecords[recordIdx].pr_excel_verified_date = schedule.pr_excel_verified_date;
+								}
+							});
+							receivingRecords = [...receivingRecords]; // Trigger reactivity
+							updatePaginatedRecords(); // Update the visible records
+							console.log(`📦 Schedule chunk ${idx + 1} loaded for search filter`);
+						}
+					})
+					.catch(err => console.warn(`⚠️ Schedule chunk ${idx + 1} error (search filter):`, err.message));
+			});
 			return;
 		}
 
@@ -665,7 +758,13 @@
 				...record,
 				branches: branchMap.get(record.branch_id),
 				vendors: vendorMap.get(`${record.vendor_id}_${record.branch_id}`),
-				users: userMap.get(record.user_id)
+				users: userMap.get(record.user_id),
+				schedule_status: null, // Will be updated when payment schedules load
+				is_scheduled: false,
+				has_multiple_schedules: false,
+				pr_excel_verified: false,
+				pr_excel_verified_by: null,
+				pr_excel_verified_date: null
 			}));
 
 			// Apply filters in-memory
@@ -745,9 +844,49 @@
 			
 			receivingRecords = paginatedFiltered;
 			filteredRecords = filtered;
-			
-			console.log(`✅ Loaded ${paginatedFiltered.length} filtered records for page ${pageNum} (total: ${filtered.length})`);
 			updatePaginatedRecords();
+
+			// Load payment schedules for the fetched records
+			const recordIds = records.map(r => r.id);
+			const chunkArray = (array, size) => {
+				const chunks = [];
+				for (let i = 0; i < array.length; i += size) {
+					chunks.push(array.slice(i, i + size));
+				}
+				return chunks;
+			};
+
+			const scheduleChunks = chunkArray(recordIds, 25);
+			console.log(`⚡ Loading payment schedules for complex filters (${scheduleChunks.length} chunks)...`);
+			
+			// Load payment schedules in parallel
+			scheduleChunks.forEach((chunk, idx) => {
+				supabase
+					.from('vendor_payment_schedule')
+					.select('receiving_record_id, is_paid, pr_excel_verified, pr_excel_verified_by, pr_excel_verified_date')
+					.in('receiving_record_id', chunk)
+					.then(result => {
+						if (!result.error && result.data) {
+							// Update the records with schedule data
+							result.data.forEach(schedule => {
+								const recordIdx = receivingRecords.findIndex(r => r.id === schedule.receiving_record_id);
+								if (recordIdx >= 0) {
+									receivingRecords[recordIdx].schedule_status = schedule;
+									receivingRecords[recordIdx].is_paid = schedule.is_paid;
+									receivingRecords[recordIdx].is_scheduled = true;
+									// Pull verification status from payment schedule
+									receivingRecords[recordIdx].pr_excel_verified = schedule.pr_excel_verified;
+									receivingRecords[recordIdx].pr_excel_verified_by = schedule.pr_excel_verified_by;
+									receivingRecords[recordIdx].pr_excel_verified_date = schedule.pr_excel_verified_date;
+								}
+							});
+							receivingRecords = [...receivingRecords]; // Trigger reactivity
+							updatePaginatedRecords(); // Update the visible records
+							console.log(`📦 Schedule chunk ${idx + 1} loaded for complex filters`);
+						}
+					})
+					.catch(err => console.warn(`⚠️ Schedule chunk ${idx + 1} error (complex filters):`, err.message));
+			});
 		} catch (error) {
 			console.error(`Error loading filtered page:`, error);
 			alert('Error loading filtered records. Try again.');
