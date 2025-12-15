@@ -210,36 +210,45 @@
 
     // Build table rows
     let tableRows = '';
-    order.items.forEach((item: any, index: number) => {
-      const imageHtml = item.product?.image_url 
-        ? `<img src="${item.product.image_url}" alt="${item.product_name_en}" class="product-print-image" style="width: 50px !important; height: 50px !important; max-width: 50px !important; max-height: 50px !important; object-fit: contain !important; display: block !important;" />`
-        : `<div class="product-image-placeholder">📦</div>`;
+    console.log('🔍 Print Order - order.items:', order.items?.length, order.items);
+    
+    if (!order.items || order.items.length === 0) {
+      console.warn('⚠️ Print Order - No items found!');
+      tableRows = `<tr><td colspan="7" style="text-align: center; color: #9ca3af;">No items found</td></tr>`;
+    } else {
+      order.items.forEach((item: any, index: number) => {
+        console.log(`📦 Item ${index}:`, item);
+        
+        const imageHtml = item.product?.image_url 
+          ? `<img src="${item.product.image_url}" alt="${item.product_name_en}" class="product-print-image" style="width: 50px !important; height: 50px !important; max-width: 50px !important; max-height: 50px !important; object-fit: contain !important; display: block !important;" />`
+          : `<div class="product-image-placeholder">📦</div>`;
 
-      const barcodeHtml = barcodeImages[index]
-        ? `<img src="${barcodeImages[index]}" alt="Barcode" style="max-width: 120px; height: auto;" /><div class="barcode-text">${item.product.barcode}</div>`
-        : `<span style="color: #9ca3af;">-</span>`;
+        const barcodeHtml = barcodeImages[index]
+          ? `<img src="${barcodeImages[index]}" alt="Barcode" style="max-width: 120px; height: auto;" /><div class="barcode-text">${item.product.barcode}</div>`
+          : `<span style="color: #9ca3af;">-</span>`;
 
-      tableRows += `
-        <tr>
-          <td>${index + 1}</td>
-          <td><div class="product-image-cell">${imageHtml}</div></td>
-          <td>
-            <div class="product-name">${item.product_name_en}</div>
-            <div class="product-name-ar">${item.product_name_ar}</div>
-          </td>
-          <td><div class="product-barcode-cell">${barcodeHtml}</div></td>
-          <td>
-            <div>${item.quantity}</div>
-            <div class="unit-names">
-              <div>${item.unit_name_en}</div>
-              <div class="unit-name-ar">${item.unit_name_ar}</div>
-            </div>
-          </td>
-          <td>${item.unit_price.toFixed(2)} ${isRTL ? 'ريال' : 'SAR'}</td>
-          <td>${item.line_total.toFixed(2)} ${isRTL ? 'ريال' : 'SAR'}</td>
-        </tr>
-      `;
-    });
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td><div class="product-image-cell">${imageHtml}</div></td>
+            <td>
+              <div class="product-name">${item.product_name_en}</div>
+              <div class="product-name-ar">${item.product_name_ar}</div>
+            </td>
+            <td><div class="product-barcode-cell">${barcodeHtml}</div></td>
+            <td>
+              <div>${item.quantity}</div>
+              <div class="unit-names">
+                <div>${item.unit_name_en || ''}</div>
+                <div class="unit-name-ar">${item.unit_name_ar || ''}</div>
+              </div>
+            </td>
+            <td>${item.unit_price.toFixed(2)} ${isRTL ? 'ريال' : 'SAR'}</td>
+            <td>${item.line_total.toFixed(2)} ${isRTL ? 'ريال' : 'SAR'}</td>
+          </tr>
+        `;
+      });
+    }
 
     // Build summary rows
     let summaryRows = `

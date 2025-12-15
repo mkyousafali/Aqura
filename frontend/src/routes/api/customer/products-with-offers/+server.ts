@@ -567,6 +567,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 					if (bundle.discount_type === 'percentage') {
 						bundlePrice = originalPrice * (1 - discountValue / 100);
+					} else if (bundle.discount_type === 'amount') {
+						// For 'amount' type, discount_value is the FINAL PRICE, not the discount
+						bundlePrice = discountValue;
 					} else if (bundle.discount_type === 'fixed') {
 						bundlePrice = Math.max(0, originalPrice - discountValue);
 					}

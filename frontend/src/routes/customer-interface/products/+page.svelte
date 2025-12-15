@@ -496,34 +496,54 @@
   
   // Add bundle offer to cart
   function addBundleToCart(bundleOffer) {
+    // Calculate total quantity units to distribute bundle price proportionally
+    const totalQuantityUnits = bundleOffer.bundleProducts.reduce((sum, p) => sum + (p.quantity || 1), 0);
+    const bundleId = `bundle-${bundleOffer.offerId}`;
+    
+    console.log('🎁 Adding bundle to cart:', {
+      bundleId,
+      offerId: bundleOffer.offerId,
+      bundlePrice: bundleOffer.bundlePrice,
+      productCount: bundleOffer.bundleProducts.length
+    });
+    
     // Add each product in the bundle with bundle-specific metadata
     bundleOffer.bundleProducts.forEach((prod, index) => {
+      // Distribute bundle price proportionally based on quantity
+      // If bundle price is 100 SAR and product A has qty 2 out of 4 total, it gets 50 SAR
+      const quantityWeight = (prod.quantity || 1) / totalQuantityUnits;
+      const distributedBundlePrice = bundleOffer.bundlePrice * quantityWeight;
+      const pricePerUnit = distributedBundlePrice / (prod.quantity || 1);
+      
       const bundleProduct = {
         id: prod.barcode,
         name: prod.nameAr,
         nameEn: prod.nameEn,
         image: prod.image,
-        price: (bundleOffer.bundlePrice / bundleOffer.bundleProducts.length), // Split bundle price evenly
-        originalPrice: prod.price * prod.quantity,
+        price: pricePerUnit, // Price per unit with bundle discount applied
+        originalPrice: prod.price,
+        // Bundle-specific metadata (on product object)
+        bundleId: bundleId,
+        offerId: bundleOffer.offerId,
+        bundleProductIndex: index,
+        isBundleItem: true,
+        offerType: 'bundle',
         selectedUnit: {
           id: prod.unitId,
           nameAr: `${prod.unitQty} ${prod.unitAr}`,
           nameEn: `${prod.unitQty} ${prod.unitEn}`,
-          basePrice: (bundleOffer.bundlePrice / bundleOffer.bundleProducts.length),
-          // Bundle-specific metadata
+          basePrice: pricePerUnit,
+          originalPrice: prod.price,
+          // Bundle-specific metadata (also on selectedUnit for cart store)
           offerType: 'bundle',
           offerId: bundleOffer.offerId,
-          bundleId: bundleOffer.offerId + '-bundle',
+          bundleId: bundleId,
           bundleProductIndex: index,
           isBundleItem: true
-        },
-        offerType: 'bundle',
-        offerId: bundleOffer.offerId,
-        bundleId: bundleOffer.offerId + '-bundle',
-        bundleProductIndex: index,
-        isBundleItem: true
+        }
       };
       
+      console.log('  📦 Adding product:', prod.nameEn, '| bundleId:', bundleId, '| price:', pricePerUnit);
       cartActions.addToCart(bundleProduct, bundleProduct.selectedUnit, prod.quantity);
     });
   }

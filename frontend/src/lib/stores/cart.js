@@ -22,6 +22,9 @@ export const cartActions = {
       unitId: selectedUnit?.id,
       productName: product.nameAr,
       unitOfferType: selectedUnit?.offerType,
+      productOfferType: product.offerType,
+      unitBundleId: selectedUnit?.bundleId,
+      productBundleId: product.bundleId,
       unitBogoGetProductId: selectedUnit?.bogoGetProductId 
     });
     
@@ -87,14 +90,24 @@ export const cartActions = {
           image: product.image || selectedUnit?.photo,
           barcode: selectedUnit?.barcode || product.barcode,
           // BOGO tracking
-          offerType: selectedUnit?.offerType || null,
+          offerType: selectedUnit?.offerType || product.offerType || null,
           bogoGetProductId: selectedUnit?.bogoGetProductId || null,
           bogoGetQuantity: selectedUnit?.bogoGetQuantity || null,
           bogoDiscountType: selectedUnit?.bogoDiscountType || null,
-          linkedToBuyProductId: buyProductInCart?.id || null
+          linkedToBuyProductId: buyProductInCart?.id || null,
+          // Bundle tracking
+          bundleId: selectedUnit?.bundleId || product.bundleId || null,
+          offerId: selectedUnit?.offerId || product.offerId || null,
+          bundleProductIndex: selectedUnit?.bundleProductIndex ?? product.bundleProductIndex ?? null,
+          isBundleItem: selectedUnit?.isBundleItem || product.isBundleItem || false,
+          isAutoAdded: product.isAutoAdded || false
         });
         
-        console.log('✅ Added new item to cart with price:', finalPrice);
+        console.log('✅ Added new item to cart:', {
+          name: product.nameEn,
+          bundleId: selectedUnit?.bundleId || product.bundleId || null,
+          price: finalPrice
+        });
       }
 
       return cart;

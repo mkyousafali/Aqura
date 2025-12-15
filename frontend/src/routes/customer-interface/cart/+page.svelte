@@ -1244,44 +1244,50 @@
 
   /* Bundle Offer Styles */
   .bundle-combined-images {
-    display: grid;
-    gap: 0.3rem;
-    padding: 0.35rem;
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: nowrap;
+    width: auto;
+    min-width: 0;
+    flex-shrink: 0;
+    align-items: center;
   }
 
   .bundle-combined-images.grid-1 {
-    grid-template-columns: 1fr;
+    /* Single image */
   }
 
   .bundle-combined-images.grid-2 {
-    grid-template-columns: repeat(2, 1fr);
+    /* Two images */
   }
 
   .bundle-combined-images.grid-3 {
-    grid-template-columns: repeat(3, 1fr);
+    /* Three images */
   }
 
   .bundle-combined-images.grid-4 {
-    grid-template-columns: repeat(2, 1fr);
+    /* Four images */
   }
 
   .bundle-combined-images.grid-5,
   .bundle-combined-images.grid-6 {
-    grid-template-columns: repeat(3, 1fr);
+    /* Five or six images */
   }
 
   .bundle-image-wrapper {
     position: relative;
-    width: 100%;
-    aspect-ratio: 1 / 1;
+    width: 65px;
+    height: 65px;
+    flex-shrink: 0;
   }
 
   .bundle-image {
     width: 100%;
     height: 100%;
-    object-fit: cover;
-    border-radius: 8px;
-    border: 2px solid #10b981;
+    object-fit: contain;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    background: #f9f9f9;
   }
 
   .bundle-quantity-badge {
