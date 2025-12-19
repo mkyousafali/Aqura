@@ -1097,15 +1097,46 @@ async function rejectRequisition(requisitionId, reason) {
 						if (error) throw error;
 						approvedCount++;
 					} else if (item.item_type === 'payment_schedule') {
-						const { error } = await supabase
+						// Fetch the complete schedule data
+						const { data: scheduleData, error: fetchError } = await supabase
 							.from('non_approved_payment_scheduler')
-							.update({
-								approval_status: 'approved',
-								updated_at: new Date().toISOString()
-							})
+							.select('*')
+							.eq('id', item.id)
+							.single();
+
+						if (fetchError) throw fetchError;
+
+						// Insert into expense_scheduler
+						const { error: insertError } = await supabase
+							.from('expense_scheduler')
+							.insert([{
+								branch_id: scheduleData.branch_id,
+								branch_name: scheduleData.branch_name,
+								expense_category_id: scheduleData.expense_category_id || null,
+								expense_category_name_en: scheduleData.expense_category_name_en || null,
+								expense_category_name_ar: scheduleData.expense_category_name_ar || null,
+								amount: parseFloat(scheduleData.amount),
+								description: scheduleData.description,
+								schedule_type: scheduleData.schedule_type,
+								status: 'pending',
+								is_paid: false,
+								recurring_type: scheduleData.recurring_type,
+								recurring_metadata: scheduleData.recurring_metadata,
+								approver_id: scheduleData.approver_id,
+								approver_name: scheduleData.approver_name,
+								created_by: scheduleData.created_by
+							}]);
+
+						if (insertError) throw insertError;
+
+						// Delete from non_approved_payment_scheduler
+						const { error: deleteError } = await supabase
+							.from('non_approved_payment_scheduler')
+							.delete()
 							.eq('id', item.id);
 
-						if (error) throw error;
+						if (deleteError) throw deleteError;
+
 						approvedCount++;
 					} else if (item.item_type === 'vendor_payment') {
 						const { error } = await supabase
