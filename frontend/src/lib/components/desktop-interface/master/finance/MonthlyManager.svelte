@@ -381,7 +381,7 @@
 					vendor_name: splitPayment.vendor_name,
 					branch_id: splitPayment.branch_id,
 					branch_name: splitPayment.branch_name,
-					bill_amount: splitPayment.bill_amount,
+					bill_amount: splitAmount,
 					final_bill_amount: splitAmount,
 					payment_method: splitPayment.payment_method,
 					bank_name: splitPayment.bank_name,
@@ -419,14 +419,14 @@
 	function openEditAmountModal(payment) {
 		editingAmountPayment = payment;
 		editAmountForm = {
-			discountAmount: 0,
-			discountNotes: '',
-			grrAmount: 0,
-			grrReferenceNumber: '',
-			grrNotes: '',
-			priAmount: 0,
-			priReferenceNumber: '',
-			priNotes: ''
+			discountAmount: payment.discount_amount || 0,
+			discountNotes: payment.discount_notes || '',
+			grrAmount: payment.grr_amount || 0,
+			grrReferenceNumber: payment.grr_reference_number || '',
+			grrNotes: payment.grr_notes || '',
+			priAmount: payment.pri_amount || 0,
+			priReferenceNumber: payment.pri_reference_number || '',
+			priNotes: payment.pri_notes || ''
 		};
 		showEditAmountModal = true;
 	}
@@ -436,13 +436,16 @@
 		if (!editingAmountPayment) return;
 
 		try {
+			// Calculate final amount based on original bill_amount minus all reductions
 			const totalReduction = (editAmountForm.discountAmount || 0) + 
 				(editAmountForm.grrAmount || 0) + (editAmountForm.priAmount || 0);
 			
-			const newAmount = editingAmountPayment.final_bill_amount - totalReduction;
+			// Use bill_amount as the base, not final_bill_amount
+			const baseAmount = editingAmountPayment.bill_amount || editingAmountPayment.final_bill_amount;
+			const newAmount = baseAmount - totalReduction;
 
 			if (newAmount < 0) {
-				alert('Total reduction cannot exceed payment amount');
+				alert('Total reduction cannot exceed bill amount');
 				return;
 			}
 
@@ -640,6 +643,13 @@
 		...scheduledPayments.map(p => p.payment_method).filter(Boolean),
 		...expenseSchedulerPayments.map(p => p.payment_method).filter(Boolean)
 	])].sort();
+
+	// Calculate final amount preview based on current form values
+	$: calculatedFinalAmount = editingAmountPayment ? 
+		(editingAmountPayment.bill_amount || editingAmountPayment.final_bill_amount) - 
+		(editAmountForm.discountAmount || 0) - 
+		(editAmountForm.grrAmount || 0) - 
+		(editAmountForm.priAmount || 0) : 0;
 
 	// Filtered payments
 	$: filteredPayments = scheduledPayments.filter(payment => {
@@ -1147,8 +1157,9 @@
 			<div class="modal-header">Edit Payment Amount</div>
 			<div class="modal-body">
 				<div class="form-group">
-					<label>Original Amount: {formatCurrency(editingAmountPayment.final_bill_amount)}</label>
+					<label style="font-weight: 600; color: #1e293b;">Bill Amount (Base): {formatCurrency(editingAmountPayment.bill_amount || editingAmountPayment.final_bill_amount)}</label>
 				</div>
+				<hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
 				<div class="form-group">
 					<label for="discount-amount">Discount Amount:</label>
 					<input type="number" id="discount-amount" bind:value={editAmountForm.discountAmount} step="0.01" min="0" />
@@ -1180,6 +1191,10 @@
 				<div class="form-group">
 					<label for="pri-notes">PRI Notes:</label>
 					<textarea id="pri-notes" bind:value={editAmountForm.priNotes}></textarea>
+				</div>
+				<hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
+				<div class="form-group">
+					<label style="font-weight: 600; color: #059669; font-size: 16px;">Final Amount (Calculated): {formatCurrency(calculatedFinalAmount)}</label>
 				</div>
 			</div>
 			<div class="modal-actions">
