@@ -187,24 +187,21 @@
 		try {
 			console.log('🔍 [Mobile] Loading purchase manager status...');
 			
-			// Check verification using receiving_records table directly instead of payment schedule
-			// This avoids RLS issues with vendor_payment_schedule
-			const { data: recordData, error: recordError } = await supabase
-				.from('receiving_records')
-				.select('pr_excel_file_uploaded, pr_excel_file_url, original_bill_uploaded, original_bill_url')
-				.eq('id', receivingRecord.id)
+			// Check if PR Excel is verified in the payment schedule
+			const { data: scheduleData, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('pr_excel_verified')
+				.eq('receiving_record_id', receivingRecord.id)
 				.single();
 
-			if (!recordError && recordData) {
-				// Consider verified if both files are uploaded
-				verificationCompleted = recordData.pr_excel_file_uploaded && 
-									   recordData.pr_excel_file_url &&
-									   recordData.original_bill_uploaded &&
-									   recordData.original_bill_url;
-				console.log('✅ [Mobile] Verification status loaded:', verificationCompleted);
+			if (!scheduleError && scheduleData) {
+				// Consider verified only if pr_excel_verified is explicitly true
+				verificationCompleted = scheduleData.pr_excel_verified === true;
+				console.log('✅ [Mobile] Verification status loaded:', verificationCompleted, '(pr_excel_verified:', scheduleData.pr_excel_verified, ')');
 			} else {
+				// If no schedule found or error, verification is incomplete
 				verificationCompleted = false;
-				console.log('⚠️ [Mobile] Could not load verification status');
+				console.log('⚠️ [Mobile] Could not load verification status - no payment schedule found');
 			}
 		} catch (err) {
 			console.error('❌ [Mobile] Error loading verification status:', err);

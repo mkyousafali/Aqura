@@ -110,24 +110,21 @@
 		try {
 			console.log('🔍 Loading verification status for purchase manager...');
 			
-			// Check verification using receiving_records table directly instead of payment schedule
-			// This avoids RLS issues with vendor_payment_schedule
-			const { data: recordData, error: recordError } = await supabase
-				.from('receiving_records')
-				.select('pr_excel_file_uploaded, pr_excel_file_url, original_bill_uploaded, original_bill_url')
-				.eq('id', receivingRecordId)
+			// Check if PR Excel is verified in the payment schedule
+			const { data: scheduleData, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('pr_excel_verified')
+				.eq('receiving_record_id', receivingRecordId)
 				.single();
 
-			if (!recordError && recordData) {
-				// Consider verified if both files are uploaded
-				verificationCompleted = recordData.pr_excel_file_uploaded && 
-									   recordData.pr_excel_file_url &&
-									   recordData.original_bill_uploaded &&
-									   recordData.original_bill_url;
-				console.log('✅ Verification status loaded:', verificationCompleted);
+			if (!scheduleError && scheduleData) {
+				// Consider verified only if pr_excel_verified is explicitly true
+				verificationCompleted = scheduleData.pr_excel_verified === true;
+				console.log('✅ Verification status loaded:', verificationCompleted, '(pr_excel_verified:', scheduleData.pr_excel_verified, ')');
 			} else {
+				// If no schedule found or error, verification is incomplete
 				verificationCompleted = false;
-				console.log('⚠️ Could not load verification status');
+				console.log('⚠️ Could not load verification status - no payment schedule found');
 			}
 		} catch (err) {
 			console.error('❌ Error loading verification status:', err);
@@ -447,34 +444,51 @@
 				return;
 			}
 
-			const missingFiles = [];
+			// Also check if PR Excel has been verified
+			const { data: scheduleData, error: scheduleError } = await supabase
+				.from('vendor_payment_schedule')
+				.select('pr_excel_verified')
+				.eq('receiving_record_id', taskDetails.receiving_record_id)
+				.single();
+
+			const missingRequirements = [];
 
 			// Check original bill upload status
-			if (!receivingRecord.original_bill_uploaded || !receivingRecord.original_bill_url) {
-				missingFiles.push('Original Bill');
+			const hasOriginalBill = receivingRecord.original_bill_uploaded || (receivingRecord.original_bill_url && receivingRecord.original_bill_url.length > 0);
+			if (!hasOriginalBill) {
+				missingRequirements.push('Original Bill must be uploaded');
 				console.log('❌ [Desktop] Original bill not uploaded');
 			} else {
 				console.log('✅ [Desktop] Original bill uploaded');
 			}
 
 			// Check PR Excel upload status
-			if (!receivingRecord.pr_excel_file_uploaded || !receivingRecord.pr_excel_file_url) {
-				missingFiles.push('PR Excel File');
+			const hasExcelFile = receivingRecord.pr_excel_file_uploaded || (receivingRecord.pr_excel_file_url && receivingRecord.pr_excel_file_url.length > 0);
+			if (!hasExcelFile) {
+				missingRequirements.push('PR Excel File must be uploaded');
 				console.log('❌ [Desktop] PR Excel not uploaded');
 			} else {
 				console.log('✅ [Desktop] PR Excel uploaded');
 			}
 
-			// If any files are missing, block completion
-			if (missingFiles.length > 0) {
+			// Check PR Excel verification status
+			if (!scheduleData || !scheduleData.pr_excel_verified) {
+				missingRequirements.push('PR Excel must be verified by Purchase Manager');
+				console.log('❌ [Desktop] PR Excel not verified');
+			} else {
+				console.log('✅ [Desktop] PR Excel verified');
+			}
+
+			// If any requirements are missing, block completion
+			if (missingRequirements.length > 0) {
 				canComplete = false;
-				blockingRoles = missingFiles.map(file => `${file} must be uploaded first`);
-				error = `Missing required files: ${missingFiles.join(', ')}. Please ensure all files are uploaded before completing this task.`;
-				console.log('❌ [Desktop] Missing required files:', missingFiles);
+				blockingRoles = missingRequirements;
+				error = `Missing required steps: ${missingRequirements.join(', ')}`;
+				console.log('❌ [Desktop] Missing requirements:', missingRequirements);
 				return;
 			}
 
-			// All files uploaded, accountant can proceed
+			// All requirements met, accountant can proceed
 			canComplete = true;
 			blockingRoles = [];
 			error = null;
