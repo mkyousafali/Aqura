@@ -647,20 +647,37 @@
 		.loyalty-header {
 			padding: 1rem;
 			gap: 0.75rem;
+			flex-wrap: wrap;
 		}
 
 		.loyalty-header h1 {
 			font-size: 1.25rem;
+			flex: 1 1 auto;
+		}
+
+		.card-icons {
+			gap: 0.5rem;
+		}
+
+		.app-logo {
+			width: 48px;
+			height: 36px;
+		}
+
+		.card-logo {
+			width: 48px;
+			height: 36px;
+		}
+
+		.card-logo svg {
+			width: 28px;
+			height: 28px;
 		}
 
 		.card-header {
 			padding: 1.25rem;
 			gap: 1rem;
-		}
-
-		.card-logo {
-			width: 56px;
-			height: 42px;
+			flex-wrap: wrap;
 		}
 
 		.card-body {
@@ -678,20 +695,153 @@
 		}
 
 		.stat-card {
-			padding: 1rem;
+			padding: 0.875rem;
 		}
 
 		.stat-label {
-			font-size: 0.7rem;
+			font-size: 0.65rem;
 		}
 
 		.stat-value {
-			font-size: 1.25rem;
+			font-size: 1.125rem;
+		}
+
+		.stat-value-small {
+			font-size: 0.75rem;
 		}
 
 		.card-footer {
 			padding: 1.25rem;
 			font-size: 0.8125rem;
+		}
+
+		.card-number {
+			font-size: 1.125rem;
+		}
+
+		.branch-title {
+			font-size: 0.9375rem;
+		}
+	}
+
+	/* Extra small devices - 480px and below */
+	@media (max-width: 480px) {
+		.loyalty-details-page {
+			padding: 0.5rem;
+			padding-top: 0.75rem;
+			gap: 0.75rem;
+		}
+
+		.loyalty-header {
+			flex-direction: column;
+			padding: 0.75rem;
+			gap: 0.5rem;
+		}
+
+		.loyalty-header h1 {
+			font-size: 1rem;
+			text-align: center;
+		}
+
+		.back-btn,
+		.language-btn {
+			min-width: 36px;
+			height: 36px;
+			padding: 0;
+		}
+
+		.language-btn {
+			font-size: 0.75rem;
+			padding: 0.5rem 1rem;
+		}
+
+		.card-icons {
+			gap: 0.25rem;
+		}
+
+		.app-logo {
+			width: 40px;
+			height: 30px;
+		}
+
+		.card-logo {
+			width: 40px;
+			height: 30px;
+		}
+
+		.card-logo svg {
+			width: 24px;
+			height: 24px;
+		}
+
+		.card-header {
+			padding: 1rem;
+			flex-direction: column;
+		}
+
+		.card-body {
+			padding: 1rem;
+			gap: 1rem;
+		}
+
+		.balance-section {
+			padding: 1.5rem 1rem;
+			border-radius: 12px;
+		}
+
+		.balance-amount {
+			font-size: 1.75rem;
+		}
+
+		.balance-label {
+			font-size: 0.75rem;
+		}
+
+		.points-label {
+			font-size: 0.875rem;
+		}
+
+		.stats-grid {
+			grid-template-columns: 1fr;
+			gap: 0.5rem;
+		}
+
+		.stat-card {
+			padding: 0.75rem;
+			border-radius: 10px;
+		}
+
+		.stat-label {
+			font-size: 0.625rem;
+		}
+
+		.stat-value {
+			font-size: 1rem;
+		}
+
+		.stat-value-small {
+			font-size: 0.625rem;
+		}
+
+		.card-footer {
+			padding: 1rem;
+			font-size: 0.75rem;
+		}
+
+		.card-number-section {
+			gap: 0.375rem;
+		}
+
+		.card-number {
+			font-size: 0.875rem;
+		}
+
+		.label {
+			font-size: 0.75rem;
+		}
+
+		.card-title h2 {
+			font-size: 1rem;
 		}
 	}
 
