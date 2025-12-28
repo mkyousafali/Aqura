@@ -203,7 +203,7 @@
 		{
 			"label": "🖥️ Dev Local Server",
 			"type": "shell",
-			"command": "pnpm",
+			"command": "npm",
 			"args": [
 				"run",
 				"dev"

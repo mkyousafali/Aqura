@@ -31,6 +31,9 @@
 	let expandedGroups: Set<string> = new Set();
 	let showGroupsView: boolean = false;
 	let isLoadingGroups: boolean = false;
+	let loadedGroupVariations: Map<string, any[]> = new Map(); // Cache loaded variations
+	let groupsPage: number = 1;
+	let groupsItemsPerPage: number = 20; // Show 20 groups per page
 	
 	// Image preview
 	let showImagePreview: boolean = false;
@@ -92,34 +95,55 @@
 	async function loadVariationGroups() {
 		isLoadingGroups = true;
 		try {
-			// Get all parent products (is_variation=true and variation_order=0, meaning they are parents)
-			const { data, error } = await supabase
+			// Get all parent products with pagination (is_variation=true and variation_order=0)
+			const { data, error, count } = await supabase
 				.from('products')
-				.select('*')
+				.select('*', { count: 'exact' })
 				.eq('is_variation', true)
 				.eq('variation_order', 0)
-				.order('variation_group_name_en', { ascending: true });
+				.order('variation_group_name_en', { ascending: true })
+				.range((groupsPage - 1) * groupsItemsPerPage, groupsPage * groupsItemsPerPage - 1);
 			
 			if (error) throw error;
 			
-			// For each parent, get its variations
-			const groupsWithVariations = await Promise.all(
-				(data || []).map(async (parent) => {
-					const { data: variations, error: varError } = await supabase
-						.from('products')
-						.select('*')
-						.eq('parent_product_barcode', parent.barcode)
-						.order('variation_order', { ascending: true });
-					
-					return {
-						parent,
-						variations: variations || [],
-						totalCount: (variations?.length || 0) + 1 // +1 for parent
-					};
-				})
-			);
+			// Get barcodes of all parent products for batch query
+			const parentBarcodes = (data || []).map(p => p.barcode);
+			
+			// Batch load all variations in one query instead of N+1
+			let variationsMap: Map<string, any[]> = new Map();
+			if (parentBarcodes.length > 0) {
+				const { data: allVariations, error: varError } = await supabase
+					.from('products')
+					.select('*')
+					.in('parent_product_barcode', parentBarcodes)
+					.order('parent_product_barcode', { ascending: true })
+					.order('variation_order', { ascending: true });
+				
+				if (varError) throw varError;
+				
+				// Group variations by parent barcode
+				(allVariations || []).forEach(variation => {
+					const key = variation.parent_product_barcode;
+					if (!variationsMap.has(key)) {
+						variationsMap.set(key, []);
+					}
+					variationsMap.get(key)!.push(variation);
+				});
+			}
+			
+			// Build groups with variations from map
+			const groupsWithVariations = (data || []).map(parent => ({
+				parent,
+				variations: variationsMap.get(parent.barcode) || [],
+				totalCount: (variationsMap.get(parent.barcode)?.length || 0) + 1 // +1 for parent
+			}));
 			
 			variationGroups = groupsWithVariations;
+			
+			// Store in cache for lazy loading
+			groupsWithVariations.forEach(group => {
+				loadedGroupVariations.set(group.parent.barcode, group.variations);
+			});
 		} catch (error) {
 			console.error('Error loading groups:', error);
 			notifications.add({
@@ -178,6 +202,21 @@
 	);
 	
 	$: totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+	
+	// Group pagination computed values
+	$: totalGroupPages = Math.ceil((variationGroups.length > 0 ? Math.max(...variationGroups.map(() => 1)) * groupsItemsPerPage : groupsItemsPerPage) / groupsItemsPerPage);
+	
+	function nextGroupsPage() {
+		groupsPage++;
+		loadVariationGroups();
+	}
+	
+	function prevGroupsPage() {
+		if (groupsPage > 1) {
+			groupsPage--;
+			loadVariationGroups();
+		}
+	}
 	
 	function toggleProductSelection(barcode: string) {
 		if (selectedProducts.has(barcode)) {
@@ -504,8 +543,46 @@
 			expandedGroups.delete(parentBarcode);
 		} else {
 			expandedGroups.add(parentBarcode);
+			// Lazy load variations for this group if not cached
+			if (!loadedGroupVariations.has(parentBarcode)) {
+				loadGroupVariations(parentBarcode);
+			}
 		}
 		expandedGroups = expandedGroups;
+	}
+	
+	// Lazy load variations for a specific group
+	async function loadGroupVariations(parentBarcode: string) {
+		try {
+			const { data: variations, error: varError } = await supabase
+				.from('products')
+				.select('*')
+				.eq('parent_product_barcode', parentBarcode)
+				.order('variation_order', { ascending: true });
+			
+			if (varError) throw varError;
+			
+			loadedGroupVariations.set(parentBarcode, variations || []);
+			
+			// Update the group in the array
+			variationGroups = variationGroups.map(group => {
+				if (group.parent.barcode === parentBarcode) {
+					return {
+						...group,
+						variations: variations || [],
+						totalCount: (variations?.length || 0) + 1
+					};
+				}
+				return group;
+			});
+		} catch (error) {
+			console.error('Error loading group variations:', error);
+			notifications.add({
+				message: 'Failed to load group variations',
+				type: 'error',
+				duration: 3000
+			});
+		}
 	}
 	
 	function previewImage(imageUrl: string) {
@@ -734,45 +811,79 @@
 							<!-- Expanded Variations -->
 							{#if expandedGroups.has(group.parent.barcode)}
 								<div class="border-t border-gray-200 bg-gray-50 p-4">
-									<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-										<!-- Parent Product -->
-										<div class="bg-white p-3 rounded border-2 border-blue-200">
-											<div class="flex items-center gap-3">
-												<img
-													src={group.parent.image_url}
-													alt={group.parent.product_name_en}
-													class="w-12 h-12 object-contain rounded"
-												/>
-												<div class="flex-1 min-w-0">
-													<div class="text-xs font-semibold text-blue-600 mb-1">PARENT</div>
-													<div class="text-sm font-medium truncate">{group.parent.product_name_en}</div>
-													<div class="text-xs text-gray-500">{group.parent.barcode}</div>
-												</div>
+									{#if !loadedGroupVariations.has(group.parent.barcode)}
+										<!-- Loading state -->
+										<div class="flex items-center justify-center py-6">
+											<div class="text-center">
+												<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+												<p class="mt-2 text-sm text-gray-600">Loading variations...</p>
 											</div>
 										</div>
-										
-										<!-- Variation Products -->
-										{#each group.variations as variation}
-											<div class="bg-white p-3 rounded border border-gray-200">
+									{:else}
+										<!-- Variations loaded -->
+										<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+											<!-- Parent Product -->
+											<div class="bg-white p-3 rounded border-2 border-blue-200">
 												<div class="flex items-center gap-3">
 													<img
-														src={variation.image_url}
-														alt={variation.product_name_en}
+														src={group.parent.image_url}
+														alt={group.parent.product_name_en}
 														class="w-12 h-12 object-contain rounded"
 													/>
 													<div class="flex-1 min-w-0">
-														<div class="text-sm font-medium truncate">{variation.product_name_en}</div>
-														<div class="text-xs text-gray-500">{variation.barcode}</div>
-														<div class="text-xs text-gray-400">Order: {variation.variation_order}</div>
+														<div class="text-xs font-semibold text-blue-600 mb-1">PARENT</div>
+														<div class="text-sm font-medium truncate">{group.parent.product_name_en}</div>
+														<div class="text-xs text-gray-500">{group.parent.barcode}</div>
 													</div>
 												</div>
 											</div>
-										{/each}
-									</div>
+											
+											<!-- Variation Products -->
+											{#each group.variations as variation}
+												<div class="bg-white p-3 rounded border border-gray-200">
+													<div class="flex items-center gap-3">
+														<img
+															src={variation.image_url}
+															alt={variation.product_name_en}
+															class="w-12 h-12 object-contain rounded"
+														/>
+														<div class="flex-1 min-w-0">
+															<div class="text-sm font-medium truncate">{variation.product_name_en}</div>
+															<div class="text-xs text-gray-500">{variation.barcode}</div>
+															<div class="text-xs text-gray-400">Order: {variation.variation_order}</div>
+														</div>
+													</div>
+												</div>
+											{/each}
+										</div>
+									{/if}
 								</div>
 							{/if}
 						</div>
 					{/each}
+				</div>
+				
+				<!-- Pagination Controls for Groups -->
+				<div class="mt-6 flex items-center justify-between px-4 py-3 bg-white rounded-lg border border-gray-200">
+					<div class="text-sm text-gray-600">
+						Page {groupsPage} • {variationGroups.length} groups shown
+					</div>
+					<div class="flex gap-2">
+						<button
+							on:click={prevGroupsPage}
+							disabled={groupsPage === 1}
+							class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+						>
+							← Previous
+						</button>
+						<button
+							on:click={nextGroupsPage}
+							disabled={variationGroups.length < groupsItemsPerPage}
+							class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+						>
+							Next →
+						</button>
+					</div>
 				</div>
 			{/if}
 		{:else}

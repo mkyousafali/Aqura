@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { _, switchLocale, currentLocale } from '$lib/i18n';
 
 	const dispatch = createEventDispatcher();
 
 	// Props
-	export let initialView: 'login' | 'register' | 'forgot' = 'login';
+	export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
 
 	// Component states
-	let currentView: 'login' | 'register' | 'forgot' = initialView;
+	let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
@@ -30,6 +31,12 @@
 	let forgotWhatsappNumber = '';
 	let forgotWhatsappValid = true;
 	let retryAfterSeconds = 0;
+
+	// Loyalty member login form
+	let loyaltyMobileNumber = '';
+	let loyaltyMobileValid = false;
+	let loyaltyCardData: any = null;
+	let loyaltyCardChecked = false;
 
 	// Form validation
 	function validateAccessCode() {
@@ -359,6 +366,157 @@
 		successMessage = '';
 	}
 
+	function switchToLoyalty() {
+		currentView = 'loyalty';
+		errorMessage = '';
+		successMessage = '';
+	}
+
+	function backFromLoyalty() {
+		currentView = 'login';
+		loyaltyMobileNumber = '';
+		loyaltyMobileValid = false;
+		loyaltyCardData = null;
+		loyaltyCardChecked = false;
+		errorMessage = '';
+		successMessage = '';
+	}
+
+	// Validate and check loyalty member mobile number
+	async function validateLoyaltyMobile() {
+		const cleanNumber = loyaltyMobileNumber.replace(/\D/g, '');
+		// Saudi mobile: 0548357066 format (10 digits starting with 05)
+		const isValidFormat = cleanNumber.length === 10 && cleanNumber.startsWith('05');
+		
+		if (!isValidFormat) {
+			loyaltyMobileValid = false;
+			loyaltyCardChecked = true;
+			errorMessage = '';
+			return false;
+		}
+
+		// Check if card number exists in privilege_cards_master
+		try {
+			isLoading = true;
+			errorMessage = '';
+			const { data, error } = await supabase
+				.from('privilege_cards_master')
+				.select('id, card_number')
+				.eq('card_number', cleanNumber)
+				.maybeSingle();
+
+			if (error) {
+				console.error('❌ [LoyaltyLogin] Error querying privilege_cards_master:', error);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			if (!data) {
+				console.warn('⚠️ [LoyaltyLogin] Card not found in privilege_cards_master:', cleanNumber);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			console.log('✅ [LoyaltyLogin] Card found in privilege_cards_master:', data);
+
+			// Card found, now get branch details - a card can have multiple branches, so get all and use the first one
+			const { data: branchDataArray, error: branchError } = await supabase
+				.from('privilege_cards_branch')
+				.select('*')
+				.eq('card_number', cleanNumber);
+
+			if (branchError) {
+				console.error('❌ [LoyaltyLogin] Error querying privilege_cards_branch:', branchError);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			if (!branchDataArray || branchDataArray.length === 0) {
+				console.warn('⚠️ [LoyaltyLogin] No branch details found for card:', cleanNumber);
+				// Even if no branch data, card exists in master - show success with basic info
+				loyaltyMobileValid = true;
+				loyaltyCardData = {
+					card_number: cleanNumber,
+					card_holder_name: null,
+					card_balance: 0,
+					expiry_date: null
+				};
+				loyaltyCardChecked = true;
+				errorMessage = '';
+				return true;
+			}
+
+			// Use the first branch if multiple exist
+			const branchData = branchDataArray[0];
+			console.log('✅ [LoyaltyLogin] Card details found:', branchData);
+
+			loyaltyMobileValid = true;
+			loyaltyCardData = branchData;
+			loyaltyCardChecked = true;
+			errorMessage = '';
+			return true;
+		} catch (error) {
+			console.error('❌ [LoyaltyLogin] Error checking card:', error);
+			loyaltyMobileValid = false;
+			errorMessage = error.message || 'Error checking card. Please try again.';
+			loyaltyCardChecked = true;
+			return false;
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Format loyalty mobile number
+	function formatLoyaltyMobileNumber(event: Event) {
+		const input = event.target as HTMLInputElement;
+		let value = input.value.replace(/\D/g, '');
+		
+		// Ensure it starts with 0
+		if (value && !value.startsWith('0')) {
+			value = '0' + value;
+		}
+		
+		// Limit to 10 digits
+		if (value.length > 10) {
+			value = value.substring(0, 10);
+		}
+		
+		loyaltyMobileNumber = value;
+		input.value = value;
+	}
+
+	// Navigate to loyalty details page
+	async function handleLoyaltyContinue() {
+		if (!loyaltyCardData || !loyaltyMobileValid) {
+			return;
+		}
+
+		try {
+			isLoading = true;
+			const cardNumber = encodeURIComponent(loyaltyCardData.card_number);
+			await goto(`/loyalty/details?cardNumber=${cardNumber}`);
+		} catch (error) {
+			console.error('❌ Navigation error:', error);
+			errorMessage = 'Error navigating to loyalty details page';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Auto-validate when loyalty mobile number changes
+	$: if (loyaltyMobileNumber && loyaltyMobileNumber.length === 10) {
+		validateLoyaltyMobile();
+	}
+
 	// Format WhatsApp number as user types
 	function formatWhatsAppNumber(event: Event) {
 		const input = event.target as HTMLInputElement;
@@ -388,6 +546,21 @@
 </script><div class="customer-login-container">	{#if currentView === 'login'}
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
+
+			<!-- Loyalty Member Login Button -->
+			<button type="button" class="loyalty-member-btn" on:click={switchToLoyalty} disabled={isLoading} title={$_('customer.login.loyaltyMemberLogin') || 'Loyalty Member Login'}>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+					<path d="M9 10h.01"/>
+					<path d="M12 10h.01"/>
+					<path d="M15 10h.01"/>
+				</svg>
+				{$_('customer.login.loyaltyMemberLogin') || 'Loyalty Member Login'}
+			</button>
+
+			<div class="login-divider">
+				<span>{$_('common.or') || 'OR'}</span>
+			</div>
 
 			<div class="form-fields">
 				<div class="field-group">
@@ -591,6 +764,62 @@
 					{$_('customer.login.registerButton')}
 				</button>
 			</div>
+		</form>
+
+	{:else if currentView === 'loyalty'}
+		<!-- Loyalty Member Login Form -->
+		<form class="customer-form loyalty-form" on:submit|preventDefault={() => {}}>
+
+			<div class="loyalty-header">
+				<button type="button" class="back-btn" on:click={backFromLoyalty} disabled={isLoading} title="Back">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M19 12H5M12 19l-7-7 7-7"/>
+					</svg>
+				</button>
+				<h2>{$_('customer.login.loyaltyMemberTitle') || 'Loyalty Member Login'}</h2>
+			</div>
+
+			<p class="loyalty-subtitle">{$_('customer.login.loyaltyMemberSubtitle') || 'Enter your mobile number to login'}</p>
+
+			<div class="form-fields">
+				<div class="field-group">
+					<label for="loyalty-mobile">{$_('customer.login.loyaltyMobileLabel') || 'Mobile Number'}</label>
+					<input 
+						id="loyalty-mobile"
+						type="tel" 
+						class="field-input"
+						class:error={loyaltyCardChecked && !loyaltyMobileValid}
+						bind:value={loyaltyMobileNumber}
+						on:input={formatLoyaltyMobileNumber}
+						on:blur={validateLoyaltyMobile}
+						placeholder="05XXXXXXXX"
+						disabled={isLoading}
+						autocomplete="tel"
+						inputmode="numeric"
+					/>
+					{#if loyaltyCardChecked && !loyaltyMobileValid && errorMessage}
+						<span class="field-error">{errorMessage}</span>
+					{/if}
+				</div>
+			</div>
+
+			<button 
+				type="button" 
+				class="customer-submit-btn loyalty"
+				disabled={isLoading || !loyaltyMobileValid}
+				on:click={handleLoyaltyContinue}
+			>
+				{#if isLoading}
+					<span class="loading-spinner"></span>
+					{$_('customer.login.loyaltyLoggingIn') || 'Signing in...'}
+				{:else}
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 12l2 2 4-4"/>
+						<circle cx="12" cy="12" r="10"/>
+					</svg>
+					{$_('customer.login.loyaltySubmit') || 'Continue'}
+				{/if}
+			</button>
 		</form>
 	{/if}
 
@@ -988,6 +1217,205 @@
 	.register-link:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.loyalty-divider {
+		height: 1px;
+		background: #E5E7EB;
+		margin: 1rem 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.loyalty-divider span {
+		background: white;
+		padding: 0 0.75rem;
+		color: #9CA3AF;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.login-divider {
+		height: 1px;
+		background: #E5E7EB;
+		margin: 1.5rem 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.login-divider span {
+		background: white;
+		padding: 0 0.75rem;
+		color: #9CA3AF;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.loyalty-member-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+	}
+
+	.loyalty-member-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #D97706 0%, #F59E0B 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+	}
+
+	.loyalty-member-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.loyalty-member-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	/* Loyalty Form Styles */
+	.loyalty-form {
+		animation: fadeIn 0.3s ease-out;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	/* Card Details Section */
+	.card-details-section {
+		background: linear-gradient(135deg, #FEF3C7 0%, #FEF08A 100%);
+		border: 1px solid #FCD34D;
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin: 1.5rem 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.card-detail-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 0;
+		border-bottom: 1px solid rgba(252, 211, 77, 0.3);
+	}
+
+	.card-detail-item:last-child {
+		border-bottom: none;
+	}
+
+	.detail-label {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #92400E;
+	}
+
+	.detail-value {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #1F2937;
+		text-align: right;
+	}
+
+	.detail-value.amount {
+		color: #F59E0B;
+		font-size: 1.125rem;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.loyalty-header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		position: relative;
+	}
+
+	.loyalty-header h2 {
+		flex: 1;
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1F2937;
+		margin: 0;
+	}
+
+	.back-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		padding: 0;
+		background: #F3F4F6;
+		border: 1px solid #E5E7EB;
+		color: #374151;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: all 0.3s ease;
+	}
+
+	.back-btn:hover:not(:disabled) {
+		background: #E5E7EB;
+		border-color: #D1D5DB;
+	}
+
+	.back-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.loyalty-subtitle {
+		color: #6B7280;
+		font-size: 0.95rem;
+		margin: 0 0 1.5rem 0;
+		text-align: center;
+	}
+
+	.customer-submit-btn.loyalty {
+		background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+		box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+	}
+
+	.customer-submit-btn.loyalty:hover:not(:disabled) {
+		background: linear-gradient(135deg, #D97706 0%, #F59E0B 100%);
+		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
 	}
 
 	.retry-info {
