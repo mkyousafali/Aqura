@@ -372,6 +372,15 @@
 		successMessage = '';
 	}
 
+	// Navigate to offers page
+	async function goToOffers() {
+		try {
+			await goto('/offers');
+		} catch (error) {
+			console.error('❌ Navigation error:', error);
+		}
+	}
+
 	function backFromLoyalty() {
 		currentView = 'login';
 		loyaltyMobileNumber = '';
@@ -546,6 +555,16 @@
 </script><div class="customer-login-container">	{#if currentView === 'login'}
 		<!-- Customer Login Form -->
 		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
+
+			<!-- View Latest Offers Button -->
+			<button type="button" class="view-offers-btn" on:click={goToOffers} disabled={isLoading} title={$_('customer.login.viewLatestOffers') || 'View Latest Offers'}>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M6 9l6-6 6 6"/>
+					<path d="M3 12h18"/>
+					<path d="M9 18H6a2 2 0 0 1-2-2v-5h14v5a2 2 0 0 1-2 2h-3"/>
+				</svg>
+				{$_('customer.login.viewLatestOffers') || 'View Latest Offers'}
+			</button>
 
 			<!-- Loyalty Member Login Button -->
 			<button type="button" class="loyalty-member-btn" on:click={switchToLoyalty} disabled={isLoading} title={$_('customer.login.loyaltyMemberLogin') || 'Loyalty Member Login'}>
@@ -1287,6 +1306,46 @@
 	}
 
 	.loyalty-member-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	/* View Offers Button Styles */
+	.view-offers-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3);
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+		margin-bottom: 1.5rem;
+	}
+
+	.view-offers-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+	}
+
+	.view-offers-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.view-offers-btn:disabled {
 		background: #9CA3AF;
 		cursor: not-allowed;
 		transform: none;

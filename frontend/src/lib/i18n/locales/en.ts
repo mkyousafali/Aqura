@@ -1509,6 +1509,7 @@ export const englishLocale: LocaleData = {
         accessCodePlaceholder: "Enter 6-digit access code",
         loginButton: "Sign In",
         loggingIn: "Signing in...",
+        viewLatestOffers: "View Latest Offers",
         loyaltyMemberLogin: "Loyalty Member Login",
         loyaltyMemberTitle: "Loyalty Member Login",
         loyaltyMemberSubtitle: "Enter your mobile number to login",

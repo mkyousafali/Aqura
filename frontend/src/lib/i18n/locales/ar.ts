@@ -1479,6 +1479,7 @@ export const arabicLocale: LocaleData = {
         accessCodePlaceholder: "أدخل رمز الوصول المكون من 6 أرقام",
         loginButton: "تسجيل الدخول",
         loggingIn: "جاري تسجيل الدخول...",
+        viewLatestOffers: "عرض أحدث العروض",
         loyaltyMemberLogin: "تسجيل دخول عضو الولاء",
         loyaltyMemberTitle: "تسجيل دخول عضو الولاء",
         loyaltyMemberSubtitle: "أدخل رقم جوالك للدخول",

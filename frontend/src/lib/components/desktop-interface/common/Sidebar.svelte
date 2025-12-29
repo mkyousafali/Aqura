@@ -66,6 +66,7 @@
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
+	import ViewOfferManager from '$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte';
 	import CustomerImporter from '$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte';
 	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
 	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
@@ -1900,6 +1901,24 @@ function openApprovalCenter() {
 		showPromoSubmenu = false;
 	}
 
+	function openViewOfferManager() {
+		const windowId = generateWindowId('view-offer-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `View Offer Manager #${instanceNumber}`,
+			component: ViewOfferManager,
+			icon: '📊',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showPromoSubmenu = false;
+	}
+
 	function openCustomerImporter() {
 		const windowId = generateWindowId('customer-importer');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2740,6 +2759,14 @@ function openApprovalCenter() {
 		<!-- Operations Subsection Items -->
 		{#if showPromoOperationsSubmenu}
 			<div class="submenu-subitem-container">
+				{#if isButtonAllowed('VIEW_OFFER_MANAGER')}
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openViewOfferManager}>
+							<span class="menu-icon">📊</span>
+							<span class="menu-text">View Offer Manager</span>
+						</button>
+					</div>
+				{/if}
 				{#if isButtonAllowed('CUSTOMER_IMPORTER')}
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCustomerImporter}>
