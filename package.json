@@ -1,0 +1,55 @@
+{
+  "name": "aqura",
+  "version": "32.12.7",
+  "description": "Aqura Management System - PWA-first windowed management platform",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter aqura-frontend dev",
+    "build": "pnpm --filter aqura-frontend build",
+    "build:pwa": "pnpm --filter aqura-frontend build:pwa",
+    "build:windows": "pnpm --filter aqura-frontend build:windows",
+    "preview": "pnpm --filter aqura-frontend preview",
+    "check": "pnpm --filter aqura-frontend check",
+    "check:watch": "pnpm --filter aqura-frontend check:watch",
+    "lint": "pnpm --filter aqura-frontend lint",
+    "format": "pnpm --filter aqura-frontend format",
+    "test": "pnpm --filter aqura-frontend test",
+    "setup": "pnpm install && pnpm --filter frontend install",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up",
+    "i18n:extract": "pnpm --filter aqura-frontend i18n:extract",
+    "i18n:build": "pnpm --filter aqura-frontend i18n:build",
+    "version:patch": "node scripts/update-version.js patch",
+    "version:minor": "node scripts/update-version.js minor",
+    "version:major": "node scripts/update-version.js major",
+    "version:update": "node scripts/update-version.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "pg": "^8.16.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@10.0.0",
+  "keywords": [
+    "management-system",
+    "pwa",
+    "windowed-ui",
+    "bilingual",
+    "enterprise"
+  ],
+  "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
+    "@supabase/supabase-js": "^2.58.0",
+    "dotenv": "^17.2.3",
+    "mssql": "^12.1.1",
+    "onnxruntime-web": "^1.23.2",
+    "web-push": "^3.6.7"
+  }
+}

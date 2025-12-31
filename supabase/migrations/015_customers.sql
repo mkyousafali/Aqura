@@ -1,0 +1,27 @@
+-- Customers Table Schema
+CREATE TABLE IF NOT EXISTS customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  access_code VARCHAR,
+  whatsapp_number VARCHAR,
+  registration_status TEXT NOT NULL DEFAULT 'pending',
+  registration_notes TEXT,
+  approved_by UUID,
+  approved_at TIMESTAMP WITH TIME ZONE,
+  access_code_generated_at TIMESTAMP WITH TIME ZONE,
+  last_login_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  name TEXT,
+  location1_name TEXT,
+  location1_url TEXT,
+  location2_name TEXT,
+  location2_url TEXT,
+  location3_name TEXT,
+  location3_url TEXT,
+  location1_lat DOUBLE PRECISION,
+  location1_lng DOUBLE PRECISION,
+  location2_lat DOUBLE PRECISION,
+  location2_lng DOUBLE PRECISION,
+  location3_lat DOUBLE PRECISION,
+  location3_lng DOUBLE PRECISION
+);
