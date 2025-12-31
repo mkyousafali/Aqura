@@ -108,7 +108,9 @@
 	async function loadPaidVendorPayments() {
 		try {
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-			const nextDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(Math.min(selectedDay + 1, 31)).padStart(2, '0')}`;
+			// Calculate next day correctly (handles month/year boundaries)
+			const nextDayObj = new Date(selectedYear, selectedMonth, selectedDay + 1);
+			const nextDate = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, '0')}-${String(nextDayObj.getDate()).padStart(2, '0')}`;
 			console.log('🔍 Loading vendor payments for due date range:', selectedDate, 'to', nextDate);
 
 			const { data, error } = await supabase
@@ -136,7 +138,9 @@
 	async function loadPaidExpensePayments() {
 		try {
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-			const nextDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(Math.min(selectedDay + 1, 31)).padStart(2, '0')}`;
+			// Calculate next day correctly (handles month/year boundaries)
+			const nextDayObj = new Date(selectedYear, selectedMonth, selectedDay + 1);
+			const nextDate = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, '0')}-${String(nextDayObj.getDate()).padStart(2, '0')}`;
 			console.log('🔍 Loading expense payments for due date range:', selectedDate, 'to', nextDate);
 
 			const { data, error } = await supabase
