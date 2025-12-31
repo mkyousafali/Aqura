@@ -1,0 +1,20 @@
+name: Hourly Overdue Task Reminder Check
+
+on:
+  schedule:
+    # Run every hour at minute 0
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Edge Function
+        run: |
+          curl -X POST "https://supabase.urbanaqura.com/functions/v1/check-overdue-reminders" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json"
+      
+      - name: Log Result
+        run: echo "Reminder check completed at $(date)"
