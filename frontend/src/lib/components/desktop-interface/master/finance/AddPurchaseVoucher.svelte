@@ -129,7 +129,11 @@
 				.select();
 
 			if (pvError) {
-				alert(`Error creating book: ${pvError.message}`);
+				if (pvError.code === '23505' || pvError.message?.includes('duplicate')) {
+					alert(`Error: Purchase Voucher "${pvId}" already exists!\n\nPlease use a different book number.`);
+				} else {
+					alert(`Error creating book: ${pvError.message}`);
+				}
 				console.error('PV Error:', pvError);
 				return;
 			}

@@ -38,19 +38,21 @@
 	async function loadUsersAndBranches() {
 		usersLoading = true;
 		try {
-			// Load users, branches, and position-related data in parallel
+			// Load users, branches, and position-related data in parallel with optimized limits
 			const [usersResult, branchesResult, assignmentsResult] = await Promise.all([
 				supabase
 					.from('users')
 					.select('id, username, employee_id, branch_id')
-					.limit(1000),
+					.limit(200),
 				supabase
 					.from('branches')
-					.select('id, name_en, location_en'),
+					.select('id, name_en, location_en')
+					.limit(50),
 				supabase
 					.from('hr_position_assignments')
-					.select('employee_id, position_id, hr_positions(position_title_en)')
+					.select('employee_id, hr_positions(position_title_en)')
 					.eq('is_current', true)
+					.limit(200)
 			]);
 
 			if (!usersResult.error && usersResult.data) {
@@ -259,18 +261,95 @@
 		};
 	}
 
+	async function captureReceiptAsImage() {
+		const receiptElement = document.querySelector('.receipt-container');
+		if (!receiptElement) return null;
+
+		try {
+			// Dynamically import html2canvas
+			const html2canvas = (await import('html2canvas')).default;
+			
+			const canvas = await html2canvas(receiptElement, {
+				scale: 2, // Higher quality
+				backgroundColor: '#ffffff',
+				logging: false,
+				useCORS: true
+			});
+
+			// Convert to blob
+			return new Promise((resolve) => {
+				canvas.toBlob((blob) => {
+					resolve(blob);
+				}, 'image/png', 0.95);
+			});
+		} catch (error) {
+			console.error('Error capturing receipt:', error);
+			return null;
+		}
+	}
+
+	async function uploadReceiptImage(blob) {
+		if (!blob) return null;
+
+		const fileName = `receipt_${item.purchase_voucher_id}_${item.serial_number}_${Date.now()}.png`;
+		const filePath = `single/${fileName}`;
+
+		const { data, error } = await supabase.storage
+			.from('purchase-voucher-receipts')
+			.upload(filePath, blob, {
+				contentType: 'image/png',
+				cacheControl: '3600',
+				upsert: false
+			});
+
+		if (error) {
+			console.error('Error uploading receipt:', error);
+			return null;
+		}
+
+		// Get public URL
+		const { data: urlData } = supabase.storage
+			.from('purchase-voucher-receipts')
+			.getPublicUrl(filePath);
+
+		return urlData?.publicUrl || null;
+	}
+
 	async function saveReceipt() {
 		if (isLoading || !itemId || !$currentUser?.id) return;
 		isLoading = true;
 
 		try {
-			const updateData = { status: 'issued' };
+			// Capture receipt as image first
+			const receiptBlob = await captureReceiptAsImage();
+			let receiptUrl = null;
+
+			if (receiptBlob) {
+				receiptUrl = await uploadReceiptImage(receiptBlob);
+			}
+
+			const updateData = {};
+
+			// Add receipt URL if captured
+			if (receiptUrl) {
+				updateData.receipt_url = receiptUrl;
+			}
 
 			if (selectedIssueType === 'gift' || selectedIssueType === 'sales') {
-				// For gift/sales: Update issue_type, issued_by (logged user), and issued_date
+				// Set status to issued for gift/sales
+				updateData.status = 'issued';
+				// For gift/sales: Update issue_type, issued_by (logged user), issued_to (selected user), and issued_date
 				updateData.issue_type = selectedIssueType;
 				updateData.issued_by = $currentUser.id;
 				updateData.issued_date = new Date().toISOString();
+				
+				// Set issued_to if a user was selected
+				if (selectedUser) {
+					updateData.issued_to = selectedUser.id;
+				}
+				
+				// Set stock to 0 after issuing
+				updateData.stock = 0;
 			} else if (selectedIssueType === 'stock transfer') {
 				// For stock transfer: Only update stock_person
 				if (selectedUser) {
@@ -289,7 +368,7 @@
 				onIssueComplete();
 				// Close this window
 				if (windowId) {
-					$windowManager.closeWindow(windowId);
+					windowManager.closeWindow(windowId);
 				}
 			}
 		} catch (error) {

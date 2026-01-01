@@ -10,6 +10,8 @@
 
 	let purchaseVoucherItems = [];
 	let isLoading = false;
+	let loadingProgress = 0;
+	let hasInitialized = false;
 	let subscription;
 	let branchMap = {};
 	let userEmployeeMap = {};
@@ -29,7 +31,7 @@
 	// Computed filtered list
 	$: filteredItems = purchaseVoucherItems.filter((item) => {
 		if (filterPVId && item.purchase_voucher_id !== filterPVId) return false;
-		if (filterSerialNumber && !item.serial_number.toString().includes(filterSerialNumber)) return false;
+		if (filterSerialNumber && item.serial_number.toString() !== filterSerialNumber) return false;
 		if (filterValue && item.value.toString() !== filterValue) return false;
 		if (filterStatus && item.status !== filterStatus) return false;
 		if (filterIssueType && item.issue_type !== filterIssueType) return false;
@@ -53,8 +55,15 @@
 	};
 
 	onMount(async () => {
-		await Promise.all([loadBranches(), loadUsers()]);
-		await loadPurchaseVoucherItems();
+		if (hasInitialized) return;
+		hasInitialized = true;
+		
+		// Load all data in parallel
+		await Promise.all([
+			loadBranches(),
+			loadUsers(),
+			loadPurchaseVoucherItems()
+		]);
 		setupRealtimeSubscriptions();
 
 		return () => {
@@ -114,6 +123,9 @@
 		}
 	}
 
+	let realtimeDebounceTimer = null;
+	let isRealtimeLoading = false;
+
 	function setupRealtimeSubscriptions() {
 		subscription = supabase
 			.channel('purchase_voucher_items_changes')
@@ -125,30 +137,110 @@
 					table: 'purchase_voucher_items'
 				},
 				() => {
-					loadPurchaseVoucherItems();
+					// Debounce realtime updates to prevent infinite loops
+					if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+					if (isRealtimeLoading) return;
+					
+					realtimeDebounceTimer = setTimeout(() => {
+						loadPurchaseVoucherItems();
+					}, 1000);
 				}
 			)
 			.subscribe();
 	}
 
 	async function loadPurchaseVoucherItems() {
+		if (isLoading) return; // Prevent duplicate calls within same instance
 		isLoading = true;
+		isRealtimeLoading = true;
+		loadingProgress = 0;
+		const startTime = performance.now();
+		console.log('⏱️ [PV Load] Starting...');
 		try {
-			const { data, error } = await supabase
+			const batchSize = 1000;
+			
+			// First batch to get initial data fast - NO ORDER for speed
+			const t1 = performance.now();
+			const firstBatch = await supabase
 				.from('purchase_voucher_items')
-				.select('*')
-				.order('created_at', { ascending: false });
+				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
+				.limit(batchSize);
+			console.log(`⏱️ [PV Load] First batch: ${Math.round(performance.now() - t1)}ms, got ${firstBatch.data?.length || 0} items`);
 
-			if (error) {
-				console.error('Error loading purchase voucher items:', error);
+			if (firstBatch.error) {
+				console.error('Error loading purchase voucher items:', firstBatch.error);
 				purchaseVoucherItems = [];
-			} else {
-				purchaseVoucherItems = data || [];
+				return;
 			}
+
+			const allItems = firstBatch.data || [];
+			const seenIds = new Set(allItems.map(item => item.id));
+			loadingProgress = 20;
+
+			// If first batch is full, there might be more data
+			if (allItems.length === batchSize) {
+				// Get count to determine remaining batches
+				const t2 = performance.now();
+				const { count } = await supabase
+					.from('purchase_voucher_items')
+					.select('id', { count: 'exact', head: true });
+				console.log(`⏱️ [PV Load] Count query: ${Math.round(performance.now() - t2)}ms, total: ${count}`);
+
+				const totalCount = count || allItems.length;
+				const remainingBatches = Math.ceil((totalCount - batchSize) / batchSize);
+				loadingProgress = 25;
+				console.log(`⏱️ [PV Load] Need ${remainingBatches} more batches`);
+
+				if (remainingBatches > 0) {
+					// Load remaining batches - 10 at a time for speed
+					let completedBatches = 0;
+					
+					for (let batchGroup = 1; batchGroup <= remainingBatches; batchGroup += 10) {
+						const queries = [];
+						const endBatch = Math.min(batchGroup + 10, remainingBatches + 1);
+						
+						for (let i = batchGroup; i < endBatch; i++) {
+							queries.push(
+								supabase
+									.from('purchase_voucher_items')
+									.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
+									.range(i * batchSize, (i + 1) * batchSize - 1)
+							);
+						}
+
+						const t3 = performance.now();
+						const results = await Promise.all(queries);
+						console.log(`⏱️ [PV Load] Batch group ${batchGroup}-${endBatch-1}: ${Math.round(performance.now() - t3)}ms`);
+						completedBatches += queries.length;
+						loadingProgress = Math.min(25 + Math.round((completedBatches / remainingBatches) * 70), 95);
+						
+						for (const result of results) {
+							if (!result.error && result.data) {
+								for (const item of result.data) {
+									if (!seenIds.has(item.id)) {
+										seenIds.add(item.id);
+										allItems.push(item);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			loadingProgress = 100;
+			// Sort all items by purchase_voucher_id
+			const t4 = performance.now();
+			purchaseVoucherItems = allItems.sort((a, b) => 
+				(a.purchase_voucher_id || '').localeCompare(b.purchase_voucher_id || '')
+			);
+			console.log(`⏱️ [PV Load] Sorting: ${Math.round(performance.now() - t4)}ms`);
+			console.log(`⏱️ [PV Load] ✅ TOTAL: ${Math.round(performance.now() - startTime)}ms, loaded ${allItems.length} items`);
 		} catch (error) {
 			console.error('Error:', error);
 		} finally {
 			isLoading = false;
+			isRealtimeLoading = false;
 		}
 	}
 
@@ -231,6 +323,18 @@
 </script>
 
 <div class="purchase-voucher-manager">
+	{#if isLoading}
+		<div class="loading-overlay">
+			<div class="loading-content">
+				<div class="loading-spinner"></div>
+				<div class="loading-text">Loading Purchase Vouchers...</div>
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: {loadingProgress}%"></div>
+				</div>
+				<div class="progress-text">{loadingProgress}%</div>
+			</div>
+		</div>
+	{/if}
 	<div class="status-grid">
 		<div class="status-card">1</div>
 		<div class="status-card">2</div>
@@ -347,7 +451,6 @@
 							<th>Stock Person</th>
 							<th>Issued To</th>
 							<th>Issued By</th>
-							<th>Created</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -363,7 +466,6 @@
 								<td>{item.stock_person ? userEmployeeMap[item.stock_person] || item.stock_person : '-'}</td>
 								<td>{item.issued_to || '-'}</td>
 								<td>{item.issued_by || '-'}</td>
-								<td>{new Date(item.created_at).toLocaleDateString()}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -375,6 +477,7 @@
 
 <style>
 	.purchase-voucher-manager {
+		position: relative;
 		width: 100%;
 		height: 100%;
 		padding: 24px;
@@ -586,5 +689,73 @@
 
 	.filter-group select {
 		cursor: pointer;
+	}
+
+	/* Loading Overlay Styles */
+	.loading-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(255, 255, 255, 0.95);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		backdrop-filter: blur(2px);
+	}
+
+	.loading-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
+		padding: 32px;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+	}
+
+	.loading-spinner {
+		width: 48px;
+		height: 48px;
+		border: 4px solid #e5e7eb;
+		border-top-color: #3b82f6;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.loading-text {
+		font-size: 16px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.progress-bar {
+		width: 250px;
+		height: 8px;
+		background: #e5e7eb;
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		border-radius: 4px;
+		transition: width 0.3s ease;
+	}
+
+	.progress-text {
+		font-size: 14px;
+		font-weight: 600;
+		color: #3b82f6;
 	}
 </style>
