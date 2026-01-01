@@ -45,75 +45,70 @@
 		isLoading = true;
 		showTable = true;
 		try {
-			// Load branches and users in parallel
-			await Promise.all([loadBranches(), loadUsers()]);
-
-			const { data, error } = await supabase
+			// Load vouchers first (most important), then lookup data
+			const vouchersResult = await supabase
 				.from('purchase_voucher_items')
-				.select('*')
-				.neq('status', 'issued')
-				.order('created_at', { ascending: false });
+				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
+				.in('status', ['stocked', 'pending', 'available'])
+				.limit(100);
 
-			if (error) {
-				console.error('Error loading non-issued vouchers:', error);
+			// Process vouchers immediately
+			if (vouchersResult.error) {
+				console.error('Error loading non-issued vouchers:', vouchersResult.error);
 				issuedVouchers = [];
 			} else {
-				issuedVouchers = data || [];
+				issuedVouchers = vouchersResult.data || [];
 			}
+
+			// Load lookup data in background (non-blocking for initial render)
+			loadLookupData();
 		} catch (error) {
 			console.error('Error:', error);
+			issuedVouchers = [];
 		} finally {
 			isLoading = false;
 		}
 	}
 
-	async function loadBranches() {
+	async function loadLookupData() {
 		try {
-			const { data, error } = await supabase
-				.from('branches')
-				.select('id, name_en, location_en');
-
-			if (!error && data) {
-				branchMap = {};
-				data.forEach((branch) => {
-					branchMap[branch.id] = `${branch.name_en} - ${branch.location_en}`;
-				});
-			}
-		} catch (error) {
-			console.error('Error loading branches:', error);
-		}
-	}
-
-	async function loadUsers() {
-		try {
-			const [usersResult, employeesResult] = await Promise.all([
-				supabase.from('users').select('id, username, employee_id').limit(1000),
-				supabase.from('hr_employees').select('id, name').limit(1000)
+			const [branchesResult, usersResult, employeesResult] = await Promise.all([
+				supabase.from('branches').select('id, name_en, location_en').limit(50),
+				supabase.from('users').select('id, username, employee_id').limit(200),
+				supabase.from('hr_employees').select('id, name').limit(200)
 			]);
 
-			if (usersResult.error || employeesResult.error) {
-				console.error('Error loading users/employees:', usersResult.error || employeesResult.error);
-				return;
+			// Process branches
+			if (!branchesResult.error && branchesResult.data) {
+				branchMap = {};
+				branchesResult.data.forEach((branch) => {
+					branchMap[branch.id] = `${branch.name_en} - ${branch.location_en}`;
+				});
+				branchMap = branchMap; // Trigger reactivity
 			}
 
-			const users = usersResult.data || [];
-			const employees = employeesResult.data || [];
+			// Process users and employees
+			if (!usersResult.error && !employeesResult.error) {
+				const users = usersResult.data || [];
+				const employees = employeesResult.data || [];
 
-			const employeeMap = {};
-			employees.forEach((emp) => {
-				employeeMap[emp.id] = emp.name;
-			});
+				const employeeMap = {};
+				employees.forEach((emp) => {
+					employeeMap[emp.id] = emp.name;
+				});
 
-			userEmployeeMap = {};
-			users.forEach((user) => {
-				if (user.employee_id && employeeMap[user.employee_id]) {
-					userEmployeeMap[user.id] = `${user.username} - ${employeeMap[user.employee_id]}`;
-				} else {
-					userEmployeeMap[user.id] = user.username;
-				}
-			});
+				userEmployeeMap = {};
+				users.forEach((user) => {
+					if (user.employee_id && employeeMap[user.employee_id]) {
+						userEmployeeMap[user.id] = `${user.username} - ${employeeMap[user.employee_id]}`;
+					} else {
+						userEmployeeMap[user.id] = user.username;
+					}
+				});
+				userEmployeeMap = userEmployeeMap; // Trigger reactivity
+			}
 		} catch (error) {
-			console.error('Error loading users:', error);
+			console.error('Error loading lookup data:', error);
 		}
 	}
 

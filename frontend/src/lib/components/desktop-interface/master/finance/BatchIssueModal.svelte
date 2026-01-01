@@ -289,18 +289,95 @@
 		};
 	}
 
+	async function captureReceiptAsImage() {
+		const receiptElement = document.querySelector('.receipt-container');
+		if (!receiptElement) return null;
+
+		try {
+			// Dynamically import html2canvas
+			const html2canvas = (await import('html2canvas')).default;
+			
+			const canvas = await html2canvas(receiptElement, {
+				scale: 2, // Higher quality
+				backgroundColor: '#ffffff',
+				logging: false,
+				useCORS: true
+			});
+
+			// Convert to blob
+			return new Promise((resolve) => {
+				canvas.toBlob((blob) => {
+					resolve(blob);
+				}, 'image/png', 0.95);
+			});
+		} catch (error) {
+			console.error('Error capturing receipt:', error);
+			return null;
+		}
+	}
+
+	async function uploadReceiptImage(blob) {
+		if (!blob) return null;
+
+		const fileName = `batch_receipt_${count}items_${Date.now()}.png`;
+		const filePath = `batch/${fileName}`;
+
+		const { data, error } = await supabase.storage
+			.from('purchase-voucher-receipts')
+			.upload(filePath, blob, {
+				contentType: 'image/png',
+				cacheControl: '3600',
+				upsert: false
+			});
+
+		if (error) {
+			console.error('Error uploading receipt:', error);
+			return null;
+		}
+
+		// Get public URL
+		const { data: urlData } = supabase.storage
+			.from('purchase-voucher-receipts')
+			.getPublicUrl(filePath);
+
+		return urlData?.publicUrl || null;
+	}
+
 	async function saveReceipt() {
 		if (isLoading || !itemIds || itemIds.length === 0 || !$currentUser?.id) return;
 		isLoading = true;
 
 		try {
-			const updateData = { status: 'issued' };
+			// Capture receipt as image first
+			const receiptBlob = await captureReceiptAsImage();
+			let receiptUrl = null;
+
+			if (receiptBlob) {
+				receiptUrl = await uploadReceiptImage(receiptBlob);
+			}
+
+			const updateData = {};
+
+			// Add receipt URL if captured
+			if (receiptUrl) {
+				updateData.receipt_url = receiptUrl;
+			}
 
 			if (selectedIssueType === 'gift' || selectedIssueType === 'sales') {
-				// For gift/sales: Update issue_type, issued_by (logged user), and issued_date
+				// Set status to issued for gift/sales
+				updateData.status = 'issued';
+				// For gift/sales: Update issue_type, issued_by (logged user), issued_to (selected user), and issued_date
 				updateData.issue_type = selectedIssueType;
 				updateData.issued_by = $currentUser.id;
 				updateData.issued_date = new Date().toISOString();
+				
+				// Set issued_to if a user was selected
+				if (selectedUser) {
+					updateData.issued_to = selectedUser.id;
+				}
+				
+				// Set stock to 0 after issuing
+				updateData.stock = 0;
 			} else if (selectedIssueType === 'stock transfer') {
 				// For stock transfer: Only update stock_person
 				if (selectedUser) {
@@ -319,7 +396,7 @@
 				onIssueComplete();
 				// Close this window
 				if (windowId) {
-					$windowManager.closeWindow(windowId);
+					windowManager.closeWindow(windowId);
 				}
 			}
 		} catch (error) {

@@ -1511,12 +1511,13 @@ function openApprovalCenter() {
 	// Open Purchase Voucher Manager window
 	function openPurchaseVoucherManager() {
 		collapseAllMenus();
-		const windowId = generateWindowId('purchase-voucher-manager');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		// Use fixed window ID to prevent duplicates
+		const windowId = 'purchase-voucher-manager-main';
 		
 		openWindow({
 			id: windowId,
-			title: `Purchase Voucher Manager #${instanceNumber}`,
+			title: `Purchase Voucher Manager`,
 			component: PurchaseVoucherManager,
 			icon: '📄',
 			size: { width: 1100, height: 750 },
