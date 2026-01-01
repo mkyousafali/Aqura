@@ -64,7 +64,7 @@ export const GET: RequestHandler = async () => {
 			},
 			FINANCE: {
 				DASHBOARD: [],
-				MANAGE: ['CATEGORY_MANAGER'],
+				MANAGE: ['CATEGORY_MANAGER', 'PURCHASE_VOUCHER_MANAGER'],
 				OPERATIONS: ['MANUAL_SCHEDULING', 'DAY_BUDGET_PLANNER', 'MONTHLY_MANAGER', 'EXPENSE_MANAGER', 'PAID_MANAGER'],
 				REPORTS: ['EXPENSE_TRACKER', 'SALES_REPORT', 'MONTHLY_BREAKDOWN', 'OVERDUES_REPORT', 'VENDOR_PAYMENTS']
 			},
@@ -132,6 +132,7 @@ export const GET: RequestHandler = async () => {
 			PRODUCT_MANAGER_PROMO: 'Manage Products',
 			COUPON_REPORTS: 'Reports & Stats',
 			CATEGORY_MANAGER: 'Category Manager',
+			PURCHASE_VOUCHER_MANAGER: 'Purchase Voucher Manager',
 			MANUAL_SCHEDULING: 'Manual Scheduling',
 			DAY_BUDGET_PLANNER: 'Day Budget Planner',
 			MONTHLY_MANAGER: 'Monthly Manager',

@@ -39,6 +39,7 @@
 	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
+	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
@@ -1507,6 +1508,27 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Purchase Voucher Manager window
+	function openPurchaseVoucherManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('purchase-voucher-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Purchase Voucher Manager #${instanceNumber}`,
+			component: PurchaseVoucherManager,
+			icon: '📄',
+			size: { width: 1100, height: 750 },
+			position: { 
+				x: 160 + (Math.random() * 100),
+				y: 160 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Day Budget Planner window
 	function openDayBudgetPlanner() {
 		collapseAllMenus();
@@ -2938,6 +2960,14 @@ function openApprovalCenter() {
 							<span class="menu-text">Category Manager</span>
 						</button>
 					</div>
+					{#if isButtonAllowed('PURCHASE_VOUCHER_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPurchaseVoucherManager}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">Purchase Voucher Manager</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
