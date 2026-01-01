@@ -122,6 +122,8 @@ export class UserManagementService {
         throw new Error(error.message || "Failed to create user");
       }
 
+      console.log("Create user response:", data);
+      
       if (data && data.success) {
         return {
           success: true,
@@ -129,7 +131,8 @@ export class UserManagementService {
           quickAccessCode: data.quick_access_code,
         };
       } else {
-        throw new Error("User creation failed");
+        const errorMessage = data?.message || "User creation failed";
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error("Create user error:", error);
