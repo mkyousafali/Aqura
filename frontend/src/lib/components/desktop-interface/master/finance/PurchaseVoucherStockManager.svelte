@@ -27,6 +27,7 @@
 
 	// Filter state - Per Voucher
 	let filterPVId = '';
+	let filterSerialNumber = '';
 	let filterValue = '';
 	let filterStatus = '';
 	let filterStockLocation = '';
@@ -50,6 +51,7 @@
 	let uniqueBookPersons = [];
 
 	let subscription;
+	let ignoreNextReload = false;
 
 	onMount(async () => {
 		// Load branches and users
@@ -68,6 +70,8 @@
 		};
 	});
 
+	let reloadTimeout = null;
+	
 	function setupRealtimeSubscriptions() {
 		// Subscribe to purchase_vouchers table changes
 		subscription = supabase
@@ -79,10 +83,19 @@
 					schema: 'public',
 					table: 'purchase_vouchers'
 				},
-				() => {
-					if (showManagePerBook) {
-						loadBookSummary();
+				(payload) => {
+					// Skip if this is our own change
+					if (ignoreNextReload) {
+						ignoreNextReload = false;
+						return;
 					}
+					// Debounce reload to prevent multiple rapid reloads
+					if (reloadTimeout) clearTimeout(reloadTimeout);
+					reloadTimeout = setTimeout(() => {
+						if (showManagePerBook) {
+							loadBookSummary();
+						}
+					}, 1000);
 				}
 			)
 			.on(
@@ -92,13 +105,22 @@
 					schema: 'public',
 					table: 'purchase_voucher_items'
 				},
-				() => {
-					if (showManagePerBook) {
-						loadBookSummary();
+				(payload) => {
+					// Skip if this is our own change
+					if (ignoreNextReload) {
+						ignoreNextReload = false;
+						return;
 					}
-					if (showManagePerVoucher) {
-						loadVoucherItems();
-					}
+					// Debounce reload to prevent multiple rapid reloads during batch updates
+					if (reloadTimeout) clearTimeout(reloadTimeout);
+					reloadTimeout = setTimeout(() => {
+						if (showManagePerBook) {
+							loadBookSummary();
+						}
+						if (showManagePerVoucher) {
+							loadVoucherItems();
+						}
+					}, 1000);
 				}
 			)
 			.subscribe();
@@ -301,7 +323,8 @@
 	function applyFilters() {
 		filteredVoucherItems = voucherItems.filter(item => {
 			if (filterPVId && item.purchase_voucher_id !== filterPVId) return false;
-			if (filterValue && item.value !== parseInt(filterValue)) return false;
+			if (filterSerialNumber && item.serial_number !== parseInt(filterSerialNumber.trim())) return false;
+			if (filterValue && item.value !== parseFloat(filterValue.trim())) return false;
 			if (filterStatus && item.status !== filterStatus) return false;
 			if (filterStockLocation && item.stock_location_name !== filterStockLocation) return false;
 			if (filterStockPerson && item.stock_person_name !== filterStockPerson) return false;
@@ -312,7 +335,7 @@
 	function applyBookFilters() {
 		filteredBookSummary = bookSummary.filter(book => {
 			if (filterBookPVId && book.voucher_id !== filterBookPVId) return false;
-			if (filterBookNumber && book.book_number !== filterBookNumber) return false;
+			if (filterBookNumber && book.book_number !== filterBookNumber.trim()) return false;
 			if (filterBookStockLocation && book.stock_locations !== filterBookStockLocation) return false;
 			if (filterBookStockPerson && book.stock_persons !== filterBookStockPerson) return false;
 			return true;
@@ -421,63 +444,117 @@
 		}
 
 		try {
+			// Set flag to ignore the next realtime reload
+			ignoreNextReload = true;
+			
+			const locationInt = parseInt(selectedStockLocation);
+			const selectedBranchName = branches.find(b => b.id === locationInt);
+			const locationDisplay = selectedBranchName ? `${selectedBranchName.name_en} - ${selectedBranchName.location_en}` : locationInt.toString();
+			
+			const selectedUser = users.find(u => u.id === selectedStockPerson);
+			const empName = selectedUser?.employee_id ? employees.find(e => e.id === selectedUser.employee_id)?.name : null;
+			const personDisplay = empName ? `${selectedUser.username} - ${empName}` : selectedUser?.username || selectedStockPerson;
+			
 			if (modalMode === 'book') {
 				// Update all items for this voucher book
 				const { error } = await supabase
 					.from('purchase_voucher_items')
 					.update({
-						stock_location: parseInt(selectedStockLocation),
+						stock_location: locationInt,
 						stock_person: selectedStockPerson
 					})
 					.eq('purchase_voucher_id', selectedBook.voucher_id);
 
 				if (error) {
 					alert(`Error: ${error.message}`);
+					ignoreNextReload = false;
 					return;
 				}
 
+				// Optimistically update local data
+				bookSummary = bookSummary.map(book => {
+					if (book.voucher_id === selectedBook.voucher_id) {
+						return {
+							...book,
+							stock_locations: locationDisplay,
+							stock_persons: personDisplay
+						};
+					}
+					return book;
+				});
+				applyBookFilters();
+
 				alert('Assignment successful!');
 				closeAssignModal();
-				await loadBookSummary();
 			} else if (modalMode === 'item') {
 				// Update single item
 				const { error } = await supabase
 					.from('purchase_voucher_items')
 					.update({
-						stock_location: parseInt(selectedStockLocation),
+						stock_location: locationInt,
 						stock_person: selectedStockPerson
 					})
 					.eq('id', selectedItem.id);
 
 				if (error) {
 					alert(`Error: ${error.message}`);
+					ignoreNextReload = false;
 					return;
 				}
 
+				// Optimistically update local data
+				voucherItems = voucherItems.map(item => {
+					if (item.id === selectedItem.id) {
+						return {
+							...item,
+							stock_location: locationInt,
+							stock_person: selectedStockPerson,
+							stock_location_display: locationDisplay,
+							stock_person_display: personDisplay
+						};
+					}
+					return item;
+				});
+				applyVoucherFilters();
+
 				alert('Assignment successful!');
 				closeAssignModal();
-				await loadVoucherItems();
 			} else if (modalMode === 'multiple') {
 				// Update multiple items
 				const itemIds = Array.from(selectedItems);
 				const { error } = await supabase
 					.from('purchase_voucher_items')
 					.update({
-						stock_location: parseInt(selectedStockLocation),
+						stock_location: locationInt,
 						stock_person: selectedStockPerson
 					})
 					.in('id', itemIds);
 
 				if (error) {
 					alert(`Error: ${error.message}`);
+					ignoreNextReload = false;
 					return;
 				}
+
+				// Optimistically update local data
+				voucherItems = voucherItems.map(item => {
+					if (itemIds.includes(item.id)) {
+						return {
+							...item,
+							stock_location: locationInt,
+							stock_person: selectedStockPerson,
+							stock_location_display: locationDisplay,
+							stock_person_display: personDisplay
+						};
+					}
+					return item;
+				});
+				applyVoucherFilters();
 
 				alert(`Assignment successful for ${itemIds.length} voucher(s)!`);
 				closeAssignModal();
 				selectedItems.clear();
 				assignMultipleMode = false;
-				await loadVoucherItems();
 			} else if (modalMode === 'multiple-books') {
 				// Update all items for multiple selected books
 				const bookIds = Array.from(selectedBooks);
@@ -486,22 +563,35 @@
 					const { error } = await supabase
 						.from('purchase_voucher_items')
 						.update({
-							stock_location: parseInt(selectedStockLocation),
+							stock_location: locationInt,
 							stock_person: selectedStockPerson
 						})
 						.eq('purchase_voucher_id', bookId);
 
 					if (error) {
 						alert(`Error updating book ${bookId}: ${error.message}`);
+						ignoreNextReload = false;
 						return;
 					}
 				}
+
+				// Optimistically update local data
+				bookSummary = bookSummary.map(book => {
+					if (bookIds.includes(book.voucher_id)) {
+						return {
+							...book,
+							stock_locations: locationDisplay,
+							stock_persons: personDisplay
+						};
+					}
+					return book;
+				});
+				applyBookFilters();
 
 				alert(`Assignment successful for ${bookIds.length} book(s)!`);
 				closeAssignModal();
 				selectedBooks.clear();
 				assignMultipleMode = false;
-				await loadBookSummary();
 			}
 		} catch (error) {
 			console.error('Error:', error);
@@ -601,12 +691,14 @@
 
 					<div class="filter-group">
 						<label for="filterBookNumber">Book Number</label>
-						<select id="filterBookNumber" bind:value={filterBookNumber} on:change={handleBookFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueBookNumbers as bookNumber}
-								<option value={bookNumber}>{bookNumber}</option>
-							{/each}
-						</select>
+						<input 
+							id="filterBookNumber" 
+							type="text" 
+							placeholder="Enter exact book number" 
+							bind:value={filterBookNumber} 
+							on:input={handleBookFilterChange} 
+							class="form-input"
+						/>
 					</div>
 
 					<div class="filter-group">
@@ -719,45 +811,59 @@
 					</div>
 
 					<div class="filter-group">
-						<label for="filterValue">Value</label>
-						<select id="filterValue" bind:value={filterValue} on:change={handleFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueValues as value}
-								<option value={value}>{value}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="filter-group">
-						<label for="filterStatus">Status</label>
-						<select id="filterStatus" bind:value={filterStatus} on:change={handleFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueStatuses as status}
-								<option value={status}>{status}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="filter-group">
-						<label for="filterStockLocation">Stock Location</label>
-						<select id="filterStockLocation" bind:value={filterStockLocation} on:change={handleFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueLocations as location}
-								<option value={location}>{location}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="filter-group">
-						<label for="filterStockPerson">Stock Person</label>
-						<select id="filterStockPerson" bind:value={filterStockPerson} on:change={handleFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniquePersons as person}
-								<option value={person}>{person}</option>
-							{/each}
-						</select>
-					</div>
+					<label for="filterSerialNumber">Serial Number</label>
+					<input 
+						id="filterSerialNumber" 
+						type="text" 
+						placeholder="Enter exact serial number" 
+						bind:value={filterSerialNumber} 
+						on:input={handleFilterChange} 
+						class="form-input"
+					/>
 				</div>
+
+				<div class="filter-group">
+					<label for="filterValue">Value</label>
+					<input 
+						id="filterValue" 
+						type="text" 
+						placeholder="Enter exact value" 
+						bind:value={filterValue} 
+						on:input={handleFilterChange} 
+						class="form-input"
+					/>
+				</div>
+
+				<div class="filter-group">
+					<label for="filterStatus">Status</label>
+					<select id="filterStatus" bind:value={filterStatus} on:change={handleFilterChange} class="form-input">
+						<option value="">All</option>
+						{#each uniqueStatuses as status}
+							<option value={status}>{status}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="filter-group">
+					<label for="filterStockLocation">Stock Location</label>
+					<select id="filterStockLocation" bind:value={filterStockLocation} on:change={handleFilterChange} class="form-input">
+						<option value="">All</option>
+						{#each uniqueLocations as location}
+							<option value={location}>{location}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="filter-group">
+					<label for="filterStockPerson">Stock Person</label>
+					<select id="filterStockPerson" bind:value={filterStockPerson} on:change={handleFilterChange} class="form-input">
+						<option value="">All</option>
+						{#each uniquePersons as person}
+							<option value={person}>{person}</option>
+						{/each}
+					</select>
+				</div>
+			</div>
 
 				<!-- Batch Action Button -->
 				{#if selectedItems.size > 0}

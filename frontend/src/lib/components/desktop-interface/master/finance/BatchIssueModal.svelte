@@ -12,13 +12,20 @@
 	let step = 'select-category'; // 'select-category', 'select-type', or 'receipt'
 	let selectedCategory = null;
 	let selectedUser = null;
+	let selectedRequester = null;
 	let selectedIssueType = null; // Store selected issue type
+	let selectedBranch = null; // For stock transfer branch selection
+	let showBranchSelection = false;
 	let users = [];
+	let requesters = [];
 	let branches = {};
 	let positions = {}; // Map of employee_id -> position_name
 	let searchQuery = '';
+	let requesterSearchQuery = '';
 	let usersLoading = false;
+	let requestersLoading = false;
 	let showUserTable = false;
+	let showRequesterTable = false;
 	let filterBranch = ''; // Filter by branch
 	let filterPosition = ''; // Filter by position
 	let batchItems = []; // Items to be issued in batch
@@ -29,10 +36,12 @@
 			// Load users and branches for internal
 			await loadUsersAndBranches();
 			showUserTable = true;
+			showRequesterTable = false;
 		} else {
-			// External - skip to type selection
+			// External - load requesters
+			await loadRequesters();
 			showUserTable = false;
-			step = 'select-type';
+			showRequesterTable = true;
 		}
 	}
 
@@ -81,25 +90,78 @@
 		}
 	}
 
+	async function loadRequesters() {
+		requestersLoading = true;
+		try {
+			const requestersResult = await supabase
+				.from('requesters')
+				.select('id, requester_id, requester_name, contact_number')
+				.order('requester_name', { ascending: true });
+
+			if (!requestersResult.error && requestersResult.data) {
+				requesters = requestersResult.data;
+			}
+		} catch (error) {
+			console.error('Error loading requesters:', error);
+		} finally {
+			requestersLoading = false;
+		}
+	}
+
 	function selectUser(user) {
 		selectedUser = user;
 		// Don't change step, stay in select-category to show user + issue type inline
 	}
 
+	function selectRequester(requester) {
+		selectedRequester = requester;
+		// Don't change step, stay in select-category to show requester + issue type inline
+	}
+
+	function selectBranch(branchId) {
+		selectedBranch = branchId;
+		// After branch selection, load items and show receipt
+		loadBatchItems();
+		step = 'receipt';
+		showBranchSelection = false;
+	}
+
+	function goBackFromBranch() {
+		showBranchSelection = false;
+		selectedBranch = null;
+	}
+
 	function goBack() {
-		if (step === 'receipt') {
-			// Go back from receipt to issue type selection
-			step = 'select-category';
-			selectedIssueType = null;
+		if (showBranchSelection) {
+			// If on branch selection, go back to issue type selection
+			showBranchSelection = false;
+			selectedBranch = null;
+		} else if (step === 'receipt') {
+			// Go back from receipt to issue type selection (or branch selection for stock transfer)
+			if (selectedIssueType === 'stock transfer' && selectedCategory === 'internal') {
+				step = 'select-category';
+				showBranchSelection = true;
+			} else {
+				step = 'select-category';
+				selectedIssueType = null;
+			}
 		} else if (selectedUser) {
 			// Clear selected user, go back to user table
 			selectedUser = null;
 			searchQuery = '';
 			filterBranch = '';
 			filterPosition = '';
+		} else if (selectedRequester) {
+			// Clear selected requester, go back to requester table
+			selectedRequester = null;
+			requesterSearchQuery = '';
 		} else if (showUserTable && selectedCategory === 'internal') {
 			// Close user table, back to category selection
 			showUserTable = false;
+			selectedCategory = null;
+		} else if (showRequesterTable && selectedCategory === 'external') {
+			// Close requester table, back to category selection
+			showRequesterTable = false;
 			selectedCategory = null;
 		}
 	}
@@ -111,6 +173,12 @@
 		return matchesSearch && matchesBranch && matchesPosition;
 	});
 
+	$: filteredRequesters = requesters.filter(requester => {
+		const matchesSearch = requester.requester_name.toLowerCase().includes(requesterSearchQuery.toLowerCase()) ||
+			(requester.requester_id && requester.requester_id.toLowerCase().includes(requesterSearchQuery.toLowerCase()));
+		return matchesSearch;
+	});
+
 	$: uniqueBranches = Array.from(new Set(users.map(u => u.branch_id)))
 		.filter(id => id && branches[id])
 		.sort((a, b) => branches[a].localeCompare(branches[b]));
@@ -119,10 +187,15 @@
 		.sort();
 
 	function handleIssue(type) {
-		// Load batch items and show receipt preview
 		selectedIssueType = type;
-		loadBatchItems();
-		step = 'receipt';
+		// If stock transfer for internal, show branch selection
+		if (type === 'stock transfer' && selectedCategory === 'internal') {
+			showBranchSelection = true;
+		} else {
+			// For other types, load items and go to receipt
+			loadBatchItems();
+			step = 'receipt';
+		}
 	}
 
 	async function loadBatchItems() {
@@ -379,9 +452,12 @@
 				// Set stock to 0 after issuing
 				updateData.stock = 0;
 			} else if (selectedIssueType === 'stock transfer') {
-				// For stock transfer: Only update stock_person
+				// For stock transfer: Update stock_person and stock_location
 				if (selectedUser) {
 					updateData.stock_person = selectedUser.id;
+				}
+				if (selectedBranch) {
+					updateData.stock_location = selectedBranch;
 				}
 			}
 
@@ -480,13 +556,41 @@
 						</div>
 					</div>
 
-					<p class="type-label">Select issue type:</p>
-					<div class="buttons three-col">
-						<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
-						<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
-						<button class="btn-transfer" on:click={() => handleIssue('stock transfer')}>Stock Transfer</button>
-					</div>
-					<button class="btn-back" on:click={goBack}>Back to User Selection</button>
+					{#if showBranchSelection}
+						<!-- Branch selection for stock transfer -->
+						<p class="type-label">Select transfer branch:</p>
+						<div class="users-table-container">
+							<table class="users-table">
+								<thead>
+									<tr>
+										<th>Branch Name</th>
+										<th>Action</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each Object.entries(branches) as [branchId, branchName] (branchId)}
+										<tr>
+											<td>{branchName}</td>
+											<td>
+												<button class="btn-select" on:click={() => selectBranch(branchId)}>
+													Select
+												</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<button class="btn-back" on:click={goBackFromBranch}>Back to Issue Type</button>
+					{:else}
+						<p class="type-label">Select issue type:</p>
+						<div class="buttons three-col">
+							<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
+							<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
+							<button class="btn-transfer" on:click={() => handleIssue('stock transfer')}>Stock Transfer</button>
+						</div>
+						<button class="btn-back" on:click={goBack}>Back to User Selection</button>
+					{/if}
 				{:else}
 					<!-- Show user selection table -->
 					<div class="search-section">
@@ -533,6 +637,93 @@
 											<td>{positions[user.employee_id] || 'N/A'}</td>
 											<td>
 												<button class="btn-select" on:click={() => selectUser(user)}>
+													Select
+												</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+					<button class="btn-back" on:click={goBack}>Back to Category</button>
+				{/if}
+			{/if}
+
+			{#if showRequesterTable}
+				{#if selectedRequester}
+					<!-- Show selected requester info and issue type -->
+					<div class="selected-info">
+						<p class="selected-label">Selected Requester:</p>
+						<div class="user-card">
+							<div class="user-detail">
+								<span class="detail-label">Requester ID:</span>
+								<span class="detail-value">{selectedRequester.requester_id}</span>
+							</div>
+							<div class="user-detail">
+								<span class="detail-label">Name:</span>
+								<span class="detail-value">{selectedRequester.requester_name}</span>
+							</div>
+							<div class="user-detail">
+								<span class="detail-label">Contact Number:</span>
+								<span class="detail-value">{selectedRequester.contact_number || 'N/A'}</span>
+							</div>
+						</div>
+					</div>
+
+					<p class="type-label">Select issue type:</p>
+					<div class="buttons">
+						<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
+						<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
+					</div>
+					<button class="btn-back" on:click={goBack}>Back to Requester Selection</button>
+				{:else}
+					<!-- Show requester selection table -->
+					<div class="search-section">
+						<input
+							type="text"
+							placeholder="Search by name or ID..."
+							bind:value={requesterSearchQuery}
+							class="search-input"
+							disabled={requestersLoading}
+						/>
+					</div>
+
+					{#if !requestersLoading && requesters.length > 0}
+						<div class="count-info">
+							<span class="count-label">Total Requesters:</span>
+							<span class="count-value">{requesters.length}</span>
+							{#if requesterSearchQuery}
+								<span class="count-separator">|</span>
+								<span class="count-label">Filtered:</span>
+								<span class="count-value">{filteredRequesters.length}</span>
+							{/if}
+						</div>
+					{/if}
+
+					{#if requestersLoading}
+						<p class="loading">Loading requesters...</p>
+					{:else if filteredRequesters.length === 0}
+						<p class="no-data">No requesters found</p>
+					{:else}
+						<div class="users-table-container">
+							<table class="users-table">
+								<thead>
+									<tr>
+										<th>Requester ID</th>
+										<th>Name</th>
+										<th>Contact Number</th>
+										<th>Action</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each filteredRequesters as requester (requester.id)}
+										<tr>
+											<td>{requester.requester_id}</td>
+											<td>{requester.requester_name}</td>
+											<td>{requester.contact_number || 'N/A'}</td>
+											<td>
+												<button class="btn-select" on:click={() => selectRequester(requester)}>
 													Select
 												</button>
 											</td>
@@ -620,6 +811,26 @@
 						<div class="detail-row">
 							<span class="label">اسم الفرع / Branch Name:</span>
 							<span class="value">{branches[selectedUser.branch_id] || 'N/A'}</span>
+						</div>
+						{#if selectedIssueType === 'stock transfer' && selectedBranch}
+							<div class="detail-row">
+								<span class="label">فرع النقل / Transfer To Branch:</span>
+								<span class="value">{branches[selectedBranch] || 'N/A'}</span>
+							</div>
+						{/if}
+					{/if}
+					{#if selectedRequester}
+						<div class="detail-row">
+							<span class="label">المتلقي / Receiver:</span>
+							<span class="value">{selectedRequester.requester_name}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">رقم المتلقي / Requester ID:</span>
+							<span class="value">{selectedRequester.requester_id}</span>
+						</div>
+						<div class="detail-row">
+							<span class="label">رقم الاتصال / Contact Number:</span>
+							<span class="value">{selectedRequester.contact_number || 'N/A'}</span>
 						</div>
 					{/if}
 					<div class="detail-row">
@@ -867,6 +1078,34 @@
 
 	.btn-select:hover {
 		background: #059669;
+	}
+
+	.count-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 16px;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+		margin-bottom: 16px;
+		font-size: 14px;
+	}
+
+	.count-label {
+		font-weight: 600;
+		color: #0369a1;
+	}
+
+	.count-value {
+		font-weight: 700;
+		color: #0c4a6e;
+		font-size: 16px;
+	}
+
+	.count-separator {
+		color: #94a3b8;
+		font-weight: 600;
 	}
 
 	.loading, .no-data {
