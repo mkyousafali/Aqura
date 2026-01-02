@@ -12,13 +12,27 @@
 	let step = 'select-category'; // 'select-category', 'select-type', or 'receipt'
 	let selectedCategory = null;
 	let selectedUser = null;
+	let selectedRequester = null;
 	let selectedIssueType = null; // Store selected issue type
+	let selectedBranch = null; // For stock transfer branch selection
+	let showBranchSelection = false;
 	let users = [];
+	let requesters = [];
 	let branches = {};
 	let positions = {}; // Map of employee_id -> position_name
 	let searchQuery = '';
+	let requesterSearchQuery = '';
 	let usersLoading = false;
+	let requestersLoading = false;
 	let showUserTable = false;
+	let showRequesterTable = false;
+	let showAddRequesterForm = false;
+	let newRequester = {
+		requester_id: '',
+		requester_name: '',
+		contact_number: ''
+	};
+	let savingRequester = false;
 	let filterBranch = ''; // Filter by branch
 	let filterPosition = ''; // Filter by position
 
@@ -28,10 +42,12 @@
 			// Load users and branches for internal
 			await loadUsersAndBranches();
 			showUserTable = true;
+			showRequesterTable = false;
 		} else {
-			// External - skip to type selection
+			// External - load requesters
+			await loadRequesters();
 			showUserTable = false;
-			step = 'select-type';
+			showRequesterTable = true;
 		}
 	}
 
@@ -82,31 +98,142 @@
 		}
 	}
 
+	async function loadRequesters() {
+		requestersLoading = true;
+		try {
+			const requestersResult = await supabase
+				.from('requesters')
+				.select('id, requester_id, requester_name, contact_number')
+				.order('requester_name', { ascending: true });
+
+			if (!requestersResult.error && requestersResult.data) {
+				requesters = requestersResult.data;
+			}
+		} catch (error) {
+			console.error('Error loading requesters:', error);
+		} finally {
+			requestersLoading = false;
+		}
+	}
+
 	function selectUser(user) {
 		selectedUser = user;
 		// Don't change step, stay in select-category to show user + issue type inline
 	}
 
+	function selectRequester(requester) {
+		selectedRequester = requester;
+		// Don't change step, stay in select-category to show requester + issue type inline
+	}
+
+	function selectBranch(branchId) {
+		selectedBranch = branchId;
+		// After branch selection, show receipt
+		step = 'receipt';
+		showBranchSelection = false;
+	}
+
+	function goBackFromBranch() {
+		showBranchSelection = false;
+		selectedBranch = null;
+	}
+
+	function showAddRequester() {
+		showAddRequesterForm = true;
+		newRequester = {
+			requester_id: '',
+			requester_name: '',
+			contact_number: ''
+		};
+	}
+
+	function cancelAddRequester() {
+		showAddRequesterForm = false;
+		newRequester = {
+			requester_id: '',
+			requester_name: '',
+			contact_number: ''
+		};
+	}
+
+	async function saveNewRequester() {
+		if (!newRequester.requester_id || !newRequester.requester_name) {
+			alert('Please fill in Requester ID and Name');
+			return;
+		}
+
+		savingRequester = true;
+		try {
+			const { data, error } = await supabase
+				.from('requesters')
+				.insert([{
+					requester_id: newRequester.requester_id,
+					requester_name: newRequester.requester_name,
+					contact_number: newRequester.contact_number || null,
+					created_by: $currentUser?.id
+				}])
+				.select();
+
+			if (error) {
+				console.error('Error adding requester:', error);
+				alert('Error adding requester: ' + error.message);
+			} else {
+				// Refresh requesters list
+				await loadRequesters();
+				showAddRequesterForm = false;
+				newRequester = {
+					requester_id: '',
+					requester_name: '',
+					contact_number: ''
+				};
+				alert('Requester added successfully!');
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			alert('Error adding requester');
+		} finally {
+			savingRequester = false;
+		}
+	}
+
 	function goBack() {
-		if (step === 'receipt') {
-			// Go back from receipt to issue type selection
-			step = 'select-category';
-			selectedIssueType = null;
+		if (showBranchSelection) {
+			// If on branch selection, go back to issue type selection
+			showBranchSelection = false;
+			selectedBranch = null;
+		} else if (step === 'receipt') {
+			// Go back from receipt to issue type selection (or branch selection for stock transfer)
+			if (selectedIssueType === 'stock transfer' && selectedCategory === 'internal') {
+				step = 'select-category';
+				showBranchSelection = true;
+			} else {
+				step = 'select-category';
+				selectedIssueType = null;
+			}
 		} else if (selectedUser) {
 			// Clear selected user, go back to user table
 			selectedUser = null;
 			searchQuery = '';
 			filterBranch = '';
 			filterPosition = '';
+		} else if (selectedRequester) {
+			// Clear selected requester, go back to requester table
+			selectedRequester = null;
+			requesterSearchQuery = '';
 		} else if (showUserTable && selectedCategory === 'internal') {
 			// Close user table, back to category selection
 			showUserTable = false;
+			selectedCategory = null;
+		} else if (showRequesterTable && selectedCategory === 'external') {
+			// Close requester table, back to category selection
+			showRequesterTable = false;
 			selectedCategory = null;
 		} else if (step === 'select-type') {
 			// Back from type selection to category
 			step = 'select-category';
 			selectedCategory = null;
 			showUserTable = false;
+			showRequesterTable = false;
 		}
 	}
 
@@ -117,6 +244,12 @@
 		return matchesSearch && matchesBranch && matchesPosition;
 	});
 
+	$: filteredRequesters = requesters.filter(requester => {
+		const matchesSearch = requester.requester_name.toLowerCase().includes(requesterSearchQuery.toLowerCase()) ||
+			(requester.requester_id && requester.requester_id.toLowerCase().includes(requesterSearchQuery.toLowerCase()));
+		return matchesSearch;
+	});
+
 	$: uniqueBranches = Array.from(new Set(users.map(u => u.branch_id)))
 		.filter(id => id && branches[id])
 		.sort((a, b) => branches[a].localeCompare(branches[b]));
@@ -125,9 +258,14 @@
 		.sort();
 
 	function handleIssue(type) {
-		// Just show receipt preview, don't save yet
 		selectedIssueType = type;
-		step = 'receipt';
+		// If stock transfer for internal, show branch selection
+		if (type === 'stock transfer' && selectedCategory === 'internal') {
+			showBranchSelection = true;
+		} else {
+			// For other types, go to receipt
+			step = 'receipt';
+		}
 	}
 
 	function printReceipt() {
@@ -351,9 +489,12 @@
 				// Set stock to 0 after issuing
 				updateData.stock = 0;
 			} else if (selectedIssueType === 'stock transfer') {
-				// For stock transfer: Only update stock_person
+				// For stock transfer: Update stock_person and stock_location
 				if (selectedUser) {
 					updateData.stock_person = selectedUser.id;
+				}
+				if (selectedBranch) {
+					updateData.stock_location = selectedBranch;
 				}
 			}
 
@@ -458,13 +599,41 @@
 						</div>
 					</div>
 
-					<p class="type-label">Select issue type:</p>
-					<div class="buttons three-col">
-						<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
-						<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
-						<button class="btn-transfer" on:click={() => handleIssue('stock transfer')}>Stock Transfer</button>
-					</div>
-					<button class="btn-back" on:click={goBack}>Back to User Selection</button>
+					{#if showBranchSelection}
+						<!-- Branch selection for stock transfer -->
+						<p class="type-label">Select transfer branch:</p>
+						<div class="users-table-container">
+							<table class="users-table">
+								<thead>
+									<tr>
+										<th>Branch Name</th>
+										<th>Action</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each Object.entries(branches) as [branchId, branchName] (branchId)}
+										<tr>
+											<td>{branchName}</td>
+											<td>
+												<button class="btn-select" on:click={() => selectBranch(branchId)}>
+													Select
+												</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<button class="btn-back" on:click={goBackFromBranch}>Back to Issue Type</button>
+					{:else}
+						<p class="type-label">Select issue type:</p>
+						<div class="buttons three-col">
+							<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
+							<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
+							<button class="btn-transfer" on:click={() => handleIssue('stock transfer')}>Stock Transfer</button>
+						</div>
+						<button class="btn-back" on:click={goBack}>Back to User Selection</button>
+					{/if}
 				{:else}
 					<!-- Show user selection table -->
 					<div class="search-section">
@@ -523,6 +692,145 @@
 					<button class="btn-back" on:click={goBack}>Back to Category</button>
 				{/if}
 			{/if}
+
+			{#if showRequesterTable}
+				{#if selectedRequester}
+					<!-- Show selected requester info and issue type -->
+					<div class="selected-info">
+						<p class="selected-label">Selected Requester:</p>
+						<div class="user-card">
+							<div class="user-detail">
+								<span class="detail-label">Requester ID:</span>
+								<span class="detail-value">{selectedRequester.requester_id}</span>
+							</div>
+							<div class="user-detail">
+								<span class="detail-label">Name:</span>
+								<span class="detail-value">{selectedRequester.requester_name}</span>
+							</div>
+							<div class="user-detail">
+								<span class="detail-label">Contact Number:</span>
+								<span class="detail-value">{selectedRequester.contact_number || 'N/A'}</span>
+							</div>
+						</div>
+					</div>
+
+					<p class="type-label">Select issue type:</p>
+					<div class="buttons">
+						<button class="btn-gift" on:click={() => handleIssue('gift')}>Gift</button>
+						<button class="btn-sales" on:click={() => handleIssue('sales')}>Sales</button>
+					</div>
+					<button class="btn-back" on:click={goBack}>Back to Requester Selection</button>
+				{:else}
+					<!-- Show requester selection table -->
+					{#if showAddRequesterForm}
+						<!-- Add New Requester Form -->
+						<div class="add-requester-form">
+							<h4>Add New Requester</h4>
+							<div class="form-group">
+								<label>Requester ID <span class="required">*</span></label>
+								<input
+									type="text"
+									bind:value={newRequester.requester_id}
+									placeholder="Enter requester ID"
+									class="form-input"
+									disabled={savingRequester}
+								/>
+							</div>
+							<div class="form-group">
+								<label>Requester Name <span class="required">*</span></label>
+								<input
+									type="text"
+									bind:value={newRequester.requester_name}
+									placeholder="Enter requester name"
+									class="form-input"
+									disabled={savingRequester}
+								/>
+							</div>
+							<div class="form-group">
+								<label>Contact Number</label>
+								<input
+									type="text"
+									bind:value={newRequester.contact_number}
+									placeholder="Enter contact number"
+									class="form-input"
+									disabled={savingRequester}
+								/>
+							</div>
+							<div class="form-actions">
+								<button class="btn-cancel" on:click={cancelAddRequester} disabled={savingRequester}>
+									Cancel
+								</button>
+								<button class="btn-save" on:click={saveNewRequester} disabled={savingRequester}>
+									{#if savingRequester}
+										Saving...
+									{:else}
+										Save Requester
+									{/if}
+								</button>
+							</div>
+						</div>
+					{:else}
+						<div class="search-section">
+							<input
+								type="text"
+								placeholder="Search by name or ID..."
+								bind:value={requesterSearchQuery}
+								class="search-input"
+								disabled={requestersLoading}
+							/>
+							<button class="btn-add-requester" on:click={showAddRequester} disabled={requestersLoading}>
+								➕ Add New
+							</button>
+						</div>
+					
+					{#if !requestersLoading && requesters.length > 0}
+						<div class="count-info">
+							<span class="count-label">Total Requesters:</span>
+							<span class="count-value">{requesters.length}</span>
+							{#if requesterSearchQuery}
+								<span class="count-separator">|</span>
+								<span class="count-label">Filtered:</span>
+								<span class="count-value">{filteredRequesters.length}</span>
+							{/if}
+						</div>
+					{/if}
+					
+					{#if requestersLoading}
+						<p class="loading">Loading requesters...</p>
+					{:else if filteredRequesters.length === 0}
+						<p class="no-data">No requesters found</p>
+					{:else}
+						<div class="users-table-container">
+							<table class="users-table">
+								<thead>
+									<tr>
+										<th>Requester ID</th>
+										<th>Name</th>
+										<th>Contact Number</th>
+										<th>Action</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each filteredRequesters as requester (requester.id)}
+										<tr>
+											<td>{requester.requester_id}</td>
+											<td>{requester.requester_name}</td>
+											<td>{requester.contact_number || 'N/A'}</td>
+											<td>
+												<button class="btn-select" on:click={() => selectRequester(requester)}>
+													Select
+												</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+					{/if}
+				{/if}
+			{/if}
+			<button class="btn-back" on:click={goBack}>Back to Category</button>
 		{/if}
 	</div>
 	{#if step === 'receipt'}
@@ -590,6 +898,26 @@
 					<div class="detail-row">
 						<span class="label">اسم الفرع / Branch Name:</span>
 						<span class="value">{branches[selectedUser.branch_id] || 'N/A'}</span>
+					</div>
+					{#if selectedIssueType === 'stock transfer' && selectedBranch}
+						<div class="detail-row">
+							<span class="label">فرع النقل / Transfer To Branch:</span>
+							<span class="value">{branches[selectedBranch] || 'N/A'}</span>
+						</div>
+					{/if}
+				{/if}
+				{#if selectedRequester}
+					<div class="detail-row">
+						<span class="label">المتلقي / Receiver:</span>
+						<span class="value">{selectedRequester.requester_name}</span>
+					</div>
+					<div class="detail-row">
+						<span class="label">رقم المتلقي / Requester ID:</span>
+						<span class="value">{selectedRequester.requester_id}</span>
+					</div>
+					<div class="detail-row">
+						<span class="label">رقم الاتصال / Contact Number:</span>
+						<span class="value">{selectedRequester.contact_number || 'N/A'}</span>
 					</div>
 				{/if}
 			<div class="detail-row">
@@ -780,6 +1108,158 @@
 		color: #374151;
 	}
 
+	.count-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 16px;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+		margin-bottom: 16px;
+		font-size: 14px;
+	}
+
+	.count-label {
+		font-weight: 600;
+		color: #0369a1;
+	}
+
+	.count-value {
+		font-weight: 700;
+		color: #0c4a6e;
+		font-size: 16px;
+	}
+
+	.count-separator {
+		color: #94a3b8;
+		font-weight: 600;
+	}
+
+	.btn-add-requester {
+		padding: 10px 20px;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.btn-add-requester:hover:not(:disabled) {
+		background: #059669;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+	}
+
+	.btn-add-requester:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.add-requester-form {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 20px;
+		margin-bottom: 16px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.add-requester-form h4 {
+		margin: 0 0 16px 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: #1f2937;
+	}
+
+	.form-group {
+		margin-bottom: 16px;
+	}
+
+	.form-group label {
+		display: block;
+		margin-bottom: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.required {
+		color: #ef4444;
+	}
+
+	.form-input {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		font-family: inherit;
+		transition: all 0.2s;
+	}
+
+	.form-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.form-input:disabled {
+		background: #f3f4f6;
+		color: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 12px;
+		justify-content: flex-end;
+		margin-top: 20px;
+	}
+
+	.btn-cancel {
+		padding: 10px 20px;
+		background: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel:hover:not(:disabled) {
+		background: #e5e7eb;
+	}
+
+	.btn-save {
+		padding: 10px 20px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		background: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+	}
+
+	.btn-save:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.users-table-container {
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
@@ -832,6 +1312,20 @@
 
 	.btn-select:hover {
 		background: #059669;
+	}
+
+	.status-badge {
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		background: #ef4444;
+		color: white;
+	}
+
+	.status-badge.active {
+		background: #10b981;
+		color: white;
 	}
 
 	.loading, .no-data {

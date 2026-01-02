@@ -8,82 +8,69 @@
 	import ClosePurchaseVoucher from '$lib/components/desktop-interface/master/finance/ClosePurchaseVoucher.svelte';
 	import PurchaseVoucherStockManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherStockManager.svelte';
 
-	let purchaseVoucherItems = [];
+	let voucherItems = [];
+	let bookSummary = [];
 	let isLoading = false;
-	let loadingProgress = 0;
-	let hasInitialized = false;
-	let subscription;
-	let branchMap = {};
-	let userEmployeeMap = {};
-	let customerMap = {};
-
-	// Filter variables
-	let filterPVId = '';
-	let filterSerialNumber = '';
-	let filterValue = '';
-	let filterStatus = '';
-	let filterIssueType = '';
-	let filterStockLocation = '';
-	let filterStockPerson = '';
-	let filterIssuedTo = '';
-	let filterIssuedBy = '';
-
-	// Computed filtered list
-	$: filteredItems = purchaseVoucherItems.filter((item) => {
-		if (filterPVId && item.purchase_voucher_id !== filterPVId) return false;
-		if (filterSerialNumber && item.serial_number.toString() !== filterSerialNumber) return false;
-		if (filterValue && item.value.toString() !== filterValue) return false;
-		if (filterStatus && item.status !== filterStatus) return false;
-		if (filterIssueType && item.issue_type !== filterIssueType) return false;
-		if (filterStockLocation && item.stock_location !== (filterStockLocation ? parseInt(filterStockLocation) : null)) return false;
-		if (filterStockPerson && item.stock_person !== filterStockPerson) return false;
-		if (filterIssuedTo && item.issued_to !== filterIssuedTo) return false;
-		if (filterIssuedBy && item.issued_by !== filterIssuedBy) return false;
-		return true;
-	});
-
-	// Get unique filter values
-	$: uniqueValues = {
-		pvIds: [...new Set(purchaseVoucherItems.map((i) => i.purchase_voucher_id))],
-		values: [...new Set(purchaseVoucherItems.map((i) => i.value))].sort((a, b) => a - b),
-		statuses: [...new Set(purchaseVoucherItems.map((i) => i.status))],
-		issueTypes: [...new Set(purchaseVoucherItems.map((i) => i.issue_type))],
-		stockLocations: [...new Set(purchaseVoucherItems.map((i) => i.stock_location).filter(Boolean))],
-		stockPersons: [...new Set(purchaseVoucherItems.map((i) => i.stock_person).filter(Boolean))],
-		issuedTos: [...new Set(purchaseVoucherItems.map((i) => i.issued_to).filter(Boolean))],
-		issuedBys: [...new Set(purchaseVoucherItems.map((i) => i.issued_by).filter(Boolean))]
+	let isLoadingMore = false;
+	let voucherOffset = 0;
+	let voucherPageSize = 500;
+	let hasMoreVouchers = true;
+	let viewMode = 'voucher'; // 'voucher' or 'book'
+	let branches = [];
+	let users = [];
+	let employees = [];
+	
+	// Status card 1 data - Not Issued
+	let notIssuedStats = {
+		totalVouchers: 0,
+		byBranch: {} // { branchId: { value1: count, value2: count } }
 	};
 
-	onMount(async () => {
-		if (hasInitialized) return;
-		hasInitialized = true;
-		
-		// Load all data in parallel
-		await Promise.all([
-			loadBranches(),
-			loadUsers(),
-			loadPurchaseVoucherItems()
-		]);
-		setupRealtimeSubscriptions();
+	// Status card 2 data - Stocked
+	let stockedStats = {
+		totalVouchers: 0,
+		valueCounts: {} // { value1: count, value2: count }
+	};
 
-		return () => {
-			if (subscription) {
-				subscription.unsubscribe();
-			}
-		};
+	// Create lookup maps for display
+	$: branchMap = branches.reduce((map, b) => {
+		map[b.id] = `${b.name_en} - ${b.location_en}`;
+		return map;
+	}, {});
+
+	$: employeeMap = employees.reduce((map, e) => {
+		map[e.id] = e.name;
+		return map;
+	}, {});
+
+	$: userEmployeeMap = users.reduce((map, u) => {
+		const empName = employeeMap[u.employee_id];
+		map[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+		return map;
+	}, {});
+
+	$: userNameMap = users.reduce((map, u) => {
+		map[u.id] = u.username;
+		return map;
+	}, {});
+
+	onMount(async () => {
+		await loadBranches();
+		await loadUsers();
+		await loadEmployees();
+		await loadNotIssuedStats();
+		await loadStockedStats();
+		await loadVoucherItems();
 	});
 
 	async function loadBranches() {
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, location_en');
-
-			if (!error && data) {
-				branchMap = {};
-				data.forEach((branch) => {
-					branchMap[branch.id] = `${branch.name_en} - ${branch.location_en}`;
-				});
+				.select('id, name_en, location_en')
+				.limit(100);
+			if (!error) {
+				branches = data || [];
 			}
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -92,155 +79,312 @@
 
 	async function loadUsers() {
 		try {
-			const [usersResult, employeesResult] = await Promise.all([
-				supabase.from('users').select('id, username, employee_id').limit(1000),
-				supabase.from('hr_employees').select('id, name').limit(1000)
-			]);
-
-			if (usersResult.error || employeesResult.error) {
-				console.error('Error loading users/employees:', usersResult.error || employeesResult.error);
-				return;
+			const { data, error } = await supabase
+				.from('users')
+				.select('id, username, employee_id')
+				.limit(500);
+			if (!error) {
+				users = data || [];
 			}
-
-			const users = usersResult.data || [];
-			const employees = employeesResult.data || [];
-
-			const employeeMap = {};
-			employees.forEach((emp) => {
-				employeeMap[emp.id] = emp.name;
-			});
-
-			userEmployeeMap = {};
-			users.forEach((user) => {
-				if (user.employee_id && employeeMap[user.employee_id]) {
-					userEmployeeMap[user.id] = `${user.username} - ${employeeMap[user.employee_id]}`;
-				} else {
-					userEmployeeMap[user.id] = user.username;
-				}
-			});
 		} catch (error) {
 			console.error('Error loading users:', error);
 		}
 	}
 
-	let realtimeDebounceTimer = null;
-	let isRealtimeLoading = false;
-
-	function setupRealtimeSubscriptions() {
-		subscription = supabase
-			.channel('purchase_voucher_items_changes')
-			.on(
-				'postgres_changes',
-				{
-					event: '*',
-					schema: 'public',
-					table: 'purchase_voucher_items'
-				},
-				() => {
-					// Debounce realtime updates to prevent infinite loops
-					if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
-					if (isRealtimeLoading) return;
-					
-					realtimeDebounceTimer = setTimeout(() => {
-						loadPurchaseVoucherItems();
-					}, 1000);
-				}
-			)
-			.subscribe();
+	async function loadEmployees() {
+		try {
+			const { data, error } = await supabase
+				.from('hr_employees')
+				.select('id, name')
+				.limit(500);
+			if (!error) {
+				employees = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading employees:', error);
+		}
 	}
 
-	async function loadPurchaseVoucherItems() {
-		if (isLoading) return; // Prevent duplicate calls within same instance
-		isLoading = true;
-		isRealtimeLoading = true;
-		loadingProgress = 0;
-		const startTime = performance.now();
-		console.log('⏱️ [PV Load] Starting...');
+	async function loadNotIssuedStats() {
 		try {
-			const batchSize = 1000;
-			
-			// First batch to get initial data fast - NO ORDER for speed
-			const t1 = performance.now();
-			const firstBatch = await supabase
-				.from('purchase_voucher_items')
-				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-				.limit(batchSize);
-			console.log(`⏱️ [PV Load] First batch: ${Math.round(performance.now() - t1)}ms, got ${firstBatch.data?.length || 0} items`);
+			const [vouchersRes, itemsRes] = await Promise.all([
+				supabase
+					.from('purchase_vouchers')
+					.select('id, book_number')
+					.limit(1000),
+				supabase
+					.from('purchase_voucher_items')
+					.select('purchase_voucher_id, value, stock_location')
+					.eq('issue_type', 'not issued')
+					.limit(10000)
+			]);
 
-			if (firstBatch.error) {
-				console.error('Error loading purchase voucher items:', firstBatch.error);
-				purchaseVoucherItems = [];
+			if (vouchersRes.error || itemsRes.error) {
+				console.error('Error loading not issued stats:', vouchersRes.error || itemsRes.error);
 				return;
 			}
 
-			const allItems = firstBatch.data || [];
-			const seenIds = new Set(allItems.map(item => item.id));
-			loadingProgress = 20;
+			const items = itemsRes.data || [];
+			const allVoucherIds = new Set();
+			
+			// Group by branch and then by value
+			const branchValueCounts = {};
 
-			// If first batch is full, there might be more data
-			if (allItems.length === batchSize) {
-				// Get count to determine remaining batches
-				const t2 = performance.now();
-				const { count } = await supabase
-					.from('purchase_voucher_items')
-					.select('id', { count: 'exact', head: true });
-				console.log(`⏱️ [PV Load] Count query: ${Math.round(performance.now() - t2)}ms, total: ${count}`);
+			items.forEach(item => {
+				const branchId = item.stock_location || 'unassigned';
+				const voucherId = item.purchase_voucher_id;
+				const value = item.value || 0;
 
-				const totalCount = count || allItems.length;
-				const remainingBatches = Math.ceil((totalCount - batchSize) / batchSize);
-				loadingProgress = 25;
-				console.log(`⏱️ [PV Load] Need ${remainingBatches} more batches`);
+				allVoucherIds.add(voucherId);
 
-				if (remainingBatches > 0) {
-					// Load remaining batches - 10 at a time for speed
-					let completedBatches = 0;
-					
-					for (let batchGroup = 1; batchGroup <= remainingBatches; batchGroup += 10) {
-						const queries = [];
-						const endBatch = Math.min(batchGroup + 10, remainingBatches + 1);
-						
-						for (let i = batchGroup; i < endBatch; i++) {
-							queries.push(
-								supabase
-									.from('purchase_voucher_items')
-									.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-									.range(i * batchSize, (i + 1) * batchSize - 1)
-							);
-						}
-
-						const t3 = performance.now();
-						const results = await Promise.all(queries);
-						console.log(`⏱️ [PV Load] Batch group ${batchGroup}-${endBatch-1}: ${Math.round(performance.now() - t3)}ms`);
-						completedBatches += queries.length;
-						loadingProgress = Math.min(25 + Math.round((completedBatches / remainingBatches) * 70), 95);
-						
-						for (const result of results) {
-							if (!result.error && result.data) {
-								for (const item of result.data) {
-									if (!seenIds.has(item.id)) {
-										seenIds.add(item.id);
-										allItems.push(item);
-									}
-								}
-							}
-						}
-					}
+				if (!branchValueCounts[branchId]) {
+					branchValueCounts[branchId] = {};
 				}
+
+				if (!branchValueCounts[branchId][value]) {
+					branchValueCounts[branchId][value] = {
+						vouchers: 0, // count of items (PV ID + serial)
+						books: new Set() // unique PV IDs
+					};
+				}
+				
+				// Count each item (voucher = PV ID + serial)
+				branchValueCounts[branchId][value].vouchers++;
+				// Track unique PV IDs for book count
+				branchValueCounts[branchId][value].books.add(voucherId);
+			});
+
+			// Convert Set to count for books
+			Object.keys(branchValueCounts).forEach(branchId => {
+				Object.keys(branchValueCounts[branchId]).forEach(value => {
+					branchValueCounts[branchId][value].books = branchValueCounts[branchId][value].books.size;
+				});
+			});
+
+			notIssuedStats = {
+				totalVouchers: allVoucherIds.size,
+				byBranch: branchValueCounts
+			};
+
+		} catch (error) {
+			console.error('Error loading not issued stats:', error);
+		}
+	}
+
+	async function loadStockedStats() {
+		try {
+			const { data: items, error } = await supabase
+				.from('purchase_voucher_items')
+				.select('purchase_voucher_id, value')
+				.eq('status', 'stocked')
+				.limit(10000);
+
+			if (error) {
+				console.error('Error loading stocked stats:', error);
+				return;
 			}
 
-			loadingProgress = 100;
-			// Sort all items by purchase_voucher_id
-			const t4 = performance.now();
-			purchaseVoucherItems = allItems.sort((a, b) => 
-				(a.purchase_voucher_id || '').localeCompare(b.purchase_voucher_id || '')
-			);
-			console.log(`⏱️ [PV Load] Sorting: ${Math.round(performance.now() - t4)}ms`);
-			console.log(`⏱️ [PV Load] ✅ TOTAL: ${Math.round(performance.now() - startTime)}ms, loaded ${allItems.length} items`);
+			const allVoucherIds = new Set();
+
+			// Count vouchers (items) and books (unique PV IDs) per value
+			const valueCounts = {};
+
+			items.forEach(item => {
+				const voucherId = item.purchase_voucher_id;
+				const value = item.value || 0;
+
+				allVoucherIds.add(voucherId);
+
+				if (!valueCounts[value]) {
+					valueCounts[value] = {
+						vouchers: 0, // count of items (PV ID + serial)
+						books: new Set() // unique PV IDs
+					};
+				}
+				
+				// Count each item (voucher = PV ID + serial)
+				valueCounts[value].vouchers++;
+				// Track unique PV IDs for book count
+				valueCounts[value].books.add(voucherId);
+			});
+
+			// Convert Set to count for books
+			Object.keys(valueCounts).forEach(value => {
+				valueCounts[value].books = valueCounts[value].books.size;
+			});
+
+			stockedStats = {
+				totalVouchers: allVoucherIds.size,
+				valueCounts: valueCounts
+			};
+
+		} catch (error) {
+			console.error('Error loading stocked stats:', error);
+		}
+	}
+
+	async function loadVoucherItems(reset = true) {
+		if (reset) {
+			isLoading = true;
+			voucherOffset = 0;
+			voucherItems = [];
+		} else {
+			isLoadingMore = true;
+		}
+		
+		try {
+			const { data, error } = await supabase
+				.from('purchase_voucher_items')
+				.select('*')
+				.order('purchase_voucher_id', { ascending: true })
+				.order('serial_number', { ascending: true })
+				.range(voucherOffset, voucherOffset + voucherPageSize - 1);
+
+			if (error) {
+				console.error('Error loading voucher items:', error);
+				if (reset) voucherItems = [];
+			} else {
+				const newData = data || [];
+				if (reset) {
+					voucherItems = newData;
+				} else {
+					voucherItems = [...voucherItems, ...newData];
+				}
+				hasMoreVouchers = newData.length === voucherPageSize;
+				voucherOffset += newData.length;
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			if (reset) voucherItems = [];
+		} finally {
+			isLoading = false;
+			isLoadingMore = false;
+			isLoadingMore = false;
+		}
+	}
+
+	async function loadMoreVouchers() {
+		if (!isLoadingMore && hasMoreVouchers) {
+			await loadVoucherItems(false);
+		}
+	}
+
+	async function loadBookSummary() {
+		isLoading = true;
+		try {
+			const [vouchersRes, itemsRes] = await Promise.all([
+				supabase
+					.from('purchase_vouchers')
+					.select('id, book_number, serial_start, serial_end, voucher_count, total_value')
+					.limit(1000),
+				supabase
+					.from('purchase_voucher_items')
+					.select('purchase_voucher_id, value, stock, status, stock_location, stock_person')
+					.limit(10000)
+			]);
+
+			if (vouchersRes.error || itemsRes.error) {
+				console.error('Error loading data:', vouchersRes.error || itemsRes.error);
+				bookSummary = [];
+				return;
+			}
+
+			const vouchers = vouchersRes.data || [];
+			const items = itemsRes.data || [];
+
+			const voucherMap = {};
+			vouchers.forEach(v => {
+				voucherMap[v.id] = v;
+			});
+
+			const grouped = {};
+			items.forEach(item => {
+				const vid = item.purchase_voucher_id;
+				if (!grouped[vid]) {
+					const voucher = voucherMap[vid];
+					grouped[vid] = {
+						voucher_id: vid,
+						book_number: voucher?.book_number || vid,
+						serial_range: voucher ? `${voucher.serial_start} - ${voucher.serial_end}` : '-',
+						total_count: 0,
+						total_value: 0,
+						stock_count: 0,
+						stocked_count: 0,
+						issued_count: 0,
+						closed_count: 0,
+						stock_locations: new Set(),
+						stock_persons: new Set()
+					};
+				}
+				
+				grouped[vid].total_count += 1;
+				grouped[vid].total_value += item.value || 0;
+				
+				if (item.stock > 0) {
+					grouped[vid].stock_count += 1;
+				}
+				
+				if (item.status === 'stocked') {
+					grouped[vid].stocked_count += 1;
+				} else if (item.status === 'issued') {
+					grouped[vid].issued_count += 1;
+				} else if (item.status === 'closed') {
+					grouped[vid].closed_count += 1;
+				}
+
+				if (item.stock_location) {
+					grouped[vid].stock_locations.add(item.stock_location);
+				}
+				if (item.stock_person) {
+					grouped[vid].stock_persons.add(item.stock_person);
+				}
+			});
+
+			const branchMap = {};
+			branches.forEach(b => {
+				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
+			});
+
+			const employeeMap = {};
+			employees.forEach(e => {
+				employeeMap[e.id] = e.name;
+			});
+
+			const userEmployeeMap = {};
+			users.forEach(u => {
+				const empName = employeeMap[u.employee_id];
+				userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+			});
+
+			const allBooks = Object.values(grouped).map(book => {
+				const locIds = Array.from(book.stock_locations);
+				book.stock_locations = locIds.map(id => branchMap[id] || `Unknown (${id})`).join(', ') || '-';
+				
+				const personIds = Array.from(book.stock_persons);
+				book.stock_persons = personIds.map(id => userEmployeeMap[id] || `Unknown (${id})`).join(', ') || '-';
+				
+				return book;
+			});
+
+			bookSummary = allBooks.sort((a, b) => {
+				const aUnassigned = a.stock_locations === '-' || a.stock_persons === '-' ? 0 : 1;
+				const bUnassigned = b.stock_locations === '-' || b.stock_persons === '-' ? 0 : 1;
+				return aUnassigned - bUnassigned;
+			});
+
 		} catch (error) {
 			console.error('Error:', error);
 		} finally {
 			isLoading = false;
-			isRealtimeLoading = false;
+		}
+	}
+
+	function setViewMode(mode) {
+		viewMode = mode;
+		if (mode === 'book') {
+			loadBookSummary();
+		} else {
+			loadVoucherItems();
 		}
 	}
 
@@ -262,8 +406,7 @@
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
-			closable: true,
-			onClose: loadPurchaseVoucherItems
+			closable: true
 		});
 	}
 
@@ -323,21 +466,44 @@
 </script>
 
 <div class="purchase-voucher-manager">
-	{#if isLoading}
-		<div class="loading-overlay">
-			<div class="loading-content">
-				<div class="loading-spinner"></div>
-				<div class="loading-text">Loading Purchase Vouchers...</div>
-				<div class="progress-bar">
-					<div class="progress-fill" style="width: {loadingProgress}%"></div>
-				</div>
-				<div class="progress-text">{loadingProgress}%</div>
+	<div class="status-grid">
+		<div class="status-card">
+			<h3 class="card-title">Not Issued Vouchers</h3>
+			<div class="total-count">Total: {notIssuedStats.totalVouchers} {notIssuedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
+			<div class="branch-breakdown">
+				{#if Object.keys(notIssuedStats.byBranch).length > 0}
+					{#each Object.entries(notIssuedStats.byBranch) as [branchId, valueCounts]}
+						<div class="branch-section">
+							<h4 class="branch-section-title">{branchMap[branchId] || branchId}</h4>
+						{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+							<div class="value-item">
+								<span class="value-label">Value {Number(value).toFixed(2)}:</span>
+								<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'}</span>
+								</div>
+							{/each}
+						</div>
+					{/each}
+				{:else}
+					<p class="no-branch">No not issued vouchers</p>
+				{/if}
 			</div>
 		</div>
-	{/if}
-	<div class="status-grid">
-		<div class="status-card">1</div>
-		<div class="status-card">2</div>
+		<div class="status-card">
+			<h3 class="card-title">Stocked Vouchers</h3>
+			<div class="total-count">Total: {stockedStats.totalVouchers} {stockedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
+			<div class="value-list">
+				{#if Object.keys(stockedStats.valueCounts).length > 0}
+					{#each Object.entries(stockedStats.valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+						<div class="value-item">
+							<span class="value-label">Value {Number(value).toFixed(2)}:</span>
+							<span class="value-count">{counts.vouchers} vouchers, {counts.books} books</span>
+						</div>
+					{/each}
+				{:else}
+					<p class="no-branch">No stocked vouchers</p>
+				{/if}
+			</div>
+		</div>
 		<div class="status-card">3</div>
 		<div class="status-card">4</div>
 	</div>
@@ -348,131 +514,137 @@
 		<button class="action-button" on:click={handlePurchaseVoucherStockManager}>Purchase Voucher Stock Manager</button>
 	</div>
 
-	<div class="table-section">
-		<h3 class="table-title">Purchase Voucher Items</h3>
-		{#if isLoading}
-			<div class="loading">Loading purchase voucher items...</div>
-		{:else if purchaseVoucherItems.length === 0}
-			<div class="empty-state">No purchase voucher items found</div>
+	<!-- View Mode Toggle Buttons -->
+	<div class="view-toggle">
+		<button 
+			class="toggle-btn" 
+			class:active={viewMode === 'book'}
+			on:click={() => setViewMode('book')}
+		>
+			📚 Book Wise
+		</button>
+		<button 
+			class="toggle-btn" 
+			class:active={viewMode === 'voucher'}
+			on:click={() => setViewMode('voucher')}
+		>
+			🎫 Voucher Wise
+		</button>
+	</div>
+
+	<!-- Voucher Items Table -->
+	{#if isLoading}
+		<p class="loading">Loading voucher items...</p>
+	{:else if viewMode === 'book'}
+		<!-- Book Wise View -->
+		{#if bookSummary.length === 0}
+			<p class="no-data">No book data found</p>
 		{:else}
-			<div class="filters-section">
-				<div class="filter-row">
-					<div class="filter-group">
-						<label>PV ID</label>
-						<select bind:value={filterPVId}>
-							<option value="">All PV IDs</option>
-							{#each uniqueValues.pvIds as pvId}
-								<option value={pvId}>{pvId}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Serial Number</label>
-						<input type="text" placeholder="Search serial" bind:value={filterSerialNumber} />
-					</div>
-					<div class="filter-group">
-						<label>Value</label>
-						<select bind:value={filterValue}>
-							<option value="">All Values</option>
-							{#each uniqueValues.values as val}
-								<option value={val.toString()}>{val}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Status</label>
-						<select bind:value={filterStatus}>
-							<option value="">All Statuses</option>
-							{#each uniqueValues.statuses as status}
-								<option value={status}>{status}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Issue Type</label>
-						<select bind:value={filterIssueType}>
-							<option value="">All Issue Types</option>
-							{#each uniqueValues.issueTypes as type}
-								<option value={type}>{type}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
-				<div class="filter-row">
-					<div class="filter-group">
-						<label>Stock Location</label>
-						<select bind:value={filterStockLocation}>
-							<option value="">All Locations</option>
-							{#each uniqueValues.stockLocations as locId}
-								<option value={locId}>{branchMap[locId] || locId}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Stock Person</label>
-						<select bind:value={filterStockPerson}>
-							<option value="">All Persons</option>
-							{#each uniqueValues.stockPersons as personId}
-								<option value={personId}>{userEmployeeMap[personId] || personId}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Issued To</label>
-						<select bind:value={filterIssuedTo}>
-							<option value="">All Customers</option>
-							{#each uniqueValues.issuedTos as custId}
-								<option value={custId}>{customerMap[custId] || custId}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="filter-group">
-						<label>Issued By</label>
-						<select bind:value={filterIssuedBy}>
-							<option value="">All Users</option>
-							{#each uniqueValues.issuedBys as userId}
-								<option value={userId}>{userEmployeeMap[userId] || userId}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
+			<div class="count-header">
+				<span class="count-label">Total Books:</span>
+				<span class="count-value">{bookSummary.length}</span>
 			</div>
-			<div class="table-wrapper">
+			<div class="table-container">
 				<table class="vouchers-table">
 					<thead>
 						<tr>
 							<th>Voucher ID</th>
-							<th>Serial Number</th>
-							<th>Value</th>
-							<th>Stock</th>
-							<th>Status</th>
-							<th>Issue Type</th>
+							<th>Book Number</th>
+							<th>Serial Range</th>
+							<th>Total Count</th>
+							<th>Total Value</th>
+							<th>Stock Count</th>
+							<th>Stocked</th>
+							<th>Issued</th>
+							<th>Closed</th>
 							<th>Stock Location</th>
 							<th>Stock Person</th>
-							<th>Issued To</th>
-							<th>Issued By</th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each filteredItems as item (item.id)}
+						{#each bookSummary as book (book.voucher_id)}
 							<tr>
-								<td>{item.purchase_voucher_id}</td>
-								<td>{item.serial_number}</td>
-								<td>{item.value}</td>
-								<td><span class="stock-badge">{item.stock}</span></td>
-								<td><span class="status-badge" class:stocked={item.status === 'stocked'} class:issued={item.status === 'issued'} class:closed={item.status === 'closed'}>{item.status}</span></td>
-								<td>{item.issue_type}</td>
-								<td>{item.stock_location ? branchMap[item.stock_location] || item.stock_location : '-'}</td>
-								<td>{item.stock_person ? userEmployeeMap[item.stock_person] || item.stock_person : '-'}</td>
-								<td>{item.issued_to || '-'}</td>
-								<td>{item.issued_by || '-'}</td>
+								<td>{book.voucher_id}</td>
+								<td>{book.book_number}</td>
+								<td>{book.serial_range}</td>
+								<td>{book.total_count}</td>
+								<td>{book.total_value}</td>
+								<td><span class="badge">{book.stock_count}</span></td>
+								<td><span class="badge stocked">{book.stocked_count}</span></td>
+								<td><span class="badge issued">{book.issued_count}</span></td>
+								<td><span class="badge closed">{book.closed_count}</span></td>
+								<td>{book.stock_locations}</td>
+								<td>{book.stock_persons}</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
 		{/if}
-	</div>
+	{:else}
+		<!-- Voucher Wise View -->
+		{#if voucherItems.length === 0}
+			<p class="no-data">No voucher items found</p>
+		{:else}
+			<div class="count-header">
+				<span class="count-label">Total Vouchers:</span>
+				<span class="count-value">{voucherItems.length}</span>
+			</div>
+			<div class="table-container">
+				<table class="vouchers-table">
+					<thead>
+						<tr>
+							<th>PV ID</th>
+							<th>Serial Number</th>
+							<th>Value</th>
+							<th>Status</th>
+							<th>Issue Type</th>
+							<th>Stock</th>
+							<th>Stock Location</th>						<th>Stock Person</th>							<th>Issued By</th>
+							<th>Issued To</th>
+							<th>Issued Date</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each voucherItems as item (item.id)}
+							<tr>
+								<td>{item.purchase_voucher_id}</td>
+								<td>{item.serial_number}</td>
+								<td>{item.value}</td>
+								<td>
+									<span class="status-badge status-{item.status}">
+										{item.status || 'N/A'}
+									</span>
+								</td>
+								<td>{item.issue_type || 'N/A'}</td>
+								<td>{item.stock}</td>
+							<td>{item.stock_location ? (branchMap[item.stock_location] || item.stock_location) : 'N/A'}</td>
+							<td>{item.stock_person ? (userNameMap[item.stock_person] || item.stock_person) : 'N/A'}</td>
+							<td>{item.issued_by ? (userEmployeeMap[item.issued_by] || item.issued_by) : 'N/A'}</td>
+								<td>{item.issued_to ? (userEmployeeMap[item.issued_to] || item.issued_to) : 'N/A'}</td>
+								<td>{item.issued_date ? new Date(item.issued_date).toLocaleDateString() : 'N/A'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			{#if hasMoreVouchers}
+				<div class="load-more-container">
+					<button 
+						class="load-more-btn" 
+						on:click={loadMoreVouchers}
+						disabled={isLoadingMore}
+					>
+						{#if isLoadingMore}
+							Loading...
+						{:else}
+							Load More
+						{/if}
+					</button>
+				</div>
+			{/if}
+		{/if}
+	{/if}
 </div>
 
 <style>
@@ -506,6 +678,108 @@
 		border-color: #d1d5db;
 	}
 
+	.card-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1f2937;
+		margin: 0 0 12px 0;
+		text-align: center;
+	}
+
+	.total-count {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #3b82f6;
+		text-align: center;
+		margin-bottom: 16px;
+		padding-bottom: 12px;
+		border-bottom: 2px solid #e5e7eb;
+	}
+
+	.card-stats {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-bottom: 16px;
+		padding-bottom: 16px;
+		border-bottom: 2px solid #e5e7eb;
+	}
+
+	.stat-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.stat-label {
+		color: #6b7280;
+		font-size: 0.9rem;
+		font-weight: 500;
+	}
+
+	.stat-value {
+		color: #1f2937;
+		font-size: 1.25rem;
+		font-weight: 700;
+	}
+
+	.branch-breakdown {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.branch-section {
+		background: #f9fafb;
+		border-radius: 8px;
+		padding: 12px;
+	}
+
+	.branch-section-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #1f2937;
+		margin: 0 0 10px 0;
+		padding-bottom: 8px;
+		border-bottom: 2px solid #e5e7eb;
+	}
+
+	.value-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 6px 8px;
+		margin: 4px 0;
+		background: white;
+		border-radius: 4px;
+	}
+
+	.value-label {
+		color: #6b7280;
+		font-size: 0.9rem;
+		font-weight: 500;
+	}
+
+	.value-count {
+		color: #3b82f6;
+		font-size: 0.9rem;
+		font-weight: 700;
+	}
+
+	.no-branch {
+		color: #9ca3af;
+		font-size: 0.85rem;
+		font-style: italic;
+		text-align: center;
+		margin: 8px 0;
+	}
+
+	.value-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
 	.button-group {
 		display: flex;
 		gap: 16px;
@@ -533,62 +807,97 @@
 	.action-button:active {
 		transform: translateY(0);
 	}
-
-	.table-section {
-		margin-top: 32px;
-		border-top: 1px solid #e5e7eb;
-		padding-top: 24px;
+	.view-toggle {
+		display: flex;
+		gap: 12px;
+		margin-top: 24px;
+		justify-content: center;
 	}
 
-	.table-title {
-		margin: 0 0 16px 0;
-		font-size: 18px;
-		font-weight: 600;
-		color: #1f2937;
-	}
-
-	.loading,
-	.empty-state {
-		padding: 32px 24px;
-		text-align: center;
-		color: #6b7280;
-		font-size: 14px;
-	}
-
-	.table-wrapper {
+	.toggle-btn {
+		padding: 10px 20px;
 		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		overflow: auto;
-		max-height: 400px;
+		color: #374151;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.toggle-btn:hover {
+		border-color: #3b82f6;
+		color: #3b82f6;
+	}
+
+	.toggle-btn.active {
+		background: #3b82f6;
+		color: white;
+		border-color: #3b82f6;
+	}
+
+	.count-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 16px;
+		margin-top: 24px;
+		background: #f0f9ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px 8px 0 0;
+		font-weight: 600;
+	}
+
+	.count-label {
+		color: #374151;
+		font-size: 0.95rem;
+	}
+
+	.count-value {
+		color: #3b82f6;
+		font-size: 1.1rem;
+		font-weight: 700;
+	}
+
+	.table-container {
+		background: white;
+		border-radius: 0 0 12px 12px;
+		border: 1px solid #bfdbfe;
+		border-top: none;
 		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+		max-height: 500px;
+		overflow: auto;
+		position: relative;
 	}
 
 	.vouchers-table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 13px;
+		font-size: 0.9rem;
 	}
 
 	.vouchers-table thead {
-		background: #f9fafb;
 		position: sticky;
 		top: 0;
+		background: #f9fafb;
+		z-index: 10;
 	}
 
 	.vouchers-table th {
-		padding: 12px 16px;
+		padding: 12px 8px;
 		text-align: left;
 		font-weight: 600;
 		color: #374151;
-		border-bottom: 1px solid #e5e7eb;
+		border-bottom: 2px solid #e5e7eb;
 		white-space: nowrap;
+		background: #f9fafb;
 	}
 
 	.vouchers-table td {
-		padding: 12px 16px;
+		padding: 10px 8px;
 		border-bottom: 1px solid #f3f4f6;
-		color: #4b5563;
+		color: #6b7280;
 	}
 
 	.vouchers-table tbody tr:hover {
@@ -597,165 +906,96 @@
 
 	.status-badge {
 		display: inline-block;
-		padding: 4px 10px;
-		border-radius: 6px;
-		font-size: 11px;
+		padding: 4px 12px;
+		border-radius: 12px;
+		font-size: 0.75rem;
 		font-weight: 600;
-		background: #fee2e2;
-		color: #dc2626;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
 	}
 
-	.status-badge.stocked {
+	.status-stocked {
 		background: #dbeafe;
 		color: #1e40af;
 	}
 
-	.status-badge.issued {
-		background: #fef08a;
-		color: #a16207;
+	.status-issued {
+		background: #d1fae5;
+		color: #065f46;
 	}
 
-	.status-badge.closed {
-		background: #dcfce7;
-		color: #16a34a;
+	.status-pending {
+		background: #fef3c7;
+		color: #92400e;
 	}
 
-	.stock-badge {
+	.status-available {
+		background: #e0e7ff;
+		color: #3730a3;
+	}
+
+	.badge {
 		display: inline-block;
-		padding: 2px 8px;
-		border-radius: 4px;
-		font-size: 12px;
+		padding: 4px 8px;
+		border-radius: 8px;
+		font-size: 0.75rem;
 		font-weight: 600;
-		background: #f3f4f6;
-		color: #374151;
-	}
-
-	.item-id {
-		font-family: 'Monaco', 'Courier New', monospace;
-		font-size: 11px;
-		color: #6b7280;
-	}
-
-	.filters-section {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 16px;
-		margin-bottom: 16px;
-		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-	}
-
-	.filter-row {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 12px;
-		margin-bottom: 12px;
-	}
-
-	.filter-row:last-child {
-		margin-bottom: 0;
-	}
-
-	.filter-group {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.filter-group label {
-		font-size: 12px;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.filter-group input,
-	.filter-group select {
-		padding: 8px 12px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		font-size: 13px;
-		background: white;
-		color: #1f2937;
-	}
-
-	.filter-group input:focus,
-	.filter-group select:focus {
-		outline: none;
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-	}
-
-	.filter-group select {
-		cursor: pointer;
-	}
-
-	/* Loading Overlay Styles */
-	.loading-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(255, 255, 255, 0.95);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-		backdrop-filter: blur(2px);
-	}
-
-	.loading-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 16px;
-		padding: 32px;
-		background: white;
-		border-radius: 12px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-	}
-
-	.loading-spinner {
-		width: 48px;
-		height: 48px;
-		border: 4px solid #e5e7eb;
-		border-top-color: #3b82f6;
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.loading-text {
-		font-size: 16px;
-		font-weight: 600;
-		color: #374151;
-	}
-
-	.progress-bar {
-		width: 250px;
-		height: 8px;
 		background: #e5e7eb;
-		border-radius: 4px;
-		overflow: hidden;
+		color: #374151;
 	}
 
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #3b82f6, #2563eb);
-		border-radius: 4px;
-		transition: width 0.3s ease;
+	.badge.stocked {
+		background: #dbeafe;
+		color: #1e40af;
 	}
 
-	.progress-text {
-		font-size: 14px;
+	.badge.issued {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	.badge.closed {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.load-more-container {
+		display: flex;
+		justify-content: center;
+		padding: 20px;
+		margin-top: 16px;
+		background: white;
+		border-radius: 8px;
+		border: 1px solid #e5e7eb;
+	}
+
+	.load-more-btn {
+		padding: 10px 24px;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 8px;
 		font-weight: 600;
-		color: #3b82f6;
+		font-size: 0.95rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		min-width: 120px;
 	}
-</style>
+
+	.load-more-btn:hover:not(:disabled) {
+		background: #2563eb;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+	}
+
+	.load-more-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.loading,
+	.no-data {
+		text-align: center;
+		padding: 40px;
+		color: #6b7280;
+		font-size: 1rem;
+	}</style>

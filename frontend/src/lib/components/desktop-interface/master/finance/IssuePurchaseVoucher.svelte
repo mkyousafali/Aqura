@@ -34,7 +34,7 @@
 
 	// Computed filtered list
 	$: filteredVouchers = issuedVouchers.filter((item) => {
-		if (filterPVId && item.purchase_voucher_id !== filterPVId) return false;
+		if (filterPVId && item.purchase_voucher_id.toLowerCase() !== filterPVId.toLowerCase()) return false;
 		if (filterSerialNumber && !item.serial_number.toString().includes(filterSerialNumber)) return false;
 		if (filterLocation && item.stock_location !== (filterLocation ? parseInt(filterLocation) : null)) return false;
 		if (filterValue && item.value.toString() !== filterValue) return false;
@@ -46,11 +46,13 @@
 		showTable = true;
 		try {
 			// Load vouchers first (most important), then lookup data
+			// Load ALL non-issued vouchers (no limit) filtered by issue_type
 			const vouchersResult = await supabase
 				.from('purchase_voucher_items')
 				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
-				.in('status', ['stocked', 'pending', 'available'])
-				.limit(100);
+				.eq('issue_type', 'not issued')
+				.order('purchase_voucher_id', { ascending: true })
+				.order('serial_number', { ascending: true });
 
 			// Process vouchers immediately
 			if (vouchersResult.error) {
@@ -194,6 +196,23 @@
 		{/if}
 	</div>
 
+	{#if !isLoading && issuedVouchers.length > 0}
+		<div class="stats-card">
+			<div class="stat-item">
+				<div class="stat-label">Total Loaded</div>
+				<div class="stat-value">{issuedVouchers.length}</div>
+			</div>
+			<div class="stat-item">
+				<div class="stat-label">Filtered Results</div>
+				<div class="stat-value">{filteredVouchers.length}</div>
+			</div>
+			<div class="stat-item">
+				<div class="stat-label">Selected</div>
+				<div class="stat-value highlight">{selectedCount}</div>
+			</div>
+		</div>
+	{/if}
+
 	{#if showTable}
 		{#if isLoading}
 			<div class="loading">Loading non-issued vouchers...</div>
@@ -204,12 +223,7 @@
 				<div class="filter-row">
 					<div class="filter-group">
 						<label>PV ID</label>
-						<select bind:value={filterPVId}>
-							<option value="">All PV IDs</option>
-							{#each uniqueValues.pvIds as pvId}
-								<option value={pvId}>{pvId}</option>
-							{/each}
-						</select>
+						<input type="text" placeholder="Search PV ID" bind:value={filterPVId} />
 					</div>
 					<div class="filter-group">
 						<label>Serial Number</label>
@@ -315,6 +329,46 @@
 		background: #d97706;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.stats-card {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 16px;
+		margin-bottom: 20px;
+		padding: 16px;
+		background: white;
+		border-radius: 12px;
+		border: 1px solid #e5e7eb;
+		box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+	}
+
+	.stat-item {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 12px;
+		background: #f9fafb;
+		border-radius: 8px;
+		border-left: 3px solid #3b82f6;
+	}
+
+	.stat-label {
+		font-size: 12px;
+		font-weight: 600;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.stat-value {
+		font-size: 28px;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.stat-value.highlight {
+		color: #f59e0b;
 	}
 
 	.loading,
