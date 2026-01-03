@@ -12,6 +12,7 @@
 	let branchMap = {};
 	let userEmployeeMap = {};
 	let selectedItems = new Set();
+	let subscription;
 
 	// Filter variables
 	let filterPVId = '';
@@ -23,7 +24,68 @@
 
 	onMount(async () => {
 		await loadNonIssuedVouchers();
+		setupRealtimeSubscription();
+
+		return () => {
+			if (subscription) {
+				subscription.unsubscribe();
+			}
+		};
 	});
+
+	function setupRealtimeSubscription() {
+		const channelName = `issue_purchase_voucher_${Date.now()}`;
+		console.log('📡 IssuePurchaseVoucher: Setting up realtime subscription');
+		
+		subscription = supabase
+			.channel(channelName)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'purchase_voucher_items'
+				},
+				(payload) => {
+					console.log('🎫 IssuePurchaseVoucher: purchase_voucher_items changed', payload.eventType, payload.new?.serial_number || payload.old?.serial_number);
+					handleVoucherItemUpdate(payload);
+				}
+			)
+			.subscribe((status) => {
+				console.log('📡 IssuePurchaseVoucher: Realtime subscription status:', status);
+			});
+	}
+
+	function handleVoucherItemUpdate(payload) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'UPDATE' && newRecord) {
+			// If issue_type changed from 'not issued' to something else, remove from list
+			if (newRecord.issue_type !== 'not issued') {
+				issuedVouchers = issuedVouchers.filter(item => item.id !== newRecord.id);
+				selectedItems.delete(newRecord.id);
+				selectedItems = selectedItems; // Trigger reactivity
+				console.log('🔄 IssuePurchaseVoucher: Removed issued voucher from list:', newRecord.id);
+			} else {
+				// Update the item in place
+				issuedVouchers = issuedVouchers.map(item => {
+					if (item.id === newRecord.id) {
+						return { ...item, ...newRecord };
+					}
+					return item;
+				});
+			}
+		} else if (eventType === 'INSERT' && newRecord) {
+			// Add new non-issued voucher
+			if (newRecord.issue_type === 'not issued') {
+				issuedVouchers = [...issuedVouchers, newRecord];
+			}
+		} else if (eventType === 'DELETE' && oldRecord) {
+			issuedVouchers = issuedVouchers.filter(item => item.id !== oldRecord.id);
+			selectedItems.delete(oldRecord.id);
+			selectedItems = selectedItems;
+		}
+	}
 
 	// Get unique filter values
 	$: uniqueValues = {
@@ -153,7 +215,9 @@
 				itemId,
 				windowId,
 				onIssueComplete: () => {
-					loadNonIssuedVouchers();
+					// Realtime will handle removing the voucher from the list
+					// No need to reload the entire table
+					console.log('✅ Issue complete - realtime will update the list');
 				}
 			}
 		});
@@ -179,7 +243,11 @@
 				count: selectedItems.size,
 				windowId,
 				onIssueComplete: () => {
-					loadNonIssuedVouchers();
+					// Realtime will handle removing the vouchers from the list
+					// Just clear the selection
+					selectedItems.clear();
+					selectedItems = selectedItems;
+					console.log('✅ Batch issue complete - realtime will update the list');
 				}
 			}
 		});

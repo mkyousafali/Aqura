@@ -51,7 +51,7 @@
 	let uniqueBookPersons = [];
 
 	let subscription;
-	let ignoreNextReload = false;
+	let ignoreReloadUntil = 0; // Timestamp to ignore reloads until
 
 	onMount(async () => {
 		// Load branches and users
@@ -73,9 +73,12 @@
 	let reloadTimeout = null;
 	
 	function setupRealtimeSubscriptions() {
-		// Subscribe to purchase_vouchers table changes
+		// Use a unique channel name with timestamp to avoid conflicts
+		const channelName = `pv_stock_manager_${Date.now()}`;
+		console.log('📡 Setting up realtime subscription on channel:', channelName);
+		
 		subscription = supabase
-			.channel('purchase_vouchers_changes')
+			.channel(channelName)
 			.on(
 				'postgres_changes',
 				{
@@ -84,18 +87,11 @@
 					table: 'purchase_vouchers'
 				},
 				(payload) => {
-					// Skip if this is our own change
-					if (ignoreNextReload) {
-						ignoreNextReload = false;
-						return;
+					console.log('📦 Realtime: purchase_vouchers changed', payload.eventType);
+					// For book changes, reload book summary
+					if (showManagePerBook) {
+						loadBookSummary();
 					}
-					// Debounce reload to prevent multiple rapid reloads
-					if (reloadTimeout) clearTimeout(reloadTimeout);
-					reloadTimeout = setTimeout(() => {
-						if (showManagePerBook) {
-							loadBookSummary();
-						}
-					}, 1000);
 				}
 			)
 			.on(
@@ -106,24 +102,82 @@
 					table: 'purchase_voucher_items'
 				},
 				(payload) => {
-					// Skip if this is our own change
-					if (ignoreNextReload) {
-						ignoreNextReload = false;
-						return;
-					}
-					// Debounce reload to prevent multiple rapid reloads during batch updates
-					if (reloadTimeout) clearTimeout(reloadTimeout);
-					reloadTimeout = setTimeout(() => {
-						if (showManagePerBook) {
-							loadBookSummary();
-						}
-						if (showManagePerVoucher) {
-							loadVoucherItems();
-						}
-					}, 1000);
+					console.log('🎫 Realtime: purchase_voucher_items changed', payload.eventType, payload.new?.serial_number || payload.old?.serial_number);
+					handleVoucherItemUpdate(payload);
 				}
 			)
-			.subscribe();
+			.subscribe((status) => {
+				console.log('📡 Realtime subscription status:', status);
+			});
+	}
+
+	function handleVoucherItemUpdate(payload) {
+		// Skip if we just made a change ourselves (within last 2 seconds)
+		if (Date.now() < ignoreReloadUntil) {
+			console.log('⏭️ Skipping reload (own change)');
+			return;
+		}
+
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		// Create lookup maps
+		const branchMap = {};
+		branches.forEach(b => {
+			branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
+		});
+
+		const employeeMap = {};
+		employees.forEach(e => {
+			employeeMap[e.id] = e.name;
+		});
+
+		const userEmployeeMap = {};
+		users.forEach(u => {
+			const empName = employeeMap[u.employee_id];
+			userEmployeeMap[u.id] = empName ? `${u.username} - ${empName}` : u.username;
+		});
+
+		if (eventType === 'UPDATE' && newRecord) {
+			console.log('🔄 Realtime: Updating item in place:', newRecord.id);
+			
+			// Update the item in voucherItems array without reloading
+			voucherItems = voucherItems.map(item => {
+				if (item.id === newRecord.id) {
+					return {
+						...item,
+						...newRecord,
+						stock_location_name: newRecord.stock_location ? (branchMap[newRecord.stock_location] || `Unknown (${newRecord.stock_location})`) : '-',
+						stock_person_name: newRecord.stock_person ? (userEmployeeMap[newRecord.stock_person] || `Unknown (${newRecord.stock_person})`) : '-'
+					};
+				}
+				return item;
+			});
+			applyFilters();
+
+			// Also reload book summary if in book view
+			if (showManagePerBook) {
+				loadBookSummary();
+			}
+		} else if (eventType === 'INSERT' && newRecord) {
+			const newItem = {
+				...newRecord,
+				stock_location_name: newRecord.stock_location ? (branchMap[newRecord.stock_location] || `Unknown (${newRecord.stock_location})`) : '-',
+				stock_person_name: newRecord.stock_person ? (userEmployeeMap[newRecord.stock_person] || `Unknown (${newRecord.stock_person})`) : '-'
+			};
+			voucherItems = [newItem, ...voucherItems];
+			applyFilters();
+			
+			if (showManagePerBook) {
+				loadBookSummary();
+			}
+		} else if (eventType === 'DELETE' && oldRecord) {
+			voucherItems = voucherItems.filter(item => item.id !== oldRecord.id);
+			applyFilters();
+			
+			if (showManagePerBook) {
+				loadBookSummary();
+			}
+		}
 	}
 
 	async function loadBranches() {
@@ -444,8 +498,8 @@
 		}
 
 		try {
-			// Set flag to ignore the next realtime reload
-			ignoreNextReload = true;
+			// Set flag to ignore realtime reloads for next 2 seconds (our own changes)
+			ignoreReloadUntil = Date.now() + 2000;
 			
 			const locationInt = parseInt(selectedStockLocation);
 			const selectedBranchName = branches.find(b => b.id === locationInt);
@@ -467,7 +521,7 @@
 
 				if (error) {
 					alert(`Error: ${error.message}`);
-					ignoreNextReload = false;
+					ignoreReloadUntil = 0; // Reset ignore flag on error
 					return;
 				}
 
@@ -498,7 +552,7 @@
 
 				if (error) {
 					alert(`Error: ${error.message}`);
-					ignoreNextReload = false;
+					ignoreReloadUntil = 0; // Reset ignore flag on error
 					return;
 				}
 
@@ -532,7 +586,7 @@
 
 				if (error) {
 					alert(`Error: ${error.message}`);
-					ignoreNextReload = false;
+					ignoreReloadUntil = 0; // Reset ignore flag on error
 					return;
 				}
 
@@ -570,7 +624,7 @@
 
 					if (error) {
 						alert(`Error updating book ${bookId}: ${error.message}`);
-						ignoreNextReload = false;
+						ignoreReloadUntil = 0; // Reset ignore flag on error
 						return;
 					}
 				}
@@ -661,12 +715,26 @@
 			isLoading = false;
 		}
 	}
+
+	// Manual refresh function
+	function handleRefresh() {
+		if (showManagePerBook) {
+			loadBookSummary();
+		} else if (showManagePerVoucher) {
+			loadVoucherItems();
+		}
+	}
 </script>
 
 <div class="stock-manager">
 	<div class="button-group">
 		<button class="action-button" on:click={handleManagePerBook}>Manage Per Book</button>
 		<button class="action-button" on:click={handleManagePerVoucher}>Manage Per Voucher</button>
+		{#if showManagePerBook || showManagePerVoucher}
+			<button class="action-button refresh-btn" on:click={handleRefresh} title="Refresh data">
+				🔄 Refresh
+			</button>
+		{/if}
 	</div>
 
 	{#if showManagePerBook}
@@ -1027,6 +1095,15 @@
 
 	.action-button:active {
 		transform: translateY(0);
+	}
+
+	.refresh-btn {
+		background: #10b981;
+	}
+
+	.refresh-btn:hover {
+		background: #059669;
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 	}
 
 	.section-content {
