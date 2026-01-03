@@ -9,13 +9,17 @@
 	export let onIssueComplete = () => {};
 
 	let isLoading = false;
-	let step = 'select-category'; // 'select-category', 'select-type', or 'receipt'
+	let step = 'select-category'; // 'select-category', 'select-type', 'select-approver', or 'receipt'
 	let selectedCategory = null;
 	let selectedUser = null;
 	let selectedRequester = null;
 	let selectedIssueType = null; // Store selected issue type
 	let selectedBranch = null; // For stock transfer branch selection
 	let showBranchSelection = false;
+	let selectedApprover = null;
+	let approvers = [];
+	let approverSearchQuery = '';
+	let approversLoading = false;
 	let users = [];
 	let requesters = [];
 	let branches = {};
@@ -116,6 +120,53 @@
 		}
 	}
 
+	async function loadApprovers() {
+		approversLoading = true;
+		try {
+			// First, get user_ids from approval_permissions where can_approve_purchase_vouchers is true
+			const { data: permData, error: permError } = await supabase
+				.from('approval_permissions')
+				.select('user_id')
+				.eq('can_approve_purchase_vouchers', true)
+				.eq('is_active', true);
+
+			if (permError) {
+				console.error('Error loading approval permissions:', permError);
+				approvers = [];
+				return;
+			}
+
+			if (!permData || permData.length === 0) {
+				console.log('No users with purchase voucher approval permission found');
+				approvers = [];
+				return;
+			}
+
+			// Extract user IDs
+			const userIds = permData.map(item => item.user_id);
+			console.log('User IDs with approval permission:', userIds);
+
+			// Now get the user details
+			const { data: userData, error: userError } = await supabase
+				.from('users')
+				.select('id, username, employee_id, branch_id')
+				.in('id', userIds);
+
+			if (userError) {
+				console.error('Error loading user details:', userError);
+				approvers = [];
+			} else {
+				approvers = userData || [];
+				console.log('Loaded approvers:', approvers);
+			}
+		} catch (error) {
+			console.error('Error loading approvers:', error);
+			approvers = [];
+		} finally {
+			approversLoading = false;
+		}
+	}
+
 	function selectUser(user) {
 		selectedUser = user;
 		// Don't change step, stay in select-category to show user + issue type inline
@@ -128,9 +179,10 @@
 
 	function selectBranch(branchId) {
 		selectedBranch = branchId;
-		// After branch selection, show receipt
-		step = 'receipt';
+		// After branch selection for stock transfer, go to approver selection
 		showBranchSelection = false;
+		loadApprovers();
+		step = 'select-approver';
 	}
 
 	function goBackFromBranch() {
@@ -201,9 +253,17 @@
 			// If on branch selection, go back to issue type selection
 			showBranchSelection = false;
 			selectedBranch = null;
+		} else if (step === 'select-approver') {
+			// Go back from approver selection to category with selected user/requester
+			step = 'select-category';
+			selectedApprover = null;
+			approverSearchQuery = '';
 		} else if (step === 'receipt') {
-			// Go back from receipt to issue type selection (or branch selection for stock transfer)
-			if (selectedIssueType === 'stock transfer' && selectedCategory === 'internal') {
+			// Go back from receipt
+			if (selectedIssueType === 'gift' || selectedIssueType === 'sales') {
+				// Go back to approver selection
+				step = 'select-approver';
+			} else if (selectedIssueType === 'stock transfer' && selectedCategory === 'internal') {
 				step = 'select-category';
 				showBranchSelection = true;
 			} else {
@@ -250,6 +310,11 @@
 		return matchesSearch;
 	});
 
+	$: filteredApprovers = approvers.filter(approver => {
+		const matchesSearch = approver.username.toLowerCase().includes(approverSearchQuery.toLowerCase());
+		return matchesSearch;
+	});
+
 	$: uniqueBranches = Array.from(new Set(users.map(u => u.branch_id)))
 		.filter(id => id && branches[id])
 		.sort((a, b) => branches[a].localeCompare(branches[b]));
@@ -257,11 +322,21 @@
 	$: uniquePositions = Array.from(new Set(users.map(u => positions[u.employee_id]).filter(Boolean)))
 		.sort();
 
+	function selectApprover(approver) {
+		selectedApprover = approver;
+		// After selecting approver, go to receipt
+		step = 'receipt';
+	}
+
 	function handleIssue(type) {
 		selectedIssueType = type;
 		// If stock transfer for internal, show branch selection
 		if (type === 'stock transfer' && selectedCategory === 'internal') {
 			showBranchSelection = true;
+		} else if (type === 'gift' || type === 'sales') {
+			// For gift/sales, go to approver selection
+			loadApprovers();
+			step = 'select-approver';
 		} else {
 			// For other types, go to receipt
 			step = 'receipt';
@@ -474,30 +549,46 @@
 			}
 
 			if (selectedIssueType === 'gift' || selectedIssueType === 'sales') {
-				// Set status to issued for gift/sales
-				updateData.status = 'issued';
-				// For gift/sales: Update issue_type, issued_by (logged user), issued_to (selected user), and issued_date
+				// For gift/sales: Set approval_status to pending and update issue details
+				updateData.approval_status = 'pending';
 				updateData.issue_type = selectedIssueType;
 				updateData.issued_by = $currentUser.id;
 				updateData.issued_date = new Date().toISOString();
+				
+				// Store the approver_id
+				if (selectedApprover) {
+					updateData.approver_id = selectedApprover.id;
+				}
 				
 				// Set issued_to if a user was selected
 				if (selectedUser) {
 					updateData.issued_to = selectedUser.id;
 				}
 				
-				// Set stock to 0 after issuing
-				updateData.stock = 0;
+				// Status stays as 'stocked', will be changed to 'issued' after approval
+				// Stock stays as 1, will be set to 0 after approval
 			} else if (selectedIssueType === 'stock transfer') {
-				// For stock transfer: Update stock_person and stock_location
+				// For stock transfer: Set approval_status to pending
+				// DO NOT change issue_type, issued_by, issued_date, or stock
+				updateData.approval_status = 'pending';
+				
+				// Store the approver_id
+				if (selectedApprover) {
+					updateData.approver_id = selectedApprover.id;
+				}
+				
+				// Store PENDING stock_person and stock_location - DO NOT update actual columns until approved
 				if (selectedUser) {
-					updateData.stock_person = selectedUser.id;
+					updateData.pending_stock_person = selectedUser.id; // Store intended stock person
 				}
 				if (selectedBranch) {
-					updateData.stock_location = selectedBranch;
+					updateData.pending_stock_location = selectedBranch; // Store intended location
 				}
+				
+				// Keep current stock_location, stock_person, issue_type, issued_by, issued_date, stock unchanged until approved
 			}
 
+			// Update the voucher item
 			const { error } = await supabase
 				.from('purchase_voucher_items')
 				.update(updateData)
@@ -505,7 +596,9 @@
 
 			if (error) {
 				console.error('Error saving voucher:', error);
+				alert('Error saving voucher: ' + error.message);
 			} else {
+				alert('Voucher sent for approval successfully!');
 				onIssueComplete();
 				// Close this window
 				if (windowId) {
@@ -514,6 +607,7 @@
 			}
 		} catch (error) {
 			console.error('Error:', error);
+			alert('Error saving voucher');
 		} finally {
 			isLoading = false;
 		}
@@ -833,6 +927,82 @@
 			<button class="btn-back" on:click={goBack}>Back to Category</button>
 		{/if}
 	</div>
+	{#if step === 'select-approver'}
+		<!-- Approver Selection Step -->
+		<div class="content">
+			<h3>Select Approver</h3>
+			<div class="details">
+				<p><span class="label">PV ID:</span> <strong>{item.purchase_voucher_id}</strong></p>
+				<p><span class="label">Serial:</span> <strong>{item.serial_number}</strong></p>
+				<p><span class="label">Value:</span> <strong>{item.value}</strong></p>
+				<p><span class="label">Issue Type:</span> <strong class="issue-type-badge">{selectedIssueType}</strong></p>
+			</div>
+
+			{#if selectedApprover}
+				<!-- Show selected approver -->
+				<div class="selected-info">
+					<p class="selected-label">Selected Approver:</p>
+					<div class="user-card">
+						<div class="user-detail">
+							<span class="detail-label">Username:</span>
+							<span class="detail-value">{selectedApprover.username}</span>
+						</div>
+						<div class="user-detail">
+							<span class="detail-label">Branch:</span>
+							<span class="detail-value">{branches[selectedApprover.branch_id] || 'N/A'}</span>
+						</div>
+					</div>
+				</div>
+				<button class="btn-proceed" on:click={() => step = 'receipt'}>
+					Proceed to Receipt
+				</button>
+				<button class="btn-back" on:click={goBack}>Change Approver</button>
+			{:else}
+				<!-- Show approver selection table -->
+				<div class="search-section" style="grid-template-columns: 1fr;">
+					<input
+						type="text"
+						placeholder="Search approvers..."
+						bind:value={approverSearchQuery}
+						class="search-input"
+						disabled={approversLoading}
+					/>
+				</div>
+
+				{#if approversLoading}
+					<p class="loading">Loading approvers...</p>
+				{:else if filteredApprovers.length === 0}
+					<p class="no-data">No approvers found</p>
+				{:else}
+					<div class="users-table-container">
+						<table class="users-table">
+							<thead>
+								<tr>
+									<th>Username</th>
+									<th>Branch</th>
+									<th>Action</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filteredApprovers as approver (approver.id)}
+									<tr>
+										<td>{approver.username}</td>
+										<td>{branches[approver.branch_id] || 'N/A'}</td>
+										<td>
+											<button class="btn-select" on:click={() => selectApprover(approver)}>
+												Select
+											</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+				<button class="btn-back" on:click={goBack}>Back</button>
+			{/if}
+		</div>
+	{/if}
 	{#if step === 'receipt'}
 		<!-- Full-Page A4 Receipt - Bilingual -->
 		<div class="receipt-page">
@@ -1258,6 +1428,35 @@
 	.btn-save:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.btn-proceed {
+		width: 100%;
+		padding: 12px 20px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-bottom: 12px;
+	}
+
+	.btn-proceed:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+	}
+
+	.issue-type-badge {
+		padding: 4px 12px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 12px;
+		font-size: 12px;
+		font-weight: 600;
+		text-transform: uppercase;
 	}
 
 	.users-table-container {

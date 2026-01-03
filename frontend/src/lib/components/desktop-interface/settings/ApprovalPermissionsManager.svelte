@@ -82,6 +82,7 @@
 						can_approve_vendor_payments: false,
 						vendor_payment_amount_limit: 0,
 						can_approve_leave_requests: false,
+						can_approve_purchase_vouchers: false,
 						is_active: true
 					}
 				};
@@ -189,7 +190,8 @@
 			perms.can_approve_multiple_bill ||
 			perms.can_approve_recurring_bill ||
 			perms.can_approve_vendor_payments ||
-			perms.can_approve_leave_requests
+			perms.can_approve_leave_requests ||
+			perms.can_approve_purchase_vouchers
 		);
 	}
 
@@ -277,6 +279,7 @@
 							<th>🔄 Recurring Bill</th>
 							<th>💰 Vendor Payment</th>
 							<th>🏖️ Leave Request</th>
+							<th>🎫 Purchase Voucher</th>
 							<th class="action-col">Actions</th>
 						</tr>
 					</thead>
@@ -479,6 +482,20 @@
 										</label>
 									</div>
 								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_approve_purchase_vouchers}
+												on:change={() =>
+													togglePermission(user, 'can_approve_purchase_vouchers')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
 								<td class="action-col">
 									<button
 										class="btn-save-row"
@@ -492,7 +509,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="9" class="no-results">No users found matching filters</td>
+								<td colspan="10" class="no-results">No users found matching filters</td>
 							</tr>
 						{/each}
 					</tbody>

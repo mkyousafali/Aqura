@@ -9,10 +9,12 @@
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
 	let vendorPayments = []; // New: vendor payments requiring approval
+	let purchaseVouchers = []; // Purchase vouchers requiring approval
 	let approvedPaymentSchedules = []; // Approved payment schedules from expense_scheduler
 	let rejectedPaymentSchedules = []; // Rejected payment schedules
 	let myCreatedRequisitions = []; // Requisitions created by current user
 	let myCreatedSchedules = []; // Payment schedules created by current user
+	let myCreatedVouchers = []; // Purchase vouchers created by current user
 	let myApprovedSchedules = []; // My approved schedules
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
@@ -62,20 +64,21 @@
 
 	async function loadRequisitions() {
 		try {
-		loading = true;
+			loading = true;
+			
+			// Check if user is logged in
+			if (!$currentUser?.id) {
+				notifications.add({ type: 'error', message: 'Please login to access the approval center' });
+				loading = false;
+				return;
+			}
 		
-	// Check if user is logged in
-	if (!$currentUser?.id) {
-		notifications.add({ type: 'error', message: 'Please login to access the approval center' });
-		loading = false;
-		return;
-	}		console.log('🔐 Current user:', $currentUser);
-
-	// Get current user's approval permissions from approval_permissions table
-	const { data: approvalPerms, error: permsError } = await supabase
-		.from('approval_permissions')
-		.select('*')
-		.eq('user_id', $currentUser.id)
+		console.log('🔐 Current user:', $currentUser);
+		// Get current user's approval permissions from approval_permissions table
+		const { data: approvalPerms, error: permsError } = await supabase
+			.from('approval_permissions')
+			.select('*')
+			.eq('user_id', $currentUser.id)
 		.eq('is_active', true)
 		.maybeSingle(); // Use maybeSingle to handle cases where user has no approval permissions
 
@@ -86,15 +89,18 @@
 		notifications.add({ type: 'error', message: 'Error checking user permissions: ' + permsError.message });
 		loading = false;
 		return;
-	}		// User can approve if ANY permission is enabled
-		if (approvalPerms) {
+	}
+	
+	// User can approve if ANY permission is enabled
+	if (approvalPerms) {
 			userCanApprove = 
 				approvalPerms.can_approve_requisitions ||
 				approvalPerms.can_approve_single_bill ||
 				approvalPerms.can_approve_multiple_bill ||
 				approvalPerms.can_approve_recurring_bill ||
 				approvalPerms.can_approve_vendor_payments ||
-				approvalPerms.can_approve_leave_requests;
+				approvalPerms.can_approve_leave_requests ||
+				approvalPerms.can_approve_purchase_vouchers;
 			
 			console.log('👤 User approval permissions:', {
 				canApprove: userCanApprove,
@@ -103,7 +109,8 @@
 				multiple_bill: approvalPerms.can_approve_multiple_bill,
 				recurring_bill: approvalPerms.can_approve_recurring_bill,
 				vendor_payments: approvalPerms.can_approve_vendor_payments,
-				leave_requests: approvalPerms.can_approve_leave_requests
+				leave_requests: approvalPerms.can_approve_leave_requests,
+				purchase_vouchers: approvalPerms.can_approve_purchase_vouchers
 			});
 		} else {
 		userCanApprove = false;
@@ -124,8 +131,10 @@
 		requisitionsResult,
 		schedulesResult,
 		vendorPaymentsResult,
+		purchaseVouchersResult,
 		myRequisitionsResult,
-		mySchedulesResult
+		mySchedulesResult,
+		myVouchersResult
 	] = await Promise.all([
 		// 1. Requisitions where current user is approver (pending only)
 		supabase
@@ -166,7 +175,37 @@
 				.eq('approval_status', 'sent_for_approval')
 				.order('approval_requested_at', { ascending: false })
 				.limit(200) :
-			Promise.resolve({ data: [], error: null }),		// 4. My created requisitions (pending only)
+			Promise.resolve({ data: [], error: null }),
+		
+		// 4. Purchase vouchers requiring approval (only if user has permission)
+		(approvalPerms && approvalPerms.can_approve_purchase_vouchers) ?
+			supabase
+				.from('purchase_voucher_items')
+				.select(`
+					*,
+					issued_by_user:users!purchase_voucher_items_issued_by_fkey (
+						id,
+						username
+					),
+					stock_location_branch:branches!purchase_voucher_items_stock_location_fkey (
+						id,
+						name_en
+					),
+					pending_location_branch:branches!purchase_voucher_items_pending_stock_location_fkey (
+						id,
+						name_en
+					),
+					pending_person_user:users!purchase_voucher_items_pending_stock_person_fkey (
+						id,
+						username
+					)
+				`)
+				.eq('approval_status', 'pending')
+				.eq('approver_id', $currentUser.id)
+				.order('issued_date', { ascending: false })
+				.limit(200) :
+			Promise.resolve({ data: [], error: null }),
+		// 5. My created requisitions (pending only)
 		supabase
 			.from('expense_requisitions')
 			.select('*')
@@ -175,7 +214,7 @@
 			.order('created_at', { ascending: false })
 			.limit(200),
 		
-		// 5. My created payment schedules (pending only)
+		// 6. My created payment schedules (pending only)
 		supabase
 			.from('non_approved_payment_scheduler')
 			.select(`
@@ -188,15 +227,26 @@
 		.eq('created_by', $currentUser.id)
 		.eq('approval_status', 'pending')
 		.in('schedule_type', ['single_bill', 'multiple_bill'])
-		.order('created_at', { ascending: false })
+		.order('created_at', { ascending: false}),
+		
+		// 7. My created purchase vouchers (pending only)
+		supabase
+			.from('purchase_voucher_items')
+			.select(`
+				*,
+			approver_user:users!purchase_voucher_items_approver_id_fkey (
+				id,
+				username
+			)
+		`)
+		.eq('issued_by', $currentUser.id)
+		.eq('approval_status', 'pending')
+		.order('issued_date', { ascending: false })
+		.limit(200)
 	]);
 	
 	// Process requisitions result
 	const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
-	if (requisitionsError) {
-		console.error('❌ Error loading requisitions:', requisitionsError);
-		throw requisitionsError;
-	}		requisitions = requisitionsData || [];
 		
 		// Fetch usernames for requisitions if needed
 		if (requisitions.length > 0) {
@@ -253,6 +303,15 @@
 			console.log('✅ Loaded vendor payments for approval:', vendorPayments.length);
 		}
 		
+		// Process purchase vouchers result
+		const { data: vouchersData, error: vouchersError } = purchaseVouchersResult;
+		if (vouchersError) {
+			console.error('❌ Error loading purchase vouchers:', vouchersError);
+		} else {
+			purchaseVouchers = vouchersData || [];
+			console.log('✅ Loaded purchase vouchers for approval:', purchaseVouchers.length);
+		}
+		
 		// Process my created requisitions
 		const { data: myReqData, error: myReqError } = myRequisitionsResult;
 		if (!myReqError && myReqData) {
@@ -267,6 +326,13 @@
 		console.log('✅ My created payment schedules:', myCreatedSchedules.length);
 	}
 	
+	// Process my created purchase vouchers
+	const { data: myVouchersData, error: myVouchersError } = myVouchersResult;
+	if (!myVouchersError && myVouchersData) {
+		myCreatedVouchers = myVouchersData || [];
+		console.log('✅ My created purchase vouchers:', myCreatedVouchers.length);
+	}
+	
 	// Initialize empty arrays for historical data (will load on demand)
 	myApprovedSchedules = [];
 	approvedPaymentSchedules = [];
@@ -277,13 +343,13 @@
 
 	// Calculate stats (only pending for now, historical data will be loaded on demand)
 	// Stats for approvals assigned to me
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
 	stats.approved = 0; // Will be loaded when user switches to approved tab
 	stats.rejected = 0; // Will be loaded when user switches to rejected tab
 	stats.total = stats.pending;
 
 	// Stats for my created requests (only pending initially)
-	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length;
+	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myCreatedVouchers.length;
 	myStats.approved = 0; // Will be loaded on demand
 	myStats.rejected = 0; // Will be loaded on demand
 	myStats.total = myStats.pending;
@@ -291,10 +357,10 @@
 	console.log('📈 Approval Stats:', stats);
 	console.log('📊 My Requests Stats:', myStats);
 
-	filterRequisitions();
+		filterRequisitions();
 	
-	// Load historical data in background after initial display
-	loadHistoricalData();
+		// Load historical data in background after initial display
+		loadHistoricalData();
 	} catch (err) {
 		console.error('Error loading requisitions:', err);
 		notifications.add({ type: 'error', message: 'Error loading requisitions: ' + err.message });
@@ -302,8 +368,6 @@
 		loading = false;
 	}
 }
-
-// Load historical (approved/rejected) data in background
 async function loadHistoricalData() {
 	if (historicalDataLoaded || !$currentUser?.id) return;
 	
@@ -324,17 +388,21 @@ async function loadHistoricalData() {
 			supabase
 				.from('expense_requisitions')
 				.select('*')
-			.eq('approver_id', $currentUser.id)
-			.eq('status', 'approved')
-			.order('created_at', { ascending: false })
-			.limit(1000),			// Rejected requisitions where I'm approver
+				.eq('approver_id', $currentUser.id)
+				.eq('status', 'approved')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// Rejected requisitions where I'm approver
 			supabase
 				.from('expense_requisitions')
 				.select('*')
-			.eq('approver_id', $currentUser.id)
-			.eq('status', 'rejected')
-			.order('created_at', { ascending: false })
-			.limit(1000),			// My approved/rejected schedules from expense_scheduler
+				.eq('approver_id', $currentUser.id)
+				.eq('status', 'rejected')
+				.order('created_at', { ascending: false })
+				.limit(1000),
+			
+			// My approved/rejected schedules from expense_scheduler
 			supabase
 				.from('expense_scheduler')
 				.select(`
@@ -478,15 +546,17 @@ async function loadHistoricalData() {
 				searchQuery
 			});
 
-		// Filter requisitions by status
-		if (selectedStatus !== 'all') {
-			// Load historical data if viewing approved/rejected and not loaded yet
-			if ((selectedStatus === 'approved' || selectedStatus === 'rejected') && !historicalDataLoaded) {
-				loadHistoricalData();
+			// Filter requisitions by status
+			if (selectedStatus !== 'all') {
+				// Load historical data if viewing approved/rejected and not loaded yet
+				if ((selectedStatus === 'approved' || selectedStatus === 'rejected') && !historicalDataLoaded) {
+					loadHistoricalData();
+				}
+				filtered = filtered.filter(r => r.status === selectedStatus);
+				console.log(`  ↳ After status filter (${selectedStatus}):`, filtered.length);
 			}
-			filtered = filtered.filter(r => r.status === selectedStatus);
-			console.log(`  ↳ After status filter (${selectedStatus}):`, filtered.length);
-		}			// Filter by search query
+
+			// Filter by search query
 			if (searchQuery.trim()) {
 				const query = searchQuery.toLowerCase();
 				filtered = filtered.filter(r =>
@@ -535,14 +605,13 @@ async function loadHistoricalData() {
 				...(selectedStatus === 'pending' || selectedStatus === 'all' ? vendorPayments.map(vp => ({
 					...vp,
 					item_type: 'vendor_payment'
+				})) : []),
+				// Add purchase vouchers (only show in pending tab)
+				...(selectedStatus === 'pending' || selectedStatus === 'all' ? purchaseVouchers.map(pv => ({
+					...pv,
+					item_type: 'purchase_voucher'
 				})) : [])
 			];
-
-			console.log('✅ Final filtered approvals:', {
-				requisitions: filtered.length,
-				schedules: filteredSchedules.length,
-				total: filteredRequisitions.length
-			});
 		} else {
 			// Filter my created requests
 			let filtered = myCreatedRequisitions;
@@ -556,9 +625,8 @@ async function loadHistoricalData() {
 				searchQuery
 			});
 
-			// Filter by status
+			// Show all requisitions or filter by status
 			if (selectedStatus === 'all') {
-				// Show all requisitions
 				filtered = myCreatedRequisitions;
 				// Combine all schedules: pending + rejected (from myCreatedSchedules) + approved (from myApprovedSchedules)
 				filteredSchedules = [...myCreatedSchedules, ...myApprovedSchedules];
@@ -601,20 +669,21 @@ async function loadHistoricalData() {
 					...s, 
 					item_type: 'payment_schedule',
 					approval_status: s.approval_status || 'approved'
+				})),
+				// Add my created purchase vouchers
+				...myCreatedVouchers.map(pv => ({
+					...pv,
+					item_type: 'purchase_voucher'
 				}))
 			];
 
 			console.log('✅ Final filtered my requests:', {
 				requisitions: filtered.length,
 				schedules: filteredSchedules.length,
+				vouchers: myCreatedVouchers.length,
 				total: filteredMyRequests.length
 			});
 		}
-	}
-
-	function filterByStatus(status) {
-		selectedStatus = status;
-		filterRequisitions();
 	}
 
 	function openDetail(requisition) {
@@ -667,18 +736,20 @@ async function loadHistoricalData() {
 	}
 
 
-async function approveRequisition(requisitionId) {
-	try {
-		isProcessing = true;
+	async function approveRequisition(requisitionId) {
+		try {
+			isProcessing = true;
 		
-		// Check if it's a payment schedule or regular requisition
-		if (selectedRequisition.item_type === 'payment_schedule') {
-			// Get the full payment schedule data
-			const { data: scheduleData, error: fetchError } = await supabase
-				.from('non_approved_payment_scheduler')
-				.select('*')
-				.eq('id', requisitionId)
-				.single();				if (fetchError) throw fetchError;
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Get the full payment schedule data
+				const { data: scheduleData, error: fetchError } = await supabase
+					.from('non_approved_payment_scheduler')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
 
 				// Move to expense_scheduler
 				const { error: insertError } = await supabase
@@ -780,6 +851,67 @@ async function approveRequisition(requisitionId) {
 				}
 
 				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
+			} else if (selectedRequisition.item_type === 'purchase_voucher') {
+				// Approve purchase voucher
+				const updatePayload = {
+					approval_status: 'approved'
+				};
+
+				// Detect stock transfer by checking if pending fields exist (issue_type remains 'not issued' for stock transfers)
+				const isStockTransfer = selectedRequisition.pending_stock_location || selectedRequisition.pending_stock_person;
+
+				// For stock transfer: apply pending stock location and person, keep status as 'stocked'
+				if (isStockTransfer) {
+					// Apply pending stock location and person
+					if (selectedRequisition.pending_stock_location) {
+						updatePayload.stock_location = selectedRequisition.pending_stock_location;
+					}
+					if (selectedRequisition.pending_stock_person) {
+						updatePayload.stock_person = selectedRequisition.pending_stock_person;
+					}
+					// Clear pending fields and approval fields
+					updatePayload.pending_stock_location = null;
+					updatePayload.pending_stock_person = null;
+					updatePayload.approver_id = null;
+					// Keep status as 'stocked', stock as 1, issue_type as 'not issued'
+					// Don't touch issued_by, issued_date as they weren't set
+				} else {
+					// For gift/sales: change status to issued and set stock to 0
+					updatePayload.status = 'issued';
+					updatePayload.stock = 0;
+				}
+
+				const { error: updateError } = await supabase
+					.from('purchase_voucher_items')
+					.update(updatePayload)
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification
+				try {
+					const issueTypeLabel = isStockTransfer ? 'Stock Transfer' : 'Purchase Voucher';
+					// For stock transfer, notify the new stock person; for gift/sales, notify the issuer
+					const notifyUserId = isStockTransfer 
+						? selectedRequisition.pending_stock_person 
+						: selectedRequisition.issued_by;
+					
+					if (notifyUserId) {
+						await notificationService.createNotification({
+							title: `${issueTypeLabel} Approved`,
+							message: `${isStockTransfer ? 'Stock transfer' : 'Your purchase voucher'} has been approved!\n\nBook: ${selectedRequisition.purchase_voucher_id}\nSerial: #${selectedRequisition.serial_number}\nValue: SAR ${selectedRequisition.value}\nApproved by: ${$currentUser?.username}`,
+							type: 'assignment_approved',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [notifyUserId]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Approval notification sent to:', notifyUserId);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+
+				notifications.add({ type: 'success', message: 'Purchase voucher approved successfully!' });
 			} else {
 				// Get the requisition data first
 				const { data: reqData, error: reqError } = await supabase
@@ -851,45 +983,50 @@ async function approveRequisition(requisitionId) {
 						}, $currentUser?.id || $currentUser?.username || 'System');
 						console.log('✅ Approval notification sent to creator:', reqData.created_by);
 					}
-			} catch (notifError) {
-			console.error('⚠️ Failed to send approval notification:', notifError);
-			// Don't fail the whole operation if notification fails
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+					// Don't fail the whole operation if notification fails
+				}
+
+				notifications.add({ type: 'success', message: 'Requisition approved and added to expense scheduler!' });
+			}
+
+			// Remove from pending lists without reloading
+			requisitions = requisitions.filter(r => r.id !== requisitionId);
+			paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
+			vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
+			purchaseVouchers = purchaseVouchers.filter(pv => pv.id !== requisitionId);
+
+			// Update stats
+			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
+			stats.total = stats.pending + stats.approved + stats.rejected;
+	
+			// Refresh filtered lists
+			filterRequisitions();
+	
+			closeDetail();
+		} catch (err) {
+			console.error('Error approving:', err);
+			notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
+		} finally {
+			isProcessing = false;
 		}
-		
-		notifications.add({ type: 'success', message: 'Requisition approved and added to expense scheduler!' });
 	}
 
-	// Remove from pending lists without reloading
-	requisitions = requisitions.filter(r => r.id !== requisitionId);
-	paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
-	vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
-	
-	// Update stats
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
-	stats.total = stats.pending + stats.approved + stats.rejected;
-	
-	// Refresh filtered lists
-	filterRequisitions();
-	
-	closeDetail();
-} catch (err) {
-	console.error('Error approving:', err);
-	notifications.add({ type: 'error', message: 'Error approving: ' + err.message });
-} finally {
-	isProcessing = false;
-}
-}
+	async function rejectRequisition(requisitionId, reason) {
+		try {
+			isProcessing = true;
 
-async function rejectRequisition(requisitionId, reason) {
-	try {
-		isProcessing = true;		// Check if it's a payment schedule or regular requisition
-		if (selectedRequisition.item_type === 'payment_schedule') {
-			// Get the schedule data first
-			const { data: scheduleData, error: fetchError } = await supabase
-				.from('non_approved_payment_scheduler')
-				.select('*')
-				.eq('id', requisitionId)
-				.single();				if (fetchError) throw fetchError;
+			// Check if it's a payment schedule or regular requisition
+			if (selectedRequisition.item_type === 'payment_schedule') {
+				// Get the schedule data first
+				const { data: scheduleData, error: fetchError } = await supabase
+					.from('non_approved_payment_scheduler')
+					.select('*')
+					.eq('id', requisitionId)
+					.single();
+
+				if (fetchError) throw fetchError;
 
 				// Update payment schedule
 				const { error } = await supabase
@@ -958,6 +1095,53 @@ async function rejectRequisition(requisitionId, reason) {
 				}
 
 				notifications.add({ type: 'warning', message: 'Vendor payment rejected successfully!' });
+			} else if (selectedRequisition.item_type === 'purchase_voucher') {
+				// Reject purchase voucher
+				// Detect stock transfer by checking if pending fields exist (issue_type remains 'not issued' for stock transfers)
+				const isStockTransfer = selectedRequisition.pending_stock_location || selectedRequisition.pending_stock_person;
+				
+				const rejectPayload = {
+					approval_status: 'rejected',
+					approver_id: null // Clear approver
+				};
+				
+				// For stock transfer, also clear pending fields
+				if (isStockTransfer) {
+					rejectPayload.pending_stock_location = null;
+					rejectPayload.pending_stock_person = null;
+				}
+				
+				const { error: updateError } = await supabase
+					.from('purchase_voucher_items')
+					.update(rejectPayload)
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification
+				try {
+					const issueTypeLabel = isStockTransfer ? 'Stock Transfer' : 'Purchase Voucher';
+					// For stock transfer, notify the new stock person (who was supposed to receive); for gift/sales, notify the issuer
+					const notifyUserId = isStockTransfer 
+						? selectedRequisition.pending_stock_person 
+						: selectedRequisition.issued_by;
+					
+					if (notifyUserId) {
+						await notificationService.createNotification({
+							title: `${issueTypeLabel} Rejected`,
+							message: `${isStockTransfer ? 'Stock transfer' : 'Your purchase voucher'} has been rejected.\n\nReason: ${reason}\n\nBook: ${selectedRequisition.purchase_voucher_id}\nSerial: #${selectedRequisition.serial_number}\nValue: SAR ${selectedRequisition.value}\nRejected by: ${$currentUser?.username}`,
+							type: 'assignment_rejected',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [notifyUserId]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Rejection notification sent to:', notifyUserId);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
+				notifications.add({ type: 'warning', message: 'Purchase voucher rejected successfully!' });
 			} else {
 				// Get requisition data first
 				const { data: reqData, error: fetchError } = await supabase
@@ -994,30 +1178,33 @@ async function rejectRequisition(requisitionId, reason) {
 					console.error('⚠️ Failed to send rejection notification:', notifError);
 					// Don't fail the whole operation if notification fails
 				}
-				
-			notifications.add({ type: 'warning', message: 'Requisition rejected successfully!' });
-		}
 
-		// Remove from pending lists without reloading
-		requisitions = requisitions.filter(r => r.id !== requisitionId);
-		paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
-		vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
-		
-		// Update stats
-		stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
-		stats.total = stats.pending + stats.approved + stats.rejected;
-		
-		// Refresh filtered lists
-		filterRequisitions();
-		
-		closeDetail();
-	} catch (err) {
-		console.error('Error rejecting:', err);
-		notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
-	} finally {
-		isProcessing = false;
+				notifications.add({ type: 'warning', message: 'Requisition rejected successfully!' });
+			}
+
+			// Remove from pending lists without reloading
+			requisitions = requisitions.filter(r => r.id !== requisitionId);
+			paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
+			vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
+			purchaseVouchers = purchaseVouchers.filter(pv => pv.id !== requisitionId);
+
+			// Update stats
+			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
+			stats.total = stats.pending + stats.approved + stats.rejected;
+
+			// Refresh filtered lists
+			filterRequisitions();
+
+			closeDetail();
+		} catch (err) {
+			console.error('Error rejecting:', err);
+			notifications.add({ type: 'error', message: 'Error rejecting: ' + err.message });
+		} finally {
+			isProcessing = false;
+		}
 	}
-}	function getStatusClass(status) {
+
+	function getStatusClass(status) {
 		switch (status) {
 			case 'pending': return 'status-pending';
 			case 'approved': return 'status-approved';
@@ -1147,6 +1334,39 @@ async function rejectRequisition(requisitionId, reason) {
 							})
 							.eq('id', item.id);
 
+						if (error) throw error;
+						approvedCount++;
+					} else if (item.item_type === 'purchase_voucher') {
+						// Check if it's a stock transfer - need to check pending fields or issue_type
+						const isStockTransfer = item.pending_stock_location || item.pending_stock_person;
+						
+						let updatePayload = {
+							approval_status: 'approved'
+						};
+						
+						if (isStockTransfer) {
+							// For stock transfer: apply pending fields, keep status and stock unchanged
+							if (item.pending_stock_location) {
+								updatePayload.stock_location = item.pending_stock_location;
+							}
+							if (item.pending_stock_person) {
+								updatePayload.stock_person = item.pending_stock_person;
+							}
+							// Clear pending fields
+							updatePayload.pending_stock_location = null;
+							updatePayload.pending_stock_person = null;
+							updatePayload.approver_id = null;
+							// Keep status as 'stocked' and stock as 1 (no change needed)
+						} else {
+							// For gift/sales: set status to issued and stock to 0
+							updatePayload.status = 'issued';
+							updatePayload.stock = 0;
+						}
+						
+						const { error } = await supabase
+							.from('purchase_voucher_items')
+							.update(updatePayload)
+							.eq('id', item.id);
 						if (error) throw error;
 						approvedCount++;
 					}
@@ -1478,6 +1698,71 @@ async function rejectRequisition(requisitionId, reason) {
 									</td>
 									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
 									<td class="date">{formatDate(req.approval_requested_at)}</td>
+									<td>
+										<button class="btn-view" on:click={() => openDetail(req)}>
+											👁️ View
+										</button>
+									</td>
+								{:else if req.item_type === 'purchase_voucher'}
+									<!-- Purchase Voucher Row -->
+									<td class="req-number">
+										{#if req.issue_type === 'stock transfer'}
+											<span class="schedule-badge transfer">📦 STOCK TRANSFER</span>
+										{:else if req.issue_type === 'gift'}
+											<span class="schedule-badge gift">🎁 GIFT</span>
+										{:else if req.issue_type === 'sales'}
+											<span class="schedule-badge sales">💰 SALES</span>
+										{:else}
+											<span class="schedule-badge">🎟️ PURCHASE VOUCHER</span>
+										{/if}
+										<div class="schedule-id">Book: {req.purchase_voucher_id}</div>
+										<div class="schedule-id">Serial: #{req.serial_number}</div>
+									</td>
+									<td>
+										{req.stock_location_branch?.name_en || '-'}
+										{#if req.issue_type === 'stock transfer' && req.pending_location_branch}
+											<div style="font-size: 11px; color: #3182ce;">→ {req.pending_location_branch.name_en}</div>
+										{/if}
+									</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">
+												👤 {req.issued_by_user?.username || 'Unknown'}
+											</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">#{req.serial_number}</div>
+											<div class="requester-id">Serial Number</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											{#if req.issue_type === 'stock transfer'}
+												<div>Stock Transfer</div>
+												<div class="category-ar">تحويل المخزون</div>
+											{:else if req.issue_type === 'gift'}
+												<div>Gift Voucher</div>
+												<div class="category-ar">قسيمة هدية</div>
+											{:else if req.issue_type === 'sales'}
+												<div>Sales Voucher</div>
+												<div class="category-ar">قسيمة مبيعات</div>
+											{:else}
+												<div>Purchase Voucher</div>
+												<div class="category-ar">قسيمة الشراء</div>
+											{/if}
+										</div>
+									</td>
+									<td class="amount">{formatCurrency(req.value)}</td>
+									<td class="payment-type">{req.status || 'Stocked'}</td>
+									<td>
+										<span class="status-badge {req.approval_status === 'pending' ? 'status-pending' : 'status-approved'}">
+											{(req.approval_status || 'pending').toUpperCase()}
+										</span>
+									</td>
+									<td class="date">-</td>
+									<td class="date">{req.issued_date ? formatDate(req.issued_date) : '-'}</td>
 									<td>
 										<button class="btn-view" on:click={() => openDetail(req)}>
 											👁️ View
@@ -1850,17 +2135,112 @@ async function rejectRequisition(requisitionId, reason) {
 							</div>
 						{/if}
 					</div>
+				{:else if selectedRequisition.item_type === 'purchase_voucher'}
+					<!-- Purchase Voucher Details -->
+					<div class="detail-grid">
+						<div class="detail-item">
+							<label>Request Type</label>
+							<div class="detail-value">
+								{#if selectedRequisition.issue_type === 'stock transfer'}
+									<span class="schedule-badge transfer">📦 STOCK TRANSFER</span>
+								{:else if selectedRequisition.issue_type === 'gift'}
+									<span class="schedule-badge gift">🎁 GIFT</span>
+								{:else if selectedRequisition.issue_type === 'sales'}
+									<span class="schedule-badge sales">💰 SALES</span>
+								{:else}
+									<span class="schedule-badge purchase-voucher">🧾 PURCHASE VOUCHER</span>
+								{/if}
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Voucher Book ID</label>
+							<div class="detail-value">{selectedRequisition.purchase_voucher_id || 'N/A'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Serial Number</label>
+							<div class="detail-value amount-large">#{selectedRequisition.serial_number || 'N/A'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Approval Status</label>
+							<span class="status-badge {
+								selectedRequisition.approval_status === 'pending' ? 'status-pending' : 
+								selectedRequisition.approval_status === 'approved' ? 'status-approved' : 
+								selectedRequisition.approval_status === 'rejected' ? 'status-rejected' : 
+								'status-pending'
+							}">
+								{(selectedRequisition.approval_status || 'pending').toUpperCase()}
+							</span>
+						</div>
+
+						<div class="detail-item">
+							<label>Voucher Value</label>
+							<div class="detail-value amount-large">{formatCurrency(selectedRequisition.value || 0)}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Current Stock</label>
+							<div class="detail-value">{selectedRequisition.stock ?? 'N/A'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Current Location</label>
+							<div class="detail-value">{selectedRequisition.stock_location_branch?.name_en || 'N/A'}</div>
+						</div>
+
+						{#if selectedRequisition.issue_type === 'stock transfer'}
+							<div class="detail-item">
+								<label>🔄 Transfer To Location</label>
+								<div class="detail-value" style="color: #3182ce; font-weight: 600;">
+									{selectedRequisition.pending_location_branch?.name_en || 'N/A'}
+								</div>
+							</div>
+
+							<div class="detail-item">
+								<label>🔄 Transfer To Person</label>
+								<div class="detail-value" style="color: #3182ce; font-weight: 600;">
+									{selectedRequisition.pending_person_user?.username || 'N/A'}
+								</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Requested By</label>
+							<div class="detail-value">{selectedRequisition.issued_by_user?.username || 'Unknown'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Request Date</label>
+							<div class="detail-value">{selectedRequisition.issued_date ? formatDate(selectedRequisition.issued_date) : 'N/A'}</div>
+						</div>
+
+						{#if selectedRequisition.remarks}
+							<div class="detail-item full-width">
+								<label>Remarks</label>
+								<div class="detail-value description">{selectedRequisition.remarks}</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Created Date</label>
+							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
+						</div>
+					</div>
 				{/if}
 			</div>
 
 		<div class="modal-footer">
-			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval')}
+			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval') || (selectedRequisition.item_type === 'purchase_voucher' && selectedRequisition.approval_status === 'pending')}
 					{@const canApproveThis = selectedRequisition.item_type === 'payment_schedule' 
 						? selectedRequisition.approver_id === $currentUser?.id 
 						: selectedRequisition.item_type === 'vendor_payment'
 						? userCanApprove
+						: selectedRequisition.item_type === 'purchase_voucher'
+						? selectedRequisition.approver_id === $currentUser?.id || userCanApprove
 						: userCanApprove}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : 'requisition'}
 					{#if !canApproveThis}
 						<div class="permission-notice">
 							ℹ️ You do not have permission to approve or reject this {itemTypeName}.
@@ -1884,7 +2264,7 @@ async function rejectRequisition(requisitionId, reason) {
 						{isProcessing ? '⏳ Processing...' : '❌ Reject'}
 					</button>
 				{:else}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : 'requisition'}
 					<div class="status-info">
 						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>

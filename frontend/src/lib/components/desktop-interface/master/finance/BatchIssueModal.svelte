@@ -9,13 +9,17 @@
 	export let onIssueComplete = () => {};
 
 	let isLoading = false;
-	let step = 'select-category'; // 'select-category', 'select-type', or 'receipt'
+	let step = 'select-category'; // 'select-category', 'select-type', 'select-approver', or 'receipt'
 	let selectedCategory = null;
 	let selectedUser = null;
 	let selectedRequester = null;
 	let selectedIssueType = null; // Store selected issue type
 	let selectedBranch = null; // For stock transfer branch selection
 	let showBranchSelection = false;
+	let selectedApprover = null;
+	let approvers = [];
+	let approverSearchQuery = '';
+	let approversLoading = false;
 	let users = [];
 	let requesters = [];
 	let branches = {};
@@ -118,12 +122,69 @@
 		// Don't change step, stay in select-category to show requester + issue type inline
 	}
 
-	function selectBranch(branchId) {
-		selectedBranch = branchId;
-		// After branch selection, load items and show receipt
+	async function loadApprovers() {
+		approversLoading = true;
+		try {
+			// Get user_ids from approval_permissions where can_approve_purchase_vouchers is true
+			const { data: permData, error: permError } = await supabase
+				.from('approval_permissions')
+				.select('user_id')
+				.eq('can_approve_purchase_vouchers', true);
+
+			if (permError) {
+				console.error('Error loading approval permissions:', permError);
+				approvers = [];
+				return;
+			}
+
+			if (!permData || permData.length === 0) {
+				console.log('No users with purchase voucher approval permission found');
+				approvers = [];
+				return;
+			}
+
+			const userIds = permData.map(p => p.user_id);
+
+			// Get user details for these approvers
+			const { data: usersData, error: usersError } = await supabase
+				.from('users')
+				.select('id, username, employee_id, branch_id')
+				.in('id', userIds);
+
+			if (usersError) {
+				console.error('Error loading approver users:', usersError);
+				approvers = [];
+				return;
+			}
+
+			approvers = usersData || [];
+		} catch (error) {
+			console.error('Error loading approvers:', error);
+			approvers = [];
+		} finally {
+			approversLoading = false;
+		}
+	}
+
+	function selectApprover(approver) {
+		selectedApprover = approver;
+		// After selecting approver, load items and go to receipt
 		loadBatchItems();
 		step = 'receipt';
+	}
+
+	$: filteredApprovers = approvers.filter(approver => {
+		if (!approverSearchQuery) return true;
+		const searchLower = approverSearchQuery.toLowerCase();
+		return approver.username?.toLowerCase().includes(searchLower);
+	});
+
+	function selectBranch(branchId) {
+		selectedBranch = branchId;
+		// After branch selection for stock transfer, go to approver selection
 		showBranchSelection = false;
+		loadApprovers();
+		step = 'select-approver';
 	}
 
 	function goBackFromBranch() {
@@ -136,15 +197,22 @@
 			// If on branch selection, go back to issue type selection
 			showBranchSelection = false;
 			selectedBranch = null;
-		} else if (step === 'receipt') {
-			// Go back from receipt to issue type selection (or branch selection for stock transfer)
+		} else if (step === 'select-approver') {
+			// Go back from approver selection
+			selectedApprover = null;
+			approverSearchQuery = '';
 			if (selectedIssueType === 'stock transfer' && selectedCategory === 'internal') {
-				step = 'select-category';
+				// For stock transfer, go back to branch selection
 				showBranchSelection = true;
+				step = 'select-category';
 			} else {
+				// For gift/sales, go back to category/issue type selection
 				step = 'select-category';
 				selectedIssueType = null;
 			}
+		} else if (step === 'receipt') {
+			// Go back from receipt to approver selection
+			step = 'select-approver';
 		} else if (selectedUser) {
 			// Clear selected user, go back to user table
 			selectedUser = null;
@@ -191,6 +259,10 @@
 		// If stock transfer for internal, show branch selection
 		if (type === 'stock transfer' && selectedCategory === 'internal') {
 			showBranchSelection = true;
+		} else if (type === 'gift' || type === 'sales') {
+			// For gift/sales, go to approver selection
+			loadApprovers();
+			step = 'select-approver';
 		} else {
 			// For other types, load items and go to receipt
 			loadBatchItems();
@@ -437,28 +509,43 @@
 			}
 
 			if (selectedIssueType === 'gift' || selectedIssueType === 'sales') {
-				// Set status to issued for gift/sales
-				updateData.status = 'issued';
-				// For gift/sales: Update issue_type, issued_by (logged user), issued_to (selected user), and issued_date
+				// For gift/sales: Set approval_status to pending and update issue details
+				updateData.approval_status = 'pending';
 				updateData.issue_type = selectedIssueType;
 				updateData.issued_by = $currentUser.id;
 				updateData.issued_date = new Date().toISOString();
+				
+				// Store the approver_id
+				if (selectedApprover) {
+					updateData.approver_id = selectedApprover.id;
+				}
 				
 				// Set issued_to if a user was selected
 				if (selectedUser) {
 					updateData.issued_to = selectedUser.id;
 				}
 				
-				// Set stock to 0 after issuing
-				updateData.stock = 0;
+				// Status stays as 'stocked', will be changed to 'issued' after approval
+				// Stock stays as 1, will be set to 0 after approval
 			} else if (selectedIssueType === 'stock transfer') {
-				// For stock transfer: Update stock_person and stock_location
+				// For stock transfer: Set approval_status to pending
+				// DO NOT change issue_type, issued_by, issued_date, or stock
+				updateData.approval_status = 'pending';
+				
+				// Store the approver_id
+				if (selectedApprover) {
+					updateData.approver_id = selectedApprover.id;
+				}
+				
+				// Store PENDING stock_person and stock_location - DO NOT update actual columns until approved
 				if (selectedUser) {
-					updateData.stock_person = selectedUser.id;
+					updateData.pending_stock_person = selectedUser.id;
 				}
 				if (selectedBranch) {
-					updateData.stock_location = selectedBranch;
+					updateData.pending_stock_location = selectedBranch;
 				}
+				
+				// Keep current stock_location, stock_person, issue_type, issued_by, issued_date, stock unchanged until approved
 			}
 
 			const { error } = await supabase
@@ -736,6 +823,54 @@
 					<button class="btn-back" on:click={goBack}>Back to Category</button>
 				{/if}
 			{/if}
+		{:else if step === 'select-approver'}
+			<!-- Approver Selection Step -->
+			<h3>Select Approver</h3>
+			<div class="info">
+				<p class="instruction">Select an approver for the voucher(s):</p>
+			</div>
+			
+			{#if approversLoading}
+				<div class="loading">Loading approvers...</div>
+			{:else if approvers.length === 0}
+				<div class="empty-state">
+					<p>No users with purchase voucher approval permission found.</p>
+					<p>Please contact your administrator.</p>
+				</div>
+			{:else}
+				<div class="search-box">
+					<input 
+						type="text" 
+						placeholder="Search approvers..." 
+						bind:value={approverSearchQuery}
+					/>
+				</div>
+				<div class="table-container">
+					<table class="users-table">
+						<thead>
+							<tr>
+								<th>Username</th>
+								<th>Branch</th>
+								<th>Action</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredApprovers as approver (approver.id)}
+								<tr>
+									<td>{approver.username}</td>
+									<td>{branches[approver.branch_id] || 'N/A'}</td>
+									<td>
+										<button class="btn-select" on:click={() => selectApprover(approver)}>
+											Select
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+			<button class="btn-back" on:click={goBack}>Back</button>
 		{/if}
 	</div>
 	{#if step === 'receipt'}
