@@ -19,6 +19,7 @@
 	let statusFilter = 'all'; // 'all', 'stock', 'stocked', 'issued', 'closed'
 	let showCard1Breakdown = false;
 	let showCard2Breakdown = false;
+	let showCard3Breakdown = false;
 	let branches = [];
 	let users = [];
 	let employees = [];
@@ -34,6 +35,12 @@
 	let issuedStats = {
 		totalVouchers: 0,
 		byBranch: {} // { branchId: { value1: { vouchers, books }, value2: { vouchers, books } } }
+	};
+
+	// Status card 3 data - Closed
+	let closedStats = {
+		totalVouchers: 0,
+		byBranch: {}
 	};
 
 	// Create lookup maps for display
@@ -75,6 +82,7 @@
 		await loadEmployees();
 		await loadNotIssuedStats();
 		await loadIssuedStats();
+		await loadClosedStats();
 		await loadVoucherItems();
 
 		// Setup realtime subscription
@@ -130,6 +138,7 @@
 		reloadTimeout = setTimeout(() => {
 			loadNotIssuedStats();
 			loadIssuedStats();
+			loadClosedStats();
 		}, 300);
 	}
 
@@ -197,6 +206,7 @@
 		}
 		loadNotIssuedStats();
 		loadIssuedStats();
+		loadClosedStats();
 	}
 
 	async function loadBranches() {
@@ -407,6 +417,88 @@
 		}
 	}
 
+	async function loadClosedStats() {
+		try {
+			const { data: items, error } = await supabase
+				.from('purchase_voucher_items')
+				.select('purchase_voucher_id, value, stock_location, issue_type')
+				.eq('status', 'closed')
+				.limit(10000);
+
+			if (error) {
+				console.error('Error loading closed stats:', error);
+				return;
+			}
+
+			const allVoucherIds = new Set();
+			
+			// Group by branch, then by value, then by issue_type
+			const branchValueCounts = {};
+
+			items.forEach(item => {
+				const branchId = item.stock_location || 'unassigned';
+				const voucherId = item.purchase_voucher_id;
+				const value = item.value || 0;
+				const issueType = item.issue_type || 'unknown';
+
+				allVoucherIds.add(voucherId);
+
+				if (!branchValueCounts[branchId]) {
+					branchValueCounts[branchId] = {};
+				}
+
+				if (!branchValueCounts[branchId][value]) {
+					branchValueCounts[branchId][value] = {};
+				}
+
+				if (!branchValueCounts[branchId][value][issueType]) {
+					branchValueCounts[branchId][value][issueType] = {
+						vouchers: 0,
+						books: new Set()
+					};
+				}
+				
+				branchValueCounts[branchId][value][issueType].vouchers++;
+				branchValueCounts[branchId][value][issueType].books.add(voucherId);
+			});
+
+			// Convert Set to count for books
+			Object.keys(branchValueCounts).forEach(branchId => {
+				Object.keys(branchValueCounts[branchId]).forEach(value => {
+					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
+						branchValueCounts[branchId][value][issueType].books = branchValueCounts[branchId][value][issueType].books.size;
+					});
+				});
+			});
+
+			// Calculate summary by value only (across all branches, all issue types)
+			const valueSummary = {};
+			Object.keys(branchValueCounts).forEach(branchId => {
+				Object.keys(branchValueCounts[branchId]).forEach(value => {
+					if (!valueSummary[value]) {
+						valueSummary[value] = {
+							vouchers: 0,
+							books: 0
+						};
+					}
+					Object.keys(branchValueCounts[branchId][value]).forEach(issueType => {
+						valueSummary[value].vouchers += branchValueCounts[branchId][value][issueType].vouchers;
+						valueSummary[value].books += branchValueCounts[branchId][value][issueType].books;
+					});
+				});
+			});
+
+			closedStats = {
+				totalVouchers: allVoucherIds.size,
+				byBranch: branchValueCounts,
+				byValue: valueSummary
+			};
+
+		} catch (error) {
+			console.error('Error loading closed stats:', error);
+		}
+	}
+
 	async function loadVoucherItems(reset = true) {
 		if (reset) {
 			isLoading = true;
@@ -550,7 +642,7 @@
 				book.stock_locations = locIds.map(id => branchMap[id] || `Unknown (${id})`).join(', ') || '-';
 				
 				const personIds = Array.from(book.stock_persons);
-				book.stock_persons = personIds.map(id => userEmployeeMap[id] || `Unknown (${id})`).join(', ') || '-';
+				book.stock_persons = personIds.map(id => userNameMap[id] || `Unknown (${id})`).join(', ') || '-';
 				
 				return book;
 			});
@@ -736,8 +828,47 @@
 				</div>
 			{/if}
 		</div>
-		<div class="status-card">3</div>
-		<div class="status-card">4</div>
+		<div class="status-card clickable" on:click={() => showCard3Breakdown = !showCard3Breakdown}>
+			<h3 class="card-title">Closed Vouchers {showCard3Breakdown ? '▼' : '▶'}</h3>
+			<div class="total-count">Total: {closedStats.totalVouchers} {closedStats.totalVouchers === 1 ? 'voucher' : 'vouchers'}</div>
+			
+			{#if !showCard3Breakdown}
+				<!-- Summary by value -->
+				<div class="value-summary">
+					{#if Object.keys(closedStats.byValue || {}).length > 0}
+						{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
+							<div class="value-item">
+								<span class="value-label">Value {Number(value).toFixed(2)}:</span>
+								<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)}</span>
+							</div>
+						{/each}
+					{:else}
+						<p class="no-branch">No closed vouchers</p>
+					{/if}
+				</div>
+			{:else}
+				<!-- Detailed breakdown by branch -->
+				<div class="branch-breakdown">
+					{#if Object.keys(closedStats.byBranch).length > 0}
+						{#each Object.entries(closedStats.byBranch) as [branchId, valueCounts]}
+							<div class="branch-section">
+								<h4 class="branch-section-title">{branchMap[branchId] || branchId}</h4>
+							{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, issueTypes]}
+								{#each Object.entries(issueTypes) as [issueType, counts]}
+									<div class="value-item">
+										<span class="value-label">Value {Number(value).toFixed(2)}:</span>
+										<span class="value-count">{counts.vouchers} {counts.vouchers === 1 ? 'voucher' : 'vouchers'}, {counts.books} {counts.books === 1 ? 'book' : 'books'} valued {(Number(value) * counts.vouchers).toFixed(2)} {issueType}</span>
+										</div>
+								{/each}
+								{/each}
+							</div>
+						{/each}
+					{:else}
+						<p class="no-branch">No closed vouchers</p>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 	<div class="button-group">
 		<button class="action-button" on:click={handleAddPurchaseVoucher}>Add Purchase Voucher</button>
@@ -931,8 +1062,20 @@
 
 	.status-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		grid-template-columns: repeat(3, 1fr);
 		gap: 24px;
+	}
+
+	@media (max-width: 1200px) {
+		.status-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.status-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.status-card {

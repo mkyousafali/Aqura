@@ -1,5 +1,6 @@
 <script>
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	import { onMount } from 'svelte';
 
 	let issuedVouchers = [];
@@ -11,6 +12,26 @@
 	let selectedVouchers = new Set();
 	let showCloseModal = false;
 	let selectedVoucherForModal = null;
+	let closeBillNumber = '';
+	let closeRemarks = '';
+	let isClosing = false;
+	let expenseCategories = [];
+	let selectedExpenseCategoryId = null;
+	let expenseCategorySearch = '';
+	let showCategoryDropdown = false;
+	
+	// Filtered expense categories based on search
+	$: filteredExpenseCategories = expenseCategories.filter(cat => {
+		if (!expenseCategorySearch.trim()) return true;
+		const search = expenseCategorySearch.toLowerCase();
+		return cat.name_en.toLowerCase().includes(search) || 
+		       cat.name_ar.toLowerCase().includes(search);
+	});
+	
+	// Get selected category display name
+	$: selectedCategoryDisplay = selectedExpenseCategoryId 
+		? expenseCategories.find(c => c.id === selectedExpenseCategoryId)
+		: null;
 	
 	// Filter states
 	let filterPVId = '';
@@ -69,10 +90,24 @@
 		await Promise.all([
 			loadBranches(),
 			loadUsers(),
-			loadEmployees()
+			loadEmployees(),
+			loadExpenseCategories()
 		]);
 		await loadIssuedVouchers();
 	});
+
+	async function loadExpenseCategories() {
+		try {
+			const { data, error } = await supabase
+				.from('expense_sub_categories')
+				.select('id, name_en, name_ar, parent_category_id')
+				.eq('is_active', true)
+				.order('name_en');
+			if (!error) expenseCategories = data || [];
+		} catch (error) {
+			console.error('Error loading expense categories:', error);
+		}
+	}
 
 	async function loadBranches() {
 		try {
@@ -216,12 +251,135 @@
 
 	function openCloseModal(voucher) {
 		selectedVoucherForModal = voucher;
+		closeBillNumber = '';
+		closeRemarks = '';
+		selectedExpenseCategoryId = null;
+		expenseCategorySearch = '';
+		showCategoryDropdown = false;
 		showCloseModal = true;
 	}
 
 	function closeModal() {
 		showCloseModal = false;
 		selectedVoucherForModal = null;
+		closeBillNumber = '';
+		closeRemarks = '';
+		selectedExpenseCategoryId = null;
+		expenseCategorySearch = '';
+		showCategoryDropdown = false;
+	}
+
+	function selectExpenseCategory(category) {
+		selectedExpenseCategoryId = category.id;
+		expenseCategorySearch = '';
+		showCategoryDropdown = false;
+	}
+
+	function clearSelectedCategory() {
+		selectedExpenseCategoryId = null;
+		expenseCategorySearch = '';
+	}
+
+	async function handleSaveClose() {
+		if (!selectedVoucherForModal) return;
+		
+		const issueType = selectedVoucherForModal.issue_type;
+		
+		// Validation for sales issue type
+		if (issueType === 'sales' && !closeBillNumber.trim()) {
+			alert('Please enter the close bill number');
+			return;
+		}
+		
+		// Validation for gift issue type
+		if (issueType === 'gift') {
+			if (!selectedExpenseCategoryId) {
+				alert('Please select an expense category');
+				return;
+			}
+			if (!closeBillNumber.trim()) {
+				alert('Please enter the close bill number');
+				return;
+			}
+		}
+		
+		isClosing = true;
+		try {
+			const updateData = {
+				status: 'closed',
+				closed_date: new Date().toISOString(),
+				close_bill_number: closeBillNumber.trim() || null,
+				close_remarks: closeRemarks.trim() || null
+			};
+			
+			// Update the voucher item
+			const { error } = await supabase
+				.from('purchase_voucher_items')
+				.update(updateData)
+				.eq('id', selectedVoucherForModal.id);
+			
+			if (error) {
+				console.error('Error closing voucher:', error);
+				alert('Error closing voucher: ' + error.message);
+				return;
+			}
+			
+			// For gift issue type, also post to expense_scheduler
+			if (issueType === 'gift') {
+				// Get current user from store
+				if (!$currentUser?.id) {
+					alert('Error: Unable to get current user. Please log in again.');
+					return;
+				}
+				
+				const selectedCategory = expenseCategories.find(c => c.id === selectedExpenseCategoryId);
+				const branch = branches.find(b => b.id === selectedVoucherForModal.stock_location);
+				
+				const expenseData = {
+					branch_id: selectedVoucherForModal.stock_location,
+					branch_name: branch ? `${branch.name_en} - ${branch.location_en}` : 'Unknown Branch',
+					expense_category_id: selectedExpenseCategoryId,
+					expense_category_name_en: selectedCategory?.name_en || null,
+					expense_category_name_ar: selectedCategory?.name_ar || null,
+					co_user_id: $currentUser.id,
+					co_user_name: $currentUser.username || 'Unknown User',
+					bill_type: 'purchase_voucher_gift',
+					bill_number: closeBillNumber.trim(),
+					bill_date: new Date().toISOString().split('T')[0],
+					payment_method: 'redemption',
+					amount: selectedVoucherForModal.value,
+					description: `Gift Purchase Voucher - ${selectedVoucherForModal.purchase_voucher_id} - Serial: ${selectedVoucherForModal.serial_number}`,
+					notes: closeRemarks.trim() || null,
+					is_paid: true,
+					paid_date: new Date().toISOString(),
+					status: 'completed',
+					created_by: $currentUser.id,
+					schedule_type: 'single_bill',
+					due_date: new Date().toISOString().split('T')[0]
+				};
+				
+				const { error: expenseError } = await supabase
+					.from('expense_scheduler')
+					.insert(expenseData);
+				
+				if (expenseError) {
+					console.error('Error creating expense record:', expenseError);
+					alert('Voucher closed but failed to create expense record: ' + expenseError.message);
+					closeModal();
+					await loadIssuedVouchers();
+					return;
+				}
+			}
+			
+			alert('Voucher closed successfully');
+			closeModal();
+			await loadIssuedVouchers();
+		} catch (error) {
+			console.error('Error:', error);
+			alert('Error closing voucher');
+		} finally {
+			isClosing = false;
+		}
 	}
 </script>
 
@@ -420,7 +578,7 @@
 	{/if}
 
 	<!-- Close Modal -->
-	{#if showCloseModal}
+	{#if showCloseModal && selectedVoucherForModal}
 		<div class="modal-overlay" on:click={closeModal}>
 			<div class="modal-content" on:click|stopPropagation>
 				<div class="modal-header">
@@ -428,7 +586,131 @@
 					<button class="modal-close-btn" on:click={closeModal}>✕</button>
 				</div>
 				<div class="modal-body">
-					<!-- Modal content will be added later -->
+					<!-- Voucher Info -->
+					<div class="voucher-info">
+						<div class="info-row">
+							<span class="info-label">PV ID:</span>
+							<span class="info-value">{selectedVoucherForModal.purchase_voucher_id}</span>
+						</div>
+						<div class="info-row">
+							<span class="info-label">Serial Number:</span>
+							<span class="info-value">{selectedVoucherForModal.serial_number}</span>
+						</div>
+						<div class="info-row">
+							<span class="info-label">Value:</span>
+							<span class="info-value">{selectedVoucherForModal.value}</span>
+						</div>
+						<div class="info-row">
+							<span class="info-label">Issue Type:</span>
+							<span class="info-value issue-type-badge">{selectedVoucherForModal.issue_type || 'N/A'}</span>
+						</div>
+					</div>
+					
+					{#if selectedVoucherForModal.issue_type === 'sales'}
+						<!-- Sales Close Form -->
+						<div class="close-form">
+							<div class="form-group">
+								<label for="closeBillNumber">Close Bill Number <span class="required">*</span></label>
+								<input 
+									type="text" 
+									id="closeBillNumber"
+									bind:value={closeBillNumber}
+									placeholder="Enter bill number"
+									class="form-input"
+								/>
+							</div>
+							<div class="form-group">
+								<label for="closeRemarks">Close Remarks</label>
+								<textarea 
+									id="closeRemarks"
+									bind:value={closeRemarks}
+									placeholder="Enter remarks (optional)"
+									class="form-textarea"
+									rows="3"
+								></textarea>
+							</div>
+						</div>
+					{:else if selectedVoucherForModal.issue_type === 'gift'}
+						<!-- Gift Close Form -->
+						<div class="close-form">
+							<div class="form-group">
+								<label for="expenseCategory">Expense Category <span class="required">*</span></label>
+								<div class="searchable-dropdown">
+									{#if selectedCategoryDisplay}
+										<div class="selected-category">
+											<span>{selectedCategoryDisplay.name_en} ({selectedCategoryDisplay.name_ar})</span>
+											<button type="button" class="clear-category-btn" on:click={clearSelectedCategory}>✕</button>
+										</div>
+									{:else}
+										<input 
+											type="text"
+											placeholder="Search expense category..."
+											bind:value={expenseCategorySearch}
+											on:focus={() => showCategoryDropdown = true}
+											class="form-input category-search-input"
+										/>
+									{/if}
+									{#if showCategoryDropdown && !selectedCategoryDisplay}
+										<div class="category-dropdown">
+											{#if filteredExpenseCategories.length === 0}
+												<div class="no-results">No categories found</div>
+											{:else}
+												{#each filteredExpenseCategories as category}
+													<button 
+														type="button"
+														class="category-option"
+														on:click={() => selectExpenseCategory(category)}
+													>
+														{category.name_en} ({category.name_ar})
+													</button>
+												{/each}
+											{/if}
+										</div>
+									{/if}
+								</div>
+							</div>
+							<div class="form-group">
+								<label for="closeBillNumberGift">Close Bill Number <span class="required">*</span></label>
+								<input 
+									type="text" 
+									id="closeBillNumberGift"
+									bind:value={closeBillNumber}
+									placeholder="Enter bill number"
+									class="form-input"
+								/>
+							</div>
+							<div class="form-group">
+								<label for="closeRemarksGift">Close Remarks</label>
+								<textarea 
+									id="closeRemarksGift"
+									bind:value={closeRemarks}
+									placeholder="Enter remarks (optional)"
+									class="form-textarea"
+									rows="3"
+								></textarea>
+							</div>
+						</div>
+					{:else}
+						<!-- Other issue types - will be handled later -->
+						<div class="other-issue-type-notice">
+							<p>This voucher has issue type: <strong>{selectedVoucherForModal.issue_type || 'N/A'}</strong></p>
+							<p class="hint">Close functionality for this issue type will be added later.</p>
+						</div>
+					{/if}
+					
+					<!-- Action Buttons -->
+					<div class="modal-actions">
+						<button class="btn-cancel" on:click={closeModal}>Cancel</button>
+						{#if selectedVoucherForModal.issue_type === 'sales' || selectedVoucherForModal.issue_type === 'gift'}
+							<button 
+								class="btn-save" 
+								on:click={handleSaveClose}
+								disabled={isClosing}
+							>
+								{isClosing ? 'Saving...' : 'Save & Close'}
+							</button>
+						{/if}
+					</div>
 				</div>
 			</div>
 		</div>
@@ -823,5 +1105,239 @@
 	.modal-body {
 		padding: 24px;
 		min-height: 200px;
+	}
+
+	.voucher-info {
+		background: #f7fafc;
+		border-radius: 8px;
+		padding: 16px;
+		margin-bottom: 20px;
+	}
+
+	.info-row {
+		display: flex;
+		justify-content: space-between;
+		padding: 8px 0;
+		border-bottom: 1px solid #e2e8f0;
+	}
+
+	.info-row:last-child {
+		border-bottom: none;
+	}
+
+	.info-label {
+		font-weight: 500;
+		color: #4a5568;
+	}
+
+	.info-value {
+		color: #1a202c;
+		font-weight: 600;
+	}
+
+	.issue-type-badge {
+		padding: 4px 10px;
+		background: #667eea;
+		color: white;
+		border-radius: 12px;
+		font-size: 12px;
+		text-transform: uppercase;
+	}
+
+	.close-form {
+		margin-bottom: 20px;
+	}
+
+	.form-group {
+		margin-bottom: 16px;
+	}
+
+	.form-group label {
+		display: block;
+		margin-bottom: 6px;
+		font-weight: 500;
+		color: #4a5568;
+		font-size: 14px;
+	}
+
+	.required {
+		color: #e53e3e;
+	}
+
+	.form-input,
+	.form-textarea,
+	.form-select {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid #cbd5e0;
+		border-radius: 6px;
+		font-size: 14px;
+		transition: border-color 0.2s;
+	}
+
+	.form-input:focus,
+	.form-textarea:focus,
+	.form-select:focus {
+		outline: none;
+		border-color: #667eea;
+		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+	}
+
+	.form-select {
+		background-color: white;
+		cursor: pointer;
+	}
+
+	.form-textarea {
+		resize: vertical;
+		min-height: 80px;
+	}
+
+	.other-issue-type-notice {
+		background: #fef3c7;
+		border: 1px solid #f59e0b;
+		border-radius: 8px;
+		padding: 16px;
+		margin-bottom: 20px;
+		text-align: center;
+	}
+
+	.other-issue-type-notice p {
+		margin: 4px 0;
+		color: #92400e;
+	}
+
+	.other-issue-type-notice .hint {
+		font-size: 13px;
+		color: #b45309;
+	}
+
+	.modal-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 12px;
+		padding-top: 16px;
+		border-top: 1px solid #e2e8f0;
+	}
+
+	.btn-cancel {
+		padding: 10px 20px;
+		background: #edf2f7;
+		border: 1px solid #cbd5e0;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #4a5568;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel:hover {
+		background: #e2e8f0;
+	}
+
+	.btn-save {
+		padding: 10px 20px;
+		background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.btn-save:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	/* Searchable Dropdown Styles */
+	.searchable-dropdown {
+		position: relative;
+	}
+
+	.category-search-input {
+		width: 100%;
+	}
+
+	.selected-category {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 12px;
+		border: 1px solid #cbd5e0;
+		border-radius: 6px;
+		background: #f0fff4;
+		font-size: 14px;
+	}
+
+	.selected-category span {
+		color: #276749;
+		font-weight: 500;
+	}
+
+	.clear-category-btn {
+		background: none;
+		border: none;
+		color: #a0aec0;
+		cursor: pointer;
+		font-size: 16px;
+		padding: 0 4px;
+		transition: color 0.2s;
+	}
+
+	.clear-category-btn:hover {
+		color: #e53e3e;
+	}
+
+	.category-dropdown {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		max-height: 200px;
+		overflow-y: auto;
+		background: white;
+		border: 1px solid #cbd5e0;
+		border-top: none;
+		border-radius: 0 0 6px 6px;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		z-index: 100;
+	}
+
+	.category-option {
+		width: 100%;
+		padding: 10px 12px;
+		text-align: left;
+		background: none;
+		border: none;
+		border-bottom: 1px solid #e2e8f0;
+		cursor: pointer;
+		font-size: 14px;
+		color: #2d3748;
+		transition: background 0.2s;
+	}
+
+	.category-option:last-child {
+		border-bottom: none;
+	}
+
+	.category-option:hover {
+		background: #ebf8ff;
+	}
+
+	.no-results {
+		padding: 12px;
+		text-align: center;
+		color: #a0aec0;
+		font-size: 14px;
 	}
 </style>
