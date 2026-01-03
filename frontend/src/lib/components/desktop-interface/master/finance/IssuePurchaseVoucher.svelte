@@ -14,8 +14,14 @@
 	let selectedItems = new Set();
 	let subscription;
 
+	// Search options for loading
+	let searchPVId = '';
+	let searchSerialNumber = '';
+	let hasLoaded = false;
+	let loadedBy = ''; // 'pvId' or 'serial'
+	let loadedValue = '';
+
 	// Filter variables
-	let filterPVId = '';
 	let filterSerialNumber = '';
 	let filterLocation = '';
 	let filterValue = '';
@@ -23,8 +29,8 @@
 	$: selectedCount = selectedItems.size;
 
 	onMount(async () => {
-		await loadNonIssuedVouchers();
 		setupRealtimeSubscription();
+		await loadLookupData();
 
 		return () => {
 			if (subscription) {
@@ -89,48 +95,107 @@
 
 	// Get unique filter values
 	$: uniqueValues = {
-		pvIds: [...new Set(issuedVouchers.map((i) => i.purchase_voucher_id))],
 		values: [...new Set(issuedVouchers.map((i) => i.value))].sort((a, b) => a - b),
 		locations: [...new Set(issuedVouchers.map((i) => i.stock_location).filter(Boolean))]
 	};
 
 	// Computed filtered list
 	$: filteredVouchers = issuedVouchers.filter((item) => {
-		if (filterPVId && item.purchase_voucher_id.toLowerCase() !== filterPVId.toLowerCase()) return false;
 		if (filterSerialNumber && !item.serial_number.toString().includes(filterSerialNumber)) return false;
 		if (filterLocation && item.stock_location !== (filterLocation ? parseInt(filterLocation) : null)) return false;
 		if (filterValue && item.value.toString() !== filterValue) return false;
 		return true;
 	});
 
-	async function loadNonIssuedVouchers() {
+	async function loadByPVId(pvId) {
+		if (!pvId || !pvId.trim()) {
+			alert('Please enter a PV ID to load');
+			return;
+		}
+		
 		isLoading = true;
 		showTable = true;
+		hasLoaded = true;
+		loadedBy = 'pvId';
+		loadedValue = pvId.trim();
+		selectedItems.clear();
+		selectedItems = selectedItems;
+		
 		try {
-			// Load vouchers first (most important), then lookup data
-			// Load ALL non-issued vouchers (no limit) filtered by issue_type
 			const vouchersResult = await supabase
 				.from('purchase_voucher_items')
 				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
+				.eq('purchase_voucher_id', pvId.trim())
 				.eq('issue_type', 'not issued')
-				.order('purchase_voucher_id', { ascending: true })
 				.order('serial_number', { ascending: true });
 
-			// Process vouchers immediately
 			if (vouchersResult.error) {
 				console.error('Error loading non-issued vouchers:', vouchersResult.error);
 				issuedVouchers = [];
 			} else {
 				issuedVouchers = vouchersResult.data || [];
 			}
-
-			// Load lookup data in background (non-blocking for initial render)
-			loadLookupData();
 		} catch (error) {
 			console.error('Error:', error);
 			issuedVouchers = [];
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	async function loadBySerialNumber(serialNum) {
+		if (!serialNum || !serialNum.trim()) {
+			alert('Please enter a Serial Number to load');
+			return;
+		}
+		
+		isLoading = true;
+		showTable = true;
+		hasLoaded = true;
+		loadedBy = 'serial';
+		loadedValue = serialNum.trim();
+		selectedItems.clear();
+		selectedItems = selectedItems;
+		
+		try {
+			const vouchersResult = await supabase
+				.from('purchase_voucher_items')
+				.select('id, purchase_voucher_id, serial_number, value, stock, status, issue_type, stock_location, stock_person')
+				.eq('serial_number', parseInt(serialNum.trim()))
+				.eq('issue_type', 'not issued')
+				.order('purchase_voucher_id', { ascending: true });
+
+			if (vouchersResult.error) {
+				console.error('Error loading non-issued vouchers:', vouchersResult.error);
+				issuedVouchers = [];
+			} else {
+				issuedVouchers = vouchersResult.data || [];
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			issuedVouchers = [];
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	function handleLoadPVIdClick() {
+		loadByPVId(searchPVId);
+	}
+
+	function handleLoadSerialClick() {
+		loadBySerialNumber(searchSerialNumber);
+	}
+
+	function handlePVIdKeyPress(event) {
+		if (event.key === 'Enter') {
+			loadByPVId(searchPVId);
+		}
+	}
+
+	function handleSerialKeyPress(event) {
+		if (event.key === 'Enter') {
+			loadBySerialNumber(searchSerialNumber);
 		}
 	}
 
@@ -264,6 +329,55 @@
 		{/if}
 	</div>
 
+	<!-- Search Section -->
+	<div class="search-section">
+		<div class="search-options">
+			<div class="search-box">
+				<label for="pvIdSearch">Search by PV ID</label>
+				<div class="search-input-group">
+					<input 
+						type="text" 
+						id="pvIdSearch"
+						placeholder="Enter PV ID (e.g., 100PV0001)" 
+						bind:value={searchPVId}
+						on:keypress={handlePVIdKeyPress}
+						class="pv-search-input"
+					/>
+					<button class="load-button" on:click={handleLoadPVIdClick} disabled={isLoading}>
+						{isLoading ? 'Loading...' : 'Load'}
+					</button>
+				</div>
+			</div>
+			
+			<div class="search-divider">
+				<span>OR</span>
+			</div>
+			
+			<div class="search-box">
+				<label for="serialSearch">Search by Serial Number</label>
+				<div class="search-input-group">
+					<input 
+						type="text" 
+						id="serialSearch"
+						placeholder="Enter Serial Number (e.g., 101)" 
+						bind:value={searchSerialNumber}
+						on:keypress={handleSerialKeyPress}
+						class="pv-search-input"
+					/>
+					<button class="load-button serial-btn" on:click={handleLoadSerialClick} disabled={isLoading}>
+						{isLoading ? 'Loading...' : 'Load'}
+					</button>
+				</div>
+			</div>
+		</div>
+		
+		{#if hasLoaded && loadedValue}
+			<div class="current-pv">
+				Currently loaded by {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: <strong>{loadedValue}</strong>
+			</div>
+		{/if}
+	</div>
+
 	{#if !isLoading && issuedVouchers.length > 0}
 		<div class="stats-card">
 			<div class="stat-item">
@@ -281,18 +395,14 @@
 		</div>
 	{/if}
 
-	{#if showTable}
+	{#if hasLoaded}
 		{#if isLoading}
 			<div class="loading">Loading non-issued vouchers...</div>
 		{:else if issuedVouchers.length === 0}
-			<div class="empty-state">No non-issued vouchers found</div>
+			<div class="empty-state">No non-issued vouchers found for {loadedBy === 'pvId' ? 'PV ID' : 'Serial Number'}: {loadedValue}</div>
 		{:else}
 			<div class="filters-section">
 				<div class="filter-row">
-					<div class="filter-group">
-						<label>PV ID</label>
-						<input type="text" placeholder="Search PV ID" bind:value={filterPVId} />
-					</div>
 					<div class="filter-group">
 						<label>Serial Number</label>
 						<input type="text" placeholder="Search serial" bind:value={filterSerialNumber} />
@@ -371,7 +481,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 24px;
+		margin-bottom: 16px;
 	}
 
 	.header h2 {
@@ -379,6 +489,106 @@
 		font-size: 24px;
 		font-weight: 700;
 		color: #1f2937;
+	}
+
+	.search-section {
+		background: white;
+		padding: 16px 20px;
+		border-radius: 12px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		margin-bottom: 20px;
+	}
+
+	.search-box label {
+		display: block;
+		font-size: 14px;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 8px;
+	}
+
+	.search-input-group {
+		display: flex;
+		gap: 12px;
+	}
+
+	.pv-search-input {
+		flex: 1;
+		padding: 12px 16px;
+		font-size: 16px;
+		border: 2px solid #e5e7eb;
+		border-radius: 8px;
+		transition: border-color 0.2s;
+	}
+
+	.pv-search-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+	}
+
+	.load-button {
+		padding: 12px 28px;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 16px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.load-button:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+	}
+
+	.load-button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.load-button.serial-btn {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	}
+
+	.load-button.serial-btn:hover:not(:disabled) {
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+	}
+
+	.search-options {
+		display: flex;
+		gap: 20px;
+		align-items: flex-end;
+	}
+
+	.search-options .search-box {
+		flex: 1;
+	}
+
+	.search-divider {
+		display: flex;
+		align-items: center;
+		padding-bottom: 8px;
+	}
+
+	.search-divider span {
+		padding: 6px 12px;
+		background: #e5e7eb;
+		border-radius: 20px;
+		font-size: 12px;
+		font-weight: 600;
+		color: #6b7280;
+	}
+
+	.current-pv {
+		margin-top: 12px;
+		padding: 8px 12px;
+		background: #f0fdf4;
+		border: 1px solid #86efac;
+		border-radius: 6px;
+		font-size: 14px;
+		color: #166534;
 	}
 
 	.batch-button {
