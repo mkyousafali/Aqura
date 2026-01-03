@@ -75,6 +75,8 @@
 
 	let subscription;
 	let reloadTimeout = null;
+	let isLoadingStats = false;
+	let isComponentMounted = true;
 
 	onMount(async () => {
 		await loadBranches();
@@ -90,6 +92,8 @@
 
 		return () => {
 			// Cleanup subscription on unmount
+			isComponentMounted = false;
+			if (reloadTimeout) clearTimeout(reloadTimeout);
 			if (subscription) {
 				subscription.unsubscribe();
 			}
@@ -133,13 +137,26 @@
 	}
 
 	function handleStatsUpdate() {
-		// Debounce stats reload
+		// Debounce stats reload - skip if already loading or component unmounted
+		if (isLoadingStats || !isComponentMounted) return;
+		
 		if (reloadTimeout) clearTimeout(reloadTimeout);
-		reloadTimeout = setTimeout(() => {
-			loadNotIssuedStats();
-			loadIssuedStats();
-			loadClosedStats();
-		}, 300);
+		reloadTimeout = setTimeout(async () => {
+			if (!isComponentMounted || isLoadingStats) return;
+			
+			isLoadingStats = true;
+			try {
+				await Promise.all([
+					loadNotIssuedStats(),
+					loadIssuedStats(),
+					loadClosedStats()
+				]);
+			} catch (error) {
+				console.error('Error updating stats:', error);
+			} finally {
+				isLoadingStats = false;
+			}
+		}, 500);
 	}
 
 	function handleVoucherItemUpdate(payload) {
@@ -252,6 +269,8 @@
 	}
 
 	async function loadNotIssuedStats() {
+		if (!isComponentMounted) return;
+		
 		try {
 			const [vouchersRes, itemsRes] = await Promise.all([
 				supabase
@@ -334,6 +353,8 @@
 	}
 
 	async function loadIssuedStats() {
+		if (!isComponentMounted) return;
+		
 		try {
 			const { data: items, error } = await supabase
 				.from('purchase_voucher_items')
@@ -418,6 +439,8 @@
 	}
 
 	async function loadClosedStats() {
+		if (!isComponentMounted) return;
+		
 		try {
 			const { data: items, error } = await supabase
 				.from('purchase_voucher_items')

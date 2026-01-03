@@ -53,6 +53,10 @@
 	let subscription;
 	let ignoreReloadUntil = 0; // Timestamp to ignore reloads until
 
+	// Debounce book summary updates to batch multiple realtime events
+	let pendingBookUpdates = new Set();
+	let bookUpdateTimeout = null;
+
 	onMount(async () => {
 		// Load branches and users
 		await loadBranches();
@@ -67,10 +71,36 @@
 			if (subscription) {
 				subscription.unsubscribe();
 			}
+			if (bookUpdateTimeout) {
+				clearTimeout(bookUpdateTimeout);
+			}
 		};
 	});
 
 	let reloadTimeout = null;
+
+	// Debounced function to queue book updates
+	function queueBookSummaryUpdate(voucherId) {
+		pendingBookUpdates.add(voucherId);
+		
+		// Clear existing timeout and set a new one
+		if (bookUpdateTimeout) {
+			clearTimeout(bookUpdateTimeout);
+		}
+		
+		// Process all pending updates after 500ms of no new updates
+		bookUpdateTimeout = setTimeout(async () => {
+			const booksToUpdate = Array.from(pendingBookUpdates);
+			pendingBookUpdates.clear();
+			
+			console.log(`📚 Batch updating ${booksToUpdate.length} book(s):`, booksToUpdate);
+			
+			// Update all affected books
+			for (const bookId of booksToUpdate) {
+				await updateBookSummaryRow(bookId);
+			}
+		}, 500);
+	}
 	
 	function setupRealtimeSubscriptions() {
 		// Use a unique channel name with timestamp to avoid conflicts
@@ -154,9 +184,9 @@
 			});
 			applyFilters();
 
-			// Also reload book summary if in book view
-			if (showManagePerBook) {
-				loadBookSummary();
+			// Queue book summary update if in book view (debounced)
+			if (showManagePerBook && newRecord.purchase_voucher_id) {
+				queueBookSummaryUpdate(newRecord.purchase_voucher_id);
 			}
 		} else if (eventType === 'INSERT' && newRecord) {
 			const newItem = {
@@ -167,16 +197,116 @@
 			voucherItems = [newItem, ...voucherItems];
 			applyFilters();
 			
-			if (showManagePerBook) {
-				loadBookSummary();
+			if (showManagePerBook && newRecord.purchase_voucher_id) {
+				queueBookSummaryUpdate(newRecord.purchase_voucher_id);
 			}
 		} else if (eventType === 'DELETE' && oldRecord) {
 			voucherItems = voucherItems.filter(item => item.id !== oldRecord.id);
 			applyFilters();
 			
-			if (showManagePerBook) {
-				loadBookSummary();
+			if (showManagePerBook && oldRecord.purchase_voucher_id) {
+				queueBookSummaryUpdate(oldRecord.purchase_voucher_id);
 			}
+		}
+	}
+
+	// Update only the affected book row in the summary instead of reloading everything
+	async function updateBookSummaryRow(voucherId) {
+		try {
+			// Fetch only items for this voucher
+			const [voucherRes, itemsRes] = await Promise.all([
+				supabase
+					.from('purchase_vouchers')
+					.select('id, book_number, serial_start, serial_end, voucher_count, total_value')
+					.eq('id', voucherId)
+					.single(),
+				supabase
+					.from('purchase_voucher_items')
+					.select('purchase_voucher_id, value, stock, status, stock_location, stock_person')
+					.eq('purchase_voucher_id', voucherId)
+			]);
+
+			if (voucherRes.error || itemsRes.error) {
+				console.error('Error updating book row:', voucherRes.error || itemsRes.error);
+				return;
+			}
+
+			const voucher = voucherRes.data;
+			const items = itemsRes.data || [];
+
+			// Create lookup maps
+			const branchMap = {};
+			branches.forEach(b => {
+				branchMap[b.id] = `${b.name_en} - ${b.location_en}`;
+			});
+
+			const employeeMap = {};
+			employees.forEach(e => {
+				employeeMap[e.id] = e.name;
+			});
+
+			const userNameMap = {};
+			users.forEach(u => {
+				userNameMap[u.id] = u.username;
+			});
+
+			// Calculate aggregated data for this book
+			const bookData = {
+				voucher_id: voucherId,
+				book_number: voucher?.book_number || voucherId,
+				serial_range: voucher ? `${voucher.serial_start} - ${voucher.serial_end}` : '-',
+				total_count: 0,
+				total_value: 0,
+				stock_count: 0,
+				stocked_count: 0,
+				issued_count: 0,
+				closed_count: 0,
+				stock_locations: new Set(),
+				stock_persons: new Set()
+			};
+
+			items.forEach(item => {
+				bookData.total_count += 1;
+				bookData.total_value += item.value || 0;
+				
+				if (item.stock > 0) {
+					bookData.stock_count += 1;
+				}
+				
+				if (item.status === 'stocked') {
+					bookData.stocked_count += 1;
+				} else if (item.status === 'issued') {
+					bookData.issued_count += 1;
+				} else if (item.status === 'closed') {
+					bookData.closed_count += 1;
+				}
+
+				if (item.stock_location) {
+					bookData.stock_locations.add(item.stock_location);
+				}
+				if (item.stock_person) {
+					bookData.stock_persons.add(item.stock_person);
+				}
+			});
+
+			// Convert Sets to display strings
+			const locIds = Array.from(bookData.stock_locations);
+			bookData.stock_locations = locIds.map(id => branchMap[id] || `Unknown (${id})`).join(', ') || '-';
+			
+			const personIds = Array.from(bookData.stock_persons);
+			bookData.stock_persons = personIds.map(id => userNameMap[id] || `Unknown (${id})`).join(', ') || '-';
+
+			// Update the bookSummary array in place
+			const bookIndex = bookSummary.findIndex(b => b.voucher_id === voucherId);
+			if (bookIndex >= 0) {
+				bookSummary[bookIndex] = bookData;
+				bookSummary = bookSummary; // Trigger reactivity
+				console.log('🔄 Realtime: Updated book row in place:', voucherId);
+			}
+			
+			applyBookFilters();
+		} catch (error) {
+			console.error('Error updating book row:', error);
 		}
 	}
 
@@ -376,7 +506,7 @@
 
 	function applyFilters() {
 		filteredVoucherItems = voucherItems.filter(item => {
-			if (filterPVId && item.purchase_voucher_id !== filterPVId) return false;
+			if (filterPVId && !item.purchase_voucher_id.toLowerCase().includes(filterPVId.toLowerCase().trim())) return false;
 			if (filterSerialNumber && item.serial_number !== parseInt(filterSerialNumber.trim())) return false;
 			if (filterValue && item.value !== parseFloat(filterValue.trim())) return false;
 			if (filterStatus && item.status !== filterStatus) return false;
@@ -388,12 +518,12 @@
 
 	function applyBookFilters() {
 		filteredBookSummary = bookSummary.filter(book => {
-			if (filterBookPVId && book.voucher_id !== filterBookPVId) return false;
+			if (filterBookPVId && !book.voucher_id.toLowerCase().includes(filterBookPVId.toLowerCase().trim())) return false;
 			if (filterBookNumber && book.book_number !== filterBookNumber.trim()) return false;
 			if (filterBookStockLocation && book.stock_locations !== filterBookStockLocation) return false;
 			if (filterBookStockPerson && book.stock_persons !== filterBookStockPerson) return false;
 			return true;
-		});
+		}).sort((a, b) => a.voucher_id.localeCompare(b.voucher_id));
 	}
 
 	function handleFilterChange() {
@@ -563,13 +693,13 @@
 							...item,
 							stock_location: locationInt,
 							stock_person: selectedStockPerson,
-							stock_location_display: locationDisplay,
-							stock_person_display: personDisplay
+							stock_location_name: locationDisplay,
+							stock_person_name: personDisplay
 						};
 					}
 					return item;
 				});
-				applyVoucherFilters();
+				applyFilters();
 
 				alert('Assignment successful!');
 				closeAssignModal();
@@ -597,36 +727,34 @@
 							...item,
 							stock_location: locationInt,
 							stock_person: selectedStockPerson,
-							stock_location_display: locationDisplay,
-							stock_person_display: personDisplay
+							stock_location_name: locationDisplay,
+							stock_person_name: personDisplay
 						};
 					}
 					return item;
 				});
-				applyVoucherFilters();
+				applyFilters();
 
 				alert(`Assignment successful for ${itemIds.length} voucher(s)!`);
 				closeAssignModal();
 				selectedItems.clear();
 				assignMultipleMode = false;
 			} else if (modalMode === 'multiple-books') {
-				// Update all items for multiple selected books
+				// Update all items for multiple selected books in a single query
 				const bookIds = Array.from(selectedBooks);
 				
-				for (const bookId of bookIds) {
-					const { error } = await supabase
-						.from('purchase_voucher_items')
-						.update({
-							stock_location: locationInt,
-							stock_person: selectedStockPerson
-						})
-						.eq('purchase_voucher_id', bookId);
+				const { error } = await supabase
+					.from('purchase_voucher_items')
+					.update({
+						stock_location: locationInt,
+						stock_person: selectedStockPerson
+					})
+					.in('purchase_voucher_id', bookIds);
 
-					if (error) {
-						alert(`Error updating book ${bookId}: ${error.message}`);
-						ignoreReloadUntil = 0; // Reset ignore flag on error
-						return;
-					}
+				if (error) {
+					alert(`Error updating books: ${error.message}`);
+					ignoreReloadUntil = 0; // Reset ignore flag on error
+					return;
 				}
 
 				// Optimistically update local data
@@ -749,12 +877,14 @@
 				<div class="filters-section">
 					<div class="filter-group">
 						<label for="filterBookPVId">PV ID</label>
-						<select id="filterBookPVId" bind:value={filterBookPVId} on:change={handleBookFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniqueBookPVIds as pvId}
-								<option value={pvId}>{pvId}</option>
-							{/each}
-						</select>
+						<input 
+							id="filterBookPVId" 
+							type="text" 
+							placeholder="Search PV ID" 
+							bind:value={filterBookPVId} 
+							on:input={handleBookFilterChange} 
+							class="form-input"
+						/>
 					</div>
 
 					<div class="filter-group">
@@ -762,7 +892,7 @@
 						<input 
 							id="filterBookNumber" 
 							type="text" 
-							placeholder="Enter exact book number" 
+							placeholder="Enter book number" 
 							bind:value={filterBookNumber} 
 							on:input={handleBookFilterChange} 
 							class="form-input"
@@ -870,12 +1000,14 @@
 				<div class="filters-section">
 					<div class="filter-group">
 						<label for="filterPVId">PV ID</label>
-						<select id="filterPVId" bind:value={filterPVId} on:change={handleFilterChange} class="form-input">
-							<option value="">All</option>
-							{#each uniquePVIds as pvId}
-								<option value={pvId}>{pvId}</option>
-							{/each}
-						</select>
+						<input 
+							id="filterPVId" 
+							type="text" 
+							placeholder="Search PV ID" 
+							bind:value={filterPVId} 
+							on:input={handleFilterChange} 
+							class="form-input"
+						/>
 					</div>
 
 					<div class="filter-group">
