@@ -1,6 +1,7 @@
 <script>
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
+	import * as XLSX from 'xlsx';
 
 	let showManagePerBook = false;
 	let showManagePerVoucher = false;
@@ -49,6 +50,13 @@
 	let uniqueBookStatuses = [];
 	let uniqueBookLocations = [];
 	let uniqueBookPersons = [];
+
+	// Export modal state
+	let showExportModal = false;
+	let exportStockLocation = '';
+	let exportStockPerson = '';
+	let exportStockPersonSearch = '';
+	let isExporting = false;
 
 	let subscription;
 	let ignoreReloadUntil = 0; // Timestamp to ignore reloads until
@@ -852,6 +860,88 @@
 			loadVoucherItems();
 		}
 	}
+
+	// Export modal functions
+	function openExportModal() {
+		exportStockLocation = '';
+		exportStockPerson = '';
+		exportStockPersonSearch = '';
+		showExportModal = true;
+	}
+
+	function closeExportModal() {
+		showExportModal = false;
+		exportStockLocation = '';
+		exportStockPerson = '';
+		exportStockPersonSearch = '';
+	}
+
+	async function handleExportToExcel() {
+		if (!exportStockLocation || !exportStockPerson) {
+			alert('Please select both Stock Location and Stock Person');
+			return;
+		}
+
+		isExporting = true;
+		try {
+			// Get the location and person names for filtering
+			const selectedBranch = branches.find(b => b.id === parseInt(exportStockLocation));
+			const locationName = selectedBranch ? `${selectedBranch.name_en} - ${selectedBranch.location_en}` : '';
+			
+			const selectedUser = users.find(u => u.id === exportStockPerson);
+			const empName = selectedUser?.employee_id ? employees.find(e => e.id === selectedUser.employee_id)?.name : null;
+			const personName = empName ? `${selectedUser.username} - ${empName}` : selectedUser?.username || '';
+
+			// Filter books by selected location and person
+			const filteredData = bookSummary.filter(book => {
+				const locationMatch = book.stock_locations.includes(locationName);
+				const personMatch = book.stock_persons.includes(personName);
+				return locationMatch && personMatch;
+			});
+
+			if (filteredData.length === 0) {
+				alert('No records found matching the selected criteria');
+				isExporting = false;
+				return;
+			}
+
+			// Prepare Excel data
+			const excelData = filteredData.map(book => ({
+				'Voucher ID': book.voucher_id,
+				'Book Number': book.book_number,
+				'Serial Range': book.serial_range,
+				'Total Count': book.total_count,
+				'Total Value': book.total_value,
+				'Stock Count': book.stock_count,
+				'Stocked': book.stocked_count,
+				'Issued': book.issued_count,
+				'Closed': book.closed_count,
+				'Stock Location': book.stock_locations,
+				'Stock Person': book.stock_persons
+			}));
+
+			// Create workbook and worksheet
+			const ws = XLSX.utils.json_to_sheet(excelData);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Book Stock');
+
+			// Generate filename with location and person
+			const safeLocationName = locationName.replace(/[^a-zA-Z0-9]/g, '_');
+			const safePersonName = personName.replace(/[^a-zA-Z0-9]/g, '_');
+			const filename = `PV_Stock_${safeLocationName}_${safePersonName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+			// Download file
+			XLSX.writeFile(wb, filename);
+
+			closeExportModal();
+			alert(`Successfully exported ${filteredData.length} book(s) to Excel!`);
+		} catch (error) {
+			console.error('Export error:', error);
+			alert('Failed to export data: ' + error.message);
+		} finally {
+			isExporting = false;
+		}
+	}
 </script>
 
 <div class="stock-manager">
@@ -920,13 +1010,14 @@
 					</div>
 				</div>
 
-				<!-- Batch Action Button -->
-				{#if selectedBooks.size > 0}
-					<div class="batch-action-section">
+				<!-- Export and Batch Action Section -->
+				<div class="batch-action-section">
+					<button class="export-btn" on:click={openExportModal}>📊 Export to Excel</button>
+					{#if selectedBooks.size > 0}
 						<span class="selection-info">{selectedBooks.size} book(s) selected</span>
 						<button class="assign-btn" on:click={openBatchAssignBooksModal}>Assign Selected</button>
-					</div>
-				{/if}
+					{/if}
+				</div>
 				<div class="table-wrapper">
 					<table class="summary-table">
 						<thead>
@@ -1188,6 +1279,67 @@
 				<div class="modal-footer">
 					<button class="cancel-btn" on:click={closeAssignModal}>Cancel</button>
 					<button class="save-btn" on:click={handleAssignSubmit}>Assign</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if showExportModal}
+		<div class="modal-overlay" on:click={closeExportModal}>
+			<div class="modal-content" on:click|stopPropagation>
+				<div class="modal-header">
+					<h3>📊 Export to Excel</h3>
+					<button class="close-btn" on:click={closeExportModal}>&times;</button>
+				</div>
+
+				<div class="modal-body">
+					<p class="export-info">Select the Stock Location and Stock Person to filter and export the book data.</p>
+					
+					<div class="form-group">
+						<label for="exportStockLocation">Stock Location (Branch)</label>
+						<select id="exportStockLocation" bind:value={exportStockLocation} class="form-input">
+							<option value="">-- Select Branch --</option>
+							{#each branches as branch (branch.id)}
+								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+							{/each}
+						</select>
+					</div>
+
+					<div class="form-group">
+						<label>Stock Person</label>
+						<input 
+							type="text" 
+							placeholder="Search users..." 
+							bind:value={exportStockPersonSearch}
+							class="form-input"
+							style="margin-bottom: 8px;"
+						/>
+						<div class="radio-group">
+							{#each users.filter(u => {
+								const emp = employees.find(e => e.id === u.employee_id);
+								const searchTerm = exportStockPersonSearch.toLowerCase();
+								return u.username.toLowerCase().includes(searchTerm) || (emp?.name || '').toLowerCase().includes(searchTerm);
+							}) as user (user.id)}
+								{@const employee = employees.find(e => e.id === user.employee_id)}
+								<label class="radio-label">
+									<input
+										type="radio"
+										name="exportStockPerson"
+										value={user.id}
+										bind:group={exportStockPerson}
+									/>
+									<span>{user.username} - {employee?.name || 'N/A'}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<div class="modal-footer">
+					<button class="cancel-btn" on:click={closeExportModal}>Cancel</button>
+					<button class="save-btn" on:click={handleExportToExcel} disabled={isExporting || !exportStockLocation || !exportStockPerson}>
+						{isExporting ? 'Exporting...' : 'Export'}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -1592,5 +1744,35 @@
 
 	.save-btn:hover {
 		background: #2563eb;
+	}
+
+	.save-btn:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.export-btn {
+		padding: 8px 16px;
+		background: #059669;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.export-btn:hover {
+		background: #047857;
+	}
+
+	.export-info {
+		margin: 0 0 16px 0;
+		padding: 12px;
+		background: #f0f9ff;
+		border-radius: 6px;
+		color: #1e40af;
+		font-size: 14px;
 	}
 </style>

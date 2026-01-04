@@ -103,6 +103,7 @@ export const arabicLocale: LocaleData = {
         tasks: "المهام",
         create: "تعيين",
         assignments: "التكليفات",
+        purchaseVoucher: "القسائم",
       },
       // Error messages
       error: {
@@ -585,6 +586,24 @@ export const arabicLocale: LocaleData = {
           placeholder: "اختر الملفات أو اسحبها وأفلتها هنا",
           hint: "المدعومة: صور/*,ملفات PDF,.doc,.docx,.txt • الحد الأقصى: 10 ميجابايت • ملفات متعددة مسموحة",
         },
+      },
+
+      // Purchase Voucher Manager
+      purchaseVoucher: {
+        title: "مدير قسائم الشراء",
+        loading: "جاري تحميل بيانات القسائم...",
+        available: "متاح",
+        issued: "صُرفت",
+        closed: "مغلقة",
+        myStock: "مخزوني",
+        noAvailableVouchers: "لا توجد قسائم متاحة",
+        noIssuedVouchers: "لا توجد قسائم مصروفة",
+        noClosedVouchers: "لا توجد قسائم مغلقة",
+        noStockAssigned: "لا يوجد مخزون مخصص لك",
+        unassigned: "غير مخصص",
+        pcs: "قطعة",
+        availableBreakdown: "متاح",
+        issuedBreakdown: "مصروف",
       },
     },
 

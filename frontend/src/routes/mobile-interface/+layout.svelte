@@ -15,6 +15,7 @@
 	let currentUserData = null;
 	let isLoading = true;
 	let hasApprovalPermission = false;
+	let hasPVPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -177,6 +178,19 @@
 		if (!currentUserData) return;
 
 		try {
+			// Check PV Manager permission
+			const { data: pvPermissions } = await supabase
+				.from('button_permissions')
+				.select(`
+					button_id,
+					sidebar_buttons!inner(button_code)
+				`)
+				.eq('user_id', currentUserData.id)
+				.eq('is_enabled', true)
+				.eq('sidebar_buttons.button_code', 'PURCHASE_VOUCHER_MANAGER');
+			
+			hasPVPermission = currentUserData.isMasterAdmin || (pvPermissions && pvPermissions.length > 0);
+
 			// Parallel loading for better performance
 			const [tasksResult, quickTasksResult, receivingTasksResult, userDataResult] = await Promise.all([
 				// Load incomplete regular task count
@@ -412,6 +426,7 @@
 		if (path === '/mobile-interface/assignments' || path === '/mobile-interface/assignments/') return getTranslation('mobile.assignments');
 		if (path === '/mobile-interface/approval-center' || path === '/mobile-interface/approval-center/') return getTranslation('mobile.approvals');
 		if (path === '/mobile-interface/quick-task' || path === '/mobile-interface/quick-task/') return getTranslation('mobile.quickTask');
+		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
@@ -695,6 +710,20 @@
 				</div>
 				<span class="nav-label">{getTranslation('mobile.approvals')}</span>
 			</a>
+			
+			<!-- Purchase Voucher Manager - Only visible with permission -->
+			{#if hasPVPermission}
+				<a href="/mobile-interface/purchase-voucher" class="nav-item pv-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/purchase-voucher')}>
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="2" y="4" width="20" height="16" rx="2"/>
+							<path d="M7 9h10M7 13h6M7 17h4"/>
+							<circle cx="17" cy="15" r="2"/>
+						</svg>
+					</div>
+					<span class="nav-label">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
+				</a>
+			{/if}
 		</nav>
 	</div>
 {:else}
@@ -1305,6 +1334,30 @@
 	}
 
 	.nav-item.approval-btn .nav-label {
+		font-weight: 600;
+	}
+
+	/* Special styling for PV button */
+	.nav-item.pv-btn {
+		color: #6B7280;
+		text-decoration: none;
+	}
+
+	.nav-item.pv-btn:hover {
+		color: #8B5CF6;
+		background: rgba(139, 92, 246, 0.05);
+	}
+
+	.nav-item.pv-btn.active {
+		color: #8B5CF6;
+	}
+
+	.nav-item.pv-btn.active .nav-icon {
+		background: rgba(139, 92, 246, 0.1);
+		color: #8B5CF6;
+	}
+
+	.nav-item.pv-btn .nav-label {
 		font-weight: 600;
 	}
 

@@ -101,6 +101,7 @@ export const englishLocale: LocaleData = {
         tasks: "Tasks",
         create: "Assign",
         assignments: "Assignments",
+        purchaseVoucher: "PV",
       },
       // Error messages
       error: {
@@ -583,6 +584,24 @@ export const englishLocale: LocaleData = {
           placeholder: "Choose files or drag and drop here",
           hint: "Supported: image/*,application/pdf,.doc,.docx,.txt • Max: 10MB • Multiple files allowed",
         },
+      },
+
+      // Purchase Voucher Manager
+      purchaseVoucher: {
+        title: "Purchase Voucher Manager",
+        loading: "Loading voucher data...",
+        available: "Available",
+        issued: "Issued",
+        closed: "Closed",
+        myStock: "My Stock",
+        noAvailableVouchers: "No available vouchers",
+        noIssuedVouchers: "No issued vouchers",
+        noClosedVouchers: "No closed vouchers",
+        noStockAssigned: "No stock assigned to you",
+        unassigned: "Unassigned",
+        pcs: "pcs",
+        availableBreakdown: "Available",
+        issuedBreakdown: "Issued",
       },
     },
 
