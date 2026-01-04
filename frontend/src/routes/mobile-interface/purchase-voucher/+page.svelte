@@ -463,7 +463,7 @@
 							{#each Object.entries(notIssuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
 									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -479,7 +479,7 @@
 									{#each Object.entries(valueCounts).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 										<div class="value-item">
 											<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-											<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+											<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 										</div>
 									{/each}
 								</div>
@@ -508,7 +508,7 @@
 							{#each Object.entries(issuedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
 									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -555,7 +555,7 @@
 							{#each Object.entries(closedStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 								<div class="value-item">
 									<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-									<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+									<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 								</div>
 							{/each}
 						{:else}
@@ -605,7 +605,7 @@
 						{#each Object.entries(myStockStats.byValue).sort(([a], [b]) => Number(b) - Number(a)) as [value, counts]}
 							<div class="value-item">
 								<span class="value-label"><img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />{Number(value).toFixed(0)}</span>
-								<span class="value-count">{counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
+								<span class="value-count"><span class="book-count">📚 {counts.books}</span> | {counts.vouchers} pcs = <img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon-small" />{(Number(value) * counts.vouchers).toLocaleString()}</span>
 							</div>
 							{#if showCard4Breakdown}
 								<div class="breakdown-details">
@@ -838,5 +838,20 @@
 	.issued-detail {
 		background: #FEF3C7;
 		color: #92400E;
+	}
+
+	.book-count {
+		background: #E0E7FF;
+		color: #3730A3;
+		padding: 0.125rem 0.375rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		margin-right: 0.25rem;
+	}
+
+	:global([dir="rtl"]) .book-count {
+		margin-right: 0;
+		margin-left: 0.25rem;
 	}
 </style>
