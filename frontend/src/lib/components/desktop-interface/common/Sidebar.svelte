@@ -40,6 +40,7 @@
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
+	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
@@ -1380,6 +1381,27 @@ function openApprovalCenter() {
 			component: PaidManager,
 			icon: '💳',
 			size: { width: 1200, height: 800 },
+			position: { 
+				x: 110 + (Math.random() * 100),
+				y: 110 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	// Open Denomination window
+	function openDenomination() {
+		collapseAllMenus();
+		const windowId = generateWindowId('denomination');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Denomination #${instanceNumber}`,
+			component: Denomination,
+			icon: '💵',
+			size: { width: 900, height: 600 },
 			position: { 
 				x: 110 + (Math.random() * 100),
 				y: 110 + (Math.random() * 100) 
@@ -3031,6 +3053,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPaidManager}>
 								<span class="menu-icon">💳</span>
 								<span class="menu-text">{t('nav.paidManager') || 'Paid Manager'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DENOMINATION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDenomination}>
+								<span class="menu-icon">💵</span>
+								<span class="menu-text">Denomination</span>
 							</button>
 						</div>
 					{/if}
