@@ -1410,6 +1410,10 @@ export const englishLocale: LocaleData = {
       print: "Print",
       printed: "Printed",
       cancel: "Cancel",
+      close: "Close",
+      start: "Start",
+      starting: "Starting...",
+      total: "Total",
       validating: "Validating...",
       tryAgain: "Try Again",
       back: "Back",
@@ -1898,6 +1902,25 @@ export const englishLocale: LocaleData = {
       maxClaimsReached: "Customer has reached the maximum number of claims",
       notEligibleForCampaign: "Customer is not eligible for this campaign",
       failedToClaim: "Failed to claim coupon",
+    },
+
+    // POS - Point of Sale
+    pos: {
+      title: "POS",
+      availableBoxes: "Available Boxes",
+      box: "BOX",
+      noBoxesWithBalance: "No boxes with balance",
+      counterCheck: "Counter Check",
+      enterRealCount: "Enter Real Count",
+      realTotal: "Real Total",
+      matched: "MATCHED",
+      notMatched: "NOT MATCHED",
+      difference: "Difference",
+      posNumber: "POS Number",
+      cashierAccessCode: "Cashier Access Code",
+      enterCashierAccessCode: "Enter cashier access code",
+      supervisorAccessCode: "Supervisor Access Code",
+      enterSupervisorAccessCode: "Enter supervisor access code",
     },
 
     // Reports - for second feature section
