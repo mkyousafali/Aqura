@@ -105,6 +105,28 @@
 		// Refresh task counts after opening
 		setTimeout(() => taskCountService.refreshTaskCounts(), 1000);
 	}
+
+	function openPOSWindow() {
+		const windowId = generateWindowId('pos');
+
+		import('$lib/components/cashier-interface/POS.svelte').then(({ default: POS }) => {
+			openWindow({
+				id: windowId,
+				title: 'POS',
+				component: POS,
+				props: {},
+				icon: '🛒',
+				size: { width: 1000, height: 700 },
+				position: { x: 100, y: 50 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		}).catch(error => {
+			console.error('Failed to load POS component:', error);
+		});
+	}
 </script>
 
 <footer class="cashier-taskbar">
@@ -140,6 +162,15 @@
 	<div class="taskbar-right">
 		<!-- Quick Access Buttons -->
 		<div class="quick-access">
+			<!-- POS -->
+			<button 
+				class="quick-btn pos-btn"
+				on:click={openPOSWindow}
+				title="POS"
+			>
+				<div class="quick-icon">🛒</div>
+			</button>
+
 			<!-- My Tasks -->
 			<button 
 				class="quick-btn tasks-btn"
@@ -377,6 +408,16 @@
 		background: rgba(255, 255, 255, 0.2);
 		border-color: rgba(255, 255, 255, 0.3);
 		transform: translateY(-2px);
+	}
+
+	.quick-btn.pos-btn {
+		background: linear-gradient(145deg, rgba(34, 197, 94, 0.3), rgba(22, 163, 74, 0.2));
+		border-color: rgba(34, 197, 94, 0.4);
+	}
+
+	.quick-btn.pos-btn:hover {
+		background: linear-gradient(145deg, rgba(34, 197, 94, 0.5), rgba(22, 163, 74, 0.4));
+		border-color: rgba(34, 197, 94, 0.6);
 	}
 
 	.quick-icon {

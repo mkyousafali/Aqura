@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
 	let isLoading = true;
@@ -10,12 +11,333 @@
 	let defaultBranchId: number | null = null;
 	let isSavingDefault = false;
 	let showDefaultSaved = false;
+	let isSaving = false;
+	let lastSaved: Date | null = null;
+	let autoSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Realtime channel
+	let realtimeChannel: RealtimeChannel | null = null;
+
+	// Record IDs for updates
+	let mainRecordId: string | null = null;
+	let boxRecordIds: (string | null)[] = Array(9).fill(null);
+
+	// Box operations tracking
+	let boxOperations: Map<number, any> = new Map();
 
 	onMount(async () => {
 		await loadBranches();
 		await loadUserPreferences();
+		await loadDenominationTypes();
 		isLoading = false;
+		
+		// Setup realtime subscription after branch is selected
+		if (selectedBranch) {
+			await loadExistingRecords();
+			await fetchBoxOperations();
+			setupRealtimeSubscription();
+		}
 	});
+
+	onDestroy(() => {
+		// Cleanup realtime subscription
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+		// Clear any pending auto-save
+		if (autoSaveTimeout) {
+			clearTimeout(autoSaveTimeout);
+		}
+	});
+
+	// Watch for branch changes
+	let previousBranch = '';
+	$: if (selectedBranch && selectedBranch !== previousBranch && !isLoading) {
+		previousBranch = selectedBranch;
+		handleBranchChange();
+	}
+
+	async function handleBranchChange() {
+		// Reset all data first
+		resetCounts();
+		cashBoxData = Array.from({ length: 9 }, () => ({
+			'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
+			'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
+			'd025': 0, 'coins': 0, 'damage': 0
+		}));
+		mainRecordId = null;
+		boxRecordIds = Array(9).fill(null);
+		lastSaved = null;
+		
+		// Load data for new branch
+		await loadExistingRecords();
+		await fetchBoxOperations();
+		setupRealtimeSubscription();
+	}
+
+	async function loadDenominationTypes() {
+		try {
+			const { data, error } = await supabase
+				.from('denomination_types')
+				.select('*')
+				.eq('is_active', true)
+				.order('sort_order');
+
+			if (error) {
+				console.error('Error loading denomination types:', error);
+				return;
+			}
+
+			// Update denomValues and denomLabels from database
+			if (data && data.length > 0) {
+				data.forEach((type: any) => {
+					denomValues[type.code] = type.value;
+					denomLabels[type.code] = type.label;
+				});
+			}
+		} catch (error) {
+			console.error('Error loading denomination types:', error);
+		}
+	}
+
+	async function loadExistingRecords() {
+		if (!selectedBranch) return;
+
+		try {
+			// Load main denomination record (most recent for today)
+			const today = new Date();
+			today.setHours(0, 0, 0, 0);
+
+			const { data: mainData, error: mainError } = await supabase
+				.from('denomination_records')
+				.select('*')
+				.eq('branch_id', parseInt(selectedBranch))
+				.eq('record_type', 'main')
+				.gte('created_at', today.toISOString())
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.maybeSingle();
+
+			if (!mainError && mainData) {
+				mainRecordId = mainData.id;
+				counts = mainData.counts || counts;
+				erpBalance = mainData.erp_balance || '';
+				counts = { ...counts }; // Trigger reactivity
+			} else {
+				// Reset if no record found
+				mainRecordId = null;
+				resetCounts();
+			}
+
+			// Load box records
+			const { data: boxData, error: boxError } = await supabase
+				.from('denomination_records')
+				.select('*')
+				.eq('branch_id', parseInt(selectedBranch))
+				.eq('record_type', 'advance_box')
+				.gte('created_at', today.toISOString())
+				.order('created_at', { ascending: false });
+
+			if (!boxError && boxData) {
+				// Reset box data first
+				cashBoxData = Array.from({ length: 9 }, () => ({
+					'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
+					'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
+					'd025': 0, 'coins': 0, 'damage': 0
+				}));
+				boxRecordIds = Array(9).fill(null);
+
+				// Populate from database (get most recent for each box)
+				const seenBoxes = new Set<number>();
+				boxData.forEach((record: any) => {
+					const boxIndex = record.box_number - 1;
+					if (!seenBoxes.has(boxIndex) && boxIndex >= 0 && boxIndex < 9) {
+						seenBoxes.add(boxIndex);
+						boxRecordIds[boxIndex] = record.id;
+						cashBoxData[boxIndex] = record.counts || cashBoxData[boxIndex];
+					}
+				});
+				cashBoxData = [...cashBoxData]; // Trigger reactivity
+			}
+		} catch (error) {
+			console.error('Error loading existing records:', error);
+		}
+	}
+
+	function resetCounts() {
+		counts = {
+			'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
+			'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
+			'd025': 0, 'coins': 0, 'damage': 0
+		};
+		erpBalance = '';
+	}
+
+	function setupRealtimeSubscription() {
+		// Remove existing subscription
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+
+		if (!selectedBranch) return;
+
+		realtimeChannel = supabase
+			.channel(`denomination-${selectedBranch}`)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'denomination_records',
+					filter: `branch_id=eq.${selectedBranch}`
+				},
+				(payload) => {
+					console.log('Realtime update:', payload);
+					handleRealtimeUpdate(payload);
+				}
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'box_operations',
+					filter: `branch_id=eq.${selectedBranch}`
+				},
+				async (payload) => {
+					console.log('Box operations update:', payload);
+					await fetchBoxOperations();
+				}
+			)
+			.subscribe();
+	}
+
+	function handleRealtimeUpdate(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'INSERT' || eventType === 'UPDATE') {
+			if (newRecord.record_type === 'main') {
+				// Don't update if it's our own save (check by ID)
+				if (newRecord.id !== mainRecordId) {
+					mainRecordId = newRecord.id;
+					counts = newRecord.counts || counts;
+					erpBalance = newRecord.erp_balance || '';
+					counts = { ...counts };
+				}
+			} else if (newRecord.record_type === 'advance_box') {
+				const boxIndex = newRecord.box_number - 1;
+				if (boxIndex >= 0 && boxIndex < 9 && newRecord.id !== boxRecordIds[boxIndex]) {
+					boxRecordIds[boxIndex] = newRecord.id;
+					cashBoxData[boxIndex] = newRecord.counts || cashBoxData[boxIndex];
+					cashBoxData = [...cashBoxData];
+				}
+			}
+		}
+	}
+
+	// Auto-save with debounce
+	function triggerAutoSave() {
+		if (autoSaveTimeout) {
+			clearTimeout(autoSaveTimeout);
+		}
+		autoSaveTimeout = setTimeout(() => {
+			saveMainDenomination();
+		}, 1500); // Save after 1.5 seconds of inactivity
+	}
+
+	async function saveMainDenomination() {
+		if (!selectedBranch || !$currentUser?.id) return;
+
+		isSaving = true;
+		try {
+			const recordData = {
+				branch_id: parseInt(selectedBranch),
+				user_id: $currentUser.id,
+				record_type: 'main',
+				box_number: null,
+				counts: counts,
+				erp_balance: erpBalanceNumber || null,
+				grand_total: grandTotal,
+				difference: difference
+			};
+
+			if (mainRecordId) {
+				// Update existing record
+				const { error } = await supabase
+					.from('denomination_records')
+					.update(recordData)
+					.eq('id', mainRecordId);
+
+				if (error) {
+					console.error('Error updating main denomination:', error);
+				}
+			} else {
+				// Insert new record
+				const { data, error } = await supabase
+					.from('denomination_records')
+					.insert(recordData)
+					.select('id')
+					.single();
+
+				if (error) {
+					console.error('Error saving main denomination:', error);
+				} else if (data) {
+					mainRecordId = data.id;
+				}
+			}
+
+			lastSaved = new Date();
+		} catch (error) {
+			console.error('Error saving main denomination:', error);
+		} finally {
+			isSaving = false;
+		}
+	}
+
+	async function saveBoxDenomination(boxNumber: number, boxCounts: Record<string, number>) {
+		if (!selectedBranch || !$currentUser?.id) return;
+
+		const boxIndex = boxNumber - 1;
+		const boxTotal = Object.entries(boxCounts).reduce((sum, [key, count]) => sum + count * denomValues[key], 0);
+
+		try {
+			const recordData = {
+				branch_id: parseInt(selectedBranch),
+				user_id: $currentUser.id,
+				record_type: 'advance_box',
+				box_number: boxNumber,
+				counts: boxCounts,
+				grand_total: boxTotal
+			};
+
+			if (boxRecordIds[boxIndex]) {
+				// Update existing record
+				const { error } = await supabase
+					.from('denomination_records')
+					.update(recordData)
+					.eq('id', boxRecordIds[boxIndex]);
+
+				if (error) {
+					console.error(`Error updating box ${boxNumber}:`, error);
+				}
+			} else {
+				// Insert new record
+				const { data, error } = await supabase
+					.from('denomination_records')
+					.insert(recordData)
+					.select('id')
+					.single();
+
+				if (error) {
+					console.error(`Error saving box ${boxNumber}:`, error);
+				} else if (data) {
+					boxRecordIds[boxIndex] = data.id;
+				}
+			}
+		} catch (error) {
+			console.error(`Error saving box ${boxNumber}:`, error);
+		}
+	}
 
 	async function loadBranches() {
 		try {
@@ -104,13 +426,12 @@
 		'd100': 0,
 		'd50': 0,
 		'd20': 0,
+		'd10': 0,
 		'd5': 0,
+		'd2': 0,
 		'd1': 0,
-		'bundle10': 0,
-		'bundle5': 0,
-		'mixed': 0,
-		'coin50': 0,
-		'coin100': 0,
+		'd05': 0,
+		'd025': 0,
 		'coins': 0,
 		'damage': 0
 	};
@@ -122,13 +443,12 @@
 		'd100': 100,
 		'd50': 50,
 		'd20': 20,
+		'd10': 10,
 		'd5': 5,
+		'd2': 2,
 		'd1': 1,
-		'bundle10': 1000, // 100 x 10 SAR notes
-		'bundle5': 500,   // 100 x 5 SAR notes
-		'mixed': 500,     // Mixed 5 & 10
-		'coin50': 50,
-		'coin100': 100,
+		'd05': 0.5,
+		'd025': 0.25,
 		'coins': 1,
 		'damage': 1
 	};
@@ -144,19 +464,189 @@
 	let popupMode: 'add' | 'subtract' = 'add';
 	let currentCount = 0;
 
+	// Cash Box Denomination Modal state
+	let showCashBoxModal = false;
+	let selectedCashBox = 0;
+	let cashBoxCounts: Record<string, number> = {
+		'd500': 0,
+		'd200': 0,
+		'd100': 0,
+		'd50': 0,
+		'd20': 0,
+		'd10': 0,
+		'd5': 0,
+		'd2': 0,
+		'd1': 0,
+		'd05': 0,
+		'd025': 0,
+		'coins': 0,
+		'damage': 0
+	};
+
+	// Store each box's denomination data
+	let cashBoxData: Array<Record<string, number>> = Array.from({ length: 9 }, () => ({
+		'd500': 0,
+		'd200': 0,
+		'd100': 0,
+		'd50': 0,
+		'd20': 0,
+		'd10': 0,
+		'd5': 0,
+		'd2': 0,
+		'd1': 0,
+		'd05': 0,
+		'd025': 0,
+		'coins': 0,
+		'damage': 0
+	}));
+
+	// Calculate total for a cash box
+	function getCashBoxTotal(boxIndex: number): number {
+		const boxData = cashBoxData[boxIndex];
+		return Object.entries(boxData).reduce((sum, [key, count]) => sum + count * denomValues[key], 0);
+	}
+
+	// Reactive totals for each cash box
+	$: cashBoxTotals = cashBoxData.map((_, index) => getCashBoxTotal(index));
+
+	async function fetchBoxOperations() {
+		if (!selectedBranch) return;
+
+		try {
+			const { data, error } = await supabase
+				.from('box_operations')
+				.select('id, box_number, user_id, notes, status, supervisor_id')
+				.eq('branch_id', selectedBranch)
+				.in('status', ['in_use', 'pending_close']);
+
+			if (error) throw error;
+
+			// Create a map of box_number to operation data
+			boxOperations = new Map();
+			if (data) {
+				for (const op of data) {
+					let username = '';
+					let supervisorName = '';
+					try {
+						const notes = op.notes ? JSON.parse(op.notes) : {};
+						username = notes.cashier_name || '';
+						supervisorName = notes.supervisor_name || '';
+					} catch (e) {
+						console.error('Error parsing notes:', e);
+					}
+					boxOperations.set(op.box_number, { 
+						...op, 
+						username,
+						supervisorName,
+						isPendingClose: op.status === 'pending_close'
+					});
+				}
+			}
+			boxOperations = boxOperations; // Trigger reactivity
+		} catch (error) {
+			console.error('Error fetching box operations:', error);
+		}
+	}
+
+	async function completeBoxClose(boxNumber: number) {
+		try {
+			const operation = boxOperations.get(boxNumber);
+			if (!operation) {
+				console.error('Box operation not found');
+				return;
+			}
+
+			// Update the box_operations status to completed
+			const { error } = await supabase
+				.from('box_operations')
+				.update({
+					status: 'completed',
+					end_time: new Date().toISOString()
+				})
+				.eq('id', operation.id);
+
+			if (error) throw error;
+
+			// Show success message
+			alert(`✓ Box ${boxNumber} closing completed successfully!`);
+
+			// Refresh the box operations list
+			await fetchBoxOperations();
+		} catch (error) {
+			console.error('Error completing box close:', error);
+			alert('Failed to complete box close. Please try again.');
+		}
+	}
+
+	function openCashBoxModal(boxNumber: number) {
+		// Check if box is in use
+		if (boxOperations.has(boxNumber)) {
+			const operation = boxOperations.get(boxNumber);
+			alert(`This box is currently in use by ${operation.username || 'another user'} in POS.`);
+			return;
+		}
+		
+		selectedCashBox = boxNumber;
+		const boxIndex = boxNumber - 1;
+		// Load existing box data as current counts
+		cashBoxCounts = { ...cashBoxData[boxIndex] };
+		showCashBoxModal = true;
+	}
+
+	function closeCashBoxModal() {
+		showCashBoxModal = false;
+		selectedCashBox = 0;
+	}
+
+	function saveCashBoxDenomination() {
+		const boxIndex = selectedCashBox - 1;
+		
+		// Calculate difference between new and old values, then update
+		for (const key of Object.keys(cashBoxCounts)) {
+			const newAmount = cashBoxCounts[key] || 0;
+			const oldAmount = cashBoxData[boxIndex][key] || 0;
+			const difference = newAmount - oldAmount;
+			
+			if (difference !== 0) {
+				// Update box data to new value
+				cashBoxData[boxIndex][key] = newAmount;
+				// Deduct the difference from main (positive = deduct more, negative = add back)
+				counts[key] -= difference;
+			}
+		}
+		
+		// Trigger reactivity
+		cashBoxData = cashBoxData;
+		counts = counts;
+		
+		// Save to database
+		saveBoxDenomination(selectedCashBox, { ...cashBoxData[boxIndex] });
+		triggerAutoSave(); // Also save main denomination since counts changed
+		
+		closeCashBoxModal();
+	}
+
+	function handleCashBoxKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			closeCashBoxModal();
+		}
+	}
+
+	// Calculate total for cash box modal input
+	$: cashBoxInputTotal = Object.entries(cashBoxCounts).reduce((sum, [key, count]) => sum + count * denomValues[key], 0);
+
 	const denomLabels: Record<string, string> = {
 		'd500': '500 SAR',
 		'd200': '200 SAR',
 		'd100': '100 SAR',
 		'd50': '50 SAR',
 		'd20': '20 SAR',
+		'd10': '10 SAR',
 		'd5': '5 SAR',
+		'd2': '2 SAR',
 		'd1': '1 SAR',
-		'bundle10': 'Bundle 10',
-		'bundle5': 'Bundle 5',
-		'mixed': 'Mixed 5&10',
-		'coin50': 'Coin 50',
-		'coin100': 'Coin 100',
+		'd05': '0.5 SAR',
+		'd025': '0.25 SAR',
 		'coins': 'Coins',
 		'damage': 'Damage'
 	};
@@ -194,6 +684,7 @@
 				counts[popupKey] = Math.max(0, counts[popupKey] - val);
 			}
 			counts = counts;
+			triggerAutoSave(); // Auto-save after change
 		}
 		closePopup();
 	}
@@ -229,13 +720,12 @@
 		'd100': counts['d100'] * denomValues['d100'],
 		'd50': counts['d50'] * denomValues['d50'],
 		'd20': counts['d20'] * denomValues['d20'],
+		'd10': counts['d10'] * denomValues['d10'],
 		'd5': counts['d5'] * denomValues['d5'],
+		'd2': counts['d2'] * denomValues['d2'],
 		'd1': counts['d1'] * denomValues['d1'],
-		'bundle10': counts['bundle10'] * denomValues['bundle10'],
-		'bundle5': counts['bundle5'] * denomValues['bundle5'],
-		'mixed': counts['mixed'] * denomValues['mixed'],
-		'coin50': counts['coin50'] * denomValues['coin50'],
-		'coin100': counts['coin100'] * denomValues['coin100'],
+		'd05': counts['d05'] * denomValues['d05'],
+		'd025': counts['d025'] * denomValues['d025'],
 		'coins': counts['coins'] * denomValues['coins'],
 		'damage': counts['damage'] * denomValues['damage']
 	};
@@ -245,7 +735,62 @@
 	// Calculate difference between grand total and ERP balance
 	$: erpBalanceNumber = typeof erpBalance === 'string' ? (parseFloat(erpBalance) || 0) : erpBalance;
 	$: difference = grandTotal - erpBalanceNumber;
+
+	// Auto-save when ERP balance changes
+	let prevErpBalance = erpBalance;
+	$: if (erpBalance !== prevErpBalance && !isLoading && selectedBranch) {
+		prevErpBalance = erpBalance;
+		triggerAutoSave();
+	}
 </script>
+
+<!-- Cash Box Denomination Modal -->
+{#if showCashBoxModal}
+<div class="popup-overlay" on:click={closeCashBoxModal} on:keydown={handleCashBoxKeydown}>
+	<div class="cashbox-modal" on:click|stopPropagation>
+		<div class="popup-header cashbox-header">
+			<span>📦 BOX {selectedCashBox} - Enter Denomination</span>
+			<button class="popup-close" on:click={closeCashBoxModal}>✕</button>
+		</div>
+		<div class="cashbox-modal-body">
+			<div class="cashbox-info">
+				<span class="info-label">Available in Main:</span>
+				<span class="info-value">{grandTotal.toLocaleString()} SAR</span>
+			</div>
+			<div class="cashbox-denomination-grid">
+				{#each Object.entries(denomLabels) as [key, label]}
+					<div class="cashbox-denom-row">
+						<div class="denom-label">
+							{#if key.startsWith('d')}
+								<img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />
+							{/if}
+							{label}
+						</div>
+						<div class="denom-available">Avail: {counts[key]}</div>
+						<input 
+							type="number" 
+							class="denom-input"
+							bind:value={cashBoxCounts[key]}
+							min="0"
+							max={counts[key]}
+							placeholder="0"
+						/>
+						<div class="denom-subtotal">{((cashBoxCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
+					</div>
+				{/each}
+			</div>
+			<div class="cashbox-total-row">
+				<span>Transfer Total:</span>
+				<span class="cashbox-total-value">{cashBoxInputTotal.toLocaleString()} SAR</span>
+			</div>
+		</div>
+		<div class="popup-footer">
+			<button class="popup-btn cancel" on:click={closeCashBoxModal}>Cancel</button>
+			<button class="popup-btn save" on:click={saveCashBoxDenomination}>Transfer to BOX {selectedCashBox}</button>
+		</div>
+	</div>
+</div>
+{/if}
 
 <!-- Popup Modal -->
 {#if showPopup}
@@ -396,7 +941,89 @@
 					<span class="card-icon">⏸️</span>
 					<span class="card-title">Suspends</span>
 				</div>
+				
+				<!-- POS Advance Manager & POS Collection Manager Row -->
 				<div class="card-body suspends-body">
+					<!-- POS Advance Manager Section -->
+					<div class="suspends-section">
+						<div class="suspends-section-header advance-manager">
+							<span class="section-icon">📤</span>
+							<span>POS Advance Manager</span>
+						</div>
+						<div class="suspends-cards-grid">
+							{#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as boxNum}
+								{@const isInUse = boxOperations.has(boxNum)}
+								{@const operation = boxOperations.get(boxNum)}
+								<button 
+									class="suspend-card clickable-box"
+									class:has-value={cashBoxTotals[boxNum - 1] > 0}
+									class:in-use={isInUse}
+									disabled={isInUse}
+									on:click={() => openCashBoxModal(boxNum)}
+								>
+									<div class="box-content">
+										<span class="box-label">BOX {boxNum}</span>
+										{#if isInUse}
+											{#if operation?.isPendingClose}
+												<span class="box-status pending-close">PENDING TO CLOSE</span>
+												<span class="box-username">{operation?.username || 'User'}</span>
+												<span class="box-supervisor">⚡ {operation?.supervisorName || 'Waiting'}</span>
+											{:else}
+												<span class="box-status in-use">IN USE</span>
+												<span class="box-username">{operation?.username || 'User'}</span>
+											{/if}
+										{:else if cashBoxTotals[boxNum - 1] > 0}
+											<span class="box-total">{cashBoxTotals[boxNum - 1].toLocaleString()}</span>
+										{:else}
+											<span class="box-empty">Click to add</span>
+										{/if}
+									</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+					
+					<!-- POS Collection Manager Section -->
+					<div class="suspends-section">
+						<div class="suspends-section-header collection-manager">
+							<span class="section-icon">📥</span>
+							<span>POS Collection Manager</span>
+						</div>
+						<div class="suspends-cards-grid">
+							{#each Array.from({ length: 9 }, (_, i) => i + 1) as boxNum (boxNum)}
+								{@const operation = boxOperations.get(boxNum)}
+								{@const isPending = operation?.isPendingClose}
+								
+								{#if isPending}
+									<button class="pending-box-card" on:click={() => completeBoxClose(boxNum)}>
+										<div class="box-header">
+											<span class="box-label">BOX {boxNum}</span>
+											<span class="pending-badge">⏳ PENDING</span>
+										</div>
+										<div class="box-info">
+											<div class="info-row">
+												<span class="label">Cashier:</span>
+												<span class="value">{operation?.username || 'N/A'}</span>
+											</div>
+											<div class="info-row">
+												<span class="label">Verified by:</span>
+												<span class="value supervisor">⚡ {operation?.supervisorName || 'Waiting'}</span>
+											</div>
+										</div>
+										<div class="action">Click to Complete Close</div>
+									</button>
+								{/if}
+							{/each}
+						</div>
+						{#if Array.from(boxOperations.values()).filter(op => op?.isPendingClose).length === 0}
+							<div class="empty-state">
+								<p class="hint">No pending boxes to close</p>
+							</div>
+						{/if}
+					</div>
+				</div>
+				
+				<div class="card-body suspends-body suspends-body-second">
 					<!-- Paid Section -->
 					<div class="suspends-section">
 						<div class="suspends-section-header paid">
@@ -405,7 +1032,7 @@
 						</div>
 						<div class="suspends-cards-grid">
 							<div class="suspend-card">
-								<p class="hint">POS Advance</p>
+								<p class="hint">Card 1</p>
 							</div>
 							<div class="suspend-card">
 								<p class="hint">Card 2</p>
@@ -460,6 +1087,13 @@
 				<div class="card-header">
 					<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
 					<span class="card-title">Denomination</span>
+					<div class="save-status">
+						{#if isSaving}
+							<span class="saving">💾 Saving...</span>
+						{:else if lastSaved}
+							<span class="saved">✓ Saved {lastSaved.toLocaleTimeString()}</span>
+						{/if}
+					</div>
 				</div>
 				<div class="card-body">
 					<table class="denomination-table">
@@ -476,13 +1110,12 @@
 							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d100')}>−</button><span class="count-value">{counts['d100']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d100')}>+</button></td><td class="total-cell">{totals['d100'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d50')}>−</button><span class="count-value">{counts['d50']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d50')}>+</button></td><td class="total-cell">{totals['d50'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />20</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d20')}>−</button><span class="count-value">{counts['d20']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d20')}>+</button></td><td class="total-cell">{totals['d20'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d10')}>−</button><span class="count-value">{counts['d10']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d10')}>+</button></td><td class="total-cell">{totals['d10'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d5')}>−</button><span class="count-value">{counts['d5']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d5')}>+</button></td><td class="total-cell">{totals['d5'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />2</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d2')}>−</button><span class="count-value">{counts['d2']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d2')}>+</button></td><td class="total-cell">{totals['d2'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />1</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d1')}>−</button><span class="count-value">{counts['d1']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d1')}>+</button></td><td class="total-cell">{totals['d1'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">📦 Bundle <img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('bundle10')}>−</button><span class="count-value">{counts['bundle10']}</span><button class="count-btn plus" on:click={() => openPopupAdd('bundle10')}>+</button></td><td class="total-cell">{totals['bundle10'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">📦 Bundle <img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('bundle5')}>−</button><span class="count-value">{counts['bundle5']}</span><button class="count-btn plus" on:click={() => openPopupAdd('bundle5')}>+</button></td><td class="total-cell">{totals['bundle5'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">📦 Mixed <img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />5&10</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('mixed')}>−</button><span class="count-value">{counts['mixed']}</span><button class="count-btn plus" on:click={() => openPopupAdd('mixed')}>+</button></td><td class="total-cell">{totals['mixed'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">🪙 Coin <img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('coin50')}>−</button><span class="count-value">{counts['coin50']}</span><button class="count-btn plus" on:click={() => openPopupAdd('coin50')}>+</button></td><td class="total-cell">{totals['coin50'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">🪙 Coin <img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('coin100')}>−</button><span class="count-value">{counts['coin100']}</span><button class="count-btn plus" on:click={() => openPopupAdd('coin100')}>+</button></td><td class="total-cell">{totals['coin100'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />0.5</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d05')}>−</button><span class="count-value">{counts['d05']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d05')}>+</button></td><td class="total-cell">{totals['d05'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />0.25</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('d025')}>−</button><span class="count-value">{counts['d025']}</span><button class="count-btn plus" on:click={() => openPopupAdd('d025')}>+</button></td><td class="total-cell">{totals['d025'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap">🪙 Coins</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('coins')}>−</button><span class="count-value">{counts['coins']}</span><button class="count-btn plus" on:click={() => openPopupAdd('coins')}>+</button></td><td class="total-cell">{totals['coins'].toLocaleString()}</td></tr>
 							<tr><td><span class="nowrap">⚠️ Damage</span></td><td class="count-cell"><button class="count-btn minus" on:click={() => openPopupSubtract('damage')}>−</button><span class="count-value">{counts['damage']}</span><button class="count-btn plus" on:click={() => openPopupAdd('damage')}>+</button></td><td class="total-cell">{totals['damage'].toLocaleString()}</td></tr>
 						</tbody>
@@ -620,8 +1253,11 @@
 	}
 
 	.big-card .card-body {
-		flex: 1;
 		overflow-y: auto;
+	}
+
+	.big-card .card-body.suspends-body {
+		flex: 0 0 auto;
 	}
 
 	.card-header {
@@ -666,6 +1302,26 @@
 		font-weight: 700;
 		color: white;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+	}
+
+	.save-status {
+		margin-left: auto;
+		font-size: 0.6rem;
+		font-weight: 500;
+	}
+
+	.save-status .saving {
+		color: #fef3c7;
+		animation: pulse 1s infinite;
+	}
+
+	.save-status .saved {
+		color: #bbf7d0;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
 	}
 
 	.card-body {
@@ -1191,6 +1847,11 @@
 		flex-direction: row;
 		gap: 0.75rem;
 		padding: 0.5rem !important;
+		padding-bottom: 0.25rem !important;
+	}
+
+	.suspends-body-second {
+		padding-top: 0 !important;
 	}
 
 	.suspends-section {
@@ -1217,6 +1878,14 @@
 
 	.suspends-section-header.received {
 		background: linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+	}
+
+	.suspends-section-header.advance-manager {
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+	}
+
+	.suspends-section-header.collection-manager {
+		background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
 	}
 
 	.section-icon {
@@ -1256,5 +1925,306 @@
 		margin: 0;
 		font-size: 0.7rem;
 		color: #94a3b8;
+	}
+
+	/* Clickable Box Styles */
+	.suspend-card.clickable-box {
+		cursor: pointer;
+		border: 2px dashed #a78bfa;
+		background: linear-gradient(145deg, #faf5ff 0%, #f3e8ff 100%);
+		transition: all 0.2s ease;
+		padding: 0.5rem;
+	}
+
+	.suspend-card.clickable-box:hover {
+		border-color: #8b5cf6;
+		background: linear-gradient(145deg, #f3e8ff 0%, #ede9fe 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px rgba(139, 92, 246, 0.2);
+	}
+
+	.suspend-card.clickable-box.has-value {
+		border-style: solid;
+		border-color: #8b5cf6;
+		background: linear-gradient(145deg, #ede9fe 0%, #ddd6fe 100%);
+	}
+
+	.suspend-card.clickable-box.in-use {
+		border-style: solid;
+		border-color: #f59e0b;
+		background: linear-gradient(145deg, #fef3c7 0%, #fde68a 100%);
+		cursor: not-allowed;
+		opacity: 0.85;
+	}
+
+	.suspend-card.clickable-box.in-use:hover {
+		transform: none;
+		box-shadow: none;
+		background: linear-gradient(145deg, #fef3c7 0%, #fde68a 100%);
+	}
+
+	.box-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.box-label {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #7c3aed;
+	}
+
+	.box-total {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #5b21b6;
+	}
+
+	.box-empty {
+		font-size: 0.55rem;
+		color: #a78bfa;
+		font-style: italic;
+	}
+
+	.box-status.in-use {
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #d97706;
+		background: #fbbf24;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		text-transform: uppercase;
+	}
+
+	.box-status.pending-close {
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #ea580c;
+		background: #fed7aa;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		text-transform: uppercase;
+	}
+
+	.box-supervisor {
+		color: #ea580c;
+		font-weight: 600;
+		font-size: 0.7rem;
+	}
+
+	.pending-box-card {
+		background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+		border: 2px solid #f59e0b;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.pending-box-card:hover {
+		background: linear-gradient(135deg, #fde68a 0%, #fecb8c 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+	}
+
+	.pending-box-card .box-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.pending-box-card .box-label {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #92400e;
+	}
+
+	.pending-badge {
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: #ea580c;
+		background: #fff7ed;
+		padding: 0.2rem 0.5rem;
+		border-radius: 0.25rem;
+		text-transform: uppercase;
+	}
+
+	.pending-box-card .box-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		font-size: 0.7rem;
+	}
+
+	.pending-box-card .info-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.pending-box-card .label {
+		color: #92400e;
+		font-weight: 600;
+	}
+
+	.pending-box-card .value {
+		color: #78350f;
+		font-weight: 500;
+	}
+
+	.pending-box-card .action {
+		text-align: center;
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #ea580c;
+		background: #fff7ed;
+		padding: 0.4rem;
+		border-radius: 0.25rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+	}
+
+	.pending-box-card:hover .action {
+		background: #f5f3ff;
+		color: #7c2d12;
+	}
+
+	.box-username {
+		font-size: 0.6rem;
+		color: #92400e;
+		font-weight: 600;
+	}
+
+	/* Cash Box Modal Styles */
+	.cashbox-modal {
+		background: white;
+		border-radius: 16px;
+		box-shadow: 
+			0 25px 50px -12px rgba(0, 0, 0, 0.25),
+			0 0 0 1px rgba(255, 255, 255, 0.1);
+		width: 450px;
+		max-width: 95%;
+		max-height: 90vh;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.cashbox-header {
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%) !important;
+	}
+
+	.cashbox-modal-body {
+		padding: 1rem;
+		overflow-y: auto;
+		flex: 1;
+	}
+
+	.cashbox-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0.75rem;
+		background: linear-gradient(145deg, #f0fdf4 0%, #dcfce7 100%);
+		border-radius: 8px;
+		margin-bottom: 0.75rem;
+		border: 1px solid #86efac;
+	}
+
+	.info-label {
+		font-size: 0.75rem;
+		color: #166534;
+		font-weight: 500;
+	}
+
+	.info-value {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #15803d;
+	}
+
+	.cashbox-denomination-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.cashbox-denom-row {
+		display: grid;
+		grid-template-columns: 90px 70px 70px 70px;
+		gap: 0.5rem;
+		align-items: center;
+		padding: 0.35rem 0.5rem;
+		background: #f8fafc;
+		border-radius: 6px;
+		transition: all 0.2s;
+	}
+
+	.cashbox-denom-row:hover {
+		background: #f1f5f9;
+	}
+
+	.denom-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #1e293b;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.denom-available {
+		font-size: 0.65rem;
+		color: #64748b;
+		text-align: center;
+	}
+
+	.denom-input {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		text-align: center;
+		border: 2px solid #a78bfa;
+		border-radius: 6px;
+		background: white;
+		color: #5b21b6;
+		outline: none;
+		transition: all 0.2s;
+	}
+
+	.denom-input:focus {
+		border-color: #8b5cf6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+	}
+
+	.denom-subtotal {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #166534;
+		text-align: right;
+	}
+
+	.cashbox-total-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem;
+		margin-top: 0.75rem;
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+		border-radius: 8px;
+		color: white;
+		font-weight: 600;
+	}
+
+	.cashbox-total-value {
+		font-size: 1.1rem;
+		font-weight: 700;
 	}
 </style>

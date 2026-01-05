@@ -1,0 +1,21 @@
+{
+  "default": "SAR",
+  "symbols": {
+    "SAR": "﷼",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£"
+  },
+  "names": {
+    "SAR": "Saudi Riyal",
+    "USD": "US Dollar",
+    "EUR": "Euro",
+    "GBP": "British Pound"
+  },
+  "namesArabic": {
+    "SAR": "الريال السعودي",
+    "USD": "الدولار الأمريكي",
+    "EUR": "اليورو",
+    "GBP": "الجنيه الإسترليني"
+  }
+}

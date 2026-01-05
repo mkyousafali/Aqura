@@ -7,6 +7,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
+	import POS from '$lib/components/cashier-interface/POS.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -54,6 +55,24 @@
 		});
 	}
 
+	function openPOS() {
+		const windowId = `pos-${Date.now()}`;
+		
+		openWindow({
+			id: windowId,
+			title: t('pos.title') || 'POS',
+			component: POS,
+			props: { user, branch },
+			icon: '🛒',
+			size: { width: 1000, height: 700 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function toggleLanguage() {
 		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
 		switchLocale(newLocale);
@@ -81,6 +100,10 @@
 		</div>
 
 		<nav class="sidebar-menu">
+			<button class="menu-item pos-menu-item" on:click={openPOS}>
+				<span class="menu-icon">🛒</span>
+				<span class="menu-label">{t('pos.title') || 'POS'}</span>
+			</button>
 			<button class="menu-item" on:click={openCouponRedemption}>
 				<span class="menu-icon">🎁</span>
 				<span class="menu-label">{t('coupon.redeemCoupon') || 'Redeem Coupon'}</span>
@@ -255,6 +278,17 @@
 		border-color: white;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+	}
+
+	.menu-item.pos-menu-item {
+		background: linear-gradient(135deg, rgba(34, 197, 94, 0.4) 0%, rgba(22, 163, 74, 0.3) 100%);
+		border-color: rgba(134, 239, 172, 0.5);
+	}
+
+	.menu-item.pos-menu-item:hover {
+		background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+		color: white;
+		border-color: #22c55e;
 	}
 
 	.menu-icon {
