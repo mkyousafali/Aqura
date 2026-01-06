@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { createClient } from '@supabase/supabase-js';
 	import html2canvas from 'html2canvas';
+	import { supabase } from '$lib/utils/supabase';
 
 	export let windowId: string;
 	export let operation: any;
@@ -175,11 +175,6 @@
 	let supervisorName: string = '';
 	let supervisorCodeError: string = '';
 	let closingSaved: boolean = false;
-
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
 
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';
