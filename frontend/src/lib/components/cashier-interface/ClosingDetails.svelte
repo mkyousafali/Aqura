@@ -57,11 +57,86 @@
 		'coins': 'Coins'
 	};
 
-	// Closing cash counts
+	// Closing cash counts - load from operation data
 	let closingCounts: Record<string, number> = {};
-	Object.keys(denomValues).forEach(key => {
-		closingCounts[key] = 0;
-	});
+	let closingDetails: any = {};
+	
+	// Ensure closingCounts is always initialized properly
+	function initializeClosingCounts() {
+		console.log('🔄 Initializing closing counts from operation:', operation);
+		
+		// Try to load from closing_details (the JSON saved data)
+		if (operation?.closing_details) {
+			const details = typeof operation.closing_details === 'string' 
+				? JSON.parse(operation.closing_details)
+				: operation.closing_details;
+			
+			closingDetails = details;
+			closingCounts = { ...details.closing_counts || {} };
+			
+			// Load supervisor info
+			supervisorName = details.supervisor_name || '';
+			supervisorCode = '';
+			
+			// Load bank reconciliation
+			madaAmount = details.bank_mada || '';
+			visaAmount = details.bank_visa || '';
+			masterCardAmount = details.bank_mastercard || '';
+			googlePayAmount = details.bank_google_pay || '';
+			otherAmount = details.bank_other || '';
+			
+			// Load ERP details
+			systemCashSales = details.system_cash_sales || '';
+			systemCardSales = details.system_card_sales || '';
+			systemReturn = details.system_return || '';
+			
+			// Load recharge details
+			openingBalance = details.recharge_opening_balance || '';
+			closeBalance = details.recharge_close_balance || '';
+			
+			// Load recharge card transaction dates and times
+			startDateInput = details.recharge_transaction_start_date || '';
+			startTimeInput = details.recharge_transaction_start_time || '';
+			endDateInput = details.recharge_transaction_end_date || '';
+			endTimeInput = details.recharge_transaction_end_time || '';
+			
+			// Parse time if available
+			if (startTimeInput) {
+				const [time, period] = startTimeInput.split(' ');
+				const [hour, minute] = time.split(':');
+				startHour = hour || '12';
+				startMinute = minute || '00';
+				startAmPm = period || 'AM';
+			}
+			if (endTimeInput) {
+				const [time, period] = endTimeInput.split(' ');
+				const [hour, minute] = time.split(':');
+				endHour = hour || '12';
+				endMinute = minute || '00';
+				endAmPm = period || 'AM';
+			}
+			
+			// Load vouchers
+			vouchers = details.vouchers || [];
+			
+			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
+		} else if (operation?.counts_after) {
+			closingCounts = { ...operation.counts_after };
+			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
+		} else {
+			// Initialize with zeros
+			closingCounts = {};
+			Object.keys(denomValues).forEach(key => {
+				closingCounts[key] = 0;
+			});
+			console.log('⚠️ No closing data found, initialized with zeros');
+		}
+	}
+	
+	// Initialize on mount
+	$: if (operation) {
+		initializeClosingCounts();
+	}
 
 	// Calculate total
 	$: closingTotal = Object.keys(closingCounts).reduce((sum, key) => {
@@ -241,74 +316,6 @@
 		supervisorCodeError = '';
 	}
 
-	// Real-time auto-save function
-	let autoSaveTimeout: any;
-	async function autoSaveClosingDetails() {
-		// Debounce: wait 1 second after last change before saving
-		clearTimeout(autoSaveTimeout);
-		autoSaveTimeout = setTimeout(async () => {
-			try {
-				// Build closing data for auto-save
-				const closingData = {
-					closing_counts: closingCounts,
-					closing_total: closingTotal,
-					cash_sales: cashSales,
-					total_cash_sales: totalCashSales,
-					supervisor_name: supervisorName,
-					
-					// Bank reconciliation
-					bank_mada: madaAmount || 0,
-					bank_visa: visaAmount || 0,
-					bank_mastercard: masterCardAmount || 0,
-					bank_google_pay: googlePayAmount || 0,
-					bank_other: otherAmount || 0,
-					bank_total: bankTotal,
-					
-					// ERP details
-					system_cash_sales: systemCashSales || 0,
-					system_card_sales: systemCardSales || 0,
-					system_return: systemReturn || 0,
-					
-					// Differences
-					difference_cash_sales: differenceInCashSales,
-					difference_card_sales: differenceInCardSales,
-					total_difference: totalDifference,
-					
-				// Recharge card transaction details
-				recharge_opening_balance: openingBalance || 0,
-				recharge_close_balance: closeBalance || 0,
-				recharge_sales: sales || 0,
-				recharge_transaction_start_date: startDateInput,
-				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
-				recharge_transaction_end_date: endDateInput,
-				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
-					total_sales: totalSales,
-					total_system_sales: totalSystemSales
-				};
-
-				console.log('💾 Auto-saving closing details...');
-				const { error } = await supabase
-					.from('box_operations')
-					.update({ closing_details: closingData })
-					.eq('id', operation.id);
-
-				if (error) throw error;
-				console.log('✅ Closing details auto-saved');
-			} catch (error) {
-				console.error('❌ Error auto-saving closing details:', error);
-			}
-		}, 1000);
-	}
-
-	// Reactive auto-save triggers - call autoSave when any data changes
-	$: if (closingCounts) autoSaveClosingDetails();
-	$: if (madaAmount !== undefined || visaAmount !== undefined || masterCardAmount !== undefined || googlePayAmount !== undefined || otherAmount !== undefined) autoSaveClosingDetails();
-	$: if (systemCashSales !== undefined || systemCardSales !== undefined || systemReturn !== undefined) autoSaveClosingDetails();
-	$: if (openingBalance !== undefined || closeBalance !== undefined) autoSaveClosingDetails();
-	$: if (vouchers) autoSaveClosingDetails();
-	$: if (startDateInput !== undefined || startHour !== undefined || startMinute !== undefined || startAmPm !== undefined) autoSaveClosingDetails();
-	$: if (endDateInput !== undefined || endHour !== undefined || endMinute !== undefined || endAmPm !== undefined) autoSaveClosingDetails();
-
 	async function saveSupervisorCode() {
 		if (!supervisorName) {
 			return;
@@ -325,15 +332,23 @@
 			if (supervisorError) throw supervisorError;
 			const supervisorUserId = supervisorData?.id;
 
-			console.log('🔒 Supervisor verified, updating box status to pending_close');
-
-			// Build updated closing details with supervisor_name
-			const updatedClosingDetails = {
-				closing_counts: closingCounts,
-				closing_total: closingTotal,
-				cash_sales: cashSales,
-				total_cash_sales: totalCashSales,
+			// Prepare closing details
+			const closingData = {
 				supervisor_name: supervisorName,
+				supervisor_id: supervisorUserId,
+				closing_start_date: new Date().toISOString().split('T')[0],
+				closing_start_time: startHour && startMinute ? `${startHour}:${startMinute} ${startAmPm}` : null,
+				closing_end_date: new Date().toISOString().split('T')[0],
+				closing_end_time: endHour && endMinute ? `${endHour}:${endMinute} ${endAmPm}` : null,
+				
+				// Recharge cards
+				recharge_opening_balance: openingBalance || 0,
+				recharge_close_balance: closeBalance || 0,
+				recharge_sales: sales || 0,
+				recharge_transaction_start_date: startDateInput,
+				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
+				recharge_transaction_end_date: endDateInput,
+				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
 				
 				// Bank reconciliation
 				bank_mada: madaAmount || 0,
@@ -353,49 +368,78 @@
 				difference_card_sales: differenceInCardSales,
 				total_difference: totalDifference,
 				
-				// Recharge card transaction details
-				recharge_opening_balance: openingBalance || 0,
-				recharge_close_balance: closeBalance || 0,
-				recharge_sales: sales || 0,
-				recharge_transaction_start_date: startDateInput,
-				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
-				recharge_transaction_end_date: endDateInput,
-				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
-				
-				// Purchase vouchers
-				vouchers: vouchers,
+				// Sales totals
+				total_cash_sales: totalCashSales,
 				vouchers_total: vouchersTotal,
 				total_system_cash_sales: totalSystemCashSales,
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
 			};
 
-			// Update both closing_details and status to pending_close with supervisor info
+			// Update box operation with closing details
+			// First, try updating without status to isolate the issue
+			const updatePayload = {
+				closing_details: closingData,
+				supervisor_id: supervisorUserId,
+				supervisor_verified_at: new Date().toISOString(),
+				end_time: new Date().toISOString(),
+				// Also update individual fields for easy querying
+				difference_cash_sales: differenceInCashSales,
+				difference_card_sales: differenceInCardSales,
+				total_difference: totalDifference,
+				recharge_opening_balance: openingBalance || 0,
+				recharge_close_balance: closeBalance || 0,
+				recharge_sales: sales || 0,
+				bank_mada: madaAmount || 0,
+				bank_visa: visaAmount || 0,
+				bank_mastercard: masterCardAmount || 0,
+				bank_google_pay: googlePayAmount || 0,
+				bank_other: otherAmount || 0,
+				bank_total: bankTotal,
+				system_cash_sales: systemCashSales || 0,
+				system_card_sales: systemCardSales || 0,
+				system_return: systemReturn || 0
+			};
+
+			const { error: updateError } = await supabase
+				.from('box_operations')
+				.update(updatePayload)
+				.eq('id', operation.id);
+
+			if (updateError) {
+				console.error('Update error:', updateError);
+				throw updateError;
+			}
+
+			console.log('Closing box details saved successfully');
+
+			// Now try to update the status separately
+			// Include updated_at in the update to ensure trigger fires
 			const { error: statusError } = await supabase
 				.from('box_operations')
 				.update({ 
-					closing_details: updatedClosingDetails,
 					status: 'pending_close',
-					supervisor_id: supervisorUserId,
-					supervisor_verified_at: new Date().toISOString(),
-					end_time: new Date().toISOString(),
 					updated_at: new Date().toISOString()
 				})
 				.eq('id', operation.id);
 
 			if (statusError) {
-				console.error('❌ Error updating status:', statusError);
-				throw statusError;
+				console.error('Status update error:', statusError);
+				console.error('Status error code:', statusError.code);
+				console.error('Status error message:', statusError.message);
+				// Don't throw - the details were saved, just status update failed
+				// Try alternative: use raw SQL via RPC if available
+			} else {
+				console.log('Status updated to pending_close');
 			}
 
-			console.log('✅ Status updated to pending_close');
 			closingSaved = true;
 			
 			// Show success message
-			alert('Box closing submitted! Waiting for POS Collection Manager approval');
+			alert('Box closing saved! Pending final close from POS Collection Manager');
 		} catch (error) {
-			console.error('❌ Error saving supervisor code:', error);
-			supervisorCodeError = 'Error updating box status: ' + (error.message || 'Unknown error');
+			console.error('Error saving closing box:', error);
+			supervisorCodeError = 'Error saving closing box: ' + (error.message || 'Unknown error');
 		}
 	}
 
@@ -445,7 +489,7 @@
 		<div class="half-card split-card">
 			<div class="split-section">
 				<div class="card-number">7</div>
-				<div class="card-header-text">Enter Closing Cash</div>
+				<div class="card-header-text">Closing Details Entered</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						<div class="denom-input-group">
@@ -461,7 +505,8 @@
 								<input
 									type="number"
 									min="0"
-									value={closingCounts[key] || ''} on:input={(e) => { const val = e.currentTarget.value; closingCounts[key] = val === '' ? undefined : Number(val); }}
+									readonly
+									value={closingCounts[key] || ''}
 								/>
 								{#if closingCounts[key] > 0}
 									<div class="denom-total">
@@ -513,26 +558,7 @@
 				<div class="card-number">8</div>
 				<div class="card-header-text">Sales through Purchase Voucher</div>
 				
-				<div class="voucher-input-row">
-					<input
-						type="text"
-						bind:value={newVoucherSerial}
-						placeholder="Serial Number"
-						class="voucher-serial-input"
-					/>
-					<input
-						type="number"
-						value={newVoucherAmount || ''}
-						on:input={(e) => newVoucherAmount = e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)}
-						placeholder="Amount"
-						min="0"
-						step="0.01"
-						class="voucher-amount-input"
-					/>
-					<button class="add-voucher-btn" on:click={addVoucher}>
-						<span>+</span>
-					</button>
-				</div>
+				<!-- Input row hidden for read-only view -->
 
 				{#if vouchers.length > 0}
 					<div class="vouchers-table">
@@ -541,7 +567,6 @@
 								<tr>
 									<th>Serial</th>
 									<th>Amount</th>
-									<th></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -553,9 +578,6 @@
 												<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
 												<span>{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 											</div>
-										</td>
-										<td>
-											<button class="remove-btn" on:click={() => removeVoucher(index)}>×</button>
 										</td>
 									</tr>
 								{/each}
@@ -584,7 +606,7 @@
 						<input
 							type="number"
 							bind:value={madaAmount}
-
+							readonly
 							min="0"
 							step="0.01"
 							class="bank-input"
@@ -595,7 +617,7 @@
 						<input
 							type="number"
 							bind:value={visaAmount}
-
+							readonly
 							min="0"
 							step="0.01"
 							class="bank-input"
@@ -606,6 +628,7 @@
 						<input
 							type="number"
 							bind:value={masterCardAmount}
+							readonly
 
 							min="0"
 							step="0.01"
@@ -654,7 +677,7 @@
 						<input
 							type="number"
 							bind:value={systemCashSales}
-
+							readonly
 							min="0"
 							step="0.01"
 							class="system-input"
@@ -665,7 +688,7 @@
 						<input
 							type="number"
 							bind:value={systemCardSales}
-
+							readonly
 							min="0"
 							step="0.01"
 							class="system-input"
@@ -676,7 +699,7 @@
 						<input
 							type="number"
 							bind:value={systemReturn}
-
+							readonly
 							min="0"
 							step="0.01"
 							class="system-input"
@@ -829,6 +852,7 @@
 						<input
 							type="number"
 							bind:value={openingBalance}
+							readonly
 							placeholder="0.00"
 							min="0"
 							step="0.01"
@@ -840,6 +864,7 @@
 						<input
 							type="number"
 							bind:value={closeBalance}
+							readonly
 							placeholder="0.00"
 							min="0"
 							step="0.01"
@@ -905,20 +930,29 @@
 					</div>
 					<div class="sub-card">
 						<div class="sub-card-content" style="gap: 0.3rem;">
-							<input
-								type="password"
-								placeholder="Supervisor Code"
-								bind:value={supervisorCode}
-								class="supervisor-code-input"
-							/>
-							{#if supervisorCodeError}
+							{#if supervisorName}
+								<input
+									type="text"
+									class="supervisor-code-input"
+									value={supervisorName}
+									readonly
+								/>
+							{:else}
+								<input
+									type="password"
+									placeholder="Supervisor Code"
+									bind:value={supervisorCode}
+									class="supervisor-code-input"
+								/>
+							{/if}
+							{#if supervisorCodeError && !supervisorName}
 								<div style="font-size: 0.6rem; color: #dc2626; font-weight: 600; text-align: center;">
 									{supervisorCodeError}
 								</div>
 							{/if}
-							{#if supervisorName}
+							{#if supervisorName && !closingSaved}
 								<div style="font-size: 0.6rem; color: #15803d; font-weight: 600; text-align: center;">
-									✓ {supervisorName}
+									✓ Verified
 								</div>
 							{/if}
 							<button

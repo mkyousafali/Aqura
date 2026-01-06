@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import CompleteBox from './CompleteBox.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -42,7 +44,7 @@
 	onDestroy(() => {
 		// Cleanup realtime subscription
 		if (realtimeChannel) {
-			supabase.removeChannel(realtimeChannel);
+			realtimeChannel.unsubscribe();
 		}
 		// Clear any pending auto-save
 		if (autoSaveTimeout) {
@@ -174,15 +176,15 @@
 	}
 
 	function setupRealtimeSubscription() {
-		// Remove existing subscription
+		// Remove and unsubscribe from existing subscription
 		if (realtimeChannel) {
-			supabase.removeChannel(realtimeChannel);
+			realtimeChannel.unsubscribe();
 		}
 
 		if (!selectedBranch) return;
 
 		realtimeChannel = supabase
-			.channel(`denomination-${selectedBranch}`)
+			.channel(`denomination-${selectedBranch}-${Date.now()}`)
 			.on(
 				'postgres_changes',
 				{
@@ -515,7 +517,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('box_operations')
-				.select('id, box_number, user_id, notes, status, supervisor_id')
+				.select('id, box_number, user_id, notes, status, supervisor_id, closing_details, total_before, total_after')
 				.eq('branch_id', selectedBranch)
 				.in('status', ['in_use', 'pending_close']);
 
@@ -556,25 +558,32 @@
 				return;
 			}
 
-			// Update the box_operations status to completed
-			const { error } = await supabase
-				.from('box_operations')
-				.update({
-					status: 'completed',
-					end_time: new Date().toISOString()
-				})
-				.eq('id', operation.id);
+			console.log('📦 Opening CompleteBox window for box:', boxNumber, 'operation:', operation.id);
 
-			if (error) throw error;
+			// Generate unique window ID
+			const windowId = `complete-box-${boxNumber}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-			// Show success message
-			alert(`✓ Box ${boxNumber} closing completed successfully!`);
-
-			// Refresh the box operations list
-			await fetchBoxOperations();
+			// Open the CompleteBox component in a new window
+			openWindow({
+				id: windowId,
+				title: `Complete BOX ${boxNumber}`,
+				component: CompleteBox,
+				props: {
+					windowId,
+					operation,
+					branch: { id: selectedBranch }
+				},
+				icon: '✓',
+				size: { width: 700, height: 800 },
+				position: { x: 300, y: 100 },
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
 		} catch (error) {
-			console.error('Error completing box close:', error);
-			alert('Failed to complete box close. Please try again.');
+			console.error('Error opening complete box window:', error);
+			alert('Failed to open box closing window. Please try again.');
 		}
 	}
 
@@ -965,9 +974,8 @@
 										<span class="box-label">BOX {boxNum}</span>
 										{#if isInUse}
 											{#if operation?.isPendingClose}
-												<span class="box-status pending-close">PENDING TO CLOSE</span>
+												<span class="box-status pending-close">PENDING</span>
 												<span class="box-username">{operation?.username || 'User'}</span>
-												<span class="box-supervisor">⚡ {operation?.supervisorName || 'Waiting'}</span>
 											{:else}
 												<span class="box-status in-use">IN USE</span>
 												<span class="box-username">{operation?.username || 'User'}</span>
@@ -998,19 +1006,15 @@
 									<button class="pending-box-card" on:click={() => completeBoxClose(boxNum)}>
 										<div class="box-header">
 											<span class="box-label">BOX {boxNum}</span>
-											<span class="pending-badge">⏳ PENDING</span>
 										</div>
 										<div class="box-info">
 											<div class="info-row">
-												<span class="label">Cashier:</span>
 												<span class="value">{operation?.username || 'N/A'}</span>
 											</div>
 											<div class="info-row">
-												<span class="label">Verified by:</span>
 												<span class="value supervisor">⚡ {operation?.supervisorName || 'Waiting'}</span>
 											</div>
 										</div>
-										<div class="action">Click to Complete Close</div>
 									</button>
 								{/if}
 							{/each}
@@ -1902,16 +1906,18 @@
 		background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
 		border: 1px solid rgba(0, 0, 0, 0.08);
 		border-radius: 8px;
-		padding: 0.75rem;
+		padding: 0.5rem;
 		text-align: center;
 		box-shadow: 
 			0 2px 4px -1px rgba(0, 0, 0, 0.06),
 			inset 0 1px 0 rgba(255, 255, 255, 0.9);
 		transition: all 0.2s ease;
-		min-height: 50px;
+		min-height: 80px;
+		height: 80px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-direction: column;
 	}
 
 	.suspend-card:hover {
@@ -1934,6 +1940,8 @@
 		background: linear-gradient(145deg, #faf5ff 0%, #f3e8ff 100%);
 		transition: all 0.2s ease;
 		padding: 0.5rem;
+		min-height: 70px;
+		height: 70px;
 	}
 
 	.suspend-card.clickable-box:hover {
@@ -1954,7 +1962,9 @@
 		border-color: #f59e0b;
 		background: linear-gradient(145deg, #fef3c7 0%, #fde68a 100%);
 		cursor: not-allowed;
-		opacity: 0.85;
+		opacity: 1;
+		min-height: 70px;
+		height: 70px;
 	}
 
 	.suspend-card.clickable-box.in-use:hover {
@@ -1967,45 +1977,58 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		justify-content: center;
 		gap: 0.25rem;
+		width: 100%;
+		height: 100%;
 	}
 
 	.box-label {
-		font-size: 0.7rem;
+		font-size: 0.55rem;
 		font-weight: 600;
 		color: #7c3aed;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.box-total {
-		font-size: 0.85rem;
+		font-size: 0.9rem;
 		font-weight: 700;
 		color: #5b21b6;
 	}
 
 	.box-empty {
-		font-size: 0.55rem;
+		font-size: 0.65rem;
 		color: #a78bfa;
 		font-style: italic;
+		font-weight: 500;
 	}
 
 	.box-status.in-use {
-		font-size: 0.65rem;
+		font-size: 0.55rem;
 		font-weight: 700;
 		color: #d97706;
 		background: #fbbf24;
-		padding: 0.15rem 0.4rem;
+		padding: 0.1rem 0.3rem;
 		border-radius: 0.25rem;
 		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.box-status.pending-close {
-		font-size: 0.65rem;
+		font-size: 0.55rem;
 		font-weight: 700;
 		color: #ea580c;
 		background: #fed7aa;
-		padding: 0.15rem 0.4rem;
+		padding: 0.1rem 0.3rem;
 		border-radius: 0.25rem;
 		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.box-supervisor {
@@ -2018,12 +2041,15 @@
 		background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
 		border: 2px solid #f59e0b;
 		border-radius: 0.5rem;
-		padding: 1rem;
+		padding: 0.35rem;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.2rem;
+		height: 70px;
+		min-height: 70px;
+		overflow: hidden;
 	}
 
 	.pending-box-card:hover {
@@ -2036,21 +2062,24 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem;
 	}
 
 	.pending-box-card .box-label {
-		font-size: 0.85rem;
+		font-size: 0.65rem;
 		font-weight: 700;
 		color: #92400e;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.pending-badge {
-		font-size: 0.6rem;
+		font-size: 0.5rem;
 		font-weight: 700;
 		color: #ea580c;
 		background: #fff7ed;
-		padding: 0.2rem 0.5rem;
+		padding: 0.15rem 0.4rem;
 		border-radius: 0.25rem;
 		text-transform: uppercase;
 	}
@@ -2058,8 +2087,8 @@
 	.pending-box-card .box-info {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-		font-size: 0.7rem;
+		gap: 0.2rem;
+		font-size: 0.65rem;
 	}
 
 	.pending-box-card .info-row {
@@ -2080,11 +2109,11 @@
 
 	.pending-box-card .action {
 		text-align: center;
-		font-size: 0.65rem;
+		font-size: 0.55rem;
 		font-weight: 700;
 		color: #ea580c;
 		background: #fff7ed;
-		padding: 0.4rem;
+		padding: 0.2rem;
 		border-radius: 0.25rem;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
@@ -2096,9 +2125,12 @@
 	}
 
 	.box-username {
-		font-size: 0.6rem;
+		font-size: 0.55rem;
 		color: #92400e;
 		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	/* Cash Box Modal Styles */

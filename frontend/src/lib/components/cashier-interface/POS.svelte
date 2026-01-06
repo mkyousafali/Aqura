@@ -4,6 +4,7 @@
 	import { t, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CloseBox from './CloseBox.svelte';
+	import ClosingDetails from './ClosingDetails.svelte';
 
 	export let branch: any;
 	export let user: any;
@@ -66,11 +67,21 @@
 		'coins': 'Coins'
 	};
 
+	let unsubscribeBoxOps: any;
+	let unsubscribeDenomRecords: any;
+	let previousBranchId: string | number | null = null;
+	let previousUserId: string | null = null;
+	let isRefreshing = false;
+
 	onMount(async () => {
 		console.log('POS Component mounted with branch:', branch);
 		console.log('Branch ID:', branch?.id);
+		console.log('User ID:', user?.id || user?.user_id);
 		
 		if (branch && branch.id) {
+			previousBranchId = branch.id;
+			previousUserId = user?.id || user?.user_id;
+			
 			// Fetch full branch details including location
 			await fetchFullBranch(branch.id);
 			await fetchAvailableBoxes(branch.id);
@@ -83,15 +94,60 @@
 		
 		// Cleanup subscriptions on unmount
 		return () => {
-			supabase.channel('box-operations').unsubscribe();
-			supabase.channel('denomination-records').unsubscribe();
+			console.log('Cleaning up POS subscriptions on unmount');
+			if (unsubscribeBoxOps) unsubscribeBoxOps();
+			if (unsubscribeDenomRecords) unsubscribeDenomRecords();
 		};
 	});
 
+	// Re-fetch when branch or user changes - FORCE FRESH DATA FROM DATABASE
+	$: if (branch?.id && (user?.id || user?.user_id) && !isRefreshing) {
+		const currentBranchId = branch.id;
+		const currentUserId = user?.id || user?.user_id;
+		
+		// Only trigger if branch or user actually changed
+		if (previousBranchId !== currentBranchId || previousUserId !== currentUserId) {
+			console.log('⚠️ BRANCH OR USER CHANGED - CLEARING ALL CACHED DATA AND FETCHING FRESH');
+			console.log('Old Branch:', previousBranchId, 'New Branch:', currentBranchId);
+			console.log('Old User:', previousUserId, 'New User:', currentUserId);
+			
+			previousBranchId = currentBranchId;
+			previousUserId = currentUserId;
+			
+			isRefreshing = true;
+			
+			// Unsubscribe from old subscriptions
+			if (unsubscribeBoxOps) unsubscribeBoxOps();
+			if (unsubscribeDenomRecords) unsubscribeDenomRecords();
+			
+			// Reset ALL data to empty - FORCE FRESH START
+			operationBoxes = [];
+			availableBoxes = [];
+			fullBranch = null;
+			userHasActiveOperation = false;
+			
+			// Force reload from database ONLY
+			(async () => {
+				loading = true;
+				try {
+					await fetchFullBranch(currentBranchId);
+					await fetchAvailableBoxes(currentBranchId);
+					await fetchOperationBoxes(currentBranchId);
+					setupRealtimeSubscriptions();
+				} finally {
+					loading = false;
+					isRefreshing = false;
+				}
+			})();
+		}
+	}
+
 	function setupRealtimeSubscriptions() {
+		console.log('Setting up real-time subscriptions for branch:', branch.id);
+		
 		// Subscribe to box_operations changes
-		supabase
-			.channel('box-operations')
+		const boxOpsChannel = supabase
+			.channel(`box-operations-${branch.id}-${Date.now()}`)
 			.on(
 				'postgres_changes',
 				{
@@ -101,16 +157,24 @@
 					filter: `branch_id=eq.${branch.id}`
 				},
 				async (payload) => {
-					console.log('Box operation change:', payload);
+					console.log('🔄 Real-time box operation change detected:', payload);
+					// Always fetch fresh from database
 					await fetchOperationBoxes(branch.id);
 					await fetchAvailableBoxes(branch.id);
 				}
 			)
-			.subscribe();
+			.subscribe((status) => {
+				console.log('Box operations subscription status:', status);
+			});
+
+		unsubscribeBoxOps = () => {
+			console.log('Unsubscribing from box operations');
+			boxOpsChannel.unsubscribe();
+		};
 
 		// Subscribe to denomination_records changes
-		supabase
-			.channel('denomination-records')
+		const denomChannel = supabase
+			.channel(`denomination-records-${branch.id}-${Date.now()}`)
 			.on(
 				'postgres_changes',
 				{
@@ -120,11 +184,19 @@
 					filter: `branch_id=eq.${branch.id}`
 				},
 				async (payload) => {
-					console.log('Denomination record change:', payload);
+					console.log('🔄 Real-time denomination record change detected:', payload);
+					// Always fetch fresh from database
 					await fetchAvailableBoxes(branch.id);
 				}
 			)
-			.subscribe();
+			.subscribe((status) => {
+				console.log('Denomination records subscription status:', status);
+			});
+
+		unsubscribeDenomRecords = () => {
+			console.log('Unsubscribing from denomination records');
+			denomChannel.unsubscribe();
+		};
 	}
 
 	async function fetchFullBranch(branchId: string) {
@@ -150,7 +222,7 @@
 
 	async function fetchAvailableBoxes(branchId: string) {
 		try {
-			console.log('Fetching boxes for branch ID:', branchId);
+			console.log('📦 FETCHING AVAILABLE BOXES from database for branch:', branchId);
 			
 			// Fetch boxes from denomination_records for the selected branch
 			const { data, error } = await supabase
@@ -162,23 +234,25 @@
 
 			if (error) throw error;
 			
-			console.log('Fetched denomination records:', data);
+			console.log('✅ Fetched denomination records from database:', data?.length || 0, 'records');
 			
-			// Fetch boxes that are currently in use
+			// Fetch boxes that are currently in use or pending close
 			const { data: inUseBoxes, error: opError } = await supabase
 				.from('box_operations')
-				.select('box_number')
+				.select('box_number, user_id, status')
 				.eq('branch_id', branchId)
-				.eq('status', 'in_use');
+				.in('status', ['in_use', 'pending_close']);
 
 			if (opError) throw opError;
 
+			console.log('✅ Fetched in-use/pending boxes from database:', inUseBoxes?.length || 0, 'boxes');
+			
 			const inUseBoxNumbers = new Set(inUseBoxes?.map(op => op.box_number) || []);
 			
 			// Create a map of box data
 			const boxDataMap = new Map();
 			data?.forEach(record => {
-				// Only add if not in use
+				// Only add if not in use or pending close
 				if (!inUseBoxNumbers.has(record.box_number)) {
 					boxDataMap.set(record.box_number, record);
 				}
@@ -197,29 +271,45 @@
 					id: boxData?.id
 				};
 			});
+			
+			console.log('✅ Available boxes updated:', availableBoxes.filter(b => b.available).length, 'boxes available');
 		} catch (error) {
-			console.error('Error fetching boxes:', error);
+			console.error('❌ Error fetching boxes:', error);
 		}
 	}
 
 	async function fetchOperationBoxes(branchId: string) {
 		try {
-			// Fetch active box operations
+			const userId = user?.id || user?.user_id;
+			console.log('👤 FETCHING OPERATIONS from database for branch:', branchId, 'user:', userId);
+			
+			if (!userId) {
+				console.warn('⚠️ No user ID available, skipping operation fetch');
+				operationBoxes = [];
+				userHasActiveOperation = false;
+				return;
+			}
+			
 			const { data, error } = await supabase
 				.from('box_operations')
-				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id')
+				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id, status, closing_details')
 				.eq('branch_id', branchId)
-				.eq('status', 'in_use')
+				.eq('user_id', userId)
+				.in('status', ['in_use', 'pending_close'])
 				.order('start_time', { ascending: false });
 
 			if (error) throw error;
 
+			console.log('✅ Fetched operations from database:', data?.length || 0, 'operations');
 			operationBoxes = data || [];
 			
-			// Check if current user has any active operation
-			userHasActiveOperation = operationBoxes.some(op => op.user_id === user.id);
+			// Check if current user has any active operation (in_use status only for blocking)
+			userHasActiveOperation = operationBoxes.some(op => op.status === 'in_use');
+			console.log('👤 User has active operation:', userHasActiveOperation);
 		} catch (error) {
-			console.error('Error fetching operation boxes:', error);
+			console.error('❌ Error fetching operation boxes:', error);
+			operationBoxes = [];
+			userHasActiveOperation = false;
 		}
 	}
 
@@ -262,10 +352,16 @@
 	function openCloseModal(operation: any) {
 		const windowId = generateWindowId(`close-box-${operation.box_number}`);
 		
+		// If status is pending_close, open ClosingDetails (read-only view), otherwise open CloseBox (editable)
+		const component = operation.status === 'pending_close' ? ClosingDetails : CloseBox;
+		const title = operation.status === 'pending_close' 
+			? `Closing Details - BOX ${operation.box_number}` 
+			: `Close BOX ${operation.box_number}`;
+		
 		openWindow({
 			id: windowId,
-			title: `Close BOX ${operation.box_number}`,
-			component: CloseBox,
+			title,
+			component,
 			props: {
 				windowId,
 				operation,
@@ -336,6 +432,9 @@
 		try {
 			const realTotal = displayTotal;
 			const difference = selectedBox.total - realTotal;
+			const userId = user?.id || user?.user_id;
+
+			console.log('📝 Starting operation for box:', selectedBox.number, 'user:', userId, 'branch:', branch.id);
 
 			// Create box operation record
 			const { data: operation, error: opError } = await supabase
@@ -343,7 +442,7 @@
 				.insert({
 					box_number: selectedBox.number,
 					branch_id: branch.id,
-					user_id: user.id,
+					user_id: userId,
 					denomination_record_id: selectedBox.id,
 					counts_before: selectedBox.counts,
 					counts_after: realCounts,
@@ -365,15 +464,15 @@
 
 			if (opError) throw opError;
 
-			// Move box to operation boxes
-			operationBoxes = [...operationBoxes, { ...selectedBox, operation_id: operation.id }];
+			console.log('✅ Operation created:', operation.id);
 			
-			// Refresh available boxes to hide the used one
+			// Force refresh from database - don't use local state
+			await fetchOperationBoxes(branch.id);
 			await fetchAvailableBoxes(branch.id);
 			
 			closeModal();
 		} catch (error) {
-			console.error('Error starting operation:', error);
+			console.error('❌ Error starting operation:', error);
 			alert('Failed to start operation');
 		} finally {
 			isStarting = false;
@@ -544,6 +643,9 @@
 							<div class="operation-box-item">
 								<div class="operation-header">
 									<span class="box-number">{t('pos.box') || 'BOX'} {opBox.box_number}</span>
+									<span class={`status-badge ${opBox.status === 'pending_close' ? 'pending' : 'active'}`}>
+										{opBox.status === 'pending_close' ? '⏳ PENDING CLOSE' : '🔴 IN USE'}
+									</span>
 									<span class={`match-badge ${opBox.is_matched ? 'matched' : 'unmatched'}`}>
 										{opBox.is_matched ? (t('pos.matched') || 'MATCHED') : (t('pos.notMatched') || 'NOT MATCHED')}
 									</span>
@@ -586,8 +688,11 @@
 									{/if}
 								</div>
 								<div class="operation-actions">
-									<button class="btn-close-operation" on:click={() => openCloseModal(opBox)}>
-										Close
+									<button 
+										class="btn-close-operation" 
+										on:click={() => openCloseModal(opBox)}
+									>
+										{opBox.status === 'pending_close' ? '✓ Submitted' : 'Close'}
 									</button>
 								</div>
 							</div>
@@ -946,6 +1051,23 @@
 		color: #991b1b;
 	}
 
+	.status-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.25rem;
+	}
+
+	.status-badge.active {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.status-badge.pending {
+		background: #fef3c7;
+		color: #92400e;
+	}
+
 	.operation-details {
 		display: flex;
 		flex-direction: column;
@@ -997,8 +1119,14 @@
 		transition: all 0.2s;
 	}
 
-	.btn-close-operation:hover {
+	.btn-close-operation:hover:not(:disabled) {
 		background: #dc2626;
+	}
+
+	.btn-close-operation:disabled {
+		background: #22c55e;
+		cursor: not-allowed;
+		opacity: 0.9;
 	}
 
 	.total-display {
