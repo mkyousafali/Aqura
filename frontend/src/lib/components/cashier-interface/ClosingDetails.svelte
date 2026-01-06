@@ -958,7 +958,7 @@
 							<button
 								on:click={saveSupervisorCode}
 								class="save-button"
-								disabled={!supervisorName || closingSaved}
+								disabled={true}
 							>
 								{closingSaved ? '✓ Closed' : 'Close'}
 							</button>

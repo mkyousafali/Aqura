@@ -365,7 +365,7 @@
 			props: {
 				windowId,
 				operation,
-				branch
+				branch: fullBranch || branch
 			},
 			icon: '📦',
 			size: { width: 700, height: 700 },
@@ -684,6 +684,79 @@
 												<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 												{Math.abs(opBox.difference || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 											</span>
+										</div>
+									{/if}
+									
+									<!-- Closing Details when status is pending_close -->
+									{#if opBox.status === 'pending_close' && opBox.closing_details}
+										{@const closingData = typeof opBox.closing_details === 'string' ? JSON.parse(opBox.closing_details) : opBox.closing_details}
+										<div class="closing-details-section">
+											<div class="closing-details-title">Closing Details</div>
+											
+											<!-- Card 7: Total Cash Sales & Total Bank Sales -->
+											<div class="detail-row">
+												<span>Total Cash Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.total_cash_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											<div class="detail-row">
+												<span>Total Bank Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.bank_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											
+											<!-- Card 10: ERP Sales -->
+											<div class="detail-row">
+												<span>ERP Cash Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.system_cash_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											<div class="detail-row">
+												<span>ERP Card Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.system_card_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											<div class="detail-row">
+												<span>Return:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.system_return || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											<div class="detail-row">
+												<span>ERP Total Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.total_system_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											
+											<!-- Card 11: Recharge Card Sales -->
+											<div class="detail-row">
+												<span>Recharge Card Sales:</span>
+												<span>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{(closingData.recharge_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+												</span>
+											</div>
+											
+											<!-- Card 12: Total Difference -->
+											<div class="detail-row difference-highlight">
+												<span>Total Difference:</span>
+												<span class={closingData.total_difference > 0 ? 'excess' : closingData.total_difference < 0 ? 'short' : 'match'}>
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+													{closingData.total_difference > 0 ? '+ ' : ''}{(closingData.total_difference || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+													{closingData.total_difference > 0 ? ' (Excess)' : closingData.total_difference < 0 ? ' (Short)' : ' (Match)'}
+												</span>
+											</div>
 										</div>
 									{/if}
 								</div>
@@ -1097,6 +1170,50 @@
 	.difference-row {
 		color: #dc2626;
 		font-weight: 600;
+	}
+
+	/* Closing Details Section */
+	.closing-details-section {
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 2px solid #10b981;
+		border-left: 3px solid #10b981;
+		padding-left: 0.75rem;
+	}
+
+	.closing-details-title {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #065f46;
+		text-transform: uppercase;
+		margin-bottom: 0.5rem;
+		letter-spacing: 0.5px;
+	}
+
+	.closing-details-section .detail-row {
+		font-size: 0.75rem;
+		gap: 0.5rem;
+	}
+
+	.difference-highlight {
+		padding: 0.4rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border-radius: 0.375rem;
+		border-left: 3px solid #10b981;
+		margin-top: 0.5rem;
+		font-weight: 700;
+	}
+
+	.difference-highlight .excess {
+		color: #92400e;
+	}
+
+	.difference-highlight .short {
+		color: #dc2626;
+	}
+
+	.difference-highlight .match {
+		color: #065f46;
 	}
 
 	.operation-actions {
