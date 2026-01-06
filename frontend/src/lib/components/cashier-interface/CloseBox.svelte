@@ -466,17 +466,7 @@
 				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
 				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
 
-				// Initialize Supabase client
-				const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-				const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-				const supabase = createClient(supabaseUrl, supabaseKey);
 
-				// Upload to storage
-				const { data: uploadData, error: uploadError } = await supabase.storage
-					.from('pos-before')
-					.upload(fileName, blob, {
-						contentType: 'image/png',
-						upsert: true
 					});
 
 				if (uploadError) {
@@ -549,10 +539,6 @@
 
 				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
 				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
-
-				const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-				const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-				const supabase = createClient(supabaseUrl, supabaseKey);
 
 				console.log('📤 Uploading image to storage...');
 
