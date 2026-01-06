@@ -466,7 +466,12 @@
 				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
 				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
 
-
+				// Upload to storage
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('pos-before')
+					.upload(fileName, blob, {
+						contentType: 'image/png',
+						upsert: true
 					});
 
 				if (uploadError) {
