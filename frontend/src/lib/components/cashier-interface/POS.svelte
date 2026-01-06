@@ -599,7 +599,7 @@
 					<p class="loading">{t('common.loading') || 'Loading boxes...'}</p>
 				{:else}
 					{#if userHasActiveOperation}
-						<p class="warning-message">You have an active box operation. Complete it before starting another one.</p>
+						<p class="warning-message">{$currentLocale === 'ar' ? 'لديك عملية صندوق نشطة. أكملها قبل بدء عملية أخرى.' : 'You have an active box operation. Complete it before starting another one.'}</p>
 					{/if}
 					<div class="boxes-grid">
 						{#each availableBoxes.filter(box => box.total > 0) as box (box.number)}
@@ -625,7 +625,7 @@
 		</div>
 		<div class="blank-card">
 			<div class="card-header">
-				<h3>Operation Box</h3>
+				<h3>{$currentLocale === 'ar' ? 'صندوق العملية' : 'Operation Box'}</h3>
 				<p class="branch-info">
 					{#if $currentLocale === 'ar'}
 						{fullBranch?.name_ar || branch?.name_ar || ''} - {fullBranch?.location_ar || ''}
@@ -644,7 +644,7 @@
 								<div class="operation-header">
 									<span class="box-number">{t('pos.box') || 'BOX'} {opBox.box_number}</span>
 									<span class={`status-badge ${opBox.status === 'pending_close' ? 'pending' : 'active'}`}>
-										{opBox.status === 'pending_close' ? '⏳ PENDING CLOSE' : '🔴 IN USE'}
+										{opBox.status === 'pending_close' ? ($currentLocale === 'ar' ? '⏳ انتظار الإغلاق' : '⏳ PENDING CLOSE') : ($currentLocale === 'ar' ? '🔴 قيد الاستخدام' : '🔴 IN USE')}
 									</span>
 									<span class={`match-badge ${opBox.is_matched ? 'matched' : 'unmatched'}`}>
 										{opBox.is_matched ? (t('pos.matched') || 'MATCHED') : (t('pos.notMatched') || 'NOT MATCHED')}
@@ -652,26 +652,26 @@
 								</div>
 								<div class="operation-details">
 									<div class="detail-row">
-										<span>Cashier:</span>
+										<span>{$currentLocale === 'ar' ? 'الكاشير:' : 'Cashier:'}</span>
 										<span>{opBox.notes ? JSON.parse(opBox.notes).cashier_name || '' : ''}</span>
 									</div>
 									<div class="detail-row">
-										<span>Supervisor:</span>
+										<span>{$currentLocale === 'ar' ? 'المشرف:' : 'Supervisor:'}</span>
 										<span>{opBox.notes ? JSON.parse(opBox.notes).supervisor_name || '' : ''}</span>
 									</div>
 									<div class="detail-row">
-										<span>Start Time:</span>
+										<span>{$currentLocale === 'ar' ? 'وقت البداية:' : 'Start Time:'}</span>
 										<span>{formatDateTime(opBox.start_time)}</span>
 									</div>
 									<div class="detail-row">
-										<span>Issued:</span>
+										<span>{$currentLocale === 'ar' ? 'الصادر:' : 'Issued:'}</span>
 										<span>
 											<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 											{(opBox.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 										</span>
 									</div>
 									<div class="detail-row">
-										<span>Checked:</span>
+										<span>{$currentLocale === 'ar' ? 'المفحوص:' : 'Checked:'}</span>
 										<span>
 											<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 											{(opBox.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -679,7 +679,7 @@
 									</div>
 									{#if !opBox.is_matched && opBox.difference !== undefined}
 										<div class="detail-row difference-row">
-											<span>Difference:</span>
+											<span>{$currentLocale === 'ar' ? 'الفرق:' : 'Difference:'}</span>
 											<span>
 												<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 												{Math.abs(opBox.difference || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -691,18 +691,18 @@
 									{#if opBox.status === 'pending_close' && opBox.closing_details}
 										{@const closingData = typeof opBox.closing_details === 'string' ? JSON.parse(opBox.closing_details) : opBox.closing_details}
 										<div class="closing-details-section">
-											<div class="closing-details-title">Closing Details</div>
+											<div class="closing-details-title">{$currentLocale === 'ar' ? 'تفاصيل الإغلاق' : 'Closing Details'}</div>
 											
 											<!-- Card 7: Total Cash Sales & Total Bank Sales -->
 											<div class="detail-row">
-												<span>Total Cash Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.total_cash_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 												</span>
 											</div>
 											<div class="detail-row">
-												<span>Total Bank Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.bank_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -711,28 +711,28 @@
 											
 											<!-- Card 10: ERP Sales -->
 											<div class="detail-row">
-												<span>ERP Cash Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'مبيعات النظام النقدية:' : 'ERP Cash Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.system_cash_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 												</span>
 											</div>
 											<div class="detail-row">
-												<span>ERP Card Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'مبيعات النظام بالبطاقة:' : 'ERP Card Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.system_card_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 												</span>
 											</div>
 											<div class="detail-row">
-												<span>Return:</span>
+												<span>{$currentLocale === 'ar' ? 'المرتجعات:' : 'Return:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.system_return || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 												</span>
 											</div>
 											<div class="detail-row">
-												<span>ERP Total Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'إجمالي مبيعات النظام:' : 'ERP Total Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.total_system_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -741,7 +741,7 @@
 											
 											<!-- Card 11: Recharge Card Sales -->
 											<div class="detail-row">
-												<span>Recharge Card Sales:</span>
+												<span>{$currentLocale === 'ar' ? 'مبيعات بطاقات الشحن:' : 'Recharge Card Sales:'}</span>
 												<span>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{(closingData.recharge_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -750,11 +750,11 @@
 											
 											<!-- Card 12: Total Difference -->
 											<div class="detail-row difference-highlight">
-												<span>Total Difference:</span>
+												<span>{$currentLocale === 'ar' ? 'إجمالي الفرق:' : 'Total Difference:'}</span>
 												<span class={closingData.total_difference > 0 ? 'excess' : closingData.total_difference < 0 ? 'short' : 'match'}>
 													<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 													{closingData.total_difference > 0 ? '+ ' : ''}{(closingData.total_difference || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-													{closingData.total_difference > 0 ? ' (Excess)' : closingData.total_difference < 0 ? ' (Short)' : ' (Match)'}
+													{closingData.total_difference > 0 ? ($currentLocale === 'ar' ? ' (زيادة)' : ' (Excess)') : closingData.total_difference < 0 ? ($currentLocale === 'ar' ? ' (نقص)' : ' (Short)') : ($currentLocale === 'ar' ? ' (متطابق)' : ' (Match)')}
 												</span>
 											</div>
 										</div>
@@ -765,14 +765,14 @@
 										class="btn-close-operation" 
 										on:click={() => openCloseModal(opBox)}
 									>
-										{opBox.status === 'pending_close' ? '✓ Submitted' : 'Close'}
+										{opBox.status === 'pending_close' ? ($currentLocale === 'ar' ? '✓ تم الإرسال' : '✓ Submitted') : ($currentLocale === 'ar' ? 'إغلاق' : 'Close')}
 									</button>
 								</div>
 							</div>
 						{/each}
 					</div>
 				{:else}
-					<p class="no-data">No active operations</p>
+					<p class="no-data">{$currentLocale === 'ar' ? 'لا توجد عمليات نشطة' : 'No active operations'}</p>
 				{/if}
 			</div>
 		</div>

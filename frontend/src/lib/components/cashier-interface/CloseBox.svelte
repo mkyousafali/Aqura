@@ -1,6 +1,7 @@
 <script lang="ts">
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentLocale } from '$lib/i18n';
 
 	export let windowId: string;
 	export let operation: any;
@@ -87,7 +88,7 @@
 			);
 			
 			if (isDuplicate) {
-				alert('This voucher (same serial and amount) already exists!');
+				alert($currentLocale === 'ar' ? 'هذه القسيمة (نفس الرقم التسلسلي والمبلغ) موجودة بالفعل!' : 'This voucher (same serial and amount) already exists!');
 				return;
 			}
 
@@ -212,7 +213,7 @@
 				// Don't allow supervisor to be same person as cashier
 				if (verifiedName === cashierName) {
 					supervisorName = '';
-					supervisorCodeError = 'Supervisor must be different from cashier';
+					supervisorCodeError = $currentLocale === 'ar' ? 'يجب أن يكون المشرف مختلفًا عن الكاشير' : 'Supervisor must be different from cashier';
 					return;
 				}
 				
@@ -220,12 +221,12 @@
 				supervisorCodeError = '';
 			} else {
 				supervisorName = '';
-				supervisorCodeError = 'Invalid supervisor code';
+				supervisorCodeError = $currentLocale === 'ar' ? 'كود المشرف غير صحيح' : 'Invalid supervisor code';
 			}
 		} catch (error) {
 			console.error('Error verifying supervisor code:', error);
 			supervisorName = '';
-			supervisorCodeError = 'Invalid supervisor code';
+			supervisorCodeError = $currentLocale === 'ar' ? 'كود المشرف غير صحيح' : 'Invalid supervisor code';
 		}
 	}
 
@@ -401,10 +402,10 @@
 			openPrintTemplate();
 			
 			// Show success message
-			alert('Box closing submitted! Waiting for POS Collection Manager approval');
+			alert($currentLocale === 'ar' ? 'تم إرسال إغلاق الصندوق! في انتظار موافقة مدير تحصيل نقاط البيع' : 'Box closing submitted! Waiting for POS Collection Manager approval');
 		} catch (error) {
 			console.error('❌ Error saving supervisor code:', error);
-			supervisorCodeError = 'Error updating box status: ' + (error.message || 'Unknown error');
+			supervisorCodeError = ($currentLocale === 'ar' ? 'خطأ في تحديث حالة الصندوق: ' : 'Error updating box status: ') + (error.message || ($currentLocale === 'ar' ? 'خطأ غير معروف' : 'Unknown error'));
 		}
 	}
 
@@ -453,7 +454,7 @@
 			// Convert canvas to blob
 			canvas.toBlob(async (blob) => {
 				if (!blob) {
-					alert('Error: Could not create image');
+					alert($currentLocale === 'ar' ? 'خطأ: لا يمكن إنشاء الصورة' : 'Error: Could not create image');
 					return;
 				}
 
@@ -471,7 +472,7 @@
 
 				if (uploadError) {
 					console.error('Upload error:', uploadError);
-					alert('Error uploading image: ' + uploadError.message);
+					alert(($currentLocale === 'ar' ? 'خطأ في رفع الصورة: ' : 'Error uploading image: ') + uploadError.message);
 					return;
 				}
 
@@ -490,17 +491,17 @@
 
 				if (updateError) {
 					console.error('Database update error:', updateError);
-					alert('Error saving URL to database: ' + updateError.message);
+					alert(($currentLocale === 'ar' ? 'خطأ في حفظ الرابط في قاعدة البيانات: ' : 'Error saving URL to database: ') + updateError.message);
 					return;
 				}
 
-				alert('Image saved successfully!');
+				alert($currentLocale === 'ar' ? 'تم حفظ الصورة بنجاح!' : 'Image saved successfully!');
 				console.log('✅ Image saved to:', imageUrl);
 				closeA4Template();
 			}, 'image/png');
 		} catch (error) {
 			console.error('Error saving PNG:', error);
-			alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
+			alert(($currentLocale === 'ar' ? 'خطأ: ' : 'Error: ') + (error instanceof Error ? error.message : ($currentLocale === 'ar' ? 'خطأ غير معروف' : 'Unknown error')));
 		}
 	}
 
@@ -628,25 +629,25 @@
 <div class="close-box-container">
 	<div class="top-info-row">
 		<div class="info-group">
-			<span class="info-label">Cashier (Started):</span>
+			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
 			<span class="info-value">{operationData.cashier_name || 'N/A'}</span>
 		</div>
 		<div class="info-group">
-			<span class="info-label">Amount Issued:</span>
+			<span class="info-label">{$currentLocale === 'ar' ? 'المبلغ الصادر:' : 'Amount Issued:'}</span>
 			<div class="info-value">
 				<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 				<span>{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 			</div>
 		</div>
 		<div class="info-group">
-			<span class="info-label">Amount Checked:</span>
+			<span class="info-label">{$currentLocale === 'ar' ? 'المبلغ المفحوص:' : 'Amount Checked:'}</span>
 			<div class="info-value">
 				<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 				<span>{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 			</div>
 		</div>
 		<div class="info-group">
-			<span class="info-label">POS Number:</span>
+			<span class="info-label">{$currentLocale === 'ar' ? 'رقم نقطة البيع:' : 'POS Number:'}</span>
 			<div class="pos-display-inline">POS {selectedPosNumber}</div>
 		</div>
 	</div>
@@ -654,8 +655,7 @@
 	<div class="two-cards-row">
 		<div class="half-card split-card">
 			<div class="split-section">
-				<div class="card-number">7</div>
-				<div class="card-header-text">Enter Closing Cash</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'Enter Closing Cash'}</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						<div class="denom-input-group">
@@ -664,7 +664,7 @@
 									<span>{label}</span>
 									<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
 								{:else}
-									{label}
+									{$currentLocale === 'ar' ? 'عملات معدنية' : label}
 								{/if}
 							</label>
 							<div class="denom-input-wrapper">
@@ -684,35 +684,35 @@
 					{/each}
 				</div>
 				<div class="closing-total">
-					<span class="label">Closing Total:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي الإغلاق:' : 'Closing Total:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
 				<div class="cash-sales">
-					<span class="label">Cash Sales (as per Closing Count):</span>
+					<span class="label">{$currentLocale === 'ar' ? 'المبيعات النقدية (حسب عد الإغلاق):' : 'Cash Sales (as per Closing Count):'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
 				<div class="total-cash-sales">
-					<span class="label">Total Cash Sales:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
 				<div class="total-bank-sales">
-					<span class="label">Total Bank Sales:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
 				<div class="total-sales">
-					<span class="label">Total Sales:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -720,21 +720,20 @@
 				</div>
 			</div>
 			<div class="split-section">
-				<div class="card-number">8</div>
-				<div class="card-header-text">Sales through Purchase Voucher</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
 				
 				<div class="voucher-input-row">
 					<input
 						type="text"
 						bind:value={newVoucherSerial}
-						placeholder="Serial Number"
+						placeholder={$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial Number'}
 						class="voucher-serial-input"
 					/>
 					<input
 						type="number"
 						value={newVoucherAmount || ''}
 						on:input={(e) => newVoucherAmount = e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value)}
-						placeholder="Amount"
+						placeholder={$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}
 						min="0"
 						step="0.01"
 						class="voucher-amount-input"
@@ -749,8 +748,8 @@
 						<table>
 							<thead>
 								<tr>
-									<th>Serial</th>
-									<th>Amount</th>
+									<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
+									<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -774,7 +773,7 @@
 					</div>
 
 					<div class="vouchers-total">
-						<span class="label">Vouchers Total:</span>
+						<span class="label">{$currentLocale === 'ar' ? 'إجمالي القسائم:' : 'Vouchers Total:'}</span>
 						<div class="amount">
 							<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 							<span>{vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -785,12 +784,11 @@
 		</div>
 		<div class="half-card split-card">
 			<div class="split-section">
-				<div class="card-number">9</div>
-				<div class="card-header-text">Bank Reconciliation</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
 				
 				<div class="bank-fields-row">
 					<div class="bank-input-group">
-						<label>Mada</label>
+						<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
 						<input
 							type="number"
 							bind:value={madaAmount}
@@ -801,7 +799,7 @@
 						/>
 					</div>
 					<div class="bank-input-group">
-						<label>Visa</label>
+						<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
 						<input
 							type="number"
 							bind:value={visaAmount}
@@ -812,7 +810,7 @@
 						/>
 					</div>
 					<div class="bank-input-group">
-						<label>MasterCard</label>
+						<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
 						<input
 							type="number"
 							bind:value={masterCardAmount}
@@ -823,7 +821,7 @@
 						/>
 					</div>
 					<div class="bank-input-group">
-						<label>Google Pay</label>
+						<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
 						<input
 							type="number"
 							bind:value={googlePayAmount}
@@ -834,7 +832,7 @@
 						/>
 					</div>
 					<div class="bank-input-group">
-						<label>Other</label>
+						<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
 						<input
 							type="number"
 							bind:value={otherAmount}
@@ -847,7 +845,7 @@
 				</div>
 
 				<div class="bank-total">
-					<span class="label">Bank Total:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي البنك:' : 'Bank Total:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -855,12 +853,11 @@
 				</div>
 			</div>
 			<div class="split-section">
-				<div class="card-number">10</div>
-				<div class="card-header-text">ERP Closing Details</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
 				
 				<div class="system-sales-row">
 					<div class="system-input-group">
-						<label>Cash Sales</label>
+						<label>{$currentLocale === 'ar' ? 'المبيعات النقدية' : 'Cash Sales'}</label>
 						<input
 							type="number"
 							bind:value={systemCashSales}
@@ -871,7 +868,7 @@
 						/>
 					</div>
 					<div class="system-input-group">
-						<label>Card Sales</label>
+						<label>{$currentLocale === 'ar' ? 'مبيعات البطاقة' : 'Card Sales'}</label>
 						<input
 							type="number"
 							bind:value={systemCardSales}
@@ -882,7 +879,7 @@
 						/>
 					</div>
 					<div class="system-input-group">
-						<label>Return</label>
+						<label>{$currentLocale === 'ar' ? 'المرتجعات' : 'Return'}</label>
 						<input
 							type="number"
 							bind:value={systemReturn}
@@ -895,7 +892,7 @@
 				</div>
 
 				<div class="system-total-1">
-					<span class="label">Total ERP Cash Sales:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية للنظام:' : 'Total ERP Cash Sales:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{totalSystemCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -903,7 +900,7 @@
 				</div>
 
 				<div class="system-total-2">
-					<span class="label">Total ERP Sales:</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي مبيعات النظام:' : 'Total ERP Sales:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -911,16 +908,15 @@
 				</div>
 			</div>
 			<div class="split-section recharge-card-section-11">
-				<div class="card-number">11</div>
-				<div class="card-header-text">Recharge Cards</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
 				
 				<div class="date-time-row">
 					<div class="date-time-group">
-						<label>Start Date</label>
+						<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
 						<input type="date" class="date-time-input" bind:value={startDateInput} />
 					</div>
 					<div class="date-time-group">
-						<label>Start Time</label>
+						<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
 						<div class="digital-time-picker">
 							<button 
 								class="time-display-btn"
@@ -933,7 +929,7 @@
 								<div class="picker-popup">
 									<div class="picker-controls">
 										<div class="picker-column">
-											<label class="picker-label">Hour</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الساعة' : 'Hour'}</label>
 											<div class="dropdown-popup hours-popup">
 												{#each hours as hour}
 													<div 
@@ -947,7 +943,7 @@
 											</div>
 										</div>
 										<div class="picker-column">
-											<label class="picker-label">Minute</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الدقيقة' : 'Minute'}</label>
 											<div class="dropdown-popup minutes-popup">
 												{#each minutes as minute}
 													<div 
@@ -961,24 +957,24 @@
 											</div>
 										</div>
 										<div class="picker-column">
-											<label class="picker-label">Period</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الفترة' : 'Period'}</label>
 											<select bind:value={startAmPm} on:change={updateStartTime} class="ampm-select-popup">
 												<option>AM</option>
 												<option>PM</option>
 											</select>
 										</div>
 									</div>
-									<button class="close-picker-btn" on:click={() => startHourOpen = false}>Done</button>
+									<button class="close-picker-btn" on:click={() => startHourOpen = false}>{$currentLocale === 'ar' ? 'تم' : 'Done'}</button>
 								</div>
 							{/if}
 						</div>
 					</div>
 					<div class="date-time-group">
-						<label>End Date</label>
+						<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
 						<input type="date" class="date-time-input" bind:value={endDateInput} />
 					</div>
 					<div class="date-time-group">
-						<label>End Time</label>
+						<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
 						<div class="digital-time-picker">
 							<button 
 								class="time-display-btn"
@@ -991,7 +987,7 @@
 								<div class="picker-popup">
 									<div class="picker-controls">
 										<div class="picker-column">
-											<label class="picker-label">Hour</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الساعة' : 'Hour'}</label>
 											<div class="dropdown-popup hours-popup">
 												{#each hours as hour}
 													<div 
@@ -1005,7 +1001,7 @@
 											</div>
 										</div>
 										<div class="picker-column">
-											<label class="picker-label">Minute</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الدقيقة' : 'Minute'}</label>
 											<div class="dropdown-popup minutes-popup">
 												{#each minutes as minute}
 													<div 
@@ -1019,14 +1015,14 @@
 											</div>
 										</div>
 										<div class="picker-column">
-											<label class="picker-label">Period</label>
+											<label class="picker-label">{$currentLocale === 'ar' ? 'الفترة' : 'Period'}</label>
 											<select bind:value={endAmPm} on:change={updateEndTime} class="ampm-select-popup">
 												<option>AM</option>
 												<option>PM</option>
 											</select>
 										</div>
 									</div>
-									<button class="close-picker-btn" on:click={() => endHourOpen = false}>Done</button>
+									<button class="close-picker-btn" on:click={() => endHourOpen = false}>{$currentLocale === 'ar' ? 'تم' : 'Done'}</button>
 								</div>
 							{/if}
 						</div>
@@ -1035,7 +1031,7 @@
 				
 				<div class="balance-row">
 					<div class="balance-group">
-						<label>Opening Balance</label>
+						<label>{$currentLocale === 'ar' ? 'الرصيد الافتتاحي' : 'Opening Balance'}</label>
 						<input
 							type="number"
 							bind:value={openingBalance}
@@ -1046,7 +1042,7 @@
 						/>
 					</div>
 					<div class="balance-group">
-						<label>Close Balance</label>
+						<label>{$currentLocale === 'ar' ? 'رصيد الإغلاق' : 'Close Balance'}</label>
 						<input
 							type="number"
 							bind:value={closeBalance}
@@ -1057,7 +1053,7 @@
 						/>
 					</div>
 					<div class="balance-group">
-						<label>Sales</label>
+						<label>{$currentLocale === 'ar' ? 'المبيعات' : 'Sales'}</label>
 						<input
 							type="number"
 							value={sales}
@@ -1069,14 +1065,13 @@
 				</div>
 			</div>
 			<div class="split-section">
-				<div class="card-number">12</div>
 				
 				<div class="sub-cards-row">
 					<div class="sub-card">
 						<div class="sub-card-content">
 							<div class="difference-row">
 								<div class="difference-group">
-									<label>Cash Sales</label>
+									<label>{$currentLocale === 'ar' ? 'المبيعات النقدية' : 'Cash Sales'}</label>
 									<input
 										type="number"
 										value={differenceInCashSales}
@@ -1084,11 +1079,11 @@
 										class="difference-input difference-input-disabled"
 									/>
 									<span class="difference-label" class:badge-short={differenceInCashSales < 0} class:badge-excess={differenceInCashSales > 0} class:badge-match={differenceInCashSales === 0}>
-										{differenceInCashSales < 0 ? 'Short' : differenceInCashSales > 0 ? 'Excess' : 'Match'}
+										{differenceInCashSales < 0 ? ($currentLocale === 'ar' ? 'نقص' : 'Short') : differenceInCashSales > 0 ? ($currentLocale === 'ar' ? 'زيادة' : 'Excess') : ($currentLocale === 'ar' ? 'متطابق' : 'Match')}
 									</span>
 								</div>
 								<div class="difference-group">
-									<label>Card Sales</label>
+									<label>{$currentLocale === 'ar' ? 'مبيعات البطاقة' : 'Card Sales'}</label>
 									<input
 										type="number"
 										value={differenceInCardSales}
@@ -1096,7 +1091,7 @@
 										class="difference-input difference-input-disabled"
 									/>
 									<span class="difference-label" class:badge-short={differenceInCardSales < 0} class:badge-excess={differenceInCardSales > 0} class:badge-match={differenceInCardSales === 0}>
-										{differenceInCardSales < 0 ? 'Short' : differenceInCardSales > 0 ? 'Excess' : 'Match'}
+										{differenceInCardSales < 0 ? ($currentLocale === 'ar' ? 'نقص' : 'Short') : differenceInCardSales > 0 ? ($currentLocale === 'ar' ? 'زيادة' : 'Excess') : ($currentLocale === 'ar' ? 'متطابق' : 'Match')}
 									</span>
 								</div>
 							</div>
@@ -1108,7 +1103,7 @@
 									class="difference-input difference-input-disabled"
 								/>
 								<span class="difference-label" class:badge-short={totalDifference < 0} class:badge-excess={totalDifference > 0} class:badge-match={totalDifference === 0}>
-									{totalDifference < 0 ? 'Short' : totalDifference > 0 ? 'Excess' : 'Match'}
+									{totalDifference < 0 ? ($currentLocale === 'ar' ? 'نقص' : 'Short') : totalDifference > 0 ? ($currentLocale === 'ar' ? 'زيادة' : 'Excess') : ($currentLocale === 'ar' ? 'متطابق' : 'Match')}
 								</span>
 							</div>
 						</div>
@@ -1117,7 +1112,7 @@
 						<div class="sub-card-content" style="gap: 0.3rem;">
 							<input
 								type="password"
-								placeholder="Supervisor Code"
+								placeholder={$currentLocale === 'ar' ? 'كود المشرف' : 'Supervisor Code'}
 								bind:value={supervisorCode}
 								class="supervisor-code-input"
 							/>
@@ -1136,11 +1131,11 @@
 								class="save-button"
 								disabled={!supervisorName || closingSaved}
 							>
-								{closingSaved ? '✓ Closed' : 'Close'}
+								{closingSaved ? ($currentLocale === 'ar' ? '✓ تم الإغلاق' : '✓ Closed') : ($currentLocale === 'ar' ? 'إغلاق' : 'Close')}
 							</button>
 							{#if closingSaved}
 								<div style="font-size: 0.6rem; color: #15803d; font-weight: 600; text-align: center;">
-									Pending final close in POS
+									{$currentLocale === 'ar' ? 'في انتظار الإغلاق النهائي في نقطة البيع' : 'Pending final close in POS'}
 								</div>
 							{/if}
 						</div>
@@ -1155,7 +1150,7 @@
 	<div class="print-modal-overlay" on:click={closePrintTemplate}>
 		<div class="print-modal" on:click={(e) => e.stopPropagation()}>
 			<div class="print-modal-header">
-				<h3>Print Receipt</h3>
+				<h3>{$currentLocale === 'ar' ? 'طباعة الإيصال' : 'Print Receipt'}</h3>
 				<button class="close-modal-btn" on:click={closePrintTemplate}>✕</button>
 			</div>
 			
@@ -1455,8 +1450,8 @@
 				</div>
 
 				<div class="print-modal-actions">
-					<button class="btn-print" on:click={handlePrint}>🖨️ Print</button>
-					<button class="btn-cancel" on:click={closePrintTemplate}>Cancel</button>
+					<button class="btn-print" on:click={handlePrint}>🖨️ {$currentLocale === 'ar' ? 'طباعة' : 'Print'}</button>
+					<button class="btn-cancel" on:click={closePrintTemplate}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				</div>
 			</div>
 		</div>
@@ -1467,7 +1462,7 @@
 	<div class="a4-modal-overlay" class:auto-saving={isAutoSavingA4} on:click={closeA4Template}>
 		<div class="a4-modal" on:click={(e) => e.stopPropagation()}>
 			<div class="a4-modal-header">
-				<h3>A4 Closing Report</h3>
+				<h3>{$currentLocale === 'ar' ? 'تقرير إغلاق A4' : 'A4 Closing Report'}</h3>
 				<button class="close-modal-btn" on:click={closeA4Template}>×</button>
 			</div>
 			<div class="a4-modal-content">
@@ -1475,23 +1470,23 @@
 					<!-- A4 Content: Exact copy of CloseBox closing content in landscape -->
 					<div class="a4-top-info-row">
 						<div class="a4-info-group">
-							<span class="a4-info-label">Cashier (Started):</span>
+							<span class="a4-info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
 							<span class="a4-info-value">{operationData.cashier_name || 'N/A'}</span>
 						</div>
 						<div class="a4-info-group">
-							<span class="a4-info-label">Amount Issued:</span>
+							<span class="a4-info-label">{$currentLocale === 'ar' ? 'المبلغ الصادر:' : 'Amount Issued:'}</span>
 							<span class="a4-info-value">SAR {(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 						</div>
 						<div class="a4-info-group">
-							<span class="a4-info-label">Amount Checked:</span>
+							<span class="a4-info-label">{$currentLocale === 'ar' ? 'المبلغ المفحوص:' : 'Amount Checked:'}</span>
 							<span class="a4-info-value">SAR {(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 						</div>
 						<div class="a4-info-group">
-							<span class="a4-info-label">POS Number:</span>
+							<span class="a4-info-label">{$currentLocale === 'ar' ? 'رقم نقطة البيع:' : 'POS Number:'}</span>
 							<span class="a4-info-value">POS {selectedPosNumber}</span>
 						</div>
 						<div class="a4-info-group">
-							<span class="a4-info-label">Branch:</span>
+							<span class="a4-info-label">{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}</span>
 							<span class="a4-info-value">{branch?.name_en || branch?.name || 'N/A'}</span>
 						</div>
 					</div>
@@ -1501,33 +1496,33 @@
 						<div class="a4-left-column">
 							<!-- Closing Cash Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">ENTER CLOSING CASH</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'ENTER CLOSING CASH'}</h3>
 								<div class="a4-denom-grid">
 									{#each Object.entries(denomLabels) as [key, label] (key)}
 										<div class="a4-denom-row">
-											<span class="a4-denom-label">{label}</span>
+											<span class="a4-denom-label">{label === 'Coins' ? ($currentLocale === 'ar' ? 'عملات معدنية' : label) : label}</span>
 											<span class="a4-denom-value">{closingCounts[key] || 0} x SAR {(denomValues[key] || 0).toFixed(2)}</span>
 										</div>
 									{/each}
 								</div>
 								<div class="a4-closing-total">
-									<span>Closing Total:</span>
+									<span>{$currentLocale === 'ar' ? 'إجمالي الإغلاق:' : 'Closing Total:'}</span>
 									<span>SAR {closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 								<div class="a4-cash-sales">
-									<span>Cash Sales:</span>
+									<span>{$currentLocale === 'ar' ? 'المبيعات النقدية:' : 'Cash Sales:'}</span>
 									<span>SAR {cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 							</div>
 
 							<!-- Purchase Vouchers Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">SALES THROUGH PURCHASE VOUCHER</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'SALES THROUGH PURCHASE VOUCHER'}</h3>
 								<table class="a4-vouchers-table">
 									<thead>
 										<tr>
-											<th>Serial</th>
-											<th>Amount</th>
+											<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
+											<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
 										</tr>
 									</thead>
 									<tbody>
@@ -1540,11 +1535,11 @@
 									</tbody>
 								</table>
 								<div class="a4-vouchers-total">
-									<span>Total:</span>
+									<span>{$currentLocale === 'ar' ? 'الإجمالي:' : 'Total:'}</span>
 									<span>SAR {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 								<div class="a4-total-cash-sales">
-									<span>Total Cash Sales:</span>
+									<span>{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
 									<span>SAR {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 							</div>
@@ -1552,11 +1547,11 @@
 							<!-- Summary Cards -->
 							<div class="a4-summary-row">
 								<div class="a4-summary-card">
-									<span class="a4-summary-label">Total Bank Sales:</span>
+									<span class="a4-summary-label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
 									<span class="a4-summary-value">SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 								<div class="a4-summary-card">
-									<span class="a4-summary-label">Total Sales:</span>
+									<span class="a4-summary-label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
 									<span class="a4-summary-value">SAR {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 							</div>
@@ -1566,72 +1561,72 @@
 						<div class="a4-right-column">
 							<!-- Bank Reconciliation Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">BANK RECONCILIATION</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'تسوية البنك' : 'BANK RECONCILIATION'}</h3>
 								<div class="a4-bank-grid">
 									<div class="a4-bank-item">
-										<span class="a4-bank-label">Mada:</span>
+										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'مدى:' : 'Mada:'}</span>
 										<span>SAR {(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-bank-item">
-										<span class="a4-bank-label">Visa:</span>
+										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'فيزا:' : 'Visa:'}</span>
 										<span>SAR {(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-bank-item">
-										<span class="a4-bank-label">MasterCard:</span>
+										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'ماستر كارد:' : 'MasterCard:'}</span>
 										<span>SAR {(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-bank-item">
-										<span class="a4-bank-label">Google Pay:</span>
+										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'جوجل باي:' : 'Google Pay:'}</span>
 										<span>SAR {(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-bank-item">
-										<span class="a4-bank-label">Other:</span>
+										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'أخرى:' : 'Other:'}</span>
 										<span>SAR {(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 								</div>
 								<div class="a4-bank-total">
-									<span>Bank Total:</span>
+									<span>{$currentLocale === 'ar' ? 'إجمالي البنك:' : 'Bank Total:'}</span>
 									<span>SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 							</div>
 
 							<!-- ERP Details Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">ERP CLOSING DETAILS</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP CLOSING DETAILS'}</h3>
 								<div class="a4-erp-grid">
 									<div class="a4-erp-item">
-										<span class="a4-erp-label">Cash Sales:</span>
+										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'المبيعات النقدية:' : 'Cash Sales:'}</span>
 										<span>SAR {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-erp-item">
-										<span class="a4-erp-label">Card Sales:</span>
+										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'مبيعات البطاقة:' : 'Card Sales:'}</span>
 										<span>SAR {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-erp-item">
-										<span class="a4-erp-label">Returns:</span>
+										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'المرتجعات:' : 'Returns:'}</span>
 										<span>SAR {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 								</div>
 								<div class="a4-erp-total">
-									<span>Total ERP:</span>
+									<span>{$currentLocale === 'ar' ? 'إجمالي النظام:' : 'Total ERP:'}</span>
 									<span>SAR {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 							</div>
 
 							<!-- Differences Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">RECONCILIATION</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'التسوية' : 'RECONCILIATION'}</h3>
 								<div class="a4-diff-grid">
 									<div class="a4-diff-item">
-										<span class="a4-diff-label">Cash Difference:</span>
+										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'فرق النقد:' : 'Cash Difference:'}</span>
 										<span class={differenceInCashSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-diff-item">
-										<span class="a4-diff-label">Card Difference:</span>
+										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'فرق البطاقة:' : 'Card Difference:'}</span>
 										<span class={differenceInCardSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 									<div class="a4-diff-item">
-										<span class="a4-diff-label">Total Difference:</span>
+										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'إجمالي الفرق:' : 'Total Difference:'}</span>
 										<span class={totalDifference < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 									</div>
 								</div>
@@ -1639,19 +1634,19 @@
 
 							<!-- Status Card -->
 							<div class="a4-card">
-								<h3 class="a4-card-title">STATUS</h3>
+								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'الحالة' : 'STATUS'}</h3>
 								<div class="a4-status-grid">
 									<div class="a4-status-item">
-										<span>Checked By:</span>
+										<span>{$currentLocale === 'ar' ? 'فحص بواسطة:' : 'Checked By:'}</span>
 										<span>{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</span>
 									</div>
 									<div class="a4-status-item">
-										<span>Closed By:</span>
-										<span>{supervisorName ? '✓ ' + supervisorName : 'Pending'}</span>
+										<span>{$currentLocale === 'ar' ? 'أغلق بواسطة:' : 'Closed By:'}</span>
+										<span>{supervisorName ? '✓ ' + supervisorName : ($currentLocale === 'ar' ? 'قيد الانتظار' : 'Pending')}</span>
 									</div>
 									<div class="a4-status-item">
-										<span>Status:</span>
-										<span>{closingSaved ? '✓ Closed' : 'Pending'}</span>
+										<span>{$currentLocale === 'ar' ? 'الحالة:' : 'Status:'}</span>
+										<span>{closingSaved ? ($currentLocale === 'ar' ? '✓ تم الإغلاق' : '✓ Closed') : ($currentLocale === 'ar' ? 'قيد الانتظار' : 'Pending')}</span>
 									</div>
 								</div>
 							</div>
@@ -1660,7 +1655,7 @@
 				</div>
 			</div>
 			<div class="a4-modal-actions">
-				<button class="btn-cancel" on:click={closeA4Template}>Close</button>
+				<button class="btn-cancel" on:click={closeA4Template}>{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}</button>
 			</div>
 		</div>
 	</div>
@@ -1671,33 +1666,36 @@
 		width: 100%;
 		height: 100%;
 		background: white;
-		padding: 1.5rem;
+		padding: 0.25rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.25rem;
 	}
 
 	.top-info-row {
 		display: flex;
 		gap: 2rem;
-		padding: 1rem;
+		padding: 0.5rem 1rem;
 		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
 		border: 2px solid #86efac;
 		border-radius: 0.75rem;
 		box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.1);
 		flex-wrap: wrap;
+		align-items: center;
 	}
 
 	.info-group {
 		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
+		flex-direction: row;
+		gap: 0.5rem;
+		align-items: center;
 	}
 
 	.info-label {
 		font-size: 0.75rem;
 		font-weight: 700;
 		color: #ea580c;
+		white-space: nowrap;
 	}
 
 	.info-value {
@@ -1722,7 +1720,7 @@
 	.two-cards-row {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 1rem;
+		gap: 0.5rem;
 		flex: 1;
 		min-height: 0;
 	}
@@ -1731,7 +1729,7 @@
 		background: white;
 		border: 1px solid #e5e7eb;
 		border-radius: 0.5rem;
-		padding: 1rem;
+		padding: 0.5rem;
 		height: 100%;
 		position: relative;
 		display: flex;
@@ -1742,7 +1740,7 @@
 	.split-card {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.5rem;
 		padding: 0;
 		overflow-y: auto;
 	}
@@ -1751,8 +1749,8 @@
 		flex: 1;
 		min-height: 200px;
 		background: white;
-		border: 1px solid #e5e7eb;
-		padding: 1rem;
+		border: 2px solid #f97316;
+		padding: 0.5rem;
 		position: relative;
 		border-radius: 0.5rem;
 		display: flex;
@@ -1779,10 +1777,21 @@
 		min-height: 130px;
 	}
 
+	/* Left column specific sizes (Cards 7 & 8) */
+	.half-card:first-child .split-section:nth-child(1) {
+		flex: 1.8;
+		min-height: 500px;
+	}
+
+	.half-card:first-child .split-section:nth-child(2) {
+		flex: 1.2;
+		min-height: 350px;
+	}
+
 	/* Recharge Cards Card 11 Styling */
 	.recharge-card-section-11 {
-		flex: 0.7 !important;
-		min-height: 120px !important;
+		flex: 1.1 !important;
+		min-height: 200px !important;
 		border: 3px solid #ea580c !important;
 		padding: 0.5rem !important;
 	}
@@ -3042,18 +3051,23 @@
 
 	/* Right column specific sizes */
 	.half-card:last-child .split-section:nth-child(1) {
-		flex: 0.6;
-		min-height: 130px;
-	}
-
-	.half-card:last-child .split-section:nth-child(2) {
 		flex: 0.8;
 		min-height: 150px;
 	}
 
+	.half-card:last-child .split-section:nth-child(2) {
+		flex: 1.2;
+		min-height: 220px;
+	}
+
 	.half-card:last-child .split-section:nth-child(3) {
 		flex: 1.1;
-		min-height: 210px;
+		min-height: 200px;
+	}
+
+	.half-card:last-child .split-section:nth-child(4) {
+		flex: 1.0;
+		min-height: 180px;
 	}
 
 	.split-section:first-child {
@@ -3230,7 +3244,7 @@
 	.denom-input-wrapper input {
 		flex: 0 0 auto;
 		min-width: 0;
-		width: 3.5rem;
+		width: 5rem;
 		padding: 0.3rem 0.4rem;
 		border: 2px solid #d1fae5;
 		border-radius: 0.375rem;
