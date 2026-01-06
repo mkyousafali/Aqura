@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createClient } from '@supabase/supabase-js';
+	import html2canvas from 'html2canvas';
 
 	export let windowId: string;
 	export let operation: any;
@@ -391,11 +392,238 @@
 			console.log('✅ Status updated to pending_close');
 			closingSaved = true;
 			
+			// Render A4 template invisibly for auto-save
+			isAutoSavingA4 = true;
+			showA4Template = true;
+			
+			// Automatically save A4 template as PNG
+			console.log('📸 Auto-saving A4 template as PNG...');
+			setTimeout(() => {
+				saveA4AsPNGAuto();
+			}, 500);
+			
+			// Open print template
+			openPrintTemplate();
+			
 			// Show success message
 			alert('Box closing submitted! Waiting for POS Collection Manager approval');
 		} catch (error) {
 			console.error('❌ Error saving supervisor code:', error);
 			supervisorCodeError = 'Error updating box status: ' + (error.message || 'Unknown error');
+		}
+	}
+
+	// Print template state
+	let showPrintTemplate = false;
+
+	function openPrintTemplate() {
+		showPrintTemplate = true;
+	}
+
+	function closePrintTemplate() {
+		showPrintTemplate = false;
+	}
+
+	// A4 template state
+	let showA4Template = false;
+	let isAutoSavingA4 = false;
+
+	function openA4Template() {
+		showA4Template = true;
+		isAutoSavingA4 = false;
+	}
+
+	function closeA4Template() {
+		showA4Template = false;
+		isAutoSavingA4 = false;
+	}
+
+	async function saveA4AsPNG() {
+		try {
+			// Get the A4 page element
+			const a4Element = document.querySelector('.a4-page');
+			if (!a4Element) {
+				alert('Error: Could not find A4 template');
+				return;
+			}
+
+			// Convert element to canvas
+			const canvas = await html2canvas(a4Element, {
+				scale: 2,
+				useCORS: true,
+				logging: false,
+				backgroundColor: '#ffffff'
+			});
+
+			// Convert canvas to blob
+			canvas.toBlob(async (blob) => {
+				if (!blob) {
+					alert('Error: Could not create image');
+					return;
+				}
+
+				// Create filename with timestamp
+				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
+
+				// Initialize Supabase client
+				const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+				const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+				const supabase = createClient(supabaseUrl, supabaseKey);
+
+				// Upload to storage
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('pos-before')
+					.upload(fileName, blob, {
+						contentType: 'image/png',
+						upsert: true
+					});
+
+				if (uploadError) {
+					console.error('Upload error:', uploadError);
+					alert('Error uploading image: ' + uploadError.message);
+					return;
+				}
+
+				// Get public URL
+				const { data: urlData } = supabase.storage
+					.from('pos-before')
+					.getPublicUrl(fileName);
+
+				const imageUrl = urlData.publicUrl;
+
+				// Save URL to database
+				const { error: updateError } = await supabase
+					.from('box_operations')
+					.update({ pos_before_url: imageUrl })
+					.eq('id', operation.id);
+
+				if (updateError) {
+					console.error('Database update error:', updateError);
+					alert('Error saving URL to database: ' + updateError.message);
+					return;
+				}
+
+				alert('Image saved successfully!');
+				console.log('✅ Image saved to:', imageUrl);
+				closeA4Template();
+			}, 'image/png');
+		} catch (error) {
+			console.error('Error saving PNG:', error);
+			alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
+		}
+	}
+
+	// Auto-save function (called when closing box)
+	async function saveA4AsPNGAuto() {
+		try {
+			// Wait for A4 element to be rendered (up to 3 seconds)
+			let a4Element = document.querySelector('.a4-page');
+			let attempts = 0;
+			
+			while (!a4Element && attempts < 30) {
+				await new Promise(resolve => setTimeout(resolve, 100));
+				a4Element = document.querySelector('.a4-page');
+				attempts++;
+			}
+			
+			if (!a4Element) {
+				console.warn('⚠️ A4 template not found after waiting, skipping auto-save');
+				return;
+			}
+
+			console.log('📸 A4 element found, converting to image...');
+
+			const canvas = await html2canvas(a4Element, {
+				scale: 2,
+				useCORS: true,
+				logging: false,
+				backgroundColor: '#ffffff'
+			});
+
+			canvas.toBlob(async (blob) => {
+				if (!blob) {
+					console.error('❌ Could not create image blob');
+					return;
+				}
+
+				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
+
+				const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+				const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+				const supabase = createClient(supabaseUrl, supabaseKey);
+
+				console.log('📤 Uploading image to storage...');
+
+				const { data: uploadData, error: uploadError } = await supabase.storage
+					.from('pos-before')
+					.upload(fileName, blob, {
+						contentType: 'image/png',
+						upsert: true
+					});
+
+				if (uploadError) {
+					console.error('❌ Upload error:', uploadError);
+					return;
+				}
+
+				const { data: urlData } = supabase.storage
+					.from('pos-before')
+					.getPublicUrl(fileName);
+
+				const imageUrl = urlData.publicUrl;
+
+				console.log('💾 Saving URL to database...');
+
+				const { error: updateError } = await supabase
+					.from('box_operations')
+					.update({ pos_before_url: imageUrl })
+					.eq('id', operation.id);
+
+				if (updateError) {
+					console.error('❌ Database update error:', updateError);
+					return;
+				}
+
+				console.log('✅ Auto-saved image to:', imageUrl);
+				// Close hidden A4 modal after auto-save
+				showA4Template = false;
+				isAutoSavingA4 = false;
+			}, 'image/png');
+		} catch (error) {
+			console.error('❌ Error auto-saving PNG:', error);
+			// Close hidden A4 modal on error
+			showA4Template = false;
+			isAutoSavingA4 = false;
+		}
+	}
+
+	function handlePrint() {
+		console.log('🖨️ Printing - Branch:', branch?.name, 'Supervisor:', supervisorName);
+		const printWindow = window.open('', '', 'width=600,height=800');
+		if (printWindow) {
+			const html = document.getElementById('print-template-content')?.innerHTML || '';
+			const styles = `
+				<style>
+					* { margin: 0; padding: 0; box-sizing: border-box; }
+					body { font-family: 'Courier New', monospace; font-size: 9pt; }
+					.thermal-receipt { width: 80mm; margin: 0 auto; padding: 0; }
+					.receipt-divider { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+					.receipt-row-ar { direction: rtl; text-align: right; font-weight: 600; margin-bottom: 2px; }
+					.receipt-row-en { text-align: left; font-weight: 600; margin-bottom: 2px; }
+					.receipt-label-ar { direction: rtl; text-align: right; font-weight: bold; font-size: 8pt; margin-bottom: 2px; }
+					.receipt-label-en { text-align: left; font-weight: bold; font-size: 8pt; margin-bottom: 2px; }
+					.receipt-total { font-weight: bold; font-size: 10pt; }
+					.receipt-logo { text-align: center; padding: 0.2rem 0; margin-bottom: 0.2rem; border-bottom: 1px solid #000; }
+					.logo-image { max-width: 60%; height: auto; max-height: 50px; }
+				</style>
+			`;
+			printWindow.document.write(styles + html);
+			printWindow.document.close();
+			setTimeout(() => {
+				printWindow.print();
+			}, 250);
 		}
 	}
 
@@ -416,10 +644,6 @@
 		<div class="info-group">
 			<span class="info-label">Cashier (Started):</span>
 			<span class="info-value">{operationData.cashier_name || 'N/A'}</span>
-		</div>
-		<div class="info-group">
-			<span class="info-label">Supervisor (Checked):</span>
-			<span class="info-value">{operationData.supervisor_name || 'N/A'}</span>
 		</div>
 		<div class="info-group">
 			<span class="info-label">Amount Issued:</span>
@@ -940,6 +1164,521 @@
 		</div>
 	</div>
 </div>
+
+{#if showPrintTemplate}
+	<div class="print-modal-overlay" on:click={closePrintTemplate}>
+		<div class="print-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="print-modal-header">
+				<h3>Print Receipt</h3>
+				<button class="close-modal-btn" on:click={closePrintTemplate}>✕</button>
+			</div>
+			
+			<div class="print-modal-content">
+				<div id="print-template-content" class="thermal-receipt">
+					<!-- 80mm Thermal Receipt Template -->
+					<div class="receipt-container">
+						<!-- Logo Header -->
+						<div class="receipt-logo">
+							<img src="/icons/logo.png" alt="App Logo" class="logo-image" />
+						</div>
+
+						<!-- Header -->
+						<div class="receipt-header">
+							<div class="receipt-title-ar">تقفيل نقاط البيع</div>
+							<div class="receipt-title-en">CLOSING RECEIPT</div>
+							<hr class="receipt-divider" />
+						</div>
+
+						<!-- Branch Info -->
+						<div class="receipt-section">
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">الفرع</div>
+								<div class="receipt-row-ar">{branch?.name_ar || branch?.name || operation?.branch_name || 'غير محدد'}</div>
+								<div class="receipt-label-en">Branch</div>
+								<div class="receipt-row-en">{branch?.name_en || branch?.name || operation?.branch_name || 'N/A'}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">رقم نقطة البيع</div>
+								<div class="receipt-row-ar">POS {selectedPosNumber}</div>
+								<div class="receipt-label-en">POS Number</div>
+								<div class="receipt-row-en">POS {selectedPosNumber}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">أمين الصندوق</div>
+								<div class="receipt-row-ar">{operationData.cashier_name || 'غير محدد'}</div>
+								<div class="receipt-label-en">Cashier</div>
+								<div class="receipt-row-en">{operationData.cashier_name || 'N/A'}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Denominations -->
+						<div class="receipt-section">
+							<div class="section-title-ar">الفئات</div>
+							<div class="section-title-en">DENOMINATIONS</div>
+							{#each Object.entries(denomLabels) as [key, label] (key)}
+								{#if closingCounts[key] > 0}
+									<div class="receipt-row-bilingual">
+										<div class="receipt-row-ar">{label}: {closingCounts[key]} x {(denomValues[key] || 0).toFixed(2)}</div>
+										<div class="receipt-row-en">{label}: {closingCounts[key]} x {(denomValues[key] || 0).toFixed(2)}</div>
+									</div>
+								{/if}
+							{/each}
+							<div class="receipt-row-bilingual total-row">
+								<div class="receipt-label-ar">إجمالي النقد</div>
+								<div class="receipt-row-ar receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-label-en">Total Cash</div>
+								<div class="receipt-row-en receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Cash Sales Summary -->
+						<div class="receipt-section">
+							<div class="section-title-ar">ملخص النقد</div>
+							<div class="section-title-en">CASH SUMMARY</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">المبلغ المُصروف</div>
+								<div class="receipt-row-ar">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-label-en">Amount Issued</div>
+								<div class="receipt-row-en">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">المبلغ المُفتش</div>
+								<div class="receipt-row-ar">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-label-en">Amount Checked</div>
+								<div class="receipt-row-en">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">مبيعات نقدية</div>
+								<div class="receipt-row-ar">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-label-en">Cash Sales</div>
+								<div class="receipt-row-en">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Purchase Vouchers -->
+						{#if vouchersTotal > 0}
+							<div class="receipt-section">
+								<div class="section-title-ar">شيكات الشراء</div>
+								<div class="section-title-en">PURCHASE VOUCHERS</div>
+								{#each vouchers as voucher (voucher.serial)}
+									<div class="receipt-row-bilingual">
+										<div class="receipt-row-ar">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+										<div class="receipt-row-en">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									</div>
+								{/each}
+								<div class="receipt-row-bilingual total-row">
+									<div class="receipt-row-ar receipt-total">المجموع: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-row-en receipt-total">Total: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							</div>
+
+							<hr class="receipt-divider" />
+						{/if}
+
+						<!-- Recharge Card Details -->
+						{#if openingBalance !== '' || closeBalance !== ''}
+							<div class="receipt-section">
+								<div class="section-title-ar">بطاقة الشحن</div>
+								<div class="section-title-en">RECHARGE CARD</div>
+								<div class="receipt-row-bilingual">
+									<div class="receipt-row-ar">الرصيد الافتتاحي: {(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-row-en">Opening Balance: {(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								<div class="receipt-row-bilingual">
+									<div class="receipt-row-ar">الرصيد الختامي: {(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-row-en">Closing Balance: {(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								<div class="receipt-row-bilingual">
+									<div class="receipt-row-ar">المبيعات: {(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-row-en">Sales: {(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								{#if startDateInput}
+									<div class="receipt-row-bilingual">
+										<div class="receipt-row-ar">من: {startDateInput}</div>
+										<div class="receipt-row-en">From: {startDateInput}</div>
+									</div>
+								{/if}
+								{#if endDateInput}
+									<div class="receipt-row-bilingual">
+										<div class="receipt-row-ar">إلى: {endDateInput}</div>
+										<div class="receipt-row-en">To: {endDateInput}</div>
+									</div>
+								{/if}
+							</div>
+
+							<hr class="receipt-divider" />
+						{/if}
+
+						<!-- Bank Reconciliation -->
+						<div class="receipt-section">
+							<div class="section-title-ar">تسويات البنك</div>
+							<div class="section-title-en">BANK RECONCILIATION</div>
+							{#if madaAmount > 0}
+								<div class="receipt-row-bilingual">
+									<div class="receipt-label-ar">مدى</div>
+									<div class="receipt-row-ar">{(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-label-en">Mada</div>
+									<div class="receipt-row-en">{(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if visaAmount > 0}
+								<div class="receipt-row-bilingual">
+									<div class="receipt-label-ar">فيزا</div>
+									<div class="receipt-row-ar">{(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-label-en">Visa</div>
+									<div class="receipt-row-en">{(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if masterCardAmount > 0}
+								<div class="receipt-row-bilingual">
+									<div class="receipt-label-ar">ماستركارد</div>
+									<div class="receipt-row-ar">{(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-label-en">MasterCard</div>
+									<div class="receipt-row-en">{(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if googlePayAmount > 0}
+								<div class="receipt-row-bilingual">
+									<div class="receipt-label-ar">جوجل باي</div>
+									<div class="receipt-row-ar">{(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-label-en">Google Pay</div>
+									<div class="receipt-row-en">{(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if otherAmount > 0}
+								<div class="receipt-row-bilingual">
+									<div class="receipt-label-ar">أخرى</div>
+									<div class="receipt-row-ar">{(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-label-en">Other</div>
+									<div class="receipt-row-en">{(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							<div class="receipt-row-bilingual total-row">
+								<div class="receipt-label-ar">المجموع</div>
+								<div class="receipt-row-ar receipt-total">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-label-en">Total</div>
+								<div class="receipt-row-en receipt-total">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- ERP Closing Details -->
+						<div class="receipt-section">
+							<div class="section-title-ar">نقاط البيع</div>
+							<div class="section-title-en">ERP DETAILS</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">مبيعات نقدية ERP: {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">ERP Cash Sales: {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">مبيعات بطاقة ERP: {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">ERP Card Sales: {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">المرتجعات: {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">Returns: {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual total-row">
+								<div class="receipt-row-ar receipt-total">إجمالي ERP: {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en receipt-total">ERP Total: {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Sales Summary -->
+						<div class="receipt-section">
+							<div class="section-title-ar">ملخص المبيعات</div>
+							<div class="section-title-en">SALES SUMMARY</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">مبيعات نقدية (كاملة): {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">Cash Sales (Total): {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">مبيعات بطاقة: {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">Card Sales: {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual total-row">
+								<div class="receipt-row-ar receipt-total">المجموع الكلي: {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en receipt-total">Grand Total: {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Differences -->
+						<div class="receipt-section">
+							<div class="section-title-ar">التوفيق والفروقات</div>
+							<div class="section-title-en">RECONCILIATION</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">فرق النقد: {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">Cash Difference: {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-row-ar">فرق البطاقة: {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-en">Card Difference: {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							{#if totalDifference !== 0}
+								<div class="receipt-row-bilingual total-row">
+									<div class="receipt-row-ar receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">الفرق الكلي: {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									<div class="receipt-row-en receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">Total Difference: {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Status -->
+						<div class="receipt-section">
+							<div class="section-title-ar">الحالة</div>
+							<div class="section-title-en">STATUS</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">المشرف المفتش</div>
+								<div class="receipt-row-ar">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'غير محدد'}</div>
+								<div class="receipt-label-en">Checked By</div>
+								<div class="receipt-row-en">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">المشرف المغلق</div>
+								<div class="receipt-row-ar">{supervisorName ? '✓ ' + supervisorName : 'غير محدد'}</div>
+								<div class="receipt-label-en">Closed By</div>
+								<div class="receipt-row-en">{supervisorName ? '✓ ' + supervisorName : 'Pending'}</div>
+							</div>
+							<div class="receipt-row-bilingual">
+								<div class="receipt-label-ar">حالة الإغلاق</div>
+								<div class="receipt-row-ar">{closingSaved ? '✓ تم الإغلاق' : '⧖ قيد المراجعة'}</div>
+								<div class="receipt-label-en">Closing Status</div>
+								<div class="receipt-row-en">{closingSaved ? '✓ Closed' : '⧖ Pending'}</div>
+							</div>
+						</div>
+
+						<!-- Footer -->
+						<div class="receipt-footer">
+							<div class="footer-text-ar">شكراً لاستخدامك خدماتنا</div>
+							<div class="footer-text-en">Thank You</div>
+							<div class="receipt-date">{new Date().toLocaleString('en-US')}</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="print-modal-actions">
+					<button class="btn-print" on:click={handlePrint}>🖨️ Print</button>
+					<button class="btn-cancel" on:click={closePrintTemplate}>Cancel</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showA4Template}
+	<div class="a4-modal-overlay" class:auto-saving={isAutoSavingA4} on:click={closeA4Template}>
+		<div class="a4-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="a4-modal-header">
+				<h3>A4 Closing Report</h3>
+				<button class="close-modal-btn" on:click={closeA4Template}>×</button>
+			</div>
+			<div class="a4-modal-content">
+				<div id="a4-template-content" class="a4-page">
+					<!-- A4 Content: Exact copy of CloseBox closing content in landscape -->
+					<div class="a4-top-info-row">
+						<div class="a4-info-group">
+							<span class="a4-info-label">Cashier (Started):</span>
+							<span class="a4-info-value">{operationData.cashier_name || 'N/A'}</span>
+						</div>
+						<div class="a4-info-group">
+							<span class="a4-info-label">Amount Issued:</span>
+							<span class="a4-info-value">SAR {(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+						</div>
+						<div class="a4-info-group">
+							<span class="a4-info-label">Amount Checked:</span>
+							<span class="a4-info-value">SAR {(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+						</div>
+						<div class="a4-info-group">
+							<span class="a4-info-label">POS Number:</span>
+							<span class="a4-info-value">POS {selectedPosNumber}</span>
+						</div>
+						<div class="a4-info-group">
+							<span class="a4-info-label">Branch:</span>
+							<span class="a4-info-value">{branch?.name_en || branch?.name || 'N/A'}</span>
+						</div>
+					</div>
+
+					<!-- Left Column Content -->
+					<div class="a4-two-columns">
+						<div class="a4-left-column">
+							<!-- Closing Cash Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">ENTER CLOSING CASH</h3>
+								<div class="a4-denom-grid">
+									{#each Object.entries(denomLabels) as [key, label] (key)}
+										<div class="a4-denom-row">
+											<span class="a4-denom-label">{label}</span>
+											<span class="a4-denom-value">{closingCounts[key] || 0} x SAR {(denomValues[key] || 0).toFixed(2)}</span>
+										</div>
+									{/each}
+								</div>
+								<div class="a4-closing-total">
+									<span>Closing Total:</span>
+									<span>SAR {closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+								<div class="a4-cash-sales">
+									<span>Cash Sales:</span>
+									<span>SAR {cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+
+							<!-- Purchase Vouchers Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">SALES THROUGH PURCHASE VOUCHER</h3>
+								<table class="a4-vouchers-table">
+									<thead>
+										<tr>
+											<th>Serial</th>
+											<th>Amount</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each vouchers as voucher, index (index)}
+											<tr>
+												<td>{voucher.serial}</td>
+												<td>SAR {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+								<div class="a4-vouchers-total">
+									<span>Total:</span>
+									<span>SAR {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+								<div class="a4-total-cash-sales">
+									<span>Total Cash Sales:</span>
+									<span>SAR {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+
+							<!-- Summary Cards -->
+							<div class="a4-summary-row">
+								<div class="a4-summary-card">
+									<span class="a4-summary-label">Total Bank Sales:</span>
+									<span class="a4-summary-value">SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+								<div class="a4-summary-card">
+									<span class="a4-summary-label">Total Sales:</span>
+									<span class="a4-summary-value">SAR {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Right Column Content -->
+						<div class="a4-right-column">
+							<!-- Bank Reconciliation Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">BANK RECONCILIATION</h3>
+								<div class="a4-bank-grid">
+									<div class="a4-bank-item">
+										<span class="a4-bank-label">Mada:</span>
+										<span>SAR {(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-bank-item">
+										<span class="a4-bank-label">Visa:</span>
+										<span>SAR {(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-bank-item">
+										<span class="a4-bank-label">MasterCard:</span>
+										<span>SAR {(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-bank-item">
+										<span class="a4-bank-label">Google Pay:</span>
+										<span>SAR {(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-bank-item">
+										<span class="a4-bank-label">Other:</span>
+										<span>SAR {(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+								</div>
+								<div class="a4-bank-total">
+									<span>Bank Total:</span>
+									<span>SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+
+							<!-- ERP Details Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">ERP CLOSING DETAILS</h3>
+								<div class="a4-erp-grid">
+									<div class="a4-erp-item">
+										<span class="a4-erp-label">Cash Sales:</span>
+										<span>SAR {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-erp-item">
+										<span class="a4-erp-label">Card Sales:</span>
+										<span>SAR {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-erp-item">
+										<span class="a4-erp-label">Returns:</span>
+										<span>SAR {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+								</div>
+								<div class="a4-erp-total">
+									<span>Total ERP:</span>
+									<span>SAR {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+
+							<!-- Differences Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">RECONCILIATION</h3>
+								<div class="a4-diff-grid">
+									<div class="a4-diff-item">
+										<span class="a4-diff-label">Cash Difference:</span>
+										<span class={differenceInCashSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-diff-item">
+										<span class="a4-diff-label">Card Difference:</span>
+										<span class={differenceInCardSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+									<div class="a4-diff-item">
+										<span class="a4-diff-label">Total Difference:</span>
+										<span class={totalDifference < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+									</div>
+								</div>
+							</div>
+
+							<!-- Status Card -->
+							<div class="a4-card">
+								<h3 class="a4-card-title">STATUS</h3>
+								<div class="a4-status-grid">
+									<div class="a4-status-item">
+										<span>Checked By:</span>
+										<span>{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</span>
+									</div>
+									<div class="a4-status-item">
+										<span>Closed By:</span>
+										<span>{supervisorName ? '✓ ' + supervisorName : 'Pending'}</span>
+									</div>
+									<div class="a4-status-item">
+										<span>Status:</span>
+										<span>{closingSaved ? '✓ Closed' : 'Pending'}</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="a4-modal-actions">
+				<button class="btn-cancel" on:click={closeA4Template}>Close</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.close-box-container {
@@ -1550,6 +2289,769 @@
 	.save-button:disabled:hover {
 		background: #cbd5e1;
 		border-color: #cbd5e1;
+	}
+
+	.print-button {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #0284c7;
+		border-radius: 0.25rem;
+		background: #0284c7;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-sizing: border-box;
+	}
+
+	.print-button:hover {
+		background: #0369a1;
+		border-color: #0369a1;
+	}
+
+	.print-button:active {
+		transform: scale(0.98);
+	}
+
+	.print-button:disabled {
+		background: #cbd5e1;
+		border-color: #cbd5e1;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.print-button:disabled:hover {
+		background: #cbd5e1;
+		border-color: #cbd5e1;
+	}
+
+	.save-image-button {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #7c3aed;
+		border-radius: 0.25rem;
+		background: #7c3aed;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-sizing: border-box;
+	}
+
+	.save-image-button:hover {
+		background: #6d28d9;
+		border-color: #6d28d9;
+	}
+
+	.save-image-button:active {
+		transform: scale(0.98);
+	}
+
+	.save-image-button:disabled {
+		background: #cbd5e1;
+		border-color: #cbd5e1;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.save-image-button:disabled:hover {
+		background: #cbd5e1;
+		border-color: #cbd5e1;
+	}
+
+	/* Print Modal Styles */
+	.print-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.print-modal {
+		background: white;
+		border-radius: 0.75rem;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+		max-width: 500px;
+		width: 90%;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.print-modal-header {
+		padding: 1.5rem;
+		border-bottom: 2px solid #e5e7eb;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.print-modal-header h3 {
+		margin: 0;
+		font-size: 1.125rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.close-modal-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: #6b7280;
+		transition: all 0.2s;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.close-modal-btn:hover {
+		color: #1f2937;
+		background: #f3f4f6;
+		border-radius: 0.375rem;
+	}
+
+	.print-modal-content {
+		flex: 1;
+		overflow-y: auto;
+		padding: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	/* A4 Modal Styles */
+	.a4-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	/* Hide modal overlay when auto-saving */
+	.a4-modal-overlay.auto-saving {
+		background: transparent;
+		pointer-events: none;
+	}
+
+	.a4-modal {
+		background: white;
+		border-radius: 0.75rem;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+		width: 98%;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.a4-modal-header {
+		padding: 1.5rem;
+		border-bottom: 2px solid #e5e7eb;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.a4-modal-header h3 {
+		margin: 0;
+		font-size: 1.125rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.a4-modal-content {
+		flex: 1;
+		overflow-y: auto;
+		padding: 1.5rem;
+		background: #f5f5f5;
+	}
+
+	/* A4 Page Style */
+	.a4-page {
+		width: 100%;
+		background: white;
+		padding: 1.5rem;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.a4-top-info-row {
+		display: flex;
+		gap: 1rem;
+		padding: 0.75rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border: 2px solid #86efac;
+		border-radius: 0.5rem;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.a4-info-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		flex: 1;
+		min-width: 150px;
+	}
+
+	.a4-info-label {
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #ea580c;
+	}
+
+	.a4-info-value {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #166534;
+	}
+
+	.a4-two-columns {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+	}
+
+	.a4-left-column,
+	.a4-right-column {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.a4-card {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.375rem;
+		padding: 0.75rem;
+	}
+
+	.a4-card-title {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #1f2937;
+		margin: 0 0 0.5rem 0;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.a4-denom-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.25rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.a4-denom-row {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.65rem;
+		padding: 0.25rem 0.5rem;
+		background: #f9fafb;
+		border-radius: 0.25rem;
+	}
+
+	.a4-denom-label {
+		font-weight: 600;
+		color: #4b5563;
+	}
+
+	.a4-denom-value {
+		color: #6b7280;
+	}
+
+	.a4-closing-total {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: #dbeafe;
+		border: 1px solid #bfdbfe;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #1e40af;
+		margin-bottom: 0.25rem;
+	}
+
+	.a4-cash-sales {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: #dcfce7;
+		border: 1px solid #86efac;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #15803d;
+	}
+
+	.a4-vouchers-table {
+		width: 100%;
+		font-size: 0.65rem;
+		margin-bottom: 0.5rem;
+		border-collapse: collapse;
+	}
+
+	.a4-vouchers-table th,
+	.a4-vouchers-table td {
+		padding: 0.3rem;
+		text-align: left;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.a4-vouchers-table th {
+		background: #f3f4f6;
+		font-weight: 600;
+	}
+
+	.a4-vouchers-total {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: #fef3c7;
+		border: 1px solid #fcd34d;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #92400e;
+		margin-bottom: 0.5rem;
+	}
+
+	.a4-total-cash-sales {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: #fed7aa;
+		border: 1px solid #fb923c;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #92400e;
+	}
+
+	.a4-summary-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+	}
+
+	.a4-summary-card {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border: 1px solid #86efac;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	.a4-summary-label {
+		color: #166534;
+	}
+
+	.a4-summary-value {
+		color: #15803d;
+	}
+
+	.a4-bank-grid,
+	.a4-erp-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.3rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.a4-bank-item,
+	.a4-erp-item {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.3rem 0.5rem;
+		background: #f9fafb;
+		border-radius: 0.25rem;
+		font-size: 0.65rem;
+	}
+
+	.a4-bank-label,
+	.a4-erp-label {
+		font-weight: 600;
+		color: #4b5563;
+	}
+
+	.a4-bank-total,
+	.a4-erp-total {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem;
+		background: #dbeafe;
+		border: 1px solid #bfdbfe;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #1e40af;
+	}
+
+	.a4-diff-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.3rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.a4-diff-item {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.3rem 0.5rem;
+		background: #f9fafb;
+		border-radius: 0.25rem;
+		font-size: 0.65rem;
+	}
+
+	.a4-diff-label {
+		font-weight: 600;
+		color: #4b5563;
+	}
+
+	.a4-diff-negative {
+		color: #dc2626;
+		font-weight: 600;
+	}
+
+	.a4-diff-positive {
+		color: #15803d;
+		font-weight: 600;
+	}
+
+	.a4-status-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.3rem;
+	}
+
+	.a4-status-item {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.3rem 0.5rem;
+		background: #f9fafb;
+		border-radius: 0.25rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+	}
+
+	.a4-modal-actions {
+		display: flex;
+		gap: 0.75rem;
+		padding: 1rem 1.5rem;
+		border-top: 2px solid #e5e7eb;
+		background: white;
+	}
+
+	.btn-download {
+		flex: 1;
+		padding: 0.75rem 1.5rem;
+		background: #10b981;
+		color: white;
+		border: 2px solid #10b981;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-download:hover {
+		background: #059669;
+		border-color: #059669;
+	}
+
+	.btn-download:active {
+		transform: scale(0.98);
+	}
+
+	/* 80mm Thermal Receipt Styles */
+	.thermal-receipt {
+		font-family: 'Courier New', monospace;
+		width: 80mm;
+		background: white;
+		padding: 0;
+		margin: 0 auto;
+	}
+
+	.receipt-container {
+		width: 100%;
+		font-size: 10pt;
+		line-height: 1.4;
+	}
+
+	.receipt-logo {
+		text-align: center;
+		padding: 0.05rem 0;
+		margin-bottom: 0.05rem;
+		border-bottom: 1px solid #000;
+	}
+
+	.logo-image {
+		max-width: 10%;
+		height: auto;
+		max-height: 10px;
+	}
+
+	.receipt-header {
+		text-align: center;
+		padding-bottom: 0.5rem;
+	}
+
+	.receipt-title-ar {
+		font-size: 12pt;
+		font-weight: bold;
+		direction: rtl;
+		unicode-bidi: bidi-override;
+		margin-bottom: 0.2rem;
+	}
+
+	.receipt-title-en {
+		font-size: 11pt;
+		font-weight: bold;
+		margin-bottom: 0.3rem;
+	}
+
+	.receipt-divider {
+		border: none;
+		border-top: 1px dashed #000;
+		margin: 0.3rem 0;
+	}
+
+	.receipt-section {
+		padding: 0.3rem 0;
+	}
+
+	.section-title-ar {
+		font-size: 10pt;
+		font-weight: bold;
+		direction: rtl;
+		unicode-bidi: embed;
+		text-align: right;
+		margin-bottom: 0.2rem;
+	}
+
+	.section-title-en {
+		font-size: 9pt;
+		font-weight: bold;
+		text-align: center;
+		margin-bottom: 0.2rem;
+	}
+
+	.receipt-row-bilingual {
+		display: flex;
+		flex-direction: column;
+		margin-bottom: 0.3rem;
+		font-size: 9pt;
+	}
+
+	.receipt-label-ar {
+		direction: rtl;
+		unicode-bidi: embed;
+		text-align: right;
+		font-weight: bold;
+		font-size: 8pt;
+		margin-bottom: 0.05rem;
+		color: #1f2937;
+	}
+
+	.receipt-row-ar {
+		direction: rtl;
+		unicode-bidi: embed;
+		text-align: right;
+		margin-bottom: 0.15rem;
+		font-weight: 600;
+		font-size: 9pt;
+	}
+
+	.receipt-label-en {
+		text-align: left;
+		font-weight: bold;
+		font-size: 8pt;
+		margin-bottom: 0.05rem;
+		color: #1f2937;
+	}
+
+	.receipt-row-en {
+		text-align: left;
+		font-weight: 600;
+		font-size: 9pt;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-row-bilingual.total-row {
+		border-top: 1px solid #000;
+		border-bottom: 1px solid #000;
+		padding: 0.2rem 0;
+		margin: 0.2rem 0;
+	}
+
+	.receipt-row-bilingual .receipt-total {
+		font-weight: bold;
+		font-size: 10pt;
+	}
+
+	.receipt-row-ar.negative,
+	.receipt-row-en.negative {
+		color: #dc2626;
+	}
+
+	.receipt-row-ar.positive,
+	.receipt-row-en.positive {
+		color: #15803d;
+	}
+
+	.receipt-row {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 0.15rem;
+		font-size: 9pt;
+	}
+
+	.label-ar {
+		direction: rtl;
+		unicode-bidi: bidi-override;
+		text-align: right;
+		flex: 1;
+	}
+
+	.label-en {
+		flex: 1;
+	}
+
+	.value-en {
+		text-align: right;
+		flex: 1;
+	}
+
+	.receipt-row.total-row {
+		border-top: 1px solid #000;
+		border-bottom: 1px solid #000;
+		padding: 0.2rem 0;
+		font-weight: bold;
+		margin: 0.2rem 0;
+	}
+
+	.receipt-row.total-row .value-en.total {
+		font-weight: bold;
+		font-size: 11pt;
+	}
+
+	.value-en.negative {
+		color: #dc2626;
+	}
+
+	.value-en.positive {
+		color: #15803d;
+	}
+
+	.receipt-footer {
+		text-align: center;
+		padding-top: 0.3rem;
+		padding-bottom: 0.3rem;
+	}
+
+	.footer-text-ar {
+		font-size: 10pt;
+		direction: rtl;
+		unicode-bidi: bidi-override;
+		margin-bottom: 0.1rem;
+	}
+
+	.footer-text-en {
+		font-size: 10pt;
+		font-weight: bold;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-date {
+		font-size: 8pt;
+		color: #666;
+		margin-top: 0.2rem;
+	}
+
+	.print-modal-actions {
+		display: flex;
+		gap: 0.75rem;
+		padding-top: 1rem;
+		border-top: 2px solid #e5e7eb;
+	}
+
+	.btn-print {
+		flex: 1;
+		padding: 0.75rem 1.5rem;
+		background: #0284c7;
+		color: white;
+		border: 2px solid #0284c7;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-print:hover {
+		background: #0369a1;
+		border-color: #0369a1;
+	}
+
+	.btn-print:active {
+		transform: scale(0.98);
+	}
+
+	.btn-cancel {
+		flex: 1;
+		padding: 0.75rem 1.5rem;
+		background: white;
+		color: #6b7280;
+		border: 2px solid #d1d5db;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel:hover {
+		background: #f9fafb;
+		border-color: #9ca3af;
+		color: #374151;
+	}
+
+	.btn-cancel:active {
+		transform: scale(0.98);
+	}
+
+	@media print {
+		.print-modal {
+			display: none;
+		}
+		body {
+			margin: 0;
+			padding: 0;
+		}
+		.thermal-receipt {
+			width: 80mm;
+			margin: 0;
+		}
 	}
 
 	/* Right column specific sizes */
