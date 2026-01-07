@@ -4,6 +4,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CompleteBox from './CompleteBox.svelte';
+	import ClosedBoxes from './ClosedBoxes.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -26,11 +27,13 @@
 
 	// Box operations tracking
 	let boxOperations: Map<number, any> = new Map();
+	let closedBoxesCount: number = 0;
 
 	onMount(async () => {
 		await loadBranches();
 		await loadUserPreferences();
 		await loadDenominationTypes();
+		await loadClosedBoxesCount();
 		isLoading = false;
 		
 		// Setup realtime subscription after branch is selected
@@ -349,6 +352,22 @@
 		}
 	}
 
+	async function loadClosedBoxesCount() {
+		try {
+			const { count, error } = await supabase
+				.from('box_operations')
+				.select('*', { count: 'exact', head: true })
+				.eq('status', 'completed');
+
+			if (error) throw error;
+			closedBoxesCount = count || 0;
+			console.log('📦 Closed boxes count:', closedBoxesCount);
+		} catch (error) {
+			console.error('Error loading closed boxes count:', error);
+			closedBoxesCount = 0;
+		}
+	}
+
 	async function loadBranches() {
 		try {
 			const { data, error } = await supabase
@@ -593,6 +612,31 @@
 			console.error('Error opening complete box window:', error);
 			alert('Failed to open box closing window. Please try again.');
 		}
+	}
+
+	function openClosedBoxes() {
+		const windowIdUnique = `closed-boxes-${Date.now()}`;
+		
+		openWindow({
+			id: windowIdUnique,
+			title: 'Closed Boxes',
+			component: ClosedBoxes,
+			props: {
+				windowId: windowIdUnique
+			},
+			icon: '📋',
+			size: { width: 1200, height: 700 },
+			position: { x: 150, y: 100 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+
+		// Reload count after window opens
+		setTimeout(() => {
+			loadClosedBoxesCount();
+		}, 500);
 	}
 
 	function openCashBoxModal(boxNumber: number) {
@@ -894,14 +938,17 @@
 				</div>
 			</div>
 			
-			<!-- Blank Card 1 -->
-			<div class="card">
+			<!-- Card 1 - Closed Boxes -->
+			<div class="card closed-boxes-card" on:click={openClosedBoxes}>
 				<div class="card-header">
-					<span class="card-icon">1️⃣</span>
-					<span class="card-title">Card 1</span>
+					<span class="card-icon">📋</span>
+					<span class="card-title">Completed Operations</span>
 				</div>
-				<div class="card-body">
-					<p class="hint">Content will be added here.</p>
+				<div class="card-body closed-boxes-body">
+					<div class="closed-boxes-count-large">
+						<span class="count-number">{closedBoxesCount}</span>
+						<span class="count-label">Total Closed</span>
+					</div>
 				</div>
 			</div>
 			
@@ -1254,6 +1301,30 @@
 			0 10px 15px -3px rgba(249, 115, 22, 0.15),
 			0 4px 6px -2px rgba(0, 0, 0, 0.1),
 			inset 0 1px 0 rgba(255, 255, 255, 0.9);
+	}
+
+	.card.closed-boxes-card {
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.card.closed-boxes-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 
+			0 16px 32px rgba(249, 115, 22, 0.25),
+			0 6px 12px rgba(0, 0, 0, 0.12),
+			inset 0 1px 0 rgba(255, 255, 255, 0.9);
+	}
+
+	.card.closed-boxes-card:active {
+		transform: translateY(-1px);
+	}
+
+	.closed-boxes-body {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 120px;
 	}
 
 	.card.big-card {
@@ -2266,5 +2337,92 @@
 	.cashbox-total-value {
 		font-size: 1.1rem;
 		font-weight: 700;
+	}
+
+	/* Closed Boxes Button */
+	.closed-boxes-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		border: none;
+		border-radius: 0.75rem;
+		color: white;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s;
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.75rem;
+	}
+
+	.closed-boxes-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+	}
+
+	.closed-boxes-btn:active {
+		transform: translateY(0);
+	}
+
+	.btn-icon {
+		font-size: 1.5rem;
+	}
+
+	.btn-text {
+		flex: 1;
+		text-align: center;
+	}
+
+	.btn-arrow {
+		font-size: 1.2rem;
+		transition: transform 0.3s;
+	}
+
+	.closed-boxes-btn:hover .btn-arrow {
+		transform: translateX(5px);
+	}
+
+	.closed-boxes-count {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.25rem;
+		margin: 0.5rem 0;
+		padding: 0.5rem;
+		background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+		border-radius: 8px;
+		box-shadow: 0 4px 8px rgba(249, 115, 22, 0.2);
+	}
+
+	.closed-boxes-count-large {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
+		border-radius: 12px;
+		box-shadow: 0 6px 12px rgba(31, 122, 58, 0.3);
+	}
+
+	.count-number {
+		font-size: 3rem;
+		font-weight: 800;
+		color: white;
+		line-height: 1;
+		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.count-label {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: rgba(255, 255, 255, 0.95);
+		text-transform: uppercase;
+		letter-spacing: 1px;
 	}
 </style>

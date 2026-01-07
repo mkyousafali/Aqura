@@ -157,103 +157,151 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let voucherEditMode: Record<number, {serial: boolean, amount: boolean}> = {};
 	let voucherEditedValues: Record<number, {serial?: string, amount?: number}> = {};
 	
-	// Function to save edited denomination values to complete_details
-	async function saveDenomEdits() {
-		if (!operation?.id) return;
+	// Unified auto-save function - saves everything to complete_details
+	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+	
+	async function autoSaveCompleteDetails() {
+		if (!operation?.id || !closingStarted) return;
+		
+		// Get current complete_details or start from closing_details
+		let currentCompleteDetails;
+		if (operation?.complete_details) {
+			currentCompleteDetails = typeof operation.complete_details === 'string'
+				? JSON.parse(operation.complete_details)
+				: operation.complete_details;
+		} else if (operation?.closing_details) {
+			currentCompleteDetails = typeof operation.closing_details === 'string'
+				? JSON.parse(operation.closing_details)
+				: operation.closing_details;
+		} else {
+			currentCompleteDetails = {};
+		}
+		
+		// Update with all current values
+		const updatedCompleteDetails = {
+			...currentCompleteDetails,
+			// Closing counts (can be edited via denominations)
+			closing_counts: closingCounts,
+			// Vouchers data
+			vouchers: vouchers,
+			// Bank reconciliation
+			bank_mada: madaAmount || 0,
+			bank_visa: visaAmount || 0,
+			bank_mastercard: masterCardAmount || 0,
+			bank_google_pay: googlePayAmount || 0,
+			bank_other: otherAmount || 0,
+			bank_total: bankTotal,
+			// System/ERP details
+			system_cash_sales: systemCashSales || 0,
+			system_card_sales: systemCardSales || 0,
+			system_return: systemReturn || 0,
+			// Recharge cards
+			recharge_opening_balance: openingBalance || 0,
+			recharge_close_balance: closeBalance || 0,
+			recharge_sales: sales || 0,
+			recharge_transaction_start_date: startDateInput || '',
+			recharge_transaction_start_time: startTimeInput || '',
+			recharge_transaction_end_date: endDateInput || '',
+			recharge_transaction_end_time: endTimeInput || '',
+			// All edit tracking
+			denom_edits: denomEditedValues,
+			voucher_edits: voucherEditedValues,
+			bank_edits: bankEditedValues,
+			system_edits: systemEditedValues,
+			recharge_edits: rechargeEditedValues,
+			date_time_edits: {
+				startDate: rechargeEditedValues['startDate'],
+				startTime: rechargeEditedValues['startTime'],
+				endDate: rechargeEditedValues['endDate'],
+				endTime: rechargeEditedValues['endTime']
+			},
+			// All verification tracking
+			denom_verified: denomVerified,
+			voucher_verified: voucherVerified,
+			bank_verified: bankVerified,
+			system_verified: systemVerified,
+			recharge_verified: rechargeVerified
+		};
 		
 		try {
 			const { error } = await supabase
 				.from('box_operations')
-				.update({
-					complete_details: denomEditedValues
+				.update({ 
+					complete_details: updatedCompleteDetails,
+					updated_at: new Date().toISOString()
 				})
 				.eq('id', operation.id);
 			
 			if (error) {
-				console.error('Error saving denomination edits:', error);
+				console.error('❌ Error auto-saving complete_details:', error);
 			} else {
-				console.log('✅ Denomination edits saved:', denomEditedValues);
+				console.log('✅ Auto-saved complete_details');
 			}
 		} catch (e) {
-			console.error('Exception saving denomination edits:', e);
+			console.error('❌ Exception auto-saving complete_details:', e);
 		}
 	}
 	
-	// Function to save voucher edits and verification to closing_details
-	async function saveVoucherData() {
-		if (!operation?.id) return;
-		
-		try {
-			// Get current closing_details
-			const currentClosingDetails = operation?.closing_details 
-				? (typeof operation.closing_details === 'string' 
-					? JSON.parse(operation.closing_details)
-					: operation.closing_details)
-				: {};
-			
-			// Update with voucher edits and verification
-			const updatedDetails = {
-				...currentClosingDetails,
-				voucher_edits: voucherEditedValues,
-				voucher_verified: voucherVerified
-			};
-			
-			const { error } = await supabase
-				.from('box_operations')
-				.update({
-					closing_details: updatedDetails
-				})
-				.eq('id', operation.id);
-			
-			if (error) {
-				console.error('Error saving voucher data:', error);
-			} else {
-				console.log('✅ Voucher data saved:', { voucherEditedValues, voucherVerified });
-			}
-		} catch (e) {
-			console.error('Exception saving voucher data:', e);
+	// Debounced auto-save trigger
+	function triggerAutoSave() {
+		if (saveTimeout) {
+			clearTimeout(saveTimeout);
 		}
+		saveTimeout = setTimeout(() => {
+			autoSaveCompleteDetails();
+		}, 1000); // Save after 1 second of inactivity
+	}
+	
+	// Function to save edited denomination values to complete_details
+	async function saveDenomEdits() {
+		triggerAutoSave();
+	}
+	
+	// Function to save voucher edits and verification to complete_details
+	async function saveVoucherData() {
+		triggerAutoSave();
 	}
 	
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
 		console.log('🔄 Initializing closing counts from operation:', operation);
 		
-		// Try to load from closing_details (the JSON saved data)
-		if (operation?.closing_details) {
-			const details = typeof operation.closing_details === 'string' 
-				? JSON.parse(operation.closing_details)
-				: operation.closing_details;
+		// Load from complete_details FIRST (this is where edits are stored)
+		if (operation?.complete_details) {
+			const completeDetails = typeof operation.complete_details === 'string' 
+				? JSON.parse(operation.complete_details)
+				: operation.complete_details;
 			
-			closingDetails = details;
-			closingCounts = { ...details.closing_counts || {} };
+			console.log('📋 Loading from complete_details:', completeDetails);
 			
-			// Load supervisor info - try from closing_details first, then from notes
-			supervisorName = details.supervisor_name || operationData.supervisor_name || '';
-			console.log('🔍 Supervisor name loaded:', supervisorName, 'from details:', details.supervisor_name, 'from notes:', operationData.supervisor_name);
+			closingDetails = completeDetails;
+			closingCounts = { ...completeDetails.closing_counts || {} };
+			
+			// Load supervisor info
+			supervisorName = completeDetails.supervisor_name || '';
 			supervisorCode = '';
 			
 			// Load bank reconciliation
-			madaAmount = details.bank_mada || '';
-			visaAmount = details.bank_visa || '';
-			masterCardAmount = details.bank_mastercard || '';
-			googlePayAmount = details.bank_google_pay || '';
-			otherAmount = details.bank_other || '';
+			madaAmount = completeDetails.bank_mada || '';
+			visaAmount = completeDetails.bank_visa || '';
+			masterCardAmount = completeDetails.bank_mastercard || '';
+			googlePayAmount = completeDetails.bank_google_pay || '';
+			otherAmount = completeDetails.bank_other || '';
 			
 			// Load ERP details
-			systemCashSales = details.system_cash_sales || '';
-			systemCardSales = details.system_card_sales || '';
-			systemReturn = details.system_return || '';
+			systemCashSales = completeDetails.system_cash_sales || '';
+			systemCardSales = completeDetails.system_card_sales || '';
+			systemReturn = completeDetails.system_return || '';
 			
 			// Load recharge details
-			openingBalance = details.recharge_opening_balance || '';
-			closeBalance = details.recharge_close_balance || '';
+			openingBalance = completeDetails.recharge_opening_balance || '';
+			closeBalance = completeDetails.recharge_close_balance || '';
 			
 			// Load recharge card transaction dates and times
-			startDateInput = details.recharge_transaction_start_date || '';
-			startTimeInput = details.recharge_transaction_start_time || '';
-			endDateInput = details.recharge_transaction_end_date || '';
-			endTimeInput = details.recharge_transaction_end_time || '';
+			startDateInput = completeDetails.recharge_transaction_start_date || '';
+			startTimeInput = completeDetails.recharge_transaction_start_time || '';
+			endDateInput = completeDetails.recharge_transaction_end_date || '';
+			endTimeInput = completeDetails.recharge_transaction_end_time || '';
 			
 			// Parse time if available
 			if (startTimeInput) {
@@ -272,119 +320,63 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			}
 			
 			// Load vouchers
+			vouchers = completeDetails.vouchers || [];
+			
+			// Load all edit and verification states from complete_details
+			voucherEditedValues = completeDetails.voucher_edits || {};
+			voucherVerified = completeDetails.voucher_verified || {};
+			bankEditedValues = completeDetails.bank_edits || {};
+			bankVerified = completeDetails.bank_verified || {};
+			systemEditedValues = completeDetails.system_edits || {};
+			systemVerified = completeDetails.system_verified || {};
+			rechargeEditedValues = completeDetails.recharge_edits || {};
+			rechargeVerified = completeDetails.recharge_verified || {};
+			denomEditedValues = completeDetails.denom_edits || {};
+			denomVerified = completeDetails.denom_verified || {};
+			
+			console.log('✅ Loaded ALL data from complete_details');
+			
+		} else if (operation?.closing_details) {
+			// Fallback to closing_details if complete_details not available yet
+			const details = typeof operation.closing_details === 'string' 
+				? JSON.parse(operation.closing_details)
+				: operation.closing_details;
+			
+			console.log('⚠️ Fallback: Loading from closing_details:', details);
+			closingDetails = details;
+			closingCounts = { ...details.closing_counts || {} };
+			
+			// Load all the same fields as above
+			supervisorName = details.supervisor_name || operationData.supervisor_name || '';
+			madaAmount = details.bank_mada || '';
+			visaAmount = details.bank_visa || '';
+			masterCardAmount = details.bank_mastercard || '';
+			googlePayAmount = details.bank_google_pay || '';
+			otherAmount = details.bank_other || '';
+			systemCashSales = details.system_cash_sales || '';
+			systemCardSales = details.system_card_sales || '';
+			systemReturn = details.system_return || '';
+			openingBalance = details.recharge_opening_balance || '';
+			closeBalance = details.recharge_close_balance || '';
+			startDateInput = details.recharge_transaction_start_date || '';
+			startTimeInput = details.recharge_transaction_start_time || '';
+			endDateInput = details.recharge_transaction_end_date || '';
+			endTimeInput = details.recharge_transaction_end_time || '';
 			vouchers = details.vouchers || [];
 			
-			// Load voucher edits and verification
-			if (details.voucher_edits) {
-				voucherEditedValues = details.voucher_edits;
-			}
-			if (details.voucher_verified) {
-				voucherVerified = details.voucher_verified;
-			}
-			
-			// Load bank edits and verification
-			if (details.bank_edits) {
-				bankEditedValues = details.bank_edits;
-			}
-			if (details.bank_verified) {
-				bankVerified = details.bank_verified;
-			}
-			
-			// Load system edits and verification
-			if (details.system_edits) {
-				systemEditedValues = details.system_edits;
-			}
-			if (details.system_verified) {
-				systemVerified = details.system_verified;
-			}
-			
-			// Load recharge edits and verification
-			if (details.recharge_edits) {
-				rechargeEditedValues = details.recharge_edits;
-			}
-			if (details.recharge_verified) {
-				rechargeVerified = details.recharge_verified;
-			}
-			
-			// Load date/time edits
-			if (details.date_time_edits) {
-				if (details.date_time_edits.startDate !== undefined) {
-					rechargeEditedValues['startDate'] = details.date_time_edits.startDate;
-				}
-				if (details.date_time_edits.startTime !== undefined) {
-					rechargeEditedValues['startTime'] = details.date_time_edits.startTime;
-				}
-				if (details.date_time_edits.endDate !== undefined) {
-					rechargeEditedValues['endDate'] = details.date_time_edits.endDate;
-				}
-				if (details.date_time_edits.endTime !== undefined) {
-					rechargeEditedValues['endTime'] = details.date_time_edits.endTime;
-				}
-			}
-			
-			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
-	} else if (operation?.counts_after) {
-		// Fallback to counts_after if closing_details not available
-		closingCounts = { ...operation.counts_after };
-		console.log('✅ Loaded closing counts from counts_after:', closingCounts);
-	} else {
-		// Initialize with zeros if no data available
-		closingCounts = {};
-		Object.keys(denomValues).forEach(key => {
-			closingCounts[key] = 0;
-		});
-		console.log('⚠️ No closing data found, initialized with zeros');
-	}
-	
-	// Load verification checkbox states from complete_details (separate from counts)
-	if (operation?.complete_details) {
-		const completeDetails = typeof operation.complete_details === 'string'
-			? JSON.parse(operation.complete_details)
-			: operation.complete_details;
-		
-		// Load edited denomination values
-		denomEditedValues = { ...completeDetails };
-		
-		// Restore checkbox states - if denomination exists in complete_details, mark as verified
-		denomVerified = {};
-		Object.keys(completeDetails).forEach(key => {
-			denomVerified[key] = true;
-		});
-		console.log('✅ Loaded verification checkboxes and edited values:', denomVerified, denomEditedValues);
-	}
-}
-
-// Function to save verification data live to database
-async function saveVerificationData() {
-	if (!operation?.id) return;
-	
-	// Build complete_details with verified denominations and their counts (like closing_counts format)
-	const completeDetails: Record<string, number> = {};
-	Object.keys(denomVerified).forEach(key => {
-		if (denomVerified[key] === true) {
-			completeDetails[key] = closingCounts[key] || 0;
+		} else if (operation?.counts_after) {
+			// Fallback to counts_after if neither available
+			closingCounts = { ...operation.counts_after };
+			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
+		} else {
+			// Initialize with zeros if no data available
+			closingCounts = {};
+			Object.keys(denomValues).forEach(key => {
+				closingCounts[key] = 0;
+			});
+			console.log('⚠️ No closing data found, initialized with zeros');
 		}
-	});
-		
-		try {
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ complete_details: completeDetails })
-				.eq('id', operation.id);
-			
-			if (error) {
-				console.error('Error saving verification data:', error);
-			} else {
-			console.log('✅ Saved verification data to box_operations');
-		}
-	} catch (e) {
-		console.error('Exception saving verification data:', e);
-	}
-}
-
-// Auto-save verification data whenever checkboxes change
-$: if (closingStarted && denomVerified) {
-	saveVerificationData();
+	
 		hasInitializedCounts = true;
 	}
 
@@ -453,29 +445,7 @@ $: if (closingStarted && denomVerified) {
 
 	// Save bank edits to closing_details
 	async function saveBankData() {
-		if (!operation?.id) return;
-
-		try {
-			const currentClosingDetails = operation.closing_details || {};
-			const updatedDetails = {
-				...currentClosingDetails,
-				bank_edits: bankEditedValues,
-				bank_verified: bankVerified
-			};
-
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ closing_details: updatedDetails })
-				.eq('id', operation.id);
-
-			if (error) {
-				console.error('Error saving bank data:', error);
-			} else {
-				console.log('✅ Bank data saved successfully');
-			}
-		} catch (error) {
-			console.error('Exception saving bank data:', error);
-		}
+		triggerAutoSave();
 	}
 
 	// Calculate bank reconciliation total using edited values
@@ -500,31 +470,9 @@ $: if (closingStarted && denomVerified) {
 	let systemEditMode: Record<string, boolean> = {}; // Track edit mode for each field
 	let systemEditedValues: Record<string, number> = {}; // Store edited values
 
-	// Save system sales edits to closing_details
+	// Save system sales edits to complete_details
 	async function saveSystemData() {
-		if (!operation?.id) return;
-
-		try {
-			const currentClosingDetails = operation.closing_details || {};
-			const updatedDetails = {
-				...currentClosingDetails,
-				system_edits: systemEditedValues,
-				system_verified: systemVerified
-			};
-
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ closing_details: updatedDetails })
-				.eq('id', operation.id);
-
-			if (error) {
-				console.error('Error saving system data:', error);
-			} else {
-				console.log('✅ System data saved successfully');
-			}
-		} catch (error) {
-			console.error('Exception saving system data:', error);
-		}
+		triggerAutoSave();
 	}
 
 	// Calculate system sales totals using edited values
@@ -565,35 +513,7 @@ $: if (closingStarted && denomVerified) {
 
 	// Save recharge card edits to closing_details
 	async function saveRechargeData() {
-		if (!operation?.id) return;
-
-		try {
-			const currentClosingDetails = operation.closing_details || {};
-			const updatedDetails = {
-				...currentClosingDetails,
-				recharge_edits: rechargeEditedValues,
-				recharge_verified: rechargeVerified,
-				date_time_edits: {
-					startDate: rechargeEditedValues['startDate'],
-					startTime: rechargeEditedValues['startTime'],
-					endDate: rechargeEditedValues['endDate'],
-					endTime: rechargeEditedValues['endTime']
-				}
-			};
-
-			const { error } = await supabase
-				.from('box_operations')
-				.update({ closing_details: updatedDetails })
-				.eq('id', operation.id);
-
-			if (error) {
-				console.error('Error saving recharge data:', error);
-			} else {
-				console.log('✅ Recharge data saved successfully');
-			}
-		} catch (error) {
-			console.error('Exception saving recharge data:', error);
-		}
+		triggerAutoSave();
 	}
 
 	// Auto-calculate sales using edited values
@@ -1180,6 +1100,33 @@ $: if (closingStarted && denomVerified) {
 			}
 
 			console.log('Closing box details saved successfully');
+
+			// Copy all closing_details to complete_details for editing
+			const completeDetailsPayload = {
+				...closingData,
+				closing_counts: closingCounts,
+				vouchers: vouchers,
+				// Initialize verification states
+				denom_verified: {},
+				voucher_verified: {},
+				bank_verified: {},
+				system_verified: {},
+				recharge_verified: {},
+				// Initialize edit tracking
+				denom_edits: {},
+				voucher_edits: {},
+				bank_edits: {},
+				system_edits: {},
+				recharge_edits: {},
+				date_time_edits: {}
+			};
+
+			await supabase
+				.from('box_operations')
+				.update({ complete_details: completeDetailsPayload })
+				.eq('id', operation.id);
+
+			console.log('✅ Copied closing_details to complete_details for editing');
 
 			// Now try to update the status separately
 			// Include updated_at in the update to ensure trigger fires
