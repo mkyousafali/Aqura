@@ -176,6 +176,12 @@
 	let supervisorCode: string = '';
 	let supervisorName: string = '';
 	let supervisorCodeError: string = '';
+	
+	// Cashier confirmation code
+	let cashierConfirmCode: string = '';
+	let cashierConfirmName: string = '';
+	let cashierConfirmError: string = '';
+	
 	let closingSaved: boolean = false;
 
 	async function verifySupervisorCode() {
@@ -237,6 +243,70 @@
 	} else {
 		supervisorName = '';
 		supervisorCodeError = '';
+	}
+
+	async function verifyCashierConfirmCode() {
+		cashierConfirmError = '';
+		cashierConfirmName = '';
+
+		if (!cashierConfirmCode) {
+			return;
+		}
+
+		// Get cashier name and code from operation notes
+		let expectedCashierName = '';
+		let expectedCashierCode = '';
+		try {
+			if (operation?.notes) {
+				const notes = typeof operation.notes === 'string' 
+					? JSON.parse(operation.notes) 
+					: operation.notes;
+				expectedCashierName = notes.cashier_name || '';
+				expectedCashierCode = notes.cashier_access_code || '';
+			}
+		} catch (e) {
+			console.error('Error parsing operation notes:', e);
+		}
+
+		try {
+			const { data, error } = await supabase
+				.from('users')
+				.select('username, quick_access_code')
+				.eq('quick_access_code', cashierConfirmCode)
+				.single();
+
+			if (error) throw error;
+
+			if (data) {
+				const verifiedName = data.username || '';
+				const verifiedCode = data.quick_access_code || '';
+				
+				// Must match the exact cashier who started
+				if (verifiedCode !== expectedCashierCode || verifiedName !== expectedCashierName) {
+					cashierConfirmName = '';
+					cashierConfirmError = $currentLocale === 'ar' ? 'يجب أن يكون الكاشير نفس من بدأ العملية' : 'Must be the same cashier who started the operation';
+					return;
+				}
+				
+				cashierConfirmName = verifiedName;
+				cashierConfirmError = '';
+			} else {
+				cashierConfirmName = '';
+				cashierConfirmError = $currentLocale === 'ar' ? 'كود الكاشير غير صحيح' : 'Invalid cashier code';
+			}
+		} catch (error) {
+			console.error('Error verifying cashier code:', error);
+			cashierConfirmName = '';
+			cashierConfirmError = $currentLocale === 'ar' ? 'كود الكاشير غير صحيح' : 'Invalid cashier code';
+		}
+	}
+
+	// Auto-verify cashier code as user types
+	$: if (cashierConfirmCode) {
+		verifyCashierConfirmCode();
+	} else {
+		cashierConfirmName = '';
+		cashierConfirmError = '';
 	}
 
 	// Load saved closing details on component mount
@@ -740,6 +810,10 @@
 			<span class="info-label">{$currentLocale === 'ar' ? 'رقم نقطة البيع:' : 'POS Number:'}</span>
 			<div class="pos-display-inline">POS {selectedPosNumber}</div>
 		</div>
+		<div class="info-group">
+			<span class="info-label">{$currentLocale === 'ar' ? 'المشرف الفاحص:' : 'Checked Supervisor:'}</span>
+			<span class="info-value">{operationData.supervisor_name || 'N/A'}</span>
+		</div>
 	</div>
 
 	<div class="two-cards-row">
@@ -774,7 +848,7 @@
 					{/each}
 				</div>
 				<div class="closing-total">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي الإغلاق:' : 'Closing Total:'}</span>
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
 					<div class="amount">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -1199,32 +1273,63 @@
 						</div>
 					</div>
 					<div class="sub-card">
-						<div class="sub-card-content" style="gap: 0.3rem;">
-							<input
-								type="password"
-								placeholder={$currentLocale === 'ar' ? 'كود المشرف' : 'Supervisor Code'}
-								bind:value={supervisorCode}
-								class="supervisor-code-input"
-							/>
-							{#if supervisorCodeError}
-								<div style="font-size: 0.6rem; color: #dc2626; font-weight: 600; text-align: center;">
-									{supervisorCodeError}
+						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #15803d; letter-spacing: 1px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #fed7aa; padding-bottom: 0.1rem;">
+							{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
+						</div>
+						<div class="sub-card-content" style="gap: 0.1rem;">
+							<div style="display: flex; align-items: flex-start; gap: 0.3rem;">
+								<div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
+									<input
+										type="password"
+										placeholder={$currentLocale === 'ar' ? 'كود المشرف' : 'Supervisor Code'}
+										bind:value={supervisorCode}
+										class="supervisor-code-input"
+										style="margin: 0;"
+									/>
+									{#if supervisorCodeError}
+										<div style="font-size: 0.55rem; color: #dc2626; font-weight: 600; text-align: center;">
+											{supervisorCodeError}
+										</div>
+									{/if}
 								</div>
-							{/if}
-							{#if supervisorName}
-								<div style="font-size: 0.6rem; color: #15803d; font-weight: 600; text-align: center;">
-									✓ {supervisorName}
+								{#if supervisorName}
+									<div style="font-size: 0.55rem; color: #15803d; font-weight: 600; padding-top: 0.15rem; white-space: nowrap;">
+										✓ {supervisorName}
+									</div>
+								{/if}
+							</div>
+							
+							<div style="display: flex; align-items: flex-start; gap: 0.3rem;">
+								<div style="flex: 1; display: flex; flex-direction: column; gap: 0.05rem;">
+									<input
+										type="password"
+										placeholder={$currentLocale === 'ar' ? 'كود الكاشير' : 'Cashier Code'}
+										bind:value={cashierConfirmCode}
+										class="supervisor-code-input"
+									/>
+									{#if cashierConfirmError}
+										<div style="font-size: 0.55rem; color: #dc2626; font-weight: 600; text-align: center;">
+											{cashierConfirmError}
+										</div>
+									{/if}
 								</div>
-							{/if}
+								{#if cashierConfirmName}
+									<div style="font-size: 0.55rem; color: #15803d; font-weight: 600; padding-top: 0.15rem; white-space: nowrap;">
+										✓ {cashierConfirmName}
+									</div>
+								{/if}
+							</div>
+							
 							<button
 								on:click={saveSupervisorCode}
 								class="save-button"
-								disabled={!supervisorName || closingSaved}
+								disabled={!supervisorName || !cashierConfirmName || closingSaved}
+								style="margin-top: 0.1rem;"
 							>
 								{closingSaved ? ($currentLocale === 'ar' ? '✓ تم الإغلاق' : '✓ Closed') : ($currentLocale === 'ar' ? 'إغلاق' : 'Close')}
 							</button>
 							{#if closingSaved}
-								<div style="font-size: 0.6rem; color: #15803d; font-weight: 600; text-align: center;">
+								<div style="font-size: 0.55rem; color: #15803d; font-weight: 600; text-align: center;">
 									{$currentLocale === 'ar' ? 'في انتظار الإغلاق النهائي في نقطة البيع' : 'Pending final close in POS'}
 								</div>
 							{/if}
@@ -1596,7 +1701,7 @@
 									{/each}
 								</div>
 								<div class="a4-closing-total">
-									<span>{$currentLocale === 'ar' ? 'إجمالي الإغلاق:' : 'Closing Total:'}</span>
+									<span>{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
 									<span>SAR {closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
 								</div>
 								<div class="a4-cash-sales">
@@ -1756,22 +1861,16 @@
 		width: 100%;
 		height: 100%;
 		background: white;
-		padding: 0.25rem;
+		padding: 0.0625rem 0.25rem 0.25rem 0.25rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 	}
 
 	.top-info-row {
-		display: flex;
-		gap: 2rem;
-		padding: 0.5rem 1rem;
-		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-		border: 2px solid #86efac;
-		border-radius: 0.75rem;
-		box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.1);
-		flex-wrap: wrap;
-		align-items: center;
+		display: grid;
+		grid-template-columns: repeat(5, 1fr);
+		gap: 0.5rem;
 	}
 
 	.info-group {
@@ -1779,6 +1878,12 @@
 		flex-direction: row;
 		gap: 0.5rem;
 		align-items: center;
+		justify-content: center;
+		padding: 0.375rem 0.75rem;
+		background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+		border: 2px solid #86efac;
+		border-radius: 0.75rem;
+		box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.1);
 	}
 
 	.info-label {
@@ -2319,7 +2424,7 @@
 
 	.supervisor-code-input {
 		width: 100%;
-		padding: 0.4rem 0.5rem;
+		padding: 0.25rem 0.35rem;
 		border: 2px solid #ea580c;
 		border-radius: 0.25rem;
 		font-size: 0.7rem;
