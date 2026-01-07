@@ -364,9 +364,14 @@
 				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
 				recharge_transaction_end_date: endDateInput,
 				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
-					total_sales: totalSales,
-					total_system_sales: totalSystemSales
-				};
+				
+				// Purchase vouchers
+				vouchers: vouchers,
+				vouchers_total: vouchersTotal,
+				
+				total_sales: totalSales,
+				total_system_sales: totalSystemSales
+			};
 
 				console.log('💾 Auto-saving closing details...');
 				const { error } = await supabase
