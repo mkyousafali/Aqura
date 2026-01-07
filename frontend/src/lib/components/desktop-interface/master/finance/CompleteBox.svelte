@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import IssuePurchaseVoucher from './IssuePurchaseVoucher.svelte';
+	import ClosePurchaseVoucher from './ClosePurchaseVoucher.svelte';
 
 	export let windowId: string;
 	export let operation: any;
@@ -142,6 +145,76 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Verification checkboxes for each denomination
 	let denomVerified: Record<string, boolean> = {};
 	
+	// Edit mode tracking for denominations
+	let denomEditMode: Record<string, boolean> = {};
+	let denomEditedValues: Record<string, number> = {};
+	
+	// Track if denominations have been added to main record
+	let denominationsAdded: boolean = false;
+	
+	// Voucher verification and edit tracking
+	let voucherVerified: Record<number, boolean> = {};
+	let voucherEditMode: Record<number, {serial: boolean, amount: boolean}> = {};
+	let voucherEditedValues: Record<number, {serial?: string, amount?: number}> = {};
+	
+	// Function to save edited denomination values to complete_details
+	async function saveDenomEdits() {
+		if (!operation?.id) return;
+		
+		try {
+			const { error } = await supabase
+				.from('box_operations')
+				.update({
+					complete_details: denomEditedValues
+				})
+				.eq('id', operation.id);
+			
+			if (error) {
+				console.error('Error saving denomination edits:', error);
+			} else {
+				console.log('✅ Denomination edits saved:', denomEditedValues);
+			}
+		} catch (e) {
+			console.error('Exception saving denomination edits:', e);
+		}
+	}
+	
+	// Function to save voucher edits and verification to closing_details
+	async function saveVoucherData() {
+		if (!operation?.id) return;
+		
+		try {
+			// Get current closing_details
+			const currentClosingDetails = operation?.closing_details 
+				? (typeof operation.closing_details === 'string' 
+					? JSON.parse(operation.closing_details)
+					: operation.closing_details)
+				: {};
+			
+			// Update with voucher edits and verification
+			const updatedDetails = {
+				...currentClosingDetails,
+				voucher_edits: voucherEditedValues,
+				voucher_verified: voucherVerified
+			};
+			
+			const { error } = await supabase
+				.from('box_operations')
+				.update({
+					closing_details: updatedDetails
+				})
+				.eq('id', operation.id);
+			
+			if (error) {
+				console.error('Error saving voucher data:', error);
+			} else {
+				console.log('✅ Voucher data saved:', { voucherEditedValues, voucherVerified });
+			}
+		} catch (e) {
+			console.error('Exception saving voucher data:', e);
+		}
+	}
+	
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
 		console.log('🔄 Initializing closing counts from operation:', operation);
@@ -201,6 +274,54 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			// Load vouchers
 			vouchers = details.vouchers || [];
 			
+			// Load voucher edits and verification
+			if (details.voucher_edits) {
+				voucherEditedValues = details.voucher_edits;
+			}
+			if (details.voucher_verified) {
+				voucherVerified = details.voucher_verified;
+			}
+			
+			// Load bank edits and verification
+			if (details.bank_edits) {
+				bankEditedValues = details.bank_edits;
+			}
+			if (details.bank_verified) {
+				bankVerified = details.bank_verified;
+			}
+			
+			// Load system edits and verification
+			if (details.system_edits) {
+				systemEditedValues = details.system_edits;
+			}
+			if (details.system_verified) {
+				systemVerified = details.system_verified;
+			}
+			
+			// Load recharge edits and verification
+			if (details.recharge_edits) {
+				rechargeEditedValues = details.recharge_edits;
+			}
+			if (details.recharge_verified) {
+				rechargeVerified = details.recharge_verified;
+			}
+			
+			// Load date/time edits
+			if (details.date_time_edits) {
+				if (details.date_time_edits.startDate !== undefined) {
+					rechargeEditedValues['startDate'] = details.date_time_edits.startDate;
+				}
+				if (details.date_time_edits.startTime !== undefined) {
+					rechargeEditedValues['startTime'] = details.date_time_edits.startTime;
+				}
+				if (details.date_time_edits.endDate !== undefined) {
+					rechargeEditedValues['endDate'] = details.date_time_edits.endDate;
+				}
+				if (details.date_time_edits.endTime !== undefined) {
+					rechargeEditedValues['endTime'] = details.date_time_edits.endTime;
+				}
+			}
+			
 			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
 	} else if (operation?.counts_after) {
 		// Fallback to counts_after if closing_details not available
@@ -221,12 +342,15 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			? JSON.parse(operation.complete_details)
 			: operation.complete_details;
 		
+		// Load edited denomination values
+		denomEditedValues = { ...completeDetails };
+		
 		// Restore checkbox states - if denomination exists in complete_details, mark as verified
 		denomVerified = {};
 		Object.keys(completeDetails).forEach(key => {
 			denomVerified[key] = true;
 		});
-		console.log('✅ Loaded verification checkboxes:', denomVerified);
+		console.log('✅ Loaded verification checkboxes and edited values:', denomVerified, denomEditedValues);
 	}
 }
 
@@ -266,7 +390,7 @@ $: if (closingStarted && denomVerified) {
 
 	// Calculate total
 	$: closingTotal = Object.keys(closingCounts).reduce((sum, key) => {
-		const count = closingCounts[key] || 0;
+		const count = denomEditedValues[key] !== undefined ? denomEditedValues[key] : (closingCounts[key] || 0);
 		const denomValue = denomValues[key] || 0;
 		return sum + (count * denomValue);
 	}, 0);
@@ -305,7 +429,12 @@ $: if (closingStarted && denomVerified) {
 	}
 
 	// Calculate vouchers total
-	$: vouchersTotal = vouchers.reduce((sum, v) => sum + v.amount, 0);
+	$: vouchersTotal = vouchers.reduce((sum, v, index) => {
+		const amount = voucherEditedValues[index]?.amount !== undefined 
+			? voucherEditedValues[index].amount 
+			: v.amount;
+		return sum + amount;
+	}, 0);
 
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
 	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
@@ -317,8 +446,46 @@ $: if (closingStarted && denomVerified) {
 	let googlePayAmount: number | '' = '';
 	let otherAmount: number | '' = '';
 
-	// Calculate bank reconciliation total
-	$: bankTotal = (Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0);
+	// Bank edit state tracking
+	let bankVerified: Record<string, boolean> = {}; // Track verification status
+	let bankEditMode: Record<string, boolean> = {}; // Track edit mode for each field
+	let bankEditedValues: Record<string, number> = {}; // Store edited values
+
+	// Save bank edits to closing_details
+	async function saveBankData() {
+		if (!operation?.id) return;
+
+		try {
+			const currentClosingDetails = operation.closing_details || {};
+			const updatedDetails = {
+				...currentClosingDetails,
+				bank_edits: bankEditedValues,
+				bank_verified: bankVerified
+			};
+
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ closing_details: updatedDetails })
+				.eq('id', operation.id);
+
+			if (error) {
+				console.error('Error saving bank data:', error);
+			} else {
+				console.log('✅ Bank data saved successfully');
+			}
+		} catch (error) {
+			console.error('Exception saving bank data:', error);
+		}
+	}
+
+	// Calculate bank reconciliation total using edited values
+	$: bankTotal = (
+		(bankEditedValues['mada'] !== undefined ? bankEditedValues['mada'] : (Number(madaAmount) || 0)) +
+		(bankEditedValues['visa'] !== undefined ? bankEditedValues['visa'] : (Number(visaAmount) || 0)) +
+		(bankEditedValues['mastercard'] !== undefined ? bankEditedValues['mastercard'] : (Number(masterCardAmount) || 0)) +
+		(bankEditedValues['googlepay'] !== undefined ? bankEditedValues['googlepay'] : (Number(googlePayAmount) || 0)) +
+		(bankEditedValues['other'] !== undefined ? bankEditedValues['other'] : (Number(otherAmount) || 0))
+	);
 
 	// Calculate total sales (total cash sales + total bank sales)
 	$: totalSales = totalCashSales + bankTotal;
@@ -328,9 +495,46 @@ $: if (closingStarted && denomVerified) {
 	let systemCardSales: number | '' = '';
 	let systemReturn: number | '' = '';
 
-	// Calculate system sales totals
-	$: totalSystemCashSales = (Number(systemCashSales) || 0) - (Number(systemReturn) || 0);
-	$: totalSystemSales = totalSystemCashSales + (Number(systemCardSales) || 0);
+	// System sales edit state tracking
+	let systemVerified: Record<string, boolean> = {}; // Track verification status
+	let systemEditMode: Record<string, boolean> = {}; // Track edit mode for each field
+	let systemEditedValues: Record<string, number> = {}; // Store edited values
+
+	// Save system sales edits to closing_details
+	async function saveSystemData() {
+		if (!operation?.id) return;
+
+		try {
+			const currentClosingDetails = operation.closing_details || {};
+			const updatedDetails = {
+				...currentClosingDetails,
+				system_edits: systemEditedValues,
+				system_verified: systemVerified
+			};
+
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ closing_details: updatedDetails })
+				.eq('id', operation.id);
+
+			if (error) {
+				console.error('Error saving system data:', error);
+			} else {
+				console.log('✅ System data saved successfully');
+			}
+		} catch (error) {
+			console.error('Exception saving system data:', error);
+		}
+	}
+
+	// Calculate system sales totals using edited values
+	$: totalSystemCashSales = (
+		(systemEditedValues['cashSales'] !== undefined ? systemEditedValues['cashSales'] : (Number(systemCashSales) || 0)) -
+		(systemEditedValues['return'] !== undefined ? systemEditedValues['return'] : (Number(systemReturn) || 0))
+	);
+	$: totalSystemSales = totalSystemCashSales + (
+		systemEditedValues['cardSales'] !== undefined ? systemEditedValues['cardSales'] : (Number(systemCardSales) || 0)
+	);
 
 	// Time format conversion for 12-hour format
 	let startDateInput = '';
@@ -354,8 +558,49 @@ $: if (closingStarted && denomVerified) {
 	let closeBalance: number | '' = '';
 	let sales: number | '' = '';
 
-	// Auto-calculate sales
-	$: sales = (Number(openingBalance) || 0) - (Number(closeBalance) || 0);
+	// Recharge card edit state tracking
+	let rechargeVerified: Record<string, boolean> = {}; // Track verification status
+	let rechargeEditMode: Record<string, boolean> = {}; // Track edit mode for each field
+	let rechargeEditedValues: Record<string, number> = {}; // Store edited values
+
+	// Save recharge card edits to closing_details
+	async function saveRechargeData() {
+		if (!operation?.id) return;
+
+		try {
+			const currentClosingDetails = operation.closing_details || {};
+			const updatedDetails = {
+				...currentClosingDetails,
+				recharge_edits: rechargeEditedValues,
+				recharge_verified: rechargeVerified,
+				date_time_edits: {
+					startDate: rechargeEditedValues['startDate'],
+					startTime: rechargeEditedValues['startTime'],
+					endDate: rechargeEditedValues['endDate'],
+					endTime: rechargeEditedValues['endTime']
+				}
+			};
+
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ closing_details: updatedDetails })
+				.eq('id', operation.id);
+
+			if (error) {
+				console.error('Error saving recharge data:', error);
+			} else {
+				console.log('✅ Recharge data saved successfully');
+			}
+		} catch (error) {
+			console.error('Exception saving recharge data:', error);
+		}
+	}
+
+	// Auto-calculate sales using edited values
+	$: sales = (
+		(rechargeEditedValues['openingBalance'] !== undefined ? rechargeEditedValues['openingBalance'] : (Number(openingBalance) || 0)) -
+		(rechargeEditedValues['closeBalance'] !== undefined ? rechargeEditedValues['closeBalance'] : (Number(closeBalance) || 0))
+	);
 
 	// Differences fields
 	let differenceInCashSales: number = 0;
@@ -388,7 +633,7 @@ $: if (closingStarted && denomVerified) {
 
 	// Voucher status check
 	let showVoucherStatusModal: boolean = false;
-	let voucherStatusResults: Array<{serial: string, amount: number, status: string, found: boolean}> = [];
+	let voucherStatusResults: Array<{serial: string, amount: number, status: string, found: boolean, voucherData?: any}> = [];
 	let isCheckingVoucherStatus: boolean = false;
 
 	// Function to check voucher status
@@ -402,34 +647,45 @@ $: if (closingStarted && denomVerified) {
 		voucherStatusResults = [];
 
 		try {
-			// Check each voucher against purchase_voucher_items table
-			for (const voucher of vouchers) {
+			// Check each voucher against purchase_voucher_items table, using edited values if available
+			for (let index = 0; index < vouchers.length; index++) {
+				const voucher = vouchers[index];
+				
+				// Use edited values if they exist, otherwise use original
+				const serialToCheck = voucherEditedValues[index]?.serial !== undefined 
+					? voucherEditedValues[index].serial 
+					: voucher.serial;
+				const amountToCheck = voucherEditedValues[index]?.amount !== undefined 
+					? voucherEditedValues[index].amount 
+					: voucher.amount;
+				
 				const { data, error } = await supabase
 					.from('purchase_voucher_items')
-					.select('status, serial_number, value')
-					.eq('serial_number', parseInt(voucher.serial))
-					.eq('value', parseFloat(voucher.amount))
+					.select('*')
+					.eq('serial_number', parseInt(serialToCheck))
+					.eq('value', parseFloat(amountToCheck))
 					.maybeSingle();
 
 				if (error) {
 					console.error('Error checking voucher:', error);
 					voucherStatusResults.push({
-						serial: voucher.serial,
-						amount: voucher.amount,
+						serial: serialToCheck,
+						amount: amountToCheck,
 						status: 'Error',
 						found: false
 					});
 				} else if (data) {
 					voucherStatusResults.push({
-						serial: voucher.serial,
-						amount: voucher.amount,
+						serial: serialToCheck,
+						amount: amountToCheck,
 						status: data.status || 'Unknown',
-						found: true
+						found: true,
+						voucherData: data
 					});
 				} else {
 					voucherStatusResults.push({
-						serial: voucher.serial,
-						amount: voucher.amount,
+						serial: serialToCheck,
+						amount: amountToCheck,
 						status: 'Not Found',
 						found: false
 					});
@@ -483,6 +739,223 @@ $: if (closingStarted && denomVerified) {
 			
 		} catch (error) {
 			console.error('❌ Exception loading completed operation:', error);
+		}
+	}
+
+	// Check if all checkboxes are verified
+	$: allCheckboxesVerified = (() => {
+		// Check denominations (11 denominations)
+		const denomKeys = ['d500', 'd200', 'd100', 'd50', 'd20', 'd10', 'd5', 'd2', 'd1', 'd05', 'd025', 'coins'];
+		const allDenomsVerified = denomKeys.every(key => denomVerified[key] === true);
+		
+		// Check vouchers (all vouchers must be verified)
+		const allVouchersVerified = vouchers.length === 0 || vouchers.every((_, index) => voucherVerified[index] === true);
+		
+		// Check bank fields (5 fields)
+		const bankKeys = ['mada', 'visa', 'mastercard', 'googlepay', 'other'];
+		const allBankVerified = bankKeys.every(key => bankVerified[key] === true);
+		
+		// Check system fields (3 fields)
+		const systemKeys = ['cashSales', 'cardSales', 'return'];
+		const allSystemVerified = systemKeys.every(key => systemVerified[key] === true);
+		
+		// Check recharge fields (2 balance fields + 4 date/time fields)
+		const rechargeKeys = ['openingBalance', 'closeBalance', 'startDate', 'startTime', 'endDate', 'endTime'];
+		const allRechargeVerified = rechargeKeys.every(key => rechargeVerified[key] === true);
+		
+		return allDenomsVerified && allVouchersVerified && allBankVerified && allSystemVerified && allRechargeVerified;
+	})();
+
+	// Complete box operation
+	async function completeBox() {
+		if (!operation?.id) {
+			alert('No operation found');
+			return;
+		}
+
+		if (!allCheckboxesVerified) {
+			alert($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ status: 'completed' })
+				.eq('id', operation.id);
+
+			if (error) {
+				console.error('Error completing box:', error);
+				alert($currentLocale === 'ar' ? 'خطأ في إكمال الصندوق' : 'Error completing box');
+			} else {
+				console.log('✅ Box completed successfully');
+				alert($currentLocale === 'ar' ? 'تم إكمال الصندوق بنجاح' : 'Box completed successfully');
+				// Refresh operation data
+				if (operation) {
+					operation.status = 'completed';
+				}
+			}
+		} catch (error) {
+			console.error('Exception completing box:', error);
+			alert($currentLocale === 'ar' ? 'خطأ في إكمال الصندوق' : 'Error completing box');
+		}
+	}
+
+	// Add to denomination function
+	async function addToDenomination() {
+		console.log('🔍 Operation data:', {
+			id: operation?.id,
+			denomination_record_id: operation?.denomination_record_id,
+			branch_id: operation?.branch_id,
+			branch_object: branch
+		});
+
+		if (!operation?.id || !operation?.denomination_record_id) {
+			alert($currentLocale === 'ar' ? 'معلومات العملية غير مكتملة' : 'Operation information incomplete');
+			return;
+		}
+
+		// Get branch_id from operation or from branch prop
+		const branchId = operation?.branch_id || branch?.id;
+		if (!branchId) {
+			alert($currentLocale === 'ar' ? 'معرف الفرع مفقود' : 'Branch ID missing');
+			return;
+		}
+
+		try {
+			// Parse closing_details to get closing_counts
+			const closingDetails = typeof operation.closing_details === 'string' 
+				? JSON.parse(operation.closing_details) 
+				: operation.closing_details;
+
+			const closingCounts = closingDetails?.closing_counts;
+			if (!closingCounts) {
+				alert($currentLocale === 'ar' ? 'لا توجد بيانات فئات للإضافة' : 'No denomination data to add');
+				return;
+			}
+
+			console.log('📊 Closing counts to add:', closingCounts);
+
+			// Step 1: Get the advance_box record and zero it out
+			const { data: advanceBoxRecord, error: fetchError } = await supabase
+				.from('denomination_records')
+				.select('*')
+				.eq('id', operation.denomination_record_id)
+				.single();
+
+			if (fetchError) {
+				console.error('Error fetching advance box record:', fetchError);
+				alert($currentLocale === 'ar' ? 'خطأ في جلب سجل الصندوق' : 'Error fetching box record');
+				return;
+			}
+
+			console.log('📦 Advance box record:', advanceBoxRecord);
+
+			// Zero out the advance box record
+			const zeroCounts = {
+				d1: 0, d2: 0, d5: 0, d05: 0, d10: 0, d20: 0, d50: 0, 
+				d025: 0, d100: 0, d200: 0, d500: 0, coins: 0, damage: 0
+			};
+
+			console.log('🔄 Zeroing out advance box with counts:', zeroCounts);
+
+			const { error: zeroError } = await supabase
+				.from('denomination_records')
+				.update({ 
+					counts: zeroCounts,
+					grand_total: '0.00',
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', operation.denomination_record_id);
+
+			if (zeroError) {
+				console.error('❌ Error zeroing advance box:', zeroError);
+				alert($currentLocale === 'ar' ? 'خطأ في تصفير الصندوق' : 'Error zeroing box');
+				return;
+			}
+
+			console.log('✅ Advance box zeroed out successfully');
+
+			// Step 2: Get the main record for the branch
+			const { data: mainRecord, error: mainFetchError } = await supabase
+				.from('denomination_records')
+				.select('*')
+				.eq('branch_id', branchId)
+				.eq('record_type', 'main')
+				.single();
+
+			if (mainFetchError) {
+				console.error('Error fetching main record:', mainFetchError);
+				alert($currentLocale === 'ar' ? 'خطأ في جلب السجل الرئيسي' : 'Error fetching main record');
+				return;
+			}
+
+			console.log('📋 Main record:', mainRecord);
+
+			// Step 3: Parse existing counts and add closing counts
+			const existingCounts = typeof mainRecord.counts === 'string' 
+				? JSON.parse(mainRecord.counts) 
+				: mainRecord.counts;
+
+			const newCounts = {
+				d1: (existingCounts.d1 || 0) + (closingCounts.d1 || 0),
+				d2: (existingCounts.d2 || 0) + (closingCounts.d2 || 0),
+				d5: (existingCounts.d5 || 0) + (closingCounts.d5 || 0),
+				d05: (existingCounts.d05 || 0) + (closingCounts.d05 || 0),
+				d10: (existingCounts.d10 || 0) + (closingCounts.d10 || 0),
+				d20: (existingCounts.d20 || 0) + (closingCounts.d20 || 0),
+				d50: (existingCounts.d50 || 0) + (closingCounts.d50 || 0),
+				d025: (existingCounts.d025 || 0) + (closingCounts.d025 || 0),
+				d100: (existingCounts.d100 || 0) + (closingCounts.d100 || 0),
+				d200: (existingCounts.d200 || 0) + (closingCounts.d200 || 0),
+				d500: (existingCounts.d500 || 0) + (closingCounts.d500 || 0),
+				coins: (existingCounts.coins || 0) + (closingCounts.coins || 0),
+				damage: existingCounts.damage || 0
+			};
+
+			// Calculate new grand total
+			const newGrandTotal = 
+				newCounts.d500 * 500 + 
+				newCounts.d200 * 200 + 
+				newCounts.d100 * 100 + 
+				newCounts.d50 * 50 + 
+				newCounts.d20 * 20 + 
+				newCounts.d10 * 10 + 
+				newCounts.d5 * 5 + 
+				newCounts.d2 * 2 + 
+				newCounts.d1 * 1 + 
+				newCounts.d05 * 0.5 + 
+				newCounts.d025 * 0.25 + 
+				newCounts.coins;
+
+			console.log('➕ New counts:', newCounts);
+			console.log('💰 New grand total:', newGrandTotal);
+
+			// Step 4: Update the main record
+			const { data: updateResult, error: updateError } = await supabase
+				.from('denomination_records')
+				.update({ 
+					counts: newCounts,
+					grand_total: newGrandTotal.toFixed(2),
+					updated_at: new Date().toISOString()
+				})
+				.eq('id', mainRecord.id)
+				.select();
+
+			if (updateError) {
+				console.error('❌ Error updating main record:', updateError);
+				alert($currentLocale === 'ar' ? 'خطأ في تحديث السجل الرئيسي' : 'Error updating main record');
+				return;
+			}
+
+			console.log('✅ Main record updated:', updateResult);
+			console.log('✅ Denominations added to main record successfully');
+			denominationsAdded = true;
+			alert($currentLocale === 'ar' ? 'تم إضافة الفئات إلى السجل الرئيسي بنجاح' : 'Denominations added to main record successfully');
+
+		} catch (error) {
+			console.error('Exception in addToDenomination:', error);
+			alert($currentLocale === 'ar' ? 'خطأ في إضافة الفئات' : 'Error adding denominations');
 		}
 	}
 
@@ -849,14 +1322,32 @@ $: if (closingStarted && denomVerified) {
 				</div>
 			{/if}
 		</div>
-		<button 
-			class="start-closing-btn" 
-			disabled={!completedByName || closingStarted}
-			on:click={startClosingProcess}
-			title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : ''}
-		>
-			{closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
-		</button>
+		<div style="display: flex; gap: 0.5rem;">
+			<button 
+				class="start-closing-btn" 
+				disabled={!completedByName || closingStarted}
+				on:click={startClosingProcess}
+				title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : ''}
+			>
+				{closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
+			</button>
+			<button 
+				class="add-to-denomination-btn"
+				disabled={!closingStarted || !allCheckboxesVerified}
+				on:click={addToDenomination}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : ''}
+			>
+				{$currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination'}
+			</button>
+			<button 
+				class="complete-btn"
+				disabled={!closingStarted || !allCheckboxesVerified || !denominationsAdded || operation?.status === 'completed'}
+				on:click={completeBox}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : !denominationsAdded ? ($currentLocale === 'ar' ? 'يجب إضافة الفئات أولاً' : 'Must add to denomination first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
+			>
+				{operation?.status === 'completed' ? ($currentLocale === 'ar' ? '✓ مكتمل' : '✓ Completed') : ($currentLocale === 'ar' ? 'إكمال' : 'Complete')}
+			</button>
+		</div>
 	</div>
 
 	<div class="top-info-row">
@@ -916,15 +1407,45 @@ $: if (closingStarted && denomVerified) {
 								<input
 									type="number"
 									min="0"
-									readonly
-									value={closingCounts[key] || ''}
+									readonly={!denomEditMode[key]}
+									class:denom-edited={denomEditedValues[key] !== undefined}
+									value={denomEditedValues[key] !== undefined ? denomEditedValues[key] : (closingCounts[key] || '')}
+									on:dblclick={() => {
+										if (closingStarted) {
+											denomEditMode[key] = true;
+											denomEditMode = denomEditMode;
+										}
+									}}
+									on:blur={(e) => {
+										if (denomEditMode[key]) {
+											const newValue = parseFloat(e.currentTarget.value) || 0;
+											denomEditedValues[key] = newValue;
+											denomEditedValues = denomEditedValues;
+											denomEditMode[key] = false;
+											denomEditMode = denomEditMode;
+											saveDenomEdits();
+										}
+									}}
+									on:keydown={(e) => {
+										if (e.key === 'Enter' && denomEditMode[key]) {
+											e.currentTarget.blur();
+										}
+									}}
 								/>
-								{#if closingCounts[key] > 0}
-									<div class="denom-total">
-										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-tiny" />
-										{((closingCounts[key] || 0) * denomValues[key]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-									</div>
-								{/if}
+								<div class="denom-values-display">
+									{#if denomEditedValues[key] !== undefined && closingCounts[key]}
+										<div class="denom-original-value">
+											<span class="original-label">Original:</span>
+											<span class="original-count">{closingCounts[key]}</span>
+										</div>
+									{/if}
+									{#if (denomEditedValues[key] !== undefined ? denomEditedValues[key] : closingCounts[key]) > 0}
+										<div class="denom-total">
+											<img src={currencySymbolUrl} alt="SAR" class="currency-icon-tiny" />
+											{((denomEditedValues[key] !== undefined ? denomEditedValues[key] : (closingCounts[key] || 0)) * denomValues[key]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
 					{/each}
@@ -987,6 +1508,7 @@ $: if (closingStarted && denomVerified) {
 						<table>
 							<thead>
 								<tr>
+									<th style="width: 40px;">✓</th>
 									<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
 									<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
 								</tr>
@@ -994,11 +1516,96 @@ $: if (closingStarted && denomVerified) {
 							<tbody>
 								{#each vouchers as voucher, index (index)}
 									<tr>
-										<td>{voucher.serial}</td>
+										<td style="width: 40px; text-align: center;">
+											<input
+												type="checkbox"
+												class="voucher-verify-checkbox"
+												bind:checked={voucherVerified[index]}
+												on:change={() => saveVoucherData()}
+												disabled={!closingStarted}
+											/>
+										</td>
 										<td>
-											<div class="amount-cell">
-												<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
-												<span>{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+											<div class="voucher-cell-wrapper">
+												<input
+													type="text"
+													class="voucher-editable-input"
+													class:voucher-edited={voucherEditedValues[index]?.serial !== undefined}
+													readonly={!voucherEditMode[index]?.serial}
+													value={voucherEditedValues[index]?.serial !== undefined ? voucherEditedValues[index].serial : voucher.serial}
+													on:dblclick={() => {
+														if (closingStarted) {
+															if (!voucherEditMode[index]) voucherEditMode[index] = { serial: false, amount: false };
+															voucherEditMode[index].serial = true;
+															voucherEditMode = voucherEditMode;
+														}
+													}}
+													on:blur={(e) => {
+														if (voucherEditMode[index]?.serial) {
+															const newValue = e.currentTarget.value;
+															if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
+															voucherEditedValues[index].serial = newValue;
+															voucherEditedValues = voucherEditedValues;
+															voucherEditMode[index].serial = false;
+															voucherEditMode = voucherEditMode;
+															saveVoucherData();
+														}
+													}}
+													on:keydown={(e) => {
+														if (e.key === 'Enter' && voucherEditMode[index]?.serial) {
+															e.currentTarget.blur();
+														}
+													}}
+												/>
+												{#if voucherEditedValues[index]?.serial !== undefined}
+													<div class="voucher-original-value">
+														<span class="original-label">Original:</span>
+														<span class="original-value">{voucher.serial}</span>
+													</div>
+												{/if}
+											</div>
+										</td>
+										<td>
+											<div class="voucher-cell-wrapper">
+												<div class="voucher-amount-display">
+													<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+													<input
+														type="number"
+														class="voucher-editable-input voucher-amount-input"
+														class:voucher-edited={voucherEditedValues[index]?.amount !== undefined}
+														readonly={!voucherEditMode[index]?.amount}
+														value={voucherEditedValues[index]?.amount !== undefined ? voucherEditedValues[index].amount : voucher.amount}
+														on:dblclick={() => {
+															if (closingStarted) {
+																if (!voucherEditMode[index]) voucherEditMode[index] = { serial: false, amount: false };
+																voucherEditMode[index].amount = true;
+																voucherEditMode = voucherEditMode;
+															}
+														}}
+														on:blur={(e) => {
+															if (voucherEditMode[index]?.amount) {
+																const newValue = parseFloat(e.currentTarget.value) || 0;
+																if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
+																voucherEditedValues[index].amount = newValue;
+																voucherEditedValues = voucherEditedValues;
+																voucherEditMode[index].amount = false;
+																voucherEditMode = voucherEditMode;
+																saveVoucherData();
+															}
+														}}
+														on:keydown={(e) => {
+															if (e.key === 'Enter' && voucherEditMode[index]?.amount) {
+																e.currentTarget.blur();
+															}
+														}}
+													/>
+												</div>
+												{#if voucherEditedValues[index]?.amount !== undefined}
+													<div class="voucher-original-value">
+														<span class="original-label">Original:</span>
+														<span class="original-value">{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+													</div>
+												{/if}
 											</div>
 										</td>
 									</tr>
@@ -1020,61 +1627,239 @@ $: if (closingStarted && denomVerified) {
 				<div class="card-header-text">{$currentLocale === 'ar' ? '3. تسوية البنك' : '3. Bank Reconciliation'}</div>
 				
 				<div class="bank-fields-row">
+					<!-- Mada -->
 					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-						<input
-							type="number"
-							bind:value={madaAmount}
-							readonly
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
+						<div class="bank-field-header">
+							<input
+								type="checkbox"
+								bind:checked={bankVerified['mada']}
+								on:change={saveBankData}
+								class="bank-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
+						</div>
+						<div class="bank-amount-display">
+							<input
+								type="number"
+								value={bankEditedValues['mada'] !== undefined ? bankEditedValues['mada'] : madaAmount}
+								readonly={!bankEditMode['mada']}
+								min="0"
+								step="0.01"
+								class="bank-editable-input {bankEditedValues['mada'] !== undefined ? 'bank-edited' : ''}"
+								on:dblclick={() => {
+									bankEditMode['mada'] = true;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(madaAmount) || 0)) {
+										bankEditedValues['mada'] = newValue;
+										saveBankData();
+									}
+									bankEditMode['mada'] = false;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && bankEditMode['mada']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if bankEditedValues['mada'] !== undefined}
+								<div class="bank-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(madaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-						<input
-							type="number"
-							bind:value={visaAmount}
-							readonly
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
-						<input
-							type="number"
-							bind:value={masterCardAmount}
-							readonly
 
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
-					</div>
+					<!-- Visa -->
 					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
-						<input
-							type="number"
-							bind:value={googlePayAmount}
-							readonly
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
+						<div class="bank-field-header">
+							<input
+								type="checkbox"
+								bind:checked={bankVerified['visa']}
+								on:change={saveBankData}
+								class="bank-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
+						</div>
+						<div class="bank-amount-display">
+							<input
+								type="number"
+								value={bankEditedValues['visa'] !== undefined ? bankEditedValues['visa'] : visaAmount}
+								readonly={!bankEditMode['visa']}
+								min="0"
+								step="0.01"
+								class="bank-editable-input {bankEditedValues['visa'] !== undefined ? 'bank-edited' : ''}"
+								on:dblclick={() => {
+									bankEditMode['visa'] = true;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(visaAmount) || 0)) {
+										bankEditedValues['visa'] = newValue;
+										saveBankData();
+									}
+									bankEditMode['visa'] = false;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && bankEditMode['visa']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if bankEditedValues['visa'] !== undefined}
+								<div class="bank-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(visaAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- MasterCard -->
 					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-						<input
-							type="number"
-							bind:value={otherAmount}
-							readonly
-							min="0"
-							step="0.01"
-							class="bank-input"
-						/>
+						<div class="bank-field-header">
+							<input
+								type="checkbox"
+								bind:checked={bankVerified['mastercard']}
+								on:change={saveBankData}
+								class="bank-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
+						</div>
+						<div class="bank-amount-display">
+							<input
+								type="number"
+								value={bankEditedValues['mastercard'] !== undefined ? bankEditedValues['mastercard'] : masterCardAmount}
+								readonly={!bankEditMode['mastercard']}
+								min="0"
+								step="0.01"
+								class="bank-editable-input {bankEditedValues['mastercard'] !== undefined ? 'bank-edited' : ''}"
+								on:dblclick={() => {
+									bankEditMode['mastercard'] = true;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(masterCardAmount) || 0)) {
+										bankEditedValues['mastercard'] = newValue;
+										saveBankData();
+									}
+									bankEditMode['mastercard'] = false;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && bankEditMode['mastercard']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if bankEditedValues['mastercard'] !== undefined}
+								<div class="bank-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(masterCardAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Google Pay -->
+					<div class="bank-input-group">
+						<div class="bank-field-header">
+							<input
+								type="checkbox"
+								bind:checked={bankVerified['googlepay']}
+								on:change={saveBankData}
+								class="bank-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
+						</div>
+						<div class="bank-amount-display">
+							<input
+								type="number"
+								value={bankEditedValues['googlepay'] !== undefined ? bankEditedValues['googlepay'] : googlePayAmount}
+								readonly={!bankEditMode['googlepay']}
+								min="0"
+								step="0.01"
+								class="bank-editable-input {bankEditedValues['googlepay'] !== undefined ? 'bank-edited' : ''}"
+								on:dblclick={() => {
+									bankEditMode['googlepay'] = true;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(googlePayAmount) || 0)) {
+										bankEditedValues['googlepay'] = newValue;
+										saveBankData();
+									}
+									bankEditMode['googlepay'] = false;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && bankEditMode['googlepay']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if bankEditedValues['googlepay'] !== undefined}
+								<div class="bank-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(googlePayAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Other -->
+					<div class="bank-input-group">
+						<div class="bank-field-header">
+							<input
+								type="checkbox"
+								bind:checked={bankVerified['other']}
+								on:change={saveBankData}
+								class="bank-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
+						</div>
+						<div class="bank-amount-display">
+							<input
+								type="number"
+								value={bankEditedValues['other'] !== undefined ? bankEditedValues['other'] : otherAmount}
+								readonly={!bankEditMode['other']}
+								min="0"
+								step="0.01"
+								class="bank-editable-input {bankEditedValues['other'] !== undefined ? 'bank-edited' : ''}"
+								on:dblclick={() => {
+									bankEditMode['other'] = true;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(otherAmount) || 0)) {
+										bankEditedValues['other'] = newValue;
+										saveBankData();
+									}
+									bankEditMode['other'] = false;
+									bankEditMode = {...bankEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && bankEditMode['other']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if bankEditedValues['other'] !== undefined}
+								<div class="bank-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(otherAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 
@@ -1086,42 +1871,149 @@ $: if (closingStarted && denomVerified) {
 					</div>
 				</div>
 			</div>
-			<div class="split-section">
+			<div class="split-section erp-closing-section">
 				<div class="card-header-text">{$currentLocale === 'ar' ? '4. تفاصيل إغلاق النظام' : '4. ERP Closing Details'}</div>
 				
 				<div class="system-sales-row">
+					<!-- Cash Sales -->
 					<div class="system-input-group">
-						<label>{$currentLocale === 'ar' ? 'المبيعات النقدية' : 'Cash Sales'}</label>
-						<input
-							type="number"
-							bind:value={systemCashSales}
-							readonly
-							min="0"
-							step="0.01"
-							class="system-input"
-						/>
+						<div class="system-field-header">
+							<input
+								type="checkbox"
+								bind:checked={systemVerified['cashSales']}
+								on:change={saveSystemData}
+								class="system-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'المبيعات النقدية' : 'Cash Sales'}</label>
+						</div>
+						<div class="system-amount-display">
+							<input
+								type="number"
+								value={systemEditedValues['cashSales'] !== undefined ? systemEditedValues['cashSales'] : systemCashSales}
+								readonly={!systemEditMode['cashSales']}
+								min="0"
+								step="0.01"
+								class="system-editable-input {systemEditedValues['cashSales'] !== undefined ? 'system-edited' : ''}"
+								on:dblclick={() => {
+									systemEditMode['cashSales'] = true;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(systemCashSales) || 0)) {
+										systemEditedValues['cashSales'] = newValue;
+										saveSystemData();
+									}
+									systemEditMode['cashSales'] = false;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && systemEditMode['cashSales']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if systemEditedValues['cashSales'] !== undefined}
+								<div class="system-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(systemCashSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- Card Sales -->
 					<div class="system-input-group">
-						<label>{$currentLocale === 'ar' ? 'مبيعات البطاقة' : 'Card Sales'}</label>
-						<input
-							type="number"
-							bind:value={systemCardSales}
-							readonly
-							min="0"
-							step="0.01"
-							class="system-input"
-						/>
+						<div class="system-field-header">
+							<input
+								type="checkbox"
+								bind:checked={systemVerified['cardSales']}
+								on:change={saveSystemData}
+								class="system-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'مبيعات البطاقة' : 'Card Sales'}</label>
+						</div>
+						<div class="system-amount-display">
+							<input
+								type="number"
+								value={systemEditedValues['cardSales'] !== undefined ? systemEditedValues['cardSales'] : systemCardSales}
+								readonly={!systemEditMode['cardSales']}
+								min="0"
+								step="0.01"
+								class="system-editable-input {systemEditedValues['cardSales'] !== undefined ? 'system-edited' : ''}"
+								on:dblclick={() => {
+									systemEditMode['cardSales'] = true;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(systemCardSales) || 0)) {
+										systemEditedValues['cardSales'] = newValue;
+										saveSystemData();
+									}
+									systemEditMode['cardSales'] = false;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && systemEditMode['cardSales']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if systemEditedValues['cardSales'] !== undefined}
+								<div class="system-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(systemCardSales) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- Return -->
 					<div class="system-input-group">
-						<label>{$currentLocale === 'ar' ? 'المرتجعات' : 'Return'}</label>
-						<input
-							type="number"
-							bind:value={systemReturn}
-							readonly
-							min="0"
-							step="0.01"
-							class="system-input"
-						/>
+						<div class="system-field-header">
+							<input
+								type="checkbox"
+								bind:checked={systemVerified['return']}
+								on:change={saveSystemData}
+								class="system-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'المرتجعات' : 'Return'}</label>
+						</div>
+						<div class="system-amount-display">
+							<input
+								type="number"
+								value={systemEditedValues['return'] !== undefined ? systemEditedValues['return'] : systemReturn}
+								readonly={!systemEditMode['return']}
+								min="0"
+								step="0.01"
+								class="system-editable-input {systemEditedValues['return'] !== undefined ? 'system-edited' : ''}"
+								on:dblclick={() => {
+									systemEditMode['return'] = true;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(systemReturn) || 0)) {
+										systemEditedValues['return'] = newValue;
+										saveSystemData();
+									}
+									systemEditMode['return'] = false;
+									systemEditMode = {...systemEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && systemEditMode['return']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if systemEditedValues['return'] !== undefined}
+								<div class="system-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(systemReturn) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 
@@ -1145,65 +2037,287 @@ $: if (closingStarted && denomVerified) {
 				<div class="card-header-text">{$currentLocale === 'ar' ? '5. بطاقات الشحن' : '5. Recharge Cards'}</div>
 				
 				<div class="date-time-row">
+					<!-- Start Date -->
 					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
-						<input type="date" class="date-time-input" bind:value={startDateInput} readonly />
-					</div>
-					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
-						<div class="digital-time-picker">
-							<button 
-								class="time-display-btn"
-								disabled
-							>
-								<span class="time-value">{startHour}:{startMinute}</span>
-								<span class="ampm-value">{startAmPm}</span>
-							</button>
+						<div class="datetime-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['startDate']}
+								on:change={saveRechargeData}
+								class="datetime-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
+						</div>
+						<div class="datetime-input-display">
+							<input 
+								type="date" 
+								class="datetime-editable-input {rechargeEditedValues['startDate'] !== undefined ? 'datetime-edited' : ''}" 
+								value={rechargeEditedValues['startDate'] !== undefined ? rechargeEditedValues['startDate'] : startDateInput}
+								readonly={!rechargeEditMode['startDate']}
+								on:dblclick={() => {
+									rechargeEditMode['startDate'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = e.currentTarget.value;
+									if (newValue !== startDateInput) {
+										rechargeEditedValues['startDate'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['startDate'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['startDate']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['startDate'] !== undefined}
+								<div class="datetime-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{startDateInput || 'N/A'}</span>
+								</div>
+							{/if}
 						</div>
 					</div>
+
+					<!-- Start Time -->
 					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
-						<input type="date" class="date-time-input" bind:value={endDateInput} readonly />
+						<div class="datetime-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['startTime']}
+								on:change={saveRechargeData}
+								class="datetime-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
+						</div>
+						<div class="datetime-input-display">
+							<input 
+								type="text" 
+								class="datetime-editable-input {rechargeEditedValues['startTime'] !== undefined ? 'datetime-edited' : ''}" 
+								value={rechargeEditedValues['startTime'] !== undefined ? rechargeEditedValues['startTime'] : `${startHour}:${startMinute} ${startAmPm}`}
+								readonly={!rechargeEditMode['startTime']}
+								placeholder="HH:MM AM/PM"
+								on:dblclick={() => {
+									rechargeEditMode['startTime'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = e.currentTarget.value;
+									if (newValue !== `${startHour}:${startMinute} ${startAmPm}`) {
+										rechargeEditedValues['startTime'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['startTime'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['startTime']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['startTime'] !== undefined}
+								<div class="datetime-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{startHour}:{startMinute} {startAmPm}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- End Date -->
 					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
-						<div class="digital-time-picker">
-							<button 
-								class="time-display-btn"
-								disabled
-							>
-								<span class="time-value">{endHour}:{endMinute}</span>
-								<span class="ampm-value">{endAmPm}</span>
-							</button>
+						<div class="datetime-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['endDate']}
+								on:change={saveRechargeData}
+								class="datetime-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
+						</div>
+						<div class="datetime-input-display">
+							<input 
+								type="date" 
+								class="datetime-editable-input {rechargeEditedValues['endDate'] !== undefined ? 'datetime-edited' : ''}" 
+								value={rechargeEditedValues['endDate'] !== undefined ? rechargeEditedValues['endDate'] : endDateInput}
+								readonly={!rechargeEditMode['endDate']}
+								on:dblclick={() => {
+									rechargeEditMode['endDate'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = e.currentTarget.value;
+									if (newValue !== endDateInput) {
+										rechargeEditedValues['endDate'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['endDate'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['endDate']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['endDate'] !== undefined}
+								<div class="datetime-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{endDateInput || 'N/A'}</span>
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- End Time -->
+					<div class="date-time-group">
+						<div class="datetime-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['endTime']}
+								on:change={saveRechargeData}
+								class="datetime-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
+						</div>
+						<div class="datetime-input-display">
+							<input 
+								type="text" 
+								class="datetime-editable-input {rechargeEditedValues['endTime'] !== undefined ? 'datetime-edited' : ''}" 
+								value={rechargeEditedValues['endTime'] !== undefined ? rechargeEditedValues['endTime'] : `${endHour}:${endMinute} ${endAmPm}`}
+								readonly={!rechargeEditMode['endTime']}
+								placeholder="HH:MM AM/PM"
+								on:dblclick={() => {
+									rechargeEditMode['endTime'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = e.currentTarget.value;
+									if (newValue !== `${endHour}:${endMinute} ${endAmPm}`) {
+										rechargeEditedValues['endTime'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['endTime'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['endTime']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['endTime'] !== undefined}
+								<div class="datetime-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{endHour}:{endMinute} {endAmPm}</span>
+								</div>
+							{/if}
 						</div>
 					</div>
 				</div>
 				
 				<div class="balance-row">
+					<!-- Opening Balance -->
 					<div class="balance-group">
-						<label>{$currentLocale === 'ar' ? 'الرصيد الافتتاحي' : 'Opening Balance'}</label>
-						<input
-							type="number"
-							bind:value={openingBalance}
-							readonly
-							placeholder="0.00"
-							min="0"
-							step="0.01"
-							class="balance-input"
-						/>
+						<div class="recharge-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['openingBalance']}
+								on:change={saveRechargeData}
+								class="recharge-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'الرصيد الافتتاحي' : 'Opening Balance'}</label>
+						</div>
+						<div class="recharge-amount-display">
+							<input
+								type="number"
+								value={rechargeEditedValues['openingBalance'] !== undefined ? rechargeEditedValues['openingBalance'] : openingBalance}
+								readonly={!rechargeEditMode['openingBalance']}
+								placeholder="0.00"
+								min="0"
+								step="0.01"
+								class="recharge-editable-input {rechargeEditedValues['openingBalance'] !== undefined ? 'recharge-edited' : ''}"
+								on:dblclick={() => {
+									rechargeEditMode['openingBalance'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(openingBalance) || 0)) {
+										rechargeEditedValues['openingBalance'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['openingBalance'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['openingBalance']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['openingBalance'] !== undefined}
+								<div class="recharge-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(openingBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- Close Balance -->
 					<div class="balance-group">
-						<label>{$currentLocale === 'ar' ? 'رصيد الإغلاق' : 'Close Balance'}</label>
-						<input
-							type="number"
-							bind:value={closeBalance}
-							readonly
-							placeholder="0.00"
-							min="0"
-							step="0.01"
-							class="balance-input"
-						/>
+						<div class="recharge-field-header">
+							<input
+								type="checkbox"
+								bind:checked={rechargeVerified['closeBalance']}
+								on:change={saveRechargeData}
+								class="recharge-verify-checkbox"
+							/>
+							<label>{$currentLocale === 'ar' ? 'رصيد الإغلاق' : 'Close Balance'}</label>
+						</div>
+						<div class="recharge-amount-display">
+							<input
+								type="number"
+								value={rechargeEditedValues['closeBalance'] !== undefined ? rechargeEditedValues['closeBalance'] : closeBalance}
+								readonly={!rechargeEditMode['closeBalance']}
+								placeholder="0.00"
+								min="0"
+								step="0.01"
+								class="recharge-editable-input {rechargeEditedValues['closeBalance'] !== undefined ? 'recharge-edited' : ''}"
+								on:dblclick={() => {
+									rechargeEditMode['closeBalance'] = true;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:blur={(e) => {
+									const newValue = parseFloat(e.currentTarget.value) || 0;
+									if (newValue !== (Number(closeBalance) || 0)) {
+										rechargeEditedValues['closeBalance'] = newValue;
+										saveRechargeData();
+									}
+									rechargeEditMode['closeBalance'] = false;
+									rechargeEditMode = {...rechargeEditMode};
+								}}
+								on:keydown={(e) => {
+									if (e.key === 'Enter' && rechargeEditMode['closeBalance']) {
+										e.currentTarget.blur();
+									}
+								}}
+							/>
+							{#if rechargeEditedValues['closeBalance'] !== undefined}
+								<div class="recharge-original-value">
+									<span class="original-label">Original:</span>
+									<span class="original-value">{(Number(closeBalance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
+
+					<!-- Sales (Read-only, calculated) -->
 					<div class="balance-group">
 						<label>{$currentLocale === 'ar' ? 'المبيعات' : 'Sales'}</label>
 						<input
@@ -1216,7 +2330,7 @@ $: if (closingStarted && denomVerified) {
 					</div>
 				</div>
 			</div>
-			<div class="split-section">
+			<div class="split-section comparison-signature-section">
 				<div class="card-header-text">{$currentLocale === 'ar' ? '6. المقارنة والتوقيع الإلكتروني' : '6. Comparison & Electronic Signature'}</div>
 				<div class="sub-cards-row">
 					<div class="sub-card">
@@ -1343,6 +2457,7 @@ $: if (closingStarted && denomVerified) {
 							<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
 							<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
 							<th>{$currentLocale === 'ar' ? 'الحالة' : 'Status'}</th>
+							<th>{$currentLocale === 'ar' ? 'الإجراء' : 'Action'}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -1357,9 +2472,65 @@ $: if (closingStarted && denomVerified) {
 								</td>
 								<td>
 									<span class="status-badge" class:status-stocked={result.status === 'stocked'}
+										class:status-issued={result.status === 'issued'}
 										class:status-not-found={!result.found}>
 										{result.status}
 									</span>
+								</td>
+								<td>
+									{#if result.found && result.voucherData}
+										{#if result.status === 'stocked'}
+											<button 
+												class="action-btn issue-btn"
+												on:click={() => {
+													const windowId = `issue-purchase-voucher-${Date.now()}`;
+													openWindow({
+														id: windowId,
+														title: $currentLocale === 'ar' ? 'إصدار قسيمة الشراء' : 'Issue Purchase Voucher',
+														component: IssuePurchaseVoucher,
+														icon: '📝',
+														size: { width: 1200, height: 700 },
+														position: { x: 100, y: 100 },
+														resizable: true,
+														minimizable: true,
+														maximizable: true,
+														closable: true,
+														props: { windowId, autoLoadSerial: result.serial, autoFilterValue: result.amount.toString() }
+													});
+													showVoucherStatusModal = false;
+												}}
+											>
+												{$currentLocale === 'ar' ? 'إصدار' : 'Issue'}
+											</button>
+										{:else if result.status === 'issued'}
+											<button 
+												class="action-btn close-btn"
+												on:click={() => {
+													const windowId = `close-purchase-voucher-${Date.now()}`;
+													openWindow({
+														id: windowId,
+														title: $currentLocale === 'ar' ? 'إغلاق قسيمة الشراء' : 'Close Purchase Voucher',
+														component: ClosePurchaseVoucher,
+														icon: '🔒',
+														size: { width: 1400, height: 800 },
+														position: { x: 100, y: 100 },
+														resizable: true,
+														minimizable: true,
+														maximizable: true,
+														closable: true,
+														props: { windowId, autoFilterSerial: result.serial, autoFilterValue: result.amount.toString() }
+													});
+													showVoucherStatusModal = false;
+												}}
+											>
+												{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}
+											</button>
+										{:else}
+											<span class="no-action">-</span>
+										{/if}
+									{:else}
+										<span class="no-action">-</span>
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -1520,9 +2691,20 @@ $: if (closingStarted && denomVerified) {
 	/* Recharge Cards Card 11 Styling */
 	.recharge-card-section-11 {
 		flex: 1.1 !important;
-		min-height: 200px !important;
+		min-height: 210px !important;
 		border: 3px solid #ea580c !important;
 		padding: 0.5rem !important;
+		margin-top: 0rem !important;
+	}
+
+	/* Comparison & Signature Section Styling */
+	.comparison-signature-section {
+		margin-top: 0rem !important;
+	}
+
+	/* ERP Closing Section Styling */
+	.erp-closing-section {
+		min-height: 240px !important;
 	}
 
 	.date-time-row {
@@ -2197,6 +3379,34 @@ $: if (closingStarted && denomVerified) {
 		min-width: 0;
 	}
 
+	.denom-values-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		flex-shrink: 0;
+	}
+
+	.denom-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.denom-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.denom-original-value .original-count {
+		font-weight: 700;
+		color: #3730a3;
+	}
+
 	.denom-total {
 		display: flex;
 		align-items: center;
@@ -2247,6 +3457,18 @@ $: if (closingStarted && denomVerified) {
 		border-color: #22c55e;
 		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2), 0 4px 6px rgba(34, 197, 94, 0.15);
 		transform: translateY(-1px);
+	}
+
+	.denom-input-wrapper input.denom-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.denom-input-wrapper input.denom-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2), 0 4px 6px rgba(245, 158, 11, 0.15);
 	}
 
 	.currency-icon-small {
@@ -2407,6 +3629,411 @@ $: if (closingStarted && denomVerified) {
 
 	.vouchers-table tbody tr:hover {
 		background: #f9fafb;
+	}
+
+	.voucher-verify-checkbox {
+		width: 1rem;
+		height: 1rem;
+		cursor: pointer;
+		accent-color: #059669;
+	}
+
+	.voucher-verify-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.voucher-cell-wrapper {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.voucher-editable-input {
+		padding: 0.25rem 0.4rem;
+		border: 2px solid #d1fae5;
+		border-radius: 0.375rem;
+		font-size: 0.65rem;
+		background: white;
+		font-weight: 600;
+		color: #166534;
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	.voucher-editable-input:focus {
+		outline: none;
+		border-color: #22c55e;
+		box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+		background: #f0fdf4;
+	}
+
+	.voucher-editable-input.voucher-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.voucher-editable-input.voucher-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+	}
+
+	.voucher-amount-display {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.voucher-amount-input {
+		flex: 1;
+		min-width: 80px;
+	}
+
+	.voucher-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.voucher-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.voucher-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
+	}
+
+	/* Bank Edit Styles */
+	.bank-field-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-bottom: 0.3rem;
+	}
+
+	.bank-verify-checkbox {
+		width: 0.8rem;
+		height: 0.8rem;
+		cursor: pointer;
+		accent-color: #22c55e;
+	}
+
+	.bank-editable-input {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #166534;
+		transition: all 0.2s;
+		cursor: pointer;
+	}
+
+	.bank-editable-input[readonly] {
+		background: #f9fafb;
+		cursor: pointer;
+	}
+
+	.bank-editable-input:not([readonly]) {
+		background: white;
+		cursor: text;
+	}
+
+	.bank-editable-input:hover {
+		border-color: #d1d5db;
+		background: #f0fdf4;
+	}
+
+	.bank-editable-input.bank-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.bank-editable-input.bank-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+	}
+
+	.bank-amount-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.bank-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.bank-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.bank-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
+	}
+
+	/* System Sales Edit Styles */
+	.system-field-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-bottom: 0.3rem;
+	}
+
+	.system-verify-checkbox {
+		width: 0.8rem;
+		height: 0.8rem;
+		cursor: pointer;
+		accent-color: #22c55e;
+	}
+
+	.system-editable-input {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #166534;
+		transition: all 0.2s;
+		cursor: pointer;
+	}
+
+	.system-editable-input[readonly] {
+		background: #f9fafb;
+		cursor: pointer;
+	}
+
+	.system-editable-input:not([readonly]) {
+		background: white;
+		cursor: text;
+	}
+
+	.system-editable-input:hover {
+		border-color: #d1d5db;
+		background: #f0fdf4;
+	}
+
+	.system-editable-input.system-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.system-editable-input.system-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+	}
+
+	.system-amount-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.system-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.system-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.system-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
+	}
+
+	/* Recharge Card Edit Styles */
+	.recharge-field-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-bottom: 0.3rem;
+	}
+
+	.recharge-verify-checkbox {
+		width: 0.8rem;
+		height: 0.8rem;
+		cursor: pointer;
+		accent-color: #22c55e;
+	}
+
+	.recharge-editable-input {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #166534;
+		transition: all 0.2s;
+		cursor: pointer;
+	}
+
+	.recharge-editable-input[readonly] {
+		background: #f9fafb;
+		cursor: pointer;
+	}
+
+	.recharge-editable-input:not([readonly]) {
+		background: white;
+		cursor: text;
+	}
+
+	.recharge-editable-input:hover {
+		border-color: #d1d5db;
+		background: #f0fdf4;
+	}
+
+	.recharge-editable-input.recharge-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.recharge-editable-input.recharge-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+	}
+
+	.recharge-amount-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.recharge-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.recharge-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.recharge-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
+	}
+
+	/* DateTime Edit Styles */
+	.datetime-field-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-bottom: 0.3rem;
+	}
+
+	.datetime-verify-checkbox {
+		width: 0.8rem;
+		height: 0.8rem;
+		cursor: pointer;
+		accent-color: #22c55e;
+	}
+
+	.datetime-input-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.datetime-editable-input {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #e5e7eb;
+		border-radius: 0.375rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #166534;
+		transition: all 0.2s;
+		cursor: pointer;
+	}
+
+	.datetime-editable-input[readonly] {
+		background: #f9fafb;
+		cursor: pointer;
+	}
+
+	.datetime-editable-input:not([readonly]) {
+		background: white;
+		cursor: text;
+	}
+
+	.datetime-editable-input:hover {
+		border-color: #d1d5db;
+		background: #f0fdf4;
+	}
+
+	.datetime-editable-input.datetime-edited {
+		background: #fef3c7;
+		border-color: #fbbf24;
+		color: #92400e;
+		font-weight: 700;
+	}
+
+	.datetime-editable-input.datetime-edited:focus {
+		border-color: #f59e0b;
+		box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+	}
+
+	.datetime-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.5rem;
+		padding: 0.15rem 0.3rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.datetime-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.datetime-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
 	}
 
 	.amount-cell {
@@ -2901,6 +4528,109 @@ $: if (closingStarted && denomVerified) {
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
+	.complete-btn {
+		padding: 0.3rem 0.75rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		border: 2px solid #1d4ed8;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+		box-sizing: border-box;
+	}
+
+	.complete-btn:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(59, 130, 246, 0.4);
+	}
+
+	.complete-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+	}
+
+	.complete-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.complete-btn:disabled:hover {
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.add-to-denomination-btn {
+		padding: 0.3rem 0.75rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		border: 2px solid #b45309;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+		box-sizing: border-box;
+	}
+
+	.add-to-denomination-btn:hover {
+		background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(245, 158, 11, 0.4);
+	}
+
+	.add-to-denomination-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+	}
+
+	.add-to-denomination-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.add-to-denomination-btn:disabled:hover {
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.complete-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.complete-btn:disabled:hover {
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
 	.button-row {
 		display: flex;
 		gap: 0.5rem;
@@ -3103,10 +4833,52 @@ $: if (closingStarted && denomVerified) {
 		border: 1px solid #10b981;
 	}
 
+	.status-badge.status-issued {
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #f59e0b;
+	}
+
 	.status-badge.status-not-found {
 		background: #fee2e2;
 		color: #991b1b;
 		border: 1px solid #ef4444;
+	}
+
+	.action-btn {
+		padding: 0.375rem 0.75rem;
+		border: none;
+		border-radius: 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		text-transform: uppercase;
+	}
+
+	.action-btn.issue-btn {
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+	}
+
+	.action-btn.issue-btn:hover {
+		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.action-btn.close-btn {
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		color: white;
+	}
+
+	.action-btn.close-btn:hover {
+		box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.no-action {
+		color: #9ca3af;
+		font-size: 0.75rem;
 	}
 </style>
 
