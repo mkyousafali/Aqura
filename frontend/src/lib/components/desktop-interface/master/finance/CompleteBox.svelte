@@ -11,8 +11,79 @@
 	// Parse notes JSON to get names and POS number
 	let operationData: any = {};
 	let selectedPosNumber = 1;
+	let posBeforeUrl: string = '';
 	
 	console.log('📦 CloseBox received operation:', operation);
+	
+	// Initialize Supabase client
+	const supabase = createClient(
+		import.meta.env.VITE_SUPABASE_URL,
+		import.meta.env.VITE_SUPABASE_ANON_KEY
+	);
+
+	// Check if completed operation exists and load from there
+	async function checkAndLoadCompletedOperation() {
+		if (!operation?.id || hasCheckedForCompleted) return;
+		
+		hasCheckedForCompleted = true;
+
+		try {
+		console.log('🔍 Checking if closing already started for operation:', operation.id);
+		
+		// Check if closing process has been started
+		const { data: op, error } = await supabase
+			.from('box_operations')
+			.select('*')
+			.eq('id', operation.id)
+			.single();
+
+		if (error) {
+			console.error('❌ Error checking operation:', error);
+			return;
+		}
+
+		// If completed_by_name exists, closing has been started
+		if (op?.completed_by_name) {
+			console.log('✅ Closing already started, loading state');
+			operation = op;
+			completedByName = op.completed_by_name;
+			closingStarted = true;
+			// Reset guards to allow re-initialization
+			hasInitializedCounts = false;
+			hasFetchedUrl = false;
+			initializeClosingCounts();
+			await fetchPosBeforeUrl();
+		}
+	} catch (e) {
+		console.error('❌ Exception checking operation:', e);
+	}
+}
+
+// Run check on component mount (only once)
+$: if (operation?.id && !hasCheckedForCompleted) {
+		checkAndLoadCompletedOperation();
+	}
+
+	// Fetch pos_before_url if not in operation
+	async function fetchPosBeforeUrl() {
+		if (operation?.id) {
+			try {
+				console.log('🔍 Fetching pos_before_url for operation:', operation.id);
+				
+			const { data, error } = await supabase
+				.from('box_operations')
+
+				if (error) {
+					console.error('Error fetching pos_before_url:', error);
+				} else if (data?.pos_before_url) {
+					posBeforeUrl = data.pos_before_url;
+					console.log('✅ Fetched pos_before_url:', posBeforeUrl);
+				}
+			} catch (e) {
+				console.error('Exception fetching pos_before_url:', e);
+			}
+		}
+	}
 	
 	try {
 		if (operation?.notes) {
@@ -23,6 +94,12 @@
 		}
 	} catch (e) {
 		console.error('Error parsing operation notes:', e);
+	}
+	
+	// Fetch pos_before_url on component mount
+	$: if (operation?.id && !hasFetchedUrl) {
+		fetchPosBeforeUrl();
+		hasFetchedUrl = true;
 	}
 	
 	console.log('📝 Parsed operation data:', operationData);
@@ -61,6 +138,9 @@
 	// Closing cash counts - load from operation data
 	let closingCounts: Record<string, number> = {};
 	let closingDetails: any = {};
+	
+	// Verification checkboxes for each denomination
+	let denomVerified: Record<string, boolean> = {};
 	
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
@@ -122,22 +202,66 @@
 			vouchers = details.vouchers || [];
 			
 			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
-		} else if (operation?.counts_after) {
-			closingCounts = { ...operation.counts_after };
-			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
-		} else {
-			// Initialize with zeros
-			closingCounts = {};
-			Object.keys(denomValues).forEach(key => {
-				closingCounts[key] = 0;
-			});
-			console.log('⚠️ No closing data found, initialized with zeros');
-		}
+	} else if (operation?.counts_after) {
+		// Fallback to counts_after if closing_details not available
+		closingCounts = { ...operation.counts_after };
+		console.log('✅ Loaded closing counts from counts_after:', closingCounts);
+	} else {
+		// Initialize with zeros if no data available
+		closingCounts = {};
+		Object.keys(denomValues).forEach(key => {
+			closingCounts[key] = 0;
+		});
+		console.log('⚠️ No closing data found, initialized with zeros');
 	}
 	
-	// Initialize on mount
-	$: if (operation) {
-		initializeClosingCounts();
+	// Load verification checkbox states from complete_details (separate from counts)
+	if (operation?.complete_details) {
+		const completeDetails = typeof operation.complete_details === 'string'
+			? JSON.parse(operation.complete_details)
+			: operation.complete_details;
+		
+		// Restore checkbox states - if denomination exists in complete_details, mark as verified
+		denomVerified = {};
+		Object.keys(completeDetails).forEach(key => {
+			denomVerified[key] = true;
+		});
+		console.log('✅ Loaded verification checkboxes:', denomVerified);
+	}
+}
+
+// Function to save verification data live to database
+async function saveVerificationData() {
+	if (!operation?.id) return;
+	
+	// Build complete_details with verified denominations and their counts (like closing_counts format)
+	const completeDetails: Record<string, number> = {};
+	Object.keys(denomVerified).forEach(key => {
+		if (denomVerified[key] === true) {
+			completeDetails[key] = closingCounts[key] || 0;
+		}
+	});
+		
+		try {
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ complete_details: completeDetails })
+				.eq('id', operation.id);
+			
+			if (error) {
+				console.error('Error saving verification data:', error);
+			} else {
+			console.log('✅ Saved verification data to box_operations');
+		}
+	} catch (e) {
+		console.error('Exception saving verification data:', e);
+	}
+}
+
+// Auto-save verification data whenever checkboxes change
+$: if (closingStarted && denomVerified) {
+	saveVerificationData();
+		hasInitializedCounts = true;
 	}
 
 	// Calculate total
@@ -257,11 +381,110 @@
 	let cashierConfirmError: string = '';
 	
 	let closingSaved: boolean = false;
+	let closingStarted: boolean = false;
+	let hasCheckedForCompleted: boolean = false;
+	let hasFetchedUrl: boolean = false;
+	let hasInitializedCounts: boolean = false;
 
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
+	// Voucher status check
+	let showVoucherStatusModal: boolean = false;
+	let voucherStatusResults: Array<{serial: string, amount: number, status: string, found: boolean}> = [];
+	let isCheckingVoucherStatus: boolean = false;
+
+	// Function to check voucher status
+	async function checkVoucherStatus() {
+		if (vouchers.length === 0) {
+			alert($currentLocale === 'ar' ? 'لا توجد قسائم للتحقق منها' : 'No vouchers to check');
+			return;
+		}
+
+		isCheckingVoucherStatus = true;
+		voucherStatusResults = [];
+
+		try {
+			// Check each voucher against purchase_voucher_items table
+			for (const voucher of vouchers) {
+				const { data, error } = await supabase
+					.from('purchase_voucher_items')
+					.select('status, serial_number, value')
+					.eq('serial_number', parseInt(voucher.serial))
+					.eq('value', parseFloat(voucher.amount))
+					.maybeSingle();
+
+				if (error) {
+					console.error('Error checking voucher:', error);
+					voucherStatusResults.push({
+						serial: voucher.serial,
+						amount: voucher.amount,
+						status: 'Error',
+						found: false
+					});
+				} else if (data) {
+					voucherStatusResults.push({
+						serial: voucher.serial,
+						amount: voucher.amount,
+						status: data.status || 'Unknown',
+						found: true
+					});
+				} else {
+					voucherStatusResults.push({
+						serial: voucher.serial,
+						amount: voucher.amount,
+						status: 'Not Found',
+						found: false
+					});
+				}
+			}
+
+			showVoucherStatusModal = true;
+		} catch (error) {
+			console.error('Exception checking voucher status:', error);
+			alert($currentLocale === 'ar' ? 'خطأ في التحقق من حالة القسائم' : 'Error checking voucher status');
+		} finally {
+			isCheckingVoucherStatus = false;
+		}
+	}
+
+	// Function to start closing process
+	async function startClosingProcess() {
+		if (!operation?.id) {
+			alert('No operation found to close');
+			return;
+		}
+
+		try {
+			console.log('🔄 Starting closing process for operation:', operation.id);
+
+			// Get current user info
+			const { data: { user } } = await supabase.auth.getUser();
+			
+			// Update box_operations with completed_by info
+			const { error: updateError } = await supabase
+				.from('box_operations')
+				.update({
+					completed_by_user_id: user?.id,
+					completed_by_name: completedByName
+				})
+				.eq('id', operation.id);
+
+			if (updateError) {
+				console.error('❌ Error updating operation:', updateError);
+				alert('Failed to start closing process: ' + updateError.message);
+				return;
+			}
+
+			console.log('✅ Closing process started');
+			
+			// Show the cards
+			closingStarted = true;
+			
+			// Reinitialize closing counts from completed data
+			initializeClosingCounts();
+			
+		} catch (error) {
+			console.error('❌ Exception loading completed operation:', error);
+		}
+	}
 
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';
@@ -525,9 +748,117 @@
 	function updateEndTime() {
 		endTimeInput = `${endHour}:${endMinute} ${endAmPm}`;
 	}
+
+	// Quick access code for completed by
+	let completedByCode: string = '';
+	let completedByName: string = '';
+	let completedByCodeError: string = '';
+
+	// Verify quick access code
+	async function verifyCompletedByCode() {
+		completedByCodeError = '';
+		completedByName = '';
+
+		if (!completedByCode) {
+			return;
+		}
+
+		try {
+			console.log('🔍 Verifying completed by code:', completedByCode);
+			const { data, error } = await supabase
+				.from('users')
+				.select('username, quick_access_code')
+				.eq('quick_access_code', completedByCode)
+				.maybeSingle();
+
+			if (error) {
+				console.error('Error verifying code:', error);
+				completedByCodeError = 'Error verifying code';
+			} else if (data?.username) {
+				completedByName = data.username;
+				console.log('✅ Code verified for:', completedByName);
+			} else {
+				// No match found, silently wait for more input
+				console.log('⏳ Code incomplete or not found');
+			}
+		} catch (error) {
+			console.error('Exception verifying code:', error);
+			completedByCodeError = 'Error verifying code';
+		}
+	}
+
+	// Auto-verify completed by code as user types
+	$: if (completedByCode) {
+		verifyCompletedByCode();
+	} else {
+		completedByName = '';
+		completedByCodeError = '';
+	}
+
+	// Modal for viewing POS image
+	let showImageModal = false;
+	let imageUrl = '';
+
+	function openImageModal() {
+		if (posBeforeUrl) {
+			// Open image in a new browser window
+			window.open(posBeforeUrl, 'POS_Closing_Image', 'width=1024,height=768,resizable=yes,scrollbars=yes');
+		} else {
+			alert($currentLocale === 'ar' ? 'لا توجد صورة متاحة' : 'No image available');
+		}
+	}
+
+	function closeImageModal() {
+		showImageModal = false;
+		imageUrl = '';
+	}
+
+	// Check if closing image URL exists - validate from posBeforeUrl
+	$: hasClosingImage = !!(posBeforeUrl && typeof posBeforeUrl === 'string' && posBeforeUrl.length > 0);
+
+	// Debug log
+	$: console.log('📸 Image URL check:', { url: posBeforeUrl, hasImage: hasClosingImage });
 </script>
 
 <div class="close-box-container">
+	<div class="button-row">
+		<button 
+			class="view-closing-btn" 
+			on:click={openImageModal}
+			disabled={!hasClosingImage}
+			title={hasClosingImage ? '' : ($currentLocale === 'ar' ? 'لا توجد صورة محفوظة' : 'No saved image')}
+		>
+			{$currentLocale === 'ar' ? 'عرض الإغلاق' : 'View Closing'}
+		</button>
+		<div class="completed-by-wrapper">
+			<input 
+				type="password" 
+				class="completed-by-code-input"
+				bind:value={completedByCode}
+				disabled={closingStarted}
+				placeholder={$currentLocale === 'ar' ? 'أدخل رمز الوصول السريع' : 'Enter your quick access code'}
+			/>
+			{#if completedByName}
+				<div class="completed-by-name">
+					{completedByName}
+				</div>
+			{/if}
+			{#if completedByCodeError}
+				<div class="completed-by-error">
+					{completedByCodeError}
+				</div>
+			{/if}
+		</div>
+		<button 
+			class="start-closing-btn" 
+			disabled={!completedByName || closingStarted}
+			on:click={startClosingProcess}
+			title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : ''}
+		>
+			{closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
+		</button>
+	</div>
+
 	<div class="top-info-row">
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
@@ -557,21 +888,30 @@
 		</div>
 	</div>
 
+	{#if closingStarted}
 	<div class="two-cards-row">
 		<div class="half-card split-card">
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل الإغلاق المدخلة' : 'Closing Details Entered'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '1. تفاصيل الإغلاق المدخلة' : '1. Closing Details Entered'}</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						<div class="denom-input-group">
-							<label>
-								{#if label !== 'Coins'}
-									<span>{label}</span>
-									<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
-								{:else}
-									{label}
-								{/if}
-							</label>
+							<div class="denom-label-with-checkbox">
+								<label>
+									{#if label !== 'Coins'}
+										<span>{label}</span>
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+									{:else}
+										{label}
+									{/if}
+								</label>
+								<input
+									type="checkbox"
+									class="denom-verify-checkbox"
+									bind:checked={denomVerified[key]}
+									disabled={!closingStarted}
+								/>
+							</div>
 							<div class="denom-input-wrapper">
 								<input
 									type="number"
@@ -626,11 +966,23 @@
 				</div>
 			</div>
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '2. المبيعات عبر قسيمة الشراء' : '2. Sales through Purchase Voucher'}</div>
 				
 				<!-- Input row hidden for read-only view -->
 
 				{#if vouchers.length > 0}
+					<button 
+						class="check-status-btn" 
+						on:click={checkVoucherStatus}
+						disabled={isCheckingVoucherStatus}
+					>
+						{#if isCheckingVoucherStatus}
+							{$currentLocale === 'ar' ? 'جاري التحقق...' : 'Checking...'}
+						{:else}
+							{$currentLocale === 'ar' ? '✓ التحقق من الحالة' : '✓ Check Status'}
+						{/if}
+					</button>
+
 					<div class="vouchers-table">
 						<table>
 							<thead>
@@ -664,10 +1016,8 @@
 					</div>
 				{/if}
 			</div>
-		</div>
-		<div class="half-card split-card">
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '3. تسوية البنك' : '3. Bank Reconciliation'}</div>
 				
 				<div class="bank-fields-row">
 					<div class="bank-input-group">
@@ -737,7 +1087,7 @@
 				</div>
 			</div>
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '4. تفاصيل إغلاق النظام' : '4. ERP Closing Details'}</div>
 				
 				<div class="system-sales-row">
 					<div class="system-input-group">
@@ -792,7 +1142,7 @@
 				</div>
 			</div>
 			<div class="split-section recharge-card-section-11">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '5. بطاقات الشحن' : '5. Recharge Cards'}</div>
 				
 				<div class="date-time-row">
 					<div class="date-time-group">
@@ -867,7 +1217,7 @@
 				</div>
 			</div>
 			<div class="split-section">
-				
+				<div class="card-header-text">{$currentLocale === 'ar' ? '6. المقارنة والتوقيع الإلكتروني' : '6. Comparison & Electronic Signature'}</div>
 				<div class="sub-cards-row">
 					<div class="sub-card">
 						<div class="sub-card-content">
@@ -972,8 +1322,53 @@
 				</div>
 			</div>
 		</div>
+		<div class="half-card split-card">
+		</div>
 	</div>
+	{/if}
 </div>
+
+<!-- Voucher Status Modal -->
+{#if showVoucherStatusModal}
+	<div class="modal-overlay" on:click={() => showVoucherStatusModal = false}>
+		<div class="voucher-status-modal" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>{$currentLocale === 'ar' ? 'حالة القسائم' : 'Voucher Status'}</h3>
+				<button class="modal-close-btn" on:click={() => showVoucherStatusModal = false}>✕</button>
+			</div>
+			<div class="modal-body">
+				<table class="status-table">
+					<thead>
+						<tr>
+							<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
+							<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
+							<th>{$currentLocale === 'ar' ? 'الحالة' : 'Status'}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each voucherStatusResults as result}
+							<tr class:not-found={!result.found}>
+								<td>{result.serial}</td>
+								<td>
+									<div class="amount-cell">
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+										<span>{result.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+									</div>
+								</td>
+								<td>
+									<span class="status-badge" class:status-stocked={result.status === 'stocked'}
+										class:status-not-found={!result.found}>
+										{result.status}
+									</span>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.close-box-container {
@@ -1093,13 +1488,33 @@
 
 	/* Left column specific sizes (Cards 7 & 8) */
 	.half-card:first-child .split-section:nth-child(1) {
-		flex: 1.8;
-		min-height: 500px;
+		flex: 1.6;
+		min-height: 450px;
 	}
 
 	.half-card:first-child .split-section:nth-child(2) {
+		flex: 0.8;
+		min-height: 240px;
+	}
+
+	.half-card:first-child .split-section:nth-child(3) {
+		flex: 0.7;
+		min-height: 175px;
+	}
+
+	.half-card:first-child .split-section:nth-child(4) {
+		flex: 0.9;
+		min-height: 207px;
+	}
+
+	.half-card:first-child .split-section:nth-child(5) {
+		flex: 0.85;
+		min-height: 179px;
+	}
+
+	.half-card:first-child .split-section:nth-child(6) {
 		flex: 1.2;
-		min-height: 350px;
+		min-height: 264px;
 	}
 
 	/* Recharge Cards Card 11 Styling */
@@ -1753,6 +2168,26 @@
 		gap: 0.3rem;
 	}
 
+	.denom-label-with-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex-shrink: 0;
+	}
+
+	.denom-verify-checkbox {
+		width: 1rem;
+		height: 1rem;
+		cursor: pointer;
+		accent-color: #059669;
+		flex-shrink: 0;
+	}
+
+	.denom-verify-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
 	.denom-input-wrapper {
 		flex: 1;
 		display: flex;
@@ -2355,6 +2790,323 @@
 		padding: 0.3rem 0.5rem;
 		border-radius: 0.375rem;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.completed-by-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+		min-width: 160px;
+		max-width: 280px;
+	}
+
+	.completed-by-code-input {
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		height: 1.625rem;
+		border: 2px solid #fed7aa;
+		border-radius: 0.375rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: #92400e;
+		background: white;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+		transition: all 0.2s;
+		min-width: 160px;
+		max-width: 280px;
+		box-sizing: border-box;
+	}
+
+	.completed-by-code-input:focus {
+		outline: none;
+		border-color: #f97316;
+		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+	}
+
+	.completed-by-name {
+		position: absolute;
+		top: -1.4rem;
+		left: 0;
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: #059669;
+		background: #dcfce7;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+		border: 1px solid #86efac;
+	}
+
+	.completed-by-error {
+		position: absolute;
+		top: -1.4rem;
+		left: 0;
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: #dc2626;
+		background: #fee2e2;
+		padding: 0.2rem 0.4rem;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+		border: 1px solid #fecaca;
+	}
+
+	.completed-by-code-input::placeholder {
+		color: #d97706;
+		font-size: 0.65rem;
+	}
+
+	.start-closing-btn {
+		padding: 0.3rem 0.75rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		border: 2px solid #047857;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+		box-sizing: border-box;
+	}
+
+	.start-closing-btn:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(16, 185, 129, 0.4);
+	}
+
+	.start-closing-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+	}
+
+	.start-closing-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.start-closing-btn:disabled:hover {
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.button-row {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+		align-items: flex-start;
+	}
+
+	.view-closing-btn {
+		padding: 0.3rem 0.75rem;
+		height: 1.625rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		border: 2px solid #1d4ed8;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+		box-sizing: border-box;
+	}
+
+	.view-closing-btn:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(59, 130, 246, 0.4);
+	}
+
+	.view-closing-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+	}
+
+	.view-closing-btn:disabled {
+		background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.view-closing-btn:disabled:hover {
+		transform: none;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	/* Modal Styles - Removed, now opens in separate window */
+
+	/* Voucher Status Check Button */
+	.check-status-btn {
+		padding: 0.3rem 0.6rem;
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		border: 2px solid #065f46;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3);
+		margin-bottom: 0.5rem;
+	}
+
+	.check-status-btn:hover {
+		background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 6px 8px -2px rgba(5, 150, 105, 0.4);
+	}
+
+	.check-status-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
+	}
+
+	.check-status-btn:disabled {
+		background: #d1d5db;
+		border-color: #9ca3af;
+		cursor: not-allowed;
+		opacity: 0.6;
+		box-shadow: none;
+	}
+
+	/* Voucher Status Modal */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.voucher-status-modal {
+		background: white;
+		border-radius: 0.5rem;
+		width: 90%;
+		max-width: 600px;
+		max-height: 80vh;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 2px solid #f97316;
+		background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 700;
+		color: #92400e;
+	}
+
+	.modal-close-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: #92400e;
+		cursor: pointer;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.25rem;
+		transition: all 0.2s;
+	}
+
+	.modal-close-btn:hover {
+		background: rgba(249, 115, 22, 0.1);
+		color: #f97316;
+	}
+
+	.modal-body {
+		padding: 1rem;
+		overflow-y: auto;
+		flex: 1;
+	}
+
+	.status-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.75rem;
+	}
+
+	.status-table thead {
+		background: #f97316;
+		color: white;
+	}
+
+	.status-table th {
+		padding: 0.5rem;
+		text-align: left;
+		font-weight: 700;
+		border: 1px solid #ea580c;
+	}
+
+	.status-table td {
+		padding: 0.5rem;
+		border: 1px solid #fed7aa;
+	}
+
+	.status-table tbody tr:hover {
+		background: #fff7ed;
+	}
+
+	.status-table tbody tr.not-found {
+		background: #fee2e2;
+	}
+
+	.status-badge {
+		display: inline-block;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.25rem;
+		font-size: 0.65rem;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+
+	.status-badge.status-stocked {
+		background: #d1fae5;
+		color: #065f46;
+		border: 1px solid #10b981;
+	}
+
+	.status-badge.status-not-found {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #ef4444;
 	}
 </style>
 

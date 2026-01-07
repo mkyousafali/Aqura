@@ -106,16 +106,12 @@
 		if (!selectedBranch) return;
 
 		try {
-			// Load main denomination record (most recent for today)
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-
+			// Load main denomination record (most recent)
 			const { data: mainData, error: mainError } = await supabase
 				.from('denomination_records')
 				.select('*')
 				.eq('branch_id', parseInt(selectedBranch))
 				.eq('record_type', 'main')
-				.gte('created_at', today.toISOString())
 				.order('created_at', { ascending: false })
 				.limit(1)
 				.maybeSingle();
@@ -131,13 +127,12 @@
 				resetCounts();
 			}
 
-			// Load box records
+			// Load box records (most recent for each box)
 			const { data: boxData, error: boxError } = await supabase
 				.from('denomination_records')
 				.select('*')
 				.eq('branch_id', parseInt(selectedBranch))
 				.eq('record_type', 'advance_box')
-				.gte('created_at', today.toISOString())
 				.order('created_at', { ascending: false });
 
 			if (!boxError && boxData) {
