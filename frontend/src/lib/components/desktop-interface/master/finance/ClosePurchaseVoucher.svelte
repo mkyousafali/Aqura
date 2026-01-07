@@ -3,6 +3,9 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { onMount } from 'svelte';
 
+	export let autoFilterSerial = '';
+	export let autoFilterValue = '';
+
 	let issuedVouchers = [];
 	let filteredVouchers = [];
 	let isLoading = false;
@@ -94,6 +97,14 @@
 			loadExpenseCategories()
 		]);
 		await loadIssuedVouchers();
+
+		// Auto-apply filters if provided
+		if (autoFilterSerial) {
+			filterSerialNumber = autoFilterSerial;
+		}
+		if (autoFilterValue) {
+			filterValue = autoFilterValue;
+		}
 	});
 
 	async function loadExpenseCategories() {

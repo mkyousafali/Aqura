@@ -6,6 +6,9 @@
 	import IssueVoucherModal from '$lib/components/desktop-interface/master/finance/IssueVoucherModal.svelte';
 	import BatchIssueModal from '$lib/components/desktop-interface/master/finance/BatchIssueModal.svelte';
 
+	export let autoLoadSerial = '';
+	export let autoFilterValue = '';
+
 	let issuedVouchers = [];
 	let isLoading = false;
 	let showTable = true;
@@ -28,9 +31,18 @@
 
 	$: selectedCount = selectedItems.size;
 
-	onMount(async () => {
+	onMount(() => {
 		setupRealtimeSubscription();
-		await loadLookupData();
+		loadLookupData();
+
+		// Auto-load if serial number is provided
+		if (autoLoadSerial) {
+			searchSerialNumber = autoLoadSerial;
+			if (autoFilterValue) {
+				filterValue = autoFilterValue;
+			}
+			loadBySerialNumber(autoLoadSerial);
+		}
 
 		return () => {
 			if (subscription) {

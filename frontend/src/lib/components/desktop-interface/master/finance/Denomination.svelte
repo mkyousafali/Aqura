@@ -173,10 +173,17 @@
 	function setupRealtimeSubscription() {
 		// Remove and unsubscribe from existing subscription
 		if (realtimeChannel) {
+			console.log('🧹 Cleaning up old realtime subscription');
 			realtimeChannel.unsubscribe();
+			realtimeChannel = null;
 		}
 
-		if (!selectedBranch) return;
+		if (!selectedBranch) {
+			console.log('⚠️ No branch selected, skipping realtime setup');
+			return;
+		}
+
+		console.log('🔌 Setting up realtime subscription for branch:', selectedBranch);
 
 		realtimeChannel = supabase
 			.channel(`denomination-${selectedBranch}-${Date.now()}`)
@@ -189,7 +196,7 @@
 					filter: `branch_id=eq.${selectedBranch}`
 				},
 				(payload) => {
-					console.log('Realtime update:', payload);
+					console.log('📡 Denomination records realtime update:', payload);
 					handleRealtimeUpdate(payload);
 				}
 			)
@@ -202,33 +209,39 @@
 					filter: `branch_id=eq.${selectedBranch}`
 				},
 				async (payload) => {
-					console.log('Box operations update:', payload);
+					console.log('📡 Box operations realtime update:', payload);
 					await fetchBoxOperations();
 				}
 			)
-			.subscribe();
+			.subscribe((status) => {
+				console.log('📡 Realtime subscription status:', status);
+			});
 	}
 
 	function handleRealtimeUpdate(payload: any) {
 		const { eventType, new: newRecord, old: oldRecord } = payload;
 
+		console.log('📡 Realtime denomination update:', eventType, newRecord);
+
 		if (eventType === 'INSERT' || eventType === 'UPDATE') {
 			if (newRecord.record_type === 'main') {
-				// Don't update if it's our own save (check by ID)
-				if (newRecord.id !== mainRecordId) {
-					mainRecordId = newRecord.id;
-					counts = newRecord.counts || counts;
-					erpBalance = newRecord.erp_balance || '';
-					counts = { ...counts };
-				}
+				console.log('🔄 Updating main denomination record');
+				mainRecordId = newRecord.id;
+				counts = newRecord.counts || counts;
+				erpBalance = newRecord.erp_balance || '';
+				counts = { ...counts };
 			} else if (newRecord.record_type === 'advance_box') {
 				const boxIndex = newRecord.box_number - 1;
-				if (boxIndex >= 0 && boxIndex < 9 && newRecord.id !== boxRecordIds[boxIndex]) {
+				console.log('🔄 Updating advance box:', newRecord.box_number);
+				if (boxIndex >= 0 && boxIndex < 9) {
 					boxRecordIds[boxIndex] = newRecord.id;
 					cashBoxData[boxIndex] = newRecord.counts || cashBoxData[boxIndex];
 					cashBoxData = [...cashBoxData];
 				}
 			}
+		} else if (eventType === 'DELETE') {
+			// Handle deletion if needed
+			console.log('🗑️ Record deleted:', oldRecord);
 		}
 	}
 
@@ -512,7 +525,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('box_operations')
-				.select('id, box_number, user_id, notes, status, supervisor_id, closing_details, total_before, total_after')
+				.select('id, box_number, branch_id, user_id, denomination_record_id, notes, status, supervisor_id, closing_details, total_before, total_after')
 				.eq('branch_id', selectedBranch)
 				.in('status', ['in_use', 'pending_close']);
 
