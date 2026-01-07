@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
@@ -237,6 +238,90 @@
 		supervisorName = '';
 		supervisorCodeError = '';
 	}
+
+	// Load saved closing details on component mount
+	async function loadClosingDetails() {
+		try {
+			const { data, error } = await supabase
+				.from('box_operations')
+				.select('closing_details')
+				.eq('id', operation.id)
+				.single();
+
+			if (error) {
+				console.warn('No saved closing details found:', error);
+				return;
+			}
+
+			const savedData = data?.closing_details;
+			if (!savedData) {
+				console.log('No closing details to restore');
+				return;
+			}
+
+			console.log('📥 Restoring saved closing details:', savedData);
+
+			// Restore closing counts
+			if (savedData.closing_counts) {
+				closingCounts = { ...savedData.closing_counts };
+			}
+
+			// Restore bank reconciliation
+			if (savedData.bank_mada !== undefined) madaAmount = savedData.bank_mada;
+			if (savedData.bank_visa !== undefined) visaAmount = savedData.bank_visa;
+			if (savedData.bank_mastercard !== undefined) masterCardAmount = savedData.bank_mastercard;
+			if (savedData.bank_google_pay !== undefined) googlePayAmount = savedData.bank_google_pay;
+			if (savedData.bank_other !== undefined) otherAmount = savedData.bank_other;
+
+			// Restore ERP details
+			if (savedData.system_cash_sales !== undefined) systemCashSales = savedData.system_cash_sales;
+			if (savedData.system_card_sales !== undefined) systemCardSales = savedData.system_card_sales;
+			if (savedData.system_return !== undefined) systemReturn = savedData.system_return;
+
+			// Restore recharge card details
+			if (savedData.recharge_opening_balance !== undefined) openingBalance = savedData.recharge_opening_balance;
+			if (savedData.recharge_close_balance !== undefined) closeBalance = savedData.recharge_close_balance;
+
+			// Restore recharge card transaction times
+			if (savedData.recharge_transaction_start_date) startDateInput = savedData.recharge_transaction_start_date;
+			if (savedData.recharge_transaction_start_time) {
+				// Parse time format "HH:MM AM/PM"
+				const startTime = savedData.recharge_transaction_start_time;
+				const startTimeParts = startTime.match(/(\d{1,2}):(\d{2})\s(AM|PM)/i);
+				if (startTimeParts) {
+					startHour = startTimeParts[1];
+					startMinute = startTimeParts[2];
+					startAmPm = startTimeParts[3].toUpperCase();
+				}
+			}
+
+			if (savedData.recharge_transaction_end_date) endDateInput = savedData.recharge_transaction_end_date;
+			if (savedData.recharge_transaction_end_time) {
+				// Parse time format "HH:MM AM/PM"
+				const endTime = savedData.recharge_transaction_end_time;
+				const endTimeParts = endTime.match(/(\d{1,2}):(\d{2})\s(AM|PM)/i);
+				if (endTimeParts) {
+					endHour = endTimeParts[1];
+					endMinute = endTimeParts[2];
+					endAmPm = endTimeParts[3].toUpperCase();
+				}
+			}
+
+			// Restore vouchers
+			if (savedData.vouchers && Array.isArray(savedData.vouchers)) {
+				vouchers = [...savedData.vouchers];
+			}
+
+			console.log('✅ Closing details restored successfully');
+		} catch (error) {
+			console.error('❌ Error loading closing details:', error);
+		}
+	}
+
+	// Load saved details when component mounts
+	onMount(() => {
+		loadClosingDetails();
+	});
 
 	// Real-time auto-save function
 	let autoSaveTimeout: any;

@@ -111,6 +111,7 @@
 		{user} 
 		{branch}
 		{currentTime}
+		on:logout={handleLogout}
 	/>
 </div>
 
