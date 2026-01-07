@@ -5,6 +5,7 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CloseBox from './CloseBox.svelte';
 	import ClosingDetails from './ClosingDetails.svelte';
+	import CounterCheck from './CounterCheck.svelte';
 
 	export let branch: any;
 	export let user: any;
@@ -32,7 +33,7 @@
 	let cashierCodeValid = false;
 	let supervisorAccessCode = '';
 	let supervisorName = '';
-	let selectedPosNumber = 1;
+	let selectedPosNumber: number | null = null;
 	let isValidated = false;
 	let errorMessage = '';
 
@@ -319,21 +320,26 @@
 			return;
 		}
 		
-		selectedBox = box;
-		// Initialize real counts with all denomination keys set to 0
-		realCounts = {};
-		Object.keys(denomValues).forEach(key => {
-			realCounts[key] = 0;
+		const windowId = generateWindowId(`counter-check-${box.number}`);
+		
+		openWindow({
+			id: windowId,
+			title: `BOX ${box.number} - Counter Check`,
+			component: CounterCheck,
+			props: {
+				windowId,
+				box,
+				branch: fullBranch || branch,
+				user
+			},
+			icon: '📦',
+			size: { width: 550, height: 650 },
+			position: { x: 300, y: 100 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
-		matchStatus = null;
-		cashierAccessCode = '';
-		cashierName = '';
-		cashierCodeValid = false;
-		supervisorAccessCode = '';
-		supervisorName = '';
-		selectedPosNumber = 1;
-		isValidated = false;
-		showModal = true;
 	}
 
 	function closeModal() {
@@ -519,7 +525,7 @@
 			} else {
 				cashierCodeValid = false;
 				cashierName = '';
-				errorMessage = 'Access code does not match logged user';
+				errorMessage = $currentLocale === 'ar' ? 'رمز الدخول لا يتطابق مع المستخدم المسجل' : 'Access code does not match logged user';
 			}
 		} catch (error) {
 			console.error('Error verifying cashier access code:', error);
@@ -547,12 +553,12 @@
 				supervisorName = data.username || '';
 			} else {
 				supervisorName = '';
-				errorMessage = 'Please enter correct access code';
+				errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
 			}
 		} catch (error) {
 			console.error('Error looking up supervisor:', error);
 			supervisorName = '';
-			errorMessage = 'Please enter correct access code';
+			errorMessage = $currentLocale === 'ar' ? 'الرجاء إدخال رمز الدخول الصحيح' : 'Please enter correct access code';
 		}
 	}
 
@@ -789,10 +795,11 @@
 
 			<div class="modal-body">
 
-				<div class="access-codes-section">
+				<div class="pos-number-section">
 					<div class="access-code-group">
 						<label>{t('pos.posNumber') || 'POS Number'}</label>
 						<select bind:value={selectedPosNumber} class="pos-number-select">
+							<option value={null} disabled selected>{$currentLocale === 'ar' ? 'اختر نقطة بيع' : 'Select POS'}</option>
 							<option value={1}>POS 1</option>
 							<option value={2}>POS 2</option>
 							<option value={3}>POS 3</option>
@@ -804,37 +811,8 @@
 							<option value={9}>POS 9</option>
 						</select>
 					</div>
-
-					<div class="access-code-group">
-						<label>{t('pos.cashierAccessCode') || 'Cashier Access Code'}</label>
-						<div class="code-input-wrapper">
-							<input
-								type="password"
-								placeholder={t('pos.enterCashierAccessCode') || 'Enter cashier access code'}
-								bind:value={cashierAccessCode}
-								on:blur={verifyCashierAccessCode}
-							/>
-							{#if cashierCodeValid && cashierName}
-								<span class="verified-name">✓ {cashierName}</span>
-							{/if}
-						</div>
-					</div>
-
-					<div class="access-code-group">
-						<label>{t('pos.supervisorAccessCode') || 'Supervisor Access Code'}</label>
-						<div class="code-input-wrapper">
-							<input
-								type="password"
-								placeholder={t('pos.enterSupervisorAccessCode') || 'Enter supervisor access code'}
-								bind:value={supervisorAccessCode}
-								on:blur={lookupSupervisorAccessCode}
-							/>
-							{#if supervisorName}
-								<span class="verified-name">✓ {supervisorName}</span>
-							{/if}
-						</div>
-					</div>
 				</div>
+
 				<div class="section">
 					<h3>{t('pos.enterRealCount') || 'Enter Real Count'}</h3>
 					<div class="real-count-inputs">
@@ -906,10 +884,45 @@
 							</div>
 						{/if}
 				</div>
+
+				<div class="access-codes-section">
+					<div class="signature-header">
+						{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
+					</div>
+					<div class="access-code-group">
+						<label>{t('pos.cashierAccessCode') || 'Cashier Access Code'}</label>
+						<div class="code-input-wrapper">
+							<input
+								type="password"
+								placeholder={t('pos.enterCashierAccessCode') || 'Enter cashier access code'}
+								bind:value={cashierAccessCode}
+								on:blur={verifyCashierAccessCode}
+							/>
+							{#if cashierCodeValid && cashierName}
+								<span class="verified-name">✓ {cashierName}</span>
+							{/if}
+						</div>
+					</div>
+
+					<div class="access-code-group">
+						<label>{t('pos.supervisorAccessCode') || 'Supervisor Access Code'}</label>
+						<div class="code-input-wrapper">
+							<input
+								type="password"
+								placeholder={t('pos.enterSupervisorAccessCode') || 'Enter supervisor access code'}
+								bind:value={supervisorAccessCode}
+								on:blur={lookupSupervisorAccessCode}
+							/>
+							{#if supervisorName}
+								<span class="verified-name">✓ {supervisorName}</span>
+							{/if}
+						</div>
+					</div>
+				</div>
 			</div>
 
 			<div class="modal-footer">
-				<button class="btn-validate" on:click={validateAccessCodes} disabled={isValidated}>
+				<button class="btn-validate" on:click={validateAccessCodes} disabled={isValidated || !cashierCodeValid || !supervisorName}>
 					{isValidated ? '✓ Validated' : 'Validate'}
 				</button>
 				<button class="btn-primary" on:click={startOperation} disabled={isStarting || !isValidated}>
@@ -1510,16 +1523,16 @@
 	}
 
 	.total-match-status {
-		padding: 1rem;
+		padding: 0.5rem 1rem;
 		border-top: 1px solid #e5e7eb;
-		margin-bottom: 1rem;
+		margin-bottom: 0.25rem;
 	}
 
 	.status-row {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.5rem;
 		font-size: 0.875rem;
 	}
 
@@ -1527,12 +1540,23 @@
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 0.5rem;
-		padding: 0.5rem;
+		padding: 0.75rem;
 		background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
 		border-radius: 0.5rem;
-		margin-top: 0.5rem;
+		margin-top: 0.125rem;
 		border: 2px solid #fed7aa;
 		box-shadow: 0 4px 6px -1px rgba(249, 115, 22, 0.1), inset 0 2px 4px 0 rgba(255, 255, 255, 0.6);
+	}
+
+	.signature-header {
+		grid-column: 1 / -1;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #15803d;
+		letter-spacing: 1px;
+		padding-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
+		border-bottom: 1px solid #fed7aa;
 	}
 
 	.access-code-group {
