@@ -29,6 +29,42 @@
 	let boxOperations: Map<number, any> = new Map();
 	let closedBoxesCount: number = 0;
 
+	// Modal state variables
+	let showVendorModal = false;
+	let showExpensesModal = false;
+	let showUserModal = false;
+	let showOtherModal = false;
+	let currentSection: 'paid' | 'received' = 'paid';
+
+	// Modal form state
+	let vendorSearch = '';
+	let requesterSearch = '';
+	let userSearch = '';
+	let selectedVendor: any = null;
+	let selectedRequester: any = null;
+	let selectedUser: any = null;
+	let modalAmount = 0;
+	let modalRemarks = '';
+	let applyDenomination = false;
+	let modalDenominationCounts: any = {};
+	let particulars = '';
+
+	// Data for dropdowns
+	let vendors: any[] = [];
+	let requesters: any[] = [];
+	let users: any[] = [];
+	let savedTransactions: any[] = [];
+
+	// Delete confirmation popup
+	let showDeleteConfirmPopup = false;
+	let deleteConfirmTransactionId = '';
+
+	// Success/Error popup
+	let showSuccessPopup = false;
+	let successMessage = '';
+	let successType: 'success' | 'error' = 'success';
+	let successTimeout: ReturnType<typeof setTimeout> | null = null;
+
 	onMount(async () => {
 		await loadBranches();
 		await loadUserPreferences();
@@ -77,6 +113,7 @@
 		// Load data for new branch
 		await loadExistingRecords();
 		await fetchBoxOperations();
+		await loadSavedTransactions();
 		setupRealtimeSubscription();
 	}
 
@@ -793,9 +830,13 @@
 
 	$: grandTotal = Object.values(totals).reduce((sum, val) => sum + val, 0);
 
-	// Calculate difference between grand total and ERP balance
+	// Calculate totals for paid and received sections (not applied)
+	$: paidNotAppliedTotal = savedTransactions.filter(t => t.section === 'paid' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
+	$: receivedNotAppliedTotal = savedTransactions.filter(t => t.section === 'received' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
+
+	// Calculate difference: (Grand Total - paid not applied + received not applied) - ERP balance
 	$: erpBalanceNumber = typeof erpBalance === 'string' ? (parseFloat(erpBalance) || 0) : erpBalance;
-	$: difference = grandTotal - erpBalanceNumber;
+	$: difference = (grandTotal - paidNotAppliedTotal + receivedNotAppliedTotal) - erpBalanceNumber;
 
 	// Auto-save when ERP balance changes
 	let prevErpBalance = erpBalance;
@@ -803,6 +844,275 @@
 		prevErpBalance = erpBalance;
 		triggerAutoSave();
 	}
+
+	// ===== Modal Functions =====
+
+	function openVendorModal(section: 'paid' | 'received') {
+		currentSection = section;
+		showVendorModal = true;
+		vendorSearch = '';
+		selectedVendor = null;
+		loadVendors();
+	}
+
+	function openExpensesModal(section: 'paid' | 'received') {
+		currentSection = section;
+		showExpensesModal = true;
+		requesterSearch = '';
+		selectedRequester = null;
+		loadRequesters();
+	}
+
+	function openUserModal(section: 'paid' | 'received') {
+		currentSection = section;
+		showUserModal = true;
+		userSearch = '';
+		selectedUser = null;
+		loadUsers();
+	}
+
+	function openOtherModal(section: 'paid' | 'received') {
+		currentSection = section;
+		showOtherModal = true;
+		particulars = '';
+	}
+
+	function closeAllModals() {
+		showVendorModal = false;
+		showExpensesModal = false;
+		showUserModal = false;
+		showOtherModal = false;
+		resetModalForm();
+	}
+
+	function resetModalForm() {
+		modalAmount = 0;
+		modalRemarks = '';
+		applyDenomination = false;
+		modalDenominationCounts = {
+			'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
+			'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
+			'd025': 0, 'coins': 0
+		};
+	}
+
+	async function loadVendors() {
+		try {
+			const { data, error } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, salesman_name')
+				.eq('branch_id', parseInt(selectedBranch))
+				.eq('status', 'Active')
+				.order('vendor_name');
+
+			if (!error) {
+				vendors = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading vendors:', error);
+		}
+	}
+
+	async function loadRequesters() {
+		try {
+			const { data, error } = await supabase
+				.from('requesters')
+				.select('id, requester_id, requester_name')
+				.order('requester_name');
+
+			if (!error) {
+				requesters = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading requesters:', error);
+		}
+	}
+
+	async function loadUsers() {
+		try {
+			const { data, error } = await supabase
+				.from('users')
+				.select('id, username, branch_id, user_type')
+				.eq('status', 'active')
+				.order('username');
+
+			if (!error) {
+				users = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading users:', error);
+		}
+	}
+
+	async function loadSavedTransactions() {
+		if (!selectedBranch) return;
+
+		try {
+			const { data, error } = await supabase
+				.from('denomination_transactions')
+				.select('*')
+				.eq('branch_id', parseInt(selectedBranch))
+				.order('created_at', { ascending: false });
+
+			if (!error) {
+				savedTransactions = data || [];
+			}
+		} catch (error) {
+			console.error('Error loading saved transactions:', error);
+		}
+	}
+
+	async function deleteTransaction(transactionId: string) {
+		deleteConfirmTransactionId = transactionId;
+		showDeleteConfirmPopup = true;
+	}
+
+	async function confirmDeleteTransaction() {
+		try {
+			const { error } = await supabase
+				.from('denomination_transactions')
+				.delete()
+				.eq('id', deleteConfirmTransactionId);
+
+			if (error) {
+				console.error('Error deleting transaction:', error);
+				showDeleteConfirmPopup = false;
+				alert('Error deleting transaction: ' + error.message);
+				return;
+			}
+
+			// Reload transactions
+			await loadSavedTransactions();
+			showDeleteConfirmPopup = false;
+		} catch (error) {
+			console.error('Error deleting transaction:', error);
+			showDeleteConfirmPopup = false;
+			alert('Failed to delete transaction');
+		}
+	}
+
+	function cancelDeleteTransaction() {
+		showDeleteConfirmPopup = false;
+		deleteConfirmTransactionId = '';
+	}
+
+	function showNotification(message: string, type: 'success' | 'error' = 'success', duration: number = 3000) {
+		successMessage = message;
+		successType = type;
+		showSuccessPopup = true;
+
+		// Auto-close after duration
+		if (successTimeout) clearTimeout(successTimeout);
+		successTimeout = setTimeout(() => {
+			showSuccessPopup = false;
+		}, duration);
+	}
+
+	function closeNotification() {
+		showSuccessPopup = false;
+		if (successTimeout) clearTimeout(successTimeout);
+	}
+
+	async function saveTransaction(type: 'vendor' | 'expenses' | 'user' | 'other') {
+		if (!selectedBranch || !$currentUser?.id) {
+			showNotification('Branch and user must be selected', 'error');
+			return;
+		}
+
+		if (modalAmount <= 0) {
+			showNotification('Amount must be greater than 0', 'error');
+			return;
+		}
+
+		// If denomination is applied, validate that the sum matches the amount
+		if (applyDenomination) {
+			const denominationTotal = Object.entries(modalDenominationCounts).reduce((sum, [key, count]: [string, any]) => {
+				return sum + (count * denomValues[key]);
+			}, 0);
+
+			if (denominationTotal !== modalAmount) {
+				showPopup(`Denomination total (${denominationTotal} SAR) must match the transaction amount (${modalAmount} SAR)`, 'error');
+				return;
+			}
+		}
+
+		try {
+			let entityData: any = {};
+
+			// Prepare entity data based on transaction type
+			if (type === 'vendor' && selectedVendor) {
+				entityData = { 
+					erp_vendor_id: selectedVendor.erp_vendor_id, 
+					vendor_name: selectedVendor.vendor_name, 
+					salesman_name: selectedVendor.salesman_name 
+				};
+			} else if (type === 'expenses' && selectedRequester) {
+				entityData = { 
+					requester_id: selectedRequester.requester_id, 
+					requester_name: selectedRequester.requester_name 
+				};
+			} else if (type === 'user' && selectedUser) {
+				entityData = { 
+					user_id: selectedUser.id, 
+					username: selectedUser.username,
+					branch_id: selectedUser.branch_id,
+					user_type: selectedUser.user_type
+				};
+			} else if (type === 'other') {
+				entityData = { particulars };
+			}
+
+			// Prepare transaction record
+			const transactionData = {
+				branch_id: parseInt(selectedBranch),
+				section: currentSection,
+				transaction_type: type,
+				amount: modalAmount,
+				remarks: modalRemarks || null,
+				apply_denomination: applyDenomination,
+				denomination_details: applyDenomination ? { ...modalDenominationCounts } : {},
+				entity_data: entityData,
+				created_by: $currentUser.id
+			};
+
+			// Save to database
+			const { data, error } = await supabase
+				.from('denomination_transactions')
+				.insert(transactionData)
+				.select()
+				.single();
+
+			if (error) {
+				console.error('Error saving transaction:', error);
+				showNotification('Error saving transaction: ' + error.message, 'error');
+				return;
+			}
+
+			// If denomination was applied, adjust main counts
+			if (applyDenomination) {
+				Object.entries(modalDenominationCounts).forEach(([key, value]: [string, any]) => {
+					if (currentSection === 'paid') {
+						// For paid: deduct from main counts
+						counts[key] = Math.max(0, counts[key] - value);
+					} else {
+						// For received: add to main counts
+						counts[key] = counts[key] + value;
+					}
+				});
+				counts = { ...counts };
+				triggerAutoSave();
+			}
+
+			// Reload transactions and close modal
+			await loadSavedTransactions();
+			closeAllModals();
+			showNotification('Transaction saved successfully!', 'success');
+		} catch (error) {
+			console.error('Error saving transaction:', error);
+			showNotification('Failed to save transaction', 'error');
+		}
+	}
+
 </script>
 
 <!-- Cash Box Denomination Modal -->
@@ -876,6 +1186,315 @@
 		<div class="popup-footer">
 			<button class="popup-btn cancel" on:click={closePopup}>Cancel</button>
 			<button class="popup-btn save {popupMode}" on:click={savePopupValue}>{popupMode === 'add' ? 'Add' : 'Subtract'}</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- Vendor Modal -->
+{#if showVendorModal}
+<div class="modal-overlay" on:click={closeAllModals}>
+	<div class="modal-content" on:click|stopPropagation>
+		<div class="modal-header">
+			<h2>Add Vendor ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
+			<button class="modal-close" on:click={closeAllModals}>✕</button>
+		</div>
+		<div class="modal-body">
+			<div class="form-group">
+				<label>Search Vendor</label>
+				<input 
+					type="text" 
+					bind:value={vendorSearch}
+					placeholder="Search vendors..."
+					class="form-input"
+				/>
+				<div class="dropdown-list">
+					{#each vendors.filter(v => v.vendor_name.toLowerCase().includes(vendorSearch.toLowerCase())) as vendor}
+						<div 
+							class="dropdown-item" 
+							on:click={() => selectedVendor = vendor}
+							class:selected={selectedVendor?.erp_vendor_id === vendor.erp_vendor_id}
+						>
+							<div class="item-name">{vendor.vendor_name}</div>
+							<div class="item-code">{vendor.salesman_name || 'N/A'}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			{#if selectedVendor}
+				<div class="form-group">
+					<label>Amount (SAR)</label>
+					<input type="number" bind:value={modalAmount} placeholder="0" class="form-input" min="0" />
+				</div>
+
+				<div class="form-group">
+					<label>Remarks (Optional)</label>
+					<textarea bind:value={modalRemarks} placeholder="Add any notes..." class="form-input" rows="2"></textarea>
+				</div>
+
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={applyDenomination} />
+						Apply Denomination
+					</label>
+				</div>
+
+				{#if applyDenomination}
+					<div class="denomination-grid">
+						<h4>Enter Denominations</h4>
+						{#each Object.entries(denomLabels).filter(([key]) => !key.startsWith('damage')) as [key, label]}
+							<div class="denom-field">
+								<label>{label}</label>
+								<input 
+									type="number" 
+									bind:value={modalDenominationCounts[key]}
+									min="0"
+									max={counts[key]}
+									placeholder="0"
+									class="form-input"
+								/>
+								<small>Avail: {counts[key]}</small>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+		</div>
+		<div class="modal-footer">
+			<button class="btn-cancel" on:click={closeAllModals}>Cancel</button>
+			<button class="btn-save" on:click={() => saveTransaction('vendor')} disabled={!selectedVendor || modalAmount <= 0}>
+				Save
+			</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- Expenses Modal (Paid Section Only) -->
+{#if showExpensesModal}
+<div class="modal-overlay" on:click={closeAllModals}>
+	<div class="modal-content" on:click|stopPropagation>
+		<div class="modal-header">
+			<h2>Add Expenses (Paid)</h2>
+			<button class="modal-close" on:click={closeAllModals}>✕</button>
+		</div>
+		<div class="modal-body">
+			<div class="form-group">
+				<label>Search Requester</label>
+				<input 
+					type="text" 
+					bind:value={requesterSearch}
+					placeholder="Search requesters..."
+					class="form-input"
+				/>
+				<div class="dropdown-actions">
+					<button class="btn-create-new" on:click={() => {/* Handle create new requester */}}>+ Create New Requester</button>
+				</div>
+				<div class="dropdown-list">
+					{#each requesters.filter(r => r.requester_name.toLowerCase().includes(requesterSearch.toLowerCase())) as requester}
+						<div 
+							class="dropdown-item" 
+							on:click={() => selectedRequester = requester}
+							class:selected={selectedRequester?.id === requester.id}
+						>
+							<div class="item-name">{requester.requester_name}</div>
+							<div class="item-code">{requester.requester_id}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			{#if selectedRequester}
+				<div class="form-group">
+					<label>Amount (SAR)</label>
+					<input type="number" bind:value={modalAmount} placeholder="0" class="form-input" min="0" />
+				</div>
+
+				<div class="form-group">
+					<label>Remarks (Optional)</label>
+					<textarea bind:value={modalRemarks} placeholder="Add any notes..." class="form-input" rows="2"></textarea>
+				</div>
+
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={applyDenomination} />
+						Apply Denomination
+					</label>
+				</div>
+
+				{#if applyDenomination}
+					<div class="denomination-grid">
+						<h4>Enter Denominations</h4>
+						{#each Object.entries(denomLabels).filter(([key]) => !key.startsWith('damage')) as [key, label]}
+							<div class="denom-field">
+								<label>{label}</label>
+								<input 
+									type="number" 
+									bind:value={modalDenominationCounts[key]}
+									min="0"
+									max={counts[key]}
+									placeholder="0"
+									class="form-input"
+								/>
+								<small>Avail: {counts[key]}</small>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+		</div>
+		<div class="modal-footer">
+			<button class="btn-cancel" on:click={closeAllModals}>Cancel</button>
+			<button class="btn-save" on:click={() => saveTransaction('expenses')} disabled={!selectedRequester || modalAmount <= 0}>
+				Save
+			</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- User Modal -->
+{#if showUserModal}
+<div class="modal-overlay" on:click={closeAllModals}>
+	<div class="modal-content" on:click|stopPropagation>
+		<div class="modal-header">
+			<h2>Add User ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
+			<button class="modal-close" on:click={closeAllModals}>✕</button>
+		</div>
+		<div class="modal-body">
+			<div class="form-group">
+				<label>Search User</label>
+				<input 
+					type="text" 
+					bind:value={userSearch}
+					placeholder="Search users..."
+					class="form-input"
+				/>
+				<div class="dropdown-list">
+					{#each users.filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase())) as user}
+						<div 
+							class="dropdown-item" 
+							on:click={() => selectedUser = user}
+							class:selected={selectedUser?.id === user.id}
+						>
+							<div class="item-name">{user.username}</div>
+							<div class="item-code">{user.user_type === 'global' ? 'Global User' : `Branch ${user.branch_id}`}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			{#if selectedUser}
+				<div class="form-group">
+					<label>Amount (SAR)</label>
+					<input type="number" bind:value={modalAmount} placeholder="0" class="form-input" min="0" />
+				</div>
+
+				<div class="form-group">
+					<label>Remarks (Optional)</label>
+					<textarea bind:value={modalRemarks} placeholder="Add any notes..." class="form-input" rows="2"></textarea>
+				</div>
+
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input type="checkbox" bind:checked={applyDenomination} />
+						Apply Denomination
+					</label>
+				</div>
+
+				{#if applyDenomination}
+					<div class="denomination-grid">
+						<h4>Enter Denominations</h4>
+						{#each Object.entries(denomLabels).filter(([key]) => !key.startsWith('damage')) as [key, label]}
+							<div class="denom-field">
+								<label>{label}</label>
+								<input 
+									type="number" 
+									bind:value={modalDenominationCounts[key]}
+									min="0"
+									max={counts[key]}
+									placeholder="0"
+									class="form-input"
+								/>
+								<small>Avail: {counts[key]}</small>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+		</div>
+		<div class="modal-footer">
+			<button class="btn-cancel" on:click={closeAllModals}>Cancel</button>
+			<button class="btn-save" on:click={() => saveTransaction('user')} disabled={!selectedUser || modalAmount <= 0}>
+				Save
+			</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- Other Modal -->
+{#if showOtherModal}
+<div class="modal-overlay" on:click={closeAllModals}>
+	<div class="modal-content" on:click|stopPropagation>
+		<div class="modal-header">
+			<h2>Add Other ({currentSection === 'paid' ? 'Paid' : 'Received'})</h2>
+			<button class="modal-close" on:click={closeAllModals}>✕</button>
+		</div>
+		<div class="modal-body">
+			<div class="form-group">
+				<label>Particulars</label>
+				<input 
+					type="text" 
+					bind:value={particulars}
+					placeholder="Enter description..."
+					class="form-input"
+				/>
+			</div>
+
+			<div class="form-group">
+				<label>Amount (SAR)</label>
+				<input type="number" bind:value={modalAmount} placeholder="0" class="form-input" min="0" />
+			</div>
+
+			<div class="form-group">
+				<label>Remarks (Optional)</label>
+				<textarea bind:value={modalRemarks} placeholder="Add any notes..." class="form-input" rows="2"></textarea>
+			</div>
+
+			<div class="form-group">
+				<label class="checkbox-label">
+					<input type="checkbox" bind:checked={applyDenomination} />
+					Apply Denomination
+				</label>
+			</div>
+
+			{#if applyDenomination}
+				<div class="denomination-grid">
+					<h4>Enter Denominations</h4>
+					{#each Object.entries(denomLabels).filter(([key]) => !key.startsWith('damage')) as [key, label]}
+						<div class="denom-field">
+							<label>{label}</label>
+							<input 
+								type="number" 
+								bind:value={modalDenominationCounts[key]}
+								min="0"
+								max={counts[key]}
+								placeholder="0"
+								class="form-input"
+							/>
+							<small>Avail: {counts[key]}</small>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+		<div class="modal-footer">
+			<button class="btn-cancel" on:click={closeAllModals}>Cancel</button>
+			<button class="btn-save" on:click={() => saveTransaction('other')} disabled={!particulars || modalAmount <= 0}>
+				Save
+			</button>
 		</div>
 	</div>
 </div>
@@ -1086,56 +1705,133 @@
 					<!-- Paid Section -->
 					<div class="suspends-section">
 						<div class="suspends-section-header paid">
-							<span class="section-icon">💸</span>
-							<span>Paid</span>
+							<div class="header-left">
+								<span class="section-icon">💸</span>
+								<span>Paid</span>
+							</div>
+							<div class="header-total">
+								<div class="total-breakdown">
+									<span class="total-item applied">Applied: <span class="amount">{savedTransactions.filter(t => t.section === 'paid' && t.apply_denomination).reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+									<span class="total-item not-applied">Not Applied: <span class="amount">{savedTransactions.filter(t => t.section === 'paid' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'paid').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+								</div>
+							</div>
+							<div class="action-buttons-group">
+								<button class="action-btn vendor-btn" on:click={() => openVendorModal('paid')}>Vendor</button>
+								<button class="action-btn expenses-btn" on:click={() => openExpensesModal('paid')}>Expenses</button>
+								<button class="action-btn user-btn" on:click={() => openUserModal('paid')}>User</button>
+								<button class="action-btn other-btn" on:click={() => openOtherModal('paid')}>Other</button>
+							</div>
 						</div>
-						<div class="suspends-cards-grid">
-							<div class="suspend-card">
-								<p class="hint">Card 1</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 2</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 3</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 4</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 5</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 6</p>
-							</div>
+						<!-- Paid Transactions Table -->
+						<div class="transactions-table-container">
+							{#if savedTransactions.filter(t => t.section === 'paid').length > 0}
+								<table class="transactions-table">
+									<thead>
+										<tr>
+											<th>Entity</th>
+											<th>Type</th>
+											<th>Amount</th>
+											<th>Remarks</th>
+											<th>Denom</th>
+											<th>Date</th>
+											<th>Action</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each savedTransactions.filter(t => t.section === 'paid') as transaction}
+											<tr>
+												<td class="entity-cell">
+													{#if transaction.transaction_type === 'vendor'}
+														{transaction.entity_data.vendor_name}
+													{:else if transaction.transaction_type === 'expenses'}
+														{transaction.entity_data.requester_name}
+													{:else if transaction.transaction_type === 'user'}
+														{transaction.entity_data.username}
+													{:else}
+														{transaction.entity_data.particulars}
+													{/if}
+												</td>
+												<td><span class="badge badge-{transaction.transaction_type}">{transaction.transaction_type}</span></td>
+												<td class="amount-cell">{transaction.amount.toLocaleString()} SAR</td>
+												<td class="remarks-cell">{transaction.remarks || '-'}</td>
+												<td class="denom-cell">{transaction.apply_denomination ? '✓' : '✗'}</td>
+												<td class="date-cell">{new Date(transaction.created_at).toLocaleDateString()}</td>
+												<td class="action-cell">
+													<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<div class="empty-state">No transactions yet</div>
+							{/if}
 						</div>
 					</div>
 					
 					<!-- Received Section -->
 					<div class="suspends-section">
 						<div class="suspends-section-header received">
-							<span class="section-icon">💰</span>
-							<span>Received</span>
+							<div class="header-left">
+								<span class="section-icon">💰</span>
+								<span>Received</span>
+							</div>
+							<div class="header-total">
+								<div class="total-breakdown">
+									<span class="total-item applied">Applied: <span class="amount">{savedTransactions.filter(t => t.section === 'received' && t.apply_denomination).reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+									<span class="total-item not-applied">Not Applied: <span class="amount">{savedTransactions.filter(t => t.section === 'received' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+									<span class="total-item grand-total">Total: <span class="amount">{savedTransactions.filter(t => t.section === 'received').reduce((sum, t) => sum + t.amount, 0).toLocaleString()}</span> SAR</span>
+								</div>
+							</div>
+							<div class="action-buttons-group">
+								<button class="action-btn vendor-btn" on:click={() => openVendorModal('received')}>Vendor</button>
+								<button class="action-btn user-btn" on:click={() => openUserModal('received')}>User</button>
+								<button class="action-btn other-btn" on:click={() => openOtherModal('received')}>Other</button>
+							</div>
 						</div>
-						<div class="suspends-cards-grid">
-							<div class="suspend-card">
-								<p class="hint">Card 1</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 2</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 3</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 4</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 5</p>
-							</div>
-							<div class="suspend-card">
-								<p class="hint">Card 6</p>
-							</div>
+						<!-- Received Transactions Table -->
+						<div class="transactions-table-container">
+							{#if savedTransactions.filter(t => t.section === 'received').length > 0}
+								<table class="transactions-table">
+									<thead>
+										<tr>
+											<th>Type</th>
+											<th>Entity</th>
+											<th>Amount</th>
+											<th>Remarks</th>
+											<th>Denom</th>
+											<th>Date</th>
+											<th>Action</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each savedTransactions.filter(t => t.section === 'received') as transaction}
+											<tr>
+												<td class="entity-cell">
+													{#if transaction.transaction_type === 'vendor'}
+														{transaction.entity_data.vendor_name}
+													{:else if transaction.transaction_type === 'user'}
+														{transaction.entity_data.username}
+													{:else}
+														{transaction.entity_data.particulars}
+													{/if}
+												</td>
+												<td><span class="badge badge-{transaction.transaction_type}">{transaction.transaction_type}</span></td>
+												<td class="amount-cell">{transaction.amount.toLocaleString()} SAR</td>
+												<td class="remarks-cell">{transaction.remarks || '-'}</td>
+												<td class="denom-cell">{transaction.apply_denomination ? '✓' : '✗'}</td>
+												<td class="date-cell">{new Date(transaction.created_at).toLocaleDateString()}</td>
+												<td class="action-cell">
+													<button class="delete-btn" on:click={() => deleteTransaction(transaction.id)} title="Delete transaction">✕</button>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<div class="empty-state">No transactions yet</div>
+							{/if}
 						</div>
 					</div>
 				</div>
@@ -1228,6 +1924,39 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Delete Confirmation Popup -->
+{#if showDeleteConfirmPopup}
+<div class="popup-overlay" on:click={cancelDeleteTransaction} on:keydown={(e) => e.key === 'Escape' && cancelDeleteTransaction()}>
+	<div class="confirm-popup" on:click|stopPropagation>
+		<div class="confirm-header">
+			<span>⚠️ Confirm Delete</span>
+		</div>
+		<div class="confirm-body">
+			<p>Are you sure you want to delete this transaction?</p>
+			<p style="color: #999; font-size: 0.85rem;">This action cannot be undone.</p>
+		</div>
+		<div class="confirm-actions">
+			<button class="btn-cancel" on:click={cancelDeleteTransaction}>Cancel</button>
+			<button class="btn-delete" on:click={confirmDeleteTransaction}>Delete</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- Success/Error Popup -->
+{#if showSuccessPopup}
+<div class="popup-overlay" on:click={closeNotification}>
+	<div class="success-popup" class:error={successType === 'error'} on:click|stopPropagation>
+		<div class="success-header" class:error={successType === 'error'}>
+			<span class="success-icon">{successType === 'success' ? '✓' : '✕'}</span>
+		</div>
+		<div class="success-body">
+			<p>{successMessage}</p>
+		</div>
+	</div>
+</div>
+{/if}
 
 <style>
 	.denomination-container {
@@ -1935,10 +2664,12 @@
 
 	.suspends-body-second {
 		padding-top: 0 !important;
+		display: flex !important;
+		flex-direction: column !important;
+		gap: 2rem !important;
 	}
 
 	.suspends-section {
-		flex: 1;
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
@@ -1947,13 +2678,107 @@
 	.suspends-section-header {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		justify-content: space-between;
+		gap: 1rem;
 		padding: 0.4rem 0.75rem;
 		border-radius: 8px;
 		font-weight: 600;
 		font-size: 0.8rem;
 		color: white;
 	}
+
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.header-total {
+		flex: 1;
+		text-align: center;
+		font-size: 0.9rem;
+		font-weight: 700;
+	}
+
+	.total-breakdown {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.total-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		background: rgba(255, 255, 255, 0.15);
+		padding: 0.3rem 0.8rem;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.total-item.applied {
+		background: rgba(34, 197, 94, 0.25);
+		border: 1px solid rgba(34, 197, 94, 0.4);
+	}
+
+	.total-item.not-applied {
+		background: rgba(249, 115, 22, 0.25);
+		border: 1px solid rgba(249, 115, 22, 0.4);
+	}
+
+	.total-item.grand-total {
+		background: rgba(255, 255, 255, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+	}
+
+	.total-item .amount {
+		font-weight: 700;
+		font-size: 0.8rem;
+	}
+
+	.total-amount {
+		display: inline-block;
+		background: rgba(255, 255, 255, 0.2);
+		padding: 0.3rem 0.8rem;
+		border-radius: 6px;
+		margin-left: 0.5rem;
+	}
+
+	.action-buttons-group {
+		display: flex;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
+	.action-btn {
+		background: rgba(255, 255, 255, 0.25);
+		border: 1px solid rgba(255, 255, 255, 0.4);
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 0.3rem 0.6rem;
+		border-radius: 5px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.action-btn:hover {
+		background: rgba(255, 255, 255, 0.4);
+		transform: translateY(-1px);
+	}
+
+	.action-btn:active {
+		transform: translateY(0);
+	}
+
+	.action-btn.vendor-btn { }
+	.action-btn.expenses-btn { }
+	.action-btn.user-btn { }
+	.action-btn.other-btn { }
 
 	.suspends-section-header.paid {
 		background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
@@ -2424,5 +3249,536 @@
 		color: rgba(255, 255, 255, 0.95);
 		text-transform: uppercase;
 		letter-spacing: 1px;
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.modal-content {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+		max-width: 600px;
+		width: 90%;
+		max-height: 85vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem;
+		border-bottom: 1px solid #e2e8f0;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 12px 12px 0 0;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.2rem;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		color: white;
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: background 0.2s;
+	}
+
+	.modal-close:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.modal-body {
+		padding: 1.5rem;
+		flex: 1;
+		overflow-y: auto;
+	}
+
+	.modal-footer {
+		display: flex;
+		gap: 1rem;
+		padding: 1.5rem;
+		border-top: 1px solid #e2e8f0;
+		background: #f8fafc;
+		border-radius: 0 0 12px 12px;
+	}
+
+	.form-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.form-group label {
+		display: block;
+		margin-bottom: 0.5rem;
+		font-weight: 600;
+		color: #1e293b;
+		font-size: 0.9rem;
+	}
+
+	.form-input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #cbd5e1;
+		border-radius: 6px;
+		font-size: 0.9rem;
+		font-family: inherit;
+	}
+
+	.form-input:focus {
+		outline: none;
+		border-color: #667eea;
+		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+	}
+
+	textarea.form-input {
+		resize: vertical;
+		min-height: 80px;
+	}
+
+	.dropdown-list {
+		margin-top: 0.5rem;
+		border: 1px solid #cbd5e1;
+		border-radius: 6px;
+		max-height: 200px;
+		overflow-y: auto;
+		background: white;
+	}
+
+	.dropdown-item {
+		padding: 0.75rem;
+		cursor: pointer;
+		border-bottom: 1px solid #e2e8f0;
+		transition: background 0.2s;
+	}
+
+	.dropdown-item:hover {
+		background: #f0f4f8;
+	}
+
+	.dropdown-item.selected {
+		background: #e0e7ff;
+		color: #667eea;
+		font-weight: 600;
+	}
+
+	.item-name {
+		font-weight: 600;
+		color: #1e293b;
+	}
+
+	.item-code {
+		font-size: 0.8rem;
+		color: #64748b;
+		margin-top: 0.25rem;
+	}
+
+	.dropdown-actions {
+		margin-bottom: 1rem;
+	}
+
+	.btn-create-new {
+		width: 100%;
+		padding: 0.75rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.btn-create-new:hover {
+		background: #059669;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-weight: normal;
+		margin-bottom: 0;
+	}
+
+	.checkbox-label input {
+		cursor: pointer;
+		width: 18px;
+		height: 18px;
+	}
+
+	.denomination-grid {
+		background: #f8fafc;
+		padding: 1rem;
+		border-radius: 6px;
+		border: 1px solid #cbd5e1;
+	}
+
+	.denomination-grid h4 {
+		margin-top: 0;
+		margin-bottom: 1rem;
+		color: #1e293b;
+	}
+
+	.denom-field {
+		margin-bottom: 1rem;
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 0.5rem;
+		align-items: end;
+	}
+
+	.denom-field label {
+		grid-column: 1 / -1;
+		margin-bottom: 0.25rem;
+		font-size: 0.8rem;
+	}
+
+	.denom-field input {
+		grid-column: 1 / 3;
+		padding: 0.5rem;
+		font-size: 0.85rem;
+	}
+
+	.denom-field small {
+		grid-column: 3;
+		font-size: 0.75rem;
+		color: #64748b;
+		text-align: right;
+	}
+
+	.btn-cancel,
+	.btn-save {
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		flex: 1;
+		font-size: 0.9rem;
+	}
+
+	.btn-cancel {
+		background: #e2e8f0;
+		color: #64748b;
+	}
+
+	.btn-cancel:hover {
+		background: #cbd5e1;
+	}
+
+	.btn-save {
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+	}
+
+	.btn-save:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Transactions Table Styles */
+	.transactions-table-container {
+		margin-top: 1rem;
+		border: 1px solid rgba(0, 0, 0, 0.08);
+		border-radius: 6px;
+		overflow: auto;
+	}
+
+	.transactions-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.85rem;
+	}
+
+	.transactions-table thead {
+		background: linear-gradient(135deg, #f0f4f8 0%, #e8eef5 100%);
+	}
+
+	.transactions-table th {
+		padding: 0.5rem 0.4rem;
+		text-align: left;
+		font-weight: 600;
+		color: #334155;
+		border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+		font-size: 0.75rem;
+	}
+
+	.transactions-table td {
+		padding: 0.5rem 0.4rem;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+	}
+
+	.transactions-table tbody tr:hover {
+		background: rgba(102, 126, 234, 0.05);
+	}
+
+	.transactions-table tbody tr:last-child td {
+		border-bottom: none;
+	}
+
+	.badge {
+		display: inline-block;
+		padding: 0.4rem 0.8rem;
+		border-radius: 20px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: capitalize;
+		white-space: nowrap;
+	}
+
+	.badge-vendor {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.badge-expenses {
+		background: #fef3c7;
+		color: #92400e;
+	}
+
+	.badge-user {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+
+	.badge-other {
+		background: #f3e8ff;
+		color: #6b21a8;
+	}
+
+	.entity-cell {
+		font-weight: 500;
+		color: #1e293b;
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.65rem;
+	}
+
+	.amount-cell {
+		font-weight: 600;
+		color: #10b981;
+	}
+
+	.remarks-cell {
+		color: #64748b;
+		max-width: 150px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.8rem;
+	}
+
+	.denom-cell {
+		text-align: center;
+		font-weight: 600;
+	}
+
+	.date-cell {
+		color: #64748b;
+		font-size: 0.8rem;
+	}
+
+	.empty-state {
+		padding: 2rem;
+		text-align: center;
+		color: #94a3b8;
+		font-style: italic;
+	}
+
+	.action-cell {
+		text-align: center;
+		padding: 0.5rem !important;
+	}
+
+	.delete-btn {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		border: none;
+		background: #ef4444;
+		color: white;
+		font-size: 1rem;
+		font-weight: bold;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		padding: 0;
+		line-height: 1;
+	}
+
+	.delete-btn:hover {
+		background: #dc2626;
+		transform: scale(1.15);
+		box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+	}
+
+	.delete-btn:active {
+		transform: scale(0.95);
+	}
+
+	.confirm-popup {
+		background: white;
+		border-radius: 8px;
+		padding: 0;
+		width: 320px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		z-index: 10001;
+	}
+
+	.confirm-header {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+		padding: 1rem;
+		border-radius: 8px 8px 0 0;
+		font-weight: bold;
+		font-size: 0.95rem;
+	}
+
+	.confirm-body {
+		padding: 1.2rem;
+		text-align: center;
+	}
+
+	.confirm-body p {
+		margin: 0.5rem 0;
+		font-size: 0.9rem;
+	}
+
+	.confirm-actions {
+		display: flex;
+		gap: 0.75rem;
+		padding: 0 1.2rem 1rem 1.2rem;
+		justify-content: center;
+	}
+
+	.btn-cancel,
+	.btn-delete {
+		flex: 1;
+		padding: 0.6rem 1rem;
+		border: none;
+		border-radius: 4px;
+		font-weight: 600;
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: all 0.2s ease;
+	}
+
+	.btn-cancel {
+		background: #e5e7eb;
+		color: #374151;
+	}
+
+	.btn-cancel:hover {
+		background: #d1d5db;
+	}
+
+	.btn-delete {
+		background: #ef4444;
+		color: white;
+	}
+
+	.btn-delete:hover {
+		background: #dc2626;
+	}
+
+	.btn-delete:active {
+		transform: scale(0.98);
+	}
+
+	.success-popup {
+		background: white;
+		border-radius: 8px;
+		padding: 0;
+		width: 320px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		z-index: 10001;
+		animation: slideDown 0.3s ease;
+	}
+
+	.success-popup.error {
+		animation: slideDown 0.3s ease;
+	}
+
+	@keyframes slideDown {
+		from {
+			transform: translateY(-20px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+
+	.success-header {
+		background: linear-gradient(135deg, #22c55e, #16a34a);
+		color: white;
+		padding: 1rem;
+		border-radius: 8px 8px 0 0;
+		text-align: center;
+		font-weight: bold;
+		font-size: 1.2rem;
+	}
+
+	.success-header.error {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+	}
+
+	.success-icon {
+		display: inline-block;
+		width: 36px;
+		height: 36px;
+		line-height: 36px;
+		text-align: center;
+		font-size: 1.5rem;
+		color: white;
+	}
+
+	.success-body {
+		padding: 1.2rem;
+		text-align: center;
+	}
+
+	.success-body p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: #333;
+		line-height: 1.4;
 	}
 </style>
