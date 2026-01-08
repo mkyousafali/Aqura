@@ -43,10 +43,11 @@
 
 	let realCounts: Record<string, number> = {};
 	Object.keys(denomValues).forEach(key => {
-		realCounts[key] = 0;
+		realCounts[key] = undefined;
 	});
 
 	let matchStatus: 'match' | 'mismatch' | null = null;
+	let displayTotal: number = 0;
 	let cashierAccessCode = '';
 	let cashierName = '';
 	let cashierCodeValid = false;
@@ -56,20 +57,64 @@
 	let isValidated = false;
 	let errorMessage = '';
 	let isStarting = false;
+	
+	// Track original values after validation to detect changes
+	let originalCashierCode = '';
+	let originalSupervisorCode = '';
+	let originalRealCounts: Record<string, number> = {};
+	let hasChangesDetected = false;
+	let changeCounter = 0;
 
-	function calculateRealTotal(): number {
-		return Object.keys(realCounts).reduce((sum, key) => {
-			const count = realCounts[key] || 0;
-			const denomValue = denomValues[key] || 0;
-			return sum + (count * denomValue);
-		}, 0);
+	function hasChangesAfterValidation(): boolean {
+		if (!isValidated) return false;
+		
+		// Check if access codes changed
+		if (cashierAccessCode !== originalCashierCode || supervisorAccessCode !== originalSupervisorCode) {
+			return true;
+		}
+		
+		// Check if any real counts changed
+		for (const key of Object.keys(denomValues)) {
+			const currentCount = Number(realCounts[key]) || 0;
+			const originalCount = originalRealCounts[key] || 0;
+			if (currentCount !== originalCount) {
+				return true;
+			}
+		}
+		
+		return false;
 	}
 
-	$: displayTotal = calculateRealTotal();
+	// Reactive statement to track changes - use changeCounter as dependency
+	$: if (changeCounter >= 0) {
+		hasChangesDetected = hasChangesAfterValidation();
+		// Reset validation state if changes are detected
+		if (hasChangesDetected) {
+			isValidated = false;
+			errorMessage = '';
+		}
+	}
 
-	$: if (isValidated && box) {
-		const realTotal = calculateRealTotal();
-		matchStatus = realTotal === box.total ? 'match' : 'mismatch';
+	function calculateRealTotal(): number {
+		let total = 0;
+		for (const key of Object.keys(denomValues)) {
+			const count = Number(realCounts[key]) || 0;
+			const denomValue = denomValues[key] || 0;
+			total += count * denomValue;
+		}
+		console.log('Calculated total:', total, 'from counts:', realCounts);
+		return total;
+	}
+
+	// Explicitly track realCounts changes
+	$: if (realCounts) {
+		displayTotal = calculateRealTotal();
+	}
+
+	$: if (box && displayTotal !== undefined) {
+		const boxTotal = Number(box.total) || 0;
+		// Use Math.abs for floating point comparison tolerance (0.01 = 1 cent)
+		matchStatus = Math.abs(displayTotal - boxTotal) < 0.01 ? 'match' : 'mismatch';
 	}
 
 	function checkDenominationMatch(denomKey: string): 'match' | 'mismatch' | null {
@@ -151,10 +196,118 @@
 		await verifyCashierAccessCode();
 		await lookupSupervisorAccessCode();
 
-		if (cashierCodeValid && supervisorName) {
-			isValidated = true;
+		if (!cashierCodeValid) {
+			errorMessage = $currentLocale === 'ar' ? 'رمز الوصول الخاص بالموظف غير صحيح' : 'Cashier access code is incorrect';
+			return;
+		}
+
+		if (!supervisorName) {
+			errorMessage = $currentLocale === 'ar' ? 'رمز الوصول الخاص بالمشرف غير صحيح' : 'Supervisor access code is incorrect';
+			return;
+		}
+
+		// Validation passed - allow start even if denominations don't match
+		isValidated = true;
+		errorMessage = '';
+		
+		// Store the validated values to detect changes later
+		originalCashierCode = cashierAccessCode;
+		originalSupervisorCode = supervisorAccessCode;
+		originalRealCounts = {};
+		for (const key of Object.keys(realCounts)) {
+			originalRealCounts[key] = Number(realCounts[key]) || 0;
+		}
+		
+		// Reset the change counter so button shows as validated
+		changeCounter = 0;
+	}
+
+	let saveTimeout: NodeJS.Timeout;
+	let draftOperationId: string | null = null;
+	
+	async function saveDenominationCounts() {
+		clearTimeout(saveTimeout);
+		
+		// Debounce saves - wait 1 second after last change before saving
+		saveTimeout = setTimeout(async () => {
+			try {
+				const countsToSave: Record<string, number> = {};
+				for (const key of Object.keys(realCounts)) {
+					countsToSave[key] = Number(realCounts[key]) || 0;
+				}
+				
+				const dataToSave = {
+					box_number: box.number,
+					branch_id: branch.id,
+					user_id: user.id,
+					denomination_record_id: box.id,
+					counts_before: box.counts,
+					counts_after: countsToSave,
+					total_before: box.total,
+					total_after: displayTotal,
+					difference: displayTotal - Number(box.total),
+					is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
+					status: 'draft',
+					start_time: new Date().toISOString()
+				};
+				
+				let error;
+				
+				// If we already have a draft ID, update it
+				if (draftOperationId) {
+					const result = await supabase
+						.from('box_operations')
+						.update(dataToSave)
+						.eq('id', draftOperationId);
+					error = result.error;
+				} else {
+					// Otherwise create a new draft record
+					const result = await supabase
+						.from('box_operations')
+						.insert([dataToSave])
+						.select('id');
+					
+					if (result.data && result.data[0]) {
+						draftOperationId = result.data[0].id;
+					}
+					error = result.error;
+				}
+				
+				if (error) console.error('Error saving denomination counts:', error);
+			} catch (error) {
+				console.error('Error saving counts:', error);
+			}
+		}, 1000);
+	}
+
+	async function loadSavedCounts() {
+		try {
+			const { data, error } = await supabase
+				.from('box_operations')
+				.select('id, counts_after')
+				.eq('denomination_record_id', box.id)
+				.eq('user_id', user.id)
+				.eq('status', 'draft')
+				.single();
+			
+			if (data && data.counts_after) {
+				draftOperationId = data.id;
+				const savedCounts = typeof data.counts_after === 'string' ? JSON.parse(data.counts_after) : data.counts_after;
+				for (const key of Object.keys(realCounts)) {
+					realCounts[key] = savedCounts[key] || 0;
+				}
+				realCounts = { ...realCounts };
+			}
+		} catch (error) {
+			console.log('No saved counts found, starting fresh');
 		}
 	}
+
+	// Load saved counts on component mount
+	import { onMount } from 'svelte';
+	onMount(() => {
+		loadSavedCounts();
+	});
 
 	async function startOperation() {
 		if (!isValidated || !selectedPosNumber || isStarting) return;
@@ -195,6 +348,14 @@
 				});
 
 			if (error) throw error;
+
+			// Delete draft record now that operation is complete
+			if (draftOperationId) {
+				await supabase
+					.from('box_operations')
+					.delete()
+					.eq('id', draftOperationId);
+			}
 
 			window.dispatchEvent(new CustomEvent('close-window', { detail: { windowId } }));
 		} catch (error) {
@@ -243,10 +404,12 @@
 							type="number"
 							min="0"
 							step="1"
-							value={realCounts[key] || ''}
-							on:input={(e) => {
-								const val = e.currentTarget.value;
-								realCounts[key] = val === '' ? undefined : Number(val);
+							placeholder=""
+							bind:value={realCounts[key]}
+							on:input={() => {
+								realCounts = { ...realCounts };
+								changeCounter++;
+								saveDenominationCounts();
 							}}
 						/>
 						{#if realCounts[key] > 0 && box && isValidated}
@@ -291,7 +454,9 @@
 				<div class="difference">
 					{t('pos.difference') || 'Difference'}: 
 					<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
-					{Math.abs(box.total - calculateRealTotal()).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+					<span style="color: {displayTotal - box.total > 0 ? '#16a34a' : '#dc2626'};">
+						{(displayTotal - box.total) > 0 ? '+' : ''}{(displayTotal - box.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+					</span>
 				</div>
 			</div>
 		{/if}
@@ -308,6 +473,7 @@
 					type="password"
 					placeholder={t('pos.enterCashierAccessCode') || 'Enter cashier access code'}
 					bind:value={cashierAccessCode}
+					on:input={() => changeCounter++}
 					on:blur={verifyCashierAccessCode}
 				/>
 			</div>
@@ -323,6 +489,7 @@
 					type="password"
 					placeholder={t('pos.enterSupervisorAccessCode') || 'Enter supervisor access code'}
 					bind:value={supervisorAccessCode}
+					on:input={() => changeCounter++}
 					on:blur={lookupSupervisorAccessCode}
 				/>
 			</div>
@@ -333,8 +500,8 @@
 	</div>
 
 	<div class="modal-footer">
-		<button class="btn-validate" on:click={validateAccessCodes} disabled={isValidated || !cashierCodeValid || !supervisorName}>
-			{isValidated ? '✓ Validated' : 'Validate'}
+		<button class="btn-validate" on:click={validateAccessCodes} disabled={isValidated && !hasChangesDetected}>
+			{isValidated && !hasChangesDetected ? '✓ Validated' : 'Validate'}
 		</button>
 		<button class="btn-primary" on:click={startOperation} disabled={isStarting || !isValidated}>
 			{isStarting ? (t('common.starting') || 'Starting...') : (t('common.start') || 'Start')}

@@ -91,64 +91,104 @@
 				? JSON.parse(operation.complete_details)
 				: operation.complete_details;
 			console.log('📝 Complete Details (Edited):', completeDetails);
+			
+			// Load ALL values from complete_details (the final edited state)
+			closingCounts = { ...completeDetails.closing_counts || {} };
+			
+			// Load supervisor info
+			supervisorName = completeDetails.supervisor_name || operationData.supervisor_name || '';
+			supervisorCode = '';
+			
+			// Load bank reconciliation (edited values)
+			madaAmount = completeDetails.bank_mada || 0;
+			visaAmount = completeDetails.bank_visa || 0;
+			masterCardAmount = completeDetails.bank_mastercard || 0;
+			googlePayAmount = completeDetails.bank_google_pay || 0;
+			otherAmount = completeDetails.bank_other || 0;
+			
+			// Load ERP details (edited values)
+			systemCashSales = completeDetails.system_cash_sales || 0;
+			systemCardSales = completeDetails.system_card_sales || 0;
+			systemReturn = completeDetails.system_return || 0;
+			
+			// Load recharge details (edited values)
+			openingBalance = completeDetails.recharge_opening_balance || 0;
+			closeBalance = completeDetails.recharge_close_balance || 0;
+			
+			// Load recharge card transaction dates and times
+			startDateInput = completeDetails.recharge_transaction_start_date || '';
+			startTimeInput = completeDetails.recharge_transaction_start_time || '';
+			endDateInput = completeDetails.recharge_transaction_end_date || '';
+			endTimeInput = completeDetails.recharge_transaction_end_time || '';
+			
+			// Load vouchers (edited values)
+			vouchers = completeDetails.vouchers || [];
 		}
 		
-		// Try to load from closing_details (the JSON saved data)
+		// Load closing_details (original values) for comparison
 		if (operation?.closing_details) {
 			const details = typeof operation.closing_details === 'string' 
 				? JSON.parse(operation.closing_details)
 				: operation.closing_details;
 			
 			closingDetails = details;
-			closingCounts = { ...details.closing_counts || {} };
 			
-			// Load supervisor info - try from closing_details first, then from notes
-			supervisorName = details.supervisor_name || operationData.supervisor_name || '';
-			console.log('🔍 Supervisor name loaded:', supervisorName, 'from details:', details.supervisor_name, 'from notes:', operationData.supervisor_name);
-			supervisorCode = '';
-			
-			// Load bank reconciliation
-			madaAmount = details.bank_mada || '';
-			visaAmount = details.bank_visa || '';
-			masterCardAmount = details.bank_mastercard || '';
-			googlePayAmount = details.bank_google_pay || '';
-			otherAmount = details.bank_other || '';
-			
-			// Load ERP details
-			systemCashSales = details.system_cash_sales || '';
-			systemCardSales = details.system_card_sales || '';
-			systemReturn = details.system_return || '';
-			
-			// Load recharge details
-			openingBalance = details.recharge_opening_balance || '';
-			closeBalance = details.recharge_close_balance || '';
-			
-			// Load recharge card transaction dates and times
-			startDateInput = details.recharge_transaction_start_date || '';
-			startTimeInput = details.recharge_transaction_start_time || '';
-			endDateInput = details.recharge_transaction_end_date || '';
-			endTimeInput = details.recharge_transaction_end_time || '';
+			// If complete_details wasn't loaded, use closing_details as primary
+			if (!operation?.complete_details) {
+				closingCounts = { ...details.closing_counts || {} };
+				
+				// Load supervisor info
+				supervisorName = details.supervisor_name || operationData.supervisor_name || '';
+				supervisorCode = '';
+				
+				// Load bank reconciliation
+				madaAmount = details.bank_mada || 0;
+				visaAmount = details.bank_visa || 0;
+				masterCardAmount = details.bank_mastercard || 0;
+				googlePayAmount = details.bank_google_pay || 0;
+				otherAmount = details.bank_other || 0;
+				
+				// Load ERP details
+				systemCashSales = details.system_cash_sales || 0;
+				systemCardSales = details.system_card_sales || 0;
+				systemReturn = details.system_return || 0;
+				
+				// Load recharge details
+				openingBalance = details.recharge_opening_balance || 0;
+				closeBalance = details.recharge_close_balance || 0;
+				
+				// Load recharge card transaction dates and times
+				startDateInput = details.recharge_transaction_start_date || '';
+				startTimeInput = details.recharge_transaction_start_time || '';
+				endDateInput = details.recharge_transaction_end_date || '';
+				endTimeInput = details.recharge_transaction_end_time || '';
+				
+				// Load vouchers
+				vouchers = details.vouchers || [];
+			}
 			
 			// Parse time if available
 			if (startTimeInput) {
 				const [time, period] = startTimeInput.split(' ');
-				const [hour, minute] = time.split(':');
-				startHour = hour || '12';
-				startMinute = minute || '00';
-				startAmPm = period || 'AM';
+				if (time) {
+					const [hour, minute] = time.split(':');
+					startHour = hour || '12';
+					startMinute = minute || '00';
+					startAmPm = period || 'AM';
+				}
 			}
 			if (endTimeInput) {
 				const [time, period] = endTimeInput.split(' ');
-				const [hour, minute] = time.split(':');
-				endHour = hour || '12';
-				endMinute = minute || '00';
-				endAmPm = period || 'AM';
+				if (time) {
+					const [hour, minute] = time.split(':');
+					endHour = hour || '12';
+					endMinute = minute || '00';
+					endAmPm = period || 'AM';
+				}
 			}
 			
-			// Load vouchers
-			vouchers = details.vouchers || [];
-			
 			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
+			console.log('✅ Loaded ALL complete details:', completeDetails);
 		} else if (operation?.counts_after) {
 			closingCounts = { ...operation.counts_after };
 			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
@@ -259,6 +299,45 @@
 
 	// Auto-calculate sales
 	$: sales = (Number(openingBalance) || 0) - (Number(closeBalance) || 0);
+	
+	// Helper functions to check if values were edited
+	function wasEdited(key: string, value: any): boolean {
+		// Check if complete_details has this value and it's different from closing_details
+		if (!completeDetails || !closingDetails) return false;
+		
+		const originalValue = closingDetails[key];
+		const editedValue = completeDetails[key];
+		
+		// Handle nested objects (like closing_counts)
+		if (key === 'closing_counts' && typeof value === 'object') {
+			return false; // Check individual denominations instead
+		}
+		
+		return editedValue !== undefined && originalValue !== editedValue;
+	}
+	
+	function wasDenomEdited(denomKey: string): boolean {
+		if (!completeDetails?.closing_counts || !closingDetails?.closing_counts) return false;
+		return completeDetails.closing_counts[denomKey] !== closingDetails.closing_counts[denomKey];
+	}
+	
+	function wasVoucherEdited(index: number, field: 'serial' | 'amount'): boolean {
+		if (!completeDetails?.vouchers || !closingDetails?.vouchers) return false;
+		if (!completeDetails.vouchers[index] || !closingDetails.vouchers[index]) return false;
+		return completeDetails.vouchers[index][field] !== closingDetails.vouchers[index][field];
+	}
+	
+	function getOriginalValue(key: string): any {
+		return closingDetails?.[key];
+	}
+	
+	function getOriginalDenomValue(denomKey: string): number {
+		return closingDetails?.closing_counts?.[denomKey] || 0;
+	}
+	
+	function getOriginalVoucherValue(index: number, field: 'serial' | 'amount'): any {
+		return closingDetails?.vouchers?.[index]?.[field];
+	}
 
 	// Differences fields
 	let differenceInCashSales: number = 0;
@@ -595,6 +674,9 @@
 				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل الإغلاق المدخلة' : 'Closing Details Entered'}</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
+						{@const currentVal = closingCounts[key] || 0}
+						{@const originalVal = getOriginalDenomValue(key)}
+						{@const isEdited = wasDenomEdited(key)}
 						<div class="denom-input-group">
 							<label>
 								{#if label !== 'Coins'}
@@ -609,12 +691,21 @@
 									type="number"
 									min="0"
 									readonly
-									value={closingCounts[key] || ''}
+									class:edited-value={isEdited}
+									value={currentVal || ''}
 								/>
-								{#if closingCounts[key] > 0}
-									<div class="denom-total">
-										<img src={currencySymbolUrl} alt="SAR" class="currency-icon-tiny" />
-										{((closingCounts[key] || 0) * denomValues[key]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+								{#if currentVal > 0}
+									<div class="denom-values-display">
+										{#if isEdited && originalVal !== undefined}
+											<div class="denom-original-value">
+												<span class="original-label">Original:</span>
+												<span class="original-count">{originalVal}</span>
+											</div>
+										{/if}
+										<div class="denom-total">
+											<img src={currencySymbolUrl} alt="SAR" class="currency-icon-tiny" />
+											{((currentVal || 0) * denomValues[key]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+										</div>
 									</div>
 								{/if}
 							</div>
@@ -673,12 +764,30 @@
 							</thead>
 							<tbody>
 								{#each vouchers as voucher, index (index)}
+									{@const serialEdited = wasVoucherEdited(index, 'serial')}
+									{@const amountEdited = wasVoucherEdited(index, 'amount')}
 									<tr>
-										<td>{voucher.serial}</td>
+										<td>
+											<div class="voucher-cell-wrapper">
+												<span class:edited-value={serialEdited}>{voucher.serial}</span>
+												{#if serialEdited}
+													<div class="voucher-original-value">
+														<span class="original-label">Original:</span>
+														<span class="original-value">{getOriginalVoucherValue(index, 'serial')}</span>
+													</div>
+												{/if}
+											</div>
+										</td>
 										<td>
 											<div class="amount-cell">
 												<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
-												<span>{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+												<span class:edited-value={amountEdited}>{voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+												{#if amountEdited}
+													<div class="voucher-original-value">
+														<span class="original-label">Original:</span>
+														<span class="original-value">{getOriginalVoucherValue(index, 'amount')}</span>
+													</div>
+												{/if}
 											</div>
 										</td>
 									</tr>
@@ -2447,6 +2556,95 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.denom-values-display {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		flex-shrink: 0;
+	}
+
+	.denom-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.1rem;
+		font-size: 0.65rem;
+		padding: 0.1rem 0.2rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+		white-space: nowrap;
+	}
+
+	.denom-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+
+	.denom-original-value .original-count {
+		font-weight: 700;
+		color: #3730a3;
+	}
+	
+	/* Edited value styling */
+	.edited-value {
+		background-color: #fef3c7 !important;
+		border-color: #f59e0b !important;
+		font-weight: 600;
+	}
+	
+	/* Voucher original values */
+	.voucher-cell-wrapper {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	
+	.voucher-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.65rem;
+		padding: 0.1rem 0.2rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+	}
+	
+	.voucher-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+	
+	.voucher-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
+	}
+	
+	/* Bank original values */
+	.bank-value-wrapper {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	
+	.bank-original-value {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.65rem;
+		padding: 0.1rem 0.2rem;
+		background: #e0e7ff;
+		border-radius: 0.25rem;
+	}
+	
+	.bank-original-value .original-label {
+		font-weight: 600;
+		color: #4338ca;
+	}
+	
+	.bank-original-value .original-value {
+		font-weight: 700;
+		color: #3730a3;
 	}
 </style>
 
