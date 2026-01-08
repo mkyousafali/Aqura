@@ -92,6 +92,7 @@
 	import BiometricData from '$lib/components/desktop-interface/master/hr/BiometricData.svelte';
 	import DocumentManagement from '$lib/components/desktop-interface/master/hr/DocumentManagement.svelte';
 	import SalaryManagement from '$lib/components/desktop-interface/master/hr/SalaryManagement.svelte';
+	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
 	import WarningMaster from '$lib/components/desktop-interface/master/warnings/WarningMaster.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
@@ -748,6 +749,29 @@
 			component: WarningMaster,
 			icon: '⚠️',
 			size: { width: 1200, height: 800 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openLinkID() {
+		collapseAllMenus();
+		const windowId = generateWindowId('link-id');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Link ID #${instanceNumber}`,
+			component: LinkID,
+			icon: '🔗',
+			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
@@ -3270,6 +3294,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openWarningMaster}>
 								<span class="menu-icon">⚠️</span>
 								<span class="menu-text">Warning Master</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LINK_ID')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLinkID}>
+								<span class="menu-icon">🔗</span>
+								<span class="menu-text">Link ID</span>
 							</button>
 						</div>
 					{/if}
