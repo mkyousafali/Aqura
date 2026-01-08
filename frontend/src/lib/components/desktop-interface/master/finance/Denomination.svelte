@@ -686,8 +686,12 @@
 		
 		selectedCashBox = boxNumber;
 		const boxIndex = boxNumber - 1;
-		// Load existing box data as current counts
-		cashBoxCounts = { ...cashBoxData[boxIndex] };
+		// Load existing box data - but convert 0s to undefined for empty display
+		const boxData = cashBoxData[boxIndex];
+		cashBoxCounts = {};
+		for (const key of Object.keys(denomValues)) {
+			cashBoxCounts[key] = (boxData[key] && boxData[key] > 0) ? boxData[key] : undefined;
+		}
 		showCashBoxModal = true;
 	}
 
@@ -731,7 +735,7 @@
 	}
 
 	// Calculate total for cash box modal input
-	$: cashBoxInputTotal = Object.entries(cashBoxCounts).reduce((sum, [key, count]) => sum + count * denomValues[key], 0);
+	$: cashBoxInputTotal = Object.entries(cashBoxCounts).reduce((sum, [key, count]) => sum + ((count || 0) * (denomValues[key] || 0)), 0);
 
 	const denomLabels: Record<string, string> = {
 		'd500': '500 SAR',
@@ -1144,7 +1148,7 @@
 							bind:value={cashBoxCounts[key]}
 							min="0"
 							max={counts[key]}
-							placeholder="0"
+							placeholder=""
 						/>
 						<div class="denom-subtotal">{((cashBoxCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
 					</div>
@@ -1152,7 +1156,7 @@
 			</div>
 			<div class="cashbox-total-row">
 				<span>Transfer Total:</span>
-				<span class="cashbox-total-value">{cashBoxInputTotal.toLocaleString()} SAR</span>
+				<span class="cashbox-total-value">{cashBoxInputTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</span>
 			</div>
 		</div>
 		<div class="popup-footer">

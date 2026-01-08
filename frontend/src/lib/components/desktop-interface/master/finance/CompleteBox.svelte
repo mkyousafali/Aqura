@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { createClient } from '@supabase/supabase-js';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -161,7 +161,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 	
 	async function autoSaveCompleteDetails() {
-		if (!operation?.id || !closingStarted) return;
+		if (!operation?.id) {
+			console.warn('⚠️ Cannot auto-save: no operation ID');
+			return;
+		}
+		
+		console.log('💾 Starting auto-save of complete_details...');
 		
 		// Get current complete_details or start from closing_details
 		let currentCompleteDetails;
@@ -177,32 +182,43 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			currentCompleteDetails = {};
 		}
 		
-		// Update with all current values
+		// Base values are already updated by edit handlers, so just save them directly
 		const updatedCompleteDetails = {
 			...currentCompleteDetails,
-			// Closing counts (can be edited via denominations)
+			// Closing counts (already updated)
 			closing_counts: closingCounts,
-			// Vouchers data
+			closing_total: closingTotal,
+			cash_sales: cashSales,
+			total_cash_sales: totalCashSales,
+			total_sales: totalSales,
+			// Vouchers data (already updated)
 			vouchers: vouchers,
-			// Bank reconciliation
-			bank_mada: madaAmount || 0,
-			bank_visa: visaAmount || 0,
-			bank_mastercard: masterCardAmount || 0,
-			bank_google_pay: googlePayAmount || 0,
-			bank_other: otherAmount || 0,
+			vouchers_total: vouchersTotal,
+			// Bank reconciliation (already updated)
+			bank_mada: Number(madaAmount) || 0,
+			bank_visa: Number(visaAmount) || 0,
+			bank_mastercard: Number(masterCardAmount) || 0,
+			bank_google_pay: Number(googlePayAmount) || 0,
+			bank_other: Number(otherAmount) || 0,
 			bank_total: bankTotal,
-			// System/ERP details
-			system_cash_sales: systemCashSales || 0,
-			system_card_sales: systemCardSales || 0,
-			system_return: systemReturn || 0,
-			// Recharge cards
-			recharge_opening_balance: openingBalance || 0,
-			recharge_close_balance: closeBalance || 0,
-			recharge_sales: sales || 0,
+			// System/ERP details (already updated)
+			system_cash_sales: Number(systemCashSales) || 0,
+			system_card_sales: Number(systemCardSales) || 0,
+			system_return: Number(systemReturn) || 0,
+			system_total_cash_sales: totalSystemCashSales,
+			system_total: totalSystemSales,
+			// Recharge cards (already updated)
+			recharge_opening_balance: Number(openingBalance) || 0,
+			recharge_close_balance: Number(closeBalance) || 0,
+			recharge_sales: sales,
 			recharge_transaction_start_date: startDateInput || '',
 			recharge_transaction_start_time: startTimeInput || '',
 			recharge_transaction_end_date: endDateInput || '',
 			recharge_transaction_end_time: endTimeInput || '',
+			// Differences (calculated)
+			difference_cash_sales: differenceInCashSales,
+			difference_card_sales: differenceInCardSales,
+			total_difference: totalDifference,
 			// All edit tracking
 			denom_edits: denomEditedValues,
 			voucher_edits: voucherEditedValues,
@@ -223,6 +239,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			recharge_verified: rechargeVerified
 		};
 		
+		console.log('📝 Complete details to save:', updatedCompleteDetails);
+		
 		try {
 			const { error } = await supabase
 				.from('box_operations')
@@ -235,7 +253,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			if (error) {
 				console.error('❌ Error auto-saving complete_details:', error);
 			} else {
-				console.log('✅ Auto-saved complete_details');
+				console.log('✅ Auto-saved complete_details successfully');
 			}
 		} catch (e) {
 			console.error('❌ Exception auto-saving complete_details:', e);
@@ -382,7 +400,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Calculate total
 	$: closingTotal = Object.keys(closingCounts).reduce((sum, key) => {
-		const count = denomEditedValues[key] !== undefined ? denomEditedValues[key] : (closingCounts[key] || 0);
+		const count = closingCounts[key] || 0;
 		const denomValue = denomValues[key] || 0;
 		return sum + (count * denomValue);
 	}, 0);
@@ -421,12 +439,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	}
 
 	// Calculate vouchers total
-	$: vouchersTotal = vouchers.reduce((sum, v, index) => {
-		const amount = voucherEditedValues[index]?.amount !== undefined 
-			? voucherEditedValues[index].amount 
-			: v.amount;
-		return sum + amount;
-	}, 0);
+	$: vouchersTotal = vouchers.reduce((sum, v) => sum + v.amount, 0);
 
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
 	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
@@ -450,11 +463,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Calculate bank reconciliation total using edited values
 	$: bankTotal = (
-		(bankEditedValues['mada'] !== undefined ? bankEditedValues['mada'] : (Number(madaAmount) || 0)) +
-		(bankEditedValues['visa'] !== undefined ? bankEditedValues['visa'] : (Number(visaAmount) || 0)) +
-		(bankEditedValues['mastercard'] !== undefined ? bankEditedValues['mastercard'] : (Number(masterCardAmount) || 0)) +
-		(bankEditedValues['googlepay'] !== undefined ? bankEditedValues['googlepay'] : (Number(googlePayAmount) || 0)) +
-		(bankEditedValues['other'] !== undefined ? bankEditedValues['other'] : (Number(otherAmount) || 0))
+		(Number(madaAmount) || 0) +
+		(Number(visaAmount) || 0) +
+		(Number(masterCardAmount) || 0) +
+		(Number(googlePayAmount) || 0) +
+		(Number(otherAmount) || 0)
 	);
 
 	// Calculate total sales (total cash sales + total bank sales)
@@ -477,12 +490,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Calculate system sales totals using edited values
 	$: totalSystemCashSales = (
-		(systemEditedValues['cashSales'] !== undefined ? systemEditedValues['cashSales'] : (Number(systemCashSales) || 0)) -
-		(systemEditedValues['return'] !== undefined ? systemEditedValues['return'] : (Number(systemReturn) || 0))
+		(Number(systemCashSales) || 0) -
+		(Number(systemReturn) || 0)
 	);
-	$: totalSystemSales = totalSystemCashSales + (
-		systemEditedValues['cardSales'] !== undefined ? systemEditedValues['cardSales'] : (Number(systemCardSales) || 0)
-	);
+	$: totalSystemSales = totalSystemCashSales + (Number(systemCardSales) || 0);
 
 	// Time format conversion for 12-hour format
 	let startDateInput = '';
@@ -516,10 +527,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		triggerAutoSave();
 	}
 
-	// Auto-calculate sales using edited values
+	// Auto-calculate sales using base values (already updated)
 	$: sales = (
-		(rechargeEditedValues['openingBalance'] !== undefined ? rechargeEditedValues['openingBalance'] : (Number(openingBalance) || 0)) -
-		(rechargeEditedValues['closeBalance'] !== undefined ? rechargeEditedValues['closeBalance'] : (Number(closeBalance) || 0))
+		(Number(openingBalance) || 0) -
+		(Number(closeBalance) || 0)
 	);
 
 	// Differences fields
@@ -1280,11 +1291,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</button>
 			<button 
 				class="add-to-denomination-btn"
-				disabled={!closingStarted || !allCheckboxesVerified}
+				disabled={!closingStarted || !allCheckboxesVerified || denominationsAdded}
 				on:click={addToDenomination}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : ''}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : ''}
 			>
-				{$currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination'}
+				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
 			</button>
 			<button 
 				class="complete-btn"
@@ -1368,6 +1379,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 											const newValue = parseFloat(e.currentTarget.value) || 0;
 											denomEditedValues[key] = newValue;
 											denomEditedValues = denomEditedValues;
+											closingCounts[key] = newValue; // Update base value
+											closingCounts = closingCounts;
 											denomEditMode[key] = false;
 											denomEditMode = denomEditMode;
 											saveDenomEdits();
@@ -1493,6 +1506,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 															if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
 															voucherEditedValues[index].serial = newValue;
 															voucherEditedValues = voucherEditedValues;
+																vouchers[index].serial = newValue; // Update base value
+																vouchers = vouchers;
 															voucherEditMode[index].serial = false;
 															voucherEditMode = voucherEditMode;
 															saveVoucherData();
@@ -1535,6 +1550,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 																if (!voucherEditedValues[index]) voucherEditedValues[index] = {};
 																voucherEditedValues[index].amount = newValue;
 																voucherEditedValues = voucherEditedValues;
+																		vouchers[index].amount = newValue; // Update base value
+																		vouchers = vouchers;
 																voucherEditMode[index].amount = false;
 																voucherEditMode = voucherEditMode;
 																saveVoucherData();
@@ -1601,6 +1618,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(madaAmount) || 0)) {
 										bankEditedValues['mada'] = newValue;
+							madaAmount = newValue; // Update base value
 										saveBankData();
 									}
 									bankEditMode['mada'] = false;
@@ -1648,6 +1666,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(visaAmount) || 0)) {
 										bankEditedValues['visa'] = newValue;
+							visaAmount = newValue; // Update base value
 										saveBankData();
 									}
 									bankEditMode['visa'] = false;
@@ -1695,6 +1714,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(masterCardAmount) || 0)) {
 										bankEditedValues['mastercard'] = newValue;
+							masterCardAmount = newValue; // Update base value
 										saveBankData();
 									}
 									bankEditMode['mastercard'] = false;
@@ -1742,6 +1762,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(googlePayAmount) || 0)) {
 										bankEditedValues['googlepay'] = newValue;
+							googlePayAmount = newValue; // Update base value
 										saveBankData();
 									}
 									bankEditMode['googlepay'] = false;
@@ -1789,6 +1810,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(otherAmount) || 0)) {
 										bankEditedValues['other'] = newValue;
+							otherAmount = newValue; // Update base value
 										saveBankData();
 									}
 									bankEditMode['other'] = false;
@@ -1849,6 +1871,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemCashSales) || 0)) {
 										systemEditedValues['cashSales'] = newValue;
+								systemCashSales = newValue; // Update base value
 										saveSystemData();
 									}
 									systemEditMode['cashSales'] = false;
@@ -1896,6 +1919,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemCardSales) || 0)) {
 										systemEditedValues['cardSales'] = newValue;
+								systemCardSales = newValue; // Update base value
 										saveSystemData();
 									}
 									systemEditMode['cardSales'] = false;
@@ -1943,6 +1967,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(systemReturn) || 0)) {
 										systemEditedValues['return'] = newValue;
+								systemReturn = newValue; // Update base value
 										saveSystemData();
 									}
 									systemEditMode['return'] = false;
@@ -2009,6 +2034,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = e.currentTarget.value;
 									if (newValue !== startDateInput) {
 										rechargeEditedValues['startDate'] = newValue;
+								startDateInput = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['startDate'] = false;
@@ -2055,6 +2081,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = e.currentTarget.value;
 									if (newValue !== `${startHour}:${startMinute} ${startAmPm}`) {
 										rechargeEditedValues['startTime'] = newValue;
+								startTimeInput = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['startTime'] = false;
@@ -2100,6 +2127,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = e.currentTarget.value;
 									if (newValue !== endDateInput) {
 										rechargeEditedValues['endDate'] = newValue;
+								endDateInput = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['endDate'] = false;
@@ -2146,6 +2174,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = e.currentTarget.value;
 									if (newValue !== `${endHour}:${endMinute} ${endAmPm}`) {
 										rechargeEditedValues['endTime'] = newValue;
+								endTimeInput = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['endTime'] = false;
@@ -2196,6 +2225,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(openingBalance) || 0)) {
 										rechargeEditedValues['openingBalance'] = newValue;
+								openingBalance = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['openingBalance'] = false;
@@ -2244,6 +2274,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									const newValue = parseFloat(e.currentTarget.value) || 0;
 									if (newValue !== (Number(closeBalance) || 0)) {
 										rechargeEditedValues['closeBalance'] = newValue;
+								closeBalance = newValue; // Update base value
 										saveRechargeData();
 									}
 									rechargeEditMode['closeBalance'] = false;

@@ -548,16 +548,6 @@
 			console.log('✅ Status updated to pending_close');
 			closingSaved = true;
 			
-			// Render A4 template invisibly for auto-save
-			isAutoSavingA4 = true;
-			showA4Template = true;
-			
-			// Automatically save A4 template as PNG
-			console.log('📸 Auto-saving A4 template as PNG...');
-			setTimeout(() => {
-				saveA4AsPNGAuto();
-			}, 500);
-			
 			// Open print template
 			openPrintTemplate();
 			
@@ -581,197 +571,73 @@
 	}
 
 	// A4 template state
-	let showA4Template = false;
-	let isAutoSavingA4 = false;
 
-	function openA4Template() {
-		showA4Template = true;
-		isAutoSavingA4 = false;
-	}
-
-	function closeA4Template() {
-		showA4Template = false;
-		isAutoSavingA4 = false;
-	}
-
-	async function saveA4AsPNG() {
-		try {
-			// Get the A4 page element
-			const a4Element = document.querySelector('.a4-page');
-			if (!a4Element) {
-				alert('Error: Could not find A4 template');
-				return;
-			}
-
-			// Convert element to canvas
-			const canvas = await html2canvas(a4Element, {
-				scale: 2,
-				useCORS: true,
-				logging: false,
-				backgroundColor: '#ffffff'
-			});
-
-			// Convert canvas to blob
-			canvas.toBlob(async (blob) => {
-				if (!blob) {
-					alert($currentLocale === 'ar' ? 'خطأ: لا يمكن إنشاء الصورة' : 'Error: Could not create image');
-					return;
-				}
-
-				// Create filename with timestamp
-				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
-
-				// Upload to storage
-				const { data: uploadData, error: uploadError } = await supabase.storage
-					.from('pos-before')
-					.upload(fileName, blob, {
-						contentType: 'image/png',
-						upsert: true
-					});
-
-				if (uploadError) {
-					console.error('Upload error:', uploadError);
-					alert(($currentLocale === 'ar' ? 'خطأ في رفع الصورة: ' : 'Error uploading image: ') + uploadError.message);
-					return;
-				}
-
-				// Get public URL
-				const { data: urlData } = supabase.storage
-					.from('pos-before')
-					.getPublicUrl(fileName);
-
-				const imageUrl = urlData.publicUrl;
-
-				// Save URL to database
-				const { error: updateError } = await supabase
-					.from('box_operations')
-					.update({ pos_before_url: imageUrl })
-					.eq('id', operation.id);
-
-				if (updateError) {
-					console.error('Database update error:', updateError);
-					alert(($currentLocale === 'ar' ? 'خطأ في حفظ الرابط في قاعدة البيانات: ' : 'Error saving URL to database: ') + updateError.message);
-					return;
-				}
-
-				alert($currentLocale === 'ar' ? 'تم حفظ الصورة بنجاح!' : 'Image saved successfully!');
-				console.log('✅ Image saved to:', imageUrl);
-				closeA4Template();
-			}, 'image/png');
-		} catch (error) {
-			console.error('Error saving PNG:', error);
-			alert(($currentLocale === 'ar' ? 'خطأ: ' : 'Error: ') + (error instanceof Error ? error.message : ($currentLocale === 'ar' ? 'خطأ غير معروف' : 'Unknown error')));
-		}
-	}
-
-	// Auto-save function (called when closing box)
-	async function saveA4AsPNGAuto() {
-		try {
-			// Wait for A4 element to be rendered (up to 3 seconds)
-			let a4Element = document.querySelector('.a4-page');
-			let attempts = 0;
-			
-			while (!a4Element && attempts < 30) {
-				await new Promise(resolve => setTimeout(resolve, 100));
-				a4Element = document.querySelector('.a4-page');
-				attempts++;
-			}
-			
-			if (!a4Element) {
-				console.warn('⚠️ A4 template not found after waiting, skipping auto-save');
-				return;
-			}
-
-			console.log('📸 A4 element found, converting to image...');
-
-			const canvas = await html2canvas(a4Element, {
-				scale: 2,
-				useCORS: true,
-				logging: false,
-				backgroundColor: '#ffffff'
-			});
-
-			canvas.toBlob(async (blob) => {
-				if (!blob) {
-					console.error('❌ Could not create image blob');
-					return;
-				}
-
-				const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-				const fileName = `pos-before-${operation.id}-${timestamp}.png`;
-
-				console.log('📤 Uploading image to storage...');
-
-				const { data: uploadData, error: uploadError } = await supabase.storage
-					.from('pos-before')
-					.upload(fileName, blob, {
-						contentType: 'image/png',
-						upsert: true
-					});
-
-				if (uploadError) {
-					console.error('❌ Upload error:', uploadError);
-					return;
-				}
-
-				const { data: urlData } = supabase.storage
-					.from('pos-before')
-					.getPublicUrl(fileName);
-
-				const imageUrl = urlData.publicUrl;
-
-				console.log('💾 Saving URL to database...');
-
-				const { error: updateError } = await supabase
-					.from('box_operations')
-					.update({ pos_before_url: imageUrl })
-					.eq('id', operation.id);
-
-				if (updateError) {
-					console.error('❌ Database update error:', updateError);
-					return;
-				}
-
-				console.log('✅ Auto-saved image to:', imageUrl);
-				// Close hidden A4 modal after auto-save
-				showA4Template = false;
-				isAutoSavingA4 = false;
-			}, 'image/png');
-		} catch (error) {
-			console.error('❌ Error auto-saving PNG:', error);
-			// Close hidden A4 modal on error
-			showA4Template = false;
-			isAutoSavingA4 = false;
-		}
-	}
 
 	function handlePrint() {
 		console.log('🖨️ Printing - Branch:', branch?.name, 'Supervisor:', supervisorName);
-		const printWindow = window.open('', '', 'width=600,height=800');
-		if (printWindow) {
-			const html = document.getElementById('print-template-content')?.innerHTML || '';
-			const styles = `
+		const html = document.getElementById('print-template-content')?.innerHTML || '';
+		
+		// Create a minimal HTML document with aggressive print styles
+		const printHtml = `
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<meta charset="UTF-8">
+				<title>Receipt</title>
 				<style>
-					* { margin: 0; padding: 0; box-sizing: border-box; }
-					body { font-family: 'Courier New', monospace; font-size: 9pt; }
-					.thermal-receipt { width: 80mm; margin: 0 auto; padding: 0; }
-					.receipt-divider { border: none; border-top: 1px dashed #000; margin: 3px 0; }
-					.receipt-row-ar { direction: rtl; text-align: right; font-weight: 600; margin-bottom: 2px; }
-					.receipt-row-en { text-align: left; font-weight: 600; margin-bottom: 2px; }
-					.receipt-label-ar { direction: rtl; text-align: right; font-weight: bold; font-size: 8pt; margin-bottom: 2px; }
-					.receipt-label-en { text-align: left; font-weight: bold; font-size: 8pt; margin-bottom: 2px; }
-					.receipt-total { font-weight: bold; font-size: 10pt; }
-					.receipt-logo { text-align: center; padding: 0.2rem 0; margin-bottom: 0.2rem; border-bottom: 1px solid #000; }
-					.logo-image { max-width: 60%; height: auto; max-height: 50px; }
+					* { margin: 0; padding: 0; border: 0; box-sizing: border-box; }
+					html { margin: 0; padding: 0; }
+					body { 
+						margin: 0; 
+						padding: 0; 
+						width: 72.1mm; 
+						font-family: 'Courier New', monospace;
+						font-size: 10pt;
+						font-weight: bold;
+						overflow: visible;
+					}
+					
+					.thermal-receipt { width: 72.1mm; margin: 0; padding: 0; overflow: visible; }
+					.receipt-container { margin: 0; padding: 0; overflow: visible; }
+					.receipt-divider { border-top: 1px dashed #000; margin: 0; padding: 0; }
+					.receipt-row-ar { direction: rtl; text-align: right; margin: 0; padding: 0; font-size: 8pt; font-weight: bold; word-wrap: break-word; word-break: break-all; overflow: visible; width: 100%; }
+					.receipt-row-en { text-align: left; margin: 0; padding: 0; font-size: 10pt; font-weight: bold; word-wrap: break-word; overflow: visible; width: 100%; }
+					.receipt-label-ar { direction: rtl; text-align: right; margin: 0; padding: 0; font-size: 7pt; font-weight: bold; word-wrap: break-word; word-break: break-all; overflow: visible; width: 100%; }
+					.receipt-label-en { text-align: left; margin: 0; padding: 0; font-size: 8pt; font-weight: bold; word-wrap: break-word; overflow: visible; width: 100%; }
+					.receipt-label-bilingual { text-align: left; margin: 0; padding: 2px 0; font-size: 8pt; font-weight: bold; word-wrap: break-word; overflow: visible; width: 100%; }
+					.receipt-total { font-size: 11pt; font-weight: bold; margin: 0; padding: 0; word-wrap: break-word; overflow: visible; }
+					.receipt-logo { text-align: center; margin: 0; padding: 0; border-bottom: 1px solid #000; }
+					.logo-image { max-width: 100%; height: auto; display: block; }
+					.receipt-header { text-align: center; margin: 0; padding: 0; }
+					.receipt-section { margin: 0; padding: 0; overflow: visible; }
+					.receipt-footer { margin: 0; padding: 0; }
+					.receipt-row-bilingual { margin: 0; padding: 0; overflow: visible; width: 100%; }
+					
+					@page {
+						size: 72.1mm auto;
+						margin: 0;
+						padding: 0;
+					}
+					
+					@media print {
+						* { margin: 0 !important; padding: 0 !important; }
+						html, body { width: 72.1mm; margin: 0; padding: 0; }
+						body { page-break-after: avoid; }
+					}
 				</style>
-			`;
-			printWindow.document.write(styles + html);
-			printWindow.document.close();
-			setTimeout(() => {
-				printWindow.print();
-			}, 250);
-		}
+			</head>
+			<body>${html}</body>
+			</html>
+		`;
+		
+		const printWindow = window.open('', 'PRINT', 'width=100,height=600');
+		printWindow.document.write(printHtml);
+		printWindow.document.close();
+		
+		setTimeout(() => {
+			printWindow.print();
+			printWindow.close();
+		}, 250);
 	}
 
 	const hours = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
@@ -1332,6 +1198,13 @@
 								<div style="font-size: 0.55rem; color: #15803d; font-weight: 600; text-align: center;">
 									{$currentLocale === 'ar' ? 'في انتظار الإغلاق النهائي في نقطة البيع' : 'Pending final close in POS'}
 								</div>
+								<button
+									on:click={openPrintTemplate}
+									class="reprint-button"
+									style="margin-top: 0.25rem;"
+								>
+									🖨️ {$currentLocale === 'ar' ? 'إعادة طباعة' : 'Reprint'}
+								</button>
 							{/if}
 						</div>
 					</div>
@@ -1367,22 +1240,19 @@
 
 						<!-- Branch Info -->
 						<div class="receipt-section">
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">الفرع</div>
-								<div class="receipt-row-ar">{branch?.name_ar || branch?.name || operation?.branch_name || 'غير محدد'}</div>
-								<div class="receipt-label-en">Branch</div>
-								<div class="receipt-row-en">{branch?.name_en || branch?.name || operation?.branch_name || 'N/A'}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Branch - الفرع</div>
+								<div class="branch-bilingual">
+									<div style="text-align: left; font-weight: 600; font-size: 9pt; margin-bottom: 0.05rem;">{branch?.name_ar || branch?.name || operation?.branch_name || 'لا يوجد'}</div>
+									<div style="text-align: left; font-weight: 600; font-size: 9pt; color: #6b7280;">{branch?.name_en || branch?.name || operation?.branch_name || 'N/A'}</div>
+								</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">رقم نقطة البيع</div>
-								<div class="receipt-row-ar">POS {selectedPosNumber}</div>
-								<div class="receipt-label-en">POS Number</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">POS Number - رقم نقطة البيع</div>
 								<div class="receipt-row-en">POS {selectedPosNumber}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">أمين الصندوق</div>
-								<div class="receipt-row-ar">{operationData.cashier_name || 'غير محدد'}</div>
-								<div class="receipt-label-en">Cashier</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Cashier - أمين الصندوق</div>
 								<div class="receipt-row-en">{operationData.cashier_name || 'N/A'}</div>
 							</div>
 						</div>
@@ -1395,150 +1265,137 @@
 							<div class="section-title-en">DENOMINATIONS</div>
 							{#each Object.entries(denomLabels) as [key, label] (key)}
 								{#if closingCounts[key] > 0}
-									<div class="receipt-row-bilingual">
-										<div class="receipt-row-ar">{label}: {closingCounts[key]} x {(denomValues[key] || 0).toFixed(2)}</div>
+									<div class="receipt-row-stacked">
 										<div class="receipt-row-en">{label}: {closingCounts[key]} x {(denomValues[key] || 0).toFixed(2)}</div>
 									</div>
 								{/if}
 							{/each}
-							<div class="receipt-row-bilingual total-row">
-								<div class="receipt-label-ar">إجمالي النقد</div>
-								<div class="receipt-row-ar receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-label-en">Total Cash</div>
-								<div class="receipt-row-en receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-							</div>
+							<div class="receipt-row-stacked total-row">
+							<div class="receipt-label-bilingual">Total Cash - إجمالي النقد</div>
+							<div class="receipt-row-en receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 						</div>
+					</div>
 
-						<hr class="receipt-divider" />
+					<hr class="receipt-divider" />
 
-						<!-- Cash Sales Summary -->
-						<div class="receipt-section">
-							<div class="section-title-ar">ملخص النقد</div>
-							<div class="section-title-en">CASH SUMMARY</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">المبلغ المُصروف</div>
-								<div class="receipt-row-ar">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-label-en">Amount Issued</div>
-								<div class="receipt-row-en">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">المبلغ المُفتش</div>
-								<div class="receipt-row-ar">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-label-en">Amount Checked</div>
-								<div class="receipt-row-en">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">مبيعات نقدية</div>
-								<div class="receipt-row-ar">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-label-en">Cash Sales</div>
-								<div class="receipt-row-en">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-							</div>
+					<!-- Cash Sales Summary -->
+					<div class="receipt-section">
+						<div class="section-title-ar">ملخص النقد</div>
+						<div class="section-title-en">CASH SUMMARY</div>
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">Amount Issued - المبلغ المُصروف</div>
+							<div class="receipt-row-en">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 						</div>
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">Amount Checked - المبلغ المُفتش</div>
+							<div class="receipt-row-en">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+						</div>
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">Cash Sales - مبيعات نقدية</div>
+						<div class="receipt-row-en">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+					</div>
+				</div>
 
-						<hr class="receipt-divider" />
+				<hr class="receipt-divider" />
 
-						<!-- Purchase Vouchers -->
-						{#if vouchersTotal > 0}
-							<div class="receipt-section">
-								<div class="section-title-ar">شيكات الشراء</div>
-								<div class="section-title-en">PURCHASE VOUCHERS</div>
-								{#each vouchers as voucher (voucher.serial)}
-									<div class="receipt-row-bilingual">
-										<div class="receipt-row-ar">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-										<div class="receipt-row-en">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									</div>
-								{/each}
-								<div class="receipt-row-bilingual total-row">
-									<div class="receipt-row-ar receipt-total">المجموع: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-row-en receipt-total">Total: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								</div>
+				<!-- Purchase Vouchers -->
+				{#if vouchersTotal > 0}
+					<div class="receipt-section">
+						<div class="section-title-ar">شيكات الشراء</div>
+						<div class="section-title-en">PURCHASE VOUCHERS</div>
+						{#each vouchers as voucher (voucher.serial)}
+							<div class="receipt-row-stacked">
+								<div class="receipt-row-en">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
+						{/each}
+						<div class="receipt-row-stacked total-row">
+							<div class="receipt-row-en receipt-total">Total: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+						</div>
+					</div>
 
-							<hr class="receipt-divider" />
-						{/if}
+					<hr class="receipt-divider" />
+				{/if}
 
-						<!-- Recharge Card Details -->
-						{#if openingBalance !== '' || closeBalance !== ''}
-							<div class="receipt-section">
-								<div class="section-title-ar">بطاقة الشحن</div>
-								<div class="section-title-en">RECHARGE CARD</div>
-								<div class="receipt-row-bilingual">
-									<div class="receipt-row-ar">الرصيد الافتتاحي: {(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-row-en">Opening Balance: {(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								</div>
-								<div class="receipt-row-bilingual">
-									<div class="receipt-row-ar">الرصيد الختامي: {(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-row-en">Closing Balance: {(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								</div>
-								<div class="receipt-row-bilingual">
-									<div class="receipt-row-ar">المبيعات: {(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-row-en">Sales: {(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								</div>
-								{#if startDateInput}
-									<div class="receipt-row-bilingual">
-										<div class="receipt-row-ar">من: {startDateInput}</div>
-										<div class="receipt-row-en">From: {startDateInput}</div>
-									</div>
-								{/if}
-								{#if endDateInput}
-									<div class="receipt-row-bilingual">
-										<div class="receipt-row-ar">إلى: {endDateInput}</div>
-										<div class="receipt-row-en">To: {endDateInput}</div>
-									</div>
-								{/if}
-							</div>
+				<!-- Recharge Cards -->
+				<div class="receipt-section">
+					<div class="section-title-ar">بطاقات الشحن</div>
+					<div class="section-title-en">RECHARGE CARDS</div>
+					{#if startDateInput}
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">Start Date - تاريخ البدء</div>
+							<div class="receipt-row-en">{startDateInput}</div>
+						</div>
+					{/if}
+					{#if startHour && startMinute && startAmPm}
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">Start Time - وقت البدء</div>
+							<div class="receipt-row-en">{startHour}:{startMinute} {startAmPm}</div>
+						</div>
+					{/if}
+					{#if endDateInput}
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">End Date - تاريخ الانتهاء</div>
+							<div class="receipt-row-en">{endDateInput}</div>
+						</div>
+					{/if}
+					{#if endHour && endMinute && endAmPm}
+						<div class="receipt-row-stacked">
+							<div class="receipt-label-bilingual">End Time - وقت الانتهاء</div>
+							<div class="receipt-row-en">{endHour}:{endMinute} {endAmPm}</div>
+						</div>
+					{/if}
+					<div class="receipt-row-stacked">
+						<div class="receipt-label-bilingual">Opening Balance - الرصيد الافتتاحي</div>
+						<div class="receipt-row-en">{(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+					</div>
+					<div class="receipt-row-stacked">
+						<div class="receipt-label-bilingual">Closing Balance - الرصيد الختامي</div>
+						<div class="receipt-row-en">{(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+					</div>
+					<div class="receipt-row-stacked">
+						<div class="receipt-label-bilingual">Sales - المبيعات</div>
+						<div class="receipt-row-en">{(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+					</div>
+				</div>
 
-							<hr class="receipt-divider" />
-						{/if}
+				<hr class="receipt-divider" />
 
-						<!-- Bank Reconciliation -->
-						<div class="receipt-section">
-							<div class="section-title-ar">تسويات البنك</div>
-							<div class="section-title-en">BANK RECONCILIATION</div>
-							{#if madaAmount > 0}
-								<div class="receipt-row-bilingual">
-									<div class="receipt-label-ar">مدى</div>
-									<div class="receipt-row-ar">{(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-label-en">Mada</div>
+			<!-- Bank Reconciliation -->
+			<div class="receipt-section">
+				<div class="section-title-ar">تسويات البنك</div>
+				<div class="section-title-en">BANK RECONCILIATION</div>
+				{#if madaAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-bilingual">Mada - مدى</div>
 									<div class="receipt-row-en">{(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
 							{#if visaAmount > 0}
-								<div class="receipt-row-bilingual">
-									<div class="receipt-label-ar">فيزا</div>
-									<div class="receipt-row-ar">{(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-label-en">Visa</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-bilingual">Visa - فيزا</div>
 									<div class="receipt-row-en">{(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
 							{#if masterCardAmount > 0}
-								<div class="receipt-row-bilingual">
-									<div class="receipt-label-ar">ماستركارد</div>
-									<div class="receipt-row-ar">{(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-label-en">MasterCard</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-bilingual">MasterCard - ماستركارد</div>
 									<div class="receipt-row-en">{(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
 							{#if googlePayAmount > 0}
-								<div class="receipt-row-bilingual">
-									<div class="receipt-label-ar">جوجل باي</div>
-									<div class="receipt-row-ar">{(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-label-en">Google Pay</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-bilingual">Google Pay - جوجل باي</div>
 									<div class="receipt-row-en">{(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
 							{#if otherAmount > 0}
-								<div class="receipt-row-bilingual">
-									<div class="receipt-label-ar">أخرى</div>
-									<div class="receipt-row-ar">{(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-label-en">Other</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-bilingual">Other - أخرى</div>
 									<div class="receipt-row-en">{(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
-							<div class="receipt-row-bilingual total-row">
-								<div class="receipt-label-ar">المجموع</div>
-								<div class="receipt-row-ar receipt-total">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-label-en">Total</div>
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-bilingual">Total - المجموع</div>
 								<div class="receipt-row-en receipt-total">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
 						</div>
@@ -1549,21 +1406,21 @@
 						<div class="receipt-section">
 							<div class="section-title-ar">نقاط البيع</div>
 							<div class="section-title-en">ERP DETAILS</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">مبيعات نقدية ERP: {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">ERP Cash Sales: {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">ERP Cash Sales - مبيعات نقدية</div>
+								<div class="receipt-row-en">{(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">مبيعات بطاقة ERP: {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">ERP Card Sales: {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">ERP Card Sales - مبيعات بطاقات</div>
+								<div class="receipt-row-en">{(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">المرتجعات: {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">Returns: {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Returns - المرتجعات</div>
+								<div class="receipt-row-en">{(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual total-row">
-								<div class="receipt-row-ar receipt-total">إجمالي ERP: {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en receipt-total">ERP Total: {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-bilingual">ERP Total - المجموع</div>
+								<div class="receipt-row-en receipt-total">{totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
 						</div>
 
@@ -1573,17 +1430,17 @@
 						<div class="receipt-section">
 							<div class="section-title-ar">ملخص المبيعات</div>
 							<div class="section-title-en">SALES SUMMARY</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">مبيعات نقدية (كاملة): {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">Cash Sales (Total): {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Cash Sales (Total) - المبيعات النقدية (الإجمالي)</div>
+								<div class="receipt-row-en">{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">مبيعات بطاقة: {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">Card Sales: {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Card Sales - مبيعات البطاقات</div>
+								<div class="receipt-row-en">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual total-row">
-								<div class="receipt-row-ar receipt-total">المجموع الكلي: {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en receipt-total">Grand Total: {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-bilingual">Grand Total - الإجمالي الكلي</div>
+								<div class="receipt-row-en receipt-total">{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
 						</div>
 
@@ -1593,18 +1450,18 @@
 						<div class="receipt-section">
 							<div class="section-title-ar">التوفيق والفروقات</div>
 							<div class="section-title-en">RECONCILIATION</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">فرق النقد: {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">Cash Difference: {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Cash Difference - فرق النقد</div>
+								<div class="receipt-row-en">{differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-row-ar">فرق البطاقة: {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-								<div class="receipt-row-en">Card Difference: {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Card Difference - فرق البطاقات</div>
+								<div class="receipt-row-en">{differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 							</div>
 							{#if totalDifference !== 0}
-								<div class="receipt-row-bilingual total-row">
-									<div class="receipt-row-ar receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">الفرق الكلي: {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-									<div class="receipt-row-en receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">Total Difference: {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								<div class="receipt-row-stacked total-row">
+									<div class="receipt-label-bilingual">Total Difference - إجمالي الفرق</div>
+									<div class="receipt-row-en receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">{totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
 								</div>
 							{/if}
 						</div>
@@ -1615,22 +1472,16 @@
 						<div class="receipt-section">
 							<div class="section-title-ar">الحالة</div>
 							<div class="section-title-en">STATUS</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">المشرف المفتش</div>
-								<div class="receipt-row-ar">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'غير محدد'}</div>
+							<div class="receipt-row-stacked">
 								<div class="receipt-label-en">Checked By</div>
 								<div class="receipt-row-en">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">المشرف المغلق</div>
-								<div class="receipt-row-ar">{supervisorName ? '✓ ' + supervisorName : 'غير محدد'}</div>
-								<div class="receipt-label-en">Closed By</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Closed By - المشرف المغلق</div>
 								<div class="receipt-row-en">{supervisorName ? '✓ ' + supervisorName : 'Pending'}</div>
 							</div>
-							<div class="receipt-row-bilingual">
-								<div class="receipt-label-ar">حالة الإغلاق</div>
-								<div class="receipt-row-ar">{closingSaved ? '✓ تم الإغلاق' : '⧖ قيد المراجعة'}</div>
-								<div class="receipt-label-en">Closing Status</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-bilingual">Closing Status - حالة الإغلاق</div>
 								<div class="receipt-row-en">{closingSaved ? '✓ Closed' : '⧖ Pending'}</div>
 							</div>
 						</div>
@@ -1653,208 +1504,6 @@
 	</div>
 {/if}
 
-{#if showA4Template}
-	<div class="a4-modal-overlay" class:auto-saving={isAutoSavingA4} on:click={closeA4Template}>
-		<div class="a4-modal" on:click={(e) => e.stopPropagation()}>
-			<div class="a4-modal-header">
-				<h3>{$currentLocale === 'ar' ? 'تقرير إغلاق A4' : 'A4 Closing Report'}</h3>
-				<button class="close-modal-btn" on:click={closeA4Template}>×</button>
-			</div>
-			<div class="a4-modal-content">
-				<div id="a4-template-content" class="a4-page">
-					<!-- A4 Content: Exact copy of CloseBox closing content in landscape -->
-					<div class="a4-top-info-row">
-						<div class="a4-info-group">
-							<span class="a4-info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
-							<span class="a4-info-value">{operationData.cashier_name || 'N/A'}</span>
-						</div>
-						<div class="a4-info-group">
-							<span class="a4-info-label">{$currentLocale === 'ar' ? 'المبلغ الصادر:' : 'Amount Issued:'}</span>
-							<span class="a4-info-value">SAR {(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-						</div>
-						<div class="a4-info-group">
-							<span class="a4-info-label">{$currentLocale === 'ar' ? 'المبلغ المفحوص:' : 'Amount Checked:'}</span>
-							<span class="a4-info-value">SAR {(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-						</div>
-						<div class="a4-info-group">
-							<span class="a4-info-label">{$currentLocale === 'ar' ? 'رقم نقطة البيع:' : 'POS Number:'}</span>
-							<span class="a4-info-value">POS {selectedPosNumber}</span>
-						</div>
-						<div class="a4-info-group">
-							<span class="a4-info-label">{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}</span>
-							<span class="a4-info-value">{branch?.name_en || branch?.name || 'N/A'}</span>
-						</div>
-					</div>
-
-					<!-- Left Column Content -->
-					<div class="a4-two-columns">
-						<div class="a4-left-column">
-							<!-- Closing Cash Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'ENTER CLOSING CASH'}</h3>
-								<div class="a4-denom-grid">
-									{#each Object.entries(denomLabels) as [key, label] (key)}
-										<div class="a4-denom-row">
-											<span class="a4-denom-label">{label === 'Coins' ? ($currentLocale === 'ar' ? 'عملات معدنية' : label) : label}</span>
-											<span class="a4-denom-value">{closingCounts[key] || 0} x SAR {(denomValues[key] || 0).toFixed(2)}</span>
-										</div>
-									{/each}
-								</div>
-								<div class="a4-closing-total">
-									<span>{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
-									<span>SAR {closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-								<div class="a4-cash-sales">
-									<span>{$currentLocale === 'ar' ? 'المبيعات النقدية:' : 'Cash Sales:'}</span>
-									<span>SAR {cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-							</div>
-
-							<!-- Purchase Vouchers Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'SALES THROUGH PURCHASE VOUCHER'}</h3>
-								<table class="a4-vouchers-table">
-									<thead>
-										<tr>
-											<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
-											<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each vouchers as voucher, index (index)}
-											<tr>
-												<td>{voucher.serial}</td>
-												<td>SAR {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-								<div class="a4-vouchers-total">
-									<span>{$currentLocale === 'ar' ? 'الإجمالي:' : 'Total:'}</span>
-									<span>SAR {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-								<div class="a4-total-cash-sales">
-									<span>{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
-									<span>SAR {totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-							</div>
-
-							<!-- Summary Cards -->
-							<div class="a4-summary-row">
-								<div class="a4-summary-card">
-									<span class="a4-summary-label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
-									<span class="a4-summary-value">SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-								<div class="a4-summary-card">
-									<span class="a4-summary-label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
-									<span class="a4-summary-value">SAR {totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-							</div>
-						</div>
-
-						<!-- Right Column Content -->
-						<div class="a4-right-column">
-							<!-- Bank Reconciliation Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'تسوية البنك' : 'BANK RECONCILIATION'}</h3>
-								<div class="a4-bank-grid">
-									<div class="a4-bank-item">
-										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'مدى:' : 'Mada:'}</span>
-										<span>SAR {(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-bank-item">
-										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'فيزا:' : 'Visa:'}</span>
-										<span>SAR {(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-bank-item">
-										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'ماستر كارد:' : 'MasterCard:'}</span>
-										<span>SAR {(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-bank-item">
-										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'جوجل باي:' : 'Google Pay:'}</span>
-										<span>SAR {(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-bank-item">
-										<span class="a4-bank-label">{$currentLocale === 'ar' ? 'أخرى:' : 'Other:'}</span>
-										<span>SAR {(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-								</div>
-								<div class="a4-bank-total">
-									<span>{$currentLocale === 'ar' ? 'إجمالي البنك:' : 'Bank Total:'}</span>
-									<span>SAR {bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-							</div>
-
-							<!-- ERP Details Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP CLOSING DETAILS'}</h3>
-								<div class="a4-erp-grid">
-									<div class="a4-erp-item">
-										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'المبيعات النقدية:' : 'Cash Sales:'}</span>
-										<span>SAR {(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-erp-item">
-										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'مبيعات البطاقة:' : 'Card Sales:'}</span>
-										<span>SAR {(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-erp-item">
-										<span class="a4-erp-label">{$currentLocale === 'ar' ? 'المرتجعات:' : 'Returns:'}</span>
-										<span>SAR {(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-								</div>
-								<div class="a4-erp-total">
-									<span>{$currentLocale === 'ar' ? 'إجمالي النظام:' : 'Total ERP:'}</span>
-									<span>SAR {totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-								</div>
-							</div>
-
-							<!-- Differences Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'التسوية' : 'RECONCILIATION'}</h3>
-								<div class="a4-diff-grid">
-									<div class="a4-diff-item">
-										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'فرق النقد:' : 'Cash Difference:'}</span>
-										<span class={differenceInCashSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-diff-item">
-										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'فرق البطاقة:' : 'Card Difference:'}</span>
-										<span class={differenceInCardSales < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-									<div class="a4-diff-item">
-										<span class="a4-diff-label">{$currentLocale === 'ar' ? 'إجمالي الفرق:' : 'Total Difference:'}</span>
-										<span class={totalDifference < 0 ? 'a4-diff-negative' : 'a4-diff-positive'}>SAR {totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-									</div>
-								</div>
-							</div>
-
-							<!-- Status Card -->
-							<div class="a4-card">
-								<h3 class="a4-card-title">{$currentLocale === 'ar' ? 'الحالة' : 'STATUS'}</h3>
-								<div class="a4-status-grid">
-									<div class="a4-status-item">
-										<span>{$currentLocale === 'ar' ? 'فحص بواسطة:' : 'Checked By:'}</span>
-										<span>{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</span>
-									</div>
-									<div class="a4-status-item">
-										<span>{$currentLocale === 'ar' ? 'أغلق بواسطة:' : 'Closed By:'}</span>
-										<span>{supervisorName ? '✓ ' + supervisorName : ($currentLocale === 'ar' ? 'قيد الانتظار' : 'Pending')}</span>
-									</div>
-									<div class="a4-status-item">
-										<span>{$currentLocale === 'ar' ? 'الحالة:' : 'Status:'}</span>
-										<span>{closingSaved ? ($currentLocale === 'ar' ? '✓ تم الإغلاق' : '✓ Closed') : ($currentLocale === 'ar' ? 'قيد الانتظار' : 'Pending')}</span>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-			<div class="a4-modal-actions">
-				<button class="btn-cancel" on:click={closeA4Template}>{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.close-box-container {
@@ -2481,6 +2130,29 @@
 		border-color: #cbd5e1;
 	}
 
+	.reprint-button {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #0284c7;
+		border-radius: 0.25rem;
+		background: #0284c7;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-sizing: border-box;
+	}
+
+	.reprint-button:hover {
+		background: #0369a1;
+		border-color: #0369a1;
+	}
+
+	.reprint-button:active {
+		transform: scale(0.98);
+	}
+
 	.print-button {
 		width: 100%;
 		padding: 0.35rem 0.5rem;
@@ -3051,6 +2723,13 @@
 		flex-direction: column;
 		margin-bottom: 0.3rem;
 		font-size: 9pt;
+	}
+
+	.receipt-row-stacked {
+		display: flex;
+		flex-direction: column;
+		margin-bottom: 0.2rem;
+		width: 100%;
 	}
 
 	.receipt-label-ar {

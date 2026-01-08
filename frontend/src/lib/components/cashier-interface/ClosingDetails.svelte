@@ -121,6 +121,9 @@
 			// Load vouchers
 			vouchers = details.vouchers || [];
 			
+			// If closing details exist, it means it was already saved
+			closingSaved = true;
+			
 			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
 		} else if (operation?.counts_after) {
 			closingCounts = { ...operation.counts_after };
@@ -257,6 +260,7 @@
 	let cashierConfirmError: string = '';
 	
 	let closingSaved: boolean = false;
+	let showPrintTemplate = false;
 
 	const supabase = createClient(
 		import.meta.env.VITE_SUPABASE_URL,
@@ -524,6 +528,80 @@
 
 	function updateEndTime() {
 		endTimeInput = `${endHour}:${endMinute} ${endAmPm}`;
+	}
+
+	function openPrintTemplate() {
+		showPrintTemplate = true;
+	}
+
+	function closePrintTemplate() {
+		showPrintTemplate = false;
+	}
+
+	function handlePrint() {
+		console.log('🖨️ Printing - Branch:', branch?.name, 'Supervisor:', supervisorName);
+		const html = document.getElementById('print-template-content')?.innerHTML || '';
+		
+		// Create a minimal HTML document with aggressive print styles
+		const printHtml = `
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<meta charset="UTF-8">
+				<title>Receipt</title>
+				<style>
+					* { margin: 0; padding: 0; border: 0; box-sizing: border-box; }
+					html { margin: 0; padding: 0; }
+					body { 
+						margin: 0; 
+						padding: 0; 
+						width: 72.1mm; 
+						font-family: 'Courier New', monospace;
+						font-size: 10pt;
+						font-weight: bold;
+						overflow: visible;
+					}
+					
+					.thermal-receipt { width: 72.1mm; margin: 0; padding: 0; overflow: visible; }
+					.receipt-container { margin: 0; padding: 0; overflow: visible; }
+					.receipt-divider { border-top: 1px dashed #000; margin: 0; padding: 0; }
+					.receipt-row-ar { direction: rtl; text-align: right; margin: 0; padding: 0; font-size: 8pt; font-weight: bold; word-wrap: break-word; word-break: break-all; overflow: visible; width: 100%; }
+					.receipt-row-en { text-align: left; margin: 0; padding: 0; font-size: 10pt; font-weight: bold; word-wrap: break-word; overflow: visible; width: 100%; }
+					.receipt-label-ar { direction: rtl; text-align: right; margin: 0; padding: 0; font-size: 7pt; font-weight: bold; word-wrap: break-word; word-break: break-all; overflow: visible; width: 100%; }
+					.receipt-label-en { text-align: left; margin: 0; padding: 0; font-size: 8pt; font-weight: bold; word-wrap: break-word; overflow: visible; width: 100%; }
+					.receipt-total { font-size: 11pt; font-weight: bold; margin: 0; padding: 0; word-wrap: break-word; overflow: visible; }
+					.receipt-logo { text-align: center; margin: 0; padding: 0; border-bottom: 1px solid #000; }
+					.logo-image { max-width: 100%; height: auto; display: block; }
+					.receipt-header { text-align: center; margin: 0; padding: 0; }
+					.receipt-section { margin: 0; padding: 0; overflow: visible; }
+					.receipt-footer { margin: 0; padding: 0; }
+					.receipt-row-bilingual { margin: 0; padding: 0; overflow: visible; width: 100%; }
+					
+					@page {
+						size: 72.1mm auto;
+						margin: 0;
+						padding: 0;
+					}
+					
+					@media print {
+						* { margin: 0 !important; padding: 0 !important; }
+						html, body { width: 72.1mm; margin: 0; padding: 0; }
+						body { page-break-after: avoid; }
+					}
+				</style>
+			</head>
+			<body>${html}</body>
+			</html>
+		`;
+		
+		const printWindow = window.open('', 'PRINT', 'width=100,height=600');
+		printWindow.document.write(printHtml);
+		printWindow.document.close();
+		
+		setTimeout(() => {
+			printWindow.print();
+			printWindow.close();
+		}, 250);
 	}
 </script>
 
@@ -967,6 +1045,15 @@
 							<div style="font-size: 0.55rem; color: #15803d; font-weight: 600; text-align: center;">
 								{$currentLocale === 'ar' ? 'في انتظار الإغلاق النهائي في نقطة البيع' : 'Pending final close in POS'}
 							</div>
+							{#if closingSaved}
+								<button
+									class="reprint-button"
+									on:click={openPrintTemplate}
+									style="margin-top: 0.3rem;"
+								>
+									🖨️ {$currentLocale === 'ar' ? 'إعادة طباعة' : 'Reprint'}
+								</button>
+							{/if}
 						</div>
 					</div>
 				</div>
@@ -974,6 +1061,282 @@
 		</div>
 	</div>
 </div>
+
+{#if showPrintTemplate}
+	<div class="print-modal-overlay" on:click={closePrintTemplate}>
+		<div class="print-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="print-modal-header">
+				<h3>{$currentLocale === 'ar' ? 'طباعة الإيصال' : 'Print Receipt'}</h3>
+				<button class="close-modal-btn" on:click={closePrintTemplate}>✕</button>
+			</div>
+			
+			<div class="print-modal-content">
+				<div id="print-template-content" class="thermal-receipt">
+					<!-- 80mm Thermal Receipt Template -->
+					<div class="receipt-container">
+						<!-- Logo Header -->
+						<div class="receipt-logo">
+							<img src="/icons/logo.png" alt="App Logo" class="logo-image" />
+						</div>
+
+						<!-- Header -->
+						<div class="receipt-header">
+							<div class="receipt-title-ar">تقفيل نقاط البيع</div>
+							<div class="receipt-title-en">CLOSING RECEIPT</div>
+							<hr class="receipt-divider" />
+						</div>
+
+						<!-- Branch Info -->
+						<div class="receipt-section">
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Branch</div>
+								<div class="receipt-row-en">{branch?.name_en || branch?.name || operation?.branch_name || 'N/A'}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">POS Number</div>
+								<div class="receipt-row-en">POS {selectedPosNumber}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Cashier</div>
+								<div class="receipt-row-en">{operationData.cashier_name || 'N/A'}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Denominations -->
+						<div class="receipt-section">
+							<div class="section-title-ar">الفئات</div>
+							<div class="section-title-en">DENOMINATIONS</div>
+							{#each Object.entries(denomLabels) as [key, label] (key)}
+								{#if closingCounts[key] > 0}
+									<div class="receipt-row-stacked">
+										<div class="receipt-row-en">{label}: {closingCounts[key]} x {(denomValues[key] || 0).toFixed(2)}</div>
+									</div>
+								{/if}
+							{/each}
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-en">Total Cash</div>
+								<div class="receipt-row-en receipt-total">{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Cash Sales Summary -->
+						<div class="receipt-section">
+							<div class="section-title-ar">ملخص النقد</div>
+							<div class="section-title-en">CASH SUMMARY</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Amount Issued</div>
+								<div class="receipt-row-en">{(operation?.total_before || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Amount Checked</div>
+								<div class="receipt-row-en">{(operation?.total_after || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Cash Sales</div>
+								<div class="receipt-row-en">{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Purchase Vouchers -->
+						{#if vouchersTotal > 0}
+							<div class="receipt-section">
+								<div class="section-title-ar">شيكات الشراء</div>
+								<div class="section-title-en">PURCHASE VOUCHERS</div>
+								{#each vouchers as voucher (voucher.serial)}
+									<div class="receipt-row-stacked">
+										<div class="receipt-row-en">{voucher.serial}: {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+									</div>
+								{/each}
+								<div class="receipt-row-stacked total-row">
+									<div class="receipt-row-en receipt-total">Total: {vouchersTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							</div>
+
+							<hr class="receipt-divider" />
+						{/if}
+
+						<!-- Recharge Card Details -->
+						{#if openingBalance !== '' || closeBalance !== ''}
+							<div class="receipt-section">
+								<div class="section-title-ar">بطاقة الشحن</div>
+								<div class="section-title-en">RECHARGE CARD</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Opening Balance</div>
+									<div class="receipt-row-en">{(openingBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Closing Balance</div>
+									<div class="receipt-row-en">{(closeBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Sales</div>
+									<div class="receipt-row-en">{(sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+								{#if startDateInput}
+									<div class="receipt-row-stacked">
+										<div class="receipt-label-en">From: {startDateInput}</div>
+									</div>
+								{/if}
+								{#if endDateInput}
+									<div class="receipt-row-stacked">
+										<div class="receipt-label-en">To: {endDateInput}</div>
+									</div>
+								{/if}
+							</div>
+
+							<hr class="receipt-divider" />
+						{/if}
+
+						<!-- Bank Reconciliation -->
+						<div class="receipt-section">
+							<div class="section-title-ar">تسويات البنك</div>
+							<div class="section-title-en">BANK RECONCILIATION</div>
+							{#if madaAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Mada</div>
+									<div class="receipt-row-en">{(madaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if visaAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Visa</div>
+									<div class="receipt-row-en">{(visaAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if masterCardAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">MasterCard</div>
+									<div class="receipt-row-en">{(masterCardAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if googlePayAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Google Pay</div>
+									<div class="receipt-row-en">{(googlePayAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							{#if otherAmount > 0}
+								<div class="receipt-row-stacked">
+									<div class="receipt-label-en">Other</div>
+									<div class="receipt-row-en">{(otherAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-en">Total</div>
+								<div class="receipt-row-en receipt-total">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- ERP Closing Details -->
+						<div class="receipt-section">
+							<div class="section-title-ar">نقاط البيع</div>
+							<div class="section-title-en">ERP DETAILS</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">ERP Cash Sales</div>
+								<div class="receipt-row-en">{(systemCashSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">ERP Card Sales</div>
+								<div class="receipt-row-en">{(systemCardSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Returns</div>
+								<div class="receipt-row-en">{(systemReturn || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-en">ERP Total</div>
+								<div class="receipt-row-en receipt-total">{totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Sales Summary -->
+						<div class="receipt-section">
+							<div class="section-title-ar">ملخص المبيعات</div>
+							<div class="section-title-en">SALES SUMMARY</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Cash Sales (Total)</div>
+								<div class="receipt-row-en">{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Card Sales</div>
+								<div class="receipt-row-en">{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked total-row">
+								<div class="receipt-label-en">Grand Total</div>
+								<div class="receipt-row-en receipt-total">{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Differences -->
+						<div class="receipt-section">
+							<div class="section-title-ar">التوفيق والفروقات</div>
+							<div class="section-title-en">RECONCILIATION</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Cash Difference</div>
+								<div class="receipt-row-en">{differenceInCashSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Card Difference</div>
+								<div class="receipt-row-en">{differenceInCardSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+							</div>
+							{#if totalDifference !== 0}
+								<div class="receipt-row-stacked total-row">
+									<div class="receipt-label-en">Total Difference</div>
+									<div class="receipt-row-en receipt-total {totalDifference < 0 ? 'negative' : 'positive'}">{totalDifference.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+								</div>
+							{/if}
+						</div>
+
+						<hr class="receipt-divider" />
+
+						<!-- Status -->
+						<div class="receipt-section">
+							<div class="section-title-ar">الحالة</div>
+							<div class="section-title-en">STATUS</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Checked By</div>
+								<div class="receipt-row-en">{operationData.supervisor_name ? '✓ ' + operationData.supervisor_name : 'N/A'}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-en">Closed By</div>
+								<div class="receipt-row-en">{supervisorName ? '✓ ' + supervisorName : 'Pending'}</div>
+							</div>
+							<div class="receipt-row-stacked">
+								<div class="receipt-label-ar">حالة الإغلاق</div>
+								<div class="receipt-label-en">Closing Status</div>
+								<div class="receipt-row-en">{closingSaved ? '✓ Closed' : '⧖ Pending'}</div>
+							</div>
+						</div>
+
+						<!-- Footer -->
+						<div class="receipt-footer">
+							<div class="footer-text-ar">شكراً لاستخدامك خدماتنا</div>
+							<div class="footer-text-en">Thank You</div>
+							<div class="receipt-date">{new Date().toLocaleString('en-US')}</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="print-modal-actions">
+					<button class="btn-print" on:click={handlePrint}>🖨️ {$currentLocale === 'ar' ? 'طباعة' : 'Print'}</button>
+					<button class="btn-cancel" on:click={closePrintTemplate}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.close-box-container {
@@ -2355,6 +2718,285 @@
 		padding: 0.3rem 0.5rem;
 		border-radius: 0.375rem;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.reprint-button {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		border: 2px solid #0284c7;
+		border-radius: 0.25rem;
+		background: #0284c7;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-sizing: border-box;
+	}
+
+	.reprint-button:hover {
+		background: #0369a1;
+		border-color: #0369a1;
+	}
+
+	.reprint-button:active {
+		transform: scale(0.98);
+	}
+
+	.print-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.print-modal {
+		background: white;
+		border-radius: 0.5rem;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+		max-width: 800px;
+		max-height: 90vh;
+		overflow-y: auto;
+		width: 95%;
+	}
+
+	.print-modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.print-modal-header h3 {
+		margin: 0;
+		font-size: 1rem;
+		color: #111827;
+	}
+
+	.close-modal-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: #6b7280;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: color 0.2s;
+	}
+
+	.close-modal-btn:hover {
+		color: #111827;
+	}
+
+	.print-modal-content {
+		padding: 1rem;
+		max-height: calc(90vh - 120px);
+		overflow-y: auto;
+	}
+
+	.thermal-receipt {
+		font-family: 'Courier New', monospace;
+		font-size: 9pt;
+		line-height: 1.2;
+	}
+
+	.receipt-container {
+		padding: 0.5rem;
+	}
+
+	.receipt-logo {
+		text-align: center;
+		padding: 0.2rem 0;
+		margin-bottom: 0.2rem;
+		border-bottom: 1px solid #000;
+	}
+
+	.logo-image {
+		max-width: 60%;
+		height: auto;
+		max-height: 50px;
+	}
+
+	.receipt-header {
+		text-align: center;
+		margin-bottom: 0.3rem;
+	}
+
+	.receipt-title-ar {
+		font-weight: bold;
+		direction: rtl;
+		text-align: right;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-title-en {
+		font-weight: bold;
+		text-align: left;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-divider {
+		border: none;
+		border-top: 1px dashed #000;
+		margin: 0.15rem 0;
+		padding: 0;
+	}
+
+	.receipt-section {
+		margin-bottom: 0.3rem;
+	}
+
+	.section-title-ar {
+		font-weight: bold;
+		direction: rtl;
+		text-align: right;
+		font-size: 8pt;
+		margin-bottom: 0.1rem;
+	}
+
+	.section-title-en {
+		font-weight: bold;
+		text-align: left;
+		font-size: 8pt;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-row-bilingual {
+		display: flex;
+		flex-direction: column;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-row-stacked {
+		display: flex;
+		flex-direction: column;
+		margin-bottom: 0.2rem;
+		width: 100%;
+	}
+
+	.receipt-label-ar {
+		direction: rtl;
+		text-align: right;
+		font-weight: bold;
+		font-size: 8pt;
+		margin-bottom: 0.05rem;
+	}
+
+	.receipt-label-en {
+		text-align: left;
+		font-weight: bold;
+		font-size: 8pt;
+		margin-bottom: 0.05rem;
+	}
+
+	.receipt-row-ar {
+		direction: rtl;
+		text-align: right;
+		font-weight: 600;
+		margin-bottom: 0.05rem;
+	}
+
+	.receipt-row-en {
+		text-align: left;
+		font-weight: 600;
+		margin-bottom: 0.05rem;
+	}
+
+	.receipt-total {
+		font-weight: bold;
+		font-size: 10pt;
+	}
+
+	.total-row {
+		padding-top: 0.1rem;
+		border-top: 1px solid #000;
+		margin-bottom: 0.1rem;
+	}
+
+	.receipt-footer {
+		text-align: center;
+		margin-top: 0.3rem;
+		padding-top: 0.3rem;
+		border-top: 1px solid #000;
+	}
+
+	.footer-text-ar {
+		direction: rtl;
+		font-weight: bold;
+		margin-bottom: 0.05rem;
+	}
+
+	.footer-text-en {
+		font-weight: bold;
+		margin-bottom: 0.05rem;
+	}
+
+	.receipt-date {
+		font-size: 8pt;
+		color: #666;
+	}
+
+	.print-modal-actions {
+		display: flex;
+		gap: 0.5rem;
+		padding: 1rem;
+		border-top: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.btn-print {
+		flex: 1;
+		padding: 0.5rem;
+		background: #0284c7;
+		color: white;
+		border: none;
+		border-radius: 0.375rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.btn-print:hover {
+		background: #0369a1;
+	}
+
+	.btn-cancel {
+		flex: 1;
+		padding: 0.5rem;
+		background: #e5e7eb;
+		color: #1f2937;
+		border: none;
+		border-radius: 0.375rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.btn-cancel:hover {
+		background: #d1d5db;
+	}
+
+	/* Responsive design for smaller screens */
+	@media (max-width: 600px) {
+		.print-modal {
+			width: 98%;
+		}
+
+		.thermal-receipt {
+			font-size: 8pt;
+		}
 	}
 </style>
 
