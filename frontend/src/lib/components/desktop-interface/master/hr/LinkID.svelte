@@ -114,14 +114,6 @@
 				} else {
 					user.employee_id_mapping = {};
 				}
-
-				// Auto-fill current branch employee info if not in master
-				if (user.branch_id && !user[`branch_${user.branch_id}_employee`]) {
-					const employee = employeesData?.find(emp => emp.branch_id === user.branch_id);
-					if (employee) {
-						user[`branch_${user.branch_id}_employee`] = employee.employee_id;
-					}
-				}
 			});
 
 			branches = branchesData || [];
@@ -206,8 +198,48 @@
 				throw new Error('No users to save');
 			}
 
+			// Get the highest existing EMPID number
+			const { data: existingIds, error: idsError } = await supabase
+				.from('hr_employee_master')
+				.select('id')
+				.like('id', 'EMP%')
+				.order('id', { ascending: false })
+				.limit(1);
+
+			if (idsError) {
+				throw new Error(idsError.message);
+			}
+
+			// Determine the next number
+			let nextNumber = 1;
+			if (existingIds && existingIds.length > 0) {
+				const lastId = existingIds[0].id;
+				const lastNumber = parseInt(lastId.replace('EMP', ''));
+				nextNumber = lastNumber + 1;
+			}
+
 			let savedCount = 0;
 			const dataToSaveArray = [];
+
+			// Check which users already exist - batch the queries to avoid URL length issues
+			const batchSize = 50;
+			const existingMap = {};
+			
+			for (let i = 0; i < users.length; i += batchSize) {
+				const batch = users.slice(i, i + batchSize);
+				const { data: existingRecords, error: existingError } = await supabase
+					.from('hr_employee_master')
+					.select('user_id, id')
+					.in('user_id', batch.map(u => u.id));
+
+				if (existingError) {
+					throw new Error(existingError.message);
+				}
+
+				existingRecords?.forEach(record => {
+					existingMap[record.user_id] = record.id;
+				});
+			}
 
 			// Build data for all users
 			users.forEach(user => {
@@ -229,23 +261,35 @@
 					employee_id_mapping: employeeIdMapping
 				};
 
+				// If user already exists, use existing id, otherwise generate new EMPID
+				if (existingMap[user.id]) {
+					dataToSave.id = existingMap[user.id];
+				} else {
+					dataToSave.id = `EMP${nextNumber}`;
+					nextNumber++;
+				}
+
 				dataToSaveArray.push(dataToSave);
 			});
 
 			console.log('Data to save for all users:', dataToSaveArray);
 
-			// Upsert all data at once
-			const { data, error } = await supabase
-				.from('hr_employee_master')
-				.upsert(dataToSaveArray, {
-					onConflict: 'user_id'
-				});
+			// Upsert data in batches to avoid URL length issues
+			for (let i = 0; i < dataToSaveArray.length; i += batchSize) {
+				const batch = dataToSaveArray.slice(i, i + batchSize);
+				
+				const { data, error } = await supabase
+					.from('hr_employee_master')
+					.upsert(batch, {
+						onConflict: 'user_id'
+					});
 
-			console.log('Response:', { data, error });
+				console.log('Batch response:', { data, error });
 
-			if (error) {
-				console.error('Full error:', JSON.stringify(error));
-				throw new Error(error.message);
+				if (error) {
+					console.error('Full error:', JSON.stringify(error));
+					throw new Error(error.message);
+				}
 			}
 
 			savedCount = dataToSaveArray.length;
@@ -364,10 +408,23 @@
 							</td>
 							{#each branches as branch (branch.id)}
 								<td class="cell-with-button">
-									<div class="cell-content">
+									<div 
+										class="cell-content"
+										on:dblclick={() => openBranchModal(branch.id, userIndex)}
+										role="button"
+										tabindex="0"
+									>
 										{user[`branch_${branch.id}_employee`] || ''}
 									</div>
-									{#if !user[`branch_${branch.id}_employee`]}
+									{#if user[`branch_${branch.id}_employee`]}
+										<button 
+											class="clear-btn"
+											on:click={() => user[`branch_${branch.id}_employee`] = ''}
+											title="Clear employee"
+										>
+											×
+										</button>
+									{:else}
 										<button 
 											class="add-btn"
 											on:click={() => openBranchModal(branch.id, userIndex)}
@@ -675,6 +732,26 @@
 
 	.add-btn:hover {
 		background: #059669;
+	}
+
+	.clear-btn {
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		width: 24px;
+		height: 24px;
+		font-size: 16px;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.2s;
+		padding: 0;
+	}
+
+	.clear-btn:hover {
+		background: #dc2626;
 	}
 
 	/* Modal Styles */
