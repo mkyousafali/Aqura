@@ -1578,14 +1578,14 @@
 	<div class="erp-popup-overlay" on:click={closeErpPopup}>
 		<div class="erp-popup-modal" on:click={(e) => e.stopPropagation()}>
 			<div class="erp-popup-header">
-				<h3>{$currentLocale === 'ar' ? 'تسمية النظام' : 'ERP Label'}</h3>
+				<h3>{$currentLocale === 'ar' ? 'يرجى إدخال القيمة إلى النظام' : 'Please Enter the Value to ERP'}</h3>
 			</div>
 			
 			<div class="erp-popup-content">
 				<label class="erp-checkbox-label">
 					<input type="checkbox" bind:checked={erpLabelChecked} class="erp-checkbox-input" />
 					<span class="erp-checkbox-text">
-						{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية' : 'Total Cash Sales'}
+						{$currentLocale === 'ar' ? 'المبلغ المراد إدخاله' : 'Amount to Enter'}
 					</span>
 					<span class="erp-checkbox-value">
 						<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
