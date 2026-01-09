@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS box_operations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
     -- Box identification
-    box_number SMALLINT NOT NULL CHECK (box_number >= 1 AND box_number <= 9),
+    box_number SMALLINT NOT NULL CHECK (box_number >= 1 AND box_number <= 12),
     branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     

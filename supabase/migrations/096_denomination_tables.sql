@@ -37,14 +37,14 @@ CREATE TABLE IF NOT EXISTS denomination_records (
     -- Record type to differentiate between main, boxes, etc.
     record_type VARCHAR(30) NOT NULL CHECK (record_type IN (
         'main',           -- Main denomination count
-        'advance_box',    -- POS Advance Manager boxes (1-9)
+        'advance_box',    -- POS Advance Manager boxes (1-12)
         'collection_box', -- POS Collection Manager boxes (1-9) - future
         'paid',           -- Paid section cards (1-6) - future
         'received'        -- Received section cards (1-6) - future
     )),
     
-    -- Box/Card number (1-9 for boxes, 1-6 for paid/received, null for main)
-    box_number SMALLINT CHECK (box_number IS NULL OR (box_number >= 1 AND box_number <= 9)),
+    -- Box/Card number (1-12 for advance boxes, 1-9 for collection, 1-6 for paid/received, null for main)
+    box_number SMALLINT CHECK (box_number IS NULL OR (box_number >= 1 AND box_number <= 12)),
     
     -- Denomination counts stored as JSONB
     -- Format: {"d500": 10, "d200": 5, "d100": 3, ...}
@@ -180,7 +180,7 @@ CREATE TRIGGER denomination_records_updated_at
 COMMENT ON TABLE denomination_types IS 'Master table for denomination types (currency notes, coins, damage)';
 COMMENT ON TABLE denomination_records IS 'Stores denomination count records for main, boxes, and other sections';
 COMMENT ON COLUMN denomination_records.record_type IS 'Type of record: main, advance_box, collection_box, paid, received';
-COMMENT ON COLUMN denomination_records.box_number IS 'Box or card number (1-9 for boxes, 1-6 for paid/received, null for main)';
+COMMENT ON COLUMN denomination_records.box_number IS 'Box or card number (1-12 for advance boxes, 1-9 for collection, 1-6 for paid/received, null for main)';
 COMMENT ON COLUMN denomination_records.counts IS 'JSONB storing denomination counts: {"d500": 10, "d200": 5, ...}';
 
 -- =============================================
