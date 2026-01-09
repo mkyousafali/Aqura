@@ -1649,6 +1649,7 @@
 								{@const operation = boxOperations.get(boxNum)}
 								<button 
 									class="suspend-card clickable-box"
+									class:special-box={boxNum >= 10}
 									class:has-value={cashBoxTotals[boxNum - 1] > 0}
 									class:in-use={isInUse}
 									disabled={isInUse}
@@ -2856,6 +2857,18 @@
 		padding: 0.5rem;
 		min-height: 70px;
 		height: 70px;
+	}
+
+	.suspend-card.clickable-box.special-box {
+		border: 2px solid #f87171;
+		background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%);
+		box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+	}
+
+	.suspend-card.clickable-box.special-box:hover {
+		background: linear-gradient(145deg, #f87171 0%, #f05252 100%);
+		border-color: #dc2626;
+		box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 	}
 
 	.suspend-card.clickable-box:hover {

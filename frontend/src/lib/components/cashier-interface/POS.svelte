@@ -617,17 +617,24 @@
 					{/if}
 					<div class="boxes-grid">
 						{#each availableBoxes.filter(box => box.total > 0 || box.number >= 10) as box (box.number)}
+							{@const boxOperation = operationBoxes.find(op => op.box_number === box.number)}
+							{@const isPendingClose = boxOperation?.status === 'pending_close'}
 							<button 
 								class="box-item"
-								class:disabled={userHasActiveOperation}
-								disabled={userHasActiveOperation}
+								class:special-box={box.number >= 10}
+								class:disabled={userHasActiveOperation || isPendingClose}
+								disabled={userHasActiveOperation || isPendingClose}
 								on:click={() => openBoxModal(box)}
 							>
 								<span class="box-number">{getBoxDisplayName(box.number)}</span>
-								<div class="box-amount">
-									<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-									<span class="box-total">{box.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
-								</div>
+								{#if box.total > 0}
+									<div class="box-amount">
+										<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+										<span class="box-total">{box.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+									</div>
+								{:else}
+									<div class="box-empty-label">{$currentLocale === 'ar' ? 'فارغ' : 'Empty'}</div>
+								{/if}
 							</button>
 						{/each}
 					</div>
@@ -1025,9 +1032,22 @@
 		font-size: inherit;
 	}
 
+	.box-item.special-box {
+		background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+		border: 2px solid #f87171;
+		box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2);
+	}
+
 	.box-item:hover {
 		background: #e5e7eb;
 		border-color: #9ca3af;
+		transform: translateY(-2px);
+	}
+
+	.box-item.special-box:hover {
+		background: linear-gradient(135deg, #f87171 0%, #f05252 100%);
+		border-color: #dc2626;
+		box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3);
 		transform: translateY(-2px);
 	}
 
@@ -1066,6 +1086,12 @@
 	.box-total {
 		font-size: 0.75rem;
 		color: #059669;
+		font-weight: 600;
+	}
+
+	.box-empty-label {
+		font-size: 0.75rem;
+		color: #9ca3af;
 		font-weight: 600;
 	}
 
