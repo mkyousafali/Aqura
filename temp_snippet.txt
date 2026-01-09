@@ -1,0 +1,12 @@
+﻿
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+				<div class="closing-total">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigit

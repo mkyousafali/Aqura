@@ -172,6 +172,33 @@
 	// Auto-calculate total difference
 	$: totalDifference = Math.round((differenceInCashSales + differenceInCardSales) * 100) / 100;
 
+	// Progressive disclosure checkbox states
+	let checkbox1 = false; // Enter Closing Cash
+	let checkbox2 = false; // Sales through Purchase Voucher
+	let checkbox3 = false; // Recharge Cards
+	let checkbox4 = false; // ERP Closing Details
+	let checkbox5 = false; // Bank Reconciliation
+
+	// ERP popup state
+	let showErpPopup = false;
+	let erpLabelChecked = false;
+
+	function handleCheckbox3Change() {
+		if (checkbox3) {
+			showErpPopup = true;
+		}
+	}
+
+	function closeErpPopup() {
+		if (!erpLabelChecked) {
+			checkbox3 = false;
+		} else {
+			// If ERP label is checked, enable ERP Closing Details (checkbox4)
+			checkbox4 = true;
+		}
+		showErpPopup = false;
+	}
+
 	// Supervisor code
 	let supervisorCode: string = '';
 	let supervisorName: string = '';
@@ -685,7 +712,14 @@
 	<div class="two-cards-row">
 		<div class="half-card split-card">
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'Enter Closing Cash'}</div>
+				<div class="card-header-with-checkbox">
+					<div class="card-header-text">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'Enter Closing Cash'}</div>
+					<label class="checkbox-container">
+						<span class="checkbox-number">1</span>
+						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox1} />
+						<span class="checkmark"></span>
+					</label>
+				</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						<div class="denom-input-group">
@@ -749,8 +783,16 @@
 					</div>
 				</div>
 			</div>
+			{#if checkbox1}
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
+				<div class="card-header-with-checkbox">
+					<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
+					<label class="checkbox-container">
+						<span class="checkbox-number">2</span>
+						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox2} />
+						<span class="checkmark"></span>
+					</label>
+				</div>
 				
 				<div class="voucher-input-row">
 					<input
@@ -811,10 +853,19 @@
 					</div>
 				{/if}
 			</div>
+			{/if}
 		</div>
 		<div class="half-card split-card">
+			{#if checkbox2}
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
+				<div class="card-header-with-checkbox">
+					<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
+					<label class="checkbox-container">
+						<span class="checkbox-number">5</span>
+						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox5} />
+						<span class="checkmark"></span>
+					</label>
+				</div>
 				
 				<div class="bank-fields-row">
 					<div class="bank-input-group">
@@ -882,8 +933,17 @@
 					</div>
 				</div>
 			</div>
+			{/if}
+			{#if checkbox4}
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
+				<div class="card-header-with-checkbox">
+					<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
+					<label class="checkbox-container">
+						<span class="checkbox-number">4</span>
+						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox4} />
+						<span class="checkmark"></span>
+					</label>
+				</div>
 				
 				<div class="system-sales-row">
 					<div class="system-input-group">
@@ -937,8 +997,17 @@
 					</div>
 				</div>
 			</div>
+			{/if}
+			{#if checkbox5}
 			<div class="split-section recharge-card-section-11">
-				<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
+				<div class="card-header-with-checkbox">
+					<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
+					<label class="checkbox-container">
+						<span class="checkbox-number">3</span>
+						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox3} on:change={handleCheckbox3Change} />
+						<span class="checkmark"></span>
+					</label>
+				</div>
 				
 				<div class="date-time-row">
 					<div class="date-time-group">
@@ -1094,6 +1163,7 @@
 					</div>
 				</div>
 			</div>
+			{/if}
 			<div class="split-section">
 				
 				<div class="sub-cards-row">
@@ -1499,6 +1569,35 @@
 					<button class="btn-print" on:click={handlePrint}>🖨️ {$currentLocale === 'ar' ? 'طباعة' : 'Print'}</button>
 					<button class="btn-cancel" on:click={closePrintTemplate}>{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
 				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showErpPopup}
+	<div class="erp-popup-overlay" on:click={closeErpPopup}>
+		<div class="erp-popup-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="erp-popup-header">
+				<h3>{$currentLocale === 'ar' ? 'تسمية النظام' : 'ERP Label'}</h3>
+			</div>
+			
+			<div class="erp-popup-content">
+				<label class="erp-checkbox-label">
+					<input type="checkbox" bind:checked={erpLabelChecked} class="erp-checkbox-input" />
+					<span class="erp-checkbox-text">
+						{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية' : 'Total Cash Sales'}
+					</span>
+					<span class="erp-checkbox-value">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+						{(totalCashSales + (operation?.total_after || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+					</span>
+				</label>
+			</div>
+			
+			<div class="erp-popup-actions">
+				<button class="btn-close-erp" on:click={closeErpPopup}>
+					{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}
+				</button>
 			</div>
 		</div>
 	</div>
@@ -3678,6 +3777,190 @@
 		padding: 0.3rem 0.5rem;
 		border-radius: 0.375rem;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.card-header-with-checkbox {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		margin-bottom: 0.5rem;
+	}
+
+	.checkbox-container {
+		display: inline-flex;
+		position: relative;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.checkbox-container input {
+		position: absolute;
+		opacity: 0;
+		cursor: pointer;
+		height: 0;
+		width: 0;
+	}
+
+	.checkmark {
+		height: 20px;
+		width: 20px;
+		background-color: white;
+		border: 2px solid #f97316;
+		border-radius: 4px;
+		transition: all 0.2s;
+		position: relative;
+	}
+
+	.checkbox-container:hover input ~ .checkmark {
+		background-color: #fed7aa;
+	}
+
+	.checkbox-container input:checked ~ .checkmark {
+		background-color: #22c55e;
+		border-color: #22c55e;
+	}
+
+	.checkmark:after {
+		content: "";
+		position: absolute;
+		display: none;
+	}
+
+	.checkbox-container input:checked ~ .checkmark:after {
+		display: block;
+	}
+
+	.checkbox-container .checkmark:after {
+		left: 5px;
+		top: 1px;
+		width: 5px;
+		height: 10px;
+		border: solid white;
+		border-width: 0 3px 3px 0;
+		transform: rotate(45deg);
+	}
+
+	.checkbox-number {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: #f97316;
+		margin-right: 0.5rem;
+		padding: 0.1rem 0.4rem;
+		background: #fed7aa;
+		border-radius: 0.25rem;
+		min-width: 1.2rem;
+		text-align: center;
+		display: inline-block;
+	}
+
+	/* ERP Popup Styles */
+	.erp-popup-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.erp-popup-modal {
+		background: white;
+		border-radius: 1rem;
+		padding: 1.5rem;
+		min-width: 400px;
+		max-width: 500px;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+	}
+
+	.erp-popup-header {
+		margin-bottom: 1.5rem;
+		text-align: center;
+	}
+
+	.erp-popup-header h3 {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #f97316;
+		margin: 0;
+	}
+
+	.erp-popup-content {
+		margin-bottom: 1.5rem;
+	}
+
+	.erp-checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+		border: 2px solid #f97316;
+		border-radius: 0.5rem;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.erp-checkbox-label:hover {
+		background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+		box-shadow: 0 4px 6px -1px rgba(249, 115, 22, 0.3);
+	}
+
+	.erp-checkbox-input {
+		width: 24px;
+		height: 24px;
+		cursor: pointer;
+		accent-color: #f97316;
+	}
+
+	.erp-checkbox-text {
+		flex: 1;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: #92400e;
+	}
+
+	.erp-checkbox-value {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 1rem;
+		font-weight: 700;
+		color: #ea580c;
+		padding: 0.25rem 0.75rem;
+		background: white;
+		border-radius: 0.375rem;
+	}
+
+	.erp-popup-actions {
+		display: flex;
+		justify-content: center;
+	}
+
+	.btn-close-erp {
+		padding: 0.75rem 2rem;
+		background: #f97316;
+		border: none;
+		border-radius: 0.5rem;
+		color: white;
+		font-size: 0.95rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-close-erp:hover {
+		background: #ea580c;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 6px -1px rgba(249, 115, 22, 0.4);
+	}
+
+	.btn-close-erp:active {
+		transform: translateY(0);
 	}
 </style>
 
