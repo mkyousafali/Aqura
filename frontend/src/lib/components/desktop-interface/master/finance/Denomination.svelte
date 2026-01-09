@@ -23,7 +23,7 @@
 
 	// Record IDs for updates
 	let mainRecordId: string | null = null;
-	let boxRecordIds: (string | null)[] = Array(9).fill(null);
+	let boxRecordIds: (string | null)[] = Array(12).fill(null);
 
 	// Box operations tracking
 	let boxOperations: Map<number, any> = new Map();
@@ -98,16 +98,24 @@
 		handleBranchChange();
 	}
 
+	// Helper function to get display name for box number
+	function getBoxDisplayName(boxNum: number): string {
+		if (boxNum === 10) return 'E1';
+		if (boxNum === 11) return 'E2';
+		if (boxNum === 12) return 'E3';
+		return `BOX ${boxNum}`;
+	}
+
 	async function handleBranchChange() {
 		// Reset all data first
 		resetCounts();
-		cashBoxData = Array.from({ length: 9 }, () => ({
+		cashBoxData = Array.from({ length: 12 }, () => ({
 			'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
 			'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
 			'd025': 0, 'coins': 0, 'damage': 0
 		}));
 		mainRecordId = null;
-		boxRecordIds = Array(9).fill(null);
+		boxRecordIds = Array(12).fill(null);
 		lastSaved = null;
 		
 		// Load data for new branch
@@ -177,14 +185,12 @@
 
 			if (!boxError && boxData) {
 				// Reset box data first
-				cashBoxData = Array.from({ length: 9 }, () => ({
-					'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
-					'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
-					'd025': 0, 'coins': 0, 'damage': 0
-				}));
-				boxRecordIds = Array(9).fill(null);
-
-				// Populate from database (get most recent for each box)
+			cashBoxData = Array.from({ length: 12 }, () => ({
+				'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
+				'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
+				'd025': 0, 'coins': 0, 'damage': 0
+			}));
+			boxRecordIds = Array(12).fill(null);
 				const seenBoxes = new Set<number>();
 				boxData.forEach((record: any) => {
 					const boxIndex = record.box_number - 1;
@@ -550,7 +556,7 @@
 	};
 
 	// Store each box's denomination data
-	let cashBoxData: Array<Record<string, number>> = Array.from({ length: 9 }, () => ({
+	let cashBoxData: Array<Record<string, number>> = Array.from({ length: 12 }, () => ({
 		'd500': 0,
 		'd200': 0,
 		'd100': 0,
@@ -1638,7 +1644,7 @@
 							<span>POS Advance Manager</span>
 						</div>
 						<div class="suspends-cards-grid">
-							{#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as boxNum}
+							{#each [1, 2, 3, 10, 4, 5, 6, 11, 7, 8, 9, 12] as boxNum}
 								{@const isInUse = boxOperations.has(boxNum)}
 								{@const operation = boxOperations.get(boxNum)}
 								<button 
@@ -1649,7 +1655,7 @@
 									on:click={() => openCashBoxModal(boxNum)}
 								>
 									<div class="box-content">
-										<span class="box-label">BOX {boxNum}</span>
+										<span class="box-label">{getBoxDisplayName(boxNum)}</span>
 										{#if isInUse}
 											{#if operation?.isPendingClose}
 												<span class="box-status pending-close">PENDING</span>
@@ -1676,14 +1682,14 @@
 							<span>POS Collection Manager</span>
 						</div>
 						<div class="suspends-cards-grid">
-							{#each Array.from({ length: 9 }, (_, i) => i + 1) as boxNum (boxNum)}
+							{#each Array.from({ length: 12 }, (_, i) => i + 1) as boxNum (boxNum)}
 								{@const operation = boxOperations.get(boxNum)}
 								{@const isPending = operation?.isPendingClose}
 								
 								{#if isPending}
 									<button class="pending-box-card" on:click={() => completeBoxClose(boxNum)}>
 										<div class="box-header">
-											<span class="box-label">BOX {boxNum}</span>
+											<span class="box-label">{getBoxDisplayName(boxNum)}</span>
 										</div>
 										<div class="box-info">
 											<div class="info-row">
@@ -2806,7 +2812,7 @@
 
 	.suspends-cards-grid {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(4, 1fr);
 		gap: 0.5rem;
 	}
 

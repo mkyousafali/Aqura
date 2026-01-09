@@ -72,7 +72,7 @@ create table public.box_operations (
   constraint box_operations_box_number_check check (
     (
       (box_number >= 1)
-      and (box_number <= 9)
+      and (box_number <= 12)
     )
   ),
   constraint box_operations_status_check check (

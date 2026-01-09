@@ -53,6 +53,14 @@
 		'coins': 1
 	};
 
+	// Helper function to get display name for box number
+	function getBoxDisplayName(boxNum: number): string {
+		if (boxNum === 10) return 'E1';
+		if (boxNum === 11) return 'E2';
+		if (boxNum === 12) return 'E3';
+		return `${t('pos.box') || 'BOX'} ${boxNum}`;
+	}
+
 	const denomLabels: Record<string, string> = {
 		'd500': '500',
 		'd200': '200',
@@ -259,8 +267,8 @@
 				}
 			});
 
-			// Create available boxes array (1-9) with data
-			availableBoxes = Array.from({ length: 9 }, (_, i) => {
+			// Create available boxes array (1-12) with data
+			availableBoxes = Array.from({ length: 12 }, (_, i) => {
 				const boxNum = i + 1;
 				const boxData = boxDataMap.get(boxNum);
 				
@@ -324,7 +332,7 @@
 		
 		openWindow({
 			id: windowId,
-			title: `BOX ${box.number} - Counter Check`,
+			title: `${getBoxDisplayName(box.number)} - Counter Check`,
 			component: CounterCheck,
 			props: {
 				windowId,
@@ -361,8 +369,8 @@
 		// If status is pending_close, open ClosingDetails (read-only view), otherwise open CloseBox (editable)
 		const component = operation.status === 'pending_close' ? ClosingDetails : CloseBox;
 		const title = operation.status === 'pending_close' 
-			? `Closing Details - BOX ${operation.box_number}` 
-			: `Close BOX ${operation.box_number}`;
+			? `Closing Details - ${getBoxDisplayName(operation.box_number)}` 
+			: `Close ${getBoxDisplayName(operation.box_number)}`;
 		
 		openWindow({
 			id: windowId,
@@ -608,14 +616,14 @@
 						<p class="warning-message">{$currentLocale === 'ar' ? 'لديك عملية صندوق نشطة. أكملها قبل بدء عملية أخرى.' : 'You have an active box operation. Complete it before starting another one.'}</p>
 					{/if}
 					<div class="boxes-grid">
-						{#each availableBoxes.filter(box => box.total > 0) as box (box.number)}
+						{#each availableBoxes.filter(box => box.total > 0 || box.number >= 10) as box (box.number)}
 							<button 
 								class="box-item"
 								class:disabled={userHasActiveOperation}
 								disabled={userHasActiveOperation}
 								on:click={() => openBoxModal(box)}
 							>
-								<span class="box-number">{t('pos.box') || 'BOX'} {box.number}</span>
+								<span class="box-number">{getBoxDisplayName(box.number)}</span>
 								<div class="box-amount">
 									<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
 									<span class="box-total">{box.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
@@ -623,7 +631,7 @@
 							</button>
 						{/each}
 					</div>
-					{#if availableBoxes.filter(box => box.total > 0).length === 0}
+					{#if availableBoxes.filter(box => box.total > 0 || box.number >= 10).length === 0}
 						<p class="no-data">{t('pos.noBoxesWithBalance') || 'No boxes with balance'}</p>
 					{/if}
 				{/if}
@@ -648,7 +656,7 @@
 						{#each operationBoxes as opBox (opBox.id)}
 							<div class="operation-box-item">
 								<div class="operation-header">
-									<span class="box-number">{t('pos.box') || 'BOX'} {opBox.box_number}</span>
+									<span class="box-number">{getBoxDisplayName(opBox.box_number)}</span>
 									<span class={`status-badge ${opBox.status === 'pending_close' ? 'pending' : 'active'}`}>
 										{opBox.status === 'pending_close' ? ($currentLocale === 'ar' ? '⏳ انتظار الإغلاق' : '⏳ PENDING CLOSE') : ($currentLocale === 'ar' ? '🔴 قيد الاستخدام' : '🔴 IN USE')}
 									</span>
@@ -789,7 +797,7 @@
 	<div class="modal-overlay" on:click={closeModal} on:keydown={handleModalKeydown}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>{t('pos.box') || 'BOX'} {selectedBox.number} - {t('pos.counterCheck') || 'Counter Check'}</h2>
+				<h2>{getBoxDisplayName(selectedBox.number)} - {t('pos.counterCheck') || 'Counter Check'}</h2>
 				<button class="close-btn" on:click={closeModal}>×</button>
 			</div>
 
