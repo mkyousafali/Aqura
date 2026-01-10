@@ -563,6 +563,160 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Auto-calculate total difference
 	$: totalDifference = Math.round((differenceInCashSales + differenceInCardSales) * 100) / 100;
 
+	// Entry to Pass - Automatic adjustment entries calculation
+	let entryToPassData: any = {
+		transfers: [],
+		adjustments: [],
+		cashReceipt: {
+			value: 0,
+			adjustment: 0,
+			total: 0
+		},
+		bankReceipt: {
+			value: 0,
+			adjustment: 0,
+			total: 0
+		}
+	};
+
+	// Calculate required entries based on POS Cash and POS Bank balances
+	$: {
+		const posCashValue = Math.abs(differenceInCashSales);
+		const posCashType = differenceInCashSales >= 0 ? 'CR' : 'DR';
+		const posBankValue = Math.abs(differenceInCardSales);
+		const posBankType = differenceInCardSales >= 0 ? 'CR' : 'DR';
+
+		entryToPassData = {
+			transfers: [],
+			adjustments: [],
+			cashReceipt: {
+				value: posCashValue,
+				adjustment: 0,
+				total: totalCashSales
+			},
+			bankReceipt: {
+				value: posBankValue,
+				adjustment: 0,
+				total: bankTotal
+			}
+		};
+
+		// Logic: Handle all four DR/CR combinations
+		if (posCashType === 'DR' && posBankType === 'CR') {
+			// Cash has surplus (DR), Bank has deficit (CR)
+			// Transfer from Cash to Bank
+			const transferAmount = Math.min(posCashValue, posBankValue);
+			entryToPassData.transfers.push({
+				account: 'POS Cash → POS Bank',
+				debitAccount: 'POS Bank',
+				debitAmount: transferAmount,
+				creditAccount: 'POS Cash',
+				creditAmount: transferAmount
+			});
+
+			// Check remaining balances
+			const remainingCash = posCashValue - transferAmount;
+			const remainingBank = posBankValue - transferAmount;
+
+			if (remainingCash > 0) {
+				entryToPassData.adjustments.push({
+					account: 'POS Excess Adjustment',
+					debitAccount: 'POS Excess',
+					debitAmount: remainingCash,
+					creditAccount: 'POS Cash',
+					creditAmount: remainingCash
+				});
+				entryToPassData.cashReceipt.adjustment = remainingCash;
+			}
+
+			if (remainingBank > 0) {
+				entryToPassData.adjustments.push({
+					account: 'POS Short Adjustment',
+					debitAccount: 'POS Bank',
+					debitAmount: remainingBank,
+					creditAccount: 'POS Short',
+					creditAmount: remainingBank
+				});
+				entryToPassData.bankReceipt.adjustment = remainingBank;
+			}
+		} else if (posCashType === 'CR' && posBankType === 'DR') {
+			// Cash has deficit (CR), Bank has surplus (DR)
+			// Transfer from Bank to Cash
+			const transferAmount = Math.min(posCashValue, posBankValue);
+			entryToPassData.transfers.push({
+				account: 'POS Bank → POS Cash',
+				debitAccount: 'POS Cash',
+				debitAmount: transferAmount,
+				creditAccount: 'POS Bank',
+				creditAmount: transferAmount
+			});
+
+			// Check remaining balances
+			const remainingCash = posCashValue - transferAmount;
+			const remainingBank = posBankValue - transferAmount;
+
+			if (remainingCash > 0) {
+				entryToPassData.adjustments.push({
+					account: 'POS Short Adjustment',
+					debitAccount: 'POS Short',
+					debitAmount: remainingCash,
+					creditAccount: 'POS Cash',
+					creditAmount: remainingCash
+				});
+				entryToPassData.cashReceipt.adjustment = remainingCash;
+			}
+
+			if (remainingBank > 0) {
+				entryToPassData.adjustments.push({
+					account: 'POS Excess Adjustment',
+					debitAccount: 'POS Bank',
+					debitAmount: remainingBank,
+					creditAccount: 'POS Excess',
+					creditAmount: remainingBank
+				});
+				entryToPassData.bankReceipt.adjustment = remainingBank;
+			}
+		} else if (posCashType === 'DR' && posBankType === 'DR') {
+			// Both have surplus (both DR)
+			// Cash to POS Excess, Bank to POS Excess
+			entryToPassData.adjustments.push({
+				account: 'POS Cash Excess Adjustment',
+				debitAccount: 'POS Excess',
+				debitAmount: posCashValue,
+				creditAccount: 'POS Cash',
+				creditAmount: posCashValue
+			});
+			entryToPassData.adjustments.push({
+				account: 'POS Bank Excess Adjustment',
+				debitAccount: 'POS Excess',
+				debitAmount: posBankValue,
+				creditAccount: 'POS Bank',
+				creditAmount: posBankValue
+			});
+			entryToPassData.cashReceipt.adjustment = posCashValue;
+			entryToPassData.bankReceipt.adjustment = posBankValue;
+		} else if (posCashType === 'CR' && posBankType === 'CR') {
+			// Both have deficit (both CR)
+			// POS Short from both Cash and Bank
+			entryToPassData.adjustments.push({
+				account: 'POS Cash Short Adjustment',
+				debitAccount: 'POS Short',
+				debitAmount: posCashValue,
+				creditAccount: 'POS Cash',
+				creditAmount: posCashValue
+			});
+			entryToPassData.adjustments.push({
+				account: 'POS Bank Short Adjustment',
+				debitAccount: 'POS Short',
+				debitAmount: posBankValue,
+				creditAccount: 'POS Bank',
+				creditAmount: posBankValue
+			});
+			entryToPassData.cashReceipt.adjustment = posCashValue;
+			entryToPassData.bankReceipt.adjustment = posBankValue;
+		}
+	}
+
 	// Supervisor code
 	let supervisorCode: string = '';
 	let supervisorName: string = '';
@@ -2434,26 +2588,76 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		<div class="half-card split-card">
 			<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; padding: 0.5rem;">
 				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
-					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Enter POS Balance</label>
-					<input type="number" placeholder="0.00" style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem;" />
+					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Status POS Cash</label>
+					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
+						<input type="number" value={Math.abs(differenceInCashSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
+						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
+							{differenceInCashSales >= 0 ? "CR" : "DR"}
+						</div>
+					</div>
 				</div>
 				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
-					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Cash Sales Comparison</label>
-					<input type="number" value={differenceInCashSales} readonly style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem; font-weight: bold;" />
+					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Status POS Bank</label>
+					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
+						<input type="number" value={Math.abs(differenceInCardSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
+						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
+							{differenceInCardSales >= 0 ? "CR" : "DR"}
+						</div>
+					</div>
 				</div>
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
-					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Card Sales Comparison</label>
-					<input type="number" value={differenceInCardSales} readonly style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem; font-weight: bold;" />
+			</div>
+			<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem; width: 100%; margin-top: 0.5rem; max-height: 400px; overflow-y: auto;">
+				<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
+				
+				<!-- Transfers Section -->
+				{#if entryToPassData.transfers.length > 0}
+					<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem;">
+						<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem;">📤 Transfers:</div>
+						{#each entryToPassData.transfers as transfer}
+							<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #e0f2fe; border-radius: 3px;">
+								<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
+								<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- Adjustments Section -->
+				{#if entryToPassData.adjustments.length > 0}
+					<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem;">
+						<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem;">⚙️ Adjustments:</div>
+						{#each entryToPassData.adjustments as adjustment}
+							<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #fef3c7; border-radius: 3px;">
+								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
+								<div><strong>Cr {adjustment.creditAccount}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- Cash Receipt Section -->
+				<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem; padding: 0.3rem; background: #dcfce7; border-radius: 3px; border: 1px solid #86efac;">
+					<div style="font-weight: 600; color: #15803d; margin-bottom: 0.2rem;">💵 Cash Receipt</div>
+					{#if entryToPassData.cashReceipt.adjustment > 0}
+						<div style="margin-bottom: 0.1rem;"><strong>Adjustment:</strong> {entryToPassData.cashReceipt.adjustment.toFixed(2)}</div>
+					{/if}
+					<div style="font-weight: 600; color: #15803d; margin-top: 0.2rem; border-top: 1px solid #86efac; padding-top: 0.2rem;"><strong>Total Cash Receipt:</strong> {entryToPassData.cashReceipt.total.toFixed(2)}</div>
 				</div>
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
-					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E4</div>
+
+				<!-- Bank Receipt Section -->
+				<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem; padding: 0.3rem; background: #dbeafe; border-radius: 3px; border: 1px solid #93c5fd;">
+					<div style="font-weight: 600; color: #1e40af; margin-bottom: 0.2rem;">🏦 Bank Receipt</div>
+					{#if entryToPassData.bankReceipt.adjustment > 0}
+						<div style="margin-bottom: 0.1rem;"><strong>Adjustment:</strong> {entryToPassData.bankReceipt.adjustment.toFixed(2)}</div>
+					{/if}
+					<div style="font-weight: 600; color: #1e40af; margin-top: 0.2rem; border-top: 1px solid #93c5fd; padding-top: 0.2rem;"><strong>Total Bank Receipt:</strong> {entryToPassData.bankReceipt.total.toFixed(2)}</div>
 				</div>
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
-					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E5</div>
-				</div>
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
-					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E6</div>
-				</div>
+
+				{#if entryToPassData.transfers.length === 0 && entryToPassData.adjustments.length === 0}
+					<div style="font-size: 0.65rem; color: #6b7280; text-align: center; width: 100%;">Ready for posting</div>
+				{/if}
+			</div>
+			<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; padding: 0.5rem;">
 			</div>
 		</div>
 	</div>

@@ -239,7 +239,7 @@
 				.from('users')
 				.select('username')
 				.eq('quick_access_code', supervisorCode)
-				.single();
+				.maybeSingle();
 
 			if (error) throw error;
 
@@ -302,7 +302,7 @@
 				.from('users')
 				.select('username, quick_access_code')
 				.eq('quick_access_code', cashierConfirmCode)
-				.single();
+				.maybeSingle();
 
 			if (error) throw error;
 
