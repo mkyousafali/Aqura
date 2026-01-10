@@ -1520,115 +1520,6 @@
 			<p>Loading...</p>
 		</div>
 	{:else}
-		<!-- Two Cards Layout -->
-		<div class="cards-container">
-			<!-- Branch Selection Card -->
-			<div class="card">
-				<div class="card-header">
-					<span class="card-icon">📍</span>
-					<span class="card-title">Select Branch</span>
-				</div>
-				<div class="card-body">
-					<div class="form-group">
-						<label for="branch-select">Branch</label>
-						<select 
-							id="branch-select" 
-							bind:value={selectedBranch}
-							class="form-select"
-						>
-							<option value="">-- Select Branch --</option>
-							{#each branches as branch (branch.id)}
-								<option value={branch.id.toString()}>
-									{getBranchDisplayName(branch)}
-								</option>
-							{/each}
-						</select>
-						
-						{#if selectedBranch}
-							<button 
-								class="set-default-btn"
-								class:is-default={isCurrentDefault}
-								on:click={setAsDefault}
-								disabled={isSavingDefault || isCurrentDefault}
-							>
-								{#if isSavingDefault}
-									Saving...
-								{:else if isCurrentDefault}
-									✓ Default
-								{:else}
-									Set as Default
-								{/if}
-							</button>
-						{/if}
-						
-						{#if showDefaultSaved}
-							<div class="success-message">
-								✓ Default branch saved successfully!
-							</div>
-						{/if}
-					</div>
-				</div>
-			</div>
-			
-			<!-- Card 1 - Closed Boxes -->
-			<div class="card closed-boxes-card" on:click={openClosedBoxes}>
-				<div class="card-header">
-					<span class="card-icon">📋</span>
-					<span class="card-title">Completed Operations</span>
-				</div>
-				<div class="card-body closed-boxes-body">
-					<div class="closed-boxes-count-large">
-						<span class="count-number">{closedBoxesCount}</span>
-						<span class="count-label">Total Closed</span>
-					</div>
-				</div>
-			</div>
-			
-			<!-- Blank Card 2 -->
-			<div class="card">
-				<div class="card-header">
-					<span class="card-icon">2️⃣</span>
-					<span class="card-title">Card 2</span>
-				</div>
-				<div class="card-body">
-					<p class="hint">Content will be added here.</p>
-				</div>
-			</div>
-			
-			<!-- Blank Card 3 -->
-			<div class="card">
-				<div class="card-header">
-					<span class="card-icon">3️⃣</span>
-					<span class="card-title">Card 3</span>
-				</div>
-				<div class="card-body">
-					<p class="hint">Content will be added here.</p>
-				</div>
-			</div>
-			
-			<!-- Blank Card 4 -->
-			<div class="card">
-				<div class="card-header">
-					<span class="card-icon">4️⃣</span>
-					<span class="card-title">Card 4</span>
-				</div>
-				<div class="card-body">
-					<p class="hint">Content will be added here.</p>
-				</div>
-			</div>
-			
-			<!-- Blank Card 5 -->
-			<div class="card">
-				<div class="card-header">
-					<span class="card-icon">5️⃣</span>
-					<span class="card-title">Card 5</span>
-				</div>
-				<div class="card-body">
-					<p class="hint">Content will be added here.</p>
-				</div>
-			</div>
-		</div>
-		
 		<!-- Big Cards Row -->
 		<div class="big-cards-container">
 			<!-- Big Card Left -->
@@ -1895,41 +1786,107 @@
 					
 					<!-- ERP Balance and Difference Cards -->
 					<div class="balance-cards-container">
-						<!-- ERP Balance Card -->
-						<div class="balance-card erp-card">
-							<div class="balance-card-header">
-								<span class="balance-icon">💰</span>
-								<span>ERP Balance</span>
+						<!-- Left Column: ERP Balance and Branch Selector -->
+						<div class="balance-column-left">
+							<!-- ERP Balance Card -->
+							<div class="balance-card erp-card">
+								<div class="balance-card-header">
+									<span class="balance-icon">💰</span>
+									<span>ERP Balance</span>
+								</div>
+								<div class="balance-card-body">
+									<input 
+										type="number" 
+										class="erp-input" 
+										bind:value={erpBalance}
+										placeholder="Enter ERP balance"
+									/>
+								</div>
 							</div>
-							<div class="balance-card-body">
-								<input 
-									type="number" 
-									class="erp-input" 
-									bind:value={erpBalance}
-									placeholder="Enter ERP balance"
-								/>
+							
+							<!-- Branch Selection Card -->
+							<div class="balance-card branch-selector-card">
+								<div class="balance-card-header">
+									<span class="balance-icon">📍</span>
+									<span>Select Branch</span>
+								</div>
+								<div class="balance-card-body">
+									<div class="form-group">
+										<select 
+											id="branch-select" 
+											bind:value={selectedBranch}
+											class="form-select branch-select"
+										>
+											<option value="">-- Select Branch --</option>
+											{#each branches as branch (branch.id)}
+												<option value={branch.id.toString()}>
+													{getBranchDisplayName(branch)}
+												</option>
+											{/each}
+										</select>
+										
+										{#if selectedBranch}
+											<button 
+												class="set-default-btn"
+												class:is-default={isCurrentDefault}
+												on:click={setAsDefault}
+												disabled={isSavingDefault || isCurrentDefault}
+											>
+												{#if isSavingDefault}
+													Saving...
+												{:else if isCurrentDefault}
+													✓ Default
+												{:else}
+													Set as Default
+												{/if}
+											</button>
+										{/if}
+										
+										{#if showDefaultSaved}
+											<div class="success-message">
+												✓ Default branch saved successfully!
+											</div>
+										{/if}
+									</div>
+								</div>
 							</div>
 						</div>
 						
-						<!-- Difference Card -->
-						<div class="balance-card difference-card" class:positive={difference > 0} class:negative={difference < 0} class:zero={difference === 0}>
-							<div class="balance-card-header">
-								<span class="balance-icon">{difference > 0 ? '📈' : difference < 0 ? '📉' : '⚖️'}</span>
-								<span>Difference</span>
+						<!-- Right Column: Difference Card and Completed Operations -->
+						<div class="balance-column-right">
+							<div class="balance-card difference-card" class:positive={difference > 0} class:negative={difference < 0} class:zero={difference === 0}>
+								<div class="balance-card-header">
+									<span class="balance-icon">{difference > 0 ? '📈' : difference < 0 ? '📉' : '⚖️'}</span>
+									<span>Difference</span>
+								</div>
+								<div class="balance-card-body">
+									<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
+										{difference > 0 ? '+' : ''}{difference.toLocaleString()}
+									</span>
+									<span class="difference-label">
+										{#if difference > 0}
+											Over (Counted > ERP)
+										{:else if difference < 0}
+											Short (ERP > Counted)
+										{:else}
+											Balanced
+										{/if}
+									</span>
+								</div>
 							</div>
-							<div class="balance-card-body">
-								<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
-									{difference > 0 ? '+' : ''}{difference.toLocaleString()}
-								</span>
-								<span class="difference-label">
-									{#if difference > 0}
-										Over (Counted > ERP)
-									{:else if difference < 0}
-										Short (ERP > Counted)
-									{:else}
-										Balanced
-									{/if}
-								</span>
+							
+							<!-- Completed Operations Card -->
+							<div class="balance-card completed-ops-card" on:click={openClosedBoxes}>
+								<div class="balance-card-header">
+									<span class="balance-icon">📋</span>
+									<span>Completed Operations</span>
+								</div>
+								<div class="balance-card-body">
+									<div class="closed-boxes-count-large">
+										<span class="count-number">{closedBoxesCount}</span>
+										<span class="count-label">Total Closed</span>
+									</div>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -1977,10 +1934,11 @@
 		width: 100%;
 		height: 100%;
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		background: linear-gradient(135deg, #fef3e2 0%, #e8f5e9 50%, #fff8e1 100%);
 		overflow: hidden;
 		padding: 0.5rem;
+		gap: 0.5rem;
 	}
 
 	/* Loading */
@@ -2011,17 +1969,21 @@
 	/* Cards Container */
 	.cards-container {
 		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
+		gap: 0.25rem;
+		flex-direction: column;
+		width: auto;
+		min-width: 30px;
+		flex: 0 0 auto;
+		overflow-y: auto;
 	}
 
 	/* Big Cards Container */
 	.big-cards-container {
 		display: flex;
 		gap: 0.5rem;
-		margin-top: 0.5rem;
 		flex: 1;
 		min-height: 0;
+		min-width: 0;
 	}
 
 	.card {
@@ -2031,11 +1993,13 @@
 			0 4px 6px -1px rgba(0, 0, 0, 0.1),
 			0 2px 4px -1px rgba(0, 0, 0, 0.06),
 			inset 0 1px 0 rgba(255, 255, 255, 0.9);
-		flex: 1;
-		min-width: 180px;
-		max-width: 250px;
+		flex: 0 0 auto;
+		width: 100%;
+		min-width: 30px;
+		max-width: 100%;
 		border: 1px solid rgba(249, 115, 22, 0.2);
 		transition: all 0.3s ease;
+		overflow: hidden;
 	}
 
 	.card:hover {
@@ -2067,7 +2031,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 120px;
+		min-height: 20px;
 	}
 
 	.card.big-card {
@@ -2086,25 +2050,34 @@
 		flex: 0 0 auto;
 	}
 
+	.big-card .card-body.suspends-body-second {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+	}
+
 	.card-header {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
-		padding: 0.4rem 0.6rem;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
 		border-bottom: 1px solid rgba(34, 197, 94, 0.2);
 		background: linear-gradient(135deg, #f97316 0%, #fb923c 50%, #fdba74 100%);
 		border-radius: 12px 12px 0 0;
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+		min-width: 0;
+		overflow: hidden;
 	}
 
 	.card-icon {
-		font-size: 0.7rem;
+		font-size: 1.2rem;
+		flex-shrink: 0;
 		filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 	}
 
 	.currency-icon {
-		width: 13px;
-		height: 13px;
+		width: 20px;
+		height: 20px;
 		object-fit: contain;
 		filter: brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 	}
@@ -2124,15 +2097,19 @@
 	}
 
 	.card-title {
-		font-size: 0.7rem;
+		font-size: 1rem;
 		font-weight: 700;
 		color: white;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
 	}
 
 	.save-status {
 		margin-left: auto;
-		font-size: 0.6rem;
+		font-size: 0.85rem;
 		font-weight: 500;
 	}
 
@@ -2151,37 +2128,43 @@
 	}
 
 	.card-body {
-		padding: 0.6rem;
+		padding: 0.025rem;
 	}
 
 	/* Form elements */
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.015rem;
 	}
 
 	.form-group label {
-		font-size: 0.65rem;
+		font-size: 0.4rem;
 		font-weight: 600;
 		color: #166534;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.3px;
 	}
 
 	.form-select {
 		width: 100%;
-		padding: 0.35rem 0.5rem;
-		font-size: 0.7rem;
-		border: 2px solid #86efac;
-		border-radius: 8px;
+		padding: 0rem 0.03rem;
+		font-size: 0.32rem;
+		border: 1px solid #86efac;
+		border-radius: 1px;
 		background: linear-gradient(145deg, #ffffff 0%, #f0fdf4 100%);
 		color: #166534;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		box-shadow: 
-			0 2px 4px rgba(34, 197, 94, 0.1),
+			0 1px 2px rgba(34, 197, 94, 0.1),
 			inset 0 1px 0 rgba(255, 255, 255, 0.8);
+		line-height: 1;
+		height: 18px;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		max-width: 95px;
 	}
 
 	.form-select:hover {
@@ -2198,14 +2181,17 @@
 	}
 
 	.set-default-btn {
-		margin-top: 0.35rem;
-		padding: 0.35rem 0.6rem;
-		font-size: 0.6rem;
+		margin-top: 0.025rem;
+		padding: 0.06rem 0.2rem;
+		font-size: 0.35rem;
 		font-weight: 600;
 		border: none;
-		border-radius: 8px;
+		border-radius: 2px;
 		cursor: pointer;
 		transition: all 0.3s ease;
+		line-height: 1;
+		text-transform: uppercase;
+		letter-spacing: 0.15px;
 		background: linear-gradient(145deg, #22c55e 0%, #16a34a 100%);
 		color: white;
 		box-shadow: 
@@ -2565,14 +2551,169 @@
 		border-top: 2px dashed rgba(249, 115, 22, 0.3);
 	}
 
-	.balance-card {
+	.balance-column-left {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
 		flex: 1;
+	}
+
+	.balance-column-right {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		flex: 1;
+	}
+
+	.balance-card {
+		flex: 0 0 auto;
 		border-radius: 12px;
 		overflow: hidden;
 		box-shadow: 
 			0 4px 6px -1px rgba(0, 0, 0, 0.1),
 			0 2px 4px -1px rgba(0, 0, 0, 0.06);
 		transition: all 0.3s ease;
+	}
+
+	.completed-ops-card {
+		cursor: pointer;
+		flex: 0 0 auto;
+	}
+
+	.completed-ops-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.15);
+	}
+
+	.completed-ops-card .balance-card-header {
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+	}
+
+	.completed-ops-card .balance-card-body {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.closed-boxes-count-large {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.count-number {
+		font-size: 2rem;
+		font-weight: 700;
+		color: #8b5cf6;
+	}
+
+	.count-label {
+		font-size: 0.75rem;
+		color: #94a3b8;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.branch-selector-card {
+		flex: 0 0 auto;
+		display: flex;
+		flex-direction: column;
+		min-width: 300px;
+	}
+
+	.branch-selector-card .balance-card-header {
+		background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+	}
+
+	.branch-selector-card .balance-card-body {
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		background: white;
+	}
+
+	.branch-selector-card .form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.branch-selector-card .form-select {
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		padding: 0.75rem 2.5rem 0.75rem 0.75rem;
+		font-size: 1.1rem;
+		font-weight: 600;
+		border: 2px solid #f97316;
+		border-radius: 8px;
+		background: linear-gradient(145deg, #fff7ed 0%, #ffedd5 100%);
+		color: #7c2d12;
+		outline: none;
+		transition: all 0.2s;
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='%237c2d12' d='M8 12L2 6h12z'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.75rem center;
+		min-height: 45px;
+		min-width: 250px;
+	}
+
+	.branch-selector-card .form-select option {
+		color: #7c2d12;
+		font-size: 1rem;
+		padding: 0.5rem;
+		background: white;
+	}
+
+	.branch-selector-card .form-select:focus {
+		border-color: #ea580c;
+		box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+	}
+
+	.branch-selector-card .set-default-btn {
+		width: 100%;
+		padding: 0.6rem 1rem;
+		font-size: 0.9rem;
+		border: 2px solid #22c55e;
+		border-radius: 8px;
+		background: linear-gradient(145deg, #f0fdf4 0%, #dcfce7 100%);
+		color: #15803d;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 600;
+	}
+
+	.branch-selector-card .set-default-btn:hover:not(:disabled) {
+		background: linear-gradient(145deg, #22c55e 0%, #16a34a 100%);
+		color: white;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 6px rgba(34, 197, 94, 0.3);
+	}
+
+	.branch-selector-card .set-default-btn.is-default {
+		background: linear-gradient(145deg, #22c55e 0%, #16a34a 100%);
+		color: white;
+		border-color: #16a34a;
+	}
+
+	.branch-selector-card .set-default-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.branch-selector-card .success-message {
+		padding: 0.6rem;
+		background: linear-gradient(145deg, #d1fae5 0%, #a7f3d0 100%);
+		border-radius: 8px;
+		border: 2px solid #22c55e;
+		color: #065f46;
+		font-size: 0.85rem;
+		text-align: center;
+		font-weight: 600;
 	}
 
 	.balance-card:hover {
@@ -2613,18 +2754,18 @@
 	}
 
 	.balance-card-body {
-		padding: 0.75rem;
+		padding: 0.4rem;
 		background: white;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.2rem;
 	}
 
 	.erp-input {
 		width: 100%;
-		padding: 0.6rem 0.75rem;
-		font-size: 1.1rem;
+		padding: 0.4rem 0.6rem;
+		font-size: 0.9rem;
 		font-weight: 600;
 		text-align: center;
 		border: 2px solid #3b82f6;
@@ -2647,7 +2788,7 @@
 	}
 
 	.difference-value {
-		font-size: 1.3rem;
+		font-size: 0.9rem;
 		font-weight: 700;
 		color: #64748b;
 	}
@@ -2661,7 +2802,7 @@
 	}
 
 	.difference-label {
-		font-size: 0.7rem;
+		font-size: 0.55rem;
 		color: #94a3b8;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
@@ -2674,19 +2815,23 @@
 		gap: 0.75rem;
 		padding: 0.5rem !important;
 		padding-bottom: 0.25rem !important;
+		overflow: hidden;
+		min-height: 0;
 	}
 
 	.suspends-body-second {
 		padding-top: 0 !important;
 		display: flex !important;
 		flex-direction: column !important;
-		gap: 2rem !important;
+		gap: 0.75rem !important;
+		min-height: 0;
 	}
 
 	.suspends-section {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+		min-height: 0;
 	}
 
 	.suspends-section-header {
@@ -3254,27 +3399,27 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		padding: 1rem;
+		gap: 0.08rem;
+		padding: 0.15rem;
 		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
-		border-radius: 12px;
-		box-shadow: 0 6px 12px rgba(31, 122, 58, 0.3);
+		border-radius: 4px;
+		box-shadow: 0 2px 4px rgba(31, 122, 58, 0.15);
 	}
 
 	.count-number {
-		font-size: 3rem;
+		font-size: 0.8rem;
 		font-weight: 800;
 		color: white;
 		line-height: 1;
-		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 	}
 
 	.count-label {
-		font-size: 0.75rem;
+		font-size: 0.3rem;
 		font-weight: 700;
 		color: rgba(255, 255, 255, 0.95);
 		text-transform: uppercase;
-		letter-spacing: 1px;
+		letter-spacing: 0.3px;
 	}
 
 	/* Modal Styles */
@@ -3536,10 +3681,13 @@
 
 	/* Transactions Table Styles */
 	.transactions-table-container {
-		margin-top: 1rem;
+		margin-top: 0.5rem;
 		border: 1px solid rgba(0, 0, 0, 0.08);
 		border-radius: 6px;
-		overflow: auto;
+		overflow-y: auto;
+		max-height: 210px;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.transactions-table {
@@ -3550,6 +3698,9 @@
 
 	.transactions-table thead {
 		background: linear-gradient(135deg, #f0f4f8 0%, #e8eef5 100%);
+		position: sticky;
+		top: 0;
+		z-index: 10;
 	}
 
 	.transactions-table th {
