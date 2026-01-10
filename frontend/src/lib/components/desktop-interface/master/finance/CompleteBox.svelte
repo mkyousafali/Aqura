@@ -380,6 +380,23 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			startTimeInput = details.recharge_transaction_start_time || '';
 			endDateInput = details.recharge_transaction_end_date || '';
 			endTimeInput = details.recharge_transaction_end_time || '';
+			
+			// Parse loaded times
+			if (startTimeInput) {
+				const [time, period] = startTimeInput.split(' ');
+				const [hour, minute] = time.split(':');
+				startHour = hour || '12';
+				startMinute = minute || '00';
+				startAmPm = period || 'AM';
+			}
+			if (endTimeInput) {
+				const [time, period] = endTimeInput.split(' ');
+				const [hour, minute] = time.split(':');
+				endHour = hour || '12';
+				endMinute = minute || '00';
+				endAmPm = period || 'AM';
+			}
+			
 			vouchers = details.vouchers || [];
 			
 		} else if (operation?.counts_after) {
