@@ -1012,121 +1012,42 @@
 					</label>
 				</div>
 				
-				<div class="date-time-row">
-					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
-						<input type="date" class="date-time-input" bind:value={startDateInput} />
-					</div>
-					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
-						<div class="digital-time-picker">
-							<button 
-								class="time-display-btn"
-								on:click={() => startHourOpen = !startHourOpen}
-							>
-								<span class="time-value">{startHour}:{startMinute}</span>
-								<span class="ampm-value">{startAmPm}</span>
-							</button>
-							{#if startHourOpen}
-								<div class="picker-popup">
-									<div class="picker-controls">
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الساعة' : 'Hour'}</label>
-											<div class="dropdown-popup hours-popup">
-												{#each hours as hour}
-													<div 
-														class="popup-option"
-														class:selected={startHour === hour}
-														on:click={() => { startHour = hour; updateStartTime(); }}
-													>
-														{hour}
-													</div>
-												{/each}
-											</div>
-										</div>
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الدقيقة' : 'Minute'}</label>
-											<div class="dropdown-popup minutes-popup">
-												{#each minutes as minute}
-													<div 
-														class="popup-option"
-														class:selected={startMinute === minute}
-														on:click={() => { startMinute = minute; updateStartTime(); }}
-													>
-														{minute}
-													</div>
-												{/each}
-											</div>
-										</div>
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الفترة' : 'Period'}</label>
-											<select bind:value={startAmPm} on:change={updateStartTime} class="ampm-select-popup">
-												<option>AM</option>
-												<option>PM</option>
-											</select>
-										</div>
-									</div>
-									<button class="close-picker-btn" on:click={() => startHourOpen = false}>{$currentLocale === 'ar' ? 'تم' : 'Done'}</button>
-								</div>
-							{/if}
+				<div class="recharge-time-fields">
+					<div class="date-time-field-row">
+						<div class="date-field-group">
+							<label>{$currentLocale === 'ar' ? 'تاريخ البدء' : 'Start Date'}</label>
+							<input type="date" class="date-input-field" bind:value={startDateInput} />
+						</div>
+						<div class="time-field-group">
+							<label>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</label>
+							<div class="time-input-controls">
+								<input type="number" min="1" max="12" placeholder="HH" class="time-input-hm" bind:value={startHour} />
+								<span class="time-separator">:</span>
+								<input type="number" min="0" max="59" placeholder="MM" class="time-input-hm" bind:value={startMinute} />
+								<select bind:value={startAmPm} class="time-input-ampm">
+									<option>AM</option>
+									<option>PM</option>
+								</select>
+							</div>
 						</div>
 					</div>
-					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
-						<input type="date" class="date-time-input" bind:value={endDateInput} />
-					</div>
-					<div class="date-time-group">
-						<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
-						<div class="digital-time-picker">
-							<button 
-								class="time-display-btn"
-								on:click={() => endHourOpen = !endHourOpen}
-							>
-								<span class="time-value">{endHour}:{endMinute}</span>
-								<span class="ampm-value">{endAmPm}</span>
-							</button>
-							{#if endHourOpen}
-								<div class="picker-popup">
-									<div class="picker-controls">
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الساعة' : 'Hour'}</label>
-											<div class="dropdown-popup hours-popup">
-												{#each hours as hour}
-													<div 
-														class="popup-option"
-														class:selected={endHour === hour}
-														on:click={() => { endHour = hour; updateEndTime(); }}
-													>
-														{hour}
-													</div>
-												{/each}
-											</div>
-										</div>
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الدقيقة' : 'Minute'}</label>
-											<div class="dropdown-popup minutes-popup">
-												{#each minutes as minute}
-													<div 
-														class="popup-option"
-														class:selected={endMinute === minute}
-														on:click={() => { endMinute = minute; updateEndTime(); }}
-													>
-														{minute}
-													</div>
-												{/each}
-											</div>
-										</div>
-										<div class="picker-column">
-											<label class="picker-label">{$currentLocale === 'ar' ? 'الفترة' : 'Period'}</label>
-											<select bind:value={endAmPm} on:change={updateEndTime} class="ampm-select-popup">
-												<option>AM</option>
-												<option>PM</option>
-											</select>
-										</div>
-									</div>
-									<button class="close-picker-btn" on:click={() => endHourOpen = false}>{$currentLocale === 'ar' ? 'تم' : 'Done'}</button>
-								</div>
-							{/if}
+					
+					<div class="date-time-field-row">
+						<div class="date-field-group">
+							<label>{$currentLocale === 'ar' ? 'تاريخ الانتهاء' : 'End Date'}</label>
+							<input type="date" class="date-input-field" bind:value={endDateInput} />
+						</div>
+						<div class="time-field-group">
+							<label>{$currentLocale === 'ar' ? 'وقت الانتهاء' : 'End Time'}</label>
+							<div class="time-input-controls">
+								<input type="number" min="1" max="12" placeholder="HH" class="time-input-hm" bind:value={endHour} />
+								<span class="time-separator">:</span>
+								<input type="number" min="0" max="59" placeholder="MM" class="time-input-hm" bind:value={endMinute} />
+								<select bind:value={endAmPm} class="time-input-ampm">
+									<option>AM</option>
+									<option>PM</option>
+								</select>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -1749,8 +1670,8 @@
 
 	/* Recharge Cards Card 11 Styling */
 	.recharge-card-section-11 {
-		flex: 1.1 !important;
-		min-height: 200px !important;
+		flex: 1.44 !important;
+		min-height: 280px !important;
 		border: 3px solid #ea580c !important;
 		padding: 0.5rem !important;
 	}
@@ -2025,7 +1946,7 @@
 	.balance-row {
 		display: flex;
 		gap: 0.25rem;
-		flex: 1;
+		flex: 0.5;
 		align-items: flex-end;
 	}
 
@@ -2035,7 +1956,7 @@
 		flex-direction: column;
 		gap: 0.15rem;
 		min-width: 0;
-		height: 100%;
+		height: auto;
 	}
 
 	.balance-group label {
@@ -2056,7 +1977,7 @@
 		background: white;
 		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 		transition: all 0.2s;
-		flex: 1;
+		flex: 0;
 		box-sizing: border-box;
 	}
 
@@ -3703,6 +3624,120 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		flex: 1;
+	}
+
+	.recharge-time-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 0.5rem;
+		background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+		border-radius: 0.5rem;
+		border: 2px solid #fcd34d;
+	}
+
+	.date-time-field-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-end;
+	}
+
+	.date-field-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		flex: 1;
+	}
+
+	.date-field-group label {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #92400e;
+		letter-spacing: 0.5px;
+	}
+
+	.date-input-field {
+		padding: 0.4rem;
+		border: 2px solid #fed7aa;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #92400e;
+		background: white;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+		transition: all 0.2s;
+	}
+
+	.date-input-field:focus {
+		outline: none;
+		border-color: #f97316;
+		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+	}
+
+	.time-field-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		flex: 1;
+	}
+
+	.time-field-group label {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #92400e;
+		letter-spacing: 0.5px;
+	}
+
+	.time-input-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.time-input-hm {
+		width: 70px;
+		padding: 0.4rem;
+		border: 2px solid #fed7aa;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #92400e;
+		text-align: center;
+		background: white;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+		transition: all 0.2s;
+	}
+
+	.time-input-hm:focus {
+		outline: none;
+		border-color: #f97316;
+		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+	}
+
+	.time-separator {
+		font-size: 0.875rem;
+		font-weight: 700;
+		color: #92400e;
+		padding: 0 0.1rem;
+	}
+
+	.time-input-ampm {
+		padding: 0.4rem 0.5rem;
+		border: 2px solid #fed7aa;
+		border-radius: 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #92400e;
+		background: white;
+		cursor: pointer;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+		transition: all 0.2s;
+	}
+
+	.time-input-ampm:focus {
+		outline: none;
+		border-color: #f97316;
+		box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
 	}
 
 	.recharge-card-section {
