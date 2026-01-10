@@ -51,6 +51,12 @@
 			operation = op;
 			completedByName = op.completed_by_name;
 			closingStarted = true;
+			
+			// Load branch name from the branch prop passed to component
+			console.log('🏢 Branch prop received:', branch);
+			branchName = branch?.name_en || branch?.name || 'N/A';
+			console.log('✅ Loaded branch name:', branchName);
+			
 			// Reset guards to allow re-initialization
 			hasInitializedCounts = false;
 			hasFetchedUrl = false;
@@ -185,6 +191,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		// Base values are already updated by edit handlers, so just save them directly
 		const updatedCompleteDetails = {
 			...currentCompleteDetails,
+			// Supervisor info (already updated)
+			supervisor_code: supervisorCode || '',
+			cashier_confirm_code: cashierConfirmCode || '',
+			completed_by_name: completedByName || '',
+			cashier_name: cashierName || '',
+			branch_name: branchName || '',
 			// Closing counts (already updated)
 			closing_counts: closingCounts,
 			closing_total: closingTotal,
@@ -297,7 +309,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			
 			// Load supervisor info
 			supervisorName = completeDetails.supervisor_name || '';
-			supervisorCode = '';
+			supervisorCode = completeDetails.supervisor_code || '';
 			
 			// Load bank reconciliation
 			madaAmount = completeDetails.bank_mada || '';
@@ -315,7 +327,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			openingBalance = completeDetails.recharge_opening_balance || '';
 			closeBalance = completeDetails.recharge_close_balance || '';
 			
-			// Load recharge card transaction dates and times
+			// Load supervisor confirm codes
+			cashierConfirmCode = completeDetails.cashier_confirm_code || '';
+			completedByName = completeDetails.completed_by_name || operation?.completed_by_name || '';
+			cashierName = completeDetails.cashier_name || operation?.cashier_name || '';
+			
+			// Load branch info from multiple sources
+			branchName = completeDetails.branch_name || operation?.branch?.name_en || operation?.branch?.name || branch?.name_en || branch?.name || operation?.branchName || '';
+			
 			startDateInput = completeDetails.recharge_transaction_start_date || '';
 			startTimeInput = completeDetails.recharge_transaction_start_time || '';
 			endDateInput = completeDetails.recharge_transaction_end_date || '';
@@ -402,10 +421,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		} else if (operation?.counts_after) {
 			// Fallback to counts_after if neither available
 			closingCounts = { ...operation.counts_after };
+			branchName = operation?.branch?.name || branch?.name || operation?.branchName || 'N/A';
 			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
 		} else {
 			// Initialize with zeros if no data available
 			closingCounts = {};
+			branchName = operation?.branch?.name || branch?.name || operation?.branchName || 'N/A';
 			Object.keys(denomValues).forEach(key => {
 				closingCounts[key] = 0;
 			});
@@ -582,9 +603,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Calculate required entries based on POS Cash and POS Bank balances
 	$: {
 		const posCashValue = Math.abs(differenceInCashSales);
-		const posCashType = differenceInCashSales >= 0 ? 'CR' : 'DR';
+		const posCashType = differenceInCashSales >= 0 ? 'DR' : 'CR';
 		const posBankValue = Math.abs(differenceInCardSales);
-		const posBankType = differenceInCardSales >= 0 ? 'CR' : 'DR';
+		const posBankType = differenceInCardSales >= 0 ? 'DR' : 'CR';
 
 		entryToPassData = {
 			transfers: [],
@@ -638,6 +659,23 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					creditAmount: remainingBank
 				});
 				entryToPassData.bankReceipt.adjustment = remainingBank;
+
+				// Add cashier salary entry if short is >= 5
+				if (remainingBank >= 5) {
+					entryToPassData.adjustments.push({
+						account: 'POS Short to Cashier Salary',
+						debitAccount: 'Cashier Salary Account',
+						debitAmount: remainingBank,
+						creditAccount: 'POS Short',
+						creditAmount: remainingBank
+					});
+				} else {
+					// Add note if short is less than 5
+					entryToPassData.adjustments.push({
+						account: 'POS Short Note',
+						note: '⚠️ Short amount is less than 5 - No need to post to Cashier Salary Account'
+					});
+				}
 			}
 		} else if (posCashType === 'CR' && posBankType === 'DR') {
 			// Cash has deficit (CR), Bank has surplus (DR)
@@ -664,6 +702,23 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					creditAmount: remainingCash
 				});
 				entryToPassData.cashReceipt.adjustment = remainingCash;
+
+				// Add cashier salary entry if short is >= 5
+				if (remainingCash >= 5) {
+					entryToPassData.adjustments.push({
+						account: 'POS Short to Cashier Salary',
+						debitAccount: 'Cashier Salary Account',
+						debitAmount: remainingCash,
+						creditAccount: 'POS Short',
+						creditAmount: remainingCash
+					});
+				} else {
+					// Add note if short is less than 5
+					entryToPassData.adjustments.push({
+						account: 'POS Short Note',
+						note: '⚠️ Short amount is less than 5 - No need to post to Cashier Salary Account'
+					});
+				}
 			}
 
 			if (remainingBank > 0) {
@@ -724,6 +779,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	
 	// Cashier confirmation code
 	let cashierConfirmCode: string = '';
+	let cashierName: string = '';
+	let branchName: string = '';
 	let cashierConfirmName: string = '';
 	let cashierConfirmError: string = '';
 	
@@ -735,8 +792,48 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Voucher status check
 	let showVoucherStatusModal: boolean = false;
+	let showPrintModal: boolean = false;
 	let voucherStatusResults: Array<{serial: string, amount: number, status: string, found: boolean, voucherData?: any}> = [];
 	let isCheckingVoucherStatus: boolean = false;
+	
+	// Ensure branch name is set from prop if not already loaded
+	$: if (!branchName || branchName === 'N/A') {
+		branchName = branch?.name_en || branch?.name || 'N/A';
+	}
+	
+	// Print modal computed data
+	$: cashierName = (operation?.notes ? (typeof operation.notes === 'string' ? JSON.parse(operation.notes) : operation.notes)?.cashier_name : operationData?.cashier_name) || '';
+	$: posNumber = selectedPosNumber;
+	$: supervisorCheckCode = (operation?.notes ? (typeof operation.notes === 'string' ? JSON.parse(operation.notes) : operation.notes)?.supervisor_name : operationData?.supervisor_name) || '';
+	$: supervisorCloseCode = supervisorName || '';
+	$: amountIssued = Number(operation?.total_before) || 0;
+	$: amountChecked = Number(operation?.total_after) || 0;
+	$: closingCashTotal = closingTotal;
+	$: totalBankSales = bankTotal;
+	$: closingDenominationList = Object.keys(closingCounts).map(key => ({
+		name: denomLabels[key] || key,
+		count: closingCounts[key] || 0,
+		value: denomValues[key] || 0
+	}));
+	$: rechargeCardsList = [];
+	$: vouchersList = vouchers || [];
+	$: adjustmentsList = [];
+	$: chequesAmount = 0;
+	$: transferAmount = 0;
+	$: supervisorCheckDate = operation?.created_at ? new Date(operation.created_at).toLocaleDateString() : '';
+	$: supervisorCloseDate = operation?.updated_at ? new Date(operation.updated_at).toLocaleDateString() : '';
+	$: completedByDate = new Date().toLocaleDateString() || '';
+	$: totalVoucherAmount = vouchersTotal || 0;
+
+	// Print template variables
+	$: statusCashAmount = Math.abs(differenceInCashSales);
+	$: statusBankAmount = Math.abs(differenceInCardSales);
+	$: transferDrCash = entryToPassData?.transfers?.find(t => t.debitAccount?.includes('Cash'))?.debitAmount || 0;
+	$: transferCrBank = entryToPassData?.transfers?.find(t => t.creditAccount?.includes('Bank'))?.creditAmount || 0;
+	$: adjustmentDrShort = entryToPassData?.adjustments?.find(a => a.debitAccount?.includes('Short'))?.debitAmount || 0;
+	$: adjustmentCrCash = entryToPassData?.adjustments?.find(a => a.creditAccount?.includes('Cash'))?.creditAmount || 0;
+	$: totalCashReceipt = entryToPassData?.cashReceipt?.total || 0;
+	$: totalBankReceipt = entryToPassData?.bankReceipt?.total || 0;
 
 	// Function to check voucher status
 	async function checkVoucherStatus() {
@@ -813,15 +910,22 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		try {
 			console.log('🔄 Starting closing process for operation:', operation.id);
 
+			// Get branch name
+			const currentBranchName = branch?.name_en || branch?.name || 'N/A';
+			console.log('🏢 Saving branch name:', currentBranchName);
+
 			// Get current user info
 			const { data: { user } } = await supabase.auth.getUser();
 			
-			// Update box_operations with completed_by info
+			// Update box_operations with completed_by info and branch name
 			const { error: updateError } = await supabase
 				.from('box_operations')
 				.update({
 					completed_by_user_id: user?.id,
-					completed_by_name: completedByName
+					completed_by_name: completedByName,
+					complete_details: JSON.stringify({
+						branch_name: currentBranchName
+					})
 				})
 				.eq('id', operation.id);
 
@@ -831,7 +935,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				return;
 			}
 
-			console.log('✅ Closing process started');
+			console.log('✅ Closing process started with branch name');
+			
+			// Set branch name locally
+			branchName = currentBranchName;
 			
 			// Show the cards
 			closingStarted = true;
@@ -2583,6 +2690,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 						</div>
 					</div>
 				</div>
+				<div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;">
+					<button class="save-button" on:click={() => showPrintModal = true} style="background: #3b82f6; border: 1px solid #1e40af;">
+						🖨️ Print Box Details
+					</button>
+				</div>
 			</div>
 		</div>
 		<div class="half-card split-card">
@@ -2592,7 +2704,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
 						<input type="number" value={Math.abs(differenceInCashSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
 						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
-							{differenceInCashSales >= 0 ? "CR" : "DR"}
+							{differenceInCashSales >= 0 ? "DR" : "CR"}
 						</div>
 					</div>
 				</div>
@@ -2601,65 +2713,104 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
 						<input type="number" value={Math.abs(differenceInCardSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
 						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
-							{differenceInCardSales >= 0 ? "CR" : "DR"}
+							{differenceInCardSales >= 0 ? "DR" : "CR"}
 						</div>
 					</div>
 				</div>
 			</div>
-			<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem; width: 100%; margin-top: 0.5rem; max-height: 400px; overflow-y: auto;">
-				<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
+<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
 				
-				<!-- Transfers Section -->
-				{#if entryToPassData.transfers.length > 0}
-					<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem;">
-						<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem;">📤 Transfers:</div>
-						{#each entryToPassData.transfers as transfer}
-							<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #e0f2fe; border-radius: 3px;">
-								<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
-								<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
+{#if entryToPassData.transfers.length > 0}
+				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
+					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">📤 Transfers:</div>
+					{#each entryToPassData.transfers as transfer}
+						<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #ffedd5; border-radius: 3px; width: 100%; font-size: 0.65rem;">
+							<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
+							<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 
-				<!-- Adjustments Section -->
-				{#if entryToPassData.adjustments.length > 0}
-					<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem;">
-						<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem;">⚙️ Adjustments:</div>
-						{#each entryToPassData.adjustments as adjustment}
-							<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #fef3c7; border-radius: 3px;">
+			{#if entryToPassData.adjustments.length > 0}
+				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
+					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">⚙️ Adjustments:</div>
+					{#each entryToPassData.adjustments as adjustment}
+						<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #ffedd5; border-radius: 3px; width: 100%; font-size: 0.65rem;">
+							{#if adjustment.note}
+								<div style="color: #dc2626; font-weight: 600; background: #fee2e2; padding: 0.3rem; border-radius: 3px; border-left: 3px solid #dc2626;">{adjustment.note}</div>
+							{:else}
 								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
 								<div><strong>Cr {adjustment.creditAccount}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
-				<!-- Cash Receipt Section -->
-				<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem; padding: 0.3rem; background: #dcfce7; border-radius: 3px; border: 1px solid #86efac;">
-					<div style="font-weight: 600; color: #15803d; margin-bottom: 0.2rem;">💵 Cash Receipt</div>
-					{#if entryToPassData.cashReceipt.adjustment > 0}
-						<div style="margin-bottom: 0.1rem;"><strong>Adjustment:</strong> {entryToPassData.cashReceipt.adjustment.toFixed(2)}</div>
-					{/if}
-					<div style="font-weight: 600; color: #15803d; margin-top: 0.2rem; border-top: 1px solid #86efac; padding-top: 0.2rem;"><strong>Total Cash Receipt:</strong> {entryToPassData.cashReceipt.total.toFixed(2)}</div>
+							{/if}
+						</div>
+					{/each}
 				</div>
+			{/if}
 
-				<!-- Bank Receipt Section -->
-				<div style="width: 100%; margin-bottom: 0.5rem; font-size: 0.65rem; padding: 0.3rem; background: #dbeafe; border-radius: 3px; border: 1px solid #93c5fd;">
-					<div style="font-weight: 600; color: #1e40af; margin-bottom: 0.2rem;">🏦 Bank Receipt</div>
-					{#if entryToPassData.bankReceipt.adjustment > 0}
-						<div style="margin-bottom: 0.1rem;"><strong>Adjustment:</strong> {entryToPassData.bankReceipt.adjustment.toFixed(2)}</div>
-					{/if}
-					<div style="font-weight: 600; color: #1e40af; margin-top: 0.2rem; border-top: 1px solid #93c5fd; padding-top: 0.2rem;"><strong>Total Bank Receipt:</strong> {entryToPassData.bankReceipt.total.toFixed(2)}</div>
-				</div>
-
-				{#if entryToPassData.transfers.length === 0 && entryToPassData.adjustments.length === 0}
-					<div style="font-size: 0.65rem; color: #6b7280; text-align: center; width: 100%;">Ready for posting</div>
+			<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
+				<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">💵 Cash Receipt</div>
+				{#if entryToPassData.cashReceipt.adjustment > 0}
+					<div style="margin-bottom: 0.1rem; font-size: 0.65rem;"><strong>Adjustment:</strong> {entryToPassData.cashReceipt.adjustment.toFixed(2)}</div>
 				{/if}
+				<div style="font-weight: 600; color: #15803d; margin-top: 0.2rem; border-top: 2px solid #22c55e; padding-top: 0.2rem; width: 100%; font-size: 0.65rem;"><strong>Total Cash Receipt:</strong> {entryToPassData.cashReceipt.total.toFixed(2)}</div>
 			</div>
-			<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; padding: 0.5rem;">
+
+			<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem; width: 100%;">
+				<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">🏦 Bank Receipt</div>
+				<div style="font-size: 0.6rem; color: #0284c7; margin-bottom: 0.3rem; font-style: italic; font-weight: 600; width: 100%;">📌 Instruction: Do not post entry until bank statement is available for reconciliation</div>
+				{#if entryToPassData.bankReceipt.adjustment > 0}
+					<div style="margin-bottom: 0.1rem; font-size: 0.65rem;"><strong>Adjustment:</strong> {entryToPassData.bankReceipt.adjustment.toFixed(2)}</div>
+				{/if}
+				<div style="font-weight: 600; color: #0369a1; margin-top: 0.2rem; border-top: 2px solid #0ea5e9; padding-top: 0.2rem; width: 100%; font-size: 0.65rem;"><strong>Total Bank Receipt:</strong> {entryToPassData.bankReceipt.total.toFixed(2)}</div>
 			</div>
+
+		{#if entryToPassData.transfers.length === 0 && entryToPassData.adjustments.length === 0}
+			<div style="font-size: 0.65rem; color: #6b7280; text-align: center; width: 100%;">Ready for posting</div>
+		{/if}
+
+		<!-- Net Short/Excess Card -->
+		<div class="blank-card" style="background: #fef2f2; border: 2px solid #ef4444; min-height: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15); padding: 0.5rem; width: 100%;">
+			{#if differenceInCashSales < 0 && differenceInCardSales < 0}
+				<!-- Both CR (both short) -->
+				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
+				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
+					<strong>Net Short:</strong> {(Math.abs(differenceInCashSales) + Math.abs(differenceInCardSales)).toFixed(2)}
+				</div>
+			{:else if differenceInCashSales > 0 && differenceInCardSales > 0}
+				<!-- Both DR (both excess) -->
+				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
+				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
+					<strong>Net Excess:</strong> {(differenceInCashSales + differenceInCardSales).toFixed(2)}
+				</div>
+			{:else if Math.abs(differenceInCashSales) > Math.abs(differenceInCardSales)}
+				<!-- Mixed: Cash larger -->
+				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
+				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
+					{#if differenceInCashSales > 0}
+						<strong>Net Excess:</strong> {(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)}
+					{:else}
+						<strong>Net Short:</strong> {(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)}
+					{/if}
+				</div>
+			{:else if Math.abs(differenceInCardSales) > Math.abs(differenceInCashSales)}
+				<!-- Mixed: Bank larger -->
+				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
+				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
+					{#if differenceInCardSales > 0}
+						<strong>Net Excess:</strong> {(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)}
+					{:else}
+						<strong>Net Short:</strong> {(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)}
+					{/if}
+				</div>
+			{:else}
+				<div style="font-weight: 600; color: #15803d; font-size: 0.7rem;">✅ Balanced</div>
+				<div style="font-size: 0.65rem; color: #15803d; margin-top: 0.3rem;">
+					No net short or excess
+				</div>
+			{/if}
 		</div>
+	</div>
 	</div>
 	{/if}
 </div>
@@ -2762,6 +2913,534 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		</div>
 	</div>
 {/if}
+
+<!-- Print Modal -->
+{#if showPrintModal}
+	<div class="print-modal-overlay" on:click={() => showPrintModal = false}>
+		<div class="print-modal" on:click|stopPropagation>
+			<div class="print-modal-header">
+				<h3>{$currentLocale === 'ar' ? 'طباعة تفاصيل الصندوق' : 'Print Box Details'}</h3>
+				<button class="print-modal-close-btn" on:click={() => showPrintModal = false}>✕</button>
+			</div>
+			<div class="print-modal-body">
+				<!-- A4 Print Container -->
+				<div class="a4-print-container">
+					<!-- Row 1: Cashier Info (Left) & Amount Info (Right) -->
+					<div class="print-cards-row">
+						<!-- Card 1 Left: Cashier Information -->
+						<div class="print-card">
+							<div class="print-card-header">👤 Cashier Info</div>
+							<div class="print-card-content">
+								<div class="print-info-row">
+									<span class="print-label">Cashier Name:</span>
+									<span class="print-value">{cashierName || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">POS Number:</span>
+									<span class="print-value">{posNumber || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Supervisor Checked:</span>
+									<span class="print-value">{supervisorCheckCode || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Supervisor Closed:</span>
+									<span class="print-value">{supervisorCloseCode || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Completed By:</span>
+									<span class="print-value">{completedByName || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Branch:</span>
+									<span class="print-value">{branchName || 'N/A'}</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Card 1 Right: Amount Information -->
+						<div class="print-card">
+							<div class="print-card-header">💰 Amount Info</div>
+							<div class="print-card-content">
+								<div class="print-info-row">
+									<span class="print-label">Amount Issued:</span>
+									<span class="print-value">{(Number(amountIssued) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Amount Checked:</span>
+									<span class="print-value">{(Number(amountChecked) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Closing Cash Total:</span>
+									<span class="print-value">{(Number(closingCashTotal) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Total Cash Sales:</span>
+									<span class="print-value">{(Number(totalCashSales) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Total Bank Sales:</span>
+									<span class="print-value">{(Number(totalBankSales) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Total Sales:</span>
+									<span class="print-value">{((Number(totalCashSales) || 0) + (Number(totalBankSales) || 0)).toFixed(2)} SAR</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Row 2: Closing Denominations (Left) & Bank Reconciliation (Right) -->
+					<div class="print-cards-row">
+						<!-- Card 2 Left: Closing Denominations -->
+						<div class="print-card">
+							<div class="print-card-header">💵 Closing Denominations</div>
+							<div class="print-card-content print-small-text">
+								{#each closingDenominationList as denom, idx (idx)}
+									{#if denom.count > 0}
+										<div class="print-info-row">
+											<span class="print-label">{denom.name}:</span>
+											<span class="print-value">{denom.count} × {denom.value.toFixed(2)}</span>
+										</div>
+									{/if}
+								{:else}
+									<div class="print-info-row">
+										<span class="print-label">No denominations recorded</span>
+									</div>
+								{/each}
+								<div class="print-info-row" style="border-top: 1px solid #ccc; padding-top: 0.3rem; margin-top: 0.3rem;">
+									<span class="print-label" style="font-weight: 700;">Total:</span>
+									<span class="print-value" style="font-weight: 700;">{(Number(closingCashTotal) || 0).toFixed(2)} SAR</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Card 2 Right: Bank Reconciliation -->
+						<div class="print-card">
+							<div class="print-card-header">🏦 Bank Reconciliation</div>
+							<div class="print-card-content print-small-text">
+								<div class="print-info-row">
+									<span class="print-label">Cheques Amount:</span>
+									<span class="print-value">{(Number(chequesAmount) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Transfer Amount:</span>
+									<span class="print-value">{(Number(transferAmount) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Total Bank:</span>
+									<span class="print-value">{((Number(chequesAmount) || 0) + (Number(transferAmount) || 0)).toFixed(2)} SAR</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Row 3: ERP Closing Details (Left) & Recharge Cards (Right) -->
+					<div class="print-cards-row">
+						<!-- Card 3 Left: ERP Closing Details -->
+						<div class="print-card">
+							<div class="print-card-header">📊 ERP Closing Details</div>
+							<div class="print-card-content print-small-text">
+								<div class="print-info-row">
+									<span class="print-label">System Cash Sales:</span>
+									<span class="print-value">{(Number(systemCashSales) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">System Card Sales:</span>
+									<span class="print-value">{(Number(systemCardSales) || 0).toFixed(2)} SAR</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Difference (Cash):</span>
+									<span class="print-value" class:short-value={differenceInCashSales < 0} class:excess-value={differenceInCashSales > 0}>
+										{differenceInCashSales >= 0 ? '+' : ''}{differenceInCashSales.toFixed(2)} SAR
+									</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Difference (Bank):</span>
+									<span class="print-value" class:short-value={differenceInCardSales < 0} class:excess-value={differenceInCardSales > 0}>
+										{differenceInCardSales >= 0 ? '+' : ''}{differenceInCardSales.toFixed(2)} SAR
+									</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Card 3 Right: Recharge Cards -->
+						<div class="print-card">
+							<div class="print-card-header">🔋 Recharge Cards</div>
+							<div class="print-card-content print-small-text">
+								{#if rechargeCardsList && rechargeCardsList.length > 0}
+									{#each rechargeCardsList as card, idx (idx)}
+										<div class="print-info-row">
+											<span class="print-label">{card.serial || `Card ${idx + 1}`}:</span>
+											<span class="print-value">{(Number(card.amount) || 0).toFixed(2)} SAR</span>
+										</div>
+									{/each}
+								{:else}
+									<div class="print-info-row">
+										<span class="print-label">No recharge cards recorded</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+					</div>
+
+					<!-- Row 4: Sales Through Vouchers (Left) & Comparison & Signature (Right) -->
+					<div class="print-cards-row">
+						<!-- Card 4 Left: Sales Through Vouchers -->
+						<div class="print-card">
+							<div class="print-card-header">🎟️ Sales Through Vouchers</div>
+							<div class="print-card-content print-small-text">
+								{#if vouchersList && vouchersList.length > 0}
+									{#each vouchersList as voucher, idx (idx)}
+										<div class="print-info-row">
+											<span class="print-label">{voucher.serial}:</span>
+											<span class="print-value">{(Number(voucher.amount) || 0).toFixed(2)} SAR</span>
+										</div>
+									{/each}
+									<div class="print-info-row" style="margin-top: 0.25rem; border-top: 1px solid #e5e7eb; padding-top: 0.25rem;">
+										<span class="print-label" style="font-weight: 700;">Total Vouchers:</span>
+										<span class="print-value" style="font-weight: 700;">{(Number(totalVoucherAmount) || 0).toFixed(2)} SAR</span>
+									</div>
+								{:else}
+									<div class="print-info-row">
+										<span class="print-label">No vouchers recorded</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Card 4 Right: Comparison & Electronic Signature -->
+						<div class="print-card">
+							<div class="print-card-header">✅ Comparison & Signature</div>
+							<div class="print-card-content print-small-text">
+								<div class="print-info-row">
+									<span class="print-label">Supervisor Check Date:</span>
+									<span class="print-value">{supervisorCheckDate || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Supervisor Close Date:</span>
+									<span class="print-value">{supervisorCloseDate || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label">Completed By Date:</span>
+									<span class="print-value">{completedByDate || 'N/A'}</span>
+								</div>
+								<div class="print-info-row">
+									<span class="print-label" style="color: #1f2937;">Status:</span>
+									<span class="print-value" style="color: #10b981; font-weight: 700;">✓ Signed</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Row 5: Adjustment Entries (Left) & Accountant Signature (Right) -->
+					<div class="print-cards-row">
+						<!-- Card 5 Left: Adjustment Entries -->
+						<div class="print-card">
+							<div class="print-card-header">⚙️ Adjustment Entries</div>
+							<div class="print-card-content print-small-text">
+								{#if adjustmentsList && adjustmentsList.length > 0}
+									{#each adjustmentsList as adj, idx (idx)}
+										<div class="print-info-row">
+											<span class="print-label">{adj.type || `Adjustment ${idx + 1}`}:</span>
+											<span class="print-value">{(Number(adj.amount) || 0).toFixed(2)} SAR</span>
+										</div>
+										{#if adj.note}
+											<div class="print-info-row print-note-row">
+												<span class="print-label">Note:</span>
+												<span class="print-value print-note-text">{adj.note}</span>
+											</div>
+										{/if}
+									{/each}
+								{:else}
+									<div class="print-info-row">
+										<span class="print-label">No adjustments recorded</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Card 5 Right: Accountant Signature -->
+						<div class="print-card">
+							<div class="print-card-header">👔 Accountant Verification</div>
+							<div class="print-card-content">
+								<div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;">
+									<div style="text-align: center;">
+										<div class="print-signature-field">_____________________</div>
+										<div class="print-label" style="margin-top: 0.25rem;">Accountant Signature</div>
+									</div>
+									<div style="text-align: center;">
+										<div class="print-label">Date: _____________________</div>
+									</div>
+									<div style="text-align: center;">
+										<div class="print-label">Name: _____________________</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="print-modal-footer">
+				<button class="print-btn" on:click={() => {
+					const printContent = document.getElementById('complete-box-print-content');
+					if (printContent) {
+						const printWindow = window.open('', 'PRINT', 'width=1200,height=800');
+						const html = `
+							<!DOCTYPE html>
+							<html>
+							<head>
+								<meta charset="UTF-8">
+								<title>Box Closing Details</title>
+								<style>
+									* { margin: 0; padding: 0; box-sizing: border-box; }
+									html, body { 
+										margin: 0; 
+										padding: 1rem; 
+										font-family: Arial, sans-serif;
+										background: white;
+										color: #000;
+										font-size: 11pt;
+									}
+									.a4-print { 
+										width: 210mm; 
+										height: 297mm; 
+										margin: 0 auto; 
+										padding: 0.5rem;
+										background: white;
+									}
+									.print-cards-row { 
+										display: grid; 
+										grid-template-columns: 1fr 1fr; 
+										gap: 0.5rem; 
+										margin-bottom: 0.5rem;
+										page-break-inside: avoid;
+									}
+									.print-card { 
+										border: 1px solid #3b82f6; 
+										padding: 0.5rem; 
+										page-break-inside: avoid;
+										break-inside: avoid;
+									}
+									.print-card-header { 
+										font-weight: 700; 
+										color: #1e40af; 
+										border-bottom: 1px solid #dbeafe; 
+										padding-bottom: 0.3rem;
+										font-size: 0.8rem;
+										margin-bottom: 0.3rem;
+									}
+									.print-info-row { 
+										display: flex; 
+										justify-content: space-between; 
+										padding: 0.15rem 0;
+										border-bottom: 0.5px solid #e5e7eb;
+										font-size: 0.75rem;
+									}
+									.print-label { font-weight: 600; min-width: 100px; }
+									.print-value { text-align: right; flex: 1; }
+									@page { margin: 0.5cm; size: A4; }
+									@media print { 
+										* { margin: 0 !important; padding: 0 !important; }
+										body { padding: 0 !important; }
+										.a4-print { width: 100%; height: 100%; margin: 0; padding: 0.5rem; }
+									}
+								</style>
+							</head>
+							<body>
+								<div class="a4-print">
+									${printContent.innerHTML}
+								</div>
+							</body>
+							</html>
+						`;
+						printWindow.document.write(html);
+						printWindow.document.close();
+						setTimeout(() => {
+							printWindow.print();
+						}, 500);
+					}
+				}}>
+					🖨️ Print
+				</button>
+				<button class="close-print-modal-btn" on:click={() => showPrintModal = false}>
+					Close
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Hidden Print Content Container -->
+<div id="complete-box-print-content" style="display: none;">
+	<!-- A4 Print Container -->
+	<div style="width: 210mm; padding: 0.5rem; font-family: Arial, sans-serif; font-size: 11pt; background: white;">
+		<!-- Header -->
+		<div style="text-align: center; margin-bottom: 0.5rem; border-bottom: 2px solid #1e40af; padding-bottom: 0.3rem;">
+			<img src="/icons/logo.png" alt="PA Logo" style="height: 50px; margin-bottom: 0.3rem;" />
+			<div style="font-weight: 700; font-size: 0.9rem;">🧾 BOX CLOSING REPORT</div>
+			<div style="font-size: 0.65rem; color: #666;">Cashier: {cashierName || 'N/A'} | POS: {posNumber || 'N/A'} | {new Date().toLocaleDateString()}</div>
+		</div>
+
+		<!-- Row 1: Status Boxes (Cash & Bank) -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<div style="border: 2px solid #10b981; padding: 0.4rem; text-align: center; background: #ecfdf5;">
+				<div style="font-size: 0.65rem; font-weight: 700; color: #065f46;">💵 Status POS Cash</div>
+				<div style="font-size: 0.85rem; font-weight: 700; color: {differenceInCashSales >= 0 ? '#ef4444' : '#10b981'};">{Math.abs(differenceInCashSales).toFixed(2)} SAR</div>
+				<div style="font-size: 0.6rem; color: {differenceInCashSales >= 0 ? '#ef4444' : '#10b981'};">{differenceInCashSales >= 0 ? '✗ DR' : '✓ CR'}</div>
+			</div>
+			<div style="border: 2px solid #3b82f6; padding: 0.4rem; text-align: center; background: #eff6ff;">
+				<div style="font-size: 0.65rem; font-weight: 700; color: #1e40af;">💳 Status POS Bank</div>
+				<div style="font-size: 0.85rem; font-weight: 700; color: {differenceInCardSales >= 0 ? '#ef4444' : '#10b981'};">{Math.abs(differenceInCardSales).toFixed(2)} SAR</div>
+				<div style="font-size: 0.6rem; color: {differenceInCardSales >= 0 ? '#ef4444' : '#10b981'};">{differenceInCardSales >= 0 ? '✗ DR' : '✓ CR'}</div>
+			</div>
+		</div>
+
+		<!-- Row 2: Transfers & Adjustments -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<div style="border: 1px solid #f97316; padding: 0.4rem; background: #fff7ed;">
+				<div style="font-weight: 700; color: #c2410c; font-size: 0.7rem; border-bottom: 1px solid #fed7aa; padding-bottom: 0.2rem; margin-bottom: 0.2rem;">🔄 Transfers</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span>Dr POS Cash:</span><span>{(Number(transferDrCash) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span>Cr POS Bank:</span><span>{(Number(transferCrBank) || 0).toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+			<div style="border: 1px solid #ef4444; padding: 0.4rem; background: #fef2f2;">
+				<div style="font-weight: 700; color: #991b1b; font-size: 0.7rem; border-bottom: 1px solid #fecaca; padding-bottom: 0.2rem; margin-bottom: 0.2rem;">⚠️ Adjustments</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span>Dr POS Short:</span><span>{(Number(adjustmentDrShort) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span>Cr POS Cash:</span><span>{(Number(adjustmentCrCash) || 0).toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 3: Receipt Totals -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<div style="border: 2px solid #10b981; padding: 0.4rem; background: #f0fdf4; text-align: center;">
+				<div style="font-size: 0.65rem; font-weight: 700; color: #15803d; margin-bottom: 0.2rem;">💰 Cash Receipt Total</div>
+				<div style="font-size: 0.9rem; font-weight: 700; color: #10b981;">{(Number(totalCashReceipt) || 0).toFixed(2)} SAR</div>
+			</div>
+			<div style="border: 2px solid #3b82f6; padding: 0.4rem; background: #f0f9ff; text-align: center;">
+				<div style="font-size: 0.65rem; font-weight: 700; color: #1e40af; margin-bottom: 0.2rem;">🏦 Bank Receipt Total</div>
+				<div style="font-size: 0.9rem; font-weight: 700; color: #3b82f6;">{(Number(totalBankReceipt) || 0).toFixed(2)} SAR</div>
+			</div>
+		</div>
+
+		<!-- Row 4: Cashier Info (Left) & Amount Summary (Right) -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<!-- Cashier Information -->
+			<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+				<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">👤 Cashier Info</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Supervisor Checked:</span><span>{supervisorCheckCode || 'N/A'}</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Supervisor Closed:</span><span>{supervisorCloseCode || 'N/A'}</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Cashier:</span><span>{cashierName || 'N/A'}</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Completed By:</span><span>{completedByName || 'N/A'}</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Branch:</span><span>{branchName || 'N/A'}</span></div>
+				</div>
+			</div>
+
+			<!-- Amount Information -->
+			<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+				<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">💰 Amount Summary</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Issued:</span><span>{(Number(amountIssued) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Checked:</span><span>{(Number(amountChecked) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Cash Total:</span><span>{(Number(closingCashTotal) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">All Sales:</span><span>{((Number(totalCashSales) || 0) + (Number(totalBankSales) || 0)).toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 5: Denominations (Left) & Bank Details (Right) -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<!-- Denominations Card -->
+			<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+				<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">💵 Denominations</div>
+				<div style="font-size: 0.65rem;">
+					{#each closingDenominationList as denom, idx (idx)}
+						{#if denom.count > 0}
+							<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>{denom.name}:</span><span>{denom.count} × {denom.value.toFixed(2)}</span></div>
+						{/if}
+					{/each}
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-top: 1px solid #ccc; margin-top: 0.15rem; font-weight: 700; font-size: 0.7rem;"><span>Total:</span><span>{(Number(closingCashTotal) || 0).toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+
+			<!-- Bank Details Card -->
+			<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+				<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">🏦 Bank Details</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>Mada:</span><span>{(Number(madaAmount) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>Visa:</span><span>{(Number(visaAmount) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>Mastercard:</span><span>{(Number(masterCardAmount) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>Google Pay:</span><span>{(Number(googlePayAmount) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span>Other:</span><span>{(Number(otherAmount) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-top: 1px solid #ccc; margin-top: 0.15rem; font-weight: 700; font-size: 0.7rem;"><span>Total:</span><span>{((Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0)).toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 6: ERP Closing (Left) & Net Position (Right) -->
+		<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+			<!-- ERP Closing Card -->
+			<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+				<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">📊 ERP Closing</div>
+				<div style="font-size: 0.65rem;">
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span style="font-weight: 600;">System Cash:</span><span>{(Number(systemCashSales) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span style="font-weight: 600;">System Card:</span><span>{(Number(systemCardSales) || 0).toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0; border-bottom: 0.5px solid #e5e7eb;"><span style="font-weight: 600;">Diff (Cash):</span><span style="color: {differenceInCashSales < 0 ? '#dc2626' : '#059669'}; font-weight: 700;">{differenceInCashSales >= 0 ? '+' : ''}{differenceInCashSales.toFixed(2)} SAR</span></div>
+					<div style="display: flex; justify-content: space-between; padding: 0.05rem 0;"><span style="font-weight: 600;">Diff (Bank):</span><span style="color: {differenceInCardSales < 0 ? '#dc2626' : '#059669'}; font-weight: 700;">{differenceInCardSales >= 0 ? '+' : ''}{differenceInCardSales.toFixed(2)} SAR</span></div>
+				</div>
+			</div>
+
+			<!-- Net Position Card -->
+			<div style="border: 2px solid #ef4444; padding: 0.4rem; background: #fef2f2; text-align: center;">
+				<div style="font-weight: 700; color: #dc2626; border-bottom: 1px solid #fecaca; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">📊 Net Position</div>
+				<div style="font-size: 0.65rem;">
+					{#if differenceInCashSales < 0 && differenceInCardSales < 0}
+						<div style="color: #991b1b; font-weight: 700;">🔴 NET SHORT</div>
+						<div style="color: #991b1b; font-weight: 700; font-size: 0.8rem;">{(Math.abs(differenceInCashSales) + Math.abs(differenceInCardSales)).toFixed(2)} SAR</div>
+					{:else if differenceInCashSales > 0 && differenceInCardSales > 0}
+						<div style="color: #059669; font-weight: 700;">🟢 NET EXCESS</div>
+						<div style="color: #059669; font-weight: 700; font-size: 0.8rem;">{(differenceInCashSales + differenceInCardSales).toFixed(2)} SAR</div>
+					{:else if Math.abs(differenceInCashSales) > Math.abs(differenceInCardSales)}
+						{#if differenceInCashSales > 0}
+							<div style="color: #059669; font-weight: 700;">🟢 NET EXCESS</div>
+							<div style="color: #059669; font-weight: 700; font-size: 0.8rem;">{(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)} SAR</div>
+						{:else}
+							<div style="color: #991b1b; font-weight: 700;">🔴 NET SHORT</div>
+							<div style="color: #991b1b; font-weight: 700; font-size: 0.8rem;">{(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)} SAR</div>
+						{/if}
+					{:else if Math.abs(differenceInCardSales) > Math.abs(differenceInCashSales)}
+						{#if differenceInCardSales > 0}
+							<div style="color: #059669; font-weight: 700;">🟢 NET EXCESS</div>
+							<div style="color: #059669; font-weight: 700; font-size: 0.8rem;">{(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)} SAR</div>
+						{:else}
+							<div style="color: #991b1b; font-weight: 700;">🔴 NET SHORT</div>
+							<div style="color: #991b1b; font-weight: 700; font-size: 0.8rem;">{(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)} SAR</div>
+						{/if}
+					{:else}
+						<div style="color: #15803d; font-weight: 700;">✅ BALANCED</div>
+						<div style="color: #15803d; font-weight: 600; font-size: 0.65rem;">No Short/Excess</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 7: Summary Statistics -->
+		<div style="border: 1px solid #3b82f6; padding: 0.4rem;">
+			<div style="font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 0.2rem; margin-bottom: 0.2rem; font-size: 0.7rem;">📈 Closing Summary</div>
+			<div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.3rem; font-size: 0.65rem;">
+				<div style="border: 0.5px solid #dbeafe; padding: 0.15rem; text-align: center;"><div style="font-weight: 600;">Issued</div><div style="color: #1e40af; font-weight: 700; font-size: 0.7rem;">{(Number(amountIssued) || 0).toFixed(2)}</div></div>
+				<div style="border: 0.5px solid #dbeafe; padding: 0.15rem; text-align: center;"><div style="font-weight: 600;">Checked</div><div style="color: #1e40af; font-weight: 700; font-size: 0.7rem;">{(Number(amountChecked) || 0).toFixed(2)}</div></div>
+				<div style="border: 0.5px solid #dbeafe; padding: 0.15rem; text-align: center;"><div style="font-weight: 600;">Cash Total</div><div style="color: #059669; font-weight: 700; font-size: 0.7rem;">{(Number(closingCashTotal) || 0).toFixed(2)}</div></div>
+				<div style="border: 0.5px solid #dbeafe; padding: 0.15rem; text-align: center;"><div style="font-weight: 600;">Total Sales</div><div style="color: #3b82f6; font-weight: 700; font-size: 0.7rem;">{((Number(totalCashSales) || 0) + (Number(totalBankSales) || 0)).toFixed(2)}</div></div>
+			</div>
+		</div>
+	</div>
+</div>
 
 <style>
 	.close-box-container {
@@ -5101,6 +5780,360 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	.no-action {
 		color: #9ca3af;
 		font-size: 0.75rem;
+	}
+
+	/* Print Modal Styles */
+	.print-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1001;
+	}
+
+	.print-modal {
+		background: white;
+		border-radius: 0.5rem;
+		width: 95%;
+		max-width: 1200px;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+	}
+
+	.print-modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 2px solid #3b82f6;
+		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+	}
+
+	.print-modal-header h3 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #1e40af;
+	}
+
+	.print-modal-close-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: #1e40af;
+		cursor: pointer;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.25rem;
+		transition: all 0.2s;
+	}
+
+	.print-modal-close-btn:hover {
+		background: rgba(59, 130, 246, 0.1);
+		color: #3b82f6;
+	}
+
+	.print-modal-body {
+		padding: 1.5rem;
+		overflow-y: auto;
+		flex: 1;
+		background: #f9fafb;
+	}
+
+	.a4-print-container {
+		background: white;
+		padding: 2rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+		width: 100%;
+		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+	}
+
+	.print-cards-row {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.print-card {
+		background: white;
+		border: 2px solid #3b82f6;
+		border-radius: 0.5rem;
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1);
+		page-break-inside: avoid;
+		min-height: 200px;
+	}
+
+	.print-card-header {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #1e40af;
+		border-bottom: 2px solid #dbeafe;
+		padding-bottom: 0.5rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.print-card-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		flex: 1;
+	}
+
+	.print-info-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		padding: 0.25rem 0;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.print-info-row:last-child {
+		border-bottom: none;
+	}
+
+	.print-label {
+		font-weight: 600;
+		color: #4b5563;
+		min-width: 120px;
+		flex-shrink: 0;
+	}
+
+	.print-value {
+		color: #1f2937;
+		font-weight: 500;
+		text-align: right;
+		flex: 1;
+		word-break: break-word;
+	}
+
+	.print-small-text {
+		font-size: 0.75rem;
+	}
+
+	.print-small-text .print-info-row {
+		font-size: 0.75rem;
+	}
+
+	.print-small-text .print-label {
+		min-width: 100px;
+	}
+
+	.short-value {
+		color: #dc2626;
+		font-weight: 700;
+	}
+
+	.excess-value {
+		color: #059669;
+		font-weight: 700;
+	}
+
+	.print-note-row {
+		background: #fef3c7;
+		padding: 0.5rem !important;
+		border-radius: 0.25rem;
+		border-bottom: none !important;
+		margin-top: 0.25rem;
+	}
+
+	.print-note-text {
+		font-size: 0.75rem;
+		color: #92400e;
+		font-style: italic;
+	}
+
+	.print-signature-field {
+		height: 3rem;
+		border-bottom: 2px solid #1f2937;
+		width: 100%;
+	}
+
+	.print-modal-footer {
+		display: flex;
+		gap: 1rem;
+		padding: 1rem;
+		border-top: 2px solid #e5e7eb;
+		background: #f9fafb;
+		justify-content: flex-end;
+	}
+
+	.print-btn {
+		padding: 0.5rem 1.5rem;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		border: 2px solid #1d4ed8;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.9rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.print-btn:hover {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(59, 130, 246, 0.4);
+	}
+
+	.print-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+	}
+
+	.close-print-modal-btn {
+		padding: 0.5rem 1.5rem;
+		background: #ef4444;
+		border: 2px solid #dc2626;
+		border-radius: 0.375rem;
+		color: white;
+		font-size: 0.9rem;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.close-print-modal-btn:hover {
+		background: #dc2626;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 12px -1px rgba(239, 68, 68, 0.4);
+	}
+
+	.close-print-modal-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+	}
+
+	/* Print Media Query for A4 Size */
+	@media print {
+		html, body {
+			width: 100% !important;
+			height: 100% !important;
+			margin: 0 !important;
+			padding: 0 !important;
+		}
+
+		.print-modal-overlay {
+			position: static !important;
+			background: white !important;
+			display: block !important;
+			width: 100% !important;
+			height: 100% !important;
+			padding: 0 !important;
+			margin: 0 !important;
+		}
+
+		.print-modal {
+			position: static !important;
+			width: 100% !important;
+			max-width: 100% !important;
+			height: 100% !important;
+			max-height: 100% !important;
+			border: none !important;
+			border-radius: 0 !important;
+			box-shadow: none !important;
+			margin: 0 !important;
+			padding: 0 !important;
+			display: block !important;
+		}
+
+		.print-modal-header,
+		.print-modal-footer {
+			display: none !important;
+		}
+
+		.print-modal-body {
+			padding: 0.5rem !important;
+			background: white !important;
+			overflow: visible !important;
+			position: static !important;
+			width: 100% !important;
+			height: 100% !important;
+		}
+
+		.a4-print-container {
+			width: 100% !important;
+			padding: 0.25rem !important;
+			border: none !important;
+			box-shadow: none !important;
+			background: white !important;
+			display: flex !important;
+			flex-direction: column !important;
+			gap: 0.75rem !important;
+		}
+
+		.print-cards-row {
+			display: grid !important;
+			grid-template-columns: repeat(2, 1fr) !important;
+			gap: 0.75rem !important;
+			page-break-inside: avoid !important;
+			margin-bottom: 0.75rem !important;
+		}
+
+		.print-card {
+			border: 1px solid #3b82f6 !important;
+			background: white !important;
+			page-break-inside: avoid !important;
+			min-height: auto !important;
+			padding: 0.5rem !important;
+			font-size: 0.7rem !important;
+			box-shadow: none !important;
+		}
+
+		.print-card-header {
+			font-size: 0.75rem !important;
+			font-weight: 700 !important;
+			color: #1e40af !important;
+			border-bottom: 1px solid #dbeafe !important;
+			padding-bottom: 0.3rem !important;
+			margin-bottom: 0.3rem !important;
+		}
+
+		.print-label {
+			font-size: 0.65rem !important;
+			min-width: 80px !important;
+		}
+
+		.print-value {
+			font-size: 0.65rem !important;
+		}
+
+		.print-info-row {
+			padding: 0.15rem 0 !important;
+			border-bottom: 0.5px solid #e5e7eb !important;
+			font-size: 0.65rem !important;
+		}
+
+		.print-card-content {
+			gap: 0.2rem !important;
+		}
 	}
 </style>
 

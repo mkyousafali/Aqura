@@ -630,6 +630,9 @@
 
 			console.log('📦 Opening CompleteBox window for box:', boxNumber, 'operation:', operation.id);
 
+			// Get the selected branch object
+			const selectedBranchObj = branches.find(b => b.id.toString() === selectedBranch) || { id: selectedBranch, name: 'Unknown' };
+
 			// Generate unique window ID
 			const windowId = `complete-box-${boxNumber}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -641,7 +644,7 @@
 				props: {
 					windowId,
 					operation,
-					branch: { id: selectedBranch }
+					branch: selectedBranchObj
 				},
 				icon: '✓',
 				size: { width: 700, height: 800 },
