@@ -2432,6 +2432,29 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</div>
 		</div>
 		<div class="half-card split-card">
+			<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; padding: 0.5rem;">
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
+					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Enter POS Balance</label>
+					<input type="number" placeholder="0.00" style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem;" />
+				</div>
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
+					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Cash Sales Comparison</label>
+					<input type="number" value={differenceInCashSales} readonly style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem; font-weight: bold;" />
+				</div>
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
+					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Card Sales Comparison</label>
+					<input type="number" value={differenceInCardSales} readonly style="width: 100%; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.9rem; font-weight: bold;" />
+				</div>
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
+					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E4</div>
+				</div>
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
+					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E5</div>
+				</div>
+				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);">
+					<div class="card-number" style="font-size: 1.5rem; font-weight: 700; color: #0369a1;">E6</div>
+				</div>
+			</div>
 		</div>
 	</div>
 	{/if}

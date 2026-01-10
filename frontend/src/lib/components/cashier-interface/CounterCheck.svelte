@@ -58,6 +58,13 @@
 	let errorMessage = '';
 	let isStarting = false;
 	
+	// Recharge card fields
+	let rechargeStartDate: string = '';
+	let rechargeStartHour = '12';
+	let rechargeStartMinute = '00';
+	let rechargeStartAmPm = 'AM';
+	let rechargeOpeningBalance: number | '' = '';
+	
 	// Track original values after validation to detect changes
 	let originalCashierCode = '';
 	let originalSupervisorCode = '';
@@ -236,19 +243,16 @@
 					countsToSave[key] = Number(realCounts[key]) || 0;
 				}
 				
-				const dataToSave = {
-					box_number: box.number,
-					branch_id: branch.id,
-					user_id: user.id,
-					denomination_record_id: box.id,
-					counts_before: box.counts,
+				// Build closing details with recharge card info
+				const closingData = {
 					counts_after: countsToSave,
-					total_before: box.total,
 					total_after: displayTotal,
 					difference: displayTotal - Number(box.total),
 					is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
-					status: 'draft',
-					start_time: new Date().toISOString()
+					// Recharge card details
+					recharge_opening_balance: Number(rechargeOpeningBalance) || 0,
+					recharge_transaction_start_date: rechargeStartDate,
+					recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
 				};
 				
 				let error;
@@ -257,14 +261,28 @@
 				if (draftOperationId) {
 					const result = await supabase
 						.from('box_operations')
-						.update(dataToSave)
+						.update({ closing_details: closingData })
 						.eq('id', draftOperationId);
 					error = result.error;
 				} else {
 					// Otherwise create a new draft record
 					const result = await supabase
 						.from('box_operations')
-						.insert([dataToSave])
+						.insert([{
+							box_number: box.number,
+							branch_id: branch.id,
+							user_id: user.id,
+							denomination_record_id: box.id,
+							counts_before: box.counts,
+							counts_after: countsToSave,
+							total_before: box.total,
+							total_after: displayTotal,
+							difference: displayTotal - Number(box.total),
+							is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
+							status: 'draft',
+							start_time: new Date().toISOString(),
+							closing_details: closingData
+						}])
 						.select('id');
 					
 					if (result.data && result.data[0]) {
@@ -273,9 +291,9 @@
 					error = result.error;
 				}
 				
-				if (error) console.error('Error saving denomination counts:', error);
+				if (error) console.error('Error saving closing details:', error);
 			} catch (error) {
-				console.error('Error saving counts:', error);
+				console.error('Error saving closing details:', error);
 			}
 		}, 1000);
 	}
@@ -324,6 +342,18 @@
 			const difference = realTotal - box.total;
 			const isMatched = Math.abs(difference) < 0.01;
 
+			// Build closing details with recharge card info
+			const closingDetails = {
+				counts_after: countsAfter,
+				total_after: realTotal,
+				difference: difference,
+				is_matched: isMatched,
+				// Recharge card details
+				recharge_opening_balance: Number(rechargeOpeningBalance) || 0,
+				recharge_transaction_start_date: rechargeStartDate,
+				recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
+			};
+
 			const { error } = await supabase
 				.from('box_operations')
 				.insert({
@@ -339,6 +369,7 @@
 					is_matched: isMatched,
 					status: 'in_use',
 					start_time: new Date().toISOString(),
+					closing_details: closingDetails,
 					notes: JSON.stringify({
 						cashier_name: cashierName,
 						cashier_access_code: cashierAccessCode,
@@ -460,6 +491,66 @@
 				</div>
 			</div>
 		{/if}
+	</div>
+
+	<!-- Recharge Card Section -->
+	<div class="recharge-section">
+		<div class="section-header">
+			{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'RECHARGE CARDS'}
+		</div>
+		<div class="recharge-grid">
+			<div class="input-group">
+				<label>{$currentLocale === 'ar' ? 'تاريخ البداية' : 'Start Date'}</label>
+				<input
+					type="date"
+					bind:value={rechargeStartDate}
+					on:change={() => saveDenominationCounts()}
+					class="recharge-input"
+				/>
+			</div>
+			<div class="input-group">
+				<label>{$currentLocale === 'ar' ? 'وقت البداية' : 'Start Time'}</label>
+				<div class="time-inputs">
+					<input
+						type="number"
+						min="1"
+						max="12"
+						bind:value={rechargeStartHour}
+						on:change={() => saveDenominationCounts()}
+						placeholder="HH"
+						class="time-input"
+					/>
+					<span class="time-separator">:</span>
+					<input
+						type="number"
+						min="0"
+						max="59"
+						bind:value={rechargeStartMinute}
+						on:change={() => saveDenominationCounts()}
+						placeholder="MM"
+						class="time-input"
+					/>
+					<select bind:value={rechargeStartAmPm} on:change={() => saveDenominationCounts()} class="time-select">
+						<option value="AM">AM</option>
+						<option value="PM">PM</option>
+					</select>
+				</div>
+			</div>
+			<div class="input-group">
+				<label>
+					{$currentLocale === 'ar' ? 'رصيد البداية' : 'Opening Balance'}
+					<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+				</label>
+				<input
+					type="number"
+					step="0.01"
+					placeholder="0.00"
+					bind:value={rechargeOpeningBalance}
+					on:input={() => saveDenominationCounts()}
+					class="recharge-input"
+				/>
+			</div>
+		</div>
 	</div>
 
 	<div class="access-codes-section">
@@ -858,4 +949,68 @@
 		font-weight: 600;
 		cursor: pointer;
 	}
-</style>
+
+	.recharge-section {
+		padding: 0.75rem;
+		background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+		border-radius: 0.5rem;
+		border: 2px solid #7dd3fc;
+		margin-top: 0.5rem;
+	}
+
+	.section-header {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #15803d;
+		letter-spacing: 1px;
+		padding-bottom: 0.5rem;
+		margin-bottom: 0.5rem;
+		border-bottom: 1px solid #7dd3fc;
+	}
+
+	.recharge-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.5rem;
+	}
+
+	.recharge-input {
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		border: 2px solid #d1d5db;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+	}
+
+	.time-inputs {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		width: 100%;
+	}
+
+	.time-input {
+		width: 80px;
+		padding: 0.3rem 0.4rem;
+		border: 2px solid #d1d5db;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		text-align: center;
+		font-weight: 600;
+	}
+
+	.time-select {
+		flex: 1;
+		padding: 0.3rem 0.4rem;
+		border: 2px solid #d1d5db;
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		background: white;
+		cursor: pointer;
+	}
+
+	.time-separator {
+		font-weight: bold;
+		color: #4b5563;
+		font-size: 0.875rem;
+	}</style>
