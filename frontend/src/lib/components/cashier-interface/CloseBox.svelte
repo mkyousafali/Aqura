@@ -210,6 +210,8 @@
 	let cashierConfirmError: string = '';
 	
 	let closingSaved: boolean = false;
+	let showSuccessModal: boolean = false;
+	let successMessage: string = '';
 
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';
@@ -574,12 +576,13 @@
 
 			console.log('✅ Status updated to pending_close');
 			closingSaved = true;
-			
+
 			// Open print template
 			openPrintTemplate();
-			
+
 			// Show success message
-			alert($currentLocale === 'ar' ? 'تم إرسال إغلاق الصندوق! في انتظار موافقة مدير تحصيل نقاط البيع' : 'Box closing submitted! Waiting for POS Collection Manager approval');
+			successMessage = $currentLocale === 'ar' ? 'تم إرسال إغلاق الصندوق! في انتظار موافقة مدير تحصيل نقاط البيع' : 'Box closing submitted! Waiting for POS Collection Manager approval';
+			showSuccessModal = true;
 		} catch (error) {
 			console.error('❌ Error saving supervisor code:', error);
 			supervisorCodeError = ($currentLocale === 'ar' ? 'خطأ في تحديث حالة الصندوق: ' : 'Error updating box status: ') + (error.message || ($currentLocale === 'ar' ? 'خطأ غير معروف' : 'Unknown error'));
@@ -1599,6 +1602,19 @@
 					{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}
 				</button>
 			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showSuccessModal}
+	<div class="success-modal-overlay" on:click={() => showSuccessModal = false}>
+		<div class="success-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="success-icon">✓</div>
+			<h3>{$currentLocale === 'ar' ? 'نجح' : 'Success'}</h3>
+			<p class="success-text">{successMessage}</p>
+			<button class="btn-ok" on:click={() => showSuccessModal = false}>
+				{$currentLocale === 'ar' ? 'حسناً' : 'OK'}
+			</button>
 		</div>
 	</div>
 {/if}
@@ -3960,6 +3976,81 @@
 	}
 
 	.btn-close-erp:active {
+		transform: translateY(0);
+	}
+
+	/* Success Modal Styles */
+	.success-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 10000;
+	}
+
+	.success-modal {
+		background: white;
+		padding: 2rem;
+		border-radius: 1rem;
+		max-width: 400px;
+		width: 90%;
+		box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+		text-align: center;
+	}
+
+	.success-icon {
+		width: 64px;
+		height: 64px;
+		background: #22c55e;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 2.5rem;
+		color: white;
+		margin: 0 auto 1rem;
+		font-weight: bold;
+	}
+
+	.success-modal h3 {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #166534;
+		margin-bottom: 0.75rem;
+	}
+
+	.success-text {
+		font-size: 1rem;
+		color: #4b5563;
+		margin-bottom: 1.5rem;
+		line-height: 1.5;
+	}
+
+	.btn-ok {
+		width: 100%;
+		padding: 0.75rem 1.5rem;
+		background: #22c55e;
+		color: white;
+		border: none;
+		border-radius: 0.5rem;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-ok:hover {
+		background: #16a34a;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+	}
+
+	.btn-ok:active {
 		transform: translateY(0);
 	}
 </style>
