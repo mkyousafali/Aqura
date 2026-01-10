@@ -1132,6 +1132,7 @@
 							</div>
 						</div>
 					</div>
+					{#if checkbox1 && checkbox2 && checkbox3 && checkbox4 && checkbox5}
 					<div class="sub-card">
 						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #15803d; letter-spacing: 1px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #fed7aa; padding-bottom: 0.1rem;">
 							{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
@@ -1202,6 +1203,7 @@
 							{/if}
 						</div>
 					</div>
+					{/if}
 				</div>
 			</div>
 		</div>
