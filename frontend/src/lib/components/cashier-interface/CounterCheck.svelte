@@ -501,7 +501,7 @@
 
 	<div class="modal-footer">
 		<button class="btn-validate" on:click={validateAccessCodes} disabled={isValidated && !hasChangesDetected}>
-			{isValidated && !hasChangesDetected ? '✓ Validated' : 'Validate'}
+			{isValidated && !hasChangesDetected ? ($currentLocale === 'ar' ? '✓ تم التحقق' : '✓ Validated') : ($currentLocale === 'ar' ? 'التحقق' : 'Validate')}
 		</button>
 		<button class="btn-primary" on:click={startOperation} disabled={isStarting || !isValidated}>
 			{isStarting ? (t('common.starting') || 'Starting...') : (t('common.start') || 'Start')}
