@@ -1,4 +1,5 @@
 <script>
+	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -28,6 +29,10 @@
 	let englishNameInput = '';
 	let arabicNameInput = '';
 
+	onMount(() => {
+		loadUsers();
+	});
+
 	async function loadUsers() {
 		isLoading = true;
 		errorMessage = '';
@@ -37,7 +42,8 @@
 			// Fetch all users
 			const { data: usersData, error: usersError } = await supabase
 				.from('users')
-				.select('id, username, position_id, branch_id');
+				.select('id, username, status, position_id, branch_id')
+				.limit(1000000);
 
 			if (usersError) {
 				throw new Error(usersError.message);
@@ -46,7 +52,8 @@
 			// Fetch all positions
 			const { data: positionsData, error: positionsError } = await supabase
 				.from('hr_positions')
-				.select('id, position_title_en');
+				.select('id, position_title_en')
+				.limit(100000);
 
 			if (positionsError) {
 				throw new Error(positionsError.message);
@@ -56,7 +63,8 @@
 			const { data: branchesData, error: branchesError } = await supabase
 				.from('branches')
 				.select('id, name_en')
-				.order('name_en');
+				.order('name_en')
+				.limit(100000);
 
 			if (branchesError) {
 				throw new Error(branchesError.message);
@@ -65,16 +73,18 @@
 			// Fetch all employees
 			const { data: employeesData, error: employeesError } = await supabase
 				.from('hr_employees')
-				.select('id, employee_id, name, branch_id');
+				.select('id, employee_id, name, branch_id')
+				.limit(1000000);
 
 			if (employeesError) {
 				throw new Error(employeesError.message);
 			}
 
-			// Fetch existing master records
+			// Fetch existing master records (CRITICAL: must load ALL to prevent duplicate EMP IDs)
 			const { data: masterData, error: masterError } = await supabase
 				.from('hr_employee_master')
-				.select('user_id, name_en, name_ar, employee_id_mapping, current_branch_id, current_position_id');
+				.select('user_id, id, name_en, name_ar, employee_id_mapping, current_branch_id, current_position_id')
+				.limit(1000000);
 
 			if (masterError) {
 				throw new Error(masterError.message);
@@ -103,6 +113,7 @@
 				// Load from master record if exists
 				const master = masterMap[user.id];
 				if (master) {
+					user.master_id = master.id;
 					user.english_name = master.name_en;
 					user.arabic_name = master.name_ar;
 					user.employee_id_mapping = master.employee_id_mapping || {};
@@ -130,7 +141,7 @@
 		selectedBranch = branchId;
 		selectedUserIndex = userIndex;
 		selectedUsername = users[userIndex].username;
-		employeeSearchQuery = selectedUsername;
+		employeeSearchQuery = selectedUsername.substring(0, 3);
 		modalIsLoading = true;
 		isModalOpen = true;
 
@@ -198,48 +209,25 @@
 				throw new Error('No users to save');
 			}
 
-			// Get the highest existing EMPID number
-			const { data: existingIds, error: idsError } = await supabase
-				.from('hr_employee_master')
-				.select('id')
-				.like('id', 'EMP%')
-				.order('id', { ascending: false })
-				.limit(1);
-
-			if (idsError) {
-				throw new Error(idsError.message);
-			}
-
-			// Determine the next number
+			// Find the highest existing EMPID from loaded users
 			let nextNumber = 1;
-			if (existingIds && existingIds.length > 0) {
-				const lastId = existingIds[0].id;
-				const lastNumber = parseInt(lastId.replace('EMP', ''));
-				nextNumber = lastNumber + 1;
+			const existingEmpIds = users
+				.filter(u => u.master_id && u.master_id.startsWith('EMP'))
+				.map(u => {
+					const match = u.master_id.match(/EMP(\d+)/);
+					return match ? parseInt(match[1]) : 0;
+				});
+
+			if (existingEmpIds.length > 0) {
+				const maxExisting = Math.max(...existingEmpIds);
+				nextNumber = maxExisting + 1;
 			}
+
+			console.log(`Found ${existingEmpIds.length} existing EMP IDs. Starting new IDs from EMP${nextNumber}`);
 
 			let savedCount = 0;
 			const dataToSaveArray = [];
-
-			// Check which users already exist - batch the queries to avoid URL length issues
 			const batchSize = 50;
-			const existingMap = {};
-			
-			for (let i = 0; i < users.length; i += batchSize) {
-				const batch = users.slice(i, i + batchSize);
-				const { data: existingRecords, error: existingError } = await supabase
-					.from('hr_employee_master')
-					.select('user_id, id')
-					.in('user_id', batch.map(u => u.id));
-
-				if (existingError) {
-					throw new Error(existingError.message);
-				}
-
-				existingRecords?.forEach(record => {
-					existingMap[record.user_id] = record.id;
-				});
-			}
 
 			// Build data for all users
 			users.forEach(user => {
@@ -261,9 +249,10 @@
 					employee_id_mapping: employeeIdMapping
 				};
 
-				// If user already exists, use existing id, otherwise generate new EMPID
-				if (existingMap[user.id]) {
-					dataToSave.id = existingMap[user.id];
+				// If user already has master_id (existing record), use it
+				// Otherwise generate new EMPID for new records
+				if (user.master_id) {
+					dataToSave.id = user.master_id;
 				} else {
 					dataToSave.id = `EMP${nextNumber}`;
 					nextNumber++;
@@ -273,6 +262,21 @@
 			});
 
 			console.log('Data to save for all users:', dataToSaveArray);
+
+			// Check for duplicate IDs in the data being saved
+			const idCounts = {};
+			dataToSaveArray.forEach(item => {
+				if (idCounts[item.id]) {
+					idCounts[item.id]++;
+				} else {
+					idCounts[item.id] = 1;
+				}
+			});
+			
+			const duplicates = Object.entries(idCounts).filter(([id, count]) => count > 1);
+			if (duplicates.length > 0) {
+				throw new Error(`Duplicate IDs found in data: ${duplicates.map(([id, count]) => `${id} (${count} times)`).join(', ')}`);
+			}
 
 			// Upsert data in batches to avoid URL length issues
 			for (let i = 0; i < dataToSaveArray.length; i += batchSize) {
@@ -288,6 +292,13 @@
 
 				if (error) {
 					console.error('Full error:', JSON.stringify(error));
+					
+					// Try to identify which record caused the issue
+					if (error.code === '23505') {
+						const problematicIds = batch.map(item => item.id).join(', ');
+						throw new Error(`Duplicate key error. IDs in this batch: ${problematicIds}. Error: ${error.message}`);
+					}
+					
 					throw new Error(error.message);
 				}
 			}
@@ -318,12 +329,28 @@
 	);
 
 	$: filteredUsers = users.filter(user =>
-		user.username.toLowerCase().includes(userSearchQuery.toLowerCase()) &&
+		(user.username.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+		(user.master_id && user.master_id.toLowerCase().includes(userSearchQuery.toLowerCase()))) &&
 		(selectedBranchFilter === '' || user.branch_id === parseInt(selectedBranchFilter))
 	);
 </script>
 
 <div class="container">
+	<div class="button-cards-section">
+		<div class="button-card">
+			<button class="card-button">Button 1</button>
+		</div>
+		<div class="button-card">
+			<button class="card-button">Button 2</button>
+		</div>
+		<div class="button-card">
+			<button class="card-button">Button 3</button>
+		</div>
+		<div class="button-card">
+			<button class="card-button">Button 4</button>
+		</div>
+	</div>
+
 	<div class="header-section">
 		<button class="load-users-btn" on:click={loadUsers} disabled={isLoading}>
 			{isLoading ? 'Loading...' : 'Load Users'}
@@ -352,7 +379,7 @@
 		<div class="search-bar">
 			<input 
 				type="text" 
-				placeholder="Search by username..." 
+				placeholder="Search by username or EMP ID..." 
 				bind:value={userSearchQuery}
 				class="search-input"
 			/>
@@ -371,7 +398,9 @@
 			<table class="users-table">
 				<thead>
 					<tr>
+						<th>EMP ID</th>
 						<th>Username</th>
+						<th>Status</th>
 						<th>Current Branch</th>
 						<th>Name</th>
 						{#each branches as branch (branch.id)}
@@ -381,8 +410,10 @@
 				</thead>
 				<tbody>
 					{#each filteredUsers as user, userIndex (user.id)}
-						<tr>
+						<tr class:inactive-row={user.status === 'inactive'}>
+							<td>{user.master_id || '-'}</td>
 							<td>{user.username}</td>
+							<td>{user.status || '-'}</td>
 							<td>{branchMap[user.branch_id] || '-'}</td>
 							<td class="cell-with-button">
 								<div 
@@ -547,6 +578,43 @@
 		flex-direction: column;
 	}
 
+	.button-cards-section {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 12px;
+		margin-bottom: 16px;
+		flex-shrink: 0;
+	}
+
+	.button-card {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 16px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	}
+
+	.card-button {
+		padding: 10px 20px;
+		background: #f3f4f6;
+		color: #374151;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		width: 100%;
+	}
+
+	.card-button:hover {
+		background: #e5e7eb;
+		border-color: #9ca3af;
+	}
+
 	.header-section {
 		display: flex;
 		gap: 12px;
@@ -689,6 +757,14 @@
 
 	.users-table tbody tr:hover {
 		background: #f9fafb;
+	}
+
+	.inactive-row {
+		background-color: #fee2e2 !important;
+	}
+
+	.inactive-row:hover {
+		background-color: #fecaca !important;
 	}
 
 	.cell-with-button {
