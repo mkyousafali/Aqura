@@ -28,6 +28,7 @@
 	// Box operations tracking
 	let boxOperations: Map<number, any> = new Map();
 	let closedBoxesCount: number = 0;
+	let totalAdvanceBoxIssued: number = 0;
 
 	// Modal state variables
 	let showVendorModal = false;
@@ -257,6 +258,26 @@
 				async (payload) => {
 					console.log('📡 Box operations realtime update:', payload);
 					await fetchBoxOperations();
+					
+					// Update completed operations count if status changed to/from completed
+					const newRecord = payload.new;
+					const oldRecord = payload.old;
+					if (newRecord?.status === 'completed' || oldRecord?.status === 'completed') {
+						await loadClosedBoxesCount();
+					}
+				}
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'box_operations',
+					filter: `status=eq.completed`
+				},
+				async (payload) => {
+					console.log('📡 Completed box operations update:', payload);
+					await loadClosedBoxesCount();
 				}
 			)
 			.subscribe((status) => {
@@ -264,7 +285,7 @@
 			});
 	}
 
-	function handleRealtimeUpdate(payload: any) {
+	async function handleRealtimeUpdate(payload: any) {
 		const { eventType, new: newRecord, old: oldRecord } = payload;
 
 		console.log('📡 Realtime denomination update:', eventType, newRecord);
@@ -284,10 +305,17 @@
 					cashBoxData[boxIndex] = newRecord.counts || cashBoxData[boxIndex];
 					cashBoxData = [...cashBoxData];
 				}
+				// Recalculate total advance box issued amount
+				await fetchAdvanceBoxTotal();
 			}
 		} else if (eventType === 'DELETE') {
 			// Handle deletion if needed
 			console.log('🗑️ Record deleted:', oldRecord);
+			
+			// If an advance box was deleted, recalculate the total
+			if (oldRecord?.record_type === 'advance_box') {
+				await fetchAdvanceBoxTotal();
+			}
 		}
 	}
 
@@ -618,6 +646,28 @@
 		} catch (error) {
 			console.error('Error fetching box operations:', error);
 		}
+
+		// Fetch advance box total from denomination_records
+		await fetchAdvanceBoxTotal();
+	}
+
+	async function fetchAdvanceBoxTotal() {
+		if (!selectedBranch) return;
+
+		try {
+			const { data, error } = await supabase
+				.from('denomination_records')
+				.select('grand_total')
+				.eq('branch_id', selectedBranch)
+				.eq('record_type', 'advance_box');
+
+			if (error) throw error;
+
+			totalAdvanceBoxIssued = data?.reduce((sum, record) => sum + (parseFloat(record.grand_total as any) || 0), 0) || 0;
+		} catch (error) {
+			console.error('Error fetching advance box total:', error);
+			totalAdvanceBoxIssued = 0;
+		}
 	}
 
 	async function completeBoxClose(boxNumber: number) {
@@ -847,9 +897,10 @@
 	$: paidNotAppliedTotal = savedTransactions.filter(t => t.section === 'paid' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 	$: receivedNotAppliedTotal = savedTransactions.filter(t => t.section === 'received' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 
-	// Calculate difference: (Grand Total - paid not applied + received not applied) - ERP balance
+	// Calculate difference: ERP balance - advance cash issued - (paid total - received total) - grand total
 	$: erpBalanceNumber = typeof erpBalance === 'string' ? (parseFloat(erpBalance) || 0) : erpBalance;
-	$: difference = (grandTotal - paidNotAppliedTotal + receivedNotAppliedTotal) - erpBalanceNumber;
+	$: differenceRaw = erpBalanceNumber - totalAdvanceBoxIssued - (paidNotAppliedTotal - receivedNotAppliedTotal) - grandTotal;
+	$: difference = Math.round(differenceRaw);
 
 	// Auto-save when ERP balance changes
 	let prevErpBalance = erpBalance;
@@ -1844,9 +1895,16 @@
 									<span>Difference</span>
 								</div>
 								<div class="balance-card-body">
-									<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
-										{difference > 0 ? '+' : ''}{difference.toLocaleString()}
-									</span>
+									<div class="difference-value-container">
+										<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
+											{difference > 0 ? '+' : ''}{difference.toLocaleString()}
+										</span>
+										{#if differenceRaw !== difference}
+											<span class="exact-difference">
+												Real Cash: {differenceRaw > 0 ? '+' : ''}{differenceRaw.toFixed(2)}
+											</span>
+										{/if}
+									</div>
 									<span class="difference-label">
 										{#if difference > 0}
 											Over (Counted > ERP)
@@ -2797,6 +2855,19 @@
 		color: #94a3b8;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
+	}
+
+	.difference-value-container {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.exact-difference {
+		font-size: 0.75rem;
+		color: #64748b;
+		font-weight: 500;
+		opacity: 0.8;
 	}
 
 	/* Suspends Section Styles */
