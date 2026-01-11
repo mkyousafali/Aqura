@@ -1524,11 +1524,6 @@
 		<div class="big-cards-container">
 			<!-- Big Card Left -->
 			<div class="card big-card">
-				<div class="card-header">
-					<span class="card-icon">⏸️</span>
-					<span class="card-title">Suspends</span>
-				</div>
-				
 				<!-- POS Advance Manager & POS Collection Manager Row -->
 				<div class="card-body suspends-body">
 					<!-- POS Advance Manager Section -->
@@ -1744,17 +1739,6 @@
 			
 			<!-- Denomination Table Card -->
 			<div class="card big-card">
-				<div class="card-header">
-					<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
-					<span class="card-title">Denomination</span>
-					<div class="save-status">
-						{#if isSaving}
-							<span class="saving">💾 Saving...</span>
-						{:else if lastSaved}
-							<span class="saved">✓ Saved {lastSaved.toLocaleTimeString()}</span>
-						{/if}
-					</div>
-				</div>
 				<div class="card-body">
 					<table class="denomination-table">
 						<thead>
@@ -2040,20 +2024,24 @@
 		max-width: none;
 		display: flex;
 		flex-direction: column;
+		border-radius: 12px;
 	}
 
 	.big-card .card-body {
 		overflow-y: auto;
+		padding: 0.75rem;
 	}
 
 	.big-card .card-body.suspends-body {
 		flex: 0 0 auto;
+		padding: 0.5rem;
 	}
 
 	.big-card .card-body.suspends-body-second {
 		flex: 1 1 auto;
 		min-height: 0;
 		overflow-y: auto;
+		padding: 0.5rem;
 	}
 
 	.card-header {
@@ -2253,7 +2241,7 @@
 		width: 100%;
 		border-collapse: separate;
 		border-spacing: 0;
-		font-size: 0.7rem;
+		font-size: 1rem;
 		border-radius: 8px;
 		overflow: hidden;
 		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
@@ -2261,15 +2249,16 @@
 
 	.denomination-table th,
 	.denomination-table td {
-		padding: 0.4rem 0.5rem;
+		padding: 0.5rem 0.65rem;
 		text-align: left;
+		vertical-align: middle;
 	}
 
 	.denomination-table th {
 		background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
 		font-weight: 700;
 		color: white;
-		font-size: 0.65rem;
+		font-size: 0.85rem;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -2311,10 +2300,8 @@
 	.count-cell {
 		white-space: nowrap;
 		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 16px;
+		vertical-align: middle;
+		padding: 0.5rem 0.65rem !important;
 	}
 
 	.count-btn {
@@ -2329,6 +2316,8 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		vertical-align: middle;
+		margin: 0 8px;
 	}
 
 	.count-btn.minus {
@@ -2627,26 +2616,27 @@
 	}
 
 	.branch-selector-card .balance-card-body {
-		padding: 1rem;
+		padding: 0.4rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.3rem;
 		background: white;
 	}
 
 	.branch-selector-card .form-group {
 		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+		flex-direction: row;
+		align-items: center;
+		gap: 0.4rem;
 		width: 100%;
 	}
 
 	.branch-selector-card .form-select {
-		width: 100%;
-		max-width: 100%;
+		flex: 1;
+		min-width: 0;
 		box-sizing: border-box;
-		padding: 0.75rem 2.5rem 0.75rem 0.75rem;
-		font-size: 1.1rem;
+		padding: 0.4rem 2.5rem 0.4rem 0.6rem;
+		font-size: 0.9rem;
 		font-weight: 600;
 		border: 2px solid #f97316;
 		border-radius: 8px;
@@ -2675,9 +2665,10 @@
 	}
 
 	.branch-selector-card .set-default-btn {
-		width: 100%;
-		padding: 0.6rem 1rem;
-		font-size: 0.9rem;
+		flex: 0 0 auto;
+		white-space: nowrap;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.8rem;
 		border: 2px solid #22c55e;
 		border-radius: 8px;
 		background: linear-gradient(145deg, #f0fdf4 0%, #dcfce7 100%);
