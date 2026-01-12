@@ -240,7 +240,7 @@
 	let sales: number | '' = '';
 
 	// Auto-calculate sales
-	$: sales = (Number(openingBalance) || 0) - (Number(closeBalance) || 0);
+	$: sales = (Number(closeBalance) || 0) - (Number(openingBalance) || 0);
 	
 	// Helper functions to check if values were edited
 	function wasEdited(key: string, value: any): boolean {

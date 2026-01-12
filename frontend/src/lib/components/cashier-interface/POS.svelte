@@ -616,7 +616,7 @@
 						<p class="warning-message">{$currentLocale === 'ar' ? 'لديك عملية صندوق نشطة. أكملها قبل بدء عملية أخرى.' : 'You have an active box operation. Complete it before starting another one.'}</p>
 					{/if}
 					<div class="boxes-grid">
-						{#each availableBoxes.filter(box => box.total > 0 || box.number >= 10) as box (box.number)}
+						{#each availableBoxes.filter(box => box.available && (box.total > 0 || box.number >= 10)) as box (box.number)}
 							{@const boxOperation = operationBoxes.find(op => op.box_number === box.number)}
 							{@const isPendingClose = boxOperation?.status === 'pending_close'}
 							<button 
@@ -638,7 +638,7 @@
 							</button>
 						{/each}
 					</div>
-					{#if availableBoxes.filter(box => box.total > 0 || box.number >= 10).length === 0}
+					{#if availableBoxes.filter(box => box.available && (box.total > 0 || box.number >= 10)).length === 0}
 						<p class="no-data">{t('pos.noBoxesWithBalance') || 'No boxes with balance'}</p>
 					{/if}
 				{/if}

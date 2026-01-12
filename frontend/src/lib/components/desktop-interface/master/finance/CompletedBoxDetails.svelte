@@ -567,8 +567,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Auto-calculate sales using base values (already updated)
 	$: sales = (
-		(Number(openingBalance) || 0) -
-		(Number(closeBalance) || 0)
+		(Number(closeBalance) || 0) -
+		(Number(openingBalance) || 0)
 	);
 
 	// Differences fields
