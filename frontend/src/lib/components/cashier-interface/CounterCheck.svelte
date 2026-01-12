@@ -63,7 +63,6 @@
 	let rechargeStartHour = '12';
 	let rechargeStartMinute = '00';
 	let rechargeStartAmPm = 'AM';
-	let rechargeOpeningBalance: number | '' = '';
 	
 	// Track original values after validation to detect changes
 	let originalCashierCode = '';
@@ -250,7 +249,6 @@
 					difference: displayTotal - Number(box.total),
 					is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
 					// Recharge card details
-					recharge_opening_balance: Number(rechargeOpeningBalance) || 0,
 					recharge_transaction_start_date: rechargeStartDate,
 					recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
 				};
@@ -325,6 +323,35 @@
 	import { onMount } from 'svelte';
 	onMount(() => {
 		loadSavedCounts();
+		
+		// Set current date and time for recharge card section
+		const now = new Date();
+		
+		// Set date in YYYY-MM-DD format
+		const year = now.getFullYear();
+		const month = String(now.getMonth() + 1).padStart(2, '0');
+		const day = String(now.getDate()).padStart(2, '0');
+		rechargeStartDate = `${year}-${month}-${day}`;
+		
+		// Set time in 12-hour format
+		let hours = now.getHours();
+		const minutes = now.getMinutes();
+		
+		if (hours === 0) {
+			rechargeStartHour = '12';
+			rechargeStartAmPm = 'AM';
+		} else if (hours < 12) {
+			rechargeStartHour = String(hours);
+			rechargeStartAmPm = 'AM';
+		} else if (hours === 12) {
+			rechargeStartHour = '12';
+			rechargeStartAmPm = 'PM';
+		} else {
+			rechargeStartHour = String(hours - 12);
+			rechargeStartAmPm = 'PM';
+		}
+		
+		rechargeStartMinute = String(minutes).padStart(2, '0');
 	});
 
 	async function startOperation() {
@@ -349,7 +376,6 @@
 				difference: difference,
 				is_matched: isMatched,
 				// Recharge card details
-				recharge_opening_balance: Number(rechargeOpeningBalance) || 0,
 				recharge_transaction_start_date: rechargeStartDate,
 				recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
 			};
@@ -535,20 +561,6 @@
 						<option value="PM">PM</option>
 					</select>
 				</div>
-			</div>
-			<div class="input-group">
-				<label>
-					{$currentLocale === 'ar' ? 'رصيد البداية' : 'Opening Balance'}
-					<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-				</label>
-				<input
-					type="number"
-					step="0.01"
-					placeholder="0.00"
-					bind:value={rechargeOpeningBalance}
-					on:input={() => saveDenominationCounts()}
-					class="recharge-input"
-				/>
 			</div>
 		</div>
 	</div>
