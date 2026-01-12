@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
+	"pdfjs-dist": "^4.10.38",
     "@supabase/supabase-js": "^2.45.4",
     "@sveltejs/adapter-auto": "^6.1.0",
     "aqura": "file:..",

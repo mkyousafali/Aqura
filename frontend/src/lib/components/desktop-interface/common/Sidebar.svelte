@@ -40,6 +40,7 @@
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
+	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
@@ -1577,6 +1578,28 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open Bank Reconciliation window
+	function openBankReconciliation() {
+		collapseAllMenus();
+		
+		// Use fixed window ID to prevent duplicates
+		const windowId = 'bank-reconciliation-main';
+		
+		openWindow({
+			id: windowId,
+			title: `Bank Reconciliation`,
+			component: BankReconciliation,
+			icon: '🏦',
+			size: { width: 1200, height: 750 },
+			position: { 
+				x: 170 + (Math.random() * 100),
+				y: 170 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
 	// Open Day Budget Planner window
 	function openDayBudgetPlanner() {
 		collapseAllMenus();
@@ -3035,6 +3058,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPurchaseVoucherManager}>
 								<span class="menu-icon">📄</span>
 								<span class="menu-text">Purchase Voucher Manager</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('BANK_RECONCILIATION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openBankReconciliation}>
+								<span class="menu-icon">🏦</span>
+								<span class="menu-text">Bank Reconciliation</span>
 							</button>
 						</div>
 					{/if}
