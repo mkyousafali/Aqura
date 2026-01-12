@@ -5,6 +5,7 @@
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CompleteBox from './CompleteBox.svelte';
 	import ClosedBoxes from './ClosedBoxes.svelte';
+	import PendingToCloseBoxes from './PendingToCloseBoxes.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -28,6 +29,7 @@
 	// Box operations tracking
 	let boxOperations: Map<number, any> = new Map();
 	let closedBoxesCount: number = 0;
+	let pendingBoxesCount: number = 0;
 	let totalAdvanceBoxIssued: number = 0;
 
 	// Modal state variables
@@ -66,11 +68,15 @@
 	let successType: 'success' | 'error' = 'success';
 	let successTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Sidebar state
+	let isSidebarOpen = true;
+
 	onMount(async () => {
 		await loadBranches();
 		await loadUserPreferences();
 		await loadDenominationTypes();
 		await loadClosedBoxesCount();
+		await loadPendingBoxesCount();
 		isLoading = false;
 		
 		// Setup realtime subscription after branch is selected
@@ -439,6 +445,28 @@
 		}
 	}
 
+	async function loadPendingBoxesCount() {
+		try {
+			let query = supabase
+				.from('box_operations')
+				.select('id', { count: 'exact', head: true })
+				.eq('status', 'pending_close');
+
+			if (selectedBranch) {
+				query = query.eq('branch_id', parseInt(selectedBranch));
+			}
+
+			const { count, error } = await query;
+
+			if (error) throw error;
+			pendingBoxesCount = count || 0;
+			console.log('⏳ Loaded pending boxes count:', pendingBoxesCount);
+		} catch (error) {
+			console.error('Error loading pending boxes count:', error);
+			pendingBoxesCount = 0;
+		}
+	}
+
 	async function loadBranches() {
 		try {
 			const { data, error } = await supabase
@@ -732,6 +760,31 @@
 		// Reload count after window opens
 		setTimeout(() => {
 			loadClosedBoxesCount();
+		}, 500);
+	}
+
+	function openPendingBoxes() {
+		const windowIdUnique = `pending-boxes-${Date.now()}`;
+		
+		openWindow({
+			id: windowIdUnique,
+			title: 'Pending to Close Boxes',
+			component: PendingToCloseBoxes,
+			props: {
+				windowId: windowIdUnique
+			},
+			icon: '⏳',
+			size: { width: 1200, height: 700 },
+			position: { x: 150, y: 100 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+
+		// Reload count after window opens
+		setTimeout(() => {
+			loadPendingBoxesCount();
 		}, 500);
 	}
 
@@ -1075,6 +1128,10 @@
 	function closeNotification() {
 		showSuccessPopup = false;
 		if (successTimeout) clearTimeout(successTimeout);
+	}
+
+	function toggleSidebar() {
+		isSidebarOpen = !isSidebarOpen;
 	}
 
 	async function saveTransaction(type: 'vendor' | 'expenses' | 'user' | 'other') {
@@ -1821,119 +1878,138 @@
 					
 					<!-- ERP Balance and Difference Cards -->
 					<div class="balance-cards-container">
-						<!-- Left Column: ERP Balance and Branch Selector -->
-						<div class="balance-column-left">
-							<!-- ERP Balance Card -->
-							<div class="balance-card erp-card">
-								<div class="balance-card-header">
-									<span class="balance-icon">💰</span>
-									<span>ERP Balance</span>
-								</div>
-								<div class="balance-card-body">
-									<input 
-										type="number" 
-										class="erp-input" 
-										bind:value={erpBalance}
-										placeholder="Enter ERP balance"
-									/>
-								</div>
+						<!-- ERP Balance Card -->
+						<div class="balance-card erp-card">
+							<div class="balance-card-header">
+								<span class="balance-icon">💰</span>
+								<span>ERP Balance</span>
 							</div>
-							
-							<!-- Branch Selection Card -->
-							<div class="balance-card branch-selector-card">
-								<div class="balance-card-header">
-									<span class="balance-icon">📍</span>
-									<span>Select Branch</span>
-								</div>
-								<div class="balance-card-body">
-									<div class="form-group">
-										<select 
-											id="branch-select" 
-											bind:value={selectedBranch}
-											class="form-select branch-select"
-										>
-											<option value="">-- Select Branch --</option>
-											{#each branches as branch (branch.id)}
-												<option value={branch.id.toString()}>
-													{getBranchDisplayName(branch)}
-												</option>
-											{/each}
-										</select>
-										
-										{#if selectedBranch}
-											<button 
-												class="set-default-btn"
-												class:is-default={isCurrentDefault}
-												on:click={setAsDefault}
-												disabled={isSavingDefault || isCurrentDefault}
-											>
-												{#if isSavingDefault}
-													Saving...
-												{:else if isCurrentDefault}
-													✓ Default
-												{:else}
-													Set as Default
-												{/if}
-											</button>
-										{/if}
-										
-										{#if showDefaultSaved}
-											<div class="success-message">
-												✓ Default branch saved successfully!
-											</div>
-										{/if}
-									</div>
-								</div>
+							<div class="balance-card-body">
+								<input 
+									type="number" 
+									class="erp-input" 
+									bind:value={erpBalance}
+									placeholder="Enter ERP balance"
+								/>
 							</div>
 						</div>
 						
-						<!-- Right Column: Difference Card and Completed Operations -->
-						<div class="balance-column-right">
-							<div class="balance-card difference-card" class:positive={difference > 0} class:negative={difference < 0} class:zero={difference === 0}>
-								<div class="balance-card-header">
-									<span class="balance-icon">{difference > 0 ? '📈' : difference < 0 ? '📉' : '⚖️'}</span>
-									<span>Difference</span>
-								</div>
-								<div class="balance-card-body">
-									<div class="difference-value-container">
-										<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
-											{difference > 0 ? '+' : ''}{difference.toLocaleString()}
-										</span>
-										{#if differenceRaw !== difference}
-											<span class="exact-difference">
-												Real Cash: {differenceRaw > 0 ? '+' : ''}{differenceRaw.toFixed(2)}
-											</span>
-										{/if}
-									</div>
-									<span class="difference-label">
-										{#if difference > 0}
-											Over (Counted > ERP)
-										{:else if difference < 0}
-											Short (ERP > Counted)
-										{:else}
-											Balanced
-										{/if}
-									</span>
-								</div>
+						<!-- Difference Card -->
+						<div class="balance-card difference-card" class:positive={difference > 0} class:negative={difference < 0} class:zero={difference === 0}>
+							<div class="balance-card-header">
+								<span class="balance-icon">{difference > 0 ? '📈' : difference < 0 ? '📉' : '⚖️'}</span>
+								<span>Difference</span>
 							</div>
-							
-							<!-- Completed Operations Card -->
-							<div class="balance-card completed-ops-card" on:click={openClosedBoxes}>
-								<div class="balance-card-header">
-									<span class="balance-icon">📋</span>
-									<span>Completed Operations</span>
+							<div class="balance-card-body">
+								<div class="difference-value-container">
+									<span class="difference-value" class:positive={difference > 0} class:negative={difference < 0}>
+										{difference > 0 ? '+' : ''}{difference.toLocaleString()}
+									</span>
+									{#if differenceRaw !== difference}
+										<span class="exact-difference">
+											Real Cash: {differenceRaw > 0 ? '+' : ''}{differenceRaw.toFixed(2)}
+										</span>
+									{/if}
 								</div>
-								<div class="balance-card-body">
-									<div class="closed-boxes-count-large">
-										<span class="count-number">{closedBoxesCount}</span>
-										<span class="count-label">Total Closed</span>
-									</div>
-								</div>
+								<span class="difference-label">
+									{#if difference > 0}
+										Over (Counted > ERP)
+									{:else if difference < 0}
+										Short (ERP > Counted)
+									{:else}
+										Balanced
+									{/if}
+								</span>
 							</div>
 						</div>
 					</div>
 				</div>
 			</div>
+		</div>
+		
+		<!-- Right Sidebar -->
+		<div class="sidebar-container" class:open={isSidebarOpen}>
+			<button class="sidebar-toggle" on:click={toggleSidebar}>
+				{isSidebarOpen ? '▶' : '◀'}
+			</button>
+			{#if isSidebarOpen}
+				<div class="sidebar-content">
+					<!-- Branch Selection Card -->
+					<div class="balance-card branch-selector-card">
+						<div class="balance-card-header">
+							<span class="balance-icon">📍</span>
+							<span>Select Branch</span>
+						</div>
+						<div class="balance-card-body">
+							<div class="form-group">
+								<select 
+									id="branch-select" 
+									bind:value={selectedBranch}
+									class="form-select branch-select"
+								>
+									<option value="">-- Select Branch --</option>
+									{#each branches as branch (branch.id)}
+										<option value={branch.id.toString()}>
+											{getBranchDisplayName(branch)}
+										</option>
+									{/each}
+								</select>
+								
+								{#if selectedBranch}
+									<button 
+										class="set-default-btn"
+										class:is-default={isCurrentDefault}
+										on:click={setAsDefault}
+										disabled={isSavingDefault || isCurrentDefault}
+									>
+										{#if isSavingDefault}
+											Saving...
+										{:else if isCurrentDefault}
+											✓ Default
+										{:else}
+											Set as Default
+										{/if}
+									</button>
+								{/if}
+								
+								{#if showDefaultSaved}
+									<div class="success-message">
+										✓ Default branch saved successfully!
+									</div>
+								{/if}
+							</div>
+						</div>
+					</div>
+					
+					<!-- Completed Operations Card -->
+					<div class="balance-card completed-ops-card" on:click={openClosedBoxes}>
+						<div class="balance-card-header">
+							<span class="balance-icon">📋</span>
+							<span>Completed Operations</span>
+						</div>
+						<div class="balance-card-body">
+							<div class="closed-boxes-count-large">
+								<span class="count-number">{closedBoxesCount}</span>
+								<span class="count-label">Total Closed</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Pending to Close Card -->
+					<div class="balance-card pending-ops-card" on:click={openPendingBoxes}>
+						<div class="balance-card-header">
+							<span class="balance-icon">⏳</span>
+							<span>Pending to Close</span>
+						</div>
+						<div class="balance-card-body">
+							<div class="closed-boxes-count-large">
+								<span class="count-number">{pendingBoxesCount}</span>
+								<span class="count-label">Pending Closure</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -2591,7 +2667,8 @@
 
 	/* Balance Cards Container */
 	.balance-cards-container {
-		display: flex;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
 		margin-top: 1rem;
 		padding-top: 0.75rem;
@@ -2613,7 +2690,8 @@
 	}
 
 	.balance-card {
-		flex: 0 0 auto;
+		background: white;
+		width: 100%;
 		border-radius: 12px;
 		overflow: hidden;
 		box-shadow: 
@@ -2662,11 +2740,35 @@
 		letter-spacing: 0.5px;
 	}
 
+	.pending-ops-card {
+		cursor: pointer;
+		flex: 0 0 auto;
+	}
+
+	.pending-ops-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.15);
+	}
+
+	.pending-ops-card .balance-card-header {
+		background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+	}
+
+	.pending-ops-card .balance-card-body {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.pending-ops-card .count-number {
+		color: #f59e0b;
+	}
+
 	.branch-selector-card {
 		flex: 0 0 auto;
 		display: flex;
 		flex-direction: column;
-		min-width: 300px;
+		width: 100%;
 	}
 
 	.branch-selector-card .balance-card-header {
@@ -2674,26 +2776,28 @@
 	}
 
 	.branch-selector-card .balance-card-body {
-		padding: 0.4rem;
+		padding: 0.5rem;
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.5rem;
 		background: white;
 	}
 
 	.branch-selector-card .form-group {
 		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 0.4rem;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.5rem;
 		width: 100%;
 	}
 
 	.branch-selector-card .form-select {
 		flex: 1;
 		min-width: 0;
+		width: 100%;
+		max-width: 100%;
 		box-sizing: border-box;
-		padding: 0.4rem 2.5rem 0.4rem 0.6rem;
+		padding: 0.5rem 2.5rem 0.5rem 0.75rem;
 		font-size: 0.9rem;
 		font-weight: 600;
 		border: 2px solid #f97316;
@@ -2706,8 +2810,7 @@
 		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='%237c2d12' d='M8 12L2 6h12z'/%3E%3C/svg%3E");
 		background-repeat: no-repeat;
 		background-position: right 0.75rem center;
-		min-height: 45px;
-		min-width: 250px;
+		min-height: 42px;
 	}
 
 	.branch-selector-card .form-select option {
@@ -4019,5 +4122,141 @@
 		font-size: 0.9rem;
 		color: #333;
 		line-height: 1.4;
+	}
+
+	/* Sidebar Styles */
+	.sidebar-container {
+		position: relative;
+		width: 0;
+		transition: width 0.3s ease;
+		background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+		border-radius: 12px;
+		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+		overflow: visible;
+		border: 1px solid rgba(249, 115, 22, 0.2);
+	}
+
+	.sidebar-container.open {
+		width: 320px;
+		margin-left: 0.5rem;
+		overflow: hidden;
+	}
+
+	.sidebar-toggle {
+		position: absolute;
+		left: 0;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 24px;
+		height: 48px;
+		background: linear-gradient(145deg, #f97316 0%, #fb923c 100%);
+		border: none;
+		border-radius: 4px 0 0 4px;
+		color: white;
+		font-size: 0.8rem;
+		font-weight: bold;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: -2px 2px 4px rgba(0, 0, 0, 0.2);
+		z-index: 10;
+		transition: all 0.2s ease;
+	}
+	
+	.sidebar-container.open .sidebar-toggle {
+		left: -12px;
+	}
+
+	.sidebar-toggle:hover {
+		background: linear-gradient(145deg, #ea580c 0%, #f97316 100%);
+		box-shadow: -3px 3px 6px rgba(0, 0, 0, 0.3);
+	}
+
+	.sidebar-content {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem;
+		overflow-y: auto;
+	}
+
+	.sidebar-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 2px solid rgba(249, 115, 22, 0.3);
+	}
+
+	.sidebar-icon {
+		font-size: 1.5rem;
+	}
+
+	.sidebar-header h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1e293b;
+	}
+
+	.sidebar-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.sidebar-card {
+		background: linear-gradient(145deg, #ffffff 0%, #fef3e2 100%);
+		border-radius: 8px;
+		padding: 0.75rem;
+		border: 1px solid rgba(249, 115, 22, 0.2);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+		transition: all 0.2s ease;
+	}
+
+	.sidebar-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 8px rgba(249, 115, 22, 0.15);
+	}
+
+	.sidebar-card.positive {
+		background: linear-gradient(145deg, #dcfce7 0%, #bbf7d0 100%);
+		border-color: rgba(34, 197, 94, 0.3);
+	}
+
+	.sidebar-card.negative {
+		background: linear-gradient(145deg, #fee2e2 0%, #fecaca 100%);
+		border-color: rgba(239, 68, 68, 0.3);
+	}
+
+	.sidebar-card.zero {
+		background: linear-gradient(145deg, #e0e7ff 0%, #c7d2fe 100%);
+		border-color: rgba(99, 102, 241, 0.3);
+	}
+
+	.sidebar-card-title {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #64748b;
+		margin-bottom: 0.25rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.sidebar-card-value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #1e293b;
+	}
+
+	.sidebar-card-value.positive {
+		color: #16a34a;
+	}
+
+	.sidebar-card-value.negative {
+		color: #dc2626;
 	}
 </style>
