@@ -156,24 +156,20 @@
 			const employeeCode = employeeRecord.employee_id;
 			console.log('🎯 Step 3 - Found employee_id (code):', employeeCode);
 			
-			// Step 4: Get today's date
-			const today = new Date().toISOString().split('T')[0];
-			console.log('📅 Step 4 - Today\'s date:', today);
-			
-			// Step 5: Search hr_fingerprint_transactions for:
+			// Step 4: Search hr_fingerprint_transactions for:
 			// - employee_id = employeeCode
-			// - date = today
-			// - order by time descending
-			console.log('🔍 Step 5 - Searching fingerprint transactions...');
+			// - order by date and time descending to get last 2 punches
+			console.log('🔍 Step 4 - Searching fingerprint transactions...');
 			const { data: punchData, error: punchError } = await supabase
 				.from('hr_fingerprint_transactions')
 				.select('*')
 				.eq('employee_id', employeeCode)
-				.eq('date', today)
-				.order('time', { ascending: false });
+				.order('date', { ascending: false })
+				.order('time', { ascending: false })
+				.limit(2);
 			
-			console.log('📊 Step 5 - Punch data:', punchData);
-			console.log('❌ Step 5 - Error:', punchError);
+			console.log('📊 Step 4 - Punch data:', punchData);
+			console.log('❌ Step 4 - Error:', punchError);
 			
 			if (punchError) {
 				console.error('Error loading punches:', punchError);
@@ -185,12 +181,11 @@
 				return;
 			}
 			
-			// Step 6: Get latest 2 and display
+			// Step 5: Display the last 2 punch records
 			if (punchData && punchData.length > 0) {
-				console.log('✅ Step 6 - Found', punchData.length, 'punch records');
+				console.log('✅ Step 5 - Found', punchData.length, 'punch records');
 				
 				const punchRecords = punchData
-					.slice(0, 2) // Get last 2 punches (already sorted by time DESC)
 					.map(punch => {
 						// Convert time to 12-hour format
 						let formattedTime = punch.time || '';
@@ -219,14 +214,14 @@
 						return mappedPunch;
 					});
 				
-				console.log('✅ Step 6 - Displaying', punchRecords.length, 'punch records');
+				console.log('✅ Step 5 - Displaying', punchRecords.length, 'punch records');
 				punches = {
 					records: punchRecords,
 					loading: false,
 					error: ''
 				};
 			} else {
-				console.log('ℹ️ Step 6 - No punch records found');
+				console.log('ℹ️ Step 5 - No punch records found');
 				punches = {
 					records: [],
 					loading: false,
