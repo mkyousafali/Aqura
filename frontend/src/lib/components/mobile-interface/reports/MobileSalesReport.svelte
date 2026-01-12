@@ -31,21 +31,29 @@
 	let salesData: DailySales[] = [];
 	let branchSalesData: BranchSales[] = [];
 	let yesterdayBranchSalesData: BranchSales[] = [];
+	let todayCollectionData: BranchSales[] = [];
+	let yesterdayCollectionData: BranchSales[] = [];
 	let currentMonthAvg: MonthlyAverage | null = null;
 	let previousMonthAvg: MonthlyAverage | null = null;
 	let loading = true;
 	let loadingBranch = true;
 	let loadingYesterdayBranch = true;
+	let loadingTodayCollection = true;
+	let loadingYesterdayCollection = true;
 	let maxAmount = 0;
 	let maxBranchAmount = 0;
 	let maxYesterdayBranchAmount = 0;
+	let maxTodayCollectionAmount = 0;
+	let maxYesterdayCollectionAmount = 0;
 
 	onMount(async () => {
 		// Load all data in parallel for maximum speed
 		await Promise.all([
 			loadSalesData(),
 			loadBranchSalesData(),
-			loadYesterdayBranchSalesData()
+			loadYesterdayBranchSalesData(),
+			loadTodayCollectionData(),
+			loadYesterdayCollectionData()
 		]);
 	});
 
@@ -344,6 +352,156 @@
 		}
 	}
 
+	async function loadTodayCollectionData() {
+		loadingTodayCollection = true;
+		const startTime = performance.now();
+		console.log('📊 [Mobile] Loading today collection data...');
+		
+		try {
+			const saudiOffset = 3 * 60;
+			const now = new Date();
+			const saudiTime = new Date(now.getTime() + (saudiOffset + now.getTimezoneOffset()) * 60000);
+			
+			const formatDate = (date: Date) => {
+				const year = date.getFullYear();
+				const month = String(date.getMonth() + 1).padStart(2, '0');
+				const day = String(date.getDate()).padStart(2, '0');
+				return `${year}-${month}-${day}`;
+			};
+			
+			const today = formatDate(saudiTime);
+			
+			const { data: records, error } = await supabase
+				.from('box_operations')
+				.select(`
+					*,
+					branches!inner(id, location_en, location_ar)
+				`)
+				.eq('status', 'completed')
+				.gte('start_time', `${today}T00:00:00`)
+				.lte('start_time', `${today}T23:59:59`);
+			
+			if (error) throw error;
+			
+			const locale = get(currentLocale);
+			const branchIds = [...new Set(records?.map(r => r.branch_id) || [])];
+			const groupedByBranch = branchIds.map(branchId => {
+				const branchRecords = records?.filter(r => r.branch_id === branchId) || [];
+				const branchInfo = branchRecords[0]?.branches;
+				const branchName = branchInfo ? (locale === 'ar' ? (branchInfo.location_ar || branchInfo.location_en) : (branchInfo.location_en || branchInfo.location_ar)) : `Branch ${branchId}`;
+				
+				let total_amount = 0;
+				branchRecords.forEach(record => {
+					try {
+						const closingDetails = typeof record.closing_details === 'string' 
+							? JSON.parse(record.closing_details) 
+							: record.closing_details;
+						
+						if (closingDetails?.total_sales) {
+							total_amount += parseFloat(closingDetails.total_sales) || 0;
+						}
+					} catch (e) {
+						console.error('Error parsing closing_details:', e);
+					}
+				});
+				
+				return {
+					branch_id: branchId,
+					branch_name: branchName,
+					total_amount,
+					total_bills: 0,
+					total_return: 0
+				};
+			});
+			
+			todayCollectionData = groupedByBranch;
+			maxTodayCollectionAmount = Math.max(...groupedByBranch.map(d => d.total_amount), 1);
+		} catch (err) {
+			console.error('❌ Error loading today collection data:', err);
+		} finally {
+			const endTime = performance.now();
+			const duration = (endTime - startTime).toFixed(2);
+			console.log(`✅ [Mobile] Today collection data loaded in ${duration}ms`);
+			loadingTodayCollection = false;
+		}
+	}
+
+	async function loadYesterdayCollectionData() {
+		loadingYesterdayCollection = true;
+		const startTime = performance.now();
+		console.log('📊 [Mobile] Loading yesterday collection data...');
+		
+		try {
+			const saudiOffset = 3 * 60;
+			const now = new Date();
+			const saudiTime = new Date(now.getTime() + (saudiOffset + now.getTimezoneOffset()) * 60000);
+			
+			const formatDate = (date: Date) => {
+				const year = date.getFullYear();
+				const month = String(date.getMonth() + 1).padStart(2, '0');
+				const day = String(date.getDate()).padStart(2, '0');
+				return `${year}-${month}-${day}`;
+			};
+			
+			const yesterday = new Date(saudiTime);
+			yesterday.setDate(yesterday.getDate() - 1);
+			const yesterdayStr = formatDate(yesterday);
+			
+			const { data: records, error } = await supabase
+				.from('box_operations')
+				.select(`
+					*,
+					branches!inner(id, location_en, location_ar)
+				`)
+				.eq('status', 'completed')
+				.gte('start_time', `${yesterdayStr}T00:00:00`)
+				.lte('start_time', `${yesterdayStr}T23:59:59`);
+			
+			if (error) throw error;
+			
+			const locale = get(currentLocale);
+			const branchIds = [...new Set(records?.map(r => r.branch_id) || [])];
+			const groupedByBranch = branchIds.map(branchId => {
+				const branchRecords = records?.filter(r => r.branch_id === branchId) || [];
+				const branchInfo = branchRecords[0]?.branches;
+				const branchName = branchInfo ? (locale === 'ar' ? (branchInfo.location_ar || branchInfo.location_en) : (branchInfo.location_en || branchInfo.location_ar)) : `Branch ${branchId}`;
+				
+				let total_amount = 0;
+				branchRecords.forEach(record => {
+					try {
+						const closingDetails = typeof record.closing_details === 'string' 
+							? JSON.parse(record.closing_details) 
+							: record.closing_details;
+						
+						if (closingDetails?.total_sales) {
+							total_amount += parseFloat(closingDetails.total_sales) || 0;
+						}
+					} catch (e) {
+						console.error('Error parsing closing_details:', e);
+					}
+				});
+				
+				return {
+					branch_id: branchId,
+					branch_name: branchName,
+					total_amount,
+					total_bills: 0,
+					total_return: 0
+				};
+			});
+			
+			yesterdayCollectionData = groupedByBranch;
+			maxYesterdayCollectionAmount = Math.max(...groupedByBranch.map(d => d.total_amount), 1);
+		} catch (err) {
+			console.error('❌ Error loading yesterday collection data:', err);
+		} finally {
+			const endTime = performance.now();
+			const duration = (endTime - startTime).toFixed(2);
+			console.log(`✅ [Mobile] Yesterday collection data loaded in ${duration}ms`);
+			loadingYesterdayCollection = false;
+		}
+	}
+
 	function getBarColor(amount: number): string {
 		const amounts = salesData.map(d => d.total_amount).sort((a, b) => b - a);
 		const highest = amounts[0];
@@ -389,6 +547,22 @@
 	function getYesterdayBranchBarHeight(amount: number): number {
 		if (!maxYesterdayBranchAmount || maxYesterdayBranchAmount === 0) return 20;
 		const percent = (amount / maxYesterdayBranchAmount) * 100;
+		return Math.max(Math.round(percent), 20);
+	}
+
+	function getCollectionBarColor(amount: number, dataArray: BranchSales[]): string {
+		const amounts = dataArray.map(d => d.total_amount).sort((a, b) => b - a);
+		const highest = amounts[0];
+		const lowest = amounts[amounts.length - 1];
+		
+		if (amount === highest) return '#10b981';
+		if (amount === lowest) return '#ef4444';
+		return '#f97316';
+	}
+
+	function getCollectionBarHeight(amount: number, maxAmount: number): number {
+		if (!maxAmount || maxAmount === 0) return 20;
+		const percent = (amount / maxAmount) * 100;
 		return Math.max(Math.round(percent), 20);
 	}
 
@@ -577,6 +751,70 @@
 							</div>
 							<div class="return-label">
 								{$t('reports.return')}: {((branch.total_return / (branch.total_amount + branch.total_return)) * 100 || 0).toFixed(1)}%
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+
+	<!-- Today Collection Sales Card -->
+	<div class="sales-card">
+		<div class="card-header">
+			<h3>{$t('reports.todayCollectionSales')}</h3>
+			<button class="refresh-btn" on:click={loadTodayCollectionData} disabled={loadingTodayCollection} title={$t('common.refresh')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+				</svg>
+			</button>
+		</div>
+		{#if loadingTodayCollection}
+			<div class="loading">{$t('common.loading')}</div>
+		{:else}
+			<div class="chart-container">
+				{#each todayCollectionData as branch}
+					<div class="sale-item">
+						<div class="bar-container">
+							<div class="bar" style="height: {getCollectionBarHeight(branch.total_amount, maxTodayCollectionAmount)}px; background-color: {getCollectionBarColor(branch.total_amount, todayCollectionData)};"></div>
+						</div>
+						<div class="sale-info">
+							<div class="date-label">{branch.branch_name}</div>
+							<div class="amount-label">
+								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								{formatCurrency(branch.total_amount)}
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+
+	<!-- Yesterday Collection Sales Card -->
+	<div class="sales-card">
+		<div class="card-header">
+			<h3>{$t('reports.yesterdayCollectionSales')}</h3>
+			<button class="refresh-btn" on:click={loadYesterdayCollectionData} disabled={loadingYesterdayCollection} title={$t('common.refresh')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+				</svg>
+			</button>
+		</div>
+		{#if loadingYesterdayCollection}
+			<div class="loading">{$t('common.loading')}</div>
+		{:else}
+			<div class="chart-container">
+				{#each yesterdayCollectionData as branch}
+					<div class="sale-item">
+						<div class="bar-container">
+							<div class="bar" style="height: {getCollectionBarHeight(branch.total_amount, maxYesterdayCollectionAmount)}px; background-color: {getCollectionBarColor(branch.total_amount, yesterdayCollectionData)};"></div>
+						</div>
+						<div class="sale-info">
+							<div class="date-label">{branch.branch_name}</div>
+							<div class="amount-label">
+								<img src="/icons/saudi-currency.png" alt="SAR" class="currency-icon" />
+								{formatCurrency(branch.total_amount)}
 							</div>
 						</div>
 					</div>

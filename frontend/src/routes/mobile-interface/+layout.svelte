@@ -8,7 +8,7 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
-	import { initI18n, currentLocale, localeData } from '$lib/i18n';
+	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 
 	// Mobile-specific layout state
@@ -16,6 +16,8 @@
 	let isLoading = true;
 	let hasApprovalPermission = false;
 	let hasPVPermission = false;
+	let hasReportsPermission = false;
+	let hasBranchPerformancePermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -49,8 +51,17 @@
 			isLoading = false;
 		}, 3000); // 3 seconds maximum
 		
-		// Initialize i18n system
+		// Initialize i18n system (will load from localStorage or use default 'ar')
 		initI18n();
+		
+		// If no locale is set yet, default to Arabic
+		const storedLocale = typeof window !== 'undefined' ? localStorage.getItem('aqura-locale') : null;
+		if (!storedLocale) {
+			switchLocale('ar');
+			console.log('🌐 Mobile: Locale defaulted to Arabic (ar)');
+		} else {
+			console.log('🌐 Mobile: Locale loaded from storage:', storedLocale);
+		}
 		
 		// Skip authentication check if on login page
 		const isLoginPage = $page.url.pathname === '/mobile-interface/login';
@@ -104,6 +115,9 @@
 			// Load badge counts
 			loadBadgeCounts();
 			
+			// Load button permissions
+			loadButtonPermissions();
+			
 			// Initialize notification sound system for mobile
 			// 🔴 DISABLED: Real-time notification listener disabled
 			console.warn('⚠️ Real-time notification listener disabled');
@@ -141,6 +155,7 @@
 		}
 		
 		loadBadgeCounts(true); // Silent refresh counts when user changes
+		loadButtonPermissions(); // Load button permissions when user changes
 		
 		// Restart notification sound system for new user
 		// 🔴 DISABLED: Real-time notification listener disabled
@@ -418,6 +433,67 @@
 		return typeof value === 'string' ? value : keyPath;
 	}
 	
+	async function loadButtonPermissions() {
+		if (!currentUserData?.id) {
+			hasReportsPermission = false;
+			hasBranchPerformancePermission = false;
+			return;
+		}
+
+		try {
+			// Load button permissions from database
+			const { data: permissions, error } = await supabase
+				.from('button_permissions')
+				.select('button_id, is_enabled')
+				.eq('user_id', currentUserData.id)
+				.eq('is_enabled', true);
+
+			if (error) {
+				console.error('Error loading button permissions:', error);
+				hasReportsPermission = false;
+				hasBranchPerformancePermission = false;
+				return;
+			}
+
+			if (permissions && permissions.length > 0) {
+				const buttonIds = permissions.map(p => p.button_id);
+				console.log('📋 Mobile: Button IDs from permissions:', buttonIds);
+
+				// Fetch button codes for enabled buttons
+				const { data: buttons, error: btnError } = await supabase
+					.from('sidebar_buttons')
+					.select('id, button_code')
+					.in('id', buttonIds);
+
+				if (btnError) {
+					console.error('Error fetching button codes:', btnError);
+					hasReportsPermission = false;
+					hasBranchPerformancePermission = false;
+				} else if (buttons) {
+					console.log('📋 Mobile: All button codes from database:', buttons.map(b => b.button_code));
+					const buttonCodes = new Set(buttons.map(b => b.button_code));
+					
+					// Check for specific button permissions
+					hasReportsPermission = buttonCodes.has('SALES_REPORT');
+					hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
+					
+					console.log('✅ Mobile button permissions:', {
+						reports: hasReportsPermission,
+						branchPerformance: hasBranchPerformancePermission,
+						allCodes: Array.from(buttonCodes)
+					});
+				}
+			} else {
+				hasReportsPermission = false;
+				hasBranchPerformancePermission = false;
+			}
+		} catch (err) {
+			console.error('Error loading button permissions:', err);
+			hasReportsPermission = false;
+			hasBranchPerformancePermission = false;
+		}
+	}
+	
 	function getPageTitle(path, locale = null) {
 		// Main pages
 		if (path === '/mobile-interface' || path === '/mobile-interface/') return getTranslation('mobile.dashboard');
@@ -613,7 +689,7 @@
 	{#if showMenu}
 		<div class="menu-overlay" on:click={() => showMenu = false}></div>
 		<div class="menu-dropdown">
-			{#if currentUserData?.isMasterAdmin || currentUserData?.isAdmin}
+			{#if hasReportsPermission}
 				<a href="/mobile-interface/reports" class="menu-item" on:click={() => showMenu = false} title={getTranslation('reports.salesReport')}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M9 2v4"/>
@@ -649,7 +725,7 @@
 					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
 				</a>
 			{/if}
-			{#if currentUserData?.isMasterAdmin || currentUserData?.isAdmin}
+			{#if hasBranchPerformancePermission}
 				<a href="/mobile-interface/branch-performance" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.dashboardContent.branchPerformance.title')}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M12 2v20M2 12h20M3 6h18M3 18h18"/>

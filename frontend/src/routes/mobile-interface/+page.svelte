@@ -12,7 +12,10 @@
 	
 	let currentUserData = null;
 	let stats = {
-		pendingTasks: 0
+		pendingTasks: 0,
+		pendingToClose: 0,
+		closedBoxes: 0,
+		inUseBoxes: 0
 	};
 	let isLoading = true;
 	let currentTime = new Date();
@@ -76,6 +79,64 @@
 			unsubscribeFingerprint();
 		}
 	});
+	
+	async function loadBoxOperationsCounts() {
+		try {
+			if (!currentUserData?.id) {
+				console.warn('⚠️ No user ID for box operations count');
+				return;
+			}
+			
+			console.log('📦 Loading box operations counts for user:', currentUserData.id);
+			
+			// Get pending to close count
+			const { count: pendingCount, error: pendingError } = await supabase
+				.from('box_operations')
+				.select('*', { count: 'exact', head: true })
+				.eq('user_id', currentUserData.id)
+				.eq('status', 'pending_close');
+			
+			if (pendingError) {
+				console.error('❌ Error loading pending to close count:', pendingError);
+			} else {
+				stats.pendingToClose = pendingCount || 0;
+				console.log('📦 Pending to close boxes:', stats.pendingToClose);
+			}
+			
+			// Get total completed count (all time)
+			const { count: completedCount, error: completedError } = await supabase
+				.from('box_operations')
+				.select('*', { count: 'exact', head: true })
+				.eq('user_id', currentUserData.id)
+				.eq('status', 'completed');
+			
+			if (completedError) {
+				console.error('❌ Error loading closed boxes count:', completedError);
+			} else {
+				stats.closedBoxes = completedCount || 0;
+				console.log('✅ Total closed boxes:', stats.closedBoxes);
+			}
+			
+			// Get in use count
+			const { count: inUseCount, error: inUseError } = await supabase
+				.from('box_operations')
+				.select('*', { count: 'exact', head: true })
+				.eq('user_id', currentUserData.id)
+				.eq('status', 'in_use');
+			
+			if (inUseError) {
+				console.error('❌ Error loading in use boxes count:', inUseError);
+			} else {
+				stats.inUseBoxes = inUseCount || 0;
+				console.log('🔄 In use boxes:', stats.inUseBoxes);
+			}
+			
+			console.log('📊 Final stats:', stats);
+		} catch (error) {
+			console.error('❌ Error loading box operations counts:', error);
+		}
+	}
+	
 	function handleViewOffer(event: CustomEvent) {
 		selectedOffer = event.detail;
 		showOfferModal = true;
@@ -187,7 +248,7 @@
 				
 				const punchRecords = punchData
 					.map(punch => {
-						// Convert time to 12-hour format
+						// Convert time to locale-aware format
 						let formattedTime = punch.time || '';
 						if (formattedTime) {
 							try {
@@ -195,18 +256,32 @@
 								const [hours, minutes] = formattedTime.split(':').slice(0, 2);
 								const hour = parseInt(hours, 10);
 								const minute = minutes || '00';
-								const ampm = hour >= 12 ? 'PM' : 'AM';
-								const hour12 = hour % 12 || 12;
-								formattedTime = `${hour12.toString().padStart(2, '0')}:${minute} ${ampm}`;
+								
+								// Use locale-aware formatting
+								const timeDate = new Date(2000, 0, 1, hour, parseInt(minute, 10));
+								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+								formattedTime = timeDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 							} catch (e) {
 								console.error('Error formatting time:', e);
+							}
+						}
+						
+						// Format date with locale awareness
+						let formattedDate = punch.date || '';
+						if (formattedDate) {
+							try {
+								const dateObj = new Date(formattedDate);
+								const locale = $localeData.code === 'ar' ? 'ar-SA' : 'en-US';
+								formattedDate = dateObj.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+							} catch (e) {
+								console.error('Error formatting date:', e);
 							}
 						}
 						
 						// Map database columns to display format
 						const mappedPunch = {
 							time: formattedTime,
-							date: punch.date || '',
+							date: formattedDate,
 							status: punch.status === 'Check In' ? 'check-in' : 'check-out',
 							raw: punch
 						};
@@ -283,6 +358,9 @@
 			);
 			
 			console.log('✅ Real-time subscription set up successfully');
+			
+			// Load box operations counts
+			await loadBoxOperationsCounts();
 			
 			// Set pending tasks to 0 for now (TODO: implement task loading)
 			stats.pendingTasks = 0;
@@ -484,6 +562,50 @@
 					</div>
 				</div>
 			{/if}
+			
+			<!-- Blank Card 1 -->
+			<div class="stat-card blank clickable pending-box" on:click={() => goto('/mobile-interface/pos-pending')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="10"/>
+						<polyline points="12 6 12 12 16 14"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<h3>{stats.pendingToClose}</h3>
+					<p>{getTranslation('boxOperations.posPending')}</p>
+					<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
+				</div>
+			</div>
+			
+			<!-- Blank Card 2 -->
+			<div class="stat-card blank clickable closed-box" on:click={() => goto('/mobile-interface/pos-closed')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<polyline points="20 6 9 17 4 12"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<h3>{stats.closedBoxes}</h3>
+					<p>{getTranslation('boxOperations.posClosed')}</p>
+					<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
+				</div>
+			</div>
+			
+			<!-- Blank Card 3 -->
+			<div class="stat-card blank in-use-box">
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="1"/>
+						<path d="M12 6v6M12 18v0"/>
+						<path d="M6 12h6M18 12h0"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<h3>{stats.inUseBoxes}</h3>
+					<p>{getTranslation('boxOperations.inUse')}</p>
+				</div>
+			</div>
 		</div>
 	</section>
 	{/if}
@@ -685,6 +807,91 @@
 	.punch-status.checkout {
 		color: #EF4444;
 	}
+	
+	.stat-card.blank .stat-icon {
+		background: rgba(156, 163, 175, 0.1);
+		color: #9CA3AF;
+	}
+	
+	.stat-card.clickable {
+		cursor: pointer;
+		border: 2px solid transparent;
+		transition: all 0.3s ease;
+		position: relative;
+		overflow: hidden;
+	}
+
+	/* Pending Box Styling */
+	.pending-box {
+		background: linear-gradient(135deg, #FED7AA 0%, #FDBA74 100%) !important;
+	}
+
+	.pending-box .stat-icon {
+		background: rgba(253, 124, 0, 0.3) !important;
+		color: #EA580C !important;
+	}
+
+	.pending-box h3 {
+		color: #9A3412;
+	}
+
+	.pending-box p {
+		color: #7C2D12;
+	}
+
+	/* Closed Box Styling */
+	.closed-box {
+		background: linear-gradient(135deg, #BBFBFE 0%, #A7F3D0 100%) !important;
+	}
+
+	.closed-box .stat-icon {
+		background: rgba(16, 185, 129, 0.3) !important;
+		color: #059669 !important;
+	}
+
+	.closed-box h3 {
+		color: #1E40AF;
+	}
+
+	.closed-box p {
+		color: #1E3A8A;
+	}
+
+	/* In Use Box Styling */
+	.in-use-box {
+		background: linear-gradient(135deg, #DDD6FE 0%, #C7D2FE 100%) !important;
+	}
+
+	.in-use-box .stat-icon {
+		background: rgba(79, 70, 229, 0.3) !important;
+		color: #4F46E5 !important;
+	}
+
+	.in-use-box h3 {
+		color: #3730A3;
+	}
+
+	.in-use-box p {
+		color: #312E81;
+	}
+	
+	.stat-card.clickable:hover {
+		transform: translateY(-5px);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+		border-color: rgba(0, 0, 0, 0.1);
+	}
+	
+	.stat-card.clickable:active {
+		transform: translateY(-2px);
+	}
+
+	.click-hint {
+		font-size: 0.75rem;
+		color: #9CA3AF;
+		margin-top: 0.25rem !important;
+		font-style: italic;
+	}
+
 	.loading-text {
 		font-size: 0.625rem;
 		color: #6B7280;
