@@ -12,7 +12,7 @@
 	let operationData: any = {};
 	let selectedPosNumber = 1;
 	
-	console.log('📦 CloseBox received operation:', operation);
+	console.log('⏳ PendingToCloseDetails received operation:', operation);
 	
 	try {
 		if (operation?.notes) {
@@ -58,114 +58,57 @@
 		'coins': 'Coins'
 	};
 
-	// Helper function to get value from complete_details or closing_details
-	function getDisplayValue(key: string, closingValue: any = null, showComparison = false) {
-		const completeValue = completeDetails[key];
-		const original = closingValue || closingDetails[key];
-		
-		// If there's a complete_details value and it's different from original, show it was edited
-		if (completeValue !== undefined && completeValue !== original) {
-			return { value: completeValue, edited: true, original };
-		}
-		
-		return { value: original || completeValue || 0, edited: false, original: null };
+	// Helper function to get value from closing_details (read-only view)
+	function getDisplayValue(key: string) {
+		return closingDetails[key] || 0;
 	}
 
-	// Helper function to show comparison badge
-	function getComparisonClass(edited: boolean) {
-		return edited ? 'edited-value' : '';
-	}
-
-	// Closing cash counts - load from operation data
+	// Closing cash counts - load from operation data (read-only)
 	let closingCounts: Record<string, number> = {};
 	let closingDetails: any = {};
-	let completeDetails: any = {}; // Store edited/complete details
+
 	
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
-		console.log('🔄 Initializing closing counts from operation:', operation);
+		console.log('🔄 Initializing pending box details from closing_details only:', operation);
 		
-		// Load complete_details (edited values) if available
-		if (operation?.complete_details) {
-			completeDetails = typeof operation.complete_details === 'string' 
-				? JSON.parse(operation.complete_details)
-				: operation.complete_details;
-			console.log('📝 Complete Details (Edited):', completeDetails);
-			
-			// Load ALL values from complete_details (the final edited state)
-			closingCounts = { ...completeDetails.closing_counts || {} };
-			
-			// Load supervisor info
-			supervisorName = completeDetails.supervisor_name || operationData.supervisor_name || '';
-			supervisorCode = '';
-			
-			// Load bank reconciliation (edited values)
-			madaAmount = completeDetails.bank_mada || 0;
-			visaAmount = completeDetails.bank_visa || 0;
-			masterCardAmount = completeDetails.bank_mastercard || 0;
-			googlePayAmount = completeDetails.bank_google_pay || 0;
-			otherAmount = completeDetails.bank_other || 0;
-			
-			// Load ERP details (edited values)
-			systemCashSales = completeDetails.system_cash_sales || 0;
-			systemCardSales = completeDetails.system_card_sales || 0;
-			systemReturn = completeDetails.system_return || 0;
-			
-			// Load recharge details (edited values)
-			openingBalance = completeDetails.recharge_opening_balance || 0;
-			closeBalance = completeDetails.recharge_close_balance || 0;
-			
-			// Load recharge card transaction dates and times
-			startDateInput = completeDetails.recharge_transaction_start_date || '';
-			startTimeInput = completeDetails.recharge_transaction_start_time || '';
-			endDateInput = completeDetails.recharge_transaction_end_date || '';
-			endTimeInput = completeDetails.recharge_transaction_end_time || '';
-			
-			// Load vouchers (edited values)
-			vouchers = completeDetails.vouchers || [];
-		}
-		
-		// Load closing_details (original values) for comparison
+		// Only load closing_details (no complete_details for pending boxes)
 		if (operation?.closing_details) {
 			const details = typeof operation.closing_details === 'string' 
 				? JSON.parse(operation.closing_details)
 				: operation.closing_details;
 			
 			closingDetails = details;
+			closingCounts = { ...details.closing_counts || {} };
 			
-			// If complete_details wasn't loaded, use closing_details as primary
-			if (!operation?.complete_details) {
-				closingCounts = { ...details.closing_counts || {} };
-				
-				// Load supervisor info
-				supervisorName = details.supervisor_name || operationData.supervisor_name || '';
-				supervisorCode = '';
-				
-				// Load bank reconciliation
-				madaAmount = details.bank_mada || 0;
-				visaAmount = details.bank_visa || 0;
-				masterCardAmount = details.bank_mastercard || 0;
-				googlePayAmount = details.bank_google_pay || 0;
-				otherAmount = details.bank_other || 0;
-				
-				// Load ERP details
-				systemCashSales = details.system_cash_sales || 0;
-				systemCardSales = details.system_card_sales || 0;
-				systemReturn = details.system_return || 0;
-				
-				// Load recharge details
-				openingBalance = details.recharge_opening_balance || 0;
-				closeBalance = details.recharge_close_balance || 0;
-				
-				// Load recharge card transaction dates and times
-				startDateInput = details.recharge_transaction_start_date || '';
-				startTimeInput = details.recharge_transaction_start_time || '';
-				endDateInput = details.recharge_transaction_end_date || '';
-				endTimeInput = details.recharge_transaction_end_time || '';
-				
-				// Load vouchers
-				vouchers = details.vouchers || [];
-			}
+			// Load supervisor info
+			supervisorName = details.supervisor_name || operationData.supervisor_name || '';
+			supervisorCode = '';
+			
+			// Load bank reconciliation
+			madaAmount = details.bank_mada || 0;
+			visaAmount = details.bank_visa || 0;
+			masterCardAmount = details.bank_mastercard || 0;
+			googlePayAmount = details.bank_google_pay || 0;
+			otherAmount = details.bank_other || 0;
+			
+			// Load ERP details
+			systemCashSales = details.system_cash_sales || 0;
+			systemCardSales = details.system_card_sales || 0;
+			systemReturn = details.system_return || 0;
+			
+			// Load recharge details
+			openingBalance = details.recharge_opening_balance || 0;
+			closeBalance = details.recharge_close_balance || 0;
+			
+			// Load recharge card transaction dates and times
+			startDateInput = details.recharge_transaction_start_date || '';
+			startTimeInput = details.recharge_transaction_start_time || '';
+			endDateInput = details.recharge_transaction_end_date || '';
+			endTimeInput = details.recharge_transaction_end_time || '';
+			
+			// Load vouchers
+			vouchers = details.vouchers || [];
 			
 			// Parse time if available
 			if (startTimeInput) {
@@ -187,8 +130,7 @@
 				}
 			}
 			
-			console.log('✅ Loaded ALL closing details:', closingCounts, closingDetails);
-			console.log('✅ Loaded ALL complete details:', completeDetails);
+			console.log('✅ Loaded pending box closing details:', closingCounts, closingDetails);
 		} else if (operation?.counts_after) {
 			closingCounts = { ...operation.counts_after };
 			console.log('✅ Loaded closing counts from counts_after:', closingCounts);
@@ -302,29 +244,17 @@
 	
 	// Helper functions to check if values were edited
 	function wasEdited(key: string, value: any): boolean {
-		// Check if complete_details has this value and it's different from closing_details
-		if (!completeDetails || !closingDetails) return false;
-		
-		const originalValue = closingDetails[key];
-		const editedValue = completeDetails[key];
-		
-		// Handle nested objects (like closing_counts)
-		if (key === 'closing_counts' && typeof value === 'object') {
-			return false; // Check individual denominations instead
-		}
-		
-		return editedValue !== undefined && originalValue !== editedValue;
+		// Always false for pending boxes (no edits yet)
+		return false;
 	}
 	
+	// Removed edit comparison functions since this is read-only view
 	function wasDenomEdited(denomKey: string): boolean {
-		if (!completeDetails?.closing_counts || !closingDetails?.closing_counts) return false;
-		return completeDetails.closing_counts[denomKey] !== closingDetails.closing_counts[denomKey];
+		return false; // Always false for pending boxes (no edits yet)
 	}
 	
 	function wasVoucherEdited(index: number, field: 'serial' | 'amount'): boolean {
-		if (!completeDetails?.vouchers || !closingDetails?.vouchers) return false;
-		if (!completeDetails.vouchers[index] || !closingDetails.vouchers[index]) return false;
-		return completeDetails.vouchers[index][field] !== closingDetails.vouchers[index][field];
+		return false; // Always false for pending boxes (no edits yet)
 	}
 	
 	function getOriginalValue(key: string): any {
@@ -636,7 +566,7 @@
 <div class="close-box-container">
 	<!-- View Only Banner -->
 	<div class="view-only-banner">
-		🔒 Closing Details - Read-Only View
+		⏳ This box is pending closure - View Only Mode (Closing Details)
 	</div>
 
 	<div class="top-info-row">
@@ -2546,7 +2476,7 @@
 
 	/* Read-only indicator */
 	.view-only-banner {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
 		color: white;
 		padding: 0.75rem 1rem;
 		border-radius: 0.5rem;
