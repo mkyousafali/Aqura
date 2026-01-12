@@ -296,6 +296,27 @@
 		}, 1000);
 	}
 
+	async function loadDenominationCounts() {
+		try {
+			// First, load counts from denomination_records
+			const { data: denomData, error: denomError } = await supabase
+				.from('denomination_records')
+				.select('counts')
+				.eq('id', box.id)
+				.single();
+			
+			if (denomData && denomData.counts) {
+				const boxCounts = typeof denomData.counts === 'string' ? JSON.parse(denomData.counts) : denomData.counts;
+				for (const key of Object.keys(realCounts)) {
+					realCounts[key] = boxCounts[key] || 0;
+				}
+				realCounts = { ...realCounts };
+			}
+		} catch (error) {
+			console.log('Error loading denomination counts:', error);
+		}
+	}
+
 	async function loadSavedCounts() {
 		try {
 			const { data, error } = await supabase
@@ -321,8 +342,12 @@
 
 	// Load saved counts on component mount
 	import { onMount } from 'svelte';
-	onMount(() => {
-		loadSavedCounts();
+	onMount(async () => {
+		// First load denomination counts from denomination_records
+		await loadDenominationCounts();
+		
+		// Then check if there's a saved draft in box_operations (will override if exists)
+		await loadSavedCounts();
 		
 		// Set current date and time for recharge card section
 		const now = new Date();
@@ -463,6 +488,7 @@
 							step="1"
 							placeholder=""
 							bind:value={realCounts[key]}
+							readonly={box.number === 10 || box.number === 12 || box.number === 13}
 							on:input={() => {
 								realCounts = { ...realCounts };
 								changeCounter++;
