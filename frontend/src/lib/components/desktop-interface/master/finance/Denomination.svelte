@@ -52,6 +52,18 @@
 	let modalDenominationCounts: any = {};
 	let particulars = '';
 
+	// Petty Cash Box state
+	let showPettyCashForm = false;
+	let pettyCashBoxNumber = '';
+	let pettyCashBoxId = ''; // Store the record ID for updates
+	let pettyCashCounts: any = {};
+	let pettyCashNotes = '';
+	let pettyCashTotal = 0; // Reactive total display
+	let isSavingPettyCash = false;
+
+	// Reactive total calculation
+	$: pettyCashTotal = calculatePettyCashTotal();
+
 	// Data for dropdowns
 	let vendors: any[] = [];
 	let requesters: any[] = [];
@@ -124,10 +136,12 @@
 		mainRecordId = null;
 		boxRecordIds = Array(12).fill(null);
 		lastSaved = null;
+		pettyCashBoxId = ''; // Reset petty cash box ID
 		
 		// Load data for new branch
 		await loadExistingRecords();
 		await fetchBoxOperations();
+		await loadOrCreatePettyCashBox();
 		await loadSavedTransactions();
 		setupRealtimeSubscription();
 	}
@@ -154,6 +168,91 @@
 			}
 		} catch (error) {
 			console.error('Error loading denomination types:', error);
+		}
+	}
+
+	async function loadOrCreatePettyCashBox() {
+		console.log('💼 Loading or creating petty cash box for branch:', selectedBranch);
+		
+		if (!selectedBranch || !$currentUser?.id) {
+			console.log('⚠️ Cannot load petty cash box - missing branch or user');
+			return;
+		}
+
+		try {
+			// Check if petty cash box already exists for this branch
+			const { data: existingBox, error: fetchError } = await supabase
+				.from('denomination_records')
+				.select('id, box_number, counts, grand_total')
+				.eq('branch_id', parseInt(selectedBranch))
+				.eq('record_type', 'petty_cash_box')
+				.order('created_at', { ascending: false })
+				.limit(1);
+
+			if (fetchError) {
+				console.error('❌ Error fetching existing petty cash box:', fetchError);
+				return;
+			}
+
+			if (existingBox && existingBox.length > 0) {
+				// Load existing box
+				console.log('📦 Found existing petty cash box:', existingBox[0]);
+				pettyCashBoxId = existingBox[0].id;
+				pettyCashBoxNumber = String(existingBox[0].box_number);
+				
+				// Parse counts if it's a string
+				let parsedCounts = existingBox[0].counts;
+				if (typeof parsedCounts === 'string') {
+					try {
+						parsedCounts = JSON.parse(parsedCounts);
+					} catch (e) {
+						console.warn('⚠️ Could not parse counts:', e);
+						parsedCounts = {};
+					}
+				}
+				
+				pettyCashCounts = parsedCounts || {};
+				pettyCashTotal = existingBox[0].grand_total || 0;
+				console.log('✅ Loaded existing counts:', pettyCashCounts, 'Total:', pettyCashTotal);
+			} else {
+				// Create new petty cash box
+				console.log('✨ Creating new petty cash box...');
+				const nextBoxNum = await getNextBoxNumber();
+				
+				const initialCounts = Object.keys(denomLabels).reduce((acc: any, key: string) => {
+					acc[key] = 0;
+					return acc;
+				}, {});
+
+				const { data: newBox, error: insertError } = await supabase
+					.from('denomination_records')
+					.insert({
+						branch_id: parseInt(selectedBranch),
+						user_id: $currentUser.id,
+						record_type: 'petty_cash_box',
+						box_number: nextBoxNum,
+						counts: initialCounts,
+						grand_total: 0,
+						notes: null
+					})
+					.select('id')
+					.single();
+
+				if (insertError) {
+					console.error('❌ Error creating petty cash box:', insertError);
+					return;
+				}
+
+				if (newBox) {
+					pettyCashBoxId = newBox.id;
+					pettyCashBoxNumber = String(nextBoxNum);
+					pettyCashCounts = initialCounts;
+					pettyCashTotal = 0;
+					console.log('✅ New petty cash box created with ID:', newBox.id);
+				}
+			}
+		} catch (error) {
+			console.error('❌ Error in loadOrCreatePettyCashBox:', error);
 		}
 	}
 
@@ -1134,6 +1233,147 @@
 		isSidebarOpen = !isSidebarOpen;
 	}
 
+	function openPettyCashForm() {
+		console.log('🔓 Opening petty cash form');
+		console.log('📝 Petty Cash Box ID:', pettyCashBoxId);
+		console.log('📦 Box Number:', pettyCashBoxNumber);
+		console.log('💰 Current Counts:', pettyCashCounts);
+		
+		if (!pettyCashBoxId) {
+			console.error('❌ Petty cash box not initialized');
+			showNotification('Petty cash box not initialized. Please try again.', 'error');
+			return;
+		}
+
+		pettyCashNotes = '';
+		// Calculate total from current counts
+		pettyCashTotal = calculatePettyCashTotal();
+		console.log('💰 Calculated total:', pettyCashTotal);
+		showPettyCashForm = true;
+		console.log('✅ Petty cash form opened');
+	}
+
+	function closePettyCashForm() {
+		console.log('🔒 Closing petty cash form');
+		showPettyCashForm = false;
+		pettyCashCounts = {}; // Clear input counts
+		pettyCashNotes = ''; // Clear notes
+		// DO NOT clear pettyCashBoxId or pettyCashBoxNumber - keep them persistent like advance boxes
+	}
+
+	async function getNextBoxNumber(): Promise<number> {
+		console.log('🔢 Getting next box number for branch:', selectedBranch);
+		if (!selectedBranch) {
+			console.warn('⚠️ No branch selected, returning 1');
+			return 1;
+		}
+
+		try {
+			// Get the highest box number already used for this branch
+			const { data, error } = await supabase
+				.from('denomination_records')
+				.select('box_number')
+				.eq('branch_id', parseInt(selectedBranch))
+				.eq('record_type', 'petty_cash_box')
+				.order('box_number', { ascending: false })
+				.limit(1);
+
+			console.log('📊 Query result:', { data, error });
+
+			if (error) {
+				console.error('❌ Error fetching box numbers:', error);
+				return 1;
+			}
+
+			if (!data || data.length === 0) {
+				console.log('ℹ️ No existing petty cash records, starting from box 1');
+				return 1;
+			}
+
+			const nextBox = Math.min(data[0].box_number + 1, 12);
+			console.log('✅ Next box number:', nextBox);
+			return nextBox;
+		} catch (err) {
+			console.error('❌ Error in getNextBoxNumber:', err);
+			return 1;
+		}
+	}
+
+	function calculatePettyCashTotal(): number {
+		return Object.entries(pettyCashCounts).reduce((sum, [key, count]: [string, any]) => {
+			if (key === 'damage' || key === 'coins') return sum;
+			return sum + (count * (denomValues[key] || 0));
+		}, 0);
+	}
+
+	async function savePettyCashRecord() {
+		console.log('💾 Starting savePettyCashRecord');
+		console.log('📍 Selected Branch:', selectedBranch);
+		console.log('👤 Current User:', $currentUser?.id);
+		console.log('📝 Petty Cash Box ID:', pettyCashBoxId);
+		console.log('📦 Current pettyCashCounts:', pettyCashCounts);
+
+		if (!selectedBranch || !$currentUser?.id) {
+			console.error('❌ Missing required data - Branch:', selectedBranch, 'User:', $currentUser?.id);
+			showNotification('Branch and user must be selected', 'error');
+			return;
+		}
+
+		if (!pettyCashBoxId) {
+			console.error('❌ Petty cash box not initialized');
+			showNotification('Please try again - petty cash box not initialized', 'error');
+			return;
+		}
+
+		try {
+			isSavingPettyCash = true;
+			console.log('🔄 isSavingPettyCash set to true');
+
+			const pettyCashTotal = calculatePettyCashTotal();
+			console.log('💰 Petty cash total:', pettyCashTotal);
+			console.log('📦 Denomination counts to save:', pettyCashCounts);
+
+			if (pettyCashTotal <= 0) {
+				console.error('❌ Invalid total, must be > 0');
+				showNotification('Please enter at least one denomination', 'error');
+				return;
+			}
+
+			const updateData = {
+				counts: { ...pettyCashCounts },
+				grand_total: pettyCashTotal,
+				notes: pettyCashNotes || null
+			};
+
+			console.log('📤 Updating petty cash box record with:', updateData);
+
+			// Update the petty cash record (created in openPettyCashForm)
+			const { error: recordError } = await supabase
+				.from('denomination_records')
+				.update(updateData)
+				.eq('id', pettyCashBoxId);
+
+			if (recordError) {
+				console.error('❌ Database error:', recordError);
+				showNotification('Error saving record: ' + recordError.message, 'error');
+				return;
+			}
+
+			console.log('✅ Petty cash record updated successfully');
+
+			// Close form and show success
+			closePettyCashForm();
+			showNotification(`Petty cash box #${pettyCashBoxNumber} transferred successfully!`, 'success');
+			console.log('🎉 Petty cash transfer complete!');
+		} catch (error) {
+			console.error('❌ Exception caught:', error);
+			showNotification('Failed to save petty cash record: ' + (error as any).message, 'error');
+		} finally {
+			isSavingPettyCash = false;
+			console.log('🔄 isSavingPettyCash set to false');
+		}
+	}
+
 	async function saveTransaction(type: 'vendor' | 'expenses' | 'user' | 'other') {
 		if (!selectedBranch || !$currentUser?.id) {
 			showNotification('Branch and user must be selected', 'error');
@@ -1279,6 +1519,80 @@
 		<div class="popup-footer">
 			<button class="popup-btn cancel" on:click={closeCashBoxModal}>Cancel</button>
 			<button class="popup-btn save" on:click={saveCashBoxDenomination}>Transfer to BOX {selectedCashBox}</button>
+		</div>
+	</div>
+</div>
+{/if}
+
+<!-- Petty Cash Popup Modal (matching advance box style) -->
+{#if showPettyCashForm}
+<div class="popup-overlay" on:click={closePettyCashForm} on:keydown={handleCashBoxKeydown}>
+	<div class="cashbox-modal" on:click|stopPropagation>
+		<div class="popup-header cashbox-header">
+			<span>💰 Petty Cash - Enter Denomination</span>
+			<button class="popup-close" on:click={closePettyCashForm}>✕</button>
+		</div>
+		<div class="cashbox-modal-body">
+			<div class="cashbox-info">
+				<span class="info-label">Available in Main:</span>
+				<span class="info-value">{grandTotal.toLocaleString()} SAR</span>
+			</div>
+			<div class="cashbox-denomination-grid">
+				{#each Object.entries(denomLabels) as [key, label]}
+					<div class="cashbox-denom-row">
+						<div class="denom-label">
+							{#if key.startsWith('d')}
+								<img src="/icons/saudi-currency.png" alt="SAR" class="denomination-icon" />
+							{/if}
+							{label}
+						</div>
+						<div class="denom-available">Avail: {counts[key]}</div>
+						<input 
+							type="number" 
+							class="denom-input"
+							bind:value={pettyCashCounts[key]}
+							on:input={() => {
+								// Create new object reference AND update total directly
+								pettyCashCounts = { ...pettyCashCounts };
+								pettyCashTotal = calculatePettyCashTotal();
+								console.log('💵 Updated:', pettyCashCounts, 'Total now:', pettyCashTotal);
+							}}
+							min="0"
+							max={counts[key]}
+							placeholder="0"
+						/>
+						<div class="denom-subtotal">{((pettyCashCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
+					</div>
+				{/each}
+			</div>
+			<div class="cashbox-total-row">
+				<span>Transfer Total:</span>
+				<span class="cashbox-total-value">{pettyCashTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</span>
+			</div>
+			{#if pettyCashNotes}
+				<div class="petty-cash-notes-display">
+					<span class="notes-label">Notes:</span>
+					<span class="notes-value">{pettyCashNotes}</span>
+				</div>
+			{/if}
+		</div>
+		<div class="popup-footer">
+			<button class="popup-btn cancel" on:click={closePettyCashForm} disabled={isSavingPettyCash}>Cancel</button>
+			<button 
+				class="popup-btn save" 
+				on:click={() => {
+					console.log('🖱️ Save button clicked!');
+					console.log('📦 pettyCashCounts:', pettyCashCounts);
+					console.log('💰 Reactive Total (pettyCashTotal):', pettyCashTotal);
+					console.log('📝 BoxID:', pettyCashBoxId);
+					console.log('🔒 isSavingPettyCash:', isSavingPettyCash);
+					console.log('✅ Calling savePettyCashRecord now...');
+					savePettyCashRecord();
+				}}
+				disabled={pettyCashTotal <= 0 || isSavingPettyCash}
+			>
+				{isSavingPettyCash ? 'Saving...' : 'Transfer to Petty Cash'}
+			</button>
 		</div>
 	</div>
 </div>
@@ -1921,6 +2235,19 @@
 									{/if}
 								</span>
 							</div>
+						</div>
+					</div>
+					
+					<!-- Petty Cash Box Card (Below ERP Balance) -->
+					<div class="balance-card petty-cash-card">
+						<div class="balance-card-header">
+							<span class="balance-icon">💵</span>
+							<span>Petty Cash Box</span>
+						</div>
+						<div class="balance-card-body">
+							<button class="btn-open-petty-cash" on:click={openPettyCashForm}>
+								📦 Transfer to Petty Cash
+							</button>
 						</div>
 					</div>
 				</div>
@@ -3500,6 +3827,30 @@
 		font-weight: 700;
 	}
 
+	.petty-cash-notes-display {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		padding: 0.75rem;
+		margin-top: 0.75rem;
+		background: #f8fafc;
+		border-radius: 8px;
+		border-left: 3px solid #8b5cf6;
+	}
+
+	.notes-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #475569;
+	}
+
+	.notes-value {
+		font-size: 0.8rem;
+		color: #64748b;
+		max-width: 70%;
+		text-align: right;
+	}
+
 	/* Closed Boxes Button */
 	.closed-boxes-btn {
 		width: 100%;
@@ -4258,5 +4609,32 @@
 
 	.sidebar-card-value.negative {
 		color: #dc2626;
+	}
+
+	.petty-cash-card {
+		margin-top: 0.75rem;
+	}
+
+	/* Petty Cash Button (matching advance boxes) */
+	.btn-open-petty-cash {
+		width: 100%;
+		padding: 0.75rem;
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		font-size: 0.95rem;
+	}
+
+	.btn-open-petty-cash:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+	}
+
+	.btn-open-petty-cash:active {
+		transform: translateY(0);
 	}
 </style>
