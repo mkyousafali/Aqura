@@ -42,6 +42,7 @@
 	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
 	import BankReconciliation from '$lib/components/desktop-interface/master/finance/BankReconciliation.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
+	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
@@ -121,6 +122,7 @@
 	let showFinanceDashboardSubmenu = false;
 	let showFinanceManageSubmenu = false;
 	let showFinanceOperationsSubmenu = false;
+	let showFinancePettyCashWindow = false;
 	let showFinanceReportsSubmenu = false;
 	let showReportsSubmenu = false;
 	let showHRSubmenu = false;
@@ -1428,6 +1430,27 @@ function openApprovalCenter() {
 			component: Denomination,
 			icon: '💵',
 			size: { width: 900, height: 600 },
+			position: { 
+				x: 110 + (Math.random() * 100),
+				y: 110 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	// Open Petty Cash window
+	function openPettyCash() {
+		collapseAllMenus();
+		const windowId = generateWindowId('petty-cash');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Petty Cash #${instanceNumber}`,
+			component: PettyCash,
+			icon: '💰',
+			size: { width: 1000, height: 700 },
 			position: { 
 				x: 110 + (Math.random() * 100),
 				y: 110 + (Math.random() * 100) 
@@ -3139,6 +3162,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDenomination}>
 								<span class="menu-icon">💵</span>
 								<span class="menu-text">Denomination</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PETTY_CASH')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPettyCash}>
+								<span class="menu-icon">💰</span>
+								<span class="menu-text">Petty Cash</span>
 							</button>
 						</div>
 					{/if}
