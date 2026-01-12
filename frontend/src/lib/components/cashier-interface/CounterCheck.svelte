@@ -63,6 +63,7 @@
 	let rechargeStartHour = '12';
 	let rechargeStartMinute = '00';
 	let rechargeStartAmPm = 'AM';
+	let rechargeOpeningBalance: number = 0;
 	
 	// Track original values after validation to detect changes
 	let originalCashierCode = '';
@@ -250,7 +251,8 @@
 					is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
 					// Recharge card details
 					recharge_transaction_start_date: rechargeStartDate,
-					recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
+					recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`,
+					recharge_opening_balance: rechargeOpeningBalance
 				};
 				
 				let error;
@@ -402,7 +404,8 @@
 				is_matched: isMatched,
 				// Recharge card details
 				recharge_transaction_start_date: rechargeStartDate,
-				recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`
+				recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`,
+				recharge_opening_balance: rechargeOpeningBalance
 			};
 
 			const { error } = await supabase
@@ -588,14 +591,18 @@
 					</select>
 				</div>
 			</div>
+		<div class="input-group">
+			<label>{$currentLocale === 'ar' ? 'الرصيد الافتتاحي' : 'Opening Balance'}</label>
+			<input
+				type="number"
+				min="0"
+				step="0.01"
+				bind:value={rechargeOpeningBalance}
+				on:input={() => saveDenominationCounts()}
+				placeholder="0.00"
+				class="recharge-input"
+			/>
 		</div>
-	</div>
-
-	<div class="access-codes-section">
-		<div class="signature-header">
-			{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
-		</div>
-		<div class="access-code-row">
 			<div class="access-code-group">
 				<label>{t('pos.cashierAccessCode') || 'Cashier Access Code'}</label>
 				<input
@@ -1008,7 +1015,7 @@
 
 	.recharge-grid {
 		display: grid;
-		grid-template-columns: repeat(2, 1fr);
+		grid-template-columns: repeat(3, 1fr);
 		gap: 0.5rem;
 	}
 
