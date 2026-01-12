@@ -66,6 +66,7 @@
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
+	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
@@ -1713,6 +1714,28 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Open POS Report window
+	function openPOSReport() {
+		const windowId = generateWindowId('pos-report');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `POS Report #${instanceNumber}`,
+			component: POSReport,
+			icon: '💳',
+			size: { width: 1600, height: 900 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function openReceivingRecords() {
 		collapseAllMenus();
 		const windowId = generateWindowId('receiving-records');
@@ -3146,6 +3169,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openVendorPendingPayments}>
 								<span class="menu-icon">💳</span>
 								<span class="menu-text">{t('reports.vendorPayments') || 'Vendor Payments'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('POS_REPORT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPOSReport}>
+								<span class="menu-icon">🏪</span>
+								<span class="menu-text">POS</span>
 							</button>
 						</div>
 					{/if}
