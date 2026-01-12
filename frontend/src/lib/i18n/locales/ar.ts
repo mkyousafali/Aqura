@@ -85,6 +85,9 @@ export const arabicLocale: LocaleData = {
 
     // Mobile page titles
     mobile: {
+      home: "الرئيسية",
+      language: "اللغة",
+      logout: "تسجيل الخروج",
       dashboard: "لوحة التحكم",
       tasks: "المهام",
       notifications: "الإشعارات",

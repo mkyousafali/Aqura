@@ -613,14 +613,8 @@
 	{#if showMenu}
 		<div class="menu-overlay" on:click={() => showMenu = false}></div>
 		<div class="menu-dropdown">
-			<a href="/mobile-interface" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.home')}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-					<polyline points="9 22 9 12 15 12 15 22"/>
-				</svg>
-			</a>
 			{#if currentUserData?.isMasterAdmin || currentUserData?.isAdmin}
-				<a href="/mobile-interface/reports" class="menu-item" on:click={() => showMenu = false} title={getTranslation('reports.salesReport') || 'Sales Report'}>
+				<a href="/mobile-interface/reports" class="menu-item" on:click={() => showMenu = false} title={getTranslation('reports.salesReport')}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M9 2v4"/>
 						<path d="M15 2v4"/>
@@ -633,18 +627,54 @@
 						<path d="M12 18h.01"/>
 						<path d="M16 18h.01"/>
 					</svg>
+					<span class="menu-item-text">{getTranslation('reports.salesReport')}</span>
 				</a>
-				<a href="/mobile-interface/branch-performance" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.dashboardContent.branchPerformance.title') || 'Branch Performance'}>
+			{/if}
+			<a href="/mobile-interface/approval-center" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.approvals')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+				</svg>
+				<span class="menu-item-text">{getTranslation('mobile.approvals')}</span>
+				{#if approvalCount > 0}
+					<span class="menu-badge">{approvalCount > 99 ? '99+' : approvalCount}</span>
+				{/if}
+			</a>
+			{#if hasPVPermission}
+				<a href="/mobile-interface/purchase-voucher" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.bottomNav.purchaseVoucher')}>
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<rect x="2" y="4" width="20" height="16" rx="2"/>
+						<path d="M7 9h10M7 13h6M7 17h4"/>
+						<circle cx="17" cy="15" r="2"/>
+					</svg>
+					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
+				</a>
+			{/if}
+			{#if currentUserData?.isMasterAdmin || currentUserData?.isAdmin}
+				<a href="/mobile-interface/branch-performance" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.dashboardContent.branchPerformance.title')}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M12 2v20M2 12h20M3 6h18M3 18h18"/>
 						<rect width="6" height="8" x="3" y="12" rx="1"/>
 						<rect width="6" height="12" x="9" y="8" rx="1"/>
 						<rect width="6" height="6" x="15" y="14" rx="1"/>
 					</svg>
+					<span class="menu-item-text">{getTranslation('mobile.dashboardContent.branchPerformance.title')}</span>
 				</a>
 			{/if}
-			<div class="menu-item menu-language" title={getTranslation('mobile.language')}>
+			<a href="/mobile-interface/assignments" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.assignments')}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+				</svg>
+				<span class="menu-item-text">{getTranslation('mobile.assignments')}</span>
+				{#if assignmentCount > 0}
+					<span class="menu-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
+				{/if}
+			</a>
+			<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
+				const languageBtn = e.currentTarget.querySelector('.language-btn');
+				if (languageBtn) languageBtn.click();
+			}}>
 				<LanguageToggle />
+				<span class="menu-item-text">{getTranslation('mobile.language')}</span>
 			</div>
 			<button class="menu-item" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -652,6 +682,7 @@
 					<polyline points="16 17 21 12 16 7"/>
 					<line x1="21" y1="12" x2="9" y2="12"/>
 				</svg>
+				<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
 			</button>
 		</div>
 	{/if}
@@ -663,6 +694,15 @@
 		
 		<!-- Global Bottom Navigation Bar -->
 		<nav class="bottom-nav">
+			<a href="/mobile-interface" class="nav-item" class:active={$page.url.pathname === '/mobile-interface'}>
+				<div class="nav-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+						<polyline points="9 22 9 12 15 12 15 22"/>
+					</svg>
+				</div>
+				<span class="nav-label">{getTranslation('mobile.home')}</span>
+			</a>
 			<a href="/mobile-interface/tasks" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile-interface/tasks')}>
 				<div class="nav-icon">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -685,45 +725,6 @@
 				</div>
 				<span class="nav-label">{getTranslation('mobile.quickTask')}</span>
 			</a>
-			
-			<a href="/mobile-interface/assignments" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile-interface/assignments')}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-					</svg>
-					{#if assignmentCount > 0}
-						<span class="nav-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
-					{/if}
-				</div>
-				<span class="nav-label">{getTranslation('mobile.bottomNav.assignments')}</span>
-			</a>
-			
-			<!-- Approval Center - Visible to all users -->
-			<a href="/mobile-interface/approval-center" class="nav-item approval-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/approval-center')}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-					</svg>
-					{#if approvalCount > 0}
-						<span class="nav-badge approval-badge">{approvalCount > 99 ? '99+' : approvalCount}</span>
-					{/if}
-				</div>
-				<span class="nav-label">{getTranslation('mobile.approvals')}</span>
-			</a>
-			
-			<!-- Purchase Voucher Manager - Only visible with permission -->
-			{#if hasPVPermission}
-				<a href="/mobile-interface/purchase-voucher" class="nav-item pv-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/purchase-voucher')}>
-					<div class="nav-icon">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<rect x="2" y="4" width="20" height="16" rx="2"/>
-							<path d="M7 9h10M7 13h6M7 17h4"/>
-							<circle cx="17" cy="15" r="2"/>
-						</svg>
-					</div>
-					<span class="nav-label">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
-				</a>
-			{/if}
 		</nav>
 	</div>
 {:else}
@@ -1004,18 +1005,20 @@
 	.menu-item {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		padding: 0;
+		justify-content: flex-start;
+		padding: 0 16px;
 		background: #3B82F6;
 		border: none;
-		width: 48px;
+		min-width: 48px;
 		height: 48px;
-		border-radius: 50%;
+		border-radius: 24px;
 		color: white;
 		cursor: pointer;
 		transition: all 0.25s ease;
 		text-decoration: none;
 		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		gap: 12px;
+		white-space: nowrap;
 	}
 
 	.menu-item:last-child {
@@ -1024,7 +1027,7 @@
 
 	.menu-item:hover {
 		background: #2563EB;
-		transform: scale(1.1);
+		transform: scale(1.05);
 		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
 	}
 
@@ -1035,28 +1038,59 @@
 	.menu-item svg {
 		color: white;
 		transition: all 0.25s ease;
+		flex-shrink: 0;
 	}
 
 	.menu-item:hover svg {
 		color: white;
 	}
 
+	.menu-item-text {
+		font-size: 0.9rem;
+		font-weight: 500;
+		color: white;
+		padding-right: 8px;
+		pointer-events: none;
+	}
+
 	.menu-language {
-		padding: 0;
+		padding: 0 16px;
 		background: #3B82F6;
-		width: 48px;
+		min-width: 48px;
 		height: 48px;
-		border-radius: 50%;
+		border-radius: 24px;
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: flex-start;
 		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		gap: 12px;
+		cursor: pointer;
 	}
 
 	.menu-language:hover {
 		background: #2563EB;
-		transform: scale(1.1);
+		transform: scale(1.05);
 		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+	}
+
+	.menu-language :global(*) {
+		pointer-events: auto;
+	}
+
+	.menu-language .menu-item-text {
+		pointer-events: none;
+	}
+
+	.menu-badge {
+		background: #EF4444;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 2px 6px;
+		border-radius: 10px;
+		min-width: 20px;
+		text-align: center;
+		margin-left: auto;
 	}
 
 	/* RTL Support for Menu */

@@ -83,6 +83,9 @@ export const englishLocale: LocaleData = {
 
     // Mobile page titles
     mobile: {
+      home: "Home",
+      language: "Language",
+      logout: "Logout",
       dashboard: "Dashboard",
       tasks: "Tasks",
       notifications: "Notifications",
@@ -101,7 +104,7 @@ export const englishLocale: LocaleData = {
         tasks: "Tasks",
         create: "Assign",
         assignments: "Assignments",
-        purchaseVoucher: "PV",
+        purchaseVoucher: "Voucher",
       },
       // Error messages
       error: {
