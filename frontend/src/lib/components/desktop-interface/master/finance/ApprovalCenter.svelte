@@ -49,12 +49,6 @@
 		total: 0
 	};
 
-	// Bulk approval state
-	let selectedItems = new Set(); // Track selected item IDs
-	let selectAll = false; // Select all checkbox state
-	let showBulkConfirmModal = false; // Show bulk approval confirmation modal
-	let bulkApproveCount = 0; // Number of items to bulk approve
-
 	onMount(() => {
 		loadRequisitions();
 	});
@@ -247,6 +241,11 @@
 	
 	// Process requisitions result
 	const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
+	if (requisitionsError) {
+		console.error('❌ Error loading requisitions:', requisitionsError);
+	} else {
+		requisitions = requisitionsData || [];
+	}
 		
 		// Fetch usernames for requisitions if needed
 		if (requisitions.length > 0) {
@@ -612,6 +611,14 @@ async function loadHistoricalData() {
 					item_type: 'purchase_voucher'
 				})) : [])
 			];
+			
+			console.log('✅ Final filtered approvals:', {
+				requisitions: filtered.length,
+				schedules: filteredSchedules.length,
+				vendorPayments: (selectedStatus === 'pending' || selectedStatus === 'all' ? vendorPayments.length : 0),
+				vouchers: (selectedStatus === 'pending' || selectedStatus === 'all' ? purchaseVouchers.length : 0),
+				total: filteredRequisitions.length
+			});
 		} else {
 			// Filter my created requests
 			let filtered = myCreatedRequisitions;
@@ -694,6 +701,11 @@ async function loadHistoricalData() {
 	function closeDetail() {
 		showDetailModal = false;
 		selectedRequisition = null;
+	}
+
+	function filterByStatus(status) {
+		selectedStatus = status;
+		filterRequisitions();
 	}
 
 	// Show confirmation modal for approval
@@ -1230,175 +1242,6 @@ async function loadHistoricalData() {
 		});
 	}
 
-	function toggleItemSelection(itemId) {
-		if (selectedItems.has(itemId)) {
-			selectedItems.delete(itemId);
-		} else {
-			selectedItems.add(itemId);
-		}
-		selectedItems = selectedItems; // Trigger reactivity
-	}
-
-	function toggleSelectAll() {
-		selectAll = !selectAll;
-		if (selectAll) {
-			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
-			selectedItems = new Set(displayedItems.map(item => item.id || item.requisition_number));
-		} else {
-			selectedItems = new Set();
-		}
-	}
-
-	async function bulkApprove() {
-		if (selectedItems.size === 0) {
-			notifications.add({ type: 'warning', message: 'Please select items to approve' });
-			return;
-		}
-
-		bulkApproveCount = selectedItems.size;
-		showBulkConfirmModal = true;
-	}
-
-	async function confirmBulkApprove() {
-		showBulkConfirmModal = false;
-		isProcessing = true;
-		try {
-			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
-			const itemsToApprove = displayedItems.filter(item => selectedItems.has(item.id || item.requisition_number));
-
-			let approvedCount = 0;
-			let failedCount = 0;
-
-			for (const item of itemsToApprove) {
-				try {
-					if (item.item_type === 'requisition') {
-						const { error } = await supabase
-							.from('expense_requisitions')
-							.update({
-								status: 'approved',
-								approved_at: new Date().toISOString(),
-								approval_notes: 'Bulk approved from Approval Center'
-							})
-							.eq('id', item.id);
-
-						if (error) throw error;
-						approvedCount++;
-					} else if (item.item_type === 'payment_schedule') {
-						// Fetch the complete schedule data
-						const { data: scheduleData, error: fetchError } = await supabase
-							.from('non_approved_payment_scheduler')
-							.select('*')
-							.eq('id', item.id)
-							.single();
-
-						if (fetchError) throw fetchError;
-
-						// Insert into expense_scheduler
-						const { error: insertError } = await supabase
-							.from('expense_scheduler')
-							.insert([{
-								branch_id: scheduleData.branch_id,
-								branch_name: scheduleData.branch_name,
-								expense_category_id: scheduleData.expense_category_id || null,
-								expense_category_name_en: scheduleData.expense_category_name_en || null,
-								expense_category_name_ar: scheduleData.expense_category_name_ar || null,
-								amount: parseFloat(scheduleData.amount),
-								description: scheduleData.description,
-								schedule_type: scheduleData.schedule_type,
-								status: 'pending',
-								is_paid: false,
-								recurring_type: scheduleData.recurring_type,
-								recurring_metadata: scheduleData.recurring_metadata,
-								approver_id: scheduleData.approver_id,
-								approver_name: scheduleData.approver_name,
-								created_by: scheduleData.created_by
-							}]);
-
-						if (insertError) throw insertError;
-
-						// Delete from non_approved_payment_scheduler
-						const { error: deleteError } = await supabase
-							.from('non_approved_payment_scheduler')
-							.delete()
-							.eq('id', item.id);
-
-						if (deleteError) throw deleteError;
-
-						approvedCount++;
-					} else if (item.item_type === 'vendor_payment') {
-						const { error } = await supabase
-							.from('vendor_payment_schedule')
-							.update({
-								approval_status: 'approved',
-								approved_at: new Date().toISOString()
-							})
-							.eq('id', item.id);
-
-						if (error) throw error;
-						approvedCount++;
-					} else if (item.item_type === 'purchase_voucher') {
-						// Check if it's a stock transfer - need to check pending fields or issue_type
-						const isStockTransfer = item.pending_stock_location || item.pending_stock_person;
-						
-						let updatePayload = {
-							approval_status: 'approved'
-						};
-						
-						if (isStockTransfer) {
-							// For stock transfer: apply pending fields, keep status and stock unchanged
-							if (item.pending_stock_location) {
-								updatePayload.stock_location = item.pending_stock_location;
-							}
-							if (item.pending_stock_person) {
-								updatePayload.stock_person = item.pending_stock_person;
-							}
-							// Clear pending fields
-							updatePayload.pending_stock_location = null;
-							updatePayload.pending_stock_person = null;
-							updatePayload.approver_id = null;
-							// Keep status as 'stocked' and stock as 1 (no change needed)
-						} else {
-							// For gift/sales: set status to issued and stock to 0
-							updatePayload.status = 'issued';
-							updatePayload.stock = 0;
-						}
-						
-						const { error } = await supabase
-							.from('purchase_voucher_items')
-							.update(updatePayload)
-							.eq('id', item.id);
-						if (error) throw error;
-						approvedCount++;
-					}
-				} catch (err) {
-					console.error('Error approving item:', err);
-					failedCount++;
-				}
-			}
-
-			if (approvedCount > 0) {
-				notifications.add({ 
-					type: 'success', 
-					message: `✅ ${approvedCount} item(s) approved successfully` + (failedCount > 0 ? ` (${failedCount} failed)` : '') 
-				});
-			}
-
-			selectedItems = new Set();
-			selectAll = false;
-			await loadRequisitions();
-		} catch (err) {
-			console.error('Error in bulk approve:', err);
-			notifications.add({ type: 'error', message: 'Error approving items: ' + err.message });
-		} finally {
-			isProcessing = false;
-		}
-	}
-
-	function cancelBulkApprove() {
-		showBulkConfirmModal = false;
-		bulkApproveCount = 0;
-	}
-
 </script>
 
 <div class="approval-center">
@@ -1517,18 +1360,6 @@ async function loadHistoricalData() {
 				placeholder="🔍 Search by number, branch, requester, category..."
 			/>
 		</div>
-		{#if selectedItems.size > 0}
-			<button class="btn-bulk-approve" on:click={bulkApprove} disabled={isProcessing}>
-				✅ Approve {selectedItems.size} Item(s)
-			</button>
-			<button class="btn-clear-selection" on:click={() => { selectedItems = new Set(); selectAll = false; }}>
-				✕ Clear Selection
-			</button>
-		{:else}
-			<button class="btn-mark-all" on:click={toggleSelectAll}>
-				☑️ Mark All
-			</button>
-		{/if}
 		<button class="btn-refresh" on:click={loadRequisitions}>🔄 Refresh</button>
 	</div>
 
@@ -1539,25 +1370,17 @@ async function loadHistoricalData() {
 				<div class="spinner"></div>
 				<p>Loading requisitions...</p>
 			</div>
-		{:else if filteredRequisitions.length === 0}
+		{:else if (activeSection === 'approvals' && filteredRequisitions.length === 0) || (activeSection === 'my_requests' && filteredMyRequests.length === 0)}
 			<div class="empty-state">
-				<div class="empty-icon">�</div>
-				<h3>No Requisitions Found</h3>
-				<p>There are no requisitions matching your filters.</p>
+				<div class="empty-icon">📋</div>
+				<h3>No {activeSection === 'approvals' ? 'Approvals' : 'Requests'} Found</h3>
+				<p>There are no {activeSection === 'approvals' ? 'approvals' : 'requests'} matching your filters.</p>
 			</div>
 		{:else}
 			<div class="table-wrapper">
 				<table class="requisitions-table">
 					<thead>
 						<tr>
-							<th class="checkbox-col">
-								<input 
-									type="checkbox" 
-									bind:checked={selectAll}
-									on:change={toggleSelectAll}
-									title="Select all items"
-								/>
-							</th>
 							<th>Requisition #</th>
 							<th>Branch</th>
 							<th>Generated By</th>
@@ -1573,14 +1396,7 @@ async function loadHistoricalData() {
 					</thead>
 					<tbody>
 						{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
-							<tr class="{selectedItems.has(req.id || req.requisition_number) ? 'selected' : ''}">
-								<td class="checkbox-col">
-									<input 
-										type="checkbox" 
-										checked={selectedItems.has(req.id || req.requisition_number)}
-										on:change={() => toggleItemSelection(req.id || req.requisition_number)}
-									/>
-								</td>
+							<tr>
 								{#if req.item_type === 'requisition'}
 									<!-- Expense Requisition Row -->
 									<td class="req-number">{req.requisition_number}</td>
@@ -1613,10 +1429,18 @@ async function loadHistoricalData() {
 									</td>
 									<td class="date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
 									<td class="date">{formatDate(req.created_at)}</td>
-									<td>
+									<td class="action-buttons">
 										<button class="btn-view" on:click={() => openDetail(req)}>
-											👁️ View
+											👁️
 										</button>
+										{#if req.status === 'pending' && activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
 									</td>
 								{:else if req.item_type === 'payment_schedule'}
 									<!-- Payment Schedule Row -->
@@ -1658,10 +1482,18 @@ async function loadHistoricalData() {
 									</td>
 									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
 									<td class="date">{formatDate(req.created_at)}</td>
-									<td>
+									<td class="action-buttons">
 										<button class="btn-view" on:click={() => openDetail(req)}>
-											👁️ View
+											👁️
 										</button>
+										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
 									</td>
 								{:else if req.item_type === 'vendor_payment'}
 									<!-- Vendor Payment Row -->
@@ -1698,10 +1530,18 @@ async function loadHistoricalData() {
 									</td>
 									<td class="date due-date">{req.due_date ? formatDate(req.due_date) : '-'}</td>
 									<td class="date">{formatDate(req.approval_requested_at)}</td>
-									<td>
+									<td class="action-buttons">
 										<button class="btn-view" on:click={() => openDetail(req)}>
-											👁️ View
+											👁️
 										</button>
+										{#if activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
 									</td>
 								{:else if req.item_type === 'purchase_voucher'}
 									<!-- Purchase Voucher Row -->
@@ -1763,10 +1603,18 @@ async function loadHistoricalData() {
 									</td>
 									<td class="date">-</td>
 									<td class="date">{req.issued_date ? formatDate(req.issued_date) : '-'}</td>
-									<td>
+									<td class="action-buttons">
 										<button class="btn-view" on:click={() => openDetail(req)}>
-											👁️ View
+											👁️
 										</button>
+										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
 									</td>
 								{/if}
 							</tr>
@@ -2322,40 +2170,6 @@ async function loadHistoricalData() {
 </div>
 {/if}
 
-<!-- Bulk Approve Confirmation Modal -->
-{#if showBulkConfirmModal}
-	<div class="modal-overlay" on:click={cancelBulkApprove}>
-		<div class="modal-content bulk-confirm-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>✅ Confirm Bulk Approval</h2>
-				<button class="modal-close" on:click={cancelBulkApprove}>×</button>
-			</div>
-
-			<div class="modal-body">
-				<p class="bulk-confirm-message">
-					Are you sure you want to approve <strong>{bulkApproveCount}</strong> selected item(s)?
-				</p>
-				<p class="bulk-confirm-note">
-					This action will mark all selected items as approved and cannot be undone immediately.
-				</p>
-			</div>
-
-			<div class="modal-footer">
-				<button class="btn-cancel" on:click={cancelBulkApprove} disabled={isProcessing}>
-					Cancel
-				</button>
-				<button class="btn-approve-bulk" on:click={confirmBulkApprove} disabled={isProcessing}>
-					{#if isProcessing}
-						<span class="spinner-small"></span> Processing...
-					{:else}
-						✅ Approve All
-					{/if}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
 <style>
 	.approval-center {
 		padding: 2rem;
@@ -2571,81 +2385,6 @@ async function loadHistoricalData() {
 		background: #2563eb;
 	}
 
-	.btn-bulk-approve {
-		padding: 0.5rem 1rem;
-		background: #10b981;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 600;
-		transition: background 0.2s;
-		white-space: nowrap;
-	}
-
-	.btn-bulk-approve:hover {
-		background: #059669;
-	}
-
-	.btn-bulk-approve:disabled {
-		background: #d1d5db;
-		cursor: not-allowed;
-	}
-
-	.btn-clear-selection {
-		padding: 0.5rem 1rem;
-		background: #ef4444;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 600;
-		transition: background 0.2s;
-		white-space: nowrap;
-	}
-
-	.btn-clear-selection:hover {
-		background: #dc2626;
-	}
-
-	.btn-mark-all {
-		padding: 0.5rem 1rem;
-		background: #8b5cf6;
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 600;
-		transition: background 0.2s;
-		white-space: nowrap;
-	}
-
-	.btn-mark-all:hover {
-		background: #7c3aed;
-	}
-
-	/* Checkbox and Row Selection */
-	.checkbox-col {
-		width: 50px;
-		text-align: center;
-	}
-
-	.checkbox-col input[type="checkbox"] {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-		accent-color: #3b82f6;
-	}
-
-	.requisitions-table tbody tr.selected {
-		background: #eff6ff;
-		border-left: 4px solid #3b82f6;
-	}
-
-	.requisitions-table tbody tr.selected:hover {
-		background: #dbeafe;
-	}
-
 	/* Content */
 	.content {
 		flex: 1;
@@ -2821,19 +2560,67 @@ async function loadHistoricalData() {
 	}
 
 	.btn-view {
-		padding: 0.5rem 1rem;
+		padding: 0.5rem 0.75rem;
 		background: #3b82f6;
 		color: white;
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
-		font-size: 0.875rem;
+		font-size: 1.2rem;
 		font-weight: 600;
 		transition: background 0.2s;
 	}
 
 	.btn-view:hover {
 		background: #2563eb;
+	}
+
+	/* Inline action buttons */
+	.action-buttons {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-approve-inline,
+	.btn-reject-inline {
+		padding: 0.5rem 0.75rem;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 1.2rem;
+		font-weight: 600;
+		transition: all 0.2s;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-approve-inline {
+		background: #10b981;
+		color: white;
+	}
+
+	.btn-approve-inline:hover:not(:disabled) {
+		background: #059669;
+		transform: scale(1.05);
+	}
+
+	.btn-reject-inline {
+		background: #ef4444;
+		color: white;
+	}
+
+	.btn-reject-inline:hover:not(:disabled) {
+		background: #dc2626;
+		transform: scale(1.05);
+	}
+
+	.btn-approve-inline:disabled,
+	.btn-reject-inline:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	/* Modal */

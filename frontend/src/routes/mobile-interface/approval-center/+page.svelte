@@ -53,11 +53,6 @@
 		total: 0
 	};
 
-	// Bulk approval state
-	let selectedItems = new Set(); // Track selected item IDs
-	let showBulkConfirmModal = false; // Show bulk approval confirmation modal
-	let bulkApproveCount = 0; // Number of items to bulk approve
-
 	onMount(() => {
 		loadRequisitions();
 	});
@@ -923,141 +918,6 @@ async function rejectRequisition(reason) {
 		});
 	}
 
-	function toggleItemSelection(itemId) {
-		if (selectedItems.has(itemId)) {
-			selectedItems.delete(itemId);
-		} else {
-			selectedItems.add(itemId);
-		}
-		selectedItems = selectedItems; // Trigger reactivity
-	}
-
-	function toggleSelectAll() {
-		if (selectedItems.size === 0) {
-			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
-			selectedItems = new Set(displayedItems.map(item => item.id || item.requisition_number));
-		} else {
-			selectedItems = new Set();
-		}
-	}
-
-	function bulkApprove() {
-		if (selectedItems.size === 0) {
-			notifications.add({ type: 'warning', message: 'Please select items to approve' });
-			return;
-		}
-
-		bulkApproveCount = selectedItems.size;
-		showBulkConfirmModal = true;
-	}
-
-	async function confirmBulkApprove() {
-		showBulkConfirmModal = false;
-		isProcessing = true;
-		const { supabase } = await import('$lib/utils/supabase');
-		try {
-			const displayedItems = activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests;
-			const itemsToApprove = displayedItems.filter(item => selectedItems.has(item.id || item.requisition_number));
-
-			let approvedCount = 0;
-			let failedCount = 0;
-
-			for (const item of itemsToApprove) {
-				try {
-					if (item.item_type === 'requisition') {
-						const { error } = await supabase
-							.from('expense_requisitions')
-							.update({
-								status: 'approved',
-								approved_at: new Date().toISOString(),
-								approval_notes: 'Bulk approved from Mobile Approval Center'
-							})
-							.eq('id', item.id);
-
-						if (error) throw error;
-						approvedCount++;
-					} else if (item.item_type === 'payment_schedule') {
-						// Fetch the complete schedule data
-						const { data: scheduleData, error: fetchError } = await supabase
-							.from('non_approved_payment_scheduler')
-							.select('*')
-							.eq('id', item.id)
-							.single();
-
-						if (fetchError) throw fetchError;
-
-						// Insert into expense_scheduler
-						const { error: insertError } = await supabase
-							.from('expense_scheduler')
-							.insert([{
-								branch_id: scheduleData.branch_id,
-								branch_name: scheduleData.branch_name,
-								expense_category_id: scheduleData.expense_category_id || null,
-								expense_category_name_en: scheduleData.expense_category_name_en || null,
-								expense_category_name_ar: scheduleData.expense_category_name_ar || null,
-								amount: parseFloat(scheduleData.amount),
-								description: scheduleData.description,
-								schedule_type: scheduleData.schedule_type,
-								status: 'pending',
-								is_paid: false,
-								recurring_type: scheduleData.recurring_type,
-								recurring_metadata: scheduleData.recurring_metadata,
-								approver_id: scheduleData.approver_id,
-								approver_name: scheduleData.approver_name,
-								created_by: scheduleData.created_by
-							}]);
-
-						if (insertError) throw insertError;
-
-						// Delete from non_approved_payment_scheduler
-						const { error: deleteError } = await supabase
-							.from('non_approved_payment_scheduler')
-							.delete()
-							.eq('id', item.id);
-
-						if (deleteError) throw deleteError;
-
-						approvedCount++;
-					} else if (item.item_type === 'vendor_payment') {
-						const { error } = await supabase
-							.from('vendor_payment_schedule')
-							.update({
-								approval_status: 'approved',
-								approved_at: new Date().toISOString()
-							})
-							.eq('id', item.id);
-
-						if (error) throw error;
-						approvedCount++;
-					}
-				} catch (err) {
-					console.error('Error approving item:', err);
-					failedCount++;
-				}
-			}
-
-			if (approvedCount > 0) {
-				notifications.add({ 
-					type: 'success', 
-					message: `✅ ${approvedCount} item(s) approved successfully` + (failedCount > 0 ? ` (${failedCount} failed)` : '') 
-				});
-			}
-
-			selectedItems = new Set();
-			await loadRequisitions();
-		} catch (err) {
-			console.error('Error in bulk approve:', err);
-			notifications.add({ type: 'error', message: 'Error approving items: ' + err.message });
-		} finally {
-			isProcessing = false;
-		}
-	}
-
-	function cancelBulkApprove() {
-		showBulkConfirmModal = false;
-		bulkApproveCount = 0;
-	}
-
 	function formatAmount(amount) {
 		if (!amount) return '0.00';
 		return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1132,48 +992,26 @@ async function rejectRequisition(reason) {
 			{/if}
 		</div>
 
-		<!-- Bulk Action Buttons -->
-		<div class="bulk-actions">
-			{#if selectedItems.size > 0}
-				<button class="btn-approve-bulk" on:click={bulkApprove} disabled={isProcessing}>
-					✅ Approve {selectedItems.size}
-				</button>
-				<button class="btn-clear-bulk" on:click={() => { selectedItems = new Set(); }}>
-					✕ Clear
-				</button>
-			{:else}
-				<button class="btn-mark-all" on:click={toggleSelectAll}>
-					☑️ Mark All
-				</button>
-			{/if}
-		</div>
-
 		<!-- Requisitions List -->
 		<div class="requisitions-list">
-		{#if activeSection === 'approvals' && filteredRequisitions.length === 0}
-			<div class="empty-state">
-				<div class="empty-icon">📋</div>
-				<p>No approvals assigned to you</p>
-			</div>
-		{:else if activeSection === 'my_requests' && filteredMyRequests.length === 0}
-			<div class="empty-state">
-				<div class="empty-icon">📋</div>
-				<p>You haven't created any requests yet</p>
-			</div>
+			{#if activeSection === 'approvals' && filteredRequisitions.length === 0}
+				<div class="empty-state">
+					<div class="empty-icon">📋</div>
+					<p>No approvals assigned to you</p>
+				</div>
+			{:else if activeSection === 'my_requests' && filteredMyRequests.length === 0}
+				<div class="empty-state">
+					<div class="empty-icon">📋</div>
+					<p>You haven't created any requests yet</p>
+				</div>
 			{:else}
 				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
 					<div 
-						class="req-card {selectedItems.has(req.id || req.requisition_number) ? 'selected' : ''}"
-						on:click={() => openDetail(req)}
+						class="req-card"
 					>
-						<div class="card-checkbox" on:click|stopPropagation={() => toggleItemSelection(req.id || req.requisition_number)}>
-							<input 
-								type="checkbox" 
-								checked={selectedItems.has(req.id || req.requisition_number)}
-								on:change|stopPropagation={() => toggleItemSelection(req.id || req.requisition_number)}
-							/>
-						</div>
-						{#if req.item_type === 'requisition'}
+						<div class="card-header">
+							<div class="card-title" on:click={() => openDetail(req)}>
+								{#if req.item_type === 'requisition'}
 							<!-- Expense Requisition Card -->
 							<div class="req-header">
 								<div class="req-number">{req.requisition_number}</div>
@@ -1279,7 +1117,23 @@ async function rejectRequisition(reason) {
 								</div>
 							</div>
 						{/if}
+						</div>
 					</div>
+					<!-- Action Buttons -->
+					{#if ((req.item_type === 'requisition' && req.status === 'pending') || 
+					      (req.item_type === 'payment_schedule' && req.approval_status === 'pending') || 
+					      (req.item_type === 'vendor_payment')) && 
+					     activeSection === 'approvals' && userCanApprove}
+						<div class="card-actions">
+							<button class="btn-approve-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+								✅ Accept
+							</button>
+							<button class="btn-reject-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+								❌ Reject
+							</button>
+						</div>
+					{/if}
+				</div>
 				{/each}
 			{/if}
 		</div>
@@ -1578,40 +1432,6 @@ async function rejectRequisition(reason) {
 </div>
 {/if}
 
-<!-- Bulk Approve Confirmation Modal -->
-{#if showBulkConfirmModal}
-	<div class="modal-overlay" on:click={cancelBulkApprove}>
-		<div class="modal-content bulk-confirm-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h2>✅ Confirm Bulk Approval</h2>
-				<button class="modal-close" on:click={cancelBulkApprove}>×</button>
-			</div>
-
-			<div class="modal-body">
-				<p class="bulk-confirm-message">
-					Are you sure you want to approve <strong>{bulkApproveCount}</strong> selected item(s)?
-				</p>
-				<p class="bulk-confirm-note">
-					This action will mark all selected items as approved and cannot be undone immediately.
-				</p>
-			</div>
-
-			<div class="modal-footer">
-				<button class="btn-cancel" on:click={cancelBulkApprove} disabled={isProcessing}>
-					Cancel
-				</button>
-				<button class="btn-approve-bulk-modal" on:click={confirmBulkApprove} disabled={isProcessing}>
-					{#if isProcessing}
-						<span class="spinner-small"></span> Processing...
-					{:else}
-						✅ Approve All
-					{/if}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
 <style>
 	.mobile-approval-center {
 		padding: 1rem;
@@ -1740,12 +1560,76 @@ async function rejectRequisition(reason) {
 		border-radius: 12px;
 		padding: 1rem;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+		transition: all 0.2s;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.card-header {
+		flex: 1;
+		cursor: pointer;
+	}
+
+	.card-header:active {
+		opacity: 0.8;
+	}
+
+	.card-title {
+		flex: 1;
+	}
+
+	.card-actions {
+		display: flex;
+		gap: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid #F3F4F6;
+	}
+
+	.btn-approve-card,
+	.btn-reject-card {
+		flex: 1;
+		padding: 0.75rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.25rem;
+	}
+
+	.btn-approve-card {
+		background: #10B981;
+		color: white;
+	}
+
+	.btn-approve-card:active:not(:disabled) {
+		background: #059669;
+		transform: scale(0.98);
+	}
+
+	.btn-reject-card {
+		background: #EF4444;
+		color: white;
+	}
+
+	.btn-reject-card:active:not(:disabled) {
+		background: #DC2626;
+		transform: scale(0.98);
+	}
+
+	.btn-approve-card:disabled,
+	.btn-reject-card:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.req-card:active {
-		transform: scale(0.98);
+		transform: none;
 	}
 
 	.req-header {
