@@ -950,9 +950,9 @@
 	$: paidNotAppliedTotal = savedTransactions.filter(t => t.section === 'paid' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 	$: receivedNotAppliedTotal = savedTransactions.filter(t => t.section === 'received' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 
-	// Calculate difference: ERP balance - advance cash issued - (paid total - received total) - grand total
+	// Calculate difference: grand total - (ERP balance - advance cash issued - (paid total - received total))
 	$: erpBalanceNumber = typeof erpBalance === 'string' ? (parseFloat(erpBalance) || 0) : erpBalance;
-	$: differenceRaw = erpBalanceNumber - totalAdvanceBoxIssued - (paidNotAppliedTotal - receivedNotAppliedTotal) - grandTotal;
+	$: differenceRaw = grandTotal - (erpBalanceNumber - totalAdvanceBoxIssued - (paidNotAppliedTotal - receivedNotAppliedTotal));
 	$: difference = Math.round(differenceRaw);
 
 	// Auto-save when ERP balance changes
@@ -1913,9 +1913,9 @@
 								</div>
 								<span class="difference-label">
 									{#if difference > 0}
-										Over (Counted > ERP)
+										Real Cash is Excess
 									{:else if difference < 0}
-										Short (ERP > Counted)
+										Real Cash is Short
 									{:else}
 										Balanced
 									{/if}
