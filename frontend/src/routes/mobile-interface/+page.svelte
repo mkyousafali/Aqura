@@ -563,49 +563,55 @@
 				</div>
 			{/if}
 			
-			<!-- Blank Card 1 -->
-			<div class="stat-card blank clickable pending-box" on:click={() => goto('/mobile-interface/pos-pending')}>
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="10"/>
-						<polyline points="12 6 12 12 16 14"/>
-					</svg>
+			<!-- Blank Card 1 - Pending POS (only show if data exists) -->
+			{#if stats.pendingToClose > 0}
+				<div class="stat-card blank clickable pending-box" on:click={() => goto('/mobile-interface/pos-pending')}>
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<polyline points="12 6 12 12 16 14"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>{stats.pendingToClose}</h3>
+						<p>{getTranslation('boxOperations.posPending')}</p>
+						<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
+					</div>
 				</div>
-				<div class="stat-info">
-					<h3>{stats.pendingToClose}</h3>
-					<p>{getTranslation('boxOperations.posPending')}</p>
-					<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
-				</div>
-			</div>
+			{/if}
 			
-			<!-- Blank Card 2 -->
-			<div class="stat-card blank clickable closed-box" on:click={() => goto('/mobile-interface/pos-closed')}>
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="20 6 9 17 4 12"/>
-					</svg>
+			<!-- Blank Card 2 - Closed POS (only show if data exists) -->
+			{#if stats.closedBoxes > 0}
+				<div class="stat-card blank clickable closed-box" on:click={() => goto('/mobile-interface/pos-closed')}>
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>{stats.closedBoxes}</h3>
+						<p>{getTranslation('boxOperations.posClosed')}</p>
+						<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
+					</div>
 				</div>
-				<div class="stat-info">
-					<h3>{stats.closedBoxes}</h3>
-					<p>{getTranslation('boxOperations.posClosed')}</p>
-					<p class="click-hint">{$localeData.code === 'ar' ? 'اضغط للتفاصيل' : 'Click for details'}</p>
-				</div>
-			</div>
+			{/if}
 			
-			<!-- Blank Card 3 -->
-			<div class="stat-card blank in-use-box">
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<circle cx="12" cy="12" r="1"/>
-						<path d="M12 6v6M12 18v0"/>
-						<path d="M6 12h6M18 12h0"/>
-					</svg>
+			<!-- Blank Card 3 - Active POS (only show if data exists) -->
+			{#if stats.inUseBoxes > 0}
+				<div class="stat-card blank in-use-box">
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="1"/>
+							<path d="M12 6v6M12 18v0"/>
+							<path d="M6 12h6M18 12h0"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>{stats.inUseBoxes}</h3>
+						<p>{getTranslation('boxOperations.inUse')}</p>
+					</div>
 				</div>
-				<div class="stat-info">
-					<h3>{stats.inUseBoxes}</h3>
-					<p>{getTranslation('boxOperations.inUse')}</p>
-				</div>
-			</div>
+			{/if}
 		</div>
 	</section>
 	{/if}

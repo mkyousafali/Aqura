@@ -1938,8 +1938,8 @@ export const arabicLocale: LocaleData = {
 
     // عمليات الصندوق
     boxOperations: {
-      posPending: "الصناديق في الانتظار",
-      posClosed: "الصناديق المغلقة",
+      posPending: "نقاط البيع في الانتظار",
+      posClosed: "نقاط البيع المغلقة",
       completedBoxes: "الصناديق المكتملة",
       pendingBoxes: "في الانتظار",
       noPendingBoxes: "لا توجد صناديق في الانتظار",
