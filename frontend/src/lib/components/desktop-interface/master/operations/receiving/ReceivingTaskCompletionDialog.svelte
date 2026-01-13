@@ -110,11 +110,12 @@
 		try {
 			console.log('🔍 Loading verification status for purchase manager...');
 			
-			// Check if PR Excel is verified in the payment schedule
+			// Check if PR Excel is verified in the payment schedule (exclude split bills)
 			const { data: scheduleData, error: scheduleError } = await supabase
 				.from('vendor_payment_schedule')
 				.select('pr_excel_verified')
 				.eq('receiving_record_id', receivingRecordId)
+				.not('bill_number', 'like', 'SPLIT_%')
 				.single();
 
 			if (!scheduleError && scheduleData) {
