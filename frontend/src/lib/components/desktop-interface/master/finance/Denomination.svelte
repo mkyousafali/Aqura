@@ -359,6 +359,19 @@
 				{
 					event: '*',
 					schema: 'public',
+					table: 'denomination_transactions',
+					filter: `branch_id=eq.${selectedBranch}`
+				},
+				async (payload) => {
+					console.log('📡 Denomination transactions realtime update:', payload);
+					await loadSavedTransactions();
+				}
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
 					table: 'box_operations',
 					filter: `branch_id=eq.${selectedBranch}`
 				},
@@ -707,6 +720,7 @@
 	let popupLabel = '';
 	let popupMode: 'add' | 'subtract' = 'add';
 	let currentCount = 0;
+	let popupContext: 'main' | 'pettyCash' = 'main'; // Track which context the popup is for
 
 	// Cash Box Denomination Modal state
 	let showCashBoxModal = false;
@@ -987,6 +1001,7 @@
 		popupLabel = denomLabels[key] || key;
 		popupMode = 'add';
 		currentCount = counts[key];
+		popupContext = 'main';
 		showPopup = true;
 	}
 
@@ -996,6 +1011,28 @@
 		currentCount = counts[key];
 		popupLabel = denomLabels[key] || key;
 		popupMode = 'subtract';
+		popupContext = 'main';
+		showPopup = true;
+	}
+
+	// Petty Cash popup functions
+	function openPettyCashPopupAdd(key: string) {
+		popupKey = key;
+		popupValue = '';
+		popupLabel = denomLabels[key] || key;
+		popupMode = 'add';
+		currentCount = pettyCashCounts[key] || 0;
+		popupContext = 'pettyCash';
+		showPopup = true;
+	}
+
+	function openPettyCashPopupSubtract(key: string) {
+		popupKey = key;
+		popupValue = '';
+		currentCount = pettyCashCounts[key] || 0;
+		popupLabel = denomLabels[key] || key;
+		popupMode = 'subtract';
+		popupContext = 'pettyCash';
 		showPopup = true;
 	}
 
@@ -1008,13 +1045,43 @@
 	function savePopupValue() {
 		const val = parseInt(popupValue) || 0;
 		if (val >= 0) {
-			if (popupMode === 'add') {
-				counts[popupKey] = counts[popupKey] + val;
-			} else {
-				counts[popupKey] = Math.max(0, counts[popupKey] - val);
+			if (popupContext === 'main') {
+				// Main denomination context
+				if (popupMode === 'add') {
+					counts[popupKey] = counts[popupKey] + val;
+				} else {
+					counts[popupKey] = Math.max(0, counts[popupKey] - val);
+				}
+				counts = counts;
+				triggerAutoSave(); // Auto-save after change
+			} else if (popupContext === 'pettyCash') {
+				// Petty cash context
+				if (popupMode === 'add') {
+					// Add to petty cash, deduct from main
+					const available = counts[popupKey] || 0;
+					const toAdd = Math.min(val, available); // Can't add more than available
+					if (toAdd > 0) {
+						pettyCashCounts[popupKey] = (pettyCashCounts[popupKey] || 0) + toAdd;
+						counts[popupKey] = counts[popupKey] - toAdd;
+						pettyCashCounts = { ...pettyCashCounts };
+						counts = counts;
+						pettyCashTotal = calculatePettyCashTotal();
+						triggerAutoSave(); // Auto-save main denomination
+					}
+				} else {
+					// Subtract from petty cash, add back to main
+					const currentPettyCash = pettyCashCounts[popupKey] || 0;
+					const toRemove = Math.min(val, currentPettyCash);
+					if (toRemove > 0) {
+						pettyCashCounts[popupKey] = currentPettyCash - toRemove;
+						counts[popupKey] = (counts[popupKey] || 0) + toRemove;
+						pettyCashCounts = { ...pettyCashCounts };
+						counts = counts;
+						pettyCashTotal = calculatePettyCashTotal();
+						triggerAutoSave(); // Auto-save main denomination
+					}
+				}
 			}
-			counts = counts;
-			triggerAutoSave(); // Auto-save after change
 		}
 		closePopup();
 	}
@@ -1391,7 +1458,8 @@
 			const updateData = {
 				counts: { ...pettyCashCounts },
 				grand_total: pettyCashTotal,
-				notes: pettyCashNotes || null
+				notes: pettyCashNotes || null,
+				updated_at: new Date().toISOString()
 			};
 
 			console.log('📤 Updating petty cash box record with:', updateData);
@@ -1420,7 +1488,9 @@
 				}
 			});
 			counts = { ...counts };
-			triggerAutoSave(); // Save the updated main cash box counts
+			
+			// Save the updated main cash box counts immediately (no debounce)
+			await saveMainDenomination();
 
 			// Close form and show success
 			closePettyCashForm();
@@ -1462,7 +1532,8 @@
 			const updateData = {
 				counts: { ...pettyCashCounts },
 				grand_total: pettyCashTotal,
-				notes: pettyCashNotes || null
+				notes: pettyCashNotes || null,
+				updated_at: new Date().toISOString()
 			};
 
 			const { error } = await supabase
@@ -1657,30 +1728,28 @@
 							{label}
 						</div>
 						<div class="denom-available">Avail: {counts[key]}</div>
-						<input 
-							type="number" 
-							class="denom-input"
-							bind:value={pettyCashCounts[key]}
-							on:input={() => {
-								// Create new object reference AND update total directly
-								pettyCashCounts = { ...pettyCashCounts };
-								pettyCashTotal = calculatePettyCashTotal();
-								console.log('💵 Updated:', pettyCashCounts, 'Total now:', pettyCashTotal);
-							}}
-							min="0"
-							max={counts[key]}
-							placeholder="0"
-						/>
-						<div class="denom-subtotal">{((pettyCashCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
-						{#if (pettyCashCounts[key] || 0) > 0}
+						<div class="petty-cash-count-controls">
 							<button 
-								class="add-back-btn" 
-								on:click={() => addBackToMainPettyCash(key)}
-								title="Add back to main"
+								class="count-btn minus" 
+								on:click={() => openPettyCashPopupSubtract(key)}
+								disabled={(pettyCashCounts[key] || 0) === 0}
+								title="Remove from petty cash"
 							>
-								↩️ Add Back
+								−
 							</button>
-						{/if}
+							<button class="count-value petty-cash-count-display" on:click={() => openPettyCashPopupAdd(key)}>
+								{pettyCashCounts[key] || 0}
+							</button>
+							<button 
+								class="count-btn plus" 
+								on:click={() => openPettyCashPopupAdd(key)}
+								disabled={counts[key] === 0}
+								title="Add to petty cash"
+							>
+								+
+							</button>
+						</div>
+						<div class="denom-subtotal">{((pettyCashCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
 					</div>
 				{/each}
 			</div>
@@ -3876,7 +3945,7 @@
 
 	.cashbox-denom-row {
 		display: grid;
-		grid-template-columns: 90px 70px 70px 70px;
+		grid-template-columns: 90px 70px 120px 70px;
 		gap: 0.5rem;
 		align-items: center;
 		padding: 0.35rem 0.5rem;
@@ -3887,6 +3956,31 @@
 
 	.cashbox-denom-row:hover {
 		background: #f1f5f9;
+	}
+
+	.petty-cash-count-controls {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.25rem;
+	}
+
+	.petty-cash-count-display {
+		min-width: 50px;
+		text-align: center;
+		font-weight: 600;
+		cursor: pointer;
+		border: none;
+		background: transparent;
+		color: #1e293b;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		transition: all 0.2s;
+	}
+
+	.petty-cash-count-display:hover {
+		background: #e2e8f0;
+		color: #0f172a;
 	}
 
 	.denom-label {
