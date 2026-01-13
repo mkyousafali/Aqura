@@ -1931,8 +1931,8 @@ export const englishLocale: LocaleData = {
 
     // Box Operations
     boxOperations: {
-      posPending: "Pending Boxes",
-      posClosed: "Closed Boxes",
+      posPending: "Pending POS",
+      posClosed: "Closed POS",
       completedBoxes: "Completed Boxes",
       pendingBoxes: "Pending",
       noPendingBoxes: "No pending boxes",
