@@ -217,10 +217,6 @@
 					const { default: NotificationCenter } = await import('$lib/components/desktop-interface/master/communication/NotificationCenter.svelte');
 					component = NotificationCenter;
 					break;
-				case 'DocumentManagement':
-					const { default: DocumentManagement } = await import('$lib/components/desktop-interface/master/hr/DocumentManagement.svelte');
-					component = DocumentManagement;
-					break;
 			case 'ProductSelectorWindow':
 				const { default: ProductSelectorWindow } = await import('$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte');
 				component = ProductSelectorWindow;

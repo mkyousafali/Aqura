@@ -23,9 +23,7 @@ TABLE LISTING (88 Total):
 17. delivery_fee_tiers - Delivery cost tiers based on order amount
 18. delivery_service_settings - Global delivery service configuration
 19. employee_fine_payments - Records of paid employee fines
-20. employee_warning_history - Audit trail of warning changes
-21. employee_warnings - Employee disciplinary warnings
-22. erp_connections - ERP system connection details
+20. erp_connections - ERP system connection details
 23. erp_daily_sales - Daily sales summaries from ERP
 24. expense_parent_categories - Top-level expense categories
 25. expense_requisitions - Employee expense requests

@@ -20,13 +20,6 @@
 	
 	const dashboardButtons = [
 		{
-			id: 'upload-employees',
-			titleKey: 'hr.masterUploadEmployees',
-			descriptionKey: 'hr.masterUploadEmployeesDesc',
-			icon: '👥',
-			color: 'bg-green-500'
-		},
-		{
 			id: 'create-department',
 			titleKey: 'hr.masterCreateDepartment',
 			descriptionKey: 'hr.masterCreateDepartmentDesc',
@@ -60,41 +53,6 @@
 			descriptionKey: 'hr.masterAssignPositionsDesc',
 			icon: '🎯',
 			color: 'bg-teal-500'
-		},
-		{
-			id: 'upload-fingerprint',
-			titleKey: 'hr.masterBiometricData',
-			descriptionKey: 'hr.masterBiometricDataDesc',
-			icon: '👆',
-			color: 'bg-red-500'
-		},
-		{
-			id: 'contact-management',
-			titleKey: 'hr.masterContactManagement',
-			descriptionKey: 'hr.masterContactManagementDesc',
-			icon: '📞',
-			color: 'bg-yellow-500'
-		},
-		{
-			id: 'document-management',
-			titleKey: 'hr.masterDocumentManagement',
-			descriptionKey: 'hr.masterDocumentManagementDesc',
-			icon: '📄',
-			color: 'bg-pink-500'
-		},
-		{
-			id: 'salary-management',
-			titleKey: 'hr.masterSalaryManagement',
-			descriptionKey: 'hr.masterSalaryManagementDesc',
-			icon: '💰',
-			color: 'bg-emerald-500'
-		},
-		{
-			id: 'warning-master',
-			titleKey: 'hr.masterWarningMaster',
-			descriptionKey: 'hr.masterWarningMasterDesc',
-			icon: '⚠️',
-			color: 'bg-amber-500'
 		}
 	];
 
@@ -119,10 +77,6 @@
 		
 		// Dynamically import components to avoid loading everything at once
 		switch(buttonId) {
-			case 'upload-employees':
-				const { default: UploadEmployees } = await import('$lib/components/desktop-interface/master/hr/UploadEmployees.svelte');
-				component = UploadEmployees;
-				break;
 			case 'create-department':
 				const { default: CreateDepartment } = await import('$lib/components/desktop-interface/master/hr/CreateDepartment.svelte');
 				component = CreateDepartment;
@@ -142,26 +96,6 @@
 			case 'assign-positions':
 				const { default: AssignPositions } = await import('$lib/components/desktop-interface/master/hr/AssignPositions.svelte');
 				component = AssignPositions;
-				break;
-			case 'upload-fingerprint':
-				const { default: BiometricData } = await import('$lib/components/desktop-interface/master/hr/BiometricData.svelte');
-				component = BiometricData;
-				break;
-			case 'contact-management':
-				const { default: ContactManagement } = await import('$lib/components/desktop-interface/master/hr/ContactManagement.svelte');
-				component = ContactManagement;
-				break;
-			case 'document-management':
-				const { default: DocumentManagement } = await import('$lib/components/desktop-interface/master/hr/DocumentManagement.svelte');
-				component = DocumentManagement;
-				break;
-			case 'salary-management':
-				const { default: SalaryManagement } = await import('$lib/components/desktop-interface/master/hr/SalaryManagement.svelte');
-				component = SalaryManagement;
-				break;
-			case 'warning-master':
-				const { default: WarningMaster } = await import('$lib/components/desktop-interface/master/warnings/WarningMaster.svelte');
-				component = WarningMaster;
 				break;
 		default:
 			return;

@@ -1160,8 +1160,6 @@ export const englishLocale: LocaleData = {
       masterDocumentManagementDesc: "Manage employee documents and certificates",
       masterSalaryManagement: "Salary & Wage Management",
       masterSalaryManagementDesc: "Manage employee salaries, allowances, and deductions",
-      masterWarningMaster: "Warning Master",
-      masterWarningMasterDesc: "Comprehensive warning management system",
       
       // Upload Employees Component
       uploadEmployeesTitle: "Upload Employees",

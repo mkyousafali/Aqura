@@ -33,9 +33,8 @@ Created **35 migration files** containing schemas for the **88 tables** in the A
 - 017_delivery_fee_tiers.sql
 - 018_delivery_service_settings.sql
 
-### Employee Management (019-020)
+### Employee Management (019)
 - 019_employee_fine_payments.sql
-- 020_employee_warning_history.sql
 
 ### Flyer & Order Management (021-024)
 - 021_flyer_offer_products.sql
@@ -88,9 +87,7 @@ Created **35 migration files** containing schemas for the **88 tables** in the A
 - hr_positions
 - hr_salary_components
 - hr_salary_wages
-✓ employee_warnings
 ✓ employee_fine_payments
-✓ employee_warning_history
 
 ### Tier 4: Orders & Fulfillment (Files Created)
 ✓ order_audit_logs

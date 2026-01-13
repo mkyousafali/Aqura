@@ -1129,8 +1129,6 @@ export const arabicLocale: LocaleData = {
       masterDocumentManagementDesc: "إدارة مستندات وشهادات الموظفين",
       masterSalaryManagement: "إدارة الراتب والأجور",
       masterSalaryManagementDesc: "إدارة رواتب الموظفين والبدلات والخصومات",
-      masterWarningMaster: "إدارة التحذيرات",
-      masterWarningMasterDesc: "نظام إدارة التحذيرات الشامل",
       
       // مكون تحميل الموظفين
       uploadEmployeesTitle: "تحميل الموظفين",

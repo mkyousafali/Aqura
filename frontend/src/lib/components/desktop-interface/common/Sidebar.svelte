@@ -92,7 +92,6 @@
 	import AssignPositions from '$lib/components/desktop-interface/master/hr/AssignPositions.svelte';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
-	import WarningMaster from '$lib/components/desktop-interface/master/warnings/WarningMaster.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -633,29 +632,6 @@
 			title: `Assign Positions #${instanceNumber}`,
 			component: AssignPositions,
 			icon: '🎯',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openWarningMaster() {
-		collapseAllMenus();
-		const windowId = generateWindowId('warning-master');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Warning Master #${instanceNumber}`,
-			component: WarningMaster,
-			icon: '⚠️',
 			size: { width: 1200, height: 800 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -3228,14 +3204,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openAssignPositions}>
 								<span class="menu-icon">🎯</span>
 								<span class="menu-text">Assign Positions</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('WARNING_MASTER')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openWarningMaster}>
-								<span class="menu-icon">⚠️</span>
-								<span class="menu-text">Warning Master</span>
 							</button>
 						</div>
 					{/if}
