@@ -92,6 +92,7 @@
 	import AssignPositions from '$lib/components/desktop-interface/master/hr/AssignPositions.svelte';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
+	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -679,6 +680,29 @@
 			component: BiometricExport,
 			icon: '📊',
 			size: { width: 800, height: 600 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openFingerprintTransactions() {
+		collapseAllMenus();
+		const windowId = generateWindowId('fingerprint-transactions');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Fingerprint Transactions #${instanceNumber}`,
+			component: FingerprintTransactions,
+			icon: '👆',
+			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
@@ -3240,7 +3264,12 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showHROperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Operations items will be added here -->
+					<div class="submenu-item-container">
+						<button class="submenu-item" on:click={openFingerprintTransactions}>
+							<span class="menu-icon">👆</span>
+							<span class="menu-text">Fingerprint Transactions</span>
+						</button>
+					</div>
 				</div>
 			{/if}
 
