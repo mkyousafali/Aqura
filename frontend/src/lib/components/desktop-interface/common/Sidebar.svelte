@@ -85,16 +85,12 @@
 	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
 	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
 	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
-	import UploadEmployees from '$lib/components/desktop-interface/master/hr/UploadEmployees.svelte';
 	import CreateDepartment from '$lib/components/desktop-interface/master/hr/CreateDepartment.svelte';
 	import CreateLevel from '$lib/components/desktop-interface/master/hr/CreateLevel.svelte';
 	import CreatePosition from '$lib/components/desktop-interface/master/hr/CreatePosition.svelte';
 	import ReportingMap from '$lib/components/desktop-interface/master/hr/ReportingMap.svelte';
 	import AssignPositions from '$lib/components/desktop-interface/master/hr/AssignPositions.svelte';
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
-	import BiometricData from '$lib/components/desktop-interface/master/hr/BiometricData.svelte';
-	import DocumentManagement from '$lib/components/desktop-interface/master/hr/DocumentManagement.svelte';
-	import SalaryManagement from '$lib/components/desktop-interface/master/hr/SalaryManagement.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
 	import WarningMaster from '$lib/components/desktop-interface/master/warnings/WarningMaster.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
@@ -535,29 +531,6 @@
 		showTasksReportsSubmenu = false;
 	}
 
-	function openUploadEmployees() {
-		collapseAllMenus();
-		const windowId = generateWindowId('upload-employees');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Upload Employees #${instanceNumber}`,
-			component: UploadEmployees,
-			icon: '👥',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
 	function openCreateDepartment() {
 		collapseAllMenus();
 		const windowId = generateWindowId('create-department');
@@ -673,75 +646,6 @@
 		showHRSubmenu = false;
 	}
 
-	function openContactManagement() {
-		collapseAllMenus();
-		const windowId = generateWindowId('contact-management');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Contact Management #${instanceNumber}`,
-			component: ContactManagement,
-			icon: '📞',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openDocumentManagement() {
-		collapseAllMenus();
-		const windowId = generateWindowId('document-management');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Document Management #${instanceNumber}`,
-			component: DocumentManagement,
-			icon: '📄',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openSalaryManagement() {
-		collapseAllMenus();
-		const windowId = generateWindowId('salary-management');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Salary & Wage Management #${instanceNumber}`,
-			component: SalaryManagement,
-			icon: '💰',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
 	function openWarningMaster() {
 		collapseAllMenus();
 		const windowId = generateWindowId('warning-master');
@@ -776,29 +680,6 @@
 			component: LinkID,
 			icon: '🔗',
 			size: { width: 1000, height: 700 },
-			position: { 
-				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showHRSubmenu = false;
-	}
-
-	function openBiometricData() {
-		collapseAllMenus();
-		const windowId = generateWindowId('biometric-data');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Biometric Data #${instanceNumber}`,
-			component: BiometricData,
-			icon: '👆',
-			size: { width: 1200, height: 800 },
 			position: { 
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100) 
@@ -3310,14 +3191,6 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showHRManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('UPLOAD_EMPLOYEES')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openUploadEmployees}>
-								<span class="menu-icon">👥</span>
-								<span class="menu-text">Upload Employees</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('CREATE_DEPARTMENT')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateDepartment}>
@@ -3355,30 +3228,6 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openAssignPositions}>
 								<span class="menu-icon">🎯</span>
 								<span class="menu-text">Assign Positions</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('CONTACT_MANAGEMENT')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openContactManagement}>
-								<span class="menu-icon">📞</span>
-								<span class="menu-text">Contact Management</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('DOCUMENT_MANAGEMENT')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openDocumentManagement}>
-								<span class="menu-icon">📄</span>
-								<span class="menu-text">Document Management</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('SALARY_MANAGEMENT')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openSalaryManagement}>
-								<span class="menu-icon">💰</span>
-								<span class="menu-text">Salary & Wage Management</span>
 							</button>
 						</div>
 					{/if}
@@ -3449,14 +3298,6 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showHRReportsSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('BIOMETRIC_DATA')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBiometricData}>
-								<span class="menu-icon">👆</span>
-								<span class="menu-text">Biometric Data</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('EXPORT_BIOMETRIC_DATA')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openExportBiometricData}>
