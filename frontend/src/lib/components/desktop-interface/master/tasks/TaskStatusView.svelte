@@ -26,6 +26,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let assignmentData = [];
 	let filteredAssignmentData = [];
 
+	// Pagination
+	const PAGE_SIZE = 100;
+	let currentOffset = 0;
+	let hasMoreData = true;
+	let loadingMore = false;
+
 	// Initialize variables to prevent undefined errors
 	$: if (!Array.isArray(filteredAssignmentData)) {
 		filteredAssignmentData = [];
@@ -38,6 +44,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	async function loadData() {
 		loading = true;
 		error = null;
+		
+		// Reset pagination
+		currentOffset = 0;
+		hasMoreData = true;
+		assignmentData = [];
+		filteredAssignmentData = [];
 		
 		try {
 			await Promise.all([
@@ -185,7 +197,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	async function loadAssignmentData() {
 		try {
-			// Load regular task assignments (only overdue ones)
+			// Load regular task assignments (only overdue ones) with pagination
 			const { data: regularAssignments, error: regularError } = await supabase
 				.from('task_assignments')
 				.select(`
@@ -202,11 +214,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					tasks(id, title, description, priority)
 				`)
 				.neq('status', 'completed') // Exclude completed tasks
-				.not('deadline_datetime', 'is', null); // Only tasks with deadlines
+				.not('deadline_datetime', 'is', null) // Only tasks with deadlines
+				.range(currentOffset, currentOffset + PAGE_SIZE - 1)
+				.order('deadline_datetime', { ascending: true });
 
 			if (regularError) throw regularError;
 
-			// Load quick task assignments (only overdue ones)
+			// Load quick task assignments (only overdue ones) with pagination
 			const { data: quickAssignments, error: quickError } = await supabase
 				.from('quick_task_assignments')
 				.select(`
@@ -229,11 +243,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						created_at
 					)
 				`)
-				.neq('status', 'completed'); // Exclude completed tasks
+				.neq('status', 'completed') // Exclude completed tasks
+				.range(currentOffset, currentOffset + PAGE_SIZE - 1);
 
 			if (quickError) throw quickError;
 
-			// Load receiving task assignments (only overdue ones)
+			// Load receiving task assignments (only overdue ones) with pagination
 			const { data: receivingAssignments, error: receivingError } = await supabase
 				.from('receiving_tasks')
 				.select(`
@@ -332,19 +347,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				].filter(Boolean);
 
 				if (allAssignmentIds.length > 0) {
-					const { data: completions, error: completionsError } = await supabase
-						.from('task_completions')
-						.select('assignment_id, completed_at')
-						.in('assignment_id', allAssignmentIds);
-
-					if (completionsError) {
-						console.warn('Failed to load task completions for status computation:', completionsError);
-					} else {
-						completionsMap = (completions || []).reduce((acc, c) => {
-							if (c && c.assignment_id) acc[c.assignment_id] = c;
-							return acc;
-						}, {});
+					// Batch requests to avoid URL length limits (max 25 IDs per request to keep URLs short)
+					const COMPLETIONS_BATCH_SIZE = 25;
+					const completionBatches = [];
+					
+					for (let i = 0; i < allAssignmentIds.length; i += COMPLETIONS_BATCH_SIZE) {
+						const batchIds = allAssignmentIds.slice(i, i + COMPLETIONS_BATCH_SIZE);
+						completionBatches.push(
+							supabase
+								.from('task_completions')
+								.select('assignment_id, completed_at')
+								.in('assignment_id', batchIds)
+						);
 					}
+
+					const batchResults = await Promise.all(completionBatches);
+					
+					// Combine all batches
+					const allCompletions = [];
+					for (const result of batchResults) {
+						if (result.error) {
+							console.warn('Failed to load task completions batch:', result.error);
+						} else if (result.data) {
+							allCompletions.push(...result.data);
+						}
+					}
+
+					completionsMap = allCompletions.reduce((acc, c) => {
+						if (c && c.assignment_id) acc[c.assignment_id] = c;
+						return acc;
+					}, {});
 				}
 			} catch (err) {
 				console.warn('Error while fetching completions map:', err);
@@ -474,8 +506,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					};
 				});
 
-			// Combine and sort all assignments
-			assignmentData = [...processedRegularAssignments, ...processedQuickAssignments, ...processedReceivingAssignments]
+			// Combine and sort new assignments
+			const newAssignments = [...processedRegularAssignments, ...processedQuickAssignments, ...processedReceivingAssignments]
 				.sort((a, b) => {
 					// Sort by warning level first (critical, warning, normal)
 					const warningOrder = { critical: 0, warning: 1, normal: 2 };
@@ -491,6 +523,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					// Finally by assigned date
 					return new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime();
 				});
+
+			// Append to existing data (for pagination)
+			assignmentData = [...assignmentData, ...newAssignments];
+
+			// Check if there's more data to load
+			const totalLoaded = (regularAssignments?.length || 0) + (quickAssignments?.length || 0) + (receivingAssignments?.length || 0);
+			hasMoreData = totalLoaded >= PAGE_SIZE;
+
+			// Update offset for next load
+			currentOffset += PAGE_SIZE;
+
+			console.log(`📋 Loaded ${newAssignments.length} assignments (Total: ${assignmentData.length}, Has more: ${hasMoreData})`);
 
 			// Apply branch filter
 			applyBranchFilter();
@@ -512,6 +556,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				// Filter by selected branch - you'll need to implement branch matching logic
 				return true; // For now, show all
 			});
+		}
+	}
+
+	async function loadMoreAssignments() {
+		if (loadingMore || !hasMoreData) return;
+		
+		loadingMore = true;
+		try {
+			await loadAssignmentData();
+		} catch (err) {
+			console.error('Error loading more assignments:', err);
+			notificationManagement.addNotification({
+				type: 'error',
+				message: 'Failed to load more assignments'
+			});
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -763,6 +824,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					</table>
 				{/if}
 			</div>
+
+			<!-- Load More Button -->
+			{#if hasMoreData && !loading}
+				<div class="load-more-container">
+					<button 
+						class="load-more-btn" 
+						on:click={loadMoreAssignments}
+						disabled={loadingMore}
+					>
+						{#if loadingMore}
+							<span class="spinner"></span>
+							Loading more...
+						{:else}
+							📥 Load More ({PAGE_SIZE} more)
+						{/if}
+					</button>
+					<p class="load-info">Showing {filteredAssignmentData.length} assignments</p>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -1313,6 +1393,64 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.assignment-row.normal {
 		background: white;
+	}
+
+	.load-more-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		padding: 24px;
+		border-top: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.load-more-btn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 32px;
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+	}
+
+	.load-more-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+		box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.load-more-btn:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+		box-shadow: none;
+	}
+
+	.load-info {
+		font-size: 13px;
+		color: #6b7280;
+		margin: 0;
+	}
+
+	.spinner {
+		display: inline-block;
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: white;
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
 	}
 
 	@media (max-width: 768px) {
