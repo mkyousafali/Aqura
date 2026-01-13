@@ -21,6 +21,16 @@
 	let currentPage = 1;
 	let pageSize = 10;
 
+	// Edit Modal
+	let showEditModal = false;
+	let editingPayment: any = null;
+	let editFormData = {
+		due_date: '',
+		branch_id: '',
+		payment_method: ''
+	};
+	let savingEdit = false;
+
 	// Filtered vendors based on search
 	$: filteredVendors = vendors.filter(v => 
 		v.vendor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -57,9 +67,32 @@
 	}, 0);
 
 	onMount(async () => {
-		await Promise.all([loadVendors(), loadBranches(), loadSummary()]);
+		await Promise.all([loadVendors(), loadBranches(), loadSummary(), loadAllPaymentMethods()]);
 		loading = false;
 	});
+
+	async function loadAllPaymentMethods() {
+		try {
+			const { data, error } = await supabase
+				.from('vendor_payment_schedule')
+				.select('payment_method')
+				.not('payment_method', 'is', null)
+				.eq('is_paid', false);
+
+			if (error) throw error;
+
+			// Extract unique payment methods
+			const methods = new Set<string>();
+			data?.forEach(item => {
+				if (item.payment_method) {
+					methods.add(item.payment_method);
+				}
+			});
+			paymentMethods = Array.from(methods).sort();
+		} catch (error) {
+			console.error('Error loading payment methods:', error);
+		}
+	}
 
 	async function loadSummary() {
 		try {
@@ -184,15 +217,6 @@
 			if (error) throw error;
 
 			payments = data || [];
-
-			// Extract unique payment methods
-			const methods = new Set<string>();
-			data?.forEach(payment => {
-				if (payment.payment_method) {
-					methods.add(payment.payment_method);
-				}
-			});
-			paymentMethods = Array.from(methods).sort();
 		} catch (error) {
 			console.error('Error loading payments:', error);
 			payments = [];
@@ -210,6 +234,66 @@
 		selectedPaymentMethod = '';
 		paymentMethods = [];
 		currentPage = 1;
+	}
+
+	function openEditModal(payment: any) {
+		editingPayment = payment;
+		editFormData = {
+			due_date: payment.due_date || '',
+			branch_id: payment.branch_id?.toString() || '',
+			payment_method: payment.payment_method || ''
+		};
+		// Load payment methods before opening modal
+		loadAllPaymentMethods();
+		showEditModal = true;
+	}
+
+	function closeEditModal() {
+		showEditModal = false;
+		editingPayment = null;
+		editFormData = {
+			due_date: '',
+			branch_id: '',
+			payment_method: ''
+		};
+	}
+
+	async function saveEdit() {
+		if (!editingPayment) return;
+
+		savingEdit = true;
+		try {
+			const { error } = await supabase
+				.from('vendor_payment_schedule')
+				.update({
+					due_date: editFormData.due_date,
+					branch_id: parseInt(editFormData.branch_id),
+					payment_method: editFormData.payment_method
+				})
+				.eq('id', editingPayment.id);
+
+			if (error) throw error;
+
+			// Update the local payments array
+			payments = payments.map(p => 
+				p.id === editingPayment.id 
+					? { 
+						...p, 
+						due_date: editFormData.due_date,
+						branch_id: parseInt(editFormData.branch_id),
+						payment_method: editFormData.payment_method,
+						branches: branches.find(b => b.id.toString() === editFormData.branch_id)
+					}
+					: p
+			);
+
+			closeEditModal();
+		} catch (error) {
+			console.error('Error saving edit:', error);
+			alert('Failed to save changes. Please try again.');
+		} finally {
+			savingEdit = false;
+		}
 	}
 
 	function goToPage(page: number) {
@@ -369,6 +453,7 @@
 									<th>Payment Method</th>
 									<th>Invoice Number</th>
 									<th>Status</th>
+									<th>Action</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -382,6 +467,11 @@
 									<td>{payment.bill_number || '-'}</td>
 									<td>
 										<span class="status-badge unpaid">Unpaid</span>
+									</td>
+									<td>
+										<button class="edit-btn" on:click={() => openEditModal(payment)} title="Edit payment details">
+											✎ Edit
+										</button>
 									</td>
 								</tr>
 							{/each}
@@ -429,6 +519,59 @@
 			{/if}
 		{/if}
 	</div>
+
+	<!-- Edit Modal -->
+	{#if showEditModal && editingPayment}
+		<div class="modal-overlay" on:click={closeEditModal}>
+			<div class="modal-content" on:click={e => e.stopPropagation()}>
+				<div class="modal-header">
+					<h2>Edit Payment Details</h2>
+					<button class="close-btn" on:click={closeEditModal}>✕</button>
+				</div>
+
+				<div class="modal-body">
+					<div class="form-group">
+						<label for="edit-due-date">Due Date:</label>
+						<input
+							id="edit-due-date"
+							type="date"
+							bind:value={editFormData.due_date}
+							class="form-input"
+						/>
+					</div>
+
+					<div class="form-group">
+						<label for="edit-branch">Branch:</label>
+						<select id="edit-branch" bind:value={editFormData.branch_id} class="form-input">
+							<option value="">Select Branch</option>
+							{#each branches as branch}
+								<option value={branch.id.toString()}>{branch.name_en}</option>
+							{/each}
+						</select>
+					</div>
+
+					<div class="form-group">
+						<label for="edit-method">Payment Method:</label>
+						<select id="edit-method" bind:value={editFormData.payment_method} class="form-input">
+							<option value="">Select Payment Method</option>
+							{#each paymentMethods as method}
+								<option value={method}>{method}</option>
+							{/each}
+						</select>
+					</div>
+				</div>
+
+				<div class="modal-footer">
+					<button class="btn-cancel" on:click={closeEditModal} disabled={savingEdit}>
+						Cancel
+					</button>
+					<button class="btn-save" on:click={saveEdit} disabled={savingEdit}>
+						{savingEdit ? 'Saving...' : 'Save Changes'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -878,5 +1021,163 @@
 
 	.page-input {
 		-moz-appearance: textfield;
+	}
+
+	/* Edit Button Styles */
+	.edit-btn {
+		padding: 0.5rem 1rem;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: background-color 0.2s;
+	}
+
+	.edit-btn:hover {
+		background: #2563eb;
+	}
+
+	.edit-btn:active {
+		background: #1d4ed8;
+	}
+
+	/* Modal Overlay */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		z-index: 1000;
+	}
+
+	.modal-content {
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+		width: 90%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow-y: auto;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: #6b7280;
+		padding: 0;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: background-color 0.2s, color 0.2s;
+	}
+
+	.close-btn:hover {
+		background-color: #f3f4f6;
+		color: #111827;
+	}
+
+	.modal-body {
+		padding: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.form-group label {
+		font-weight: 600;
+		color: #111827;
+		font-size: 0.875rem;
+	}
+
+	.form-input {
+		padding: 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-family: inherit;
+		background: white;
+	}
+
+	.form-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.modal-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 1rem;
+		padding: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.btn-cancel,
+	.btn-save {
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: all 0.2s;
+	}
+
+	.btn-cancel {
+		background: #f3f4f6;
+		color: #111827;
+	}
+
+	.btn-cancel:hover:not(:disabled) {
+		background: #e5e7eb;
+	}
+
+	.btn-save {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		background: #2563eb;
+	}
+
+	.btn-cancel:disabled,
+	.btn-save:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 </style>
