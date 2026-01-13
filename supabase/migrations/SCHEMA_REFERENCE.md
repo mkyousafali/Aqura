@@ -76,14 +76,8 @@ Salary component definitions
 ### 041. hr_salary_wages
 Employee wage records
 
-### 021. employee_warnings
-Disciplinary warning records
-
 ### 019. employee_fine_payments
 Fine payment records
-
-### 020. employee_warning_history
-Audit trail of warning changes
 
 ---
 
@@ -359,7 +353,6 @@ External requester information (requesters)
 - **task_assignments** → tasks, users
 - **expense_requisitions** → branches, users
 - **receiving_records** → vendors, branches, users
-- **employee_warnings** → users, hr_employees
 - **notifications** → notification_recipients, notification_attachments
 
 ---

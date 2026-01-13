@@ -49,7 +49,6 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Contact Management": "CONTACT_MANAGEMENT",
   "Document Management": "DOCUMENT_MANAGEMENT",
   "Salary & Wage Management": "SALARY_WAGE_MANAGEMENT",
-  "Warning Master": "WARNING_MASTER",
   "Task Master": "TASK_MASTER",
   "Create Task Template": "CREATE_TASK_TEMPLATE",
   "View My Tasks": "VIEW_MY_TASKS",

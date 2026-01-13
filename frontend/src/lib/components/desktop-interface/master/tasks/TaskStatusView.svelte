@@ -4,7 +4,6 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { supabase } from '$lib/utils/supabase';
 	import { notificationManagement } from '$lib/utils/notificationManagement';
-	import SendWarningModal from './SendWarningModal.svelte';
 	
 	let loading = true;
 	let error = null;
@@ -550,23 +549,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			alert('Failed to send reminder notification: ' + err.message);
 		}
 	}
-
-	function openWarningModal(assignment) {
-		// Open SendWarningModal as a window instead of a modal
-		openWindow({
-			component: SendWarningModal,
-			title: 'Generate Warning',
-			props: {
-				assignment: assignment,
-				onClose: () => {
-					// Refresh the data when warning is completed
-					loadTaskStatistics();
-					loadAssignmentData();
-				}
-			},
-			resizable: true
-		});
-	}
 </script>
 
 <div class="task-status-view">
@@ -772,12 +754,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 												on:click={() => sendReminder(assignment)}
 											>
 												📧 Reminder
-											</button>
-											<button 
-												class="action-btn warning-btn"
-												on:click={() => openWarningModal(assignment)}
-											>
-												⚠️ Warning
 											</button>
 										</div>
 									</td>

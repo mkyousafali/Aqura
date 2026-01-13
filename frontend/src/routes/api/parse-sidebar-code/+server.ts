@@ -153,7 +153,6 @@ export const GET: RequestHandler = async () => {
 			CONTACT_MANAGEMENT: 'Contact Management',
 			DOCUMENT_MANAGEMENT: 'Document Management',
 			SALARY_WAGE_MANAGEMENT: 'Salary & Wage Management',
-			WARNING_MASTER: 'Warning Master',
 			BIOMETRIC_DATA: 'Biometric Data',
 			EXPORT_BIOMETRIC_DATA: 'Export Biometric Data',
 			TASK_MASTER: 'Task Master',

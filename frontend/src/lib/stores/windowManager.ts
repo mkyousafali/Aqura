@@ -472,8 +472,6 @@ class WindowManager {
         componentName = "EditUser";
       } else if (windowConfig.title.includes("Notification Center")) {
         componentName = "NotificationCenter";
-      } else if (windowConfig.title.includes("Document Management")) {
-        componentName = "DocumentManagement";
       } else {
         console.warn("🪟 Unknown window title pattern:", windowConfig.title);
         componentName = "UnknownComponent";
