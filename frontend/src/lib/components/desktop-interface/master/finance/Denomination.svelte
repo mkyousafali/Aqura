@@ -59,6 +59,7 @@
 	let pettyCashCounts: any = {};
 	let pettyCashNotes = '';
 	let pettyCashTotal = 0; // Reactive total display
+	let pettyCashBalance = 0; // Current balance to display on button
 	let isSavingPettyCash = false;
 
 	// Reactive total calculation
@@ -213,6 +214,7 @@
 				
 				pettyCashCounts = parsedCounts || {};
 				pettyCashTotal = existingBox[0].grand_total || 0;
+				pettyCashBalance = existingBox[0].grand_total || 0;
 				console.log('✅ Loaded existing counts:', pettyCashCounts, 'Total:', pettyCashTotal);
 			} else {
 				// Create new petty cash box
@@ -412,6 +414,21 @@
 				}
 				// Recalculate total advance box issued amount
 				await fetchAdvanceBoxTotal();
+			} else if (newRecord.record_type === 'petty_cash_box') {
+				console.log('🔄 Updating petty cash box - ID:', newRecord.id, 'Counts:', newRecord.counts);
+				if (pettyCashBoxId === newRecord.id) {
+					// Update balance display always
+					pettyCashBalance = newRecord.grand_total || 0;
+					
+					// Update petty cash form if it's open
+					if (showPettyCashForm) {
+						pettyCashCounts = newRecord.counts || pettyCashCounts;
+						pettyCashCounts = { ...pettyCashCounts };
+						pettyCashTotal = newRecord.grand_total || calculatePettyCashTotal();
+						pettyCashNotes = newRecord.notes || '';
+						console.log('✅ Petty cash form updated from realtime');
+					}
+				}
 			}
 		} else if (eventType === 'DELETE') {
 			// Handle deletion if needed
@@ -1233,11 +1250,10 @@
 		isSidebarOpen = !isSidebarOpen;
 	}
 
-	function openPettyCashForm() {
+	async function openPettyCashForm() {
 		console.log('🔓 Opening petty cash form');
 		console.log('📝 Petty Cash Box ID:', pettyCashBoxId);
 		console.log('📦 Box Number:', pettyCashBoxNumber);
-		console.log('💰 Current Counts:', pettyCashCounts);
 		
 		if (!pettyCashBoxId) {
 			console.error('❌ Petty cash box not initialized');
@@ -1245,12 +1261,45 @@
 			return;
 		}
 
-		pettyCashNotes = '';
-		// Calculate total from current counts
-		pettyCashTotal = calculatePettyCashTotal();
-		console.log('💰 Calculated total:', pettyCashTotal);
-		showPettyCashForm = true;
-		console.log('✅ Petty cash form opened');
+		try {
+			// Reload the latest data from database
+			console.log('📥 Reloading petty cash data from database...');
+			const { data: latestBox, error: fetchError } = await supabase
+				.from('denomination_records')
+				.select('counts, grand_total, notes')
+				.eq('id', pettyCashBoxId)
+				.single();
+
+			if (fetchError) {
+				console.error('❌ Error loading petty cash data:', fetchError);
+				showNotification('Error loading petty cash data', 'error');
+				return;
+			}
+
+			// Update with latest data from database
+			if (latestBox) {
+				let parsedCounts = latestBox.counts;
+				if (typeof parsedCounts === 'string') {
+					try {
+						parsedCounts = JSON.parse(parsedCounts);
+					} catch (e) {
+						console.warn('⚠️ Could not parse counts:', e);
+						parsedCounts = {};
+					}
+				}
+				
+				pettyCashCounts = parsedCounts || {};
+				pettyCashTotal = latestBox.grand_total || 0;
+				pettyCashNotes = latestBox.notes || '';
+				console.log('✅ Loaded latest data:', pettyCashCounts, 'Total:', pettyCashTotal);
+			}
+
+			showPettyCashForm = true;
+			console.log('✅ Petty cash form opened');
+		} catch (error) {
+			console.error('❌ Exception opening petty cash form:', error);
+			showNotification('Failed to open petty cash form', 'error');
+		}
 	}
 
 	function closePettyCashForm() {
@@ -1361,6 +1410,18 @@
 
 			console.log('✅ Petty cash record updated successfully');
 
+			// Deduct the petty cash amount from the main cash box
+			console.log('💸 Deducting petty cash amounts from main cash box...');
+			Object.entries(pettyCashCounts).forEach(([key, value]: [string, any]) => {
+				const amount = value || 0;
+				if (amount > 0) {
+					counts[key] = Math.max(0, counts[key] - amount);
+					console.log(`📉 Deducted ${amount} x ${denomLabels[key]} from main cash box`);
+				}
+			});
+			counts = { ...counts };
+			triggerAutoSave(); // Save the updated main cash box counts
+
 			// Close form and show success
 			closePettyCashForm();
 			showNotification(`Petty cash box #${pettyCashBoxNumber} transferred successfully!`, 'success');
@@ -1371,6 +1432,55 @@
 		} finally {
 			isSavingPettyCash = false;
 			console.log('🔄 isSavingPettyCash set to false');
+		}
+	}
+
+	function addBackToMainPettyCash(key: string) {
+		const amount = pettyCashCounts[key] || 0;
+		if (amount > 0) {
+			// Add back to main counts
+			counts[key] = counts[key] + amount;
+			counts = { ...counts };
+			
+			// Clear from petty cash
+			pettyCashCounts[key] = 0;
+			pettyCashCounts = { ...pettyCashCounts };
+			
+			// Update total
+			pettyCashTotal = calculatePettyCashTotal();
+			
+			// Save the updated petty cash record immediately
+			saveUpdatedPettyCashToDatabase();
+			
+			console.log(`✅ Added back ${amount} x ${denomLabels[key]} to main cash box`);
+			showNotification(`Added ${amount} × ${denomLabels[key]} back to main`, 'success');
+		}
+	}
+
+	async function saveUpdatedPettyCashToDatabase() {
+		try {
+			const updateData = {
+				counts: { ...pettyCashCounts },
+				grand_total: pettyCashTotal,
+				notes: pettyCashNotes || null
+			};
+
+			const { error } = await supabase
+				.from('denomination_records')
+				.update(updateData)
+				.eq('id', pettyCashBoxId);
+
+			if (error) {
+				console.error('❌ Error saving updated petty cash:', error);
+				showNotification('Error updating petty cash record', 'error');
+				return;
+			}
+
+			console.log('✅ Updated petty cash record in database');
+			triggerAutoSave(); // Also save main counts since they changed
+		} catch (error) {
+			console.error('❌ Exception saving updated petty cash:', error);
+			showNotification('Failed to update petty cash record', 'error');
 		}
 	}
 
@@ -1562,6 +1672,15 @@
 							placeholder="0"
 						/>
 						<div class="denom-subtotal">{((pettyCashCounts[key] || 0) * denomValues[key]).toLocaleString()}</div>
+						{#if (pettyCashCounts[key] || 0) > 0}
+							<button 
+								class="add-back-btn" 
+								on:click={() => addBackToMainPettyCash(key)}
+								title="Add back to main"
+							>
+								↩️ Add Back
+							</button>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -1591,7 +1710,7 @@
 				}}
 				disabled={pettyCashTotal <= 0 || isSavingPettyCash}
 			>
-				{isSavingPettyCash ? 'Saving...' : 'Transfer to Petty Cash'}
+				{isSavingPettyCash ? 'Saving...' : pettyCashTotal > 0 ? `💰 ${pettyCashTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR` : 'Transfer to Petty Cash'}
 			</button>
 		</div>
 	</div>
@@ -2242,11 +2361,12 @@
 					<div class="balance-card petty-cash-card">
 						<div class="balance-card-header">
 							<span class="balance-icon">💵</span>
-							<span>Petty Cash Box</span>
+							<span>Petty Cash</span>
 						</div>
 						<div class="balance-card-body">
+							<div class="petty-cash-label">Petty Cash Balance</div>
 							<button class="btn-open-petty-cash" on:click={openPettyCashForm}>
-								📦 Transfer to Petty Cash
+								<span class="balance-amount">💰 {pettyCashBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</span>
 							</button>
 						</div>
 					</div>
@@ -3810,6 +3930,28 @@
 		text-align: right;
 	}
 
+	.add-back-btn {
+		padding: 0.25rem 0.5rem;
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.65rem;
+		font-weight: 600;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: all 0.2s ease;
+	}
+
+	.add-back-btn:hover {
+		background: #dc2626;
+		transform: scale(1.05);
+	}
+
+	.add-back-btn:active {
+		transform: scale(0.95);
+	}
+
 	.cashbox-total-row {
 		display: flex;
 		justify-content: space-between;
@@ -4613,6 +4755,25 @@
 
 	.petty-cash-card {
 		margin-top: 0.75rem;
+		grid-column: 1 / -1;
+	}
+
+	.petty-cash-card .balance-card-body {
+		min-height: 80px;
+		justify-content: center;
+		padding: 0.75rem 0.4rem;
+	}
+
+	.petty-cash-card .balance-card-header {
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+	}
+
+	.petty-cash-label {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #666;
+		margin-bottom: 0.5rem;
+		text-align: center;
 	}
 
 	/* Petty Cash Button (matching advance boxes) */
@@ -4627,6 +4788,16 @@
 		cursor: pointer;
 		transition: all 0.3s ease;
 		font-size: 0.95rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.balance-amount {
+		font-size: 1rem;
+		font-weight: 700;
+		color: #ffffff;
+		letter-spacing: 0.5px;
 	}
 
 	.btn-open-petty-cash:hover {

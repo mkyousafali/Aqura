@@ -46,6 +46,16 @@
 	let loadingBoxes = false;
 	let employeeMap: Map<string, string> = new Map();
 	let selectedBox: BoxOperation | null = null;
+	let pettyCashBalance = 0;
+	let loadingPettyCash = false;
+	let branchesChannel: any;
+	let boxesChannel: any;
+	let pettyCashChannel: any;
+	let transferQuantities: Record<string, number> = {};
+	let savingTransfer = false;
+	let transferMessage = '';
+	let transferError = '';
+	let exceedMessage = '';
 
 	onMount(async () => {
 		try {
@@ -58,6 +68,27 @@
 
 			if (branchesError) throw branchesError;
 			branches = branchesData || [];
+
+			// Set up real-time listener for branches
+			branchesChannel = supabase
+				.channel('branches-changes')
+				.on(
+					'postgres_changes',
+					{ event: '*', schema: 'public', table: 'branches' },
+					async (payload) => {
+						console.log('Branch update:', payload);
+						// Refresh branches list
+						const { data: updatedBranches } = await supabase
+							.from('branches')
+							.select('id, name_en, name_ar, location_en, location_ar, is_active')
+							.eq('is_active', true)
+							.order('name_en');
+						if (updatedBranches) {
+							branches = updatedBranches;
+						}
+					}
+				)
+				.subscribe();
 
 			// Fetch user's default branch preference
 			if ($currentUser?.id) {
@@ -72,6 +103,9 @@
 					selectedBranchId = prefData.default_branch_id;
 					if (selectedBranchId) {
 						await loadAvailableBoxes();
+						setupBoxesRealtime();
+						await loadPettyCashBalance();
+						setupPettyCashRealtime();
 					}
 				}
 			}
@@ -81,10 +115,134 @@
 		} finally {
 			loading = false;
 		}
+
+		return () => {
+			// Cleanup subscriptions on unmount
+			if (branchesChannel) {
+				supabase.removeChannel(branchesChannel);
+			}
+			if (boxesChannel) {
+				supabase.removeChannel(boxesChannel);
+			}
+			if (pettyCashChannel) {
+				supabase.removeChannel(pettyCashChannel);
+			}
+		};
 	});
 
 	$: if (selectedBranchId) {
 		loadAvailableBoxes();
+		loadPettyCashBalance();
+		setupBoxesRealtime();
+		setupPettyCashRealtime();
+	}
+
+	// Validate transfer quantities
+	$: {
+		exceedMessage = '';
+		if (selectedBox?.closing_details?.closing_counts) {
+			for (const [key, qty] of Object.entries(transferQuantities)) {
+				const availableCount = selectedBox.closing_details.closing_counts[key] || 0;
+				if (qty > availableCount) {
+					exceedMessage = `⚠️ Cannot transfer more than available. ${getDenominationLabel(key)}: only ${availableCount} available, you entered ${qty}`;
+					break;
+				}
+			}
+		}
+	}
+
+	function setupBoxesRealtime() {
+		// Clean up old subscription
+		if (boxesChannel) {
+			supabase.removeChannel(boxesChannel);
+		}
+
+		if (!selectedBranchId) return;
+
+		// Set up real-time listener for box operations
+		boxesChannel = supabase
+			.channel(`boxes-${selectedBranchId}`)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'box_operations',
+					filter: `branch_id=eq.${selectedBranchId}`
+				},
+				async (payload) => {
+					console.log('Box operation update:', payload);
+					// Refresh available boxes
+					await loadAvailableBoxes();
+				}
+			)
+			.subscribe();
+	}
+
+	function setupPettyCashRealtime() {
+		// Clean up old subscription
+		if (pettyCashChannel) {
+			supabase.removeChannel(pettyCashChannel);
+		}
+
+		if (!selectedBranchId) return;
+
+		// Set up real-time listener for petty cash records
+		pettyCashChannel = supabase
+			.channel(`petty-cash-${selectedBranchId}`)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'denomination_records',
+					filter: `branch_id=eq.${selectedBranchId}`
+				},
+				async (payload) => {
+					console.log('Petty cash update:', payload);
+					// Update balance if it's a petty_cash_box record
+					if (payload.new?.record_type === 'petty_cash_box') {
+						pettyCashBalance = payload.new.grand_total || 0;
+					} else if (payload.old?.record_type === 'petty_cash_box' && !payload.new) {
+						// Record was deleted
+						await loadPettyCashBalance();
+					}
+				}
+			)
+			.subscribe();
+	}
+
+	$: if (selectedBranchId) {
+		loadAvailableBoxes();
+		loadPettyCashBalance();
+	}
+
+	async function loadPettyCashBalance() {
+		if (!selectedBranchId) return;
+		
+		try {
+			loadingPettyCash = true;
+			const { data: pettyCash, error } = await supabase
+				.from('denomination_records')
+				.select('grand_total')
+				.eq('branch_id', selectedBranchId)
+				.eq('record_type', 'petty_cash_box')
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.single();
+
+			if (error && error.code !== 'PGRST116') {
+				console.error('Error loading petty cash balance:', error);
+				pettyCashBalance = 0;
+			} else {
+				pettyCashBalance = pettyCash?.grand_total || 0;
+			}
+		} catch (err) {
+			console.error('Exception loading petty cash balance:', err);
+			pettyCashBalance = 0;
+		} finally {
+			loadingPettyCash = false;
+		}
 	}
 
 	async function setDefaultBranch() {
@@ -220,6 +378,107 @@
 
 	function selectBox(box: BoxOperation) {
 		selectedBox = selectedBox?.id === box.id ? null : box;
+		if (selectedBox) {
+			transferQuantities = {};
+			transferMessage = '';
+			transferError = '';
+		}
+	}
+
+	async function saveTransferToPettyCash() {
+		if (!selectedBox || !selectedBranchId || !$currentUser?.id) return;
+
+		// Validate quantities don't exceed available counts
+		for (const [key, qty] of Object.entries(transferQuantities)) {
+			const availableCount = selectedBox.closing_details?.closing_counts[key] || 0;
+			if (qty > availableCount) {
+				transferError = `Cannot transfer more than available. ${getDenominationLabel(key)}: available ${availableCount}, requested ${qty}`;
+				return;
+			}
+		}
+
+		// Calculate total to transfer
+		const totalToTransfer = Object.entries(transferQuantities).reduce((sum, [key, qty]) => {
+			if (key !== 'coins' && qty > 0) {
+				return sum + parseFloat(key.replace('d', '')) * qty;
+			}
+			return sum;
+		}, 0);
+
+		if (totalToTransfer <= 0) {
+			transferError = 'Please enter quantities to transfer';
+			return;
+		}
+
+		savingTransfer = true;
+		transferMessage = '';
+		transferError = '';
+
+		try {
+			// Get current petty cash record
+			const { data: currentRecord } = await supabase
+				.from('denomination_records')
+				.select('*')
+				.eq('branch_id', selectedBranchId)
+				.eq('record_type', 'petty_cash_box')
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.single();
+
+			// Build new counts with transferred amounts added
+			const newCounts = currentRecord?.counts || {};
+			Object.entries(transferQuantities).forEach(([key, qty]) => {
+				if (qty > 0) {
+					newCounts[key] = (newCounts[key] || 0) + qty;
+				}
+			});
+
+			// Calculate new grand total
+			let newGrandTotal = 0;
+			Object.entries(newCounts).forEach(([key, count]) => {
+				if (key !== 'coins') {
+					newGrandTotal += parseFloat(key.replace('d', '')) * count;
+				}
+			});
+
+			// Update or create petty cash record
+			if (currentRecord?.id) {
+				const { error } = await supabase
+					.from('denomination_records')
+					.update({
+						counts: newCounts,
+						grand_total: newGrandTotal,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', currentRecord.id);
+
+				if (error) throw error;
+			} else {
+				const { error } = await supabase
+					.from('denomination_records')
+					.insert({
+						branch_id: selectedBranchId,
+						record_type: 'petty_cash_box',
+						counts: newCounts,
+						grand_total: newGrandTotal,
+						created_by: $currentUser.id
+					});
+
+				if (error) throw error;
+			}
+
+			transferMessage = `✅ Successfully transferred ${formatCurrency(totalToTransfer)} to petty cash!`;
+			transferQuantities = {};
+			await loadPettyCashBalance();
+			setTimeout(() => {
+				transferMessage = '';
+			}, 3000);
+		} catch (err) {
+			console.error('Error transferring to petty cash:', err);
+			transferError = 'Failed to transfer to petty cash';
+		} finally {
+			savingTransfer = false;
+		}
 	}
 
 	function calculateDenominationTotal(): number {
@@ -348,14 +607,29 @@
 			</div>
 		</div>
 
-		<!-- Card 3: Blank -->
+		<!-- Card 3: Petty Cash Balance -->
 		<div class="card card-3">
 			<div class="card-header">
-				<h2>📝 Card 3</h2>
+				<h2>💰 Card 3</h2>
 				<span class="card-number">3</span>
 			</div>
 			<div class="card-content">
-				<div class="placeholder">Coming Soon</div>
+				<div class="section-title">Petty Cash Balance</div>
+
+				{#if !selectedBranchId}
+					<div class="no-branch-message">
+						<p>Select a branch in Card 1 to view petty cash balance</p>
+					</div>
+				{:else if loadingPettyCash}
+					<div class="loading">Loading balance...</div>
+				{:else}
+					<div class="petty-cash-display">
+						<div class="balance-label">Current Balance</div>
+						<div class="balance-amount">
+							💵 {pettyCashBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -374,6 +648,8 @@
 							<th>Denomination</th>
 							<th>Count</th>
 							<th>Amount</th>
+							<th>Transfer Qty</th>
+							<th>Transfer Amount</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -390,6 +666,32 @@
 										)}
 									{/if}
 								</td>
+								<td class="transfer-col">
+									{#if key !== 'coins' && count > 0}
+										<input
+											type="number"
+											min="0"
+											max={count}
+											bind:value={transferQuantities[key]}
+											placeholder="0"
+											class="transfer-input"
+											disabled={savingTransfer}
+										/>
+									{:else}
+										<span class="disabled-text">—</span>
+									{/if}
+								</td>
+								<td class="transfer-amount-col">
+									{#if key === 'coins'}
+										—
+									{:else if transferQuantities[key] > 0}
+										{formatCurrency(
+											parseFloat(key.replace('d', '')) * (transferQuantities[key] || 0)
+										)}
+									{:else}
+										—
+									{/if}
+								</td>
 							</tr>
 						{/each}
 						<tr class="total-row">
@@ -397,19 +699,55 @@
 							<td class="amount-col" style="font-weight: 700; color: #2e7d32;">
 								{formatCurrency(calculateDenominationTotal())}
 							</td>
+							<td class="transfer-col" style="font-weight: 600; color: #1976d2;">Transfer Total</td>
+							<td class="transfer-amount-col" style="font-weight: 700; color: #1976d2;">
+								{formatCurrency(
+									Object.entries(transferQuantities).reduce((sum, [key, qty]) => {
+										if (key !== 'coins' && qty > 0) {
+											return sum + parseFloat(key.replace('d', '')) * qty;
+										}
+										return sum;
+									}, 0)
+								)}
+							</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
+
+			{#if Object.values(transferQuantities).some(v => v > 0)}
+				<div class="transfer-actions">
+					{#if exceedMessage}
+						<div class="warning-message">{exceedMessage}</div>
+					{/if}
+					<button
+						on:click={saveTransferToPettyCash}
+						disabled={savingTransfer || exceedMessage}
+						class="save-transfer-btn"
+					>
+						{#if savingTransfer}
+							<span class="spinner"></span> Saving...
+						{:else}
+							💾 Save Transfer to Petty Cash
+						{/if}
+					</button>
+					{#if transferMessage}
+						<div class="success-message transfer-message">{transferMessage}</div>
+					{/if}
+					{#if transferError}
+						<div class="error-message transfer-message">{transferError}</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
-</div>
 
+
+</div>
 <style>
 	.petty-cash-container {
 		padding: 24px;
-		height: 100%;
-		width: 100%;
+		height: 100%;		width: 100%;
 		background: linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%);
 		overflow-y: auto;
 	}
@@ -664,6 +1002,18 @@
 		animation: slideIn 0.3s ease;
 	}
 
+	.warning-message {
+		padding: 10px 12px;
+		background-color: #fff3cd;
+		color: #856404;
+		border-radius: 6px;
+		border-left: 4px solid #ffc107;
+		font-size: 12px;
+		font-weight: 500;
+		margin-bottom: 12px;
+		animation: slideIn 0.3s ease;
+	}
+
 	@keyframes slideIn {
 		from {
 			opacity: 0;
@@ -869,5 +1219,115 @@
 
 	.total-row td {
 		padding: 12px 10px;
+	}
+
+	.transfer-col {
+		text-align: center;
+		padding: 10px 5px;
+	}
+
+	.disabled-text {
+		color: #ccc;
+		font-weight: 500;
+	}
+
+	.transfer-input {
+		width: 60px;
+		padding: 6px;
+		border: 2px solid #e0e0e0;
+		border-radius: 4px;
+		font-size: 12px;
+		text-align: center;
+		transition: all 0.3s ease;
+	}
+
+	.transfer-input:focus {
+		outline: none;
+		border-color: #2196f3;
+		box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+	}
+
+	.transfer-input:disabled {
+		background-color: #f5f5f5;
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.transfer-amount-col {
+		text-align: right;
+		font-weight: 600;
+		color: #1976d2;
+	}
+
+	.transfer-actions {
+		padding: 16px;
+		background: linear-gradient(135deg, #f0f7ff 0%, #e3f2fd 100%);
+		border-top: 2px solid #2196f3;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.save-transfer-btn {
+		padding: 10px 16px;
+		background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+	}
+
+	.save-transfer-btn:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+	}
+
+	.save-transfer-btn:active:not(:disabled) {
+		transform: translateY(0px);
+		box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+	}
+
+	.save-transfer-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.transfer-message {
+		margin: 0;
+	}
+
+	.petty-cash-display {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, #f0f7ff 0%, #e3f2fd 100%);
+		border-radius: 8px;
+		text-align: center;
+	}
+
+	.balance-label {
+		font-size: 0.9rem;
+		color: #666;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.balance-amount {
+		font-size: 1.75rem;
+		font-weight: 700;
+		color: #2196f3;
+		line-height: 1.2;
 	}
 </style>
