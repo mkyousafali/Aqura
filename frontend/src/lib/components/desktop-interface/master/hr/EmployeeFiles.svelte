@@ -22,6 +22,9 @@
 	let savedIdNumber = '';
 	let idExpiryDate = '';
 	let savedIdExpiryDate = '';
+	let workPermitExpiryDate = '';
+	let savedWorkPermitExpiryDate = '';
+	let workPermitDaysUntilExpiry = 0;
 	let idDocumentFile: File | null = null;
 	let isUploadingDocument = false;
 	let daysUntilExpiry = 0;
@@ -29,6 +32,9 @@
 	let savedHealthCardNumber = '';
 	let healthCardExpiryDate = '';
 	let savedHealthCardExpiryDate = '';
+	let healthEducationalRenewalDate = '';
+	let savedHealthEducationalRenewalDate = '';
+	let healthEducationalRenewalDaysUntilExpiry = 0;
 	let healthCardFile: File | null = null;
 	let isUploadingHealthCard = false;
 	let healthCardDaysUntilExpiry = 0;
@@ -48,6 +54,21 @@
 	let savedBankName = '';
 	let iban = '';
 	let savedIban = '';
+	let dateOfBirth = '';
+	let savedDateOfBirth = '';
+	let age = 0;
+	let joinDate = '';
+	let savedJoinDate = '';
+	let insuranceCompanies: any[] = [];
+	let selectedInsuranceCompanyId = '';
+	let savedInsuranceCompanyId = '';
+	let insuranceExpiryDate = '';
+	let savedInsuranceExpiryDate = '';
+	let insuranceDaysUntilExpiry = 0;
+	let isCreatingInsuranceCompany = false;
+	let newInsuranceCompanyNameEn = '';
+	let newInsuranceCompanyNameAr = '';
+	let showCreateInsuranceModal = false;
 
 	// Banks list
 	const banks = [
@@ -71,6 +92,7 @@
 	onMount(async () => {
 		await loadBranches();
 		await loadNationalities();
+		await loadInsuranceCompanies();
 		await loadEmployees();
 	});
 
@@ -99,6 +121,63 @@
 			nationalities = [...priorityNationalities, ...otherNationalities];
 		} catch (error) {
 			console.error('Error loading nationalities:', error);
+		}
+	}
+
+	async function loadInsuranceCompanies() {
+		try {
+			const { data, error } = await supabase
+				.from('hr_insurance_companies')
+				.select('id, name_en, name_ar')
+				.order('name_en');
+			if (error) {
+				console.error('Error loading insurance companies:', error);
+				return;
+			}
+			insuranceCompanies = data || [];
+		} catch (error) {
+			console.error('Error loading insurance companies:', error);
+		}
+	}
+
+	async function createInsuranceCompany() {
+		if (!newInsuranceCompanyNameEn || !newInsuranceCompanyNameAr) {
+			alert('Please enter company names in both languages');
+			return;
+		}
+
+		isCreatingInsuranceCompany = true;
+
+		try {
+			const { data, error } = await supabase
+				.from('hr_insurance_companies')
+				.insert([
+					{
+						name_en: newInsuranceCompanyNameEn,
+						name_ar: newInsuranceCompanyNameAr
+					}
+				])
+				.select();
+
+			if (error) {
+				console.error('Error creating insurance company:', error);
+				alert('Failed to create insurance company');
+				return;
+			}
+
+			if (data && data[0]) {
+				insuranceCompanies = [...insuranceCompanies, data[0]];
+				selectedInsuranceCompanyId = data[0].id;
+				newInsuranceCompanyNameEn = '';
+				newInsuranceCompanyNameAr = '';
+				showCreateInsuranceModal = false;
+				alert('Insurance company created successfully!');
+			}
+		} catch (error) {
+			console.error('Error creating insurance company:', error);
+			alert('Failed to create insurance company');
+		} finally {
+			isCreatingInsuranceCompany = false;
 		}
 	}
 
@@ -139,17 +218,23 @@
 					sponsorship_status,
 					id_number,
 					id_expiry_date,
+					work_permit_expiry_date,
 					id_document_url,
 					health_card_number,
 					health_card_expiry_date,
 					health_card_document_url,
+					health_educational_renewal_date,
 					driving_licence_number,
 					driving_licence_expiry_date,
 					driving_licence_document_url,
 					contract_expiry_date,
 					contract_document_url,
 					bank_name,
-					iban
+					iban,
+					date_of_birth,
+					join_date,
+					insurance_company_id,
+					insurance_expiry_date
 				`);
 
 			if (error) {
@@ -214,11 +299,15 @@
 		savedIdNumber = employee.id_number || '';
 		idExpiryDate = employee.id_expiry_date || '';
 		savedIdExpiryDate = employee.id_expiry_date || '';
+		workPermitExpiryDate = employee.work_permit_expiry_date || '';
+		savedWorkPermitExpiryDate = employee.work_permit_expiry_date || '';
 		idDocumentFile = null;
 		healthCardNumber = employee.health_card_number || '';
 		savedHealthCardNumber = employee.health_card_number || '';
 		healthCardExpiryDate = employee.health_card_expiry_date || '';
 		savedHealthCardExpiryDate = employee.health_card_expiry_date || '';
+		healthEducationalRenewalDate = employee.health_educational_renewal_date || '';
+		savedHealthEducationalRenewalDate = employee.health_educational_renewal_date || '';
 		healthCardFile = null;
 		drivingLicenceNumber = employee.driving_licence_number || '';
 		savedDrivingLicenceNumber = employee.driving_licence_number || '';
@@ -232,10 +321,22 @@
 		savedBankName = employee.bank_name || '';
 		iban = employee.iban || '';
 		savedIban = employee.iban || '';
+		dateOfBirth = employee.date_of_birth || '';
+		savedDateOfBirth = employee.date_of_birth || '';
+		joinDate = employee.join_date || '';
+		savedJoinDate = employee.join_date || '';
+		selectedInsuranceCompanyId = employee.insurance_company_id || '';
+		savedInsuranceCompanyId = employee.insurance_company_id || '';
+		insuranceExpiryDate = employee.insurance_expiry_date || '';
+		savedInsuranceExpiryDate = employee.insurance_expiry_date || '';
 		calculateDaysUntilExpiry();
+		calculateWorkPermitDaysUntilExpiry();
 		calculateHealthCardDaysUntilExpiry();
+		calculateHealthEducationalRenewalDaysUntilExpiry();
 		calculateDrivingLicenceDaysUntilExpiry();
 		calculateContractDaysUntilExpiry();
+		calculateInsuranceDaysUntilExpiry();
+		calculateAge();
 	}
 
 	function toggleEdit() {
@@ -253,6 +354,19 @@
 		const diffTime = expiry.getTime() - today.getTime();
 		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 		daysUntilExpiry = diffDays;
+	}
+
+	function calculateWorkPermitDaysUntilExpiry() {
+		if (!workPermitExpiryDate) {
+			workPermitDaysUntilExpiry = 0;
+			return;
+		}
+
+		const today = new Date();
+		const expiry = new Date(workPermitExpiryDate);
+		const diffTime = expiry.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		workPermitDaysUntilExpiry = diffDays;
 	}
 
 	async function saveIDNumber() {
@@ -307,6 +421,34 @@
 		} catch (error) {
 			console.error('Error saving expiry date:', error);
 			alert('Failed to save expiry date');
+		}
+	}
+
+	async function saveWorkPermitExpiryDate() {
+		if (!selectedEmployee || !workPermitExpiryDate) {
+			alert('Please select work permit expiry date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ work_permit_expiry_date: workPermitExpiryDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving work permit expiry date:', error);
+				alert('Failed to save work permit expiry date');
+				return;
+			}
+
+			selectedEmployee.work_permit_expiry_date = workPermitExpiryDate;
+			savedWorkPermitExpiryDate = workPermitExpiryDate;
+			calculateWorkPermitDaysUntilExpiry();
+			alert('Work permit expiry date saved successfully!');
+		} catch (error) {
+			console.error('Error saving work permit expiry date:', error);
+			alert('Failed to save work permit expiry date');
 		}
 	}
 
@@ -378,6 +520,38 @@
 		healthCardDaysUntilExpiry = diffDays;
 	}
 
+	function calculateHealthEducationalRenewalDaysUntilExpiry() {
+		if (!healthEducationalRenewalDate) {
+			healthEducationalRenewalDaysUntilExpiry = 0;
+			return;
+		}
+
+		const today = new Date();
+		const expiry = new Date(healthEducationalRenewalDate);
+		const diffTime = expiry.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		healthEducationalRenewalDaysUntilExpiry = diffDays;
+	}
+
+	function calculateAge() {
+		if (!dateOfBirth) {
+			age = 0;
+			return;
+		}
+
+		const today = new Date();
+		const birthDate = new Date(dateOfBirth);
+		let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+		const monthDiff = today.getMonth() - birthDate.getMonth();
+		
+		// Adjust age if birthday hasn't occurred this year
+		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+			calculatedAge--;
+		}
+		
+		age = calculatedAge;
+	}
+
 	async function saveHealthCardNumber() {
 		if (!selectedEmployee || !healthCardNumber) {
 			alert('Please enter health card number');
@@ -430,6 +604,34 @@
 		} catch (error) {
 			console.error('Error saving health card expiry date:', error);
 			alert('Failed to save expiry date');
+		}
+	}
+
+	async function saveHealthEducationalRenewalDate() {
+		if (!selectedEmployee || !healthEducationalRenewalDate) {
+			alert('Please select a renewal date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ health_educational_renewal_date: healthEducationalRenewalDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving health educational renewal date:', error);
+				alert('Failed to save renewal date');
+				return;
+			}
+
+			selectedEmployee.health_educational_renewal_date = healthEducationalRenewalDate;
+			savedHealthEducationalRenewalDate = healthEducationalRenewalDate;
+			calculateHealthEducationalRenewalDaysUntilExpiry();
+			alert('Health educational renewal date saved successfully!');
+		} catch (error) {
+			console.error('Error saving health educational renewal date:', error);
+			alert('Failed to save renewal date');
 		}
 	}
 
@@ -758,6 +960,129 @@
 		} catch (error) {
 			console.error('Error saving IBAN:', error);
 			alert('Failed to save IBAN');
+		}
+	}
+
+	async function saveDateOfBirth() {
+		if (!selectedEmployee || !dateOfBirth) {
+			alert('Please enter date of birth');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ date_of_birth: dateOfBirth })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving date of birth:', error);
+				alert('Failed to save date of birth');
+				return;
+			}
+
+			selectedEmployee.date_of_birth = dateOfBirth;
+			savedDateOfBirth = dateOfBirth;
+			calculateAge();
+			alert('Date of birth saved successfully!');
+		} catch (error) {
+			console.error('Error saving date of birth:', error);
+			alert('Failed to save date of birth');
+		}
+	}
+
+	async function saveJoinDate() {
+		if (!selectedEmployee || !joinDate) {
+			alert('Please enter join date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ join_date: joinDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving join date:', error);
+				alert('Failed to save join date');
+				return;
+			}
+
+			selectedEmployee.join_date = joinDate;
+			savedJoinDate = joinDate;
+			alert('Join date saved successfully!');
+		} catch (error) {
+			console.error('Error saving join date:', error);
+			alert('Failed to save join date');
+		}
+	}
+
+	function calculateInsuranceDaysUntilExpiry() {
+		if (!insuranceExpiryDate) {
+			insuranceDaysUntilExpiry = 0;
+			return;
+		}
+
+		const today = new Date();
+		const expiry = new Date(insuranceExpiryDate);
+		const diffTime = expiry.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		insuranceDaysUntilExpiry = diffDays;
+	}
+
+	async function saveInsuranceCompanyId() {
+		if (!selectedEmployee || !selectedInsuranceCompanyId) {
+			alert('Please select an insurance company');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ insurance_company_id: selectedInsuranceCompanyId })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving insurance company:', error);
+				alert('Failed to save insurance company');
+				return;
+			}
+
+			selectedEmployee.insurance_company_id = selectedInsuranceCompanyId;
+			savedInsuranceCompanyId = selectedInsuranceCompanyId;
+			alert('Insurance company saved successfully!');
+		} catch (error) {
+			console.error('Error saving insurance company:', error);
+			alert('Failed to save insurance company');
+		}
+	}
+
+	async function saveInsuranceExpiryDate() {
+		if (!selectedEmployee || !insuranceExpiryDate) {
+			alert('Please select an expiry date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ insurance_expiry_date: insuranceExpiryDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving insurance expiry date:', error);
+				alert('Failed to save insurance expiry date');
+				return;
+			}
+
+			selectedEmployee.insurance_expiry_date = insuranceExpiryDate;
+			savedInsuranceExpiryDate = insuranceExpiryDate;
+			calculateInsuranceDaysUntilExpiry();
+			alert('Insurance expiry date saved successfully!');
+		} catch (error) {
+			console.error('Error saving insurance expiry date:', error);
+			alert('Failed to save insurance expiry date');
 		}
 	}
 
@@ -1106,6 +1431,60 @@
 									{/if}
 								{/if}
 
+								<!-- Work Permit Expiry Date Field -->
+								{#if !savedWorkPermitExpiryDate}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="work-permit-expiry">Work Permit Expiry Date</label>
+										<input 
+											type="date" 
+											id="work-permit-expiry" 
+											bind:value={workPermitExpiryDate}
+											on:change={calculateWorkPermitDaysUntilExpiry}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveWorkPermitExpiryDate}>
+										💾 Save Work Permit Date
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Work Permit:</span>
+											<span class="date-value">
+												{savedWorkPermitExpiryDate ? new Date(savedWorkPermitExpiryDate).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+										{#if workPermitDaysUntilExpiry > 0}
+											<span class="expiry-valid">⏰ {workPermitDaysUntilExpiry} days remaining</span>
+										{:else if workPermitDaysUntilExpiry === 0}
+											<span class="expiry-warning">⚠️ Expires today!</span>
+										{:else}
+											<span class="expiry-expired">❌ Expired {Math.abs(workPermitDaysUntilExpiry)} days ago</span>
+										{/if}
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if workPermitExpiryDate !== savedWorkPermitExpiryDate}
+										<div class="form-group-compact">
+											<label for="work-permit-expiry">Change Work Permit Date</label>
+											<input 
+												type="date" 
+												id="work-permit-expiry" 
+												bind:value={workPermitExpiryDate}
+												on:change={calculateWorkPermitDaysUntilExpiry}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveWorkPermitExpiryDate}>
+											💾 Save Work Permit Date
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => workPermitExpiryDate = ''}>
+											✏️ Update Work Permit Date
+										</button>
+									{/if}
+								{/if}
+
 								<!-- File Upload -->
 								<div class="file-upload-group">
 									<label for="id-document">Upload Document</label>
@@ -1159,7 +1538,7 @@
 					<div class="file-card health-card">
 						<div class="file-card-content health-content">
 							<div class="health-form">
-								<h5>🏥 Health Card</h5>
+								<h5>بطاقة صحية | Health Card</h5>
 								
 								<!-- Health Card Number Field -->
 								{#if !savedHealthCardNumber}
@@ -1305,6 +1684,60 @@
 										</button>
 									{/if}
 								</div>
+
+								<!-- Health Educational Renewal Date Field -->
+								{#if !savedHealthEducationalRenewalDate}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="health-educational-renewal">Education Expiry Date</label>
+										<input 
+											type="date" 
+											id="health-educational-renewal" 
+											bind:value={healthEducationalRenewalDate}
+											on:change={calculateHealthEducationalRenewalDaysUntilExpiry}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveHealthEducationalRenewalDate}>
+										💾 Save Expiry Date
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Education Expiry Date:</span>
+											<span class="date-value">
+												{savedHealthEducationalRenewalDate ? new Date(savedHealthEducationalRenewalDate).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+										{#if healthEducationalRenewalDaysUntilExpiry > 0}
+											<span class="expiry-valid">⏰ {healthEducationalRenewalDaysUntilExpiry} days remaining</span>
+										{:else if healthEducationalRenewalDaysUntilExpiry === 0}
+											<span class="expiry-warning">⚠️ Expires today!</span>
+										{:else}
+											<span class="expiry-expired">❌ Expired {Math.abs(healthEducationalRenewalDaysUntilExpiry)} days ago</span>
+										{/if}
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if healthEducationalRenewalDate !== savedHealthEducationalRenewalDate}
+										<div class="form-group-compact">
+											<label for="health-educational-renewal">Change Education Expiry Date</label>
+											<input 
+												type="date" 
+												id="health-educational-renewal" 
+												bind:value={healthEducationalRenewalDate}
+												on:change={calculateHealthEducationalRenewalDaysUntilExpiry}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveHealthEducationalRenewalDate}>
+											💾 Save Expiry Date
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => healthEducationalRenewalDate = ''}>
+											✏️ Update Expiry Date
+										</button>
+									{/if}
+								{/if}
 							</div>
 						</div>
 					</div>
@@ -1313,7 +1746,7 @@
 					<div class="file-card driving-licence-card">
 						<div class="file-card-content driving-licence-content">
 							<div class="driving-licence-form">
-								<h5>🚗 Driving Licence</h5>
+								<h5>رخصة القيادة | Driving Licence</h5>
 								
 								<!-- Driving Licence Number Field -->
 								{#if !savedDrivingLicenceNumber}
@@ -1467,7 +1900,7 @@
 					<div class="file-card contract-card">
 						<div class="file-card-content contract-content">
 							<div class="contract-form">
-								<h5>📄 Contract</h5>
+								<h5>العقد | Contract</h5>
 								
 								<!-- Expiry Date Field -->
 								{#if !savedContractExpiryDate}
@@ -1576,7 +2009,7 @@
 					<div class="file-card bank-card">
 						<div class="file-card-content bank-content">
 							<div class="bank-form">
-								<h5>🏦 Bank Information</h5>
+								<h5>معلومات البنك | Bank Information</h5>
 								
 								<!-- Bank Name Field -->
 								{#if !savedBankName}
@@ -1681,6 +2114,234 @@
 						</div>
 					</div>
 
+					<!-- Card 6: Health Insurance Management -->
+					<div class="file-card insurance-card">
+						<div class="file-card-content insurance-content">
+							<div class="insurance-form">
+								<h5>التأمين الصحي | Health Insurance</h5>
+								
+								<!-- Insurance Company Field -->
+								{#if !savedInsuranceCompanyId}
+									<!-- Show input when no company is saved -->
+									<div class="form-group-compact">
+										<label for="insurance-company">Insurance Company</label>
+										<select 
+											id="insurance-company"
+											bind:value={selectedInsuranceCompanyId}
+										>
+											<option value="">Select Company</option>
+											{#each insuranceCompanies as company}
+												<option value={company.id}>
+													{company.name_ar} / {company.name_en}
+												</option>
+											{/each}
+										</select>
+										<button class="secondary-button" on:click={() => showCreateInsuranceModal = true}>
+											➕ Create Company
+										</button>
+									</div>
+									<button class="save-button-small" on:click={saveInsuranceCompanyId}>
+										💾 Save Company
+									</button>
+								{:else}
+									<!-- Show saved company info -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Insurance Company:</span>
+											<span class="date-value">
+												{insuranceCompanies.find(c => c.id === savedInsuranceCompanyId)?.name_ar || savedInsuranceCompanyId}
+											</span>
+										</div>
+									</div>
+									
+									<!-- Edit company input (hidden by default) -->
+									{#if selectedInsuranceCompanyId !== savedInsuranceCompanyId}
+										<div class="form-group-compact">
+											<label for="insurance-company-edit">Change Insurance Company</label>
+											<select 
+												id="insurance-company-edit"
+												bind:value={selectedInsuranceCompanyId}
+											>
+												<option value="">Select Company</option>
+												{#each insuranceCompanies as company}
+													<option value={company.id}>
+														{company.name_ar} / {company.name_en}
+													</option>
+												{/each}
+											</select>
+											<button class="secondary-button" on:click={() => showCreateInsuranceModal = true}>
+												➕ Create Company
+											</button>
+										</div>
+										<button class="save-button-small" on:click={saveInsuranceCompanyId}>
+											💾 Save Company
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => selectedInsuranceCompanyId = ''}>
+											✏️ Edit Company
+										</button>
+									{/if}
+								{/if}
+								
+								<!-- Expiry Date Field -->
+								{#if !savedInsuranceExpiryDate}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="insurance-expiry">Expiry Date</label>
+										<input 
+											type="date" 
+											id="insurance-expiry" 
+											bind:value={insuranceExpiryDate}
+											on:change={calculateInsuranceDaysUntilExpiry}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveInsuranceExpiryDate}>
+										💾 Save Date
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Saved:</span>
+											<span class="date-value">
+												{savedInsuranceExpiryDate ? new Date(savedInsuranceExpiryDate).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+										{#if insuranceDaysUntilExpiry > 0}
+											<span class="expiry-valid">⏰ {insuranceDaysUntilExpiry} days remaining</span>
+										{:else if insuranceDaysUntilExpiry === 0}
+											<span class="expiry-warning">⚠️ Expires today!</span>
+										{:else}
+											<span class="expiry-expired">❌ Expired {Math.abs(insuranceDaysUntilExpiry)} days ago</span>
+										{/if}
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if insuranceExpiryDate !== savedInsuranceExpiryDate}
+										<div class="form-group-compact">
+											<label for="insurance-expiry">Change Expiry Date</label>
+											<input 
+												type="date" 
+												id="insurance-expiry" 
+												bind:value={insuranceExpiryDate}
+												on:change={calculateInsuranceDaysUntilExpiry}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveInsuranceExpiryDate}>
+											💾 Save Date
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => insuranceExpiryDate = ''}>
+											✏️ Update Date
+										</button>
+									{/if}
+								{/if}
+							</div>
+						</div>
+					</div>
+
+					<!-- Card 7: Personal Information (Birth Date & Join Date) -->
+					<div class="file-card personal-info-card">
+						<div class="file-card-content personal-info-content">
+							<div class="personal-info-form">
+								<h5>المعلومات الشخصية | Personal Information</h5>
+								
+								<!-- Date of Birth Field -->
+								{#if !savedDateOfBirth}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="date-of-birth">Date of Birth</label>
+										<input 
+											type="date" 
+											id="date-of-birth" 
+											bind:value={dateOfBirth}
+											on:change={calculateAge}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveDateOfBirth}>
+										💾 Save DOB
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Date of Birth:</span>
+											<span class="date-value">
+												{savedDateOfBirth ? new Date(savedDateOfBirth).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+										<span class="age-display">🎂 Age: <strong>{age} years</strong></span>
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if dateOfBirth !== savedDateOfBirth}
+										<div class="form-group-compact">
+											<label for="date-of-birth">Change Date of Birth</label>
+											<input 
+												type="date" 
+												id="date-of-birth" 
+												bind:value={dateOfBirth}
+												on:change={calculateAge}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveDateOfBirth}>
+											💾 Save DOB
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => dateOfBirth = ''}>
+											✏️ Update DOB
+										</button>
+									{/if}
+								{/if}
+
+								<!-- Join Date Field -->
+								{#if !savedJoinDate}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="join-date">Join Date</label>
+										<input 
+											type="date" 
+											id="join-date" 
+											bind:value={joinDate}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveJoinDate}>
+										💾 Save Join Date
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Join Date:</span>
+											<span class="date-value">
+												{savedJoinDate ? new Date(savedJoinDate).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if joinDate !== savedJoinDate}
+										<div class="form-group-compact">
+											<label for="join-date">Change Join Date</label>
+											<input 
+												type="date" 
+												id="join-date" 
+												bind:value={joinDate}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveJoinDate}>
+											💾 Save Join Date
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => joinDate = ''}>
+											✏️ Update Join Date
+										</button>
+									{/if}
+								{/if}
+							</div>
+						</div>
+					</div>
+
 				<!-- End of file cards grid -->
 				</div>
 			{:else}
@@ -1692,6 +2353,46 @@
 	</div>
 </div>
 </div>
+
+<!-- Create Insurance Company Modal -->
+{#if showCreateInsuranceModal}
+	<div class="modal-overlay" on:click={() => showCreateInsuranceModal = false}>
+		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h3>Create Insurance Company</h3>
+				<button class="close-button" on:click={() => showCreateInsuranceModal = false}>✕</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group-compact">
+					<label for="company-name-en">Company Name (English)</label>
+					<input 
+						type="text" 
+						id="company-name-en" 
+						bind:value={newInsuranceCompanyNameEn}
+						placeholder="Enter company name in English"
+					/>
+				</div>
+				<div class="form-group-compact">
+					<label for="company-name-ar">اسم الشركة (عربي)</label>
+					<input 
+						type="text" 
+						id="company-name-ar" 
+						bind:value={newInsuranceCompanyNameAr}
+						placeholder="أدخل اسم الشركة بالعربية"
+					/>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="cancel-button" on:click={() => showCreateInsuranceModal = false}>
+					Cancel
+				</button>
+				<button class="save-button" on:click={createInsuranceCompany} disabled={isCreatingInsuranceCompany}>
+					{isCreatingInsuranceCompany ? '⏳ Creating...' : '✅ Create'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.employee-files-container {
@@ -2001,18 +2702,21 @@
 
 	.file-cards-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1rem;
+		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+		gap: 1.5rem;
 		padding: 1rem;
 		max-width: 100%;
+		overflow-y: auto;
 		overflow-x: auto;
+		height: auto;
 	}
 
 	.file-card {
 		background: white;
 		border: 2px solid #ff9500;
 		border-radius: 8px;
-		min-height: 120px;
+		min-height: auto;
+		max-height: none;
 		transition: box-shadow 0.2s, border-color 0.2s;
 	}
 
@@ -2023,10 +2727,12 @@
 
 	.file-card-content {
 		padding: 1rem;
-		height: 100%;
+		height: auto;
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		align-items: flex-start;
+		justify-content: flex-start;
+		overflow-y: auto;
+		max-height: 600px;
 	}
 
 	.nationality-card {
@@ -2535,5 +3241,187 @@
 
 	.loading {
 		color: #667eea;
+	}
+
+	/* Insurance Card Styles */
+	.insurance-card {
+		background: #f0fdf4;
+		border: 2px solid #10b981 !important;
+	}
+
+	.insurance-content {
+		align-items: stretch;
+		justify-content: flex-start;
+	}
+
+	.insurance-form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.insurance-form h5 {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #333;
+	}
+
+	.personal-info-card {
+		background: #f0f4ff;
+		border: 2px solid #3b82f6 !important;
+	}
+
+	.personal-info-content {
+		align-items: stretch;
+		justify-content: flex-start;
+	}
+
+	.personal-info-form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.personal-info-form h5 {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #333;
+	}
+
+	.age-display {
+		font-size: 0.75rem;
+		color: #3b82f6;
+		font-weight: 600;
+		margin-top: 0.25rem;
+	}
+
+	.secondary-button {
+		padding: 0.5rem 1rem;
+		background: #3b82f6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+		font-weight: 500;
+		transition: background-color 0.2s;
+		margin-top: 0.5rem;
+	}
+
+	.secondary-button:hover {
+		background: #2563eb;
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.modal-content {
+		background: white;
+		border-radius: 8px;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+		max-width: 500px;
+		width: 90%;
+		max-height: 80vh;
+		overflow-y: auto;
+	}
+
+	.modal-header {
+		padding: 1.5rem;
+		border-bottom: 1px solid #e5e7eb;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 1.3rem;
+		color: #1f2937;
+		font-weight: 600;
+	}
+
+	.close-button {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		cursor: pointer;
+		color: #6b7280;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: background-color 0.2s;
+	}
+
+	.close-button:hover {
+		background-color: #f3f4f6;
+	}
+
+	.modal-body {
+		padding: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.modal-footer {
+		padding: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+		display: flex;
+		gap: 1rem;
+		justify-content: flex-end;
+	}
+
+	.cancel-button {
+		padding: 0.6rem 1.5rem;
+		background: #e5e7eb;
+		color: #1f2937;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: background-color 0.2s;
+	}
+
+	.cancel-button:hover {
+		background: #d1d5db;
+	}
+
+	.save-button {
+		padding: 0.6rem 1.5rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: background-color 0.2s;
+	}
+
+	.save-button:hover:not(:disabled) {
+		background: #059669;
+	}
+
+	.save-button:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
 	}
 </style>
