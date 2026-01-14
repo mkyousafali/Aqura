@@ -228,6 +228,10 @@
 		contractExpiryDate = employee.contract_expiry_date || '';
 		savedContractExpiryDate = employee.contract_expiry_date || '';
 		contractFile = null;
+		bankName = employee.bank_name || '';
+		savedBankName = employee.bank_name || '';
+		iban = employee.iban || '';
+		savedIban = employee.iban || '';
 		calculateDaysUntilExpiry();
 		calculateHealthCardDaysUntilExpiry();
 		calculateDrivingLicenceDaysUntilExpiry();
@@ -1042,7 +1046,7 @@
 											💾 Update Number
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => idNumber = savedIdNumber}>
+										<button class="update-button" on:click={() => idNumber = ''}>
 											✏️ Edit Number
 										</button>
 									{/if}
@@ -1096,7 +1100,7 @@
 											💾 Save Date
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => idExpiryDate = savedIdExpiryDate}>
+										<button class="update-button" on:click={() => idExpiryDate = ''}>
 											✏️ Update Date
 										</button>
 									{/if}
@@ -1196,7 +1200,7 @@
 											💾 Update Number
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => healthCardNumber = savedHealthCardNumber}>
+										<button class="update-button" on:click={() => healthCardNumber = ''}>
 											✏️ Edit Number
 										</button>
 									{/if}
@@ -1250,7 +1254,7 @@
 											💾 Save Date
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => healthCardExpiryDate = savedHealthCardExpiryDate}>
+										<button class="update-button" on:click={() => healthCardExpiryDate = ''}>
 											✏️ Update Date
 										</button>
 									{/if}
@@ -1350,7 +1354,7 @@
 											💾 Update Number
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => drivingLicenceNumber = savedDrivingLicenceNumber}>
+										<button class="update-button" on:click={() => drivingLicenceNumber = ''}>
 											✏️ Edit Number
 										</button>
 									{/if}
@@ -1404,7 +1408,7 @@
 											💾 Save Date
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => drivingLicenceExpiryDate = savedDrivingLicenceExpiryDate}>
+										<button class="update-button" on:click={() => drivingLicenceExpiryDate = ''}>
 											✏️ Update Date
 										</button>
 									{/if}
@@ -1513,7 +1517,7 @@
 											💾 Save Date
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => contractExpiryDate = savedContractExpiryDate}>
+										<button class="update-button" on:click={() => contractExpiryDate = ''}>
 											✏️ Update Date
 										</button>
 									{/if}
@@ -1623,7 +1627,7 @@
 											💾 Update Bank Name
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => bankName = savedBankName}>
+										<button class="update-button" on:click={() => bankName = ''}>
 											✏️ Edit Bank Name
 										</button>
 									{/if}
@@ -1668,7 +1672,7 @@
 											💾 Update IBAN
 										</button>
 									{:else}
-										<button class="update-button" on:click={() => iban = savedIban}>
+										<button class="update-button" on:click={() => iban = ''}>
 											✏️ Edit IBAN
 										</button>
 									{/if}
