@@ -2575,7 +2575,7 @@
 	}
 
 	.card-header {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		background: linear-gradient(135deg, #ff9500 0%, #ff8000 100%);
 		padding: 1rem 1.5rem;
 		color: white;
 	}
@@ -2644,9 +2644,9 @@
 
 	.nationality-section {
 		padding: 1.5rem;
-		background: #f8f9ff;
+		background: #f0f8f5;
 		border-radius: 6px;
-		border-left: 3px solid #667eea;
+		border-left: 3px solid #10b981;
 		margin-bottom: 1.5rem;
 	}
 
@@ -2658,7 +2658,7 @@
 
 	.save-button {
 		padding: 0.75rem 1.5rem;
-		background: #667eea;
+		background: #ff9500;
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -2670,7 +2670,7 @@
 	}
 
 	.save-button:hover {
-		background: #5568d3;
+		background: #ff8000;
 	}
 
 	.save-button:active {
@@ -2706,8 +2706,8 @@
 	.form-group select:focus,
 	.form-group input:focus {
 		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+		border-color: #ff9500;
+		box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.1);
 	}
 
 	.employee-list {
@@ -2753,12 +2753,12 @@
 	}
 
 	.employee-item:hover {
-		background-color: #f8f9ff;
+		background-color: #f0f8f5;
 	}
 
 	.employee-item.selected {
-		background-color: #e8ecff;
-		border-left: 3px solid #667eea;
+		background-color: #e8f5f1;
+		border-left: 3px solid #10b981;
 	}
 
 	.employee-item:last-child {
@@ -2767,7 +2767,7 @@
 
 	.emp-id {
 		font-weight: 500;
-		color: #667eea;
+		color: #10b981;
 	}
 
 	.emp-name-stack,
@@ -2802,10 +2802,10 @@
 	}
 
 	.selected-info {
-		background: #f8f9ff;
+		background: #f0f8f5;
 		padding: 1rem;
 		border-radius: 6px;
-		border-left: 3px solid #667eea;
+		border-left: 3px solid #10b981;
 	}
 
 	.info-grid {
@@ -2823,7 +2823,7 @@
 	.info-label {
 		font-size: 0.7rem;
 		font-weight: 600;
-		color: #667eea;
+		color: #ff9500;
 		text-transform: uppercase;
 		letter-spacing: 0.3px;
 	}
@@ -2846,8 +2846,8 @@
 
 	.info-select:focus {
 		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+		border-color: #ff9500;
+		box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.1);
 	}
 
 	.info-arabic {
@@ -2877,8 +2877,8 @@
 	}
 
 	.file-card:hover {
-		border-color: #667eea;
-		box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+		border-color: #10b981;
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
 	}
 
 	.file-card-content {
@@ -2892,8 +2892,8 @@
 	}
 
 	.nationality-card {
-		background: #f8f9ff;
-		border: 2px solid #667eea !important;
+		background: #f0f8f5;
+		border: 2px solid #10b981 !important;
 	}
 
 	.nationality-content {
@@ -2940,14 +2940,14 @@
 	.nationality-form select:focus,
 	.id-form select:focus {
 		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+		border-color: #ff9500;
+		box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.1);
 	}
 
 	.saved-nationality {
 		padding: 0.75rem;
-		background: #e8ecff;
-		border: 1px solid #667eea;
+		background: #e8f5f1;
+		border: 1px solid #10b981;
 		border-radius: 4px;
 		text-align: center;
 	}
@@ -2955,7 +2955,7 @@
 	.nationality-display {
 		font-size: 0.9rem;
 		font-weight: 500;
-		color: #667eea;
+		color: #10b981;
 	}
 
 	.sponsorship-toggle {
@@ -2963,9 +2963,9 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		padding: 0.75rem;
-		background: #f8f9ff;
+		background: #f0f8f5;
 		border-radius: 4px;
-		border: 1px solid #e0e0f0;
+		border: 1px solid #d4f3e8;
 	}
 
 	.toggle-label {
@@ -3016,7 +3016,7 @@
 	}
 
 	.toggle-input:checked + .toggle-slider {
-		background-color: #667eea;
+		background-color: #10b981;
 	}
 
 	.toggle-input:checked + .toggle-slider:before {
@@ -3026,7 +3026,7 @@
 	.toggle-status {
 		font-size: 0.8rem;
 		font-weight: 600;
-		color: #667eea;
+		color: #ff9500;
 	}
 
 	.employment-toggle {
@@ -3034,9 +3034,9 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		padding: 0.75rem;
-		background: #f8f9ff;
+		background: #f0f8f5;
 		border-radius: 4px;
-		border: 1px solid #e0e0f0;
+		border: 1px solid #d4f3e8;
 	}
 
 	.form-group-compact {
@@ -3099,7 +3099,7 @@
 	}
 
 	.expiry-valid {
-		color: #22c55e;
+		color: #10b981;
 		font-weight: 500;
 	}
 
@@ -3145,7 +3145,7 @@
 
 	.update-button {
 		padding: 0.5rem 1rem;
-		background: #667eea;
+		background: #10b981;
 		color: white;
 		border: none;
 		border-radius: 4px;
@@ -3156,7 +3156,7 @@
 	}
 
 	.update-button:hover {
-		background: #5568d3;
+		background: #059669;
 	}
 
 	.expiry-expired {
