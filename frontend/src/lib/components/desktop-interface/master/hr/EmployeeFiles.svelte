@@ -12,6 +12,8 @@
 	let searchTerm = '';
 	let selectedEmployee: any = null;
 	let selectedNationality = '';
+	let sponsorshipStatus = false;
+	let savedSponsorshipStatus = false;
 	let isLoading = false;
 	let errorMessage = '';
 	let filtersOpen = true;
@@ -37,6 +39,11 @@
 	let drivingLicenceFile: File | null = null;
 	let isUploadingDrivingLicence = false;
 	let drivingLicenceDaysUntilExpiry = 0;
+	let contractExpiryDate = '';
+	let savedContractExpiryDate = '';
+	let contractFile: File | null = null;
+	let isUploadingContract = false;
+	let contractDaysUntilExpiry = 0;
 	let bankName = '';
 	let savedBankName = '';
 	let iban = '';
@@ -129,6 +136,7 @@
 					current_branch_id,
 					current_position_id,
 					nationality_id,
+					sponsorship_status,
 					id_number,
 					id_expiry_date,
 					id_document_url,
@@ -138,6 +146,8 @@
 					driving_licence_number,
 					driving_licence_expiry_date,
 					driving_licence_document_url,
+					contract_expiry_date,
+					contract_document_url,
 					bank_name,
 					iban
 				`);
@@ -197,6 +207,8 @@
 	function selectEmployee(employee: any) {
 		selectedEmployee = employee;
 		selectedNationality = employee.nationality_id || '';
+		sponsorshipStatus = employee.sponsorship_status || false;
+		savedSponsorshipStatus = employee.sponsorship_status || false;
 		isSaved = !!employee.nationality_id;
 		idNumber = employee.id_number || '';
 		savedIdNumber = employee.id_number || '';
@@ -213,9 +225,13 @@
 		drivingLicenceExpiryDate = employee.driving_licence_expiry_date || '';
 		savedDrivingLicenceExpiryDate = employee.driving_licence_expiry_date || '';
 		drivingLicenceFile = null;
+		contractExpiryDate = employee.contract_expiry_date || '';
+		savedContractExpiryDate = employee.contract_expiry_date || '';
+		contractFile = null;
 		calculateDaysUntilExpiry();
 		calculateHealthCardDaysUntilExpiry();
 		calculateDrivingLicenceDaysUntilExpiry();
+		calculateContractDaysUntilExpiry();
 	}
 
 	function toggleEdit() {
@@ -591,6 +607,102 @@
 		}
 	}
 
+	function calculateContractDaysUntilExpiry() {
+		if (!contractExpiryDate) {
+			contractDaysUntilExpiry = 0;
+			return;
+		}
+
+		const today = new Date();
+		const expiry = new Date(contractExpiryDate);
+		const diffTime = expiry.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		contractDaysUntilExpiry = diffDays;
+	}
+
+	async function saveContractExpiryDate() {
+		if (!selectedEmployee || !contractExpiryDate) {
+			alert('Please select an expiry date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ contract_expiry_date: contractExpiryDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving contract expiry date:', error);
+				alert('Failed to save expiry date');
+				return;
+			}
+
+			selectedEmployee.contract_expiry_date = contractExpiryDate;
+			savedContractExpiryDate = contractExpiryDate;
+			calculateContractDaysUntilExpiry();
+			alert('Contract expiry date saved successfully!');
+		} catch (error) {
+			console.error('Error saving contract expiry date:', error);
+			alert('Failed to save expiry date');
+		}
+	}
+
+	async function uploadContractDocument() {
+		if (!selectedEmployee || !contractFile) {
+			alert('Please select a file to upload');
+			return;
+		}
+
+		isUploadingContract = true;
+
+		try {
+			const fileExt = contractFile.name.split('.').pop();
+			const fileName = `${selectedEmployee.id}-contract-${Date.now()}.${fileExt}`;
+			const filePath = `${selectedEmployee.id}/${fileName}`;
+
+			const { error: uploadError } = await supabase.storage
+				.from('employee-documents')
+				.upload(filePath, contractFile, { upsert: true });
+
+			if (uploadError) {
+				console.error('Error uploading contract document:', uploadError);
+				alert('Failed to upload document');
+				return;
+			}
+
+			const { data: publicUrl } = supabase.storage
+				.from('employee-documents')
+				.getPublicUrl(filePath);
+
+			const { error: updateError } = await supabase
+				.from('hr_employee_master')
+				.update({ contract_document_url: publicUrl.publicUrl })
+				.eq('id', selectedEmployee.id);
+
+			if (updateError) {
+				console.error('Error updating contract document URL:', updateError);
+				alert('Failed to save document URL');
+				return;
+			}
+
+			selectedEmployee.contract_document_url = publicUrl.publicUrl;
+			contractFile = null;
+			alert('Contract document uploaded successfully!');
+		} catch (error) {
+			console.error('Error uploading contract document:', error);
+			alert('Failed to upload document');
+		} finally {
+			isUploadingContract = false;
+		}
+	}
+
+	function viewContractDocument() {
+		if (selectedEmployee?.contract_document_url) {
+			window.open(selectedEmployee.contract_document_url, '_blank');
+		}
+	}
+
 	async function saveBankName() {
 		if (!selectedEmployee || !bankName) {
 			alert('Please enter bank name');
@@ -669,6 +781,33 @@
 		} catch (error) {
 			console.error('Error saving nationality:', error);
 			alert('Failed to save nationality');
+		}
+	}
+
+	async function saveSponsorshipStatus() {
+		if (!selectedEmployee) {
+			alert('Please select an employee');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ sponsorship_status: sponsorshipStatus })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving sponsorship status:', error);
+				alert('Failed to save sponsorship status');
+				return;
+			}
+
+			selectedEmployee.sponsorship_status = sponsorshipStatus;
+			savedSponsorshipStatus = sponsorshipStatus;
+			alert('Sponsorship status saved successfully!');
+		} catch (error) {
+			console.error('Error saving sponsorship status:', error);
+			alert('Failed to save sponsorship status');
 		}
 	}
 
@@ -833,6 +972,27 @@
 											💾 Save
 										{/if}
 									</button>
+									
+									<!-- Sponsorship Status Toggle -->
+									<div class="sponsorship-toggle">
+										<label class="toggle-label">
+											<span>Sponsorship Status</span>
+											<div class="toggle-switch">
+												<input 
+													type="checkbox" 
+													bind:checked={sponsorshipStatus}
+													class="toggle-input"
+												/>
+												<span class="toggle-slider"></span>
+											</div>
+											<span class="toggle-status">{sponsorshipStatus ? 'Active' : 'Inactive'}</span>
+										</label>
+										{#if sponsorshipStatus !== savedSponsorshipStatus}
+											<button class="save-button-small" on:click={saveSponsorshipStatus}>
+												💾 Save Status
+											</button>
+										{/if}
+									</div>
 								</div>
 							</div>
 						</div>
@@ -1299,7 +1459,116 @@
 						</div>
 					</div>
 
-					<!-- Card 5: Bank Information -->
+					<!-- Card 5: Contract Management -->
+					<div class="file-card contract-card">
+						<div class="file-card-content contract-content">
+							<div class="contract-form">
+								<h5>📄 Contract</h5>
+								
+								<!-- Expiry Date Field -->
+								{#if !savedContractExpiryDate}
+									<!-- Show input when no date is saved -->
+									<div class="form-group-compact">
+										<label for="contract-expiry">Expiry Date</label>
+										<input 
+											type="date" 
+											id="contract-expiry" 
+											bind:value={contractExpiryDate}
+											on:change={calculateContractDaysUntilExpiry}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveContractExpiryDate}>
+										💾 Save Date
+									</button>
+								{:else}
+									<!-- Show saved date info when saved -->
+									<div class="saved-date-info">
+										<div class="saved-date-display">
+											<span class="date-label">Expiry Date:</span>
+											<span class="date-value">
+												{savedContractExpiryDate ? new Date(savedContractExpiryDate).toLocaleDateString('en-GB') : '-'}
+											</span>
+										</div>
+										{#if contractDaysUntilExpiry > 0}
+											<span class="expiry-valid">⏰ {contractDaysUntilExpiry} days remaining</span>
+										{:else if contractDaysUntilExpiry === 0}
+											<span class="expiry-warning">⚠️ Expires today!</span>
+										{:else}
+											<span class="expiry-expired">❌ Expired {Math.abs(contractDaysUntilExpiry)} days ago</span>
+										{/if}
+									</div>
+									
+									<!-- Edit date input (hidden by default) -->
+									{#if contractExpiryDate !== savedContractExpiryDate}
+										<div class="form-group-compact">
+											<label for="contract-expiry">Change Expiry Date</label>
+											<input 
+												type="date" 
+												id="contract-expiry" 
+												bind:value={contractExpiryDate}
+												on:change={calculateContractDaysUntilExpiry}
+											/>
+										</div>
+										<button class="save-button-small" on:click={saveContractExpiryDate}>
+											💾 Save Date
+										</button>
+									{:else}
+										<button class="update-button" on:click={() => contractExpiryDate = savedContractExpiryDate}>
+											✏️ Update Date
+										</button>
+									{/if}
+								{/if}
+
+								<!-- File Upload -->
+								<div class="file-upload-group">
+									<label for="contract-document">Upload Document</label>
+									{#if selectedEmployee?.contract_document_url}
+										<!-- Document already uploaded -->
+										<button class="view-button" on:click={viewContractDocument}>
+											👁️ View Document
+										</button>
+										{#if !contractFile}
+											<button class="update-button" on:click={() => contractFile = {} as any}>
+												✏️ Update Document
+											</button>
+										{:else}
+											<!-- Show upload input when updating -->
+											<input 
+												type="file" 
+												id="contract-document"
+												accept=".pdf,.jpg,.jpeg,.png"
+												on:change={(e) => contractFile = e.target.files?.[0] || null}
+											/>
+											<button 
+												class="upload-button" 
+												on:click={uploadContractDocument}
+												disabled={!contractFile || isUploadingContract}
+											>
+												{isUploadingContract ? '⏳ Uploading...' : '📤 Upload'}
+											</button>
+										{/if}
+									{:else}
+										<!-- No document uploaded yet -->
+										<input 
+											type="file" 
+											id="contract-document"
+											accept=".pdf,.jpg,.jpeg,.png"
+											on:change={(e) => contractFile = e.target.files?.[0] || null}
+										/>
+										<button 
+											class="upload-button" 
+											on:click={uploadContractDocument}
+											disabled={!contractFile || isUploadingContract}
+										>
+											{isUploadingContract ? '⏳ Uploading...' : '📤 Upload'}
+										</button>
+									{/if}
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Card 6: Bank Information -->
 					<div class="file-card bank-card">
 						<div class="file-card-content bank-content">
 							<div class="bank-form">
@@ -1823,6 +2092,77 @@
 		color: #667eea;
 	}
 
+	.sponsorship-toggle {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #f8f9ff;
+		border-radius: 4px;
+		border: 1px solid #e0e0f0;
+	}
+
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #333;
+		cursor: pointer;
+	}
+
+	.toggle-switch {
+		position: relative;
+		display: inline-block;
+		width: 44px;
+		height: 24px;
+	}
+
+	.toggle-input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.toggle-slider {
+		position: absolute;
+		cursor: pointer;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background-color: #ccc;
+		transition: 0.3s;
+		border-radius: 24px;
+	}
+
+	.toggle-slider:before {
+		position: absolute;
+		content: "";
+		height: 18px;
+		width: 18px;
+		left: 3px;
+		bottom: 3px;
+		background-color: white;
+		transition: 0.3s;
+		border-radius: 50%;
+	}
+
+	.toggle-input:checked + .toggle-slider {
+		background-color: #667eea;
+	}
+
+	.toggle-input:checked + .toggle-slider:before {
+		transform: translateX(20px);
+	}
+
+	.toggle-status {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #667eea;
+	}
+
 	.form-group-compact {
 		display: flex;
 		flex-direction: column;
@@ -1983,6 +2323,30 @@
 
 	.upload-button:hover:not(:disabled) {
 		background: #5568d3;
+	}
+
+	.contract-card {
+		background: #f0f8ff;
+		border: 2px solid #ff9500 !important;
+	}
+
+	.contract-content {
+		align-items: stretch;
+		justify-content: flex-start;
+	}
+
+	.contract-form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.contract-form h5 {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #333;
 	}
 
 	.bank-card {

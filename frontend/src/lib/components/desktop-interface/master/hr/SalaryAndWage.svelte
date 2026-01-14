@@ -1,18 +1,31 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 
 	let employees: any[] = [];
 	let isLoading = false;
 	let errorMessage = '';
-	let editingBasicSalary: { [key: string]: boolean } = {};
 	let basicSalaryValues: { [key: string]: string } = {};
 	let paymentModeValues: { [key: string]: string } = {};
-	let savingBasicSalary: { [key: string]: boolean } = {};
-	let editingOtherAllowance: { [key: string]: boolean } = {};
 	let otherAllowanceValues: { [key: string]: string } = {};
 	let otherAllowancePaymentMode: { [key: string]: string } = {};
-	let savingOtherAllowance: { [key: string]: boolean } = {};
+	let accommodationValues: { [key: string]: string } = {};
+	let accommodationPaymentMode: { [key: string]: string } = {};
+	let accommodationIsPercentage: { [key: string]: boolean } = {};
+	let accommodationPercentage: { [key: string]: string } = {};
+	let travelValues: { [key: string]: string } = {};
+	let travelPaymentMode: { [key: string]: string } = {};
+	let travelIsPercentage: { [key: string]: boolean } = {};
+	let travelPercentage: { [key: string]: string } = {};
+	let gosiValues: { [key: string]: string } = {};
+	let gosiIsPercentage: { [key: string]: boolean } = {};
+	let gosiPercentage: { [key: string]: string } = {};
+
+	// Modal state
+	let showModal = false;
+	let currentEmployeeId = '';
+	let currentEmployee: any = null;
+	let isSaving = false;
 
 	onMount(async () => {
 		await loadEmployees();
@@ -31,6 +44,7 @@
 					name_en,
 					name_ar,
 					nationality_id,
+					sponsorship_status,
 					id_number,
 					current_branch_id,
 					bank_name,
@@ -72,7 +86,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode');
+				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction');
 
 			if (error) {
 				console.error('Error loading basic salaries:', error);
@@ -86,6 +100,11 @@
 					paymentModeValues[item.employee_id] = item.payment_mode || 'Bank';
 					otherAllowanceValues[item.employee_id] = item.other_allowance?.toString() || '';
 					otherAllowancePaymentMode[item.employee_id] = item.other_allowance_payment_mode || 'Bank';
+					accommodationValues[item.employee_id] = item.accommodation_allowance?.toString() || '';
+					accommodationPaymentMode[item.employee_id] = item.accommodation_payment_mode || 'Bank';
+					travelValues[item.employee_id] = item.travel_allowance?.toString() || '';
+					travelPaymentMode[item.employee_id] = item.travel_payment_mode || 'Bank';
+					gosiValues[item.employee_id] = item.gosi_deduction?.toString() || '';
 				});
 			}
 		} catch (error) {
@@ -93,119 +112,160 @@
 		}
 	}
 
-	function startEditBasicSalary(employeeId: string) {
-		editingBasicSalary[employeeId] = true;
-		if (!basicSalaryValues[employeeId]) {
-			basicSalaryValues[employeeId] = '';
-		}
-		if (!paymentModeValues[employeeId]) {
-			paymentModeValues[employeeId] = 'Bank';
-		}
-	}
-
-	async function saveBasicSalary(employeeId: string) {
-		const value = basicSalaryValues[employeeId];
-		const paymentMode = paymentModeValues[employeeId] || 'Bank';
+	function openModal(employeeId: string) {
+		currentEmployeeId = employeeId;
+		currentEmployee = employees.find(emp => emp.id === employeeId);
 		
-		if (!value || isNaN(parseFloat(value))) {
-			return;
-		}
-
-		savingBasicSalary[employeeId] = true;
-
-		try {
-			const { error } = await supabase
-				.from('hr_basic_salary')
-				.upsert({
-					employee_id: employeeId,
-					basic_salary: parseFloat(value),
-					payment_mode: paymentMode,
-					updated_at: new Date().toISOString()
-				}, {
-					onConflict: 'employee_id'
-				});
-
-			if (error) {
-				console.error('Error saving basic salary:', error);
-				errorMessage = 'Failed to save basic salary';
-			} else {
-				editingBasicSalary[employeeId] = false;
-			}
-		} catch (error) {
-			console.error('Error saving basic salary:', error);
-			errorMessage = 'Failed to save basic salary';
-		} finally {
-			savingBasicSalary[employeeId] = false;
-		}
-	}
-
-	function cancelEditBasicSalary(employeeId: string) {
-		editingBasicSalary[employeeId] = false;
-		// Reload the original value
-		loadBasicSalaries();
-	}
-
-	function startEditOtherAllowance(employeeId: string) {
-		editingOtherAllowance[employeeId] = true;
-		if (!otherAllowanceValues[employeeId]) {
-			otherAllowanceValues[employeeId] = '';
-		}
-		if (!otherAllowancePaymentMode[employeeId]) {
-			otherAllowancePaymentMode[employeeId] = 'Bank';
-		}
-	}
-
-	async function saveOtherAllowance(employeeId: string) {
-		const value = otherAllowanceValues[employeeId];
-		const paymentMode = otherAllowancePaymentMode[employeeId] || 'Bank';
+		// Initialize values if not present
+		if (!basicSalaryValues[employeeId]) basicSalaryValues[employeeId] = '';
+		if (!paymentModeValues[employeeId]) paymentModeValues[employeeId] = 'Bank';
+		if (!otherAllowanceValues[employeeId]) otherAllowanceValues[employeeId] = '';
+		if (!otherAllowancePaymentMode[employeeId]) otherAllowancePaymentMode[employeeId] = 'Bank';
+		if (!accommodationValues[employeeId]) accommodationValues[employeeId] = '';
+		if (!accommodationPaymentMode[employeeId]) accommodationPaymentMode[employeeId] = 'Bank';
+		if (accommodationIsPercentage[employeeId] === undefined) accommodationIsPercentage[employeeId] = false;
+		if (!accommodationPercentage[employeeId]) accommodationPercentage[employeeId] = '';
+		if (!travelValues[employeeId]) travelValues[employeeId] = '';
+		if (!travelPaymentMode[employeeId]) travelPaymentMode[employeeId] = 'Bank';
+		if (travelIsPercentage[employeeId] === undefined) travelIsPercentage[employeeId] = false;
+		if (!travelPercentage[employeeId]) travelPercentage[employeeId] = '';
+		if (!gosiValues[employeeId]) gosiValues[employeeId] = '';
+		if (gosiIsPercentage[employeeId] === undefined) gosiIsPercentage[employeeId] = true;
+		if (!gosiPercentage[employeeId]) gosiPercentage[employeeId] = '';
 		
-		if (!value || isNaN(parseFloat(value))) {
-			return;
-		}
+		showModal = true;
+	}
 
-		// Check if basic salary exists
+	function closeModal() {
+		showModal = false;
+		currentEmployeeId = '';
+		currentEmployee = null;
+	}
+
+	async function saveAllSalaryData() {
+		const employeeId = currentEmployeeId;
 		const basicSalary = basicSalaryValues[employeeId];
-		const basicPaymentMode = paymentModeValues[employeeId] || 'Bank';
 		
-		if (!basicSalary) {
-			errorMessage = 'Please add Basic Salary first before adding Other Allowance';
+		// Allow zero but not empty or invalid values
+		if (basicSalary === '' || basicSalary === null || basicSalary === undefined || isNaN(parseFloat(basicSalary))) {
+			errorMessage = 'Please enter a valid Basic Salary';
 			return;
 		}
-
-		savingOtherAllowance[employeeId] = true;
-
+		
+		isSaving = true;
+		errorMessage = '';
+		
 		try {
+			// Calculate final values
+			const basicVal = parseFloat(basicSalary);
+			const otherVal = parseFloat(otherAllowanceValues[employeeId]) || 0;
+			
+			let accomVal = 0;
+			if (accommodationIsPercentage[employeeId]) {
+				const percentage = parseFloat(accommodationPercentage[employeeId]) || 0;
+				accomVal = (basicVal * percentage) / 100;
+			} else {
+				accomVal = parseFloat(accommodationValues[employeeId]) || 0;
+			}
+			
+			let travelVal = 0;
+			if (travelIsPercentage[employeeId]) {
+				const percentage = parseFloat(travelPercentage[employeeId]) || 0;
+				travelVal = (basicVal * percentage) / 100;
+			} else {
+				travelVal = parseFloat(travelValues[employeeId]) || 0;
+			}
+			
+			let gosiVal = 0;
+			if (gosiIsPercentage[employeeId]) {
+				const percentage = parseFloat(gosiPercentage[employeeId]) || 0;
+				const baseForGosi = basicVal + accomVal;
+				gosiVal = (baseForGosi * percentage) / 100;
+			} else {
+				gosiVal = parseFloat(gosiValues[employeeId]) || 0;
+			}
+			
+			const totalSalary = basicVal + otherVal + accomVal + travelVal - gosiVal;
+			
+			// Update state with calculated values
+			accommodationValues[employeeId] = accomVal.toString();
+			travelValues[employeeId] = travelVal.toString();
+			gosiValues[employeeId] = gosiVal.toString();
+			
 			const { error } = await supabase
 				.from('hr_basic_salary')
 				.upsert({
 					employee_id: employeeId,
-					basic_salary: parseFloat(basicSalary),
-					payment_mode: basicPaymentMode,
-					other_allowance: parseFloat(value),
-					other_allowance_payment_mode: paymentMode,
+					basic_salary: basicVal,
+					payment_mode: paymentModeValues[employeeId] || 'Bank',
+					other_allowance: otherVal,
+					other_allowance_payment_mode: otherAllowancePaymentMode[employeeId] || 'Bank',
+					accommodation_allowance: accomVal,
+					accommodation_payment_mode: accommodationPaymentMode[employeeId] || 'Bank',
+					travel_allowance: travelVal,
+					travel_payment_mode: travelPaymentMode[employeeId] || 'Bank',
+					gosi_deduction: gosiVal,
+					total_salary: totalSalary,
 					updated_at: new Date().toISOString()
 				}, {
 					onConflict: 'employee_id'
 				});
-
+			
 			if (error) {
-				console.error('Error saving other allowance:', error);
-				errorMessage = 'Failed to save other allowance';
+				console.error('Error saving salary data:', error);
+				errorMessage = 'Failed to save salary data';
 			} else {
-				editingOtherAllowance[employeeId] = false;
+				closeModal();
 			}
 		} catch (error) {
-			console.error('Error saving other allowance:', error);
-			errorMessage = 'Failed to save other allowance';
+			console.error('Error saving salary data:', error);
+			errorMessage = 'Failed to save salary data';
 		} finally {
-			savingOtherAllowance[employeeId] = false;
+			isSaving = false;
 		}
 	}
 
-	function cancelEditOtherAllowance(employeeId: string) {
-		editingOtherAllowance[employeeId] = false;
-		// Reload the original value
-		loadBasicSalaries();
+	function getTotalSalary(employeeId: string): number {
+		const basicVal = parseFloat(basicSalaryValues[employeeId]) || 0;
+		const otherVal = parseFloat(otherAllowanceValues[employeeId]) || 0;
+		const accomVal = parseFloat(accommodationValues[employeeId]) || 0;
+		const travelVal = parseFloat(travelValues[employeeId]) || 0;
+		const gosiVal = parseFloat(gosiValues[employeeId]) || 0;
+		return basicVal + otherVal + accomVal + travelVal - gosiVal;
+	}
+
+	function getModalTotalPreview(): number {
+		if (!currentEmployeeId) return 0;
+		
+		const basicVal = parseFloat(basicSalaryValues[currentEmployeeId]) || 0;
+		const otherVal = parseFloat(otherAllowanceValues[currentEmployeeId]) || 0;
+		
+		let accomVal = 0;
+		if (accommodationIsPercentage[currentEmployeeId]) {
+			const percentage = parseFloat(accommodationPercentage[currentEmployeeId]) || 0;
+			accomVal = (basicVal * percentage) / 100;
+		} else {
+			accomVal = parseFloat(accommodationValues[currentEmployeeId]) || 0;
+		}
+		
+		let travelVal = 0;
+		if (travelIsPercentage[currentEmployeeId]) {
+			const percentage = parseFloat(travelPercentage[currentEmployeeId]) || 0;
+			travelVal = (basicVal * percentage) / 100;
+		} else {
+			travelVal = parseFloat(travelValues[currentEmployeeId]) || 0;
+		}
+		
+		let gosiVal = 0;
+		if (gosiIsPercentage[currentEmployeeId]) {
+			const percentage = parseFloat(gosiPercentage[currentEmployeeId]) || 0;
+			const baseForGosi = basicVal + accomVal;
+			gosiVal = (baseForGosi * percentage) / 100;
+		} else {
+			gosiVal = parseFloat(gosiValues[currentEmployeeId]) || 0;
+		}
+		
+		return basicVal + otherVal + accomVal + travelVal - gosiVal;
 	}
 </script>
 
@@ -229,11 +289,16 @@
 						<th>Name</th>
 						<th>Branch</th>
 						<th>Nationality</th>
+						<th>Sponsorship</th>
 						<th>ID Number</th>
 						<th>Bank Information</th>
 						<th>Basic Salary</th>
 						<th>Other Allowance</th>
+						<th>Accommodation</th>
+						<th>Travel</th>
+						<th>GOSI Deduction</th>
 						<th>Total Salary</th>
+						<th>Actions</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -276,6 +341,15 @@
 									<div class="name-en">{employee.nationalities?.name_en || '-'}</div>
 								</div>
 							</td>
+							<td>
+								{#if employee.sponsorship_status !== null && employee.sponsorship_status !== undefined}
+									<span class="status-badge {employee.sponsorship_status ? 'active' : 'inactive'}">
+										{employee.sponsorship_status ? 'Active' : 'Inactive'}
+									</span>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
 							<td>{employee.id_number || '-'}</td>
 							<td>
 								<div class="name-cell">
@@ -284,142 +358,76 @@
 								</div>
 							</td>
 							<td>
-								<div class="salary-cell">
-									{#if editingBasicSalary[employee.id]}
-										<input 
-											type="number" 
-											bind:value={basicSalaryValues[employee.id]}
-											placeholder="Enter salary"
-											class="salary-input"
-											on:keypress={(e) => {
-												if (e.key === 'Enter') {
-													saveBasicSalary(employee.id);
-												}
-											}}
-										/>
-										<select 
-											bind:value={paymentModeValues[employee.id]}
-											class="payment-mode-select"
-										>
-											<option value="Bank">Bank</option>
-											<option value="Cash">Cash</option>
-										</select>
-										<div class="salary-actions">
-											<button 
-												class="save-btn"
-												on:click={() => saveBasicSalary(employee.id)}
-												disabled={savingBasicSalary[employee.id]}
-											>
-												{savingBasicSalary[employee.id] ? 'Saving...' : 'Save'}
-											</button>
-											<button 
-												class="cancel-btn"
-												on:click={() => cancelEditBasicSalary(employee.id)}
-												disabled={savingBasicSalary[employee.id]}
-											>
-												Cancel
-											</button>
-										</div>
-									{:else if basicSalaryValues[employee.id]}
-										<div class="salary-display">
-											<div class="salary-info">
-												<span class="salary-amount">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()} SAR</span>
-												<span class="payment-mode-badge">{paymentModeValues[employee.id] || 'Bank'}</span>
-											</div>
-											<button 
-												class="edit-btn"
-												on:click={() => startEditBasicSalary(employee.id)}
-											>
-												Edit
-											</button>
-										</div>
-									{:else}
-										<button 
-											class="add-btn"
-											on:click={() => startEditBasicSalary(employee.id)}
-										>
-											+ Add Salary
-										</button>
-									{/if}
-								</div>
+								{#if basicSalaryValues[employee.id]}
+									<div class="value-display">
+										<span class="amount">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()} SAR</span>
+										<span class="badge">{paymentModeValues[employee.id] || 'Bank'}</span>
+									</div>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
 							</td>
 							<td>
-								<div class="salary-cell">
-									{#if editingOtherAllowance[employee.id]}
-										<input 
-											type="number" 
-											bind:value={otherAllowanceValues[employee.id]}
-											placeholder="Enter allowance"
-											class="salary-input"
-											on:keypress={(e) => {
-												if (e.key === 'Enter') {
-													saveOtherAllowance(employee.id);
-												}
-											}}
-										/>
-										<select 
-											bind:value={otherAllowancePaymentMode[employee.id]}
-											class="payment-mode-select"
-										>
-											<option value="Bank">Bank</option>
-											<option value="Cash">Cash</option>
-										</select>
-										<div class="salary-actions">
-											<button 
-												class="save-btn"
-												on:click={() => saveOtherAllowance(employee.id)}
-												disabled={savingOtherAllowance[employee.id]}
-											>
-												{savingOtherAllowance[employee.id] ? 'Saving...' : 'Save'}
-											</button>
-											<button 
-												class="cancel-btn"
-												on:click={() => cancelEditOtherAllowance(employee.id)}
-												disabled={savingOtherAllowance[employee.id]}
-											>
-												Cancel
-											</button>
-										</div>
-									{:else if otherAllowanceValues[employee.id]}
-										<div class="salary-display">
-											<div class="salary-info">
-												<span class="salary-amount">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()} SAR</span>
-												<span class="payment-mode-badge">{otherAllowancePaymentMode[employee.id] || 'Bank'}</span>
-											</div>
-											<button 
-												class="edit-btn"
-												on:click={() => startEditOtherAllowance(employee.id)}
-											>
-												Edit
-											</button>
-										</div>
-									{:else}
-										<button 
-											class="add-btn"
-											on:click={() => startEditOtherAllowance(employee.id)}
-										>
-											+ Add Allowance
-										</button>
-									{/if}
-								</div>
+								{#if otherAllowanceValues[employee.id]}
+									<div class="value-display">
+										<span class="amount">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()} SAR</span>
+										<span class="badge">{otherAllowancePaymentMode[employee.id] || 'Bank'}</span>
+									</div>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
 							</td>
 							<td>
-								<div class="total-salary-cell">
-									{#if basicSalaryValues[employee.id] || otherAllowanceValues[employee.id]}
-										{@const basicVal = parseFloat(basicSalaryValues[employee.id]) || 0}
-										{@const otherVal = parseFloat(otherAllowanceValues[employee.id]) || 0}
-										{@const total = basicVal + otherVal}
-										<span class="total-amount">{total.toLocaleString()} SAR</span>
-									{:else}
-										<span class="no-salary">-</span>
-									{/if}
-								</div>
+								{#if accommodationValues[employee.id]}
+									<div class="value-display">
+										<span class="amount">{parseFloat(accommodationValues[employee.id]).toLocaleString()} SAR</span>
+										<span class="badge">{accommodationPaymentMode[employee.id] || 'Bank'}</span>
+									</div>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
+							<td>
+								{#if travelValues[employee.id]}
+									<div class="value-display">
+										<span class="amount">{parseFloat(travelValues[employee.id]).toLocaleString()} SAR</span>
+										<span class="badge">{travelPaymentMode[employee.id] || 'Bank'}</span>
+									</div>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
+							<td>
+								{#if gosiValues[employee.id]}
+									<span class="deduction-amount">-{parseFloat(gosiValues[employee.id]).toLocaleString()} SAR</span>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
+							<td>
+								{#if getTotalSalary(employee.id) > 0}
+									{@const total = getTotalSalary(employee.id)}
+									<span class="total-amount">{total.toLocaleString()} SAR</span>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
+							<td>
+								{#if basicSalaryValues[employee.id]}
+									<button class="edit-btn" on:click={() => openModal(employee.id)}>
+										Edit
+									</button>
+								{:else}
+									<button class="add-btn" on:click={() => openModal(employee.id)}>
+										+ Add
+									</button>
+								{/if}
 							</td>
 						</tr>
 					{/each}
 					{#if employees.length === 0}
 						<tr>
-							<td colspan="9" class="no-data">No employees found</td>
+							<td colspan="14" class="no-data-row">No employees found</td>
 						</tr>
 					{/if}
 				</tbody>
@@ -427,6 +435,204 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Modal -->
+{#if showModal && currentEmployee}
+	<div class="modal-overlay" on:click={closeModal}>
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h3>Edit Salary - {currentEmployee.name_ar}</h3>
+				<button class="close-btn" on:click={closeModal}>&times;</button>
+			</div>
+			
+			<div class="modal-body">
+				{#if errorMessage}
+					<div class="error-message">{errorMessage}</div>
+				{/if}
+
+				<!-- Basic Salary -->
+				<div class="form-group">
+					<label>Basic Salary *</label>
+					<div class="input-row">
+						<input 
+							type="number" 
+							bind:value={basicSalaryValues[currentEmployeeId]}
+							placeholder="Enter basic salary"
+							class="form-input"
+						/>
+						<select bind:value={paymentModeValues[currentEmployeeId]} class="form-select">
+							<option value="Bank">Bank</option>
+							<option value="Cash">Cash</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Other Allowance -->
+				<div class="form-group">
+					<label>Other Allowance</label>
+					<div class="input-row">
+						<input 
+							type="number" 
+							bind:value={otherAllowanceValues[currentEmployeeId]}
+							placeholder="Enter other allowance"
+							class="form-input"
+						/>
+						<select bind:value={otherAllowancePaymentMode[currentEmployeeId]} class="form-select">
+							<option value="Bank">Bank</option>
+							<option value="Cash">Cash</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Accommodation Allowance -->
+				<div class="form-group">
+					<label>
+						Accommodation Allowance
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								bind:checked={accommodationIsPercentage[currentEmployeeId]}
+							/>
+							<span>Use % of Basic</span>
+						</label>
+					</label>
+					<div class="input-row">
+						{#if accommodationIsPercentage[currentEmployeeId]}
+							<div class="percentage-input-wrapper">
+								<input 
+									type="number" 
+									bind:value={accommodationPercentage[currentEmployeeId]}
+									placeholder="Enter %"
+									class="form-input percentage-input"
+									min="0"
+									max="100"
+								/>
+								<span class="percentage-symbol">%</span>
+								{#if accommodationPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
+									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(accommodationPercentage[currentEmployeeId])) / 100}
+									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+								{/if}
+							</div>
+						{:else}
+							<input 
+								type="number" 
+								bind:value={accommodationValues[currentEmployeeId]}
+								placeholder="Enter accommodation allowance"
+								class="form-input"
+							/>
+						{/if}
+						<select bind:value={accommodationPaymentMode[currentEmployeeId]} class="form-select">
+							<option value="Bank">Bank</option>
+							<option value="Cash">Cash</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Travel Allowance -->
+				<div class="form-group">
+					<label>
+						Travel Allowance
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								bind:checked={travelIsPercentage[currentEmployeeId]}
+							/>
+							<span>Use % of Basic</span>
+						</label>
+					</label>
+					<div class="input-row">
+						{#if travelIsPercentage[currentEmployeeId]}
+							<div class="percentage-input-wrapper">
+								<input 
+									type="number" 
+									bind:value={travelPercentage[currentEmployeeId]}
+									placeholder="Enter %"
+									class="form-input percentage-input"
+									min="0"
+									max="100"
+								/>
+								<span class="percentage-symbol">%</span>
+								{#if travelPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
+									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(travelPercentage[currentEmployeeId])) / 100}
+									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+								{/if}
+							</div>
+						{:else}
+							<input 
+								type="number" 
+								bind:value={travelValues[currentEmployeeId]}
+								placeholder="Enter travel allowance"
+								class="form-input"
+							/>
+						{/if}
+						<select bind:value={travelPaymentMode[currentEmployeeId]} class="form-select">
+							<option value="Bank">Bank</option>
+							<option value="Cash">Cash</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- GOSI Deduction -->
+				<div class="form-group">
+					<label>
+						GOSI Deduction
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								bind:checked={gosiIsPercentage[currentEmployeeId]}
+							/>
+							<span>Use % of (Basic + Accommodation)</span>
+						</label>
+					</label>
+					<div class="input-row">
+						{#if gosiIsPercentage[currentEmployeeId]}
+							<div class="percentage-input-wrapper">
+								<input 
+									type="number" 
+									bind:value={gosiPercentage[currentEmployeeId]}
+									placeholder="Enter %"
+									class="form-input percentage-input"
+									min="0"
+									max="100"
+								/>
+								<span class="percentage-symbol">%</span>
+								{#if gosiPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
+									{@const basicVal = parseFloat(basicSalaryValues[currentEmployeeId]) || 0}
+									{@const accomVal = accommodationIsPercentage[currentEmployeeId] ? (basicVal * (parseFloat(accommodationPercentage[currentEmployeeId]) || 0)) / 100 : parseFloat(accommodationValues[currentEmployeeId]) || 0}
+									{@const baseForGosi = basicVal + accomVal}
+									{@const calculated = (baseForGosi * parseFloat(gosiPercentage[currentEmployeeId])) / 100}
+									<span class="calculated-preview deduction">= {calculated.toLocaleString()} SAR</span>
+								{/if}
+							</div>
+						{:else}
+							<input 
+								type="number" 
+								bind:value={gosiValues[currentEmployeeId]}
+								placeholder="Enter GOSI deduction"
+								class="form-input"
+							/>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Total Preview -->
+				<div class="total-preview">
+					<span class="total-label">Total Salary:</span>
+					<span class="total-value">{getModalTotalPreview().toLocaleString()} SAR</span>
+				</div>
+			</div>
+
+			<div class="modal-footer">
+				<button class="cancel-modal-btn" on:click={closeModal} disabled={isSaving}>
+					Cancel
+				</button>
+				<button class="save-modal-btn" on:click={saveAllSalaryData} disabled={isSaving}>
+					{isSaving ? 'Saving...' : 'Save All'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.salary-wage-container {
@@ -500,7 +706,7 @@
 		background: #f8f9fa;
 	}
 
-	.no-data {
+	.no-data-row {
 		text-align: center;
 		color: #6c757d;
 		font-style: italic;
@@ -528,72 +734,75 @@
 		opacity: 0.8;
 	}
 
-	.salary-cell {
+	.value-display {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.25rem;
 	}
 
-	.salary-input {
-		padding: 0.5rem;
-		border: 1px solid #ced4da;
-		border-radius: 4px;
-		font-size: 0.875rem;
-		width: 150px;
+	.amount {
+		font-weight: 600;
+		color: #28a745;
+		font-size: 0.9rem;
 	}
 
-	.salary-input:focus {
-		outline: none;
-		border-color: #80bdff;
-		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	.badge {
+		display: inline-block;
+		padding: 0.125rem 0.5rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		background: #e7f3ff;
+		color: #0056b3;
+		width: fit-content;
 	}
 
-	.payment-mode-select {
-		padding: 0.5rem;
-		border: 1px solid #ced4da;
-		border-radius: 4px;
-		font-size: 0.875rem;
-		background: white;
-		cursor: pointer;
-		width: 150px;
+	.status-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
 	}
 
-	.payment-mode-select:focus {
-		outline: none;
-		border-color: #80bdff;
-		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	.status-badge.active {
+		background: #d4edda;
+		color: #155724;
+		border: 1px solid #c3e6cb;
 	}
 
-	.salary-actions {
-		display: flex;
-		gap: 0.5rem;
+	.status-badge.inactive {
+		background: #f8d7da;
+		color: #721c24;
+		border: 1px solid #f5c6cb;
 	}
 
-	.save-btn, .cancel-btn, .edit-btn, .add-btn {
-		padding: 0.375rem 0.75rem;
+	.deduction-amount {
+		font-weight: 600;
+		color: #dc3545;
+		font-size: 0.9rem;
+	}
+
+	.total-amount {
+		font-weight: 700;
+		color: #0056b3;
+		font-size: 1rem;
+	}
+
+	.no-data {
+		color: #6c757d;
+		font-style: italic;
+	}
+
+	.edit-btn, .add-btn {
+		padding: 0.5rem 1rem;
 		border: none;
 		border-radius: 4px;
 		font-size: 0.875rem;
 		cursor: pointer;
 		transition: all 0.2s;
-	}
-
-	.save-btn {
-		background: #28a745;
-		color: white;
-	}
-
-	.save-btn:hover:not(:disabled) {
-		background: #218838;
-	}
-
-	.cancel-btn {
-		background: #6c757d;
-		color: white;
-	}
-
-	.cancel-btn:hover:not(:disabled) {
-		background: #5a6268;
+		font-weight: 500;
 	}
 
 	.edit-btn {
@@ -608,64 +817,231 @@
 	.add-btn {
 		background: #17a2b8;
 		color: white;
-		padding: 0.5rem 1rem;
 	}
 
 	.add-btn:hover {
 		background: #138496;
 	}
 
-	.save-btn:disabled, .cancel-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.salary-display {
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		justify-content: center;
+		z-index: 1000;
 	}
 
-	.salary-info {
+	.modal-content {
+		background: white;
+		border-radius: 8px;
+		width: 90%;
+		max-width: 600px;
+		max-height: 90vh;
+		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 	}
 
-	.salary-amount {
-		font-weight: 600;
-		color: #28a745;
-		font-size: 1rem;
+	.modal-header {
+		padding: 1.5rem;
+		border-bottom: 1px solid #dee2e6;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 
-	.payment-mode-badge {
-		display: inline-block;
-		padding: 0.25rem 0.5rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 500;
-		background: #e7f3ff;
-		color: #0056b3;
+	.modal-header h3 {
+		margin: 0;
+		font-size: 1.25rem;
+		color: #333;
 	}
 
-	.total-salary-cell {
+	.close-btn {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: #6c757d;
+		cursor: pointer;
+		padding: 0;
+		width: 30px;
+		height: 30px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 	}
 
-	.total-amount {
-		font-weight: 700;
-		color: #0056b3;
-		font-size: 1.1rem;
-		background: #f0f8ff;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		border: 2px solid #0056b3;
+	.close-btn:hover {
+		color: #333;
 	}
 
-	.no-salary {
-		color: #6c757d;
-		font-style: italic;
+	.modal-body {
+		padding: 1.5rem;
+		overflow-y: auto;
+		flex: 1;
+	}
+
+	.form-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.form-group label {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+		font-weight: 600;
+		color: #495057;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 400;
+		font-size: 0.875rem;
+		cursor: pointer;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		cursor: pointer;
+	}
+
+	.input-row {
+		display: flex;
+		gap: 0.75rem;
+		align-items: flex-start;
+	}
+
+	.form-input {
+		flex: 1;
+		padding: 0.75rem;
+		border: 1px solid #ced4da;
+		border-radius: 4px;
+		font-size: 0.875rem;
+	}
+
+	.form-input:focus {
+		outline: none;
+		border-color: #80bdff;
+		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	}
+
+	.form-select {
+		padding: 0.75rem;
+		border: 1px solid #ced4da;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		background: white;
+		cursor: pointer;
+		min-width: 100px;
+	}
+
+	.form-select:focus {
+		outline: none;
+		border-color: #80bdff;
+		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	}
+
+	.percentage-input-wrapper {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.percentage-input {
+		width: 100px !important;
+		flex: none;
+	}
+
+	.percentage-symbol {
+		font-weight: 600;
+		color: #495057;
+	}
+
+	.calculated-preview {
+		font-size: 0.875rem;
+		color: #28a745;
+		font-weight: 600;
+		padding: 0.25rem 0.5rem;
+		background: #e7f9e7;
+		border-radius: 4px;
+	}
+
+	.calculated-preview.deduction {
+		color: #dc3545;
+		background: #ffe7e7;
+	}
+
+	.total-preview {
+		margin-top: 2rem;
+		padding: 1rem;
+		background: #f0f8ff;
+		border: 2px solid #0056b3;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.total-label {
+		font-weight: 600;
+		color: #495057;
+		font-size: 1rem;
+	}
+
+	.total-value {
+		font-weight: 700;
+		color: #0056b3;
+		font-size: 1.25rem;
+	}
+
+	.modal-footer {
+		padding: 1rem 1.5rem;
+		border-top: 1px solid #dee2e6;
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+	}
+
+	.cancel-modal-btn, .save-modal-btn {
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.cancel-modal-btn {
+		background: #6c757d;
+		color: white;
+	}
+
+	.cancel-modal-btn:hover:not(:disabled) {
+		background: #5a6268;
+	}
+
+	.save-modal-btn {
+		background: #28a745;
+		color: white;
+	}
+
+	.save-modal-btn:hover:not(:disabled) {
+		background: #218838;
+	}
+
+	.cancel-modal-btn:disabled, .save-modal-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 </style>
