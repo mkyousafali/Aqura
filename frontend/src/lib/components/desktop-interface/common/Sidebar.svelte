@@ -93,6 +93,8 @@
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
 	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
+	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
+	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -702,6 +704,52 @@
 			title: `Fingerprint Transactions #${instanceNumber}`,
 			component: FingerprintTransactions,
 			icon: '👆',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openEmployeeFiles() {
+		collapseAllMenus();
+		const windowId = generateWindowId('employee-files');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Employee Files #${instanceNumber}`,
+			component: EmployeeFiles,
+			icon: '📁',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openSalaryAndWage() {
+		collapseAllMenus();
+		const windowId = generateWindowId('salary-and-wage');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Salary and Wage #${instanceNumber}`,
+			component: SalaryAndWage,
+			icon: '💰',
 			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -2925,7 +2973,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showFinanceDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Dashboard items will be added here -->
+					{#if isButtonAllowed('APPROVAL_CENTER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openApprovalCenter}>
+								<span class="menu-icon">✓</span>
+								<span class="menu-text">Approval Center</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -3264,12 +3319,30 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showHROperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<div class="submenu-item-container">
-						<button class="submenu-item" on:click={openFingerprintTransactions}>
-							<span class="menu-icon">👆</span>
-							<span class="menu-text">Fingerprint Transactions</span>
-						</button>
-					</div>
+					{#if isButtonAllowed('EMPLOYEE_FILES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openEmployeeFiles}>
+								<span class="menu-icon">📁</span>
+								<span class="menu-text">Employee Files</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('FINGERPRINT_TRANSACTIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openFingerprintTransactions}>
+								<span class="menu-icon">👆</span>
+								<span class="menu-text">Fingerprint Transactions</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SALARY_AND_WAGE')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSalaryAndWage}>
+								<span class="menu-icon">💰</span>
+								<span class="menu-text">Salary and Wage</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 

@@ -46,6 +46,9 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Create Position": "CREATE_POSITION",
   "Reporting Map": "REPORTING_MAP",
   "Assign Positions": "ASSIGN_POSITIONS",
+  "Employee Files": "EMPLOYEE_FILES",
+  "Fingerprint Transactions": "FINGERPRINT_TRANSACTIONS",
+  "Salary and Wage": "SALARY_AND_WAGE",
   "Contact Management": "CONTACT_MANAGEMENT",
   "Document Management": "DOCUMENT_MANAGEMENT",
   "Salary & Wage Management": "SALARY_WAGE_MANAGEMENT",
@@ -76,5 +79,8 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Manage Master Admin": "MANAGE_MASTER_ADMIN",
   "Sound Settings": "SOUND_SETTINGS",
   "Flyer Settings": "FLYER_SETTINGS",
-  "Approval Permissions": "APPROVAL_PERMISSIONS"
+  "Approval Permissions": "APPROVAL_PERMISSIONS",
+  "Denomination": "DENOMINATION",
+  "Petty Cash": "PETTY_CASH",
+  "Approval Center": "APPROVAL_CENTER"
 };
