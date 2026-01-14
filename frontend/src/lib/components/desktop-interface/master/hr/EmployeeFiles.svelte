@@ -14,6 +14,8 @@
 	let selectedNationality = '';
 	let sponsorshipStatus = false;
 	let savedSponsorshipStatus = false;
+	let isCurrentlyEmployed = true;
+	let savedIsCurrentlyEmployed = true;
 	let isLoading = false;
 	let errorMessage = '';
 	let filtersOpen = true;
@@ -59,6 +61,9 @@
 	let age = 0;
 	let joinDate = '';
 	let savedJoinDate = '';
+	let probationPeriodExpiryDate = '';
+	let savedProbationPeriodExpiryDate = '';
+	let probationPeriodDaysUntilExpiry = 0;
 	let insuranceCompanies: any[] = [];
 	let selectedInsuranceCompanyId = '';
 	let savedInsuranceCompanyId = '';
@@ -216,6 +221,7 @@
 					current_position_id,
 					nationality_id,
 					sponsorship_status,
+					is_currently_employed,
 					id_number,
 					id_expiry_date,
 					work_permit_expiry_date,
@@ -233,6 +239,7 @@
 					iban,
 					date_of_birth,
 					join_date,
+					probation_period_expiry_date,
 					insurance_company_id,
 					insurance_expiry_date
 				`);
@@ -294,6 +301,8 @@
 		selectedNationality = employee.nationality_id || '';
 		sponsorshipStatus = employee.sponsorship_status || false;
 		savedSponsorshipStatus = employee.sponsorship_status || false;
+		isCurrentlyEmployed = employee.is_currently_employed !== undefined ? employee.is_currently_employed : true;
+		savedIsCurrentlyEmployed = employee.is_currently_employed !== undefined ? employee.is_currently_employed : true;
 		isSaved = !!employee.nationality_id;
 		idNumber = employee.id_number || '';
 		savedIdNumber = employee.id_number || '';
@@ -325,6 +334,8 @@
 		savedDateOfBirth = employee.date_of_birth || '';
 		joinDate = employee.join_date || '';
 		savedJoinDate = employee.join_date || '';
+		probationPeriodExpiryDate = employee.probation_period_expiry_date || '';
+		savedProbationPeriodExpiryDate = employee.probation_period_expiry_date || '';
 		selectedInsuranceCompanyId = employee.insurance_company_id || '';
 		savedInsuranceCompanyId = employee.insurance_company_id || '';
 		insuranceExpiryDate = employee.insurance_expiry_date || '';
@@ -337,6 +348,7 @@
 		calculateContractDaysUntilExpiry();
 		calculateInsuranceDaysUntilExpiry();
 		calculateAge();
+		calculateProbationPeriodDaysUntilExpiry();
 	}
 
 	function toggleEdit() {
@@ -550,6 +562,19 @@
 		}
 		
 		age = calculatedAge;
+	}
+
+	function calculateProbationPeriodDaysUntilExpiry() {
+		if (!probationPeriodExpiryDate) {
+			probationPeriodDaysUntilExpiry = 0;
+			return;
+		}
+
+		const today = new Date();
+		const expiry = new Date(probationPeriodExpiryDate);
+		const diffTime = expiry.getTime() - today.getTime();
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		probationPeriodDaysUntilExpiry = diffDays;
 	}
 
 	async function saveHealthCardNumber() {
@@ -1018,6 +1043,34 @@
 		}
 	}
 
+	async function saveProbationPeriodExpiryDate() {
+		if (!selectedEmployee || !probationPeriodExpiryDate) {
+			alert('Please enter probation period expiry date');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ probation_period_expiry_date: probationPeriodExpiryDate })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving probation period expiry date:', error);
+				alert('Failed to save probation period expiry date');
+				return;
+			}
+
+			selectedEmployee.probation_period_expiry_date = probationPeriodExpiryDate;
+			savedProbationPeriodExpiryDate = probationPeriodExpiryDate;
+			calculateProbationPeriodDaysUntilExpiry();
+			alert('Probation period expiry date saved successfully!');
+		} catch (error) {
+			console.error('Error saving probation period expiry date:', error);
+			alert('Failed to save probation period expiry date');
+		}
+	}
+
 	function calculateInsuranceDaysUntilExpiry() {
 		if (!insuranceExpiryDate) {
 			insuranceDaysUntilExpiry = 0;
@@ -1137,6 +1190,33 @@
 		} catch (error) {
 			console.error('Error saving sponsorship status:', error);
 			alert('Failed to save sponsorship status');
+		}
+	}
+
+	async function saveEmploymentStatus() {
+		if (!selectedEmployee) {
+			alert('Please select an employee');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('hr_employee_master')
+				.update({ is_currently_employed: isCurrentlyEmployed })
+				.eq('id', selectedEmployee.id);
+
+			if (error) {
+				console.error('Error saving employment status:', error);
+				alert('Failed to save employment status');
+				return;
+			}
+
+			selectedEmployee.is_currently_employed = isCurrentlyEmployed;
+			savedIsCurrentlyEmployed = isCurrentlyEmployed;
+			alert('Employment status saved successfully!');
+		} catch (error) {
+			console.error('Error saving employment status:', error);
+			alert('Failed to save employment status');
 		}
 	}
 
@@ -1318,6 +1398,23 @@
 										</label>
 										{#if sponsorshipStatus !== savedSponsorshipStatus}
 											<button class="save-button-small" on:click={saveSponsorshipStatus}>
+												💾 Save Status
+											</button>
+										{/if}
+									</div>
+
+									<!-- Employment Status Toggle -->
+									<div class="employment-toggle">
+										<label class="toggle-label">
+											<span>Employment Status</span>
+											<div class="toggle-switch">
+												<input type="checkbox" bind:checked={isCurrentlyEmployed} class="toggle-input"/>
+												<span class="toggle-slider"></span>
+											</div>
+											<span class="toggle-status">{isCurrentlyEmployed ? 'In Job' : 'Resigned'}</span>
+										</label>
+										{#if isCurrentlyEmployed !== savedIsCurrentlyEmployed}
+											<button class="save-button-small" on:click={saveEmploymentStatus}>
 												💾 Save Status
 											</button>
 										{/if}
@@ -2338,9 +2435,68 @@
 										</button>
 									{/if}
 								{/if}
-							</div>
+
+							<!-- Probation Period Expiry Date Field -->
+							{#if !savedProbationPeriodExpiryDate}
+								<!-- Show input when no date is saved -->
+								<div class="form-group-compact">
+									<label for="probation-period-expiry">Probation Period Expiry Date</label>
+									<input 
+										type="date" 
+										id="probation-period-expiry" 
+										bind:value={probationPeriodExpiryDate}
+										on:change={calculateProbationPeriodDaysUntilExpiry}
+									/>
+								</div>
+								<button class="save-button-small" on:click={saveProbationPeriodExpiryDate}>
+									💾 Save Probation Date
+								</button>
+							{:else}
+								<!-- Show saved date info when saved -->
+								<div class="saved-date-info">
+									{#if probationPeriodDaysUntilExpiry < 0}
+										<div class="probation-finished">
+											<span class="finish-badge">✓ Probation period finished</span>
+										</div>
+									{/if}
+									<div class="saved-date-display">
+										<span class="date-label">Probation Period:</span>
+										<span class="date-value">
+											{savedProbationPeriodExpiryDate ? new Date(savedProbationPeriodExpiryDate).toLocaleDateString('en-GB') : '-'}
+										</span>
+									</div>
+									{#if probationPeriodDaysUntilExpiry > 0}
+										<span class="expiry-valid">⏰ {probationPeriodDaysUntilExpiry} days remaining</span>
+									{:else if probationPeriodDaysUntilExpiry === 0}
+										<span class="expiry-warning">⚠️ Expires today!</span>
+									{:else}
+										<span class="expiry-expired">❌ Probation period finished</span>
+									{/if}
+								</div>
+								
+								<!-- Edit date input (hidden by default) -->
+								{#if probationPeriodExpiryDate !== savedProbationPeriodExpiryDate}
+									<div class="form-group-compact">
+										<label for="probation-period-expiry">Change Probation Period Date</label>
+										<input 
+											type="date" 
+											id="probation-period-expiry" 
+											bind:value={probationPeriodExpiryDate}
+											on:change={calculateProbationPeriodDaysUntilExpiry}
+										/>
+									</div>
+									<button class="save-button-small" on:click={saveProbationPeriodExpiryDate}>
+										💾 Save Probation Date
+									</button>
+								{:else}
+									<button class="update-button" on:click={() => probationPeriodExpiryDate = ''}>
+										✏️ Update Probation Date
+									</button>
+								{/if}
+							{/if}
 						</div>
 					</div>
+				</div>
 
 				<!-- End of file cards grid -->
 				</div>
@@ -2873,6 +3029,16 @@
 		color: #667eea;
 	}
 
+	.employment-toggle {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #f8f9ff;
+		border-radius: 4px;
+		border: 1px solid #e0e0f0;
+	}
+
 	.form-group-compact {
 		display: flex;
 		flex-direction: column;
@@ -2945,6 +3111,20 @@
 	.expiry-expired {
 		color: #ef4444;
 		font-weight: 500;
+	}
+
+	.probation-finished {
+		margin-bottom: 0.5rem;
+	}
+
+	.finish-badge {
+		display: inline-block;
+		background: #10b981;
+		color: white;
+		padding: 0.35rem 0.75rem;
+		border-radius: 4px;
+		font-size: 0.8rem;
+		font-weight: 600;
 	}
 
 	.save-button-small {
