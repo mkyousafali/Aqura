@@ -719,6 +719,29 @@
 		showHRSubmenu = false;
 	}
 
+	function openProcessFingerprint() {
+		collapseAllMenus();
+		const windowId = generateWindowId('process-fingerprint');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Process Fingerprint #${instanceNumber}`,
+			component: null,
+			icon: '📂',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openEmployeeFiles() {
 		collapseAllMenus();
 		const windowId = generateWindowId('employee-files');
@@ -3380,6 +3403,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openFingerprintTransactions}>
 								<span class="menu-icon">👆</span>
 								<span class="menu-text">Fingerprint Transactions</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PROCESS_FINGERPRINT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openProcessFingerprint}>
+								<span class="menu-icon">📂</span>
+								<span class="menu-text">Process Fingerprint</span>
 							</button>
 						</div>
 					{/if}
