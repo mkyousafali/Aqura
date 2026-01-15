@@ -9,6 +9,7 @@
 	let employees: any[] = [];
 	let filteredEmployees: any[] = [];
 	let selectedBranch = '';
+	let selectedPositionId = '';
 	let searchTerm = '';
 	let selectedEmployee: any = null;
 	let selectedNationality = '';
@@ -65,6 +66,7 @@
 	let savedProbationPeriodExpiryDate = '';
 	let probationPeriodDaysUntilExpiry = 0;
 	let insuranceCompanies: any[] = [];
+	let positions: any[] = [];
 	let selectedInsuranceCompanyId = '';
 	let savedInsuranceCompanyId = '';
 	let insuranceExpiryDate = '';
@@ -98,6 +100,7 @@
 		await loadBranches();
 		await loadNationalities();
 		await loadInsuranceCompanies();
+		await loadPositions();
 		await loadEmployees();
 	});
 
@@ -142,6 +145,22 @@
 			insuranceCompanies = data || [];
 		} catch (error) {
 			console.error('Error loading insurance companies:', error);
+		}
+	}
+
+	async function loadPositions() {
+		try {
+			const { data, error } = await supabase
+				.from('hr_positions')
+				.select('id, position_title_en, position_title_ar')
+				.order('position_title_en');
+			if (error) {
+				console.error('Error loading positions:', error);
+				return;
+			}
+			positions = data || [];
+		} catch (error) {
+			console.error('Error loading positions:', error);
 		}
 	}
 
@@ -219,6 +238,10 @@
 					name_ar,
 					current_branch_id,
 					current_position_id,
+					hr_positions:current_position_id (
+						position_title_en,
+						position_title_ar
+					),
 					nationality_id,
 					sponsorship_status,
 					is_currently_employed,
@@ -276,10 +299,10 @@
 			);
 		}
 
-		// Filter by nationality
-		if (selectedNationality) {
+		// Filter by position
+		if (selectedPositionId) {
 			filtered = filtered.filter(emp => 
-				emp.nationality_id === selectedNationality
+				String(emp.current_position_id) === String(selectedPositionId)
 			);
 		}
 
@@ -289,7 +312,9 @@
 			filtered = filtered.filter(emp => 
 				emp.id?.toLowerCase().includes(search) ||
 				emp.name_en?.toLowerCase().includes(search) ||
-				emp.name_ar?.includes(search)
+				emp.name_ar?.includes(search) ||
+				emp.hr_positions?.position_title_en?.toLowerCase().includes(search) ||
+				emp.hr_positions?.position_title_ar?.includes(search)
 			);
 		}
 
@@ -1221,7 +1246,7 @@
 	}
 
 	// Reactive statements to trigger filtering
-	$: if (selectedBranch !== undefined || searchTerm !== undefined || selectedNationality !== undefined) {
+	$: if (selectedBranch !== undefined || selectedPositionId !== undefined || searchTerm !== undefined) {
 		filterEmployees();
 	}
 </script>
@@ -1254,6 +1279,17 @@
 						</select>
 					</div>
 
+					<!-- Position Filter -->
+					<div class="form-group">
+						<label for="position-filter">Position</label>
+						<select id="position-filter" bind:value={selectedPositionId}>
+							<option value="">All Positions</option>
+							{#each positions as pos}
+								<option value={pos.id}>{pos.position_title_en} | {pos.position_title_ar}</option>
+							{/each}
+						</select>
+					</div>
+
 					<!-- Search Input -->
 					<div class="form-group">
 						<label for="search">Search by Name or ID</label>
@@ -1263,17 +1299,6 @@
 							bind:value={searchTerm} 
 							placeholder="Enter employee name or ID..."
 						/>
-					</div>
-
-					<!-- Nationality Filter -->
-					<div class="form-group">
-						<label for="nationality-filter">الجنسية | Nationality</label>
-						<select id="nationality-filter" bind:value={selectedNationality}>
-							<option value="">All Nationalities</option>
-							{#each nationalities as nationality}
-								<option value={nationality.id}>{nationality.name_ar} / {nationality.name_en}</option>
-							{/each}
-						</select>
 					</div>
 				</div>
 			{/if}
@@ -2367,7 +2392,7 @@
 												{savedDateOfBirth ? new Date(savedDateOfBirth).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
-										<span class="age-display">🎂 Age: <strong>{age} years</strong></span>
+										<span class="age-display">Age: {age} Years</span>
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
@@ -2757,8 +2782,9 @@
 	}
 
 	.employee-item.selected {
-		background-color: #e8f5f1;
-		border-left: 3px solid #10b981;
+		background-color: #fff7ed;
+		border-left: 4px solid #f97316;
+		font-weight: 500;
 	}
 
 	.employee-item:last-child {
@@ -3473,10 +3499,17 @@
 	}
 
 	.age-display {
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		color: #3b82f6;
 		font-weight: 600;
+		background: #eff6ff;
+		padding: 2px 8px;
+		border-radius: 4px;
+		display: inline-block;
 		margin-top: 0.25rem;
+		border: 1px solid #dbeafe;
+		text-transform: uppercase;
+		letter-spacing: 0.025em;
 	}
 
 	.secondary-button {
