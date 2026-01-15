@@ -95,6 +95,8 @@
 	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
 	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
+	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
+	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -750,6 +752,52 @@
 			title: `Salary and Wage #${instanceNumber}`,
 			component: SalaryAndWage,
 			icon: '💰',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openShiftAndDayOff() {
+		collapseAllMenus();
+		const windowId = generateWindowId('shift-and-day-off');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Shift and Day Off #${instanceNumber}`,
+			component: ShiftAndDayOff,
+			icon: '⌚',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openLeavesAndVacations() {
+		collapseAllMenus();
+		const windowId = generateWindowId('leaves-and-vacations');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Leaves and Vacations #${instanceNumber}`,
+			component: LeavesAndVacations,
+			icon: '🌴',
 			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -3340,6 +3388,22 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openSalaryAndWage}>
 								<span class="menu-icon">💰</span>
 								<span class="menu-text">Salary and Wage</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SHIFT_AND_DAY_OFF')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openShiftAndDayOff}>
+								<span class="menu-icon">⌚</span>
+								<span class="menu-text">Shift and Day Off</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LEAVES_AND_VACATIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLeavesAndVacations}>
+								<span class="menu-icon">🌴</span>
+								<span class="menu-text">Leaves and Vacations</span>
 							</button>
 						</div>
 					{/if}
