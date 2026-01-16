@@ -13,6 +13,10 @@
 	let accommodationPaymentMode: { [key: string]: string } = {};
 	let accommodationIsPercentage: { [key: string]: boolean } = {};
 	let accommodationPercentage: { [key: string]: string } = {};
+	let foodValues: { [key: string]: string } = {};
+	let foodPaymentMode: { [key: string]: string } = {};
+	let foodIsPercentage: { [key: string]: boolean } = {};
+	let foodPercentage: { [key: string]: string } = {};
 	let travelValues: { [key: string]: string } = {};
 	let travelPaymentMode: { [key: string]: string } = {};
 	let travelIsPercentage: { [key: string]: boolean } = {};
@@ -86,7 +90,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction');
+				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, food_allowance, food_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction');
 
 			if (error) {
 				console.error('Error loading basic salaries:', error);
@@ -102,6 +106,8 @@
 					otherAllowancePaymentMode[item.employee_id] = item.other_allowance_payment_mode || 'Bank';
 					accommodationValues[item.employee_id] = item.accommodation_allowance?.toString() || '';
 					accommodationPaymentMode[item.employee_id] = item.accommodation_payment_mode || 'Bank';
+					foodValues[item.employee_id] = item.food_allowance?.toString() || '';
+					foodPaymentMode[item.employee_id] = item.food_payment_mode || 'Bank';
 					travelValues[item.employee_id] = item.travel_allowance?.toString() || '';
 					travelPaymentMode[item.employee_id] = item.travel_payment_mode || 'Bank';
 					gosiValues[item.employee_id] = item.gosi_deduction?.toString() || '';
@@ -125,6 +131,10 @@
 		if (!accommodationPaymentMode[employeeId]) accommodationPaymentMode[employeeId] = 'Bank';
 		if (accommodationIsPercentage[employeeId] === undefined) accommodationIsPercentage[employeeId] = false;
 		if (!accommodationPercentage[employeeId]) accommodationPercentage[employeeId] = '';
+		if (!foodValues[employeeId]) foodValues[employeeId] = '';
+		if (!foodPaymentMode[employeeId]) foodPaymentMode[employeeId] = 'Bank';
+		if (foodIsPercentage[employeeId] === undefined) foodIsPercentage[employeeId] = false;
+		if (!foodPercentage[employeeId]) foodPercentage[employeeId] = '';
 		if (!travelValues[employeeId]) travelValues[employeeId] = '';
 		if (!travelPaymentMode[employeeId]) travelPaymentMode[employeeId] = 'Bank';
 		if (travelIsPercentage[employeeId] === undefined) travelIsPercentage[employeeId] = false;
@@ -168,6 +178,14 @@
 				accomVal = parseFloat(accommodationValues[employeeId]) || 0;
 			}
 			
+			let foodVal = 0;
+			if (foodIsPercentage[employeeId]) {
+				const percentage = parseFloat(foodPercentage[employeeId]) || 0;
+				foodVal = (basicVal * percentage) / 100;
+			} else {
+				foodVal = parseFloat(foodValues[employeeId]) || 0;
+			}
+			
 			let travelVal = 0;
 			if (travelIsPercentage[employeeId]) {
 				const percentage = parseFloat(travelPercentage[employeeId]) || 0;
@@ -185,10 +203,11 @@
 				gosiVal = parseFloat(gosiValues[employeeId]) || 0;
 			}
 			
-			const totalSalary = basicVal + otherVal + accomVal + travelVal - gosiVal;
+			const totalSalary = basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
 			
 			// Update state with calculated values
 			accommodationValues[employeeId] = accomVal.toString();
+			foodValues[employeeId] = foodVal.toString();
 			travelValues[employeeId] = travelVal.toString();
 			gosiValues[employeeId] = gosiVal.toString();
 			
@@ -202,6 +221,8 @@
 					other_allowance_payment_mode: otherAllowancePaymentMode[employeeId] || 'Bank',
 					accommodation_allowance: accomVal,
 					accommodation_payment_mode: accommodationPaymentMode[employeeId] || 'Bank',
+					food_allowance: foodVal,
+					food_payment_mode: foodPaymentMode[employeeId] || 'Bank',
 					travel_allowance: travelVal,
 					travel_payment_mode: travelPaymentMode[employeeId] || 'Bank',
 					gosi_deduction: gosiVal,
@@ -229,9 +250,10 @@
 		const basicVal = parseFloat(basicSalaryValues[employeeId]) || 0;
 		const otherVal = parseFloat(otherAllowanceValues[employeeId]) || 0;
 		const accomVal = parseFloat(accommodationValues[employeeId]) || 0;
+		const foodVal = parseFloat(foodValues[employeeId]) || 0;
 		const travelVal = parseFloat(travelValues[employeeId]) || 0;
 		const gosiVal = parseFloat(gosiValues[employeeId]) || 0;
-		return basicVal + otherVal + accomVal + travelVal - gosiVal;
+		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
 	}
 
 	function getModalTotalPreview(): number {
@@ -246,6 +268,14 @@
 			accomVal = (basicVal * percentage) / 100;
 		} else {
 			accomVal = parseFloat(accommodationValues[currentEmployeeId]) || 0;
+		}
+		
+		let foodVal = 0;
+		if (foodIsPercentage[currentEmployeeId]) {
+			const percentage = parseFloat(foodPercentage[currentEmployeeId]) || 0;
+			foodVal = (basicVal * percentage) / 100;
+		} else {
+			foodVal = parseFloat(foodValues[currentEmployeeId]) || 0;
 		}
 		
 		let travelVal = 0;
@@ -265,13 +295,16 @@
 			gosiVal = parseFloat(gosiValues[currentEmployeeId]) || 0;
 		}
 		
-		return basicVal + otherVal + accomVal + travelVal - gosiVal;
+		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
 	}
 </script>
 
 <div class="salary-wage-container">
 	<div class="header">
 		<h2>Salary and Wage Management</h2>
+		<button class="refresh-btn" on:click={() => { loadEmployees(); loadBasicSalaries(); }} disabled={isLoading}>
+			{isLoading ? 'Loading...' : '🔄 Refresh'}
+		</button>
 	</div>
 
 	{#if errorMessage}
@@ -295,6 +328,7 @@
 						<th>Basic Salary</th>
 						<th>Other Allowance</th>
 						<th>Accommodation</th>
+						<th>Food Allowance</th>
 						<th>Travel</th>
 						<th>GOSI Deduction</th>
 						<th>Total Salary</th>
@@ -388,6 +422,16 @@
 								{/if}
 							</td>
 							<td>
+								{#if foodValues[employee.id]}
+									<div class="value-display">
+										<span class="amount">{parseFloat(foodValues[employee.id]).toLocaleString()} SAR</span>
+										<span class="badge">{foodPaymentMode[employee.id] || 'Bank'}</span>
+									</div>
+								{:else}
+									<span class="no-data">-</span>
+								{/if}
+							</td>
+							<td>
 								{#if travelValues[employee.id]}
 									<div class="value-display">
 										<span class="amount">{parseFloat(travelValues[employee.id]).toLocaleString()} SAR</span>
@@ -427,7 +471,7 @@
 					{/each}
 					{#if employees.length === 0}
 						<tr>
-							<td colspan="14" class="no-data-row">No employees found</td>
+							<td colspan="15" class="no-data-row">No employees found</td>
 						</tr>
 					{/if}
 				</tbody>
@@ -522,6 +566,50 @@
 							/>
 						{/if}
 						<select bind:value={accommodationPaymentMode[currentEmployeeId]} class="form-select">
+							<option value="Bank">Bank</option>
+							<option value="Cash">Cash</option>
+						</select>
+					</div>
+				</div>
+
+				<!-- Food Allowance -->
+				<div class="form-group">
+					<label>
+						Food Allowance
+						<label class="checkbox-label">
+							<input 
+								type="checkbox" 
+								bind:checked={foodIsPercentage[currentEmployeeId]}
+							/>
+							<span>Use % of Basic</span>
+						</label>
+					</label>
+					<div class="input-row">
+						{#if foodIsPercentage[currentEmployeeId]}
+							<div class="percentage-input-wrapper">
+								<input 
+									type="number" 
+									bind:value={foodPercentage[currentEmployeeId]}
+									placeholder="Enter %"
+									class="form-input percentage-input"
+									min="0"
+									max="100"
+								/>
+								<span class="percentage-symbol">%</span>
+								{#if foodPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
+									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(foodPercentage[currentEmployeeId])) / 100}
+									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+								{/if}
+							</div>
+						{:else}
+							<input 
+								type="number" 
+								bind:value={foodValues[currentEmployeeId]}
+								placeholder="Enter food allowance"
+								class="form-input"
+							/>
+						{/if}
+						<select bind:value={foodPaymentMode[currentEmployeeId]} class="form-select">
 							<option value="Bank">Bank</option>
 							<option value="Cash">Cash</option>
 						</select>
@@ -645,12 +733,36 @@
 
 	.header {
 		margin-bottom: 1.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 
 	h2 {
 		margin: 0;
 		font-size: 1.5rem;
 		color: #333;
+	}
+
+	.refresh-btn {
+		padding: 0.5rem 1rem;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 500;
+		background: #17a2b8;
+		color: white;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #138496;
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.error-message {
