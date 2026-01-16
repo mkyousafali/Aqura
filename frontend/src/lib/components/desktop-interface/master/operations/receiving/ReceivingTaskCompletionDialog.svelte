@@ -116,7 +116,11 @@
 				.select('pr_excel_verified')
 				.eq('receiving_record_id', receivingRecordId)
 				.not('bill_number', 'like', 'SPLIT_%')
-				.single();
+				.maybeSingle();
+
+			if (scheduleError) {
+				console.warn('⚠️ Error checking PR Excel verification:', scheduleError);
+			}
 
 			if (!scheduleError && scheduleData) {
 				// Consider verified only if pr_excel_verified is explicitly true
@@ -450,52 +454,57 @@
 				.from('vendor_payment_schedule')
 				.select('pr_excel_verified')
 				.eq('receiving_record_id', taskDetails.receiving_record_id)
-				.single();
+			.maybeSingle();
 
-			const missingRequirements = [];
+		// If there's an error querying the schedule table, log it but don't block
+		if (scheduleError) {
+			console.warn('⚠️ [Desktop] Error checking PR Excel verification:', scheduleError);
+		}
 
-			// Check original bill upload status
-			const hasOriginalBill = receivingRecord.original_bill_uploaded || (receivingRecord.original_bill_url && receivingRecord.original_bill_url.length > 0);
-			if (!hasOriginalBill) {
-				missingRequirements.push('Original Bill must be uploaded');
-				console.log('❌ [Desktop] Original bill not uploaded');
-			} else {
-				console.log('✅ [Desktop] Original bill uploaded');
-			}
+		const missingRequirements = [];
 
-			// Check PR Excel upload status
-			const hasExcelFile = receivingRecord.pr_excel_file_uploaded || (receivingRecord.pr_excel_file_url && receivingRecord.pr_excel_file_url.length > 0);
-			if (!hasExcelFile) {
-				missingRequirements.push('PR Excel File must be uploaded');
-				console.log('❌ [Desktop] PR Excel not uploaded');
-			} else {
-				console.log('✅ [Desktop] PR Excel uploaded');
-			}
+		// Check original bill upload status
+		const hasOriginalBill = receivingRecord.original_bill_uploaded || (receivingRecord.original_bill_url && receivingRecord.original_bill_url.length > 0);
+		if (!hasOriginalBill) {
+			missingRequirements.push('Original Bill must be uploaded');
+			console.log('❌ [Desktop] Original bill not uploaded');
+		} else {
+			console.log('✅ [Desktop] Original bill uploaded');
+		}
 
-			// Check PR Excel verification status
-			if (!scheduleData || !scheduleData.pr_excel_verified) {
-				missingRequirements.push('PR Excel must be verified by Purchase Manager');
-				console.log('❌ [Desktop] PR Excel not verified');
-			} else {
-				console.log('✅ [Desktop] PR Excel verified');
-			}
+		// Check PR Excel upload status
+		const hasExcelFile = receivingRecord.pr_excel_file_uploaded || (receivingRecord.pr_excel_file_url && receivingRecord.pr_excel_file_url.length > 0);
+		if (!hasExcelFile) {
+			missingRequirements.push('PR Excel File must be uploaded');
+			console.log('❌ [Desktop] PR Excel not uploaded');
+		} else {
+			console.log('✅ [Desktop] PR Excel uploaded');
+		}
 
-			// If any requirements are missing, block completion
-			if (missingRequirements.length > 0) {
-				canComplete = false;
-				blockingRoles = missingRequirements;
-				error = `Missing required steps: ${missingRequirements.join(', ')}`;
-				console.log('❌ [Desktop] Missing requirements:', missingRequirements);
-				return;
-			}
+		// Check PR Excel verification status - only if we have schedule data
+		if (!scheduleError && (!scheduleData || !scheduleData.pr_excel_verified)) {
+			missingRequirements.push('PR Excel must be verified by Purchase Manager');
+			console.log('❌ [Desktop] PR Excel not verified');
+		} else if (scheduleData && scheduleData.pr_excel_verified) {
+			console.log('✅ [Desktop] PR Excel verified');
+		}
 
-			// All requirements met, accountant can proceed
-			canComplete = true;
-			blockingRoles = [];
-			error = null;
-			console.log('✅ [Desktop] Accountant dependency check passed - all required files uploaded');
-			
-		} catch (error) {
+		// If any requirements are missing, block completion
+		if (missingRequirements.length > 0) {
+			canComplete = false;
+			blockingRoles = missingRequirements;
+			error = `Missing required steps: ${missingRequirements.join(', ')}`;
+			console.log('❌ [Desktop] Missing requirements:', missingRequirements);
+			return;
+		}
+
+		// All requirements met, accountant can proceed
+		canComplete = true;
+		blockingRoles = [];
+		error = null;
+		console.log('✅ [Desktop] Accountant dependency check passed - all required files uploaded');
+		
+	} catch (error) {
 			console.error('❌ [Desktop] Error checking accountant dependency:', error);
 			canComplete = false;
 			error = 'Error checking dependencies. Please try again.';
