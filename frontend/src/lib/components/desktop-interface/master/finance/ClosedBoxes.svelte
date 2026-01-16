@@ -17,8 +17,19 @@
 	let branches: any[] = [];
 	let selectedBranch = '';
 	let completedBoxes: any[] = [];
+	let existingTransfers: Set<string> = new Set();
 	let isLoading = true;
 	let realtimeChannel: RealtimeChannel | null = null;
+	
+	// Pagination
+	let currentPage = 1;
+	let pageSize = 50;
+	let totalCount = 0;
+	let totalPages = 0;
+	
+	// Filters
+	let selectedStatus = 'all'; // all, with-deduction, without-deduction
+	let searchCashierName = '';
 
 	onMount(async () => {
 		await loadBranches();
@@ -33,7 +44,62 @@
 		}
 	});
 
-	async function loadBranches() {
+	async function handlePOSDeductionTransfer(box: any, isChecked: boolean) {
+		if (!isChecked) return;
+
+		try {
+			const completeDetails = typeof box.complete_details === 'string' 
+				? JSON.parse(box.complete_details) 
+				: box.complete_details;
+
+			if (!box.user_id) {
+				alert('Cashier user ID not found in box operation');
+				return;
+			}
+
+			// Get the employee TEXT id from hr_employee_master using user_id (UUID)
+			const { data: employeeData, error: employeeError } = await supabase
+				.from('hr_employee_master')
+				.select('id')
+				.eq('user_id', box.user_id)
+				.single();
+
+			if (employeeError || !employeeData) {
+				console.error('Error finding employee:', employeeError);
+				alert('Employee record not found in HR system');
+				return;
+			}
+
+			const { error } = await supabase
+				.from('pos_deduction_transfers')
+				.insert({
+					id: employeeData.id,
+					box_number: box.box_number,
+					branch_id: box.branch_id,
+					cashier_user_id: employeeData.id,
+					closed_by: box.completed_by_user_id,
+				completed_by_name: completeDetails?.completed_by_name || box.completed_by_name || 'N/A',
+				short_amount: Math.abs(completeDetails?.total_difference || 0),
+				status: 'Proposed',
+				date_created_box: box.created_at,
+				date_closed_box: box.updated_at
+			});
+
+		if (error) throw error;
+		
+		// Add the transfer to the existing transfers set to update UI
+		const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+		existingTransfers.add(transferKey);
+		existingTransfers = existingTransfers; // Trigger reactivity
+		
+		alert($currentLocale === 'ar' ? 'تم حفظ التحويل بنجاح' : 'Transfer saved successfully');
+	} catch (error) {
+		console.error('Error saving POS deduction transfer:', error);
+		alert($currentLocale === 'ar' ? 'خطأ في حفظ التحويل' : 'Error saving transfer');
+	}
+}
+
+async function loadBranches() {
 		try {
 			const { data, error } = await supabase
 				.from('branches')
@@ -53,30 +119,112 @@
 			console.error('Error loading branches:', error);
 		}
 	}
+	async function loadExistingTransfers() {
+		try {
+			const { data, error } = await supabase
+				.from('pos_deduction_transfers')
+				.select('box_number, branch_id, date_closed_box');
+
+			if (error) throw error;
+			
+			// Create a Set of unique keys for quick lookup
+			existingTransfers = new Set(
+				(data || []).map(t => `${t.box_number}-${t.branch_id}-${t.date_closed_box}`)
+			);
+		} catch (error) {
+			console.error('Error loading existing transfers:', error);
+		}
+	}
 
 	async function loadCompletedBoxes() {
 		isLoading = true;
 		try {
-			let query = supabase
+			let countQuery = supabase
+				.from('box_operations')
+				.select('*', { count: 'exact', head: true })
+				.eq('status', 'completed');
+
+			let dataQuery = supabase
 				.from('box_operations')
 				.select('*')
 				.eq('status', 'completed');
 
 			// Only filter by branch if not "all"
 			if (selectedBranch && selectedBranch !== 'all') {
-				query = query.eq('branch_id', selectedBranch);
+				countQuery = countQuery.eq('branch_id', selectedBranch);
+				dataQuery = dataQuery.eq('branch_id', selectedBranch);
 			}
 
-			const { data, error } = await query.order('updated_at', { ascending: false });
+			// Add pagination
+			const from = (currentPage - 1) * pageSize;
+			const to = from + pageSize - 1;
+			dataQuery = dataQuery.range(from, to).order('updated_at', { ascending: false });
 
-			if (error) throw error;
-			completedBoxes = data || [];
-			console.log('📦 Loaded completed boxes:', completedBoxes.length);
+			// Load count, data, and transfers in parallel
+			const [countResult, dataResult] = await Promise.all([
+				countQuery,
+				dataQuery,
+				loadExistingTransfers()
+			]);
+
+			if (countResult.error) throw countResult.error;
+			if (dataResult.error) throw dataResult.error;
+
+			let boxes = dataResult.data || [];
+			
+			// Apply client-side filters
+			if (selectedStatus !== 'all') {
+				boxes = boxes.filter(box => {
+					const difference = getClosingDifference(box.complete_details);
+					const hasShortage = difference < -5;
+					const hasTransfer = hasExistingTransfer(box);
+					
+					if (selectedStatus === 'with-deduction') {
+						return hasTransfer;
+					} else if (selectedStatus === 'without-deduction') {
+						return !hasTransfer && hasShortage;
+					}
+					return true;
+				});
+			}
+			
+			if (searchCashierName.trim()) {
+				const searchLower = searchCashierName.toLowerCase();
+				boxes = boxes.filter(box => {
+					const cashierName = parseCashierName(box.notes).toLowerCase();
+					return cashierName.includes(searchLower);
+				});
+			}
+
+			totalCount = countResult.count || 0;
+			totalPages = Math.ceil(totalCount / pageSize);
+			completedBoxes = boxes;
+			console.log(`📦 Loaded page ${currentPage}/${totalPages} (${completedBoxes.length} of ${totalCount} boxes)`);
 		} catch (error) {
 			console.error('Error loading completed boxes:', error);
 			completedBoxes = [];
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	function goToPage(page: number) {
+		if (page < 1 || page > totalPages) return;
+		currentPage = page;
+		loadCompletedBoxes();
+	}
+
+	function nextPage() {
+		if (currentPage < totalPages) {
+			currentPage++;
+			loadCompletedBoxes();
+		}
+	}
+
+	function prevPage() {
+		if (currentPage > 1) {
+			currentPage--;
+			loadCompletedBoxes();
 		}
 	}
 
@@ -108,6 +256,23 @@
 					}
 				}
 			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'pos_deduction_transfers'
+				},
+				async (payload) => {
+					console.log('📡 POS Deduction transfer update:', payload);
+					// Add the new transfer to the set
+					if (payload.eventType === 'INSERT' && payload.new) {
+						const transferKey = `${payload.new.box_number}-${payload.new.branch_id}-${payload.new.date_closed_box}`;
+						existingTransfers.add(transferKey);
+						existingTransfers = existingTransfers; // Trigger reactivity
+					}
+				}
+			)
 			.subscribe();
 
 		realtimeChannel = subscription;
@@ -115,8 +280,18 @@
 
 	// Watch for branch changes
 	$: if (selectedBranch) {
+		currentPage = 1; // Reset to first page when changing branch
 		loadCompletedBoxes();
 		setupRealtimeSubscription();
+	}
+	
+	// Watch for filter changes
+	$: if (selectedStatus || searchCashierName !== undefined) {
+		if (currentPage !== 1) {
+			currentPage = 1;
+		} else {
+			loadCompletedBoxes();
+		}
 	}
 
 	function viewBoxDetails(box: any) {
@@ -171,6 +346,11 @@
 		}
 	}
 
+	function hasExistingTransfer(box: any): boolean {
+		const key = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+		return existingTransfers.has(key);
+	}
+
 	function getBranchName(branchId: number) {
 		const branch = branches.find(b => b.id === branchId);
 		if (!branch) return `Branch ${branchId}`;
@@ -179,18 +359,18 @@
 		return `${name} - ${location}`;
 	}
 
-	function getClosingDifference(closingDetails: any) {
+	function getClosingDifference(completeDetails: any) {
 		try {
-			const parsed = typeof closingDetails === 'string' ? JSON.parse(closingDetails) : closingDetails;
+			const parsed = typeof completeDetails === 'string' ? JSON.parse(completeDetails) : completeDetails;
 			return parsed?.total_difference || 0;
 		} catch {
 			return 0;
 		}
 	}
 
-	function getTotalSales(closingDetails: any) {
+	function getTotalSales(completeDetails: any) {
 		try {
-			const parsed = typeof closingDetails === 'string' ? JSON.parse(closingDetails) : closingDetails;
+			const parsed = typeof completeDetails === 'string' ? JSON.parse(completeDetails) : completeDetails;
 			return parsed?.total_sales || 0;
 		} catch {
 			return 0;
@@ -201,22 +381,54 @@
 <div class="closed-boxes-container">
 	<div class="header">
 		<h1>📋 {$currentLocale === 'ar' ? 'الصناديق المغلقة' : 'Closed Boxes'}</h1>
-		<div class="filter-section">
-			<label for="branch-select">
-				{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}
-			</label>
-			<select id="branch-select" bind:value={selectedBranch} class="branch-select">
-				<option value="all">
-					{$currentLocale === 'ar' ? '🌍 جميع الفروع' : '🌍 All Branches'}
-				</option>
-				{#each branches as branch}
-					<option value={String(branch.id)}>
-						{$currentLocale === 'ar'
-							? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
-							: `${branch.name_en || branch.name_ar} - ${branch.location_en || branch.location_ar}`}
+		<div class="filters-container">
+			<div class="filter-section">
+				<label for="branch-select">
+					{$currentLocale === 'ar' ? 'الفرع:' : 'Branch:'}
+				</label>
+				<select id="branch-select" bind:value={selectedBranch} class="branch-select">
+					<option value="all">
+						{$currentLocale === 'ar' ? '🌍 جميع الفروع' : '🌍 All Branches'}
 					</option>
-				{/each}
-			</select>
+					{#each branches as branch}
+						<option value={String(branch.id)}>
+							{$currentLocale === 'ar'
+								? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}`
+								: `${branch.name_en || branch.name_ar} - ${branch.location_en || branch.location_ar}`}
+						</option>
+					{/each}
+				</select>
+			</div>
+			
+			<div class="filter-section">
+				<label for="status-select">
+					{$currentLocale === 'ar' ? 'حالة الخصم:' : 'Deduction Status:'}
+				</label>
+				<select id="status-select" bind:value={selectedStatus} class="status-select">
+					<option value="all">
+						{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}
+					</option>
+					<option value="with-deduction">
+						{$currentLocale === 'ar' ? '✅ محول للخصم' : '✅ With Deduction'}
+					</option>
+					<option value="without-deduction">
+						{$currentLocale === 'ar' ? '⚠️ بدون خصم' : '⚠️ Without Deduction'}
+					</option>
+				</select>
+			</div>
+			
+			<div class="filter-section">
+				<label for="search-cashier">
+					{$currentLocale === 'ar' ? 'بحث بالكاشير:' : 'Search Cashier:'}
+				</label>
+				<input 
+					id="search-cashier"
+					type="text" 
+					bind:value={searchCashierName} 
+					placeholder={$currentLocale === 'ar' ? 'اسم الكاشير...' : 'Cashier name...'}
+					class="search-input"
+				/>
+			</div>
 		</div>
 	</div>
 
@@ -242,8 +454,7 @@
 						<th>{$currentLocale === 'ar' ? 'إجمالي المبيعات' : 'Total Sales'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجمالي قبل' : 'Total Before'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجمالي بعد' : 'Total After'}</th>
-						<th>{$currentLocale === 'ar' ? 'الفرق' : 'Difference'}</th>
-						<th>{$currentLocale === 'ar' ? 'تاريخ الإغلاق' : 'Closed At'}</th>
+						<th>{$currentLocale === 'ar' ? 'الفرق' : 'Difference'}</th>					<th>{$currentLocale === 'ar' ? 'خصم نقطة البيع' : 'POS Deduction Transfer'}</th>						<th>{$currentLocale === 'ar' ? 'تاريخ الإغلاق' : 'Closed At'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجراءات' : 'Actions'}</th>
 					</tr>
 				</thead>
@@ -257,13 +468,28 @@
 							<td>{parseCashierName(box.notes)}</td>
 							<td>{parseSupervisorName(box.notes)}</td>
 							<td class="closed-by-user">{box.completed_by_name || 'N/A'}</td>
-							<td class="amount">{parseFloat(getTotalSales(box.closing_details) || 0).toFixed(2)}</td>
+					<td class="amount">{parseFloat(getTotalSales(box.complete_details) || 0).toFixed(2)}</td>
 							<td class="amount">{parseFloat(box.total_before || 0).toFixed(2)}</td>
 							<td class="amount">{parseFloat(box.total_after || 0).toFixed(2)}</td>
-							<td class="amount {getClosingDifference(box.closing_details) >= 0 ? 'positive' : 'negative'}">
-								{parseFloat(getClosingDifference(box.closing_details) || 0).toFixed(2)}
-							</td>
-							<td class="datetime">{formatDateTime(box.updated_at)}</td>
+						<td class="amount {getClosingDifference(box.complete_details) >= 0 ? 'positive' : 'negative'}">
+							{parseFloat(getClosingDifference(box.complete_details) || 0).toFixed(2)}
+							</td>					<td class="pos-deduction-cell">
+						{#if getClosingDifference(box.complete_details) < -5}
+							{#if hasExistingTransfer(box)}
+								<span class="transferred-badge">✓ Transferred</span>
+							{:else}
+								<label class="checkbox-container">
+									<input 
+										type="checkbox" 
+										on:change={(e) => handlePOSDeductionTransfer(box, e.currentTarget.checked)}
+									/>
+									<span class="checkmark"></span>
+								</label>
+							{/if}
+						{:else}
+							<span class="na-text">N/A</span>
+						{/if}
+					</td>							<td class="datetime">{formatDateTime(box.updated_at)}</td>
 							<td class="actions">
 								<button class="view-btn" on:click={() => viewBoxDetails(box)}>
 									👁️ {$currentLocale === 'ar' ? 'عرض النهائي' : 'View Final'}
@@ -273,7 +499,28 @@
 					{/each}
 				</tbody>
 			</table>
+		
+		{#if totalPages > 1}
+			<div class="pagination">
+				<button class="page-btn" on:click={prevPage} disabled={currentPage === 1}>
+					← {$currentLocale === 'ar' ? 'السابق' : 'Previous'}
+				</button>
+				
+				<div class="page-info">
+					<span class="page-text">
+						{$currentLocale === 'ar' ? 'صفحة' : 'Page'} {currentPage} {$currentLocale === 'ar' ? 'من' : 'of'} {totalPages}
+					</span>
+					<span class="total-text">
+						({totalCount} {$currentLocale === 'ar' ? 'صندوق' : 'boxes'})
+					</span>
+				</div>
+				
+				<button class="page-btn" on:click={nextPage} disabled={currentPage === totalPages}>
+					{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
+				</button>
+			</div>
 		{/if}
+	{/if}
 	</div>
 </div>
 
@@ -290,8 +537,8 @@
 
 	.header {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
+		flex-direction: column;
+		gap: 1rem;
 		margin-bottom: 1.5rem;
 		background: white;
 		padding: 1.5rem;
@@ -308,39 +555,59 @@
 		letter-spacing: 0.3px;
 	}
 
+	.filters-container {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+		align-items: flex-end;
+	}
+
 	.filter-section {
 		display: flex;
-		align-items: center;
-		gap: 1rem;
+		flex-direction: column;
+		gap: 0.5rem;
 	}
 
 	.filter-section label {
 		font-weight: 700;
 		color: #2d5f4f;
-		font-size: 0.95rem;
+		font-size: 0.85rem;
 	}
 
-	.branch-select {
+	.branch-select, .status-select {
 		padding: 0.75rem 1rem;
 		border: 2px solid #1f7a3a;
 		border-radius: 0.5rem;
-		font-size: 0.95rem;
+		font-size: 0.9rem;
 		color: #333;
 		background: white;
 		cursor: pointer;
 		transition: all 0.3s ease;
-		min-width: 350px;
+		min-width: 250px;
 		font-weight: 500;
 		box-shadow: 0 4px 8px rgba(31, 122, 58, 0.1);
 	}
 
-	.branch-select:hover {
+	.search-input {
+		padding: 0.75rem 1rem;
+		border: 2px solid #1f7a3a;
+		border-radius: 0.5rem;
+		font-size: 0.9rem;
+		color: #333;
+		background: white;
+		transition: all 0.3s ease;
+		min-width: 250px;
+		font-weight: 500;
+		box-shadow: 0 4px 8px rgba(31, 122, 58, 0.1);
+	}
+
+	.branch-select:hover, .status-select:hover, .search-input:hover {
 		border-color: #2d5f4f;
 		box-shadow: 0 6px 16px rgba(31, 122, 58, 0.2);
 		transform: translateY(-2px);
 	}
 
-	.branch-select:focus {
+	.branch-select:focus, .status-select:focus, .search-input:focus {
 		outline: none;
 		border-color: #1f7a3a;
 		box-shadow: 0 6px 16px rgba(31, 122, 58, 0.25),
@@ -490,5 +757,137 @@
 	.view-btn:active {
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(31, 122, 58, 0.3);
+	}
+
+	.pos-deduction-cell {
+		text-align: center;
+	}
+
+	.checkbox-container {
+		display: inline-block;
+		position: relative;
+		padding-left: 30px;
+		cursor: pointer;
+		font-size: 16px;
+		user-select: none;
+	}
+
+	.checkbox-container input {
+		position: absolute;
+		opacity: 0;
+		cursor: pointer;
+		height: 0;
+		width: 0;
+	}
+
+	.checkmark {
+		position: absolute;
+		top: 0;
+		left: 0;
+		height: 22px;
+		width: 22px;
+		background-color: #fff;
+		border: 2px solid #1f7a3a;
+		border-radius: 4px;
+		transition: all 0.3s ease;
+	}
+
+	.checkbox-container:hover input ~ .checkmark {
+		background-color: #e8f0ed;
+		box-shadow: 0 2px 8px rgba(31, 122, 58, 0.2);
+	}
+
+	.checkbox-container input:checked ~ .checkmark {
+		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
+		border-color: #1f7a3a;
+	}
+
+	.checkmark:after {
+		content: "";
+		position: absolute;
+		display: none;
+	}
+
+	.checkbox-container input:checked ~ .checkmark:after {
+		display: block;
+	}
+
+	.checkbox-container .checkmark:after {
+		left: 6px;
+		top: 2px;
+		width: 6px;
+		height: 11px;
+		border: solid white;
+		border-width: 0 2px 2px 0;
+		transform: rotate(45deg);
+	}
+
+	.na-text {
+		color: #999;
+		font-size: 0.85rem;
+		font-style: italic;
+	}
+
+	.transferred-badge {
+		background: linear-gradient(135deg, #15a34a 0%, #16803d 100%);
+		color: white;
+		padding: 0.4rem 0.75rem;
+		border-radius: 1rem;
+		font-size: 0.8rem;
+		font-weight: 700;
+		display: inline-block;
+		box-shadow: 0 2px 6px rgba(21, 163, 74, 0.3);
+		letter-spacing: 0.3px;
+	}
+
+	.pagination {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 1.5rem;
+		margin-top: 1.5rem;
+		padding: 1rem;
+	}
+
+	.page-btn {
+		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
+		color: white;
+		border: none;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 4px 12px rgba(31, 122, 58, 0.3);
+	}
+
+	.page-btn:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(31, 122, 58, 0.4);
+	}
+
+	.page-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		background: #ccc;
+	}
+
+	.page-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.page-text {
+		font-size: 1rem;
+		font-weight: 700;
+		color: #1f7a3a;
+	}
+
+	.total-text {
+		font-size: 0.85rem;
+		color: #666;
 	}
 </style>

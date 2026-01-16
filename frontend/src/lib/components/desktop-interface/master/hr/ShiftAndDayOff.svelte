@@ -83,6 +83,23 @@
     let isSaving = false;
     let employeeSearchQuery = '';
     let selectedDayOffDate: string = new Date().toISOString().split('T')[0];
+    let regularShiftSearchQuery = '';
+    let selectedBranchFilter = '';
+    let selectedNationalityFilter = '';
+    let specialWeekdaySearchQuery = '';
+    let specialWeekdayBranchFilter = '';
+    let specialWeekdayNationalityFilter = '';
+    let specialDateSearchQuery = '';
+    let specialDateBranchFilter = '';
+    let specialDateNationalityFilter = '';
+    let dayOffSearchQuery = '';
+    let dayOffBranchFilter = '';
+    let dayOffNationalityFilter = '';
+    let dayOffWeekdaySearchQuery = '';
+    let dayOffWeekdayBranchFilter = '';
+    let dayOffWeekdayNationalityFilter = '';
+    let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
+    let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
 
     const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -170,6 +187,10 @@
             const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
             const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
             const shiftMap = new Map(shifts?.map(s => [s.id, s]) || []);
+
+            // Populate available branches for filter
+            availableBranches = branches || [];
+            availableNationalities = nationalities || [];
 
             // Combine data
             employees = employeeData.map(emp => {
@@ -263,6 +284,10 @@
             const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
             const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
 
+            // Populate available branches and nationalities for filter
+            availableBranches = branches || [];
+            availableNationalities = nationalities || [];
+
             // Group shifts by employee_id and weekday
             const shiftMap = new Map<string, Map<number, any>>();
             shifts?.forEach(shift => {
@@ -349,6 +374,9 @@
 
             const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
 
+            // Populate available branches for filter
+            availableBranches = branches || [];
+
             // Build employee selection list
             allEmployeesForDateWise = employeeData.map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
@@ -380,6 +408,9 @@
             }
 
             const nationalityMap = new Map(nationalities.map(n => [n.id, n]) || []);
+
+            // Populate available nationalities for filter
+            availableNationalities = nationalities || [];
 
             // Get special shift date-wise data
             const { data: shifts, error: shiftError } = await supabase
@@ -519,6 +550,10 @@
             const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
             const nationalityMap = new Map(nationalities.map(n => [n.id, n]) || []);
 
+            // Populate available branches and nationalities for filter
+            availableBranches = branches || [];
+            availableNationalities = nationalities || [];
+
             // Build employee selection list
             allEmployeesForDateWise = employeeData.map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
@@ -639,6 +674,10 @@
             const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
             const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
 
+            // Populate available branches and nationalities for filter
+            availableBranches = branches || [];
+            availableNationalities = nationalities || [];
+
             // Build employee selection list
             allEmployeesForDateWise = employeeData.map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
@@ -741,6 +780,21 @@
         dayOffs = [];
         dayOffsWeekday = [];
         employeesForDateWiseSelection = [];
+        regularShiftSearchQuery = '';
+        selectedBranchFilter = '';
+        selectedNationalityFilter = '';
+        specialWeekdaySearchQuery = '';
+        specialWeekdayBranchFilter = '';
+        specialWeekdayNationalityFilter = '';
+        specialDateSearchQuery = '';
+        specialDateBranchFilter = '';
+        specialDateNationalityFilter = '';
+        dayOffSearchQuery = '';
+        dayOffBranchFilter = '';
+        dayOffNationalityFilter = '';
+        dayOffWeekdaySearchQuery = '';
+        dayOffWeekdayBranchFilter = '';
+        dayOffWeekdayNationalityFilter = '';
         showModal = false;
         showDeleteModal = false;
         showEmployeeSelectModal = false;
@@ -1283,6 +1337,124 @@
         return `${displayHours}:${displayMinutes} ${period}`;
     }
 
+    function getFilteredEmployees(): EmployeeShift[] {
+        let filtered = employees;
+
+        // Filter by branch
+        if (selectedBranchFilter) {
+            filtered = filtered.filter(emp => emp.branch_id === selectedBranchFilter);
+        }
+
+        // Filter by nationality
+        if (selectedNationalityFilter) {
+            filtered = filtered.filter(emp => emp.nationality_id === selectedNationalityFilter);
+        }
+
+        // Filter by search query
+        if (regularShiftSearchQuery.trim()) {
+            const query = regularShiftSearchQuery.toLowerCase();
+            filtered = filtered.filter(emp =>
+                emp.employee_name_en?.toLowerCase().includes(query) ||
+                (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
+                emp.id?.toLowerCase().includes(query)
+            );
+        }
+
+        return filtered;
+    }
+
+    function getFilteredSpecialWeekdayEmployees(): EmployeeShift[] {
+        let filtered = employees;
+
+        if (specialWeekdayBranchFilter) {
+            filtered = filtered.filter(emp => emp.branch_id === specialWeekdayBranchFilter);
+        }
+
+        if (specialWeekdayNationalityFilter) {
+            filtered = filtered.filter(emp => emp.nationality_id === specialWeekdayNationalityFilter);
+        }
+
+        if (specialWeekdaySearchQuery.trim()) {
+            const query = specialWeekdaySearchQuery.toLowerCase();
+            filtered = filtered.filter(emp =>
+                emp.employee_name_en?.toLowerCase().includes(query) ||
+                (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
+                emp.id?.toLowerCase().includes(query)
+            );
+        }
+
+        return filtered;
+    }
+
+    function getFilteredSpecialDateShifts() {
+        let filtered = dateWiseShifts;
+
+        if (specialDateBranchFilter) {
+            filtered = filtered.filter(emp => emp.branch_id === specialDateBranchFilter);
+        }
+
+        if (specialDateNationalityFilter) {
+            filtered = filtered.filter(emp => emp.nationality_id === specialDateNationalityFilter);
+        }
+
+        if (specialDateSearchQuery.trim()) {
+            const query = specialDateSearchQuery.toLowerCase();
+            filtered = filtered.filter(emp =>
+                emp.employee_name_en?.toLowerCase().includes(query) ||
+                (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
+                emp.id?.toLowerCase().includes(query)
+            );
+        }
+
+        return filtered;
+    }
+
+    function getFilteredDayOffs() {
+        let filtered = dayOffs;
+
+        if (dayOffBranchFilter) {
+            filtered = filtered.filter(emp => emp.branch_id === dayOffBranchFilter);
+        }
+
+        if (dayOffNationalityFilter) {
+            filtered = filtered.filter(emp => emp.nationality_id === dayOffNationalityFilter);
+        }
+
+        if (dayOffSearchQuery.trim()) {
+            const query = dayOffSearchQuery.toLowerCase();
+            filtered = filtered.filter(emp =>
+                emp.employee_name_en?.toLowerCase().includes(query) ||
+                (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
+                emp.id?.toLowerCase().includes(query)
+            );
+        }
+
+        return filtered;
+    }
+
+    function getFilteredDayOffsWeekday() {
+        let filtered = dayOffsWeekday;
+
+        if (dayOffWeekdayBranchFilter) {
+            filtered = filtered.filter(emp => emp.branch_id === dayOffWeekdayBranchFilter);
+        }
+
+        if (dayOffWeekdayNationalityFilter) {
+            filtered = filtered.filter(emp => emp.nationality_id === dayOffWeekdayNationalityFilter);
+        }
+
+        if (dayOffWeekdaySearchQuery.trim()) {
+            const query = dayOffWeekdaySearchQuery.toLowerCase();
+            filtered = filtered.filter(emp =>
+                emp.employee_name_en?.toLowerCase().includes(query) ||
+                (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
+                emp.id?.toLowerCase().includes(query)
+            );
+        }
+
+        return filtered;
+    }
+
     function renderShiftColumns(employee: EmployeeShift) {
         return Array.from({length: 7}, (_, i) => i).map(dayNum => {
             const shift = employee.shifts?.[dayNum];
@@ -1362,6 +1534,48 @@
                         <p class="text-slate-600 font-semibold">No employees found</p>
                     </div>
                 {:else}
+                    <!-- Filter Controls -->
+                    <div class="mb-4 flex gap-3">
+                        <!-- Branch Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <select 
+                                bind:value={selectedBranchFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Branches</option>
+                                {#each availableBranches as branch}
+                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Nationality Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <select 
+                                bind:value={selectedNationalityFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Nationalities</option>
+                                {#each availableNationalities as nationality}
+                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employee Search -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <input 
+                                type="text"
+                                bind:value={regularShiftSearchQuery}
+                                placeholder="Search by name or ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
                     <!-- Regular Shift Table Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Table Wrapper with horizontal scroll -->
@@ -1383,7 +1597,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
-                                    {#each employees as employee, index}
+                                    {#each getFilteredEmployees() as employee, index}
                                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                             <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
@@ -1458,6 +1672,48 @@
                         <p class="text-slate-600 font-semibold">No employees found</p>
                     </div>
                 {:else}
+                    <!-- Filter Controls -->
+                    <div class="mb-4 flex gap-3">
+                        <!-- Branch Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <select 
+                                bind:value={specialWeekdayBranchFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Branches</option>
+                                {#each availableBranches as branch}
+                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Nationality Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <select 
+                                bind:value={specialWeekdayNationalityFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Nationalities</option>
+                                {#each availableNationalities as nationality}
+                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employee Search -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <input 
+                                type="text"
+                                bind:value={specialWeekdaySearchQuery}
+                                placeholder="Search by name or ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
                     <!-- Special Shift Weekday-wise Table Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Table Wrapper with horizontal scroll -->
@@ -1487,7 +1743,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
-                                    {#each employees as employee, index}
+                                    {#each getFilteredSpecialWeekdayEmployees() as employee, index}
                                         <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                             <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
@@ -1524,7 +1780,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {employees.length} employee(s)
+                            Showing {getFilteredSpecialWeekdayEmployees().length} of {employees.length} employee(s)
                         </div>
                     </div>
                 {/if}
@@ -1549,6 +1805,48 @@
                         </button>
                     </div>
                 {:else}
+                    <!-- Filter Controls -->
+                    <div class="mb-4 flex gap-3">
+                        <!-- Branch Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <select 
+                                bind:value={specialDateBranchFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Branches</option>
+                                {#each availableBranches as branch}
+                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Nationality Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <select 
+                                bind:value={specialDateNationalityFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Nationalities</option>
+                                {#each availableNationalities as nationality}
+                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employee Search -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <input 
+                                type="text"
+                                bind:value={specialDateSearchQuery}
+                                placeholder="Search by name or ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
                     <!-- Special Shift Date-wise Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
@@ -1592,7 +1890,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each dateWiseShifts as shift, index}
+                                        {#each getFilteredSpecialDateShifts() as shift, index}
                                             <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{shift.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(shift)}</td>
@@ -1629,7 +1927,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {dateWiseShifts.length} shift(s)
+                            Showing {getFilteredSpecialDateShifts().length} of {dateWiseShifts.length} shift(s)
                         </div>
                     </div>
                 {/if}
@@ -1654,6 +1952,48 @@
                         </button>
                     </div>
                 {:else}
+                    <!-- Filter Controls -->
+                    <div class="mb-4 flex gap-3">
+                        <!-- Branch Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <select 
+                                bind:value={dayOffBranchFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Branches</option>
+                                {#each availableBranches as branch}
+                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Nationality Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <select 
+                                bind:value={dayOffNationalityFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Nationalities</option>
+                                {#each availableNationalities as nationality}
+                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employee Search -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <input 
+                                type="text"
+                                bind:value={dayOffSearchQuery}
+                                placeholder="Search by name or ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
                     <!-- Day Off Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
@@ -1670,12 +2010,12 @@
 
                         <!-- Table Wrapper -->
                         <div class="overflow-x-auto flex-1">
-                            {#if dayOffs.length === 0}
+                            {#if getFilteredDayOffs().length === 0}
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No day offs assigned</p>
-                                        <p class="text-slate-400 text-sm mt-2">Click the button above to assign one</p>
+                                        <p class="text-slate-600 font-semibold">No day offs found</p>
+                                        <p class="text-slate-400 text-sm mt-2">{dayOffs.length === 0 ? 'Click the button above to assign one' : 'Try adjusting your filters'}</p>
                                     </div>
                                 </div>
                             {:else}
@@ -1691,7 +2031,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each dayOffs as dayOff, index}
+                                        {#each getFilteredDayOffs() as dayOff, index}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
@@ -1716,7 +2056,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {dayOffs.length} day off(s)
+                            Showing {getFilteredDayOffs().length} of {dayOffs.length} day off(s)
                         </div>
                     </div>
                 {/if}
@@ -1741,6 +2081,48 @@
                         </button>
                     </div>
                 {:else}
+                    <!-- Filter Controls -->
+                    <div class="mb-4 flex gap-3">
+                        <!-- Branch Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <select 
+                                bind:value={dayOffWeekdayBranchFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Branches</option>
+                                {#each availableBranches as branch}
+                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Nationality Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <select 
+                                bind:value={dayOffWeekdayNationalityFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            >
+                                <option value="">All Nationalities</option>
+                                {#each availableNationalities as nationality}
+                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employee Search -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <input 
+                                type="text"
+                                bind:value={dayOffWeekdaySearchQuery}
+                                placeholder="Search by name or ID..."
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                    </div>
+
                     <!-- Day Off Weekday Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
@@ -1757,12 +2139,12 @@
 
                         <!-- Table Wrapper -->
                         <div class="overflow-x-auto flex-1">
-                            {#if dayOffsWeekday.length === 0}
+                            {#if getFilteredDayOffsWeekday().length === 0}
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No weekday day offs assigned</p>
-                                        <p class="text-slate-400 text-sm mt-2">Click the button above to assign one</p>
+                                        <p class="text-slate-600 font-semibold">No day offs found</p>
+                                        <p class="text-slate-400 text-sm mt-2">{dayOffsWeekday.length === 0 ? 'Click the button above to assign one' : 'Try adjusting your filters'}</p>
                                     </div>
                                 </div>
                             {:else}
@@ -1778,7 +2160,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each dayOffsWeekday as dayOff, index}
+                                        {#each getFilteredDayOffsWeekday() as dayOff, index}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
@@ -1803,7 +2185,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {dayOffsWeekday.length} day off(s)
+                            Showing {getFilteredDayOffsWeekday().length} of {dayOffsWeekday.length} day off(s)
                         </div>
                     </div>
                 {/if}
