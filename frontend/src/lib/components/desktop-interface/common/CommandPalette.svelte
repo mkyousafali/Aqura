@@ -2,7 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow as openWindowSafe } from '$lib/utils/windowManagerUtils';
-	import { t } from '$lib/i18n';
+	import { _ as t } from '$lib/i18n';
 
 	export let visible = false;
 
@@ -24,29 +24,29 @@
 	}
 
 	// Available commands
-	const commands: Command[] = [
+	$: commands = [
 		// Window Management
 		{
 			id: 'minimize-all',
-			title: t('commands.minimizeAll') || 'Minimize All Windows',
-			description: t('commands.minimizeAllDesc') || 'Minimize all open windows',
-			category: t('commands.window') || 'Window',
+			title: $t('commands.minimizeAll') || 'Minimize All Windows',
+			description: $t('commands.minimizeAllDesc') || 'Minimize all open windows',
+			category: $t('commands.window') || 'Window',
 			icon: '🔽',
 			action: () => windowManager.minimizeAllWindows()
 		},
 		{
 			id: 'close-all',
-			title: t('commands.closeAll') || 'Close All Windows',
-			description: t('commands.closeAllDesc') || 'Close all open windows',
-			category: t('commands.window') || 'Window',
+			title: $t('commands.closeAll') || 'Close All Windows',
+			description: $t('commands.closeAllDesc') || 'Close all open windows',
+			category: $t('commands.window') || 'Window',
 			icon: '❌',
 			action: () => windowManager.closeAllWindows()
 		},
 		{
 			id: 'show-desktop',
-			title: t('commands.showDesktop') || 'Show Desktop',
-			description: t('commands.showDesktopDesc') || 'Show desktop by minimizing all windows',
-			category: t('commands.window') || 'Window',
+			title: $t('commands.showDesktop') || 'Show Desktop',
+			description: $t('commands.showDesktopDesc') || 'Show desktop by minimizing all windows',
+			category: $t('commands.window') || 'Window',
 			icon: '🖥️',
 			action: () => windowManager.minimizeAllWindows(),
 			keywords: ['desktop', 'minimize']
@@ -55,45 +55,45 @@
 		// Navigation
 		{
 			id: 'open-branches',
-			title: t('admin.branchesMaster') || 'Branch Master',
-			description: t('commands.manageBranches') || 'Manage company branches',
-			category: t('admin.title') || 'Admin',
+			title: $t('admin.branchesMaster') || 'Branch Master',
+			description: $t('commands.manageBranches') || 'Manage company branches',
+			category: $t('admin.title') || 'Admin',
 			icon: '🏢',
 			action: () => openWindowLocal('branch-master'),
 			keywords: ['office', 'location']
 		},
 		{
 			id: 'open-vendors',
-			title: t('admin.vendorsMaster') || 'Vendor Master',
-			description: t('commands.manageVendors') || 'Manage vendors and suppliers',
-			category: t('admin.title') || 'Admin',
+			title: $t('admin.vendorsMaster') || 'Vendor Master',
+			description: $t('commands.manageVendors') || 'Manage vendors and suppliers',
+			category: $t('admin.title') || 'Admin',
 			icon: '🤝',
 			action: () => openWindowLocal('vendor-master'),
 			keywords: ['supplier', 'contractor']
 		},
 		{
 			id: 'open-invoices',
-			title: t('admin.invoiceMaster') || 'Invoice Management',
-			description: t('commands.manageInvoices') || 'Manage invoices and billing',
-			category: t('nav.finance') || 'Finance',
+			title: $t('admin.invoiceMaster') || 'Invoice Management',
+			description: $t('commands.manageInvoices') || 'Manage invoices and billing',
+			category: $t('nav.finance') || 'Finance',
 			icon: '📄',
 			action: () => openWindowLocal('invoice-master'),
 			keywords: ['bill', 'payment', 'finance']
 		},
 		{
 			id: 'open-users',
-			title: t('admin.userManagement') || 'User Management',
-			description: t('commands.manageUsers') || 'Manage system users and roles',
-			category: t('admin.title') || 'Admin',
+			title: $t('admin.userManagement') || 'User Management',
+			description: $t('commands.manageUsers') || 'Manage system users and roles',
+			category: $t('admin.title') || 'Admin',
 			icon: '👤',
 			action: () => openWindowLocal('user-master'),
 			keywords: ['account', 'permission', 'role']
 		},
 		{
 			id: 'open-import',
-			title: t('admin.importData') || 'Data Import',
-			description: t('commands.importData') || 'Import data from Excel files',
-			category: t('commands.tools') || 'Tools',
+			title: $t('admin.importData') || 'Data Import',
+			description: $t('commands.importData') || 'Import data from Excel files',
+			category: $t('commands.tools') || 'Tools',
 			icon: '📥',
 			action: () => openWindowLocal('data-import'),
 			keywords: ['excel', 'xlsx', 'upload']
@@ -102,18 +102,18 @@
 		// System
 		{
 			id: 'help',
-			title: t('commands.help') || 'Help & Documentation',
-			description: t('commands.helpDesc') || 'View system documentation',
-			category: t('commands.helpCategory') || 'Help',
+			title: $t('commands.help') || 'Help & Documentation',
+			description: $t('commands.helpDesc') || 'View system documentation',
+			category: $t('commands.helpCategory') || 'Help',
 			icon: '❓',
 			action: () => openWindowLocal('help'),
 			keywords: ['docs', 'manual', 'guide']
 		},
 		{
 			id: 'about',
-			title: t('commands.about') || 'About Aqura',
-			description: t('commands.aboutDesc') || 'System information and version',
-			category: t('commands.helpCategory') || 'Help',
+			title: $t('commands.about') || 'About Aqura',
+			description: $t('commands.aboutDesc') || 'System information and version',
+			category: $t('commands.helpCategory') || 'Help',
 			icon: 'ℹ️',
 			action: () => openWindowLocal('about'),
 			keywords: ['version', 'info']
@@ -151,37 +151,37 @@
 		// For now, just create placeholder windows
 		const config = {
 			'branch-master': {
-				title: 'Branch Master', 
+				title: $t('admin.branchesMaster') || 'Branch Master', 
 				component: null,
 				icon: '🏢'
 			},
 			'vendor-master': {
-				title: 'Vendor Master',
+				title: $t('admin.vendorsMaster') || 'Vendor Master',
 				component: null,
 				icon: '🤝'
 			},
 			'invoice-master': {
-				title: 'Invoice Management',
+				title: $t('admin.invoiceMaster') || 'Invoice Management',
 				component: null,
 				icon: '📄'
 			},
 			'user-master': {
-				title: 'User Management',
+				title: $t('admin.userManagement') || 'User Management',
 				component: null,
 				icon: '👤'
 			},
 			'data-import': {
-				title: 'Data Import',
+				title: $t('admin.importData') || 'Data Import',
 				component: null,
 				icon: '📥'
 			},
 			'help': {
-				title: 'Help & Documentation',
+				title: $t('commands.help') || 'Help & Documentation',
 				component: null,
 				icon: '❓'
 			},
 			'about': {
-				title: 'About Aqura',
+				title: $t('commands.about') || 'About Aqura',
 				component: null,
 				icon: 'ℹ️'
 			}
@@ -264,7 +264,7 @@
 					bind:this={searchInput}
 					bind:value={searchQuery}
 					type="text"
-					placeholder={t('commands.searchPlaceholder') || 'Type a command or search...'}
+					placeholder={$t('commands.searchPlaceholder') || 'Type a command or search...'}
 					class="search-input"
 					on:keydown={handleKeydown}
 				/>
@@ -272,8 +272,8 @@
 					<button 
 						class="clear-button"
 						on:click={() => searchQuery = ''}
-						title={t('commands.clearSearch') || 'Clear search'}
-						aria-label={t('commands.clearSearch') || 'Clear search'}
+						title={$t('commands.clearSearch') || 'Clear search'}
+						aria-label={$t('commands.clearSearch') || 'Clear search'}
 					>
 						<svg viewBox="0 0 20 20" width="16" height="16">
 							<path fill="currentColor" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
@@ -287,7 +287,7 @@
 				{#if filteredCommands.length === 0}
 					<div class="no-results">
 						<div class="no-results-icon">🔍</div>
-						<div class="no-results-text">{t('commands.noResults') || 'No commands found'}</div>
+						<div class="no-results-text">{$t('commands.noResults') || 'No commands found'}</div>
 					</div>
 				{:else}
 					{#each filteredCommands as command, index (command.id)}
@@ -315,13 +315,13 @@
 			<div class="command-footer">
 				<div class="keyboard-hints">
 					<span class="hint">
-						<kbd>↑↓</kbd> Navigate
+						<kbd>↑↓</kbd> {$t('commands.navigate') || 'Navigate'}
 					</span>
 					<span class="hint">
-						<kbd>Enter</kbd> {t('commands.execute') || 'Execute'}
+						<kbd>Enter</kbd> {$t('commands.execute') || 'Execute'}
 					</span>
 					<span class="hint">
-						<kbd>Esc</kbd> {t('commands.close') || 'Close'}
+						<kbd>Esc</kbd> {$t('commands.close') || 'Close'}
 					</span>
 				</div>
 			</div>

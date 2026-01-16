@@ -1,6 +1,6 @@
 {
   "name": "aqura",
-  "version": "32.12.7",
+  "version": "33.12.7",
   "description": "Aqura Management System - PWA-first windowed management platform",
   "private": true,
   "type": "module",

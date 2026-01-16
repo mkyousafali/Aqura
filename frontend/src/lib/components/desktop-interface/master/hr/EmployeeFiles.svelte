@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
+	import { _ as t, localeData } from '$lib/i18n';
 
 	// State
 	let branches: any[] = [];
@@ -213,7 +214,7 @@
 
 	async function createInsuranceCompany() {
 		if (!newInsuranceCompanyNameEn || !newInsuranceCompanyNameAr) {
-			alert('Please enter company names in both languages');
+			alert($t('employeeFiles.alerts.enterCompanyNames'));
 			return;
 		}
 
@@ -232,7 +233,7 @@
 
 			if (error) {
 				console.error('Error creating insurance company:', error);
-				alert('Failed to create insurance company');
+				alert($t('employeeFiles.alerts.createCompanyError'));
 				return;
 			}
 
@@ -242,11 +243,11 @@
 				newInsuranceCompanyNameEn = '';
 				newInsuranceCompanyNameAr = '';
 				showCreateInsuranceModal = false;
-				alert('Insurance company created successfully!');
+				alert($t('employeeFiles.alerts.createCompanySuccess'));
 			}
 		} catch (error) {
 			console.error('Error creating insurance company:', error);
-			alert('Failed to create insurance company');
+			alert($t('employeeFiles.alerts.createCompanyError'));
 		} finally {
 			isCreatingInsuranceCompany = false;
 		}
@@ -260,13 +261,13 @@
 			const { data, error } = await dataService.branches.getAll();
 			if (error) {
 				console.error('Error loading branches:', error);
-				errorMessage = 'Failed to load branches';
+				errorMessage = $t('employeeFiles.alerts.loadBranchesError');
 				return;
 			}
 			branches = data || [];
 		} catch (error) {
 			console.error('Error loading branches:', error);
-			errorMessage = 'Failed to load branches';
+			errorMessage = $t('employeeFiles.alerts.loadBranchesError');
 		} finally {
 			isLoading = false;
 		}
@@ -316,7 +317,7 @@
 
 			if (error) {
 				console.error('Error loading employees:', error);
-				errorMessage = 'Failed to load employees';
+				errorMessage = $t('employeeFiles.alerts.loadEmployeesError');
 				return;
 			}
 			
@@ -330,7 +331,7 @@
 			filterEmployees();
 		} catch (error) {
 			console.error('Error loading employees:', error);
-			errorMessage = 'Failed to load employees';
+			errorMessage = $t('employeeFiles.alerts.loadEmployeesError');
 		} finally {
 			isLoading = false;
 		}
@@ -456,7 +457,7 @@
 
 	async function saveIDNumber() {
 		if (!selectedEmployee || !idNumber) {
-			alert('Please enter ID number');
+			alert($t('employeeFiles.alerts.enterId'));
 			return;
 		}
 
@@ -468,22 +469,22 @@
 
 			if (error) {
 				console.error('Error saving ID number:', error);
-				alert('Failed to save ID number');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.id_number = idNumber;
 			savedIdNumber = idNumber;
-			alert('ID number saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving ID number:', error);
-			alert('Failed to save ID number');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveIDExpiryDate() {
 		if (!selectedEmployee || !idExpiryDate) {
-			alert('Please select an expiry date');
+			alert($t('employeeFiles.alerts.selectExpiry'));
 			return;
 		}
 
@@ -495,23 +496,23 @@
 
 			if (error) {
 				console.error('Error saving expiry date:', error);
-				alert('Failed to save expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.id_expiry_date = idExpiryDate;
 			savedIdExpiryDate = idExpiryDate;
 			calculateDaysUntilExpiry();
-			alert('Expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving expiry date:', error);
-			alert('Failed to save expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveWorkPermitExpiryDate() {
 		if (!selectedEmployee || !workPermitExpiryDate) {
-			alert('Please select work permit expiry date');
+			alert($t('employeeFiles.alerts.selectWorkPermit'));
 			return;
 		}
 
@@ -523,23 +524,23 @@
 
 			if (error) {
 				console.error('Error saving work permit expiry date:', error);
-				alert('Failed to save work permit expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.work_permit_expiry_date = workPermitExpiryDate;
 			savedWorkPermitExpiryDate = workPermitExpiryDate;
 			calculateWorkPermitDaysUntilExpiry();
-			alert('Work permit expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving work permit expiry date:', error);
-			alert('Failed to save work permit expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function uploadIDDocument() {
 		if (!selectedEmployee || !idDocumentFile) {
-			alert('Please select a file to upload');
+			alert($t('employeeFiles.alerts.selectFile'));
 			return;
 		}
 
@@ -556,7 +557,7 @@
 
 			if (uploadError) {
 				console.error('Error uploading document:', uploadError);
-				alert('Failed to upload document');
+				alert($t('employeeFiles.alerts.uploadError'));
 				return;
 			}
 
@@ -571,16 +572,16 @@
 
 			if (updateError) {
 				console.error('Error updating document URL:', updateError);
-				alert('Failed to save document URL');
+				alert($t('employeeFiles.alerts.saveUrlError'));
 				return;
 			}
 
 			selectedEmployee.id_document_url = publicUrl.publicUrl;
 			idDocumentFile = null;
-			alert('Document uploaded successfully!');
+			alert($t('employeeFiles.alerts.uploadSuccess'));
 		} catch (error) {
 			console.error('Error uploading document:', error);
-			alert('Failed to upload document');
+			alert($t('employeeFiles.alerts.uploadError'));
 		} finally {
 			isUploadingDocument = false;
 		}
@@ -652,7 +653,7 @@
 
 	async function saveHealthCardNumber() {
 		if (!selectedEmployee || !healthCardNumber) {
-			alert('Please enter health card number');
+			alert($t('employeeFiles.alerts.enterHealthNumber'));
 			return;
 		}
 
@@ -664,22 +665,22 @@
 
 			if (error) {
 				console.error('Error saving health card number:', error);
-				alert('Failed to save health card number');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.health_card_number = healthCardNumber;
 			savedHealthCardNumber = healthCardNumber;
-			alert('Health card number saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving health card number:', error);
-			alert('Failed to save health card number');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveHealthCardExpiryDate() {
 		if (!selectedEmployee || !healthCardExpiryDate) {
-			alert('Please select an expiry date');
+			alert($t('employeeFiles.alerts.selectExpiry'));
 			return;
 		}
 
@@ -691,23 +692,23 @@
 
 			if (error) {
 				console.error('Error saving health card expiry date:', error);
-				alert('Failed to save expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.health_card_expiry_date = healthCardExpiryDate;
 			savedHealthCardExpiryDate = healthCardExpiryDate;
 			calculateHealthCardDaysUntilExpiry();
-			alert('Health card expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving health card expiry date:', error);
-			alert('Failed to save expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveHealthEducationalRenewalDate() {
 		if (!selectedEmployee || !healthEducationalRenewalDate) {
-			alert('Please select a renewal date');
+			alert($t('employeeFiles.alerts.selectRenewalDate'));
 			return;
 		}
 
@@ -719,23 +720,23 @@
 
 			if (error) {
 				console.error('Error saving health educational renewal date:', error);
-				alert('Failed to save renewal date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.health_educational_renewal_date = healthEducationalRenewalDate;
 			savedHealthEducationalRenewalDate = healthEducationalRenewalDate;
 			calculateHealthEducationalRenewalDaysUntilExpiry();
-			alert('Health educational renewal date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving health educational renewal date:', error);
-			alert('Failed to save renewal date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function uploadHealthCardDocument() {
 		if (!selectedEmployee || !healthCardFile) {
-			alert('Please select a file to upload');
+			alert($t('employeeFiles.alerts.selectFile'));
 			return;
 		}
 
@@ -752,7 +753,7 @@
 
 			if (uploadError) {
 				console.error('Error uploading health card document:', uploadError);
-				alert('Failed to upload document');
+				alert($t('employeeFiles.alerts.uploadError'));
 				return;
 			}
 
@@ -767,16 +768,16 @@
 
 			if (updateError) {
 				console.error('Error updating health card document URL:', updateError);
-				alert('Failed to save document URL');
+				alert($t('employeeFiles.alerts.saveUrlError'));
 				return;
 			}
 
 			selectedEmployee.health_card_document_url = publicUrl.publicUrl;
 			healthCardFile = null;
-			alert('Health card document uploaded successfully!');
+			alert($t('employeeFiles.alerts.uploadSuccess'));
 		} catch (error) {
 			console.error('Error uploading health card document:', error);
-			alert('Failed to upload document');
+			alert($t('employeeFiles.alerts.uploadError'));
 		} finally {
 			isUploadingHealthCard = false;
 		}
@@ -803,7 +804,7 @@
 
 	async function saveDrivingLicenceNumber() {
 		if (!selectedEmployee || !drivingLicenceNumber) {
-			alert('Please enter driving licence number');
+			alert($t('employeeFiles.alerts.enterDrivingNumber'));
 			return;
 		}
 
@@ -815,22 +816,22 @@
 
 			if (error) {
 				console.error('Error saving driving licence number:', error);
-				alert('Failed to save driving licence number');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.driving_licence_number = drivingLicenceNumber;
 			savedDrivingLicenceNumber = drivingLicenceNumber;
-			alert('Driving licence number saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving driving licence number:', error);
-			alert('Failed to save driving licence number');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveDrivingLicenceExpiryDate() {
 		if (!selectedEmployee || !drivingLicenceExpiryDate) {
-			alert('Please select an expiry date');
+			alert($t('employeeFiles.alerts.selectExpiry'));
 			return;
 		}
 
@@ -842,23 +843,23 @@
 
 			if (error) {
 				console.error('Error saving driving licence expiry date:', error);
-				alert('Failed to save expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.driving_licence_expiry_date = drivingLicenceExpiryDate;
 			savedDrivingLicenceExpiryDate = drivingLicenceExpiryDate;
 			calculateDrivingLicenceDaysUntilExpiry();
-			alert('Driving licence expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving driving licence expiry date:', error);
-			alert('Failed to save expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function uploadDrivingLicenceDocument() {
 		if (!selectedEmployee || !drivingLicenceFile) {
-			alert('Please select a file to upload');
+			alert($t('employeeFiles.alerts.selectFile'));
 			return;
 		}
 
@@ -875,7 +876,7 @@
 
 			if (uploadError) {
 				console.error('Error uploading driving licence document:', uploadError);
-				alert('Failed to upload document');
+				alert($t('employeeFiles.alerts.uploadError'));
 				return;
 			}
 
@@ -890,16 +891,16 @@
 
 			if (updateError) {
 				console.error('Error updating driving licence document URL:', updateError);
-				alert('Failed to save document URL');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.driving_licence_document_url = publicUrl.publicUrl;
 			drivingLicenceFile = null;
-			alert('Driving licence document uploaded successfully!');
+			alert($t('employeeFiles.alerts.uploadSuccess'));
 		} catch (error) {
 			console.error('Error uploading driving licence document:', error);
-			alert('Failed to upload document');
+			alert($t('employeeFiles.alerts.uploadError'));
 		} finally {
 			isUploadingDrivingLicence = false;
 		}
@@ -926,7 +927,7 @@
 
 	async function saveContractExpiryDate() {
 		if (!selectedEmployee || !contractExpiryDate) {
-			alert('Please select an expiry date');
+			alert($t('employeeFiles.alerts.selectDate'));
 			return;
 		}
 
@@ -938,23 +939,23 @@
 
 			if (error) {
 				console.error('Error saving contract expiry date:', error);
-				alert('Failed to save expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.contract_expiry_date = contractExpiryDate;
 			savedContractExpiryDate = contractExpiryDate;
 			calculateContractDaysUntilExpiry();
-			alert('Contract expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving contract expiry date:', error);
-			alert('Failed to save expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function uploadContractDocument() {
 		if (!selectedEmployee || !contractFile) {
-			alert('Please select a file to upload');
+			alert($t('employeeFiles.alerts.selectFile'));
 			return;
 		}
 
@@ -971,7 +972,7 @@
 
 			if (uploadError) {
 				console.error('Error uploading contract document:', uploadError);
-				alert('Failed to upload document');
+				alert($t('employeeFiles.alerts.uploadError'));
 				return;
 			}
 
@@ -986,16 +987,16 @@
 
 			if (updateError) {
 				console.error('Error updating contract document URL:', updateError);
-				alert('Failed to save document URL');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.contract_document_url = publicUrl.publicUrl;
 			contractFile = null;
-			alert('Contract document uploaded successfully!');
+			alert($t('employeeFiles.alerts.uploadSuccess'));
 		} catch (error) {
 			console.error('Error uploading contract document:', error);
-			alert('Failed to upload document');
+			alert($t('employeeFiles.alerts.uploadError'));
 		} finally {
 			isUploadingContract = false;
 		}
@@ -1009,7 +1010,7 @@
 
 	async function saveBankName() {
 		if (!selectedEmployee || !bankName) {
-			alert('Please enter bank name');
+			alert($t('employeeFiles.alerts.enterBankName'));
 			return;
 		}
 
@@ -1021,22 +1022,22 @@
 
 			if (error) {
 				console.error('Error saving bank name:', error);
-				alert('Failed to save bank name');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.bank_name = bankName;
 			savedBankName = bankName;
-			alert('Bank name saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving bank name:', error);
-			alert('Failed to save bank name');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveIban() {
 		if (!selectedEmployee || !iban) {
-			alert('Please enter IBAN');
+			alert($t('employeeFiles.alerts.enterIban'));
 			return;
 		}
 
@@ -1048,22 +1049,22 @@
 
 			if (error) {
 				console.error('Error saving IBAN:', error);
-				alert('Failed to save IBAN');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.iban = iban;
 			savedIban = iban;
-			alert('IBAN saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving IBAN:', error);
-			alert('Failed to save IBAN');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveDateOfBirth() {
 		if (!selectedEmployee || !dateOfBirth) {
-			alert('Please enter date of birth');
+			alert($t('employeeFiles.alerts.enterDob'));
 			return;
 		}
 
@@ -1075,23 +1076,23 @@
 
 			if (error) {
 				console.error('Error saving date of birth:', error);
-				alert('Failed to save date of birth');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.date_of_birth = dateOfBirth;
 			savedDateOfBirth = dateOfBirth;
 			calculateAge();
-			alert('Date of birth saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving date of birth:', error);
-			alert('Failed to save date of birth');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveJoinDate() {
 		if (!selectedEmployee || !joinDate) {
-			alert('Please enter join date');
+			alert($t('employeeFiles.alerts.enterJoinDate'));
 			return;
 		}
 
@@ -1103,22 +1104,22 @@
 
 			if (error) {
 				console.error('Error saving join date:', error);
-				alert('Failed to save join date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.join_date = joinDate;
 			savedJoinDate = joinDate;
-			alert('Join date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving join date:', error);
-			alert('Failed to save join date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveProbationPeriodExpiryDate() {
 		if (!selectedEmployee || !probationPeriodExpiryDate) {
-			alert('Please enter probation period expiry date');
+			alert($t('employeeFiles.alerts.enterProbationDate'));
 			return;
 		}
 
@@ -1130,17 +1131,17 @@
 
 			if (error) {
 				console.error('Error saving probation period expiry date:', error);
-				alert('Failed to save probation period expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.probation_period_expiry_date = probationPeriodExpiryDate;
 			savedProbationPeriodExpiryDate = probationPeriodExpiryDate;
 			calculateProbationPeriodDaysUntilExpiry();
-			alert('Probation period expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving probation period expiry date:', error);
-			alert('Failed to save probation period expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
@@ -1159,7 +1160,7 @@
 
 	async function saveInsuranceCompanyId() {
 		if (!selectedEmployee || !selectedInsuranceCompanyId) {
-			alert('Please select an insurance company');
+			alert($t('employeeFiles.alerts.selectInsuranceCompany'));
 			return;
 		}
 
@@ -1171,22 +1172,22 @@
 
 			if (error) {
 				console.error('Error saving insurance company:', error);
-				alert('Failed to save insurance company');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.insurance_company_id = selectedInsuranceCompanyId;
 			savedInsuranceCompanyId = selectedInsuranceCompanyId;
-			alert('Insurance company saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving insurance company:', error);
-			alert('Failed to save insurance company');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveInsuranceExpiryDate() {
 		if (!selectedEmployee || !insuranceExpiryDate) {
-			alert('Please select an expiry date');
+			alert($t('employeeFiles.alerts.selectExpiry'));
 			return;
 		}
 
@@ -1198,23 +1199,23 @@
 
 			if (error) {
 				console.error('Error saving insurance expiry date:', error);
-				alert('Failed to save insurance expiry date');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.insurance_expiry_date = insuranceExpiryDate;
 			savedInsuranceExpiryDate = insuranceExpiryDate;
 			calculateInsuranceDaysUntilExpiry();
-			alert('Insurance expiry date saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving insurance expiry date:', error);
-			alert('Failed to save insurance expiry date');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveNationality() {
 		if (!selectedEmployee || !selectedNationality) {
-			alert('Please select both an employee and a nationality');
+			alert($t('employeeFiles.alerts.selectNationality'));
 			return;
 		}
 
@@ -1226,22 +1227,22 @@
 
 			if (error) {
 				console.error('Error saving nationality:', error);
-				alert('Failed to save nationality');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.nationality_id = selectedNationality;
 			isSaved = true;
-			alert('Nationality saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving nationality:', error);
-			alert('Failed to save nationality');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveSponsorshipStatus() {
 		if (!selectedEmployee) {
-			alert('Please select an employee');
+			alert($t('employeeFiles.alerts.selectEmployee'));
 			return;
 		}
 
@@ -1253,22 +1254,22 @@
 
 			if (error) {
 				console.error('Error saving sponsorship status:', error);
-				alert('Failed to save sponsorship status');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.sponsorship_status = sponsorshipStatus;
 			savedSponsorshipStatus = sponsorshipStatus;
-			alert('Sponsorship status saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving sponsorship status:', error);
-			alert('Failed to save sponsorship status');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
 	async function saveEmploymentStatus() {
 		if (!selectedEmployee) {
-			alert('Please select an employee');
+			alert($t('employeeFiles.alerts.selectEmployee'));
 			return;
 		}
 
@@ -1280,16 +1281,16 @@
 
 			if (error) {
 				console.error('Error saving employment status:', error);
-				alert('Failed to save employment status');
+				alert($t('employeeFiles.alerts.saveError'));
 				return;
 			}
 
 			selectedEmployee.is_currently_employed = isCurrentlyEmployed;
 			savedIsCurrentlyEmployed = isCurrentlyEmployed;
-			alert('Employment status saved successfully!');
+			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving employment status:', error);
-			alert('Failed to save employment status');
+			alert($t('employeeFiles.alerts.saveError'));
 		}
 	}
 
@@ -1304,23 +1305,27 @@
 		<!-- Card 1: Search & Select Employee -->
 		<div class="card">
 			<div class="card-header">
-				<h3>🔍 Search Employee</h3>
+				<h3>🔍 {$t('employeeFiles.searchEmployee')}</h3>
 			</div>
 			<div class="card-content">
 			<!-- Frozen Filter Section -->
 			<div class="filters-section-header">
-				<h4>Filters</h4>
+				<h4>{$t('employeeFiles.filters')}</h4>
 				<button class="seal-button" on:click={toggleFilters}>
-					{filtersOpen ? '✕ Close' : '▶ Open'}
+					{#if filtersOpen}
+						✕ {$t('commands.close')}
+					{:else}
+						{$localeData.direction === 'rtl' ? '◀' : '▶'} {$t('commands.open')}
+					{/if}
 				</button>
 			</div>
 			{#if filtersOpen}
 			<div class="filters-section">
 				<!-- Branch Filter -->
 				<div class="form-group">
-						<label for="branch-filter">Branch</label>
+						<label for="branch-filter">{$t('employeeFiles.branch')}</label>
 						<select id="branch-filter" bind:value={selectedBranch}>
-							<option value="">All Branches</option>
+							<option value="">{$t('employeeFiles.allBranches')}</option>
 							{#each branches as branch}
 								<option value={branch.id}>{branch.branch_name}</option>
 							{/each}
@@ -1329,9 +1334,9 @@
 
 					<!-- Position Filter -->
 					<div class="form-group">
-						<label for="position-filter">Position</label>
+						<label for="position-filter">{$t('employeeFiles.position')}</label>
 						<select id="position-filter" bind:value={selectedPositionId}>
-							<option value="">All Positions</option>
+							<option value="">{$t('employeeFiles.allPositions')}</option>
 							{#each positions as pos}
 								<option value={pos.id}>{pos.position_title_en} | {pos.position_title_ar}</option>
 							{/each}
@@ -1340,12 +1345,12 @@
 
 					<!-- Search Input -->
 					<div class="form-group">
-						<label for="search">Search by Name or ID</label>
+						<label for="search">{$t('employeeFiles.searchPlaceholder')}</label>
 						<input 
 							type="text" 
 							id="search" 
 							bind:value={searchTerm} 
-							placeholder="Enter employee name or ID..."
+							placeholder={$t('employeeFiles.searchPlaceholder')}
 						/>
 					</div>
 				</div>
@@ -1354,15 +1359,15 @@
 			<!-- Employee List -->
 			<div class="employee-list">
 					{#if isLoading}
-						<div class="loading">Loading employees...</div>
+						<div class="loading">{$t('employeeFiles.loadingEmployees')}</div>
 					{:else if errorMessage}
 						<div class="error">{errorMessage}</div>
 					{:else}
 						<div class="list-header-wrapper">
 							<div class="list-header">
-								<span>ID</span>
-								<span>Name</span>
-								<span>Position</span>
+								<span>{$t('employeeFiles.id')}</span>
+								<span>{$t('employeeFiles.name')}</span>
+								<span>{$t('employeeFiles.position')}</span>
 							</div>
 						</div>
 						<div class="list-body">
@@ -1374,16 +1379,22 @@
 								>
 									<span class="emp-id">{employee.id}</span>
 									<div class="emp-name-stack">
-										<div class="emp-name-ar">{employee.name_ar || '-'}</div>
-										<div class="emp-name-en">{employee.name_en || '-'}</div>
+										{#if $localeData.direction === 'rtl'}
+											<div class="emp-name-ar">{employee.name_ar || '-'}</div>
+										{:else}
+											<div class="emp-name-en">{employee.name_en || '-'}</div>
+										{/if}
 									</div>
 									<div class="emp-position-stack">
-										<div class="emp-position-ar">{employee.hr_positions?.position_title_ar || '-'}</div>
-										<div class="emp-position-en">{employee.hr_positions?.position_title_en || '-'}</div>
+										{#if $localeData.direction === 'rtl'}
+											<div class="emp-position-ar">{employee.hr_positions?.position_title_ar || '-'}</div>
+										{:else}
+											<div class="emp-position-en">{employee.hr_positions?.position_title_en || '-'}</div>
+										{/if}
 									</div>
 								</div>
 							{:else}
-								<div class="no-results">No employees found</div>
+								<div class="no-results">{$t('employeeFiles.noEmployeesFound')}</div>
 							{/each}
 						</div>
 					{/if}
@@ -1394,30 +1405,30 @@
 		<!-- Card 2: Employee Files -->
 		<div class="card">
 			<div class="card-header">
-				<h3>📄 Employee Files</h3>
+				<h3>📄 {$t('employeeFiles.title')}</h3>
 			</div>
 			<div class="card-content">
 				{#if selectedEmployee}
 					<div class="selected-info">
 						<div class="info-grid">
 							<div class="info-item">
-								<span class="info-label">الرقم | ID</span>
+								<span class="info-label">{$t('employeeFiles.id')}</span>
 								<span class="info-value">{selectedEmployee.id}</span>
 							</div>
 							<div class="info-item">
-								<span class="info-label">الاسم (عربي) | Name (AR)</span>
+								<span class="info-label">{$t('employeeFiles.nameAr')}</span>
 								<span class="info-value info-arabic">{selectedEmployee.name_ar || '-'}</span>
 							</div>
 							<div class="info-item">
-								<span class="info-label">الاسم (انجليزي) | Name (EN)</span>
+								<span class="info-label">{$t('employeeFiles.nameEn')}</span>
 								<span class="info-value">{selectedEmployee.name_en || '-'}</span>
 							</div>
 							<div class="info-item">
-								<span class="info-label">المنصب (عربي) | Position (AR)</span>
+								<span class="info-label">{$t('employeeFiles.positionAr')}</span>
 								<span class="info-value info-arabic">{selectedEmployee.hr_positions?.position_title_ar || '-'}</span>
 							</div>
 							<div class="info-item">
-								<span class="info-label">المنصب (انجليزي) | Position (EN)</span>
+								<span class="info-label">{$t('employeeFiles.positionEn')}</span>
 								<span class="info-value">{selectedEmployee.hr_positions?.position_title_en || '-'}</span>
 							</div>
 						</div>
@@ -1429,7 +1440,7 @@
 						<div class="file-card nationality-card">
 							<div class="file-card-content nationality-content">
 								<div class="nationality-form">
-									<h5>الجنسية | Nationality</h5>
+									<h5>{$t('employeeFiles.nationality')}</h5>
 									{#if isSaved}
 										<!-- Display saved nationality -->
 										<div class="saved-nationality">
@@ -1441,7 +1452,7 @@
 									{:else}
 										<!-- Edit mode -->
 										<select bind:value={selectedNationality}>
-											<option value="">Select</option>
+											<option value="">{$t('commands.close')}</option>
 											{#each nationalities as nationality}
 												<option value={nationality.id}>{nationality.name_ar} / {nationality.name_en}</option>
 											{/each}
@@ -1449,16 +1460,16 @@
 									{/if}
 									<button class="save-button" on:click={isSaved ? toggleEdit : saveNationality}>
 										{#if isSaved}
-											✏️ Edit
+											✏️ {$t('employeeFiles.edit')}
 										{:else}
-											💾 Save
+											💾 {$t('employeeFiles.save')}
 										{/if}
 									</button>
 									
 									<!-- Sponsorship Status Toggle -->
 									<div class="sponsorship-toggle">
 										<label class="toggle-label">
-											<span>Sponsorship Status</span>
+											<span>{$t('employeeFiles.sponsorshipStatus')}</span>
 											<div class="toggle-switch">
 												<input 
 													type="checkbox" 
@@ -1467,11 +1478,11 @@
 												/>
 												<span class="toggle-slider"></span>
 											</div>
-											<span class="toggle-status">{sponsorshipStatus ? 'Active' : 'Inactive'}</span>
+											<span class="toggle-status">{sponsorshipStatus ? $t('employeeFiles.active') : $t('employeeFiles.inactive')}</span>
 										</label>
 										{#if sponsorshipStatus !== savedSponsorshipStatus}
 											<button class="save-button-small" on:click={saveSponsorshipStatus}>
-												💾 Save Status
+												💾 {$t('employeeFiles.saveStatus')}
 											</button>
 										{/if}
 									</div>
@@ -1479,16 +1490,16 @@
 									<!-- Employment Status Toggle -->
 									<div class="employment-toggle">
 										<label class="toggle-label">
-											<span>Employment Status</span>
+											<span>{$t('employeeFiles.employmentStatus')}</span>
 											<div class="toggle-switch">
 												<input type="checkbox" bind:checked={isCurrentlyEmployed} class="toggle-input"/>
 												<span class="toggle-slider"></span>
 											</div>
-											<span class="toggle-status">{isCurrentlyEmployed ? 'In Job' : 'Resigned'}</span>
+											<span class="toggle-status">{isCurrentlyEmployed ? $t('employeeFiles.inJob') : $t('employeeFiles.resigned')}</span>
 										</label>
 										{#if isCurrentlyEmployed !== savedIsCurrentlyEmployed}
 											<button class="save-button-small" on:click={saveEmploymentStatus}>
-												💾 Save Status
+												💾 {$t('employeeFiles.saveStatus')}
 											</button>
 										{/if}
 									</div>
@@ -1500,28 +1511,28 @@
 					<div class="file-card id-card">
 						<div class="file-card-content id-content">
 							<div class="id-form">
-								<h5>رقم الهوية | ID/Resident ID</h5>
+								<h5>{$t('employeeFiles.idResidentTitle')}</h5>
 								
 								<!-- ID Number Field -->
 								{#if !savedIdNumber}
 									<!-- Show input when no number is saved -->
 									<div class="form-group-compact">
-										<label for="id-number">ID Number</label>
+										<label for="id-number">{$t('employeeFiles.idNumber')}</label>
 										<input 
 											type="text" 
 											id="id-number" 
 											bind:value={idNumber}
-											placeholder="Enter ID number"
+											placeholder={$t('employeeFiles.enterIdNumber')}
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveIDNumber}>
-										💾 Save Number
+										💾 {$t('employeeFiles.saveNumber')}
 									</button>
 								{:else}
 									<!-- Show saved number info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">ID Number:</span>
+											<span class="date-label">{$t('employeeFiles.idNumber')}:</span>
 											<span class="date-value">{savedIdNumber}</span>
 										</div>
 									</div>
@@ -1529,20 +1540,20 @@
 									<!-- Edit number input (hidden by default) -->
 									{#if idNumber !== savedIdNumber}
 										<div class="form-group-compact">
-											<label for="id-number-edit">Change ID Number</label>
+											<label for="id-number-edit">{$t('employeeFiles.changeIdNumber')}</label>
 											<input 
 												type="text" 
 												id="id-number-edit" 
 												bind:value={idNumber}
-												placeholder="Enter ID number"
+												placeholder={$t('employeeFiles.enterIdNumber')}
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveIDNumber}>
-											💾 Update Number
+											💾 {$t('employeeFiles.updateNumber')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => idNumber = ''}>
-											✏️ Edit Number
+											✏️ {$t('employeeFiles.editNumber')}
 										</button>
 									{/if}
 								{/if}
@@ -1551,7 +1562,7 @@
 								{#if !savedIdExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="id-expiry">Expiry Date</label>
+										<label for="id-expiry">{$t('employeeFiles.expiryDate')}</label>
 										<input 
 											type="date" 
 											id="id-expiry" 
@@ -1560,30 +1571,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveIDExpiryDate}>
-										💾 Save Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Saved:</span>
+											<span class="date-label">{$t('employeeFiles.save')}:</span>
 											<span class="date-value">
 												{savedIdExpiryDate ? new Date(savedIdExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if daysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {daysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {daysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if daysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(daysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(daysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if idExpiryDate !== savedIdExpiryDate}
 										<div class="form-group-compact">
-											<label for="id-expiry">Change Expiry Date</label>
+											<label for="id-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="id-expiry" 
@@ -1592,11 +1603,11 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveIDExpiryDate}>
-											💾 Save Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => idExpiryDate = ''}>
-											✏️ Update Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
@@ -1605,7 +1616,7 @@
 								{#if !savedWorkPermitExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="work-permit-expiry">Work Permit Expiry Date</label>
+										<label for="work-permit-expiry">{$t('employeeFiles.workPermitExpiryDate')}</label>
 										<input 
 											type="date" 
 											id="work-permit-expiry" 
@@ -1614,30 +1625,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveWorkPermitExpiryDate}>
-										💾 Save Work Permit Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Work Permit:</span>
+											<span class="date-label">{$t('employeeFiles.workPermitExpiryDate')}:</span>
 											<span class="date-value">
 												{savedWorkPermitExpiryDate ? new Date(savedWorkPermitExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if workPermitDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {workPermitDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {workPermitDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if workPermitDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(workPermitDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(workPermitDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if workPermitExpiryDate !== savedWorkPermitExpiryDate}
 										<div class="form-group-compact">
-											<label for="work-permit-expiry">Change Work Permit Date</label>
+											<label for="work-permit-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="work-permit-expiry" 
@@ -1646,26 +1657,26 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveWorkPermitExpiryDate}>
-											💾 Save Work Permit Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => workPermitExpiryDate = ''}>
-											✏️ Update Work Permit Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
 
 								<!-- File Upload -->
 								<div class="file-upload-group">
-									<label for="id-document">Upload Document</label>
+									<label for="id-document">{$t('employeeFiles.uploadDocument')}</label>
 									{#if selectedEmployee?.id_document_url}
 										<!-- Document already uploaded -->
 										<button class="view-button" on:click={viewIDDocument}>
-											👁️ View Document
+											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
 										{#if !idDocumentFile}
 											<button class="update-button" on:click={() => idDocumentFile = {} as any}>
-												✏️ Update Document
+												✏️ {$t('employeeFiles.update')}
 											</button>
 										{:else}
 											<!-- Show upload input when updating -->
@@ -1680,7 +1691,7 @@
 												on:click={uploadIDDocument}
 												disabled={!idDocumentFile || isUploadingDocument}
 											>
-												{isUploadingDocument ? '⏳ Uploading...' : '📤 Upload'}
+												{isUploadingDocument ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 											</button>
 										{/if}
 									{:else}
@@ -1696,7 +1707,7 @@
 											on:click={uploadIDDocument}
 											disabled={!idDocumentFile || isUploadingDocument}
 										>
-											{isUploadingDocument ? '⏳ Uploading...' : '📤 Upload'}
+											{isUploadingDocument ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 										</button>
 									{/if}
 								</div>
@@ -1708,28 +1719,28 @@
 					<div class="file-card health-card">
 						<div class="file-card-content health-content">
 							<div class="health-form">
-								<h5>بطاقة صحية | Health Card</h5>
+								<h5>{$t('employeeFiles.healthCard')}</h5>
 								
 								<!-- Health Card Number Field -->
 								{#if !savedHealthCardNumber}
 									<!-- Show input when no number is saved -->
 									<div class="form-group-compact">
-										<label for="health-card-number">Card Number</label>
+										<label for="health-card-number">{$t('employeeFiles.healthCardNumber')}</label>
 										<input 
 											type="text" 
 											id="health-card-number" 
 											bind:value={healthCardNumber}
-											placeholder="Enter health card number"
+											placeholder={$t('employeeFiles.enterHealthCardNumber')}
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveHealthCardNumber}>
-										💾 Save Number
+										💾 {$t('employeeFiles.saveNumber')}
 									</button>
 								{:else}
 									<!-- Show saved number info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Card Number:</span>
+											<span class="date-label">{$t('employeeFiles.healthCardNumber')}:</span>
 											<span class="date-value">{savedHealthCardNumber}</span>
 										</div>
 									</div>
@@ -1737,20 +1748,20 @@
 									<!-- Edit number input (hidden by default) -->
 									{#if healthCardNumber !== savedHealthCardNumber}
 										<div class="form-group-compact">
-											<label for="health-card-number-edit">Change Card Number</label>
+											<label for="health-card-number-edit">{$t('employeeFiles.changeHealthCardNumber')}</label>
 											<input 
 												type="text" 
 												id="health-card-number-edit" 
 												bind:value={healthCardNumber}
-												placeholder="Enter health card number"
+												placeholder={$t('employeeFiles.enterHealthCardNumber')}
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveHealthCardNumber}>
-											💾 Update Number
+											💾 {$t('employeeFiles.updateNumber')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => healthCardNumber = ''}>
-											✏️ Edit Number
+											✏️ {$t('employeeFiles.editNumber')}
 										</button>
 									{/if}
 								{/if}
@@ -1759,7 +1770,7 @@
 								{#if !savedHealthCardExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="health-expiry">Expiry Date</label>
+										<label for="health-expiry">{$t('employeeFiles.expiryDate')}</label>
 										<input 
 											type="date" 
 											id="health-expiry" 
@@ -1768,30 +1779,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveHealthCardExpiryDate}>
-										💾 Save Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Saved:</span>
+											<span class="date-label">{$t('employeeFiles.save')}:</span>
 											<span class="date-value">
 												{savedHealthCardExpiryDate ? new Date(savedHealthCardExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if healthCardDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {healthCardDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {healthCardDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if healthCardDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(healthCardDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(healthCardDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if healthCardExpiryDate !== savedHealthCardExpiryDate}
 										<div class="form-group-compact">
-											<label for="health-expiry">Change Expiry Date</label>
+											<label for="health-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="health-expiry" 
@@ -1800,26 +1811,26 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveHealthCardExpiryDate}>
-											💾 Save Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => healthCardExpiryDate = ''}>
-											✏️ Update Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
 
 								<!-- File Upload -->
 								<div class="file-upload-group">
-									<label for="health-document">Upload Document</label>
+									<label for="health-document">{$t('employeeFiles.uploadDocument')}</label>
 									{#if selectedEmployee?.health_card_document_url}
 										<!-- Document already uploaded -->
 										<button class="view-button" on:click={viewHealthCardDocument}>
-											👁️ View Document
+											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
 										{#if !healthCardFile}
 											<button class="update-button" on:click={() => healthCardFile = {} as any}>
-												✏️ Update Document
+												✏️ {$t('employeeFiles.update')}
 											</button>
 										{:else}
 											<!-- Show upload input when updating -->
@@ -1834,7 +1845,7 @@
 												on:click={uploadHealthCardDocument}
 												disabled={!healthCardFile || isUploadingHealthCard}
 											>
-												{isUploadingHealthCard ? '⏳ Uploading...' : '📤 Upload'}
+												{isUploadingHealthCard ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 											</button>
 										{/if}
 									{:else}
@@ -1850,7 +1861,7 @@
 											on:click={uploadHealthCardDocument}
 											disabled={!healthCardFile || isUploadingHealthCard}
 										>
-											{isUploadingHealthCard ? '⏳ Uploading...' : '📤 Upload'}
+											{isUploadingHealthCard ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 										</button>
 									{/if}
 								</div>
@@ -1859,7 +1870,7 @@
 								{#if !savedHealthEducationalRenewalDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="health-educational-renewal">Education Expiry Date</label>
+										<label for="health-educational-renewal">{$t('employeeFiles.educationExpiryDate')}</label>
 										<input 
 											type="date" 
 											id="health-educational-renewal" 
@@ -1868,30 +1879,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveHealthEducationalRenewalDate}>
-										💾 Save Expiry Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Education Expiry Date:</span>
+											<span class="date-label">{$t('employeeFiles.educationExpiryDate')}:</span>
 											<span class="date-value">
 												{savedHealthEducationalRenewalDate ? new Date(savedHealthEducationalRenewalDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if healthEducationalRenewalDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {healthEducationalRenewalDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {healthEducationalRenewalDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if healthEducationalRenewalDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(healthEducationalRenewalDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(healthEducationalRenewalDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if healthEducationalRenewalDate !== savedHealthEducationalRenewalDate}
 										<div class="form-group-compact">
-											<label for="health-educational-renewal">Change Education Expiry Date</label>
+											<label for="health-educational-renewal">{$t('employeeFiles.changeEducationExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="health-educational-renewal" 
@@ -1900,11 +1911,11 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveHealthEducationalRenewalDate}>
-											💾 Save Expiry Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => healthEducationalRenewalDate = ''}>
-											✏️ Update Expiry Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
@@ -1916,28 +1927,28 @@
 					<div class="file-card driving-licence-card">
 						<div class="file-card-content driving-licence-content">
 							<div class="driving-licence-form">
-								<h5>رخصة القيادة | Driving Licence</h5>
+								<h5>{$t('employeeFiles.drivingLicence')}</h5>
 								
 								<!-- Driving Licence Number Field -->
 								{#if !savedDrivingLicenceNumber}
 									<!-- Show input when no number is saved -->
 									<div class="form-group-compact">
-										<label for="driving-licence-number">Licence Number</label>
+										<label for="driving-licence-number">{$t('employeeFiles.licenceNumber')}</label>
 										<input 
 											type="text" 
 											id="driving-licence-number" 
 											bind:value={drivingLicenceNumber}
-											placeholder="Enter driving licence number"
+											placeholder={$t('employeeFiles.enterLicenceNumber')}
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveDrivingLicenceNumber}>
-										💾 Save Number
+										💾 {$t('employeeFiles.saveNumber')}
 									</button>
 								{:else}
 									<!-- Show saved number info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Licence Number:</span>
+											<span class="date-label">{$t('employeeFiles.licenceNumber')}:</span>
 											<span class="date-value">{savedDrivingLicenceNumber}</span>
 										</div>
 									</div>
@@ -1945,20 +1956,20 @@
 									<!-- Edit number input (hidden by default) -->
 									{#if drivingLicenceNumber !== savedDrivingLicenceNumber}
 										<div class="form-group-compact">
-											<label for="driving-licence-number-edit">Change Licence Number</label>
+											<label for="driving-licence-number-edit">{$t('employeeFiles.changeLicenceNumber')}</label>
 											<input 
 												type="text" 
 												id="driving-licence-number-edit" 
 												bind:value={drivingLicenceNumber}
-												placeholder="Enter driving licence number"
+												placeholder={$t('employeeFiles.enterLicenceNumber')}
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveDrivingLicenceNumber}>
-											💾 Update Number
+											💾 {$t('employeeFiles.updateNumber')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => drivingLicenceNumber = ''}>
-											✏️ Edit Number
+											✏️ {$t('employeeFiles.editNumber')}
 										</button>
 									{/if}
 								{/if}
@@ -1967,7 +1978,7 @@
 								{#if !savedDrivingLicenceExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="driving-expiry">Expiry Date</label>
+										<label for="driving-expiry">{$t('employeeFiles.expiryDate')}</label>
 										<input 
 											type="date" 
 											id="driving-expiry" 
@@ -1976,30 +1987,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveDrivingLicenceExpiryDate}>
-										💾 Save Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Saved:</span>
+											<span class="date-label">{$t('employeeFiles.save')}:</span>
 											<span class="date-value">
 												{savedDrivingLicenceExpiryDate ? new Date(savedDrivingLicenceExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if drivingLicenceDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {drivingLicenceDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {drivingLicenceDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if drivingLicenceDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(drivingLicenceDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(drivingLicenceDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if drivingLicenceExpiryDate !== savedDrivingLicenceExpiryDate}
 										<div class="form-group-compact">
-											<label for="driving-expiry">Change Expiry Date</label>
+											<label for="driving-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="driving-expiry" 
@@ -2008,26 +2019,26 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveDrivingLicenceExpiryDate}>
-											💾 Save Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => drivingLicenceExpiryDate = ''}>
-											✏️ Update Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
 
 								<!-- File Upload -->
 								<div class="file-upload-group">
-									<label for="driving-document">Upload Document</label>
+									<label for="driving-document">{$t('employeeFiles.uploadDocument')}</label>
 									{#if selectedEmployee?.driving_licence_document_url}
 										<!-- Document already uploaded -->
 										<button class="view-button" on:click={viewDrivingLicenceDocument}>
-											👁️ View Document
+											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
 										{#if !drivingLicenceFile}
 											<button class="update-button" on:click={() => drivingLicenceFile = {} as any}>
-												✏️ Update Document
+												✏️ {$t('employeeFiles.update')}
 											</button>
 										{:else}
 											<!-- Show upload input when updating -->
@@ -2042,7 +2053,7 @@
 												on:click={uploadDrivingLicenceDocument}
 												disabled={!drivingLicenceFile || isUploadingDrivingLicence}
 											>
-												{isUploadingDrivingLicence ? '⏳ Uploading...' : '📤 Upload'}
+												{isUploadingDrivingLicence ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 											</button>
 										{/if}
 									{:else}
@@ -2058,7 +2069,7 @@
 											on:click={uploadDrivingLicenceDocument}
 											disabled={!drivingLicenceFile || isUploadingDrivingLicence}
 										>
-											{isUploadingDrivingLicence ? '⏳ Uploading...' : '📤 Upload'}
+											{isUploadingDrivingLicence ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 										</button>
 									{/if}
 								</div>
@@ -2070,13 +2081,13 @@
 					<div class="file-card contract-card">
 						<div class="file-card-content contract-content">
 							<div class="contract-form">
-								<h5>العقد | Contract</h5>
+								<h5>{$t('employeeFiles.contract')}</h5>
 								
 								<!-- Expiry Date Field -->
 								{#if !savedContractExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="contract-expiry">Expiry Date</label>
+										<label for="contract-expiry">{$t('employeeFiles.expiryDate')}</label>
 										<input 
 											type="date" 
 											id="contract-expiry" 
@@ -2085,30 +2096,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveContractExpiryDate}>
-										💾 Save Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Expiry Date:</span>
+											<span class="date-label">{$t('employeeFiles.expiryDate')}:</span>
 											<span class="date-value">
 												{savedContractExpiryDate ? new Date(savedContractExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if contractDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {contractDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {contractDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if contractDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(contractDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(contractDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if contractExpiryDate !== savedContractExpiryDate}
 										<div class="form-group-compact">
-											<label for="contract-expiry">Change Expiry Date</label>
+											<label for="contract-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="contract-expiry" 
@@ -2117,26 +2128,26 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveContractExpiryDate}>
-											💾 Save Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => contractExpiryDate = ''}>
-											✏️ Update Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
 
 								<!-- File Upload -->
 								<div class="file-upload-group">
-									<label for="contract-document">Upload Document</label>
+									<label for="contract-document">{$t('employeeFiles.uploadDocument')}</label>
 									{#if selectedEmployee?.contract_document_url}
 										<!-- Document already uploaded -->
 										<button class="view-button" on:click={viewContractDocument}>
-											👁️ View Document
+											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
 										{#if !contractFile}
 											<button class="update-button" on:click={() => contractFile = {} as any}>
-												✏️ Update Document
+												✏️ {$t('employeeFiles.update')}
 											</button>
 										{:else}
 											<!-- Show upload input when updating -->
@@ -2151,7 +2162,7 @@
 												on:click={uploadContractDocument}
 												disabled={!contractFile || isUploadingContract}
 											>
-												{isUploadingContract ? '⏳ Uploading...' : '📤 Upload'}
+												{isUploadingContract ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 											</button>
 										{/if}
 									{:else}
@@ -2167,7 +2178,7 @@
 											on:click={uploadContractDocument}
 											disabled={!contractFile || isUploadingContract}
 										>
-											{isUploadingContract ? '⏳ Uploading...' : '📤 Upload'}
+											{isUploadingContract ? '⏳ ' + $t('employeeFiles.updating') : '📤 ' + $t('employeeFiles.upload')}
 										</button>
 									{/if}
 								</div>
@@ -2179,18 +2190,18 @@
 					<div class="file-card bank-card">
 						<div class="file-card-content bank-content">
 							<div class="bank-form">
-								<h5>معلومات البنك | Bank Information</h5>
+								<h5>{$t('employeeFiles.bankSalaryDetails')}</h5>
 								
 								<!-- Bank Name Field -->
 								{#if !savedBankName}
 									<!-- Show dropdown when no bank name is saved -->
 									<div class="form-group-compact">
-										<label for="bank-name">Bank Name</label>
+										<label for="bank-name">{$t('employeeFiles.bankName')}</label>
 										<select 
 											id="bank-name" 
 											bind:value={bankName}
 										>
-											<option value="">Select Bank</option>
+											<option value="">{$t('employeeFiles.bankName')}</option>
 											{#each banks as bank}
 												<option value="{bank.name_en}">
 													{bank.name_ar} / {bank.name_en}
@@ -2199,13 +2210,13 @@
 										</select>
 									</div>
 									<button class="save-button-small" on:click={saveBankName}>
-										💾 Save Bank Name
+										💾 {$t('employeeFiles.saveNumber')}
 									</button>
 								{:else}
 									<!-- Show saved bank name info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Bank Name:</span>
+											<span class="date-label">{$t('employeeFiles.bankName')}:</span>
 											<span class="date-value">{savedBankName}</span>
 										</div>
 									</div>
@@ -2213,12 +2224,12 @@
 									<!-- Edit bank name dropdown (hidden by default) -->
 									{#if bankName !== savedBankName}
 										<div class="form-group-compact">
-											<label for="bank-name-edit">Change Bank Name</label>
+											<label for="bank-name-edit">{$t('employeeFiles.changeBankName')}</label>
 											<select 
 												id="bank-name-edit" 
 												bind:value={bankName}
 											>
-												<option value="">Select Bank</option>
+												<option value="">{$t('employeeFiles.bankName')}</option>
 												{#each banks as bank}
 													<option value="{bank.name_en}">
 														{bank.name_ar} / {bank.name_en}
@@ -2227,11 +2238,11 @@
 											</select>
 										</div>
 										<button class="save-button-small" on:click={saveBankName}>
-											💾 Update Bank Name
+											💾 {$t('employeeFiles.updateNumber')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => bankName = ''}>
-											✏️ Edit Bank Name
+											✏️ {$t('employeeFiles.editNumber')}
 										</button>
 									{/if}
 								{/if}
@@ -2240,22 +2251,22 @@
 								{#if !savedIban}
 									<!-- Show input when no IBAN is saved -->
 									<div class="form-group-compact">
-										<label for="iban">IBAN</label>
+										<label for="iban">{$t('employeeFiles.iban')}</label>
 										<input 
 											type="text" 
 											id="iban" 
 											bind:value={iban}
-											placeholder="Enter IBAN"
+											placeholder={$t('employeeFiles.enterIban')}
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveIban}>
-										💾 Save IBAN
+										💾 {$t('employeeFiles.saveNumber')}
 									</button>
 								{:else}
 									<!-- Show saved IBAN info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">IBAN:</span>
+											<span class="date-label">{$t('employeeFiles.iban')}:</span>
 											<span class="date-value">{savedIban}</span>
 										</div>
 									</div>
@@ -2263,20 +2274,20 @@
 									<!-- Edit IBAN input (hidden by default) -->
 									{#if iban !== savedIban}
 										<div class="form-group-compact">
-											<label for="iban-edit">Change IBAN</label>
+											<label for="iban-edit">{$t('employeeFiles.changeIban')}</label>
 											<input 
 												type="text" 
 												id="iban-edit" 
 												bind:value={iban}
-												placeholder="Enter IBAN"
+												placeholder={$t('employeeFiles.enterIban')}
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveIban}>
-											💾 Update IBAN
+											💾 {$t('employeeFiles.updateNumber')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => iban = ''}>
-											✏️ Edit IBAN
+											✏️ {$t('employeeFiles.editNumber')}
 										</button>
 									{/if}
 								{/if}
@@ -2288,18 +2299,18 @@
 					<div class="file-card insurance-card">
 						<div class="file-card-content insurance-content">
 							<div class="insurance-form">
-								<h5>التأمين الصحي | Health Insurance</h5>
+								<h5>{$t('employeeFiles.healthInsurance')}</h5>
 								
 								<!-- Insurance Company Field -->
 								{#if !savedInsuranceCompanyId}
 									<!-- Show input when no company is saved -->
 									<div class="form-group-compact">
-										<label for="insurance-company">Insurance Company</label>
+										<label for="insurance-company">{$t('employeeFiles.insuranceCompany')}</label>
 										<select 
 											id="insurance-company"
 											bind:value={selectedInsuranceCompanyId}
 										>
-											<option value="">Select Company</option>
+											<option value="">{$t('employeeFiles.selectCompany')}</option>
 											{#each insuranceCompanies as company}
 												<option value={company.id}>
 													{company.name_ar} / {company.name_en}
@@ -2307,17 +2318,17 @@
 											{/each}
 										</select>
 										<button class="secondary-button" on:click={() => showCreateInsuranceModal = true}>
-											➕ Create Company
+											➕ {$t('employeeFiles.createCompany')}
 										</button>
 									</div>
 									<button class="save-button-small" on:click={saveInsuranceCompanyId}>
-										💾 Save Company
+										💾 {$t('employeeFiles.saveCompany')}
 									</button>
 								{:else}
 									<!-- Show saved company info -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Insurance Company:</span>
+											<span class="date-label">{$t('employeeFiles.insuranceCompany')}:</span>
 											<span class="date-value">
 												{insuranceCompanies.find(c => c.id === savedInsuranceCompanyId)?.name_ar || savedInsuranceCompanyId}
 											</span>
@@ -2327,12 +2338,12 @@
 									<!-- Edit company input (hidden by default) -->
 									{#if selectedInsuranceCompanyId !== savedInsuranceCompanyId}
 										<div class="form-group-compact">
-											<label for="insurance-company-edit">Change Insurance Company</label>
+											<label for="insurance-company-edit">{$t('employeeFiles.changeInsuranceCompany')}</label>
 											<select 
 												id="insurance-company-edit"
 												bind:value={selectedInsuranceCompanyId}
 											>
-												<option value="">Select Company</option>
+												<option value="">{$t('employeeFiles.selectCompany')}</option>
 												{#each insuranceCompanies as company}
 													<option value={company.id}>
 														{company.name_ar} / {company.name_en}
@@ -2340,15 +2351,15 @@
 												{/each}
 											</select>
 											<button class="secondary-button" on:click={() => showCreateInsuranceModal = true}>
-												➕ Create Company
+												➕ {$t('employeeFiles.createCompany')}
 											</button>
 										</div>
 										<button class="save-button-small" on:click={saveInsuranceCompanyId}>
-											💾 Save Company
+											💾 {$t('employeeFiles.saveCompany')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => selectedInsuranceCompanyId = ''}>
-											✏️ Edit Company
+											✏️ {$t('employeeFiles.editCompany')}
 										</button>
 									{/if}
 								{/if}
@@ -2357,7 +2368,7 @@
 								{#if !savedInsuranceExpiryDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="insurance-expiry">Expiry Date</label>
+										<label for="insurance-expiry">{$t('employeeFiles.expiryDate')}</label>
 										<input 
 											type="date" 
 											id="insurance-expiry" 
@@ -2366,30 +2377,30 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveInsuranceExpiryDate}>
-										💾 Save Date
+										💾 {$t('employeeFiles.saveDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Saved:</span>
+											<span class="date-label">{$t('employeeFiles.saved')}:</span>
 											<span class="date-value">
 												{savedInsuranceExpiryDate ? new Date(savedInsuranceExpiryDate).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
 										{#if insuranceDaysUntilExpiry > 0}
-											<span class="expiry-valid">⏰ {insuranceDaysUntilExpiry} days remaining</span>
+											<span class="expiry-valid">⏰ {insuranceDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 										{:else if insuranceDaysUntilExpiry === 0}
-											<span class="expiry-warning">⚠️ Expires today!</span>
+											<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 										{:else}
-											<span class="expiry-expired">❌ Expired {Math.abs(insuranceDaysUntilExpiry)} days ago</span>
+											<span class="expiry-expired">❌ {$t('employeeFiles.expiredAgo').replace('{days}', Math.abs(insuranceDaysUntilExpiry).toString())}</span>
 										{/if}
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if insuranceExpiryDate !== savedInsuranceExpiryDate}
 										<div class="form-group-compact">
-											<label for="insurance-expiry">Change Expiry Date</label>
+											<label for="insurance-expiry">{$t('employeeFiles.changeExpiryDate')}</label>
 											<input 
 												type="date" 
 												id="insurance-expiry" 
@@ -2398,11 +2409,11 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveInsuranceExpiryDate}>
-											💾 Save Date
+											💾 {$t('employeeFiles.saveDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => insuranceExpiryDate = ''}>
-											✏️ Update Date
+											✏️ {$t('employeeFiles.updateDate')}
 										</button>
 									{/if}
 								{/if}
@@ -2414,13 +2425,13 @@
 					<div class="file-card personal-info-card">
 						<div class="file-card-content personal-info-content">
 							<div class="personal-info-form">
-								<h5>المعلومات الشخصية | Personal Information</h5>
+								<h5>{$t('employeeFiles.personalInformation')}</h5>
 								
 								<!-- Date of Birth Field -->
 								{#if !savedDateOfBirth}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="date-of-birth">Date of Birth</label>
+										<label for="date-of-birth">{$t('employeeFiles.dateOfBirth')}</label>
 										<input 
 											type="date" 
 											id="date-of-birth" 
@@ -2429,24 +2440,24 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveDateOfBirth}>
-										💾 Save DOB
+										💾 {$t('employeeFiles.saveDob')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Date of Birth:</span>
+											<span class="date-label">{$t('employeeFiles.dateOfBirth')}:</span>
 											<span class="date-value">
 												{savedDateOfBirth ? new Date(savedDateOfBirth).toLocaleDateString('en-GB') : '-'}
 											</span>
 										</div>
-										<span class="age-display">Age: {age} Years</span>
+										<span class="age-display">{$t('employeeFiles.age')}: {age} {$t('employeeFiles.years')}</span>
 									</div>
 									
 									<!-- Edit date input (hidden by default) -->
 									{#if dateOfBirth !== savedDateOfBirth}
 										<div class="form-group-compact">
-											<label for="date-of-birth">Change Date of Birth</label>
+											<label for="date-of-birth">{$t('employeeFiles.changeDateOfBirth')}</label>
 											<input 
 												type="date" 
 												id="date-of-birth" 
@@ -2455,11 +2466,11 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveDateOfBirth}>
-											💾 Save DOB
+											💾 {$t('employeeFiles.saveDob')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => dateOfBirth = ''}>
-											✏️ Update DOB
+											✏️ {$t('employeeFiles.updateDob')}
 										</button>
 									{/if}
 								{/if}
@@ -2468,7 +2479,7 @@
 								{#if !savedJoinDate}
 									<!-- Show input when no date is saved -->
 									<div class="form-group-compact">
-										<label for="join-date">Join Date</label>
+										<label for="join-date">{$t('employeeFiles.joinDate')}</label>
 										<input 
 											type="date" 
 											id="join-date" 
@@ -2476,13 +2487,13 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveJoinDate}>
-										💾 Save Join Date
+										💾 {$t('employeeFiles.saveJoinDate')}
 									</button>
 								{:else}
 									<!-- Show saved date info when saved -->
 									<div class="saved-date-info">
 										<div class="saved-date-display">
-											<span class="date-label">Join Date:</span>
+											<span class="date-label">{$t('employeeFiles.joinDate')}:</span>
 											<span class="date-value">
 												{savedJoinDate ? new Date(savedJoinDate).toLocaleDateString('en-GB') : '-'}
 											</span>
@@ -2492,7 +2503,7 @@
 									<!-- Edit date input (hidden by default) -->
 									{#if joinDate !== savedJoinDate}
 										<div class="form-group-compact">
-											<label for="join-date">Change Join Date</label>
+											<label for="join-date">{$t('employeeFiles.changeJoinDate')}</label>
 											<input 
 												type="date" 
 												id="join-date" 
@@ -2500,11 +2511,11 @@
 											/>
 										</div>
 										<button class="save-button-small" on:click={saveJoinDate}>
-											💾 Save Join Date
+											💾 {$t('employeeFiles.saveJoinDate')}
 										</button>
 									{:else}
 										<button class="update-button" on:click={() => joinDate = ''}>
-											✏️ Update Join Date
+											✏️ {$t('employeeFiles.updateJoinDate')}
 										</button>
 									{/if}
 								{/if}
@@ -2513,7 +2524,7 @@
 							{#if !savedProbationPeriodExpiryDate}
 								<!-- Show input when no date is saved -->
 								<div class="form-group-compact">
-									<label for="probation-period-expiry">Probation Period Expiry Date</label>
+									<label for="probation-period-expiry">{$t('employeeFiles.probationPeriodExpiryDate')}</label>
 									<input 
 										type="date" 
 										id="probation-period-expiry" 
@@ -2522,35 +2533,35 @@
 									/>
 								</div>
 								<button class="save-button-small" on:click={saveProbationPeriodExpiryDate}>
-									💾 Save Probation Date
+									💾 {$t('employeeFiles.saveProbationDate')}
 								</button>
 							{:else}
 								<!-- Show saved date info when saved -->
 								<div class="saved-date-info">
 									{#if probationPeriodDaysUntilExpiry < 0}
 										<div class="probation-finished">
-											<span class="finish-badge">✓ Probation period finished</span>
+											<span class="finish-badge">✓ {$t('employeeFiles.probationPeriodFinished')}</span>
 										</div>
 									{/if}
 									<div class="saved-date-display">
-										<span class="date-label">Probation Period:</span>
+										<span class="date-label">{$t('employeeFiles.probationPeriod')}:</span>
 										<span class="date-value">
 											{savedProbationPeriodExpiryDate ? new Date(savedProbationPeriodExpiryDate).toLocaleDateString('en-GB') : '-'}
 										</span>
 									</div>
 									{#if probationPeriodDaysUntilExpiry > 0}
-										<span class="expiry-valid">⏰ {probationPeriodDaysUntilExpiry} days remaining</span>
+										<span class="expiry-valid">⏰ {probationPeriodDaysUntilExpiry} {$t('employeeFiles.days')} {$t('employeeFiles.remaining')}</span>
 									{:else if probationPeriodDaysUntilExpiry === 0}
-										<span class="expiry-warning">⚠️ Expires today!</span>
+										<span class="expiry-warning">⚠️ {$t('employeeFiles.expiresToday')}</span>
 									{:else}
-										<span class="expiry-expired">❌ Probation period finished</span>
+										<span class="expiry-expired">❌ {$t('employeeFiles.probationPeriodFinished')}</span>
 									{/if}
 								</div>
 								
 								<!-- Edit date input (hidden by default) -->
 								{#if probationPeriodExpiryDate !== savedProbationPeriodExpiryDate}
 									<div class="form-group-compact">
-										<label for="probation-period-expiry">Change Probation Period Date</label>
+										<label for="probation-period-expiry">{$t('employeeFiles.changeProbationExpiry')}</label>
 										<input 
 											type="date" 
 											id="probation-period-expiry" 
@@ -2559,11 +2570,11 @@
 										/>
 									</div>
 									<button class="save-button-small" on:click={saveProbationPeriodExpiryDate}>
-										💾 Save Probation Date
+										💾 {$t('employeeFiles.saveProbationDate')}
 									</button>
 								{:else}
 									<button class="update-button" on:click={() => probationPeriodExpiryDate = ''}>
-										✏️ Update Probation Date
+										✏️ {$t('employeeFiles.updateProbationDate')}
 									</button>
 								{/if}
 							{/if}
@@ -2575,32 +2586,32 @@
 				<div class="file-card pos-shortages-card">
 					<div class="file-card-content pos-shortages-content">
 						<div class="pos-shortages-form">
-							<h5>💰 POS Shortages | نقص نقاط البيع</h5>
+							<h5>💰 {$t('employeeFiles.posShortages')}</h5>
 							
 							<div class="shortage-total-compact">
-								<span class="label-text">Total Shortages:</span>
-								<span class="value-text total-value">{posShortages.total.toFixed(2)} SAR</span>
+								<span class="label-text">{$t('employeeFiles.totalShortages')}:</span>
+								<span class="value-text total-value">{posShortages.total.toFixed(2)} {$t('common.sar')}</span>
 							</div>
 							
 							<div class="shortage-items-compact">
 								<div class="shortage-row proposed">
-									<span class="status-text">🟢 Proposed</span>
-									<span class="amount-text">{posShortages.proposed.toFixed(2)} SAR</span>
+									<span class="status-text">🟢 {$t('employeeFiles.proposed')}</span>
+									<span class="amount-text">{posShortages.proposed.toFixed(2)} {$t('common.sar')}</span>
 								</div>
 								
 								<div class="shortage-row forgiven">
-									<span class="status-text">🟠 Forgiven</span>
-									<span class="amount-text">{posShortages.forgiven.toFixed(2)} SAR</span>
+									<span class="status-text">🟠 {$t('employeeFiles.forgiven')}</span>
+									<span class="amount-text">{posShortages.forgiven.toFixed(2)} {$t('common.sar')}</span>
 								</div>
 								
 								<div class="shortage-row deducted">
-									<span class="status-text">🔴 Deducted</span>
-									<span class="amount-text">{posShortages.deducted.toFixed(2)} SAR</span>
+									<span class="status-text">🔴 {$t('employeeFiles.deducted')}</span>
+									<span class="amount-text">{posShortages.deducted.toFixed(2)} {$t('common.sar')}</span>
 								</div>
 								
 								<div class="shortage-row cancelled">
-									<span class="status-text">⚫ Cancelled</span>
-									<span class="amount-text">{posShortages.cancelled.toFixed(2)} SAR</span>
+									<span class="status-text">⚫ {$t('employeeFiles.cancelled')}</span>
+									<span class="amount-text">{posShortages.cancelled.toFixed(2)} {$t('common.sar')}</span>
 								</div>
 							</div>
 						</div>
@@ -2611,7 +2622,7 @@
 				</div>
 			{:else}
 				<div class="placeholder">
-					<p>Select an employee to view files</p>
+					<p>{$t('employeeFiles.placeholderEmployeeSelect')}</p>
 				</div>
 			{/if}
 		</div>
@@ -2624,35 +2635,35 @@
 	<div class="modal-overlay" on:click={() => showCreateInsuranceModal = false}>
 		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
 			<div class="modal-header">
-				<h3>Create Insurance Company</h3>
+				<h3>{$t('employeeFiles.createInsuranceCompany')}</h3>
 				<button class="close-button" on:click={() => showCreateInsuranceModal = false}>✕</button>
 			</div>
 			<div class="modal-body">
 				<div class="form-group-compact">
-					<label for="company-name-en">Company Name (English)</label>
+					<label for="company-name-en">{$t('employeeFiles.companyNameEn')}</label>
 					<input 
 						type="text" 
 						id="company-name-en" 
 						bind:value={newInsuranceCompanyNameEn}
-						placeholder="Enter company name in English"
+						placeholder={$t('employeeFiles.enterNameEn')}
 					/>
 				</div>
 				<div class="form-group-compact">
-					<label for="company-name-ar">اسم الشركة (عربي)</label>
+					<label for="company-name-ar">{$t('employeeFiles.companyNameAr')}</label>
 					<input 
 						type="text" 
 						id="company-name-ar" 
 						bind:value={newInsuranceCompanyNameAr}
-						placeholder="أدخل اسم الشركة بالعربية"
+						placeholder={$t('employeeFiles.enterNameAr')}
 					/>
 				</div>
 			</div>
 			<div class="modal-footer">
 				<button class="cancel-button" on:click={() => showCreateInsuranceModal = false}>
-					Cancel
+					{$t('employeeFiles.cancel')}
 				</button>
 				<button class="save-button" on:click={createInsuranceCompany} disabled={isCreatingInsuranceCompany}>
-					{isCreatingInsuranceCompany ? '⏳ Creating...' : '✅ Create'}
+					{isCreatingInsuranceCompany ? `⏳ ${$t('employeeFiles.creating')}` : `✅ ${$t('employeeFiles.create')}`}
 				</button>
 			</div>
 		</div>
@@ -2812,6 +2823,12 @@
 		transition: border-color 0.2s;
 	}
 
+	:global([dir="rtl"]) .form-group select {
+		background-position: left 0.75rem center;
+		padding-left: 2.5rem;
+		padding-right: 0.75rem;
+	}
+
 	.form-group select:focus,
 	.form-group input:focus {
 		outline: none;
@@ -2891,15 +2908,14 @@
 	.emp-position-ar {
 		color: #333;
 		font-weight: 500;
-		direction: rtl;
-		text-align: right;
 		font-size: 0.95rem;
 	}
 
 	.emp-name-en,
 	.emp-position-en {
-		color: #666;
-		font-size: 0.85rem;
+		color: #333;
+		font-weight: 500;
+		font-size: 0.95rem;
 	}
 
 	.placeholder {
