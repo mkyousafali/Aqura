@@ -469,11 +469,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			}];
 			newVoucherSerial = '';
 			newVoucherAmount = '';
+			saveVoucherData();
 		}
 	}
 
 	function removeVoucher(index: number) {
-		vouchers = vouchers.filter((_, i) => i !== index);
+		const confirmDelete = confirm($currentLocale === 'ar' ? 'هل أنت متأكد من حذف هذه القسيمة؟' : 'Are you sure you want to delete this voucher?');
+		if (confirmDelete) {
+			vouchers = vouchers.filter((_, i) => i !== index);
+			saveVoucherData();
+		}
 	}
 
 	// Calculate vouchers total
@@ -1727,7 +1732,30 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			<div class="split-section">
 				<div class="card-header-text">{$currentLocale === 'ar' ? '2. المبيعات عبر قسيمة الشراء' : '2. Sales through Purchase Voucher'}</div>
 				
-				<!-- Input row hidden for read-only view -->
+				<!-- Voucher Input Row -->
+				<div class="voucher-input-row">
+					<input 
+						type="text" 
+						class="voucher-serial-input"
+						bind:value={newVoucherSerial}
+						placeholder={$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial Number'}
+						disabled={!closingStarted}
+					/>
+					<input 
+						type="number" 
+						class="voucher-amount-input"
+						bind:value={newVoucherAmount}
+						placeholder={$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}
+						disabled={!closingStarted}
+					/>
+					<button 
+						class="add-voucher-btn" 
+						on:click={addVoucher}
+						disabled={!closingStarted || !newVoucherSerial || !newVoucherAmount}
+					>
+						+
+					</button>
+				</div>
 
 				{#if vouchers.length > 0}
 					<button 
@@ -1749,6 +1777,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 									<th style="width: 40px;">✓</th>
 									<th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th>
 									<th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th>
+									<th style="width: 40px;">{$currentLocale === 'ar' ? 'إجراء' : 'Actions'}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -1849,6 +1878,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 													</div>
 												{/if}
 											</div>
+										</td>
+										<td style="width: 40px; text-align: center;">
+											<button 
+												class="remove-btn" 
+												on:click={() => removeVoucher(index)}
+												disabled={!closingStarted}
+												title={$currentLocale === 'ar' ? 'حذف' : 'Remove'}
+											>
+												✕
+											</button>
 										</td>
 									</tr>
 								{/each}
