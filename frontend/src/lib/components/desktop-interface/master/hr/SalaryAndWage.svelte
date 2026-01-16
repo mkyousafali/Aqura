@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentLocale, _ as t } from '$lib/i18n';
 
 	let employees: any[] = [];
 	let isLoading = false;
@@ -68,7 +69,7 @@
 
 			if (error) {
 				console.error('Error loading employees:', error);
-				errorMessage = 'Failed to load employees';
+				errorMessage = $t('hr.salary.failedToLoadEmployees');
 				return;
 			}
 			
@@ -80,7 +81,7 @@
 			});
 		} catch (error) {
 			console.error('Error loading employees:', error);
-			errorMessage = 'Failed to load employees';
+			errorMessage = $t('hr.salary.failedToLoadEmployees');
 		} finally {
 			isLoading = false;
 		}
@@ -158,7 +159,7 @@
 		
 		// Allow zero but not empty or invalid values
 		if (basicSalary === '' || basicSalary === null || basicSalary === undefined || isNaN(parseFloat(basicSalary))) {
-			errorMessage = 'Please enter a valid Basic Salary';
+			errorMessage = $t('hr.salary.invalidBasicSalary');
 			return;
 		}
 		
@@ -234,13 +235,13 @@
 			
 			if (error) {
 				console.error('Error saving salary data:', error);
-				errorMessage = 'Failed to save salary data';
+				errorMessage = $t('hr.salary.failedToSave');
 			} else {
 				closeModal();
 			}
 		} catch (error) {
 			console.error('Error saving salary data:', error);
-			errorMessage = 'Failed to save salary data';
+			errorMessage = $t('hr.salary.failedToSave');
 		} finally {
 			isSaving = false;
 		}
@@ -301,9 +302,9 @@
 
 <div class="salary-wage-container">
 	<div class="header">
-		<h2>Salary and Wage Management</h2>
+		<h2>{$t('hr.salary.title')}</h2>
 		<button class="refresh-btn" on:click={() => { loadEmployees(); loadBasicSalaries(); }} disabled={isLoading}>
-			{isLoading ? 'Loading...' : '🔄 Refresh'}
+			{isLoading ? $t('common.loading') : `🔄 ${$t('hr.salary.refresh')}`}
 		</button>
 	</div>
 
@@ -312,27 +313,27 @@
 	{/if}
 
 	{#if isLoading}
-		<div class="loading">Loading...</div>
+		<div class="loading">{$t('common.loading')}</div>
 	{:else}
 		<div class="table-container">
 			<table>
 				<thead>
 					<tr>
-						<th>ID</th>
-						<th>Name</th>
-						<th>Branch</th>
-						<th>Nationality</th>
-						<th>Sponsorship</th>
-						<th>ID Number</th>
-						<th>Bank Information</th>
-						<th>Basic Salary</th>
-						<th>Other Allowance</th>
-						<th>Accommodation</th>
-						<th>Food Allowance</th>
-						<th>Travel</th>
-						<th>GOSI Deduction</th>
-						<th>Total Salary</th>
-						<th>Actions</th>
+						<th>{$t('hr.salary.id')}</th>
+						<th>{$t('hr.salary.name')}</th>
+						<th>{$t('hr.salary.branch')}</th>
+						<th>{$t('hr.salary.nationality')}</th>
+						<th>{$t('hr.salary.sponsorship')}</th>
+						<th>{$t('hr.salary.idNumber')}</th>
+						<th>{$t('hr.salary.bankInfo')}</th>
+						<th>{$t('hr.salary.basicSalary')}</th>
+						<th>{$t('hr.salary.otherAllowance')}</th>
+						<th>{$t('hr.salary.accommodation')}</th>
+						<th>{$t('hr.salary.foodAllowance')}</th>
+						<th>{$t('hr.salary.travel')}</th>
+						<th>{$t('hr.salary.gosiDeduction')}</th>
+						<th>{$t('hr.salary.totalSalary')}</th>
+						<th>{$t('hr.salary.actions')}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -341,44 +342,49 @@
 							<td>{employee.id}</td>
 							<td>
 								<div class="name-cell">
-									<div class="name-ar">{employee.name_ar || '-'}</div>
-									<div class="name-en">{employee.name_en || '-'}</div>
+									{#if $currentLocale === 'ar'}
+										<div class="name-ar">{employee.name_ar || '-'}</div>
+									{:else}
+										<div class="name-en">{employee.name_en || '-'}</div>
+									{/if}
 								</div>
 							</td>
 							<td>
 								<div class="name-cell">
-									<div class="name-ar">
-										{#if employee.branches}
-											{employee.branches.name_ar || '-'}
-											{#if employee.branches.location_ar}
-												<span class="location">({employee.branches.location_ar})</span>
-											{/if}
+									{#if employee.branches}
+										{#if $currentLocale === 'ar'}
+											<div class="name-ar">
+												{employee.branches.name_ar || '-'}
+												{#if employee.branches.location_ar}
+													<span class="location">({employee.branches.location_ar})</span>
+												{/if}
+											</div>
 										{:else}
-											-
+											<div class="name-en">
+												{employee.branches.name_en || '-'}
+												{#if employee.branches.location_en}
+													<span class="location">({employee.branches.location_en})</span>
+												{/if}
+											</div>
 										{/if}
-									</div>
-									<div class="name-en">
-										{#if employee.branches}
-											{employee.branches.name_en || '-'}
-											{#if employee.branches.location_en}
-												<span class="location">({employee.branches.location_en})</span>
-											{/if}
-										{:else}
-											-
-										{/if}
-									</div>
+									{:else}
+										-
+									{/if}
 								</div>
 							</td>
 							<td>
 								<div class="name-cell">
-									<div class="name-ar">{employee.nationalities?.name_ar || '-'}</div>
-									<div class="name-en">{employee.nationalities?.name_en || '-'}</div>
+									{#if $currentLocale === 'ar'}
+										<div class="name-ar">{employee.nationalities?.name_ar || '-'}</div>
+									{:else}
+										<div class="name-en">{employee.nationalities?.name_en || '-'}</div>
+									{/if}
 								</div>
 							</td>
 							<td>
 								{#if employee.sponsorship_status !== null && employee.sponsorship_status !== undefined}
 									<span class="status-badge {employee.sponsorship_status ? 'active' : 'inactive'}">
-										{employee.sponsorship_status ? 'Active' : 'Inactive'}
+										{employee.sponsorship_status ? $t('hr.salary.active') : $t('hr.salary.inactive')}
 									</span>
 								{:else}
 									<span class="no-data">-</span>
@@ -394,8 +400,8 @@
 							<td>
 								{#if basicSalaryValues[employee.id]}
 									<div class="value-display">
-										<span class="amount">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()} SAR</span>
-										<span class="badge">{paymentModeValues[employee.id] || 'Bank'}</span>
+										<span class="amount">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+										<span class="badge">{paymentModeValues[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
 									<span class="no-data">-</span>
@@ -404,8 +410,8 @@
 							<td>
 								{#if otherAllowanceValues[employee.id]}
 									<div class="value-display">
-										<span class="amount">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()} SAR</span>
-										<span class="badge">{otherAllowancePaymentMode[employee.id] || 'Bank'}</span>
+										<span class="amount">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+										<span class="badge">{otherAllowancePaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
 									<span class="no-data">-</span>
@@ -414,8 +420,8 @@
 							<td>
 								{#if accommodationValues[employee.id]}
 									<div class="value-display">
-										<span class="amount">{parseFloat(accommodationValues[employee.id]).toLocaleString()} SAR</span>
-										<span class="badge">{accommodationPaymentMode[employee.id] || 'Bank'}</span>
+										<span class="amount">{parseFloat(accommodationValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+										<span class="badge">{accommodationPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
 									<span class="no-data">-</span>
@@ -424,8 +430,8 @@
 							<td>
 								{#if foodValues[employee.id]}
 									<div class="value-display">
-										<span class="amount">{parseFloat(foodValues[employee.id]).toLocaleString()} SAR</span>
-										<span class="badge">{foodPaymentMode[employee.id] || 'Bank'}</span>
+										<span class="amount">{parseFloat(foodValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+										<span class="badge">{foodPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
 									<span class="no-data">-</span>
@@ -434,8 +440,8 @@
 							<td>
 								{#if travelValues[employee.id]}
 									<div class="value-display">
-										<span class="amount">{parseFloat(travelValues[employee.id]).toLocaleString()} SAR</span>
-										<span class="badge">{travelPaymentMode[employee.id] || 'Bank'}</span>
+										<span class="amount">{parseFloat(travelValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+										<span class="badge">{travelPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
 									<span class="no-data">-</span>
@@ -443,7 +449,7 @@
 							</td>
 							<td>
 								{#if gosiValues[employee.id]}
-									<span class="deduction-amount">-{parseFloat(gosiValues[employee.id]).toLocaleString()} SAR</span>
+									<span class="deduction-amount">-{parseFloat(gosiValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
 								{:else}
 									<span class="no-data">-</span>
 								{/if}
@@ -451,7 +457,7 @@
 							<td>
 								{#if getTotalSalary(employee.id) > 0}
 									{@const total = getTotalSalary(employee.id)}
-									<span class="total-amount">{total.toLocaleString()} SAR</span>
+									<span class="total-amount">{total.toLocaleString()} {$t('common.sar')}</span>
 								{:else}
 									<span class="no-data">-</span>
 								{/if}
@@ -459,11 +465,11 @@
 							<td>
 								{#if basicSalaryValues[employee.id]}
 									<button class="edit-btn" on:click={() => openModal(employee.id)}>
-										Edit
+										{$t('hr.salary.edit')}
 									</button>
 								{:else}
 									<button class="add-btn" on:click={() => openModal(employee.id)}>
-										+ Add
+										+ {$t('hr.salary.add')}
 									</button>
 								{/if}
 							</td>
@@ -471,7 +477,7 @@
 					{/each}
 					{#if employees.length === 0}
 						<tr>
-							<td colspan="15" class="no-data-row">No employees found</td>
+							<td colspan="15" class="no-data-row">{$t('hr.salary.noEmployeesFound')}</td>
 						</tr>
 					{/if}
 				</tbody>
@@ -485,7 +491,7 @@
 	<div class="modal-overlay" on:click={closeModal}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>Edit Salary - {currentEmployee.name_ar}</h3>
+				<h3>{$t('hr.salary.editSalaryFor')} { $currentLocale === 'ar' ? currentEmployee.name_ar : currentEmployee.name_en }</h3>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
 			</div>
 			
@@ -496,34 +502,34 @@
 
 				<!-- Basic Salary -->
 				<div class="form-group">
-					<label>Basic Salary *</label>
+					<label>{$t('hr.salary.basicSalary')} *</label>
 					<div class="input-row">
 						<input 
 							type="number" 
 							bind:value={basicSalaryValues[currentEmployeeId]}
-							placeholder="Enter basic salary"
+							placeholder={$t('hr.salary.basicSalary')}
 							class="form-input"
 						/>
 						<select bind:value={paymentModeValues[currentEmployeeId]} class="form-select">
-							<option value="Bank">Bank</option>
-							<option value="Cash">Cash</option>
+							<option value="Bank">{$t('hr.salary.bank')}</option>
+							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
 					</div>
 				</div>
 
 				<!-- Other Allowance -->
 				<div class="form-group">
-					<label>Other Allowance</label>
+					<label>{$t('hr.salary.otherAllowance')}</label>
 					<div class="input-row">
 						<input 
 							type="number" 
 							bind:value={otherAllowanceValues[currentEmployeeId]}
-							placeholder="Enter other allowance"
+							placeholder={$t('hr.salary.otherAllowance')}
 							class="form-input"
 						/>
 						<select bind:value={otherAllowancePaymentMode[currentEmployeeId]} class="form-select">
-							<option value="Bank">Bank</option>
-							<option value="Cash">Cash</option>
+							<option value="Bank">{$t('hr.salary.bank')}</option>
+							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
 					</div>
 				</div>
@@ -531,13 +537,13 @@
 				<!-- Accommodation Allowance -->
 				<div class="form-group">
 					<label>
-						Accommodation Allowance
+						{$t('hr.salary.accommodation')}
 						<label class="checkbox-label">
 							<input 
 								type="checkbox" 
 								bind:checked={accommodationIsPercentage[currentEmployeeId]}
 							/>
-							<span>Use % of Basic</span>
+							<span>{$t('hr.salary.usePercentageOfBasic')}</span>
 						</label>
 					</label>
 					<div class="input-row">
@@ -546,7 +552,7 @@
 								<input 
 									type="number" 
 									bind:value={accommodationPercentage[currentEmployeeId]}
-									placeholder="Enter %"
+									placeholder="%"
 									class="form-input percentage-input"
 									min="0"
 									max="100"
@@ -554,20 +560,20 @@
 								<span class="percentage-symbol">%</span>
 								{#if accommodationPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
 									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(accommodationPercentage[currentEmployeeId])) / 100}
-									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
 						{:else}
 							<input 
 								type="number" 
 								bind:value={accommodationValues[currentEmployeeId]}
-								placeholder="Enter accommodation allowance"
+								placeholder={$t('hr.salary.accommodation')}
 								class="form-input"
 							/>
 						{/if}
 						<select bind:value={accommodationPaymentMode[currentEmployeeId]} class="form-select">
-							<option value="Bank">Bank</option>
-							<option value="Cash">Cash</option>
+							<option value="Bank">{$t('hr.salary.bank')}</option>
+							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
 					</div>
 				</div>
@@ -575,13 +581,13 @@
 				<!-- Food Allowance -->
 				<div class="form-group">
 					<label>
-						Food Allowance
+						{$t('hr.salary.foodAllowance')}
 						<label class="checkbox-label">
 							<input 
 								type="checkbox" 
 								bind:checked={foodIsPercentage[currentEmployeeId]}
 							/>
-							<span>Use % of Basic</span>
+							<span>{$t('hr.salary.usePercentageOfBasic')}</span>
 						</label>
 					</label>
 					<div class="input-row">
@@ -590,7 +596,7 @@
 								<input 
 									type="number" 
 									bind:value={foodPercentage[currentEmployeeId]}
-									placeholder="Enter %"
+									placeholder="%"
 									class="form-input percentage-input"
 									min="0"
 									max="100"
@@ -598,20 +604,20 @@
 								<span class="percentage-symbol">%</span>
 								{#if foodPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
 									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(foodPercentage[currentEmployeeId])) / 100}
-									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
 						{:else}
 							<input 
 								type="number" 
 								bind:value={foodValues[currentEmployeeId]}
-								placeholder="Enter food allowance"
+								placeholder={$t('hr.salary.foodAllowance')}
 								class="form-input"
 							/>
 						{/if}
 						<select bind:value={foodPaymentMode[currentEmployeeId]} class="form-select">
-							<option value="Bank">Bank</option>
-							<option value="Cash">Cash</option>
+							<option value="Bank">{$t('hr.salary.bank')}</option>
+							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
 					</div>
 				</div>
@@ -619,13 +625,13 @@
 				<!-- Travel Allowance -->
 				<div class="form-group">
 					<label>
-						Travel Allowance
+						{$t('hr.salary.travel')}
 						<label class="checkbox-label">
 							<input 
 								type="checkbox" 
 								bind:checked={travelIsPercentage[currentEmployeeId]}
 							/>
-							<span>Use % of Basic</span>
+							<span>{$t('hr.salary.usePercentageOfBasic')}</span>
 						</label>
 					</label>
 					<div class="input-row">
@@ -634,7 +640,7 @@
 								<input 
 									type="number" 
 									bind:value={travelPercentage[currentEmployeeId]}
-									placeholder="Enter %"
+									placeholder="%"
 									class="form-input percentage-input"
 									min="0"
 									max="100"
@@ -642,20 +648,20 @@
 								<span class="percentage-symbol">%</span>
 								{#if travelPercentage[currentEmployeeId] && basicSalaryValues[currentEmployeeId]}
 									{@const calculated = (parseFloat(basicSalaryValues[currentEmployeeId]) * parseFloat(travelPercentage[currentEmployeeId])) / 100}
-									<span class="calculated-preview">= {calculated.toLocaleString()} SAR</span>
+									<span class="calculated-preview">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
 						{:else}
 							<input 
 								type="number" 
 								bind:value={travelValues[currentEmployeeId]}
-								placeholder="Enter travel allowance"
+								placeholder={$t('hr.salary.travel')}
 								class="form-input"
 							/>
 						{/if}
 						<select bind:value={travelPaymentMode[currentEmployeeId]} class="form-select">
-							<option value="Bank">Bank</option>
-							<option value="Cash">Cash</option>
+							<option value="Bank">{$t('hr.salary.bank')}</option>
+							<option value="Cash">{$t('hr.salary.cash')}</option>
 						</select>
 					</div>
 				</div>
@@ -663,13 +669,13 @@
 				<!-- GOSI Deduction -->
 				<div class="form-group">
 					<label>
-						GOSI Deduction
+						{$t('hr.salary.gosiDeduction')}
 						<label class="checkbox-label">
 							<input 
 								type="checkbox" 
 								bind:checked={gosiIsPercentage[currentEmployeeId]}
 							/>
-							<span>Use % of (Basic + Accommodation)</span>
+							<span>{$t('hr.salary.usePercentageOfBasicAndAccom')}</span>
 						</label>
 					</label>
 					<div class="input-row">
@@ -678,7 +684,7 @@
 								<input 
 									type="number" 
 									bind:value={gosiPercentage[currentEmployeeId]}
-									placeholder="Enter %"
+									placeholder="%"
 									class="form-input percentage-input"
 									min="0"
 									max="100"
@@ -689,14 +695,14 @@
 									{@const accomVal = accommodationIsPercentage[currentEmployeeId] ? (basicVal * (parseFloat(accommodationPercentage[currentEmployeeId]) || 0)) / 100 : parseFloat(accommodationValues[currentEmployeeId]) || 0}
 									{@const baseForGosi = basicVal + accomVal}
 									{@const calculated = (baseForGosi * parseFloat(gosiPercentage[currentEmployeeId])) / 100}
-									<span class="calculated-preview deduction">= {calculated.toLocaleString()} SAR</span>
+									<span class="calculated-preview deduction">= {calculated.toLocaleString()} {$t('common.sar')}</span>
 								{/if}
 							</div>
 						{:else}
 							<input 
 								type="number" 
 								bind:value={gosiValues[currentEmployeeId]}
-								placeholder="Enter GOSI deduction"
+								placeholder={$t('hr.salary.gosiDeduction')}
 								class="form-input"
 							/>
 						{/if}
@@ -705,17 +711,17 @@
 
 				<!-- Total Preview -->
 				<div class="total-preview">
-					<span class="total-label">Total Salary:</span>
-					<span class="total-value">{getModalTotalPreview().toLocaleString()} SAR</span>
+					<span class="total-label">{$t('hr.salary.totalSalary')}:</span>
+					<span class="total-value">{getModalTotalPreview().toLocaleString()} {$t('common.sar')}</span>
 				</div>
 			</div>
 
 			<div class="modal-footer">
 				<button class="cancel-modal-btn" on:click={closeModal} disabled={isSaving}>
-					Cancel
+					{$t('hr.salary.cancel')}
 				</button>
 				<button class="save-modal-btn" on:click={saveAllSalaryData} disabled={isSaving}>
-					{isSaving ? 'Saving...' : 'Save All'}
+					{isSaving ? $t('hr.salary.saving') : $t('hr.salary.saveAll')}
 				</button>
 			</div>
 		</div>

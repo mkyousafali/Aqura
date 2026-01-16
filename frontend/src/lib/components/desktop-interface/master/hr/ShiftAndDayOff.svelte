@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { t } from '$lib/i18n';
+    import { _ as t, locale } from '$lib/i18n';
     
     interface EmployeeShift {
         id: string;
@@ -55,12 +55,35 @@
         is_shift_overlapping_next_day: boolean;
     }
 
+    interface Branch {
+        id: string;
+        name_en: string;
+        name_ar: string;
+        location_en: string;
+        location_ar: string;
+    }
+
+    interface Nationality {
+        id: string;
+        name_en: string;
+        name_ar: string;
+    }
+
     interface EmployeeForSelection {
         id: string;
         employee_name_en: string;
         employee_name_ar: string;
         branch_name_en: string;
         branch_name_ar: string;
+    }
+
+    interface EmployeeMaster {
+        id: string;
+        name_en: string;
+        name_ar: string;
+        current_branch_id: string;
+        nationality_id: string;
+        employment_status: string;
     }
 
     let activeTab = 'Regular Shift';
@@ -101,7 +124,15 @@
     let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
     let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
 
-    const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    $: weekdayNames = [
+        $t('common.days.sunday'),
+        $t('common.days.monday'),
+        $t('common.days.tuesday'),
+        $t('common.days.wednesday'),
+        $t('common.days.thursday'),
+        $t('common.days.friday'),
+        $t('common.days.saturday')
+    ];
 
     // Form data for modal
     let formData: RegularShiftData | SpecialShiftWeekdayData | SpecialShiftDateWiseData = {
@@ -113,12 +144,12 @@
         is_shift_overlapping_next_day: false
     } as RegularShiftData;
 
-    const tabs = [
-        { id: 'Regular Shift', icon: '🕒', color: 'green' },
-        { id: 'Special Shift (weekday-wise)', icon: '📅', color: 'orange' },
-        { id: 'Special Shift (date-wise)', icon: '📆', color: 'orange' },
-        { id: 'Day Off (date-wise)', icon: '🏖️', color: 'green' },
-        { id: 'Day Off (weekday-wise)', icon: '📋', color: 'green' }
+    $: tabs = [
+        { id: 'Regular Shift', label: $t('hr.shift.tabs.regular'), icon: '🕒', color: 'green' },
+        { id: 'Special Shift (weekday-wise)', label: $t('hr.shift.tabs.special_weekday'), icon: '📅', color: 'orange' },
+        { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
+        { id: 'Day Off (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
+        { id: 'Day Off (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' }
     ];
 
     onMount(async () => {
@@ -184,16 +215,16 @@
 
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
 
-            const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
-            const shiftMap = new Map(shifts?.map(s => [s.id, s]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
+            const shiftMap = new Map<string, any>((shifts as any[] | null)?.map(s => [s.id, s]) || []);
 
             // Populate available branches for filter
-            availableBranches = branches || [];
-            availableNationalities = nationalities || [];
+            availableBranches = (branches as Branch[] | null) || [];
+            availableNationalities = (nationalities as Nationality[] | null) || [];
 
             // Combine data
-            employees = employeeData.map(emp => {
+            employees = (employeeData as EmployeeMaster[]).map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
                 const nationality = nationalityMap.get(emp.nationality_id);
                 const shift = shiftMap.get(emp.id);
@@ -226,7 +257,7 @@
             });
         } catch (err) {
             console.error('Error loading employee shift data:', err);
-            error = err instanceof Error ? err.message : 'Failed to load data';
+            error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
         }
@@ -281,16 +312,16 @@
 
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
 
-            const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
 
             // Populate available branches and nationalities for filter
-            availableBranches = branches || [];
-            availableNationalities = nationalities || [];
+            availableBranches = (branches as Branch[] | null) || [];
+            availableNationalities = (nationalities as Nationality[] | null) || [];
 
             // Group shifts by employee_id and weekday
             const shiftMap = new Map<string, Map<number, any>>();
-            shifts?.forEach(shift => {
+            (shifts as any[] | null)?.forEach(shift => {
                 if (!shiftMap.has(shift.employee_id)) {
                     shiftMap.set(shift.employee_id, new Map());
                 }
@@ -298,7 +329,7 @@
             });
 
             // Combine data
-            employees = employeeData.map(emp => {
+            employees = (employeeData as EmployeeMaster[]).map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
                 const nationality = nationalityMap.get(emp.nationality_id);
                 const empShifts = shiftMap.get(emp.id) || new Map();
@@ -331,7 +362,7 @@
             });
         } catch (err) {
             console.error('Error loading employee special shift data:', err);
-            error = err instanceof Error ? err.message : 'Failed to load data';
+            error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
         }
@@ -372,13 +403,13 @@
 
             if (branchError) throw branchError;
 
-            const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
 
             // Populate available branches for filter
-            availableBranches = branches || [];
+            availableBranches = (branches as Branch[] | null) || [];
 
             // Build employee selection list
-            allEmployeesForDateWise = employeeData.map(emp => {
+            allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
                 return {
                     id: emp.id,
@@ -396,18 +427,18 @@
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
             // Get nationality information
-            const nationalityIds = [...new Set(employeeData.map(e => e.nationality_id).filter(Boolean))];
-            let nationalities: any[] = [];
+            const nationalityIds = [...new Set((employeeData as EmployeeMaster[]).map(e => e.nationality_id).filter(Boolean))];
+            let nationalities: Nationality[] = [];
             if (nationalityIds.length > 0) {
                 const { data: nat, error: natError } = await supabase
                     .from('nationalities')
                     .select('id, name_en, name_ar')
                     .in('id', nationalityIds);
                 if (natError) throw natError;
-                nationalities = nat || [];
+                nationalities = (nat as Nationality[]) || [];
             }
 
-            const nationalityMap = new Map(nationalities.map(n => [n.id, n]) || []);
+            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [n.id, n]) || []);
 
             // Populate available nationalities for filter
             availableNationalities = nationalities || [];
@@ -421,8 +452,8 @@
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
 
             // Map shifts with employee details
-            dateWiseShifts = (shifts || []).map(shift => {
-                const emp = employeeData.find(e => e.id === shift.employee_id);
+            dateWiseShifts = ((shifts as any[]) || []).map(shift => {
+                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === shift.employee_id);
                 const branch = emp ? branchMap.get(emp.current_branch_id) : null;
                 const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
 
@@ -450,7 +481,7 @@
             });
         } catch (err) {
             console.error('Error loading special shift date-wise data:', err);
-            error = err instanceof Error ? err.message : 'Failed to load data';
+            error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
         }
@@ -544,18 +575,18 @@
                     .select('id, name_en, name_ar')
                     .in('id', nationalityIds);
                 if (natError) throw natError;
-                nationalities = nat || [];
+                nationalities = (nat as Nationality[]) || [];
             }
 
-            const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map(nationalities.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
+            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [n.id, n]) || []);
 
             // Populate available branches and nationalities for filter
-            availableBranches = branches || [];
+            availableBranches = (branches as Branch[] | null) || [];
             availableNationalities = nationalities || [];
 
             // Build employee selection list
-            allEmployeesForDateWise = employeeData.map(emp => {
+            allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
                 return {
                     id: emp.id,
@@ -581,8 +612,8 @@
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
 
             // Map day offs with employee details
-            dayOffs = (dayOffData || []).map(dayOff => {
-                const emp = employeeData.find(e => e.id === dayOff.employee_id);
+            dayOffs = ((dayOffData as any[]) || []).map(dayOff => {
+                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === dayOff.employee_id);
                 const branch = emp ? branchMap.get(emp.current_branch_id) : null;
                 const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
 
@@ -604,7 +635,7 @@
             });
         } catch (err) {
             console.error('Error loading day off data:', err);
-            error = err instanceof Error ? err.message : 'Failed to load data';
+            error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
         }
@@ -671,15 +702,15 @@
 
             if (natError) throw natError;
 
-            const branchMap = new Map(branches?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map(nationalities?.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
 
             // Populate available branches and nationalities for filter
-            availableBranches = branches || [];
-            availableNationalities = nationalities || [];
+            availableBranches = (branches as Branch[] | null) || [];
+            availableNationalities = (nationalities as Nationality[] | null) || [];
 
             // Build employee selection list
-            allEmployeesForDateWise = employeeData.map(emp => {
+            allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
                 const branch = branchMap.get(emp.current_branch_id);
                 return {
                     id: emp.id,
@@ -705,8 +736,8 @@
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError;
 
             // Map day offs with employee details
-            dayOffsWeekday = (dayOffWeekdayData || []).map(dayOff => {
-                const emp = employeeData.find(e => e.id === dayOff.employee_id);
+            dayOffsWeekday = ((dayOffWeekdayData as any[]) || []).map(dayOff => {
+                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === dayOff.employee_id);
                 const branch = emp ? branchMap.get(emp.current_branch_id) : null;
                 const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
 
@@ -728,7 +759,7 @@
             });
         } catch (err) {
             console.error('Error loading day off weekday data:', err);
-            error = err instanceof Error ? err.message : 'Failed to load data';
+            error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
         }
@@ -872,7 +903,7 @@
     }
 
     async function deleteShiftData(employeeId: string, weekdayNum: number) {
-        if (!confirm(`Delete shift for ${weekdayNames[weekdayNum]}?`)) return;
+        if (!confirm($t('hr.shift.confirm_delete_shift_for', { day: weekdayNames[weekdayNum] }))) return;
         
         try {
             const { supabase } = await import('$lib/utils/supabase');
@@ -893,7 +924,7 @@
             }
         } catch (err) {
             console.error('Error deleting shift data:', err);
-            alert('Failed to delete shift data: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
 
@@ -932,12 +963,12 @@
             closeDeleteModal();
         } catch (err) {
             console.error('Error deleting shift data:', err);
-            alert('Failed to delete shift data: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
 
     async function deleteSpecialShiftDateWise(shiftId: string, employeeId: string, shiftDate: string) {
-        if (!confirm('Are you sure you want to delete this shift?')) return;
+        if (!confirm($t('hr.shift.confirm_delete_shift'))) return;
 
         try {
             const { supabase } = await import('$lib/utils/supabase');
@@ -952,13 +983,13 @@
             dateWiseShifts = dateWiseShifts.filter(s => !(s.employee_id === employeeId && s.shift_date === shiftDate));
         } catch (err) {
             console.error('Error deleting shift:', err);
-            alert('Failed to delete: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
 
     async function saveDayOff() {
         if (!selectedEmployeeId || !selectedDayOffDate) {
-            alert('Please select an employee and date');
+            alert($t('hr.shift.error_select_employee_date'));
             return;
         }
 
@@ -1008,14 +1039,14 @@
             selectedEmployeeId = null;
         } catch (err) {
             console.error('Error saving day off:', err);
-            alert('Failed to save day off: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_save_day_off') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         } finally {
             isSaving = false;
         }
     }
 
     async function deleteDayOff(dayOffId: string, employeeId: string, dayOffDate: string) {
-        if (!confirm('Are you sure you want to delete this day off?')) return;
+        if (!confirm($t('hr.shift.confirm_delete_day_off'))) return;
 
         try {
             const { supabase } = await import('$lib/utils/supabase');
@@ -1030,13 +1061,13 @@
             dayOffs = dayOffs.filter(d => !(d.employee_id === employeeId && d.day_off_date === dayOffDate));
         } catch (err) {
             console.error('Error deleting day off:', err);
-            alert('Failed to delete: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
 
     async function saveDayOffWeekday() {
         if (!selectedEmployeeId || selectedDayOffWeekday === null) {
-            alert('Please select an employee and weekday');
+            alert($t('hr.shift.error_select_employee_weekday'));
             return;
         }
 
@@ -1086,14 +1117,14 @@
             selectedEmployeeId = null;
         } catch (err) {
             console.error('Error saving day off weekday:', err);
-            alert('Failed to save day off: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_save_day_off') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         } finally {
             isSaving = false;
         }
     }
 
     async function deleteDayOffWeekday(dayOffId: string, employeeId: string, weekday: number) {
-        if (!confirm('Are you sure you want to delete this day off?')) return;
+        if (!confirm($t('hr.shift.confirm_delete_day_off'))) return;
 
         try {
             const { supabase } = await import('$lib/utils/supabase');
@@ -1108,7 +1139,7 @@
             dayOffsWeekday = dayOffsWeekday.filter(d => !(d.employee_id === employeeId && d.day_off_weekday === weekday));
         } catch (err) {
             console.error('Error deleting day off weekday:', err);
-            alert('Failed to delete: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
 
@@ -1274,7 +1305,7 @@
             closeModal();
         } catch (err) {
             console.error('Error saving shift data:', err);
-            alert('Failed to save shift data: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            alert($t('hr.shift.error_failed_save') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         } finally {
             isSaving = false;
         }
@@ -1285,23 +1316,31 @@
     }
 
     function formatBranchDisplay(emp: EmployeeShift): string {
-        const parts = [emp.branch_name_en];
-        if (emp.branch_name_ar) parts.push(emp.branch_name_ar);
-        if (emp.branch_location_en) parts.push(`(${emp.branch_location_en})`);
-        if (emp.branch_location_ar) parts.push(`(${emp.branch_location_ar})`);
-        return parts.join(' ');
+        if ($locale === 'ar') {
+            const name = emp.branch_name_ar || emp.branch_name_en;
+            const location = emp.branch_location_ar || emp.branch_location_en;
+            return location ? `${name} (${location})` : name;
+        } else {
+            const name = emp.branch_name_en;
+            const location = emp.branch_location_en;
+            return location ? `${name} (${location})` : name;
+        }
     }
 
     function formatEmployeeNameDisplay(emp: EmployeeShift): string {
-        const parts = [emp.employee_name_en];
-        if (emp.employee_name_ar) parts.push(emp.employee_name_ar);
-        return parts.join(' / ');
+        if ($locale === 'ar') {
+            return emp.employee_name_ar || emp.employee_name_en;
+        } else {
+            return emp.employee_name_en;
+        }
     }
 
     function formatNationalityDisplay(emp: EmployeeShift): string {
-        const parts = [emp.nationality_name_en];
-        if (emp.nationality_name_ar) parts.push(emp.nationality_name_ar);
-        return parts.join(' / ');
+        if ($locale === 'ar') {
+            return emp.nationality_name_ar || emp.nationality_name_en;
+        } else {
+            return emp.nationality_name_en;
+        }
     }
 
     function calculateWorkingHours(startTime: string, endTime: string, overlapsNextDay: boolean): number {
@@ -1475,7 +1514,7 @@
     }
 </script>
 
-<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
     <!-- Header/Navigation -->
     <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm">
         <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
@@ -1491,7 +1530,7 @@
                     }}
                 >
                     <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">{tab.icon}</span>
-                    <span class="relative z-10">{tab.id}</span>
+                    <span class="relative z-10">{tab.label}</span>
                     
                     {#if activeTab === tab.id}
                         <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
@@ -1515,62 +1554,65 @@
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading employee shift data...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_employees')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadEmployeeShiftData}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else if employees.length === 0}
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
                         <div class="text-5xl mb-4">📭</div>
-                        <p class="text-slate-600 font-semibold">No employees found</p>
+                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_employees')}</p>
                     </div>
                 {:else}
                     <!-- Filter Controls -->
                     <div class="mb-4 flex gap-3">
                         <!-- Branch Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="reg-branch-filter">{$t('hr.shift.filter_branch')}</label>
                             <select 
+                                id="reg-branch-filter"
                                 bind:value={selectedBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Branches</option>
+                                <option value="">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Nationality Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="reg-nationality-filter">{$t('hr.shift.filter_nationality')}</label>
                             <select 
+                                id="reg-nationality-filter"
                                 bind:value={selectedNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Nationalities</option>
+                                <option value="">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Employee Search -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="reg-employee-search">{$t('hr.shift.search_employee')}</label>
                             <input 
+                                id="reg-employee-search"
                                 type="text"
                                 bind:value={regularShiftSearchQuery}
-                                placeholder="Search by name or ID..."
+                                placeholder={$t('hr.shift.search_placeholder')}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             />
                         </div>
@@ -1583,17 +1625,17 @@
                             <table class="w-full border-collapse">
                                 <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee ID</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee Name</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Branch</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Nationality</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Shift Start</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Start Buffer (hrs)</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Shift End</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">End Buffer (hrs)</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Overlaps Next Day</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Working Hours</th>
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start_buffer')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.end')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.end_buffer')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.overlaps')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.working_hours')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
@@ -1613,22 +1655,22 @@
                                                 </span>
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center font-mono font-bold text-emerald-700">
-                                                {employee.working_hours ? employee.working_hours.toFixed(2) : '—'} hrs
+                                                {employee.working_hours ? employee.working_hours.toFixed(2) : '—'} {$t('common.hrs')}
                                             </td>
                                             <td class="px-4 py-3 text-sm text-center">
                                                 {#if employee.shift_start_time}
                                                     <button 
                                                         class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105"
                                                         on:click={() => openModal(employee.id)}
-                                                        title="Edit shift details"
+                                                        title={$t('hr.shift.edit_tooltip')}
                                                     >
-                                                        ✏️ Edit
+                                                        ✏️ {$t('common.edit')}
                                                     </button>
                                                 {:else}
                                                     <button 
                                                         class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                         on:click={() => openModal(employee.id)}
-                                                        title="Add shift details"
+                                                        title={$t('hr.shift.add_tooltip')}
                                                     >
                                                         +
                                                     </button>
@@ -1642,7 +1684,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {employees.length} employee(s)
+                            {$t('hr.shift.showing_employees', { count: employees.length })}
                         </div>
                     </div>
                 {/if}
@@ -1653,62 +1695,65 @@
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading employee special shift data...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_special_shifts')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadSpecialShiftWeekdayData}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else if employees.length === 0}
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
                         <div class="text-5xl mb-4">📭</div>
-                        <p class="text-slate-600 font-semibold">No employees found</p>
+                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_employees')}</p>
                     </div>
                 {:else}
                     <!-- Filter Controls -->
                     <div class="mb-4 flex gap-3">
                         <!-- Branch Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-w-branch-filter">{$t('hr.shift.filter_branch')}</label>
                             <select 
+                                id="spec-w-branch-filter"
                                 bind:value={specialWeekdayBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Branches</option>
+                                <option value="">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Nationality Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-w-nationality-filter">{$t('hr.shift.filter_nationality')}</label>
                             <select 
+                                id="spec-w-nationality-filter"
                                 bind:value={specialWeekdayNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Nationalities</option>
+                                <option value="">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Employee Search -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-w-employee-search">{$t('hr.shift.search_employee')}</label>
                             <input 
+                                id="spec-w-employee-search"
                                 type="text"
                                 bind:value={specialWeekdaySearchQuery}
-                                placeholder="Search by name or ID..."
+                                placeholder={$t('hr.shift.search_placeholder')}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             />
                         </div>
@@ -1721,23 +1766,23 @@
                             <table class="w-full border-collapse">
                                 <thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Employee ID</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Employee Name</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Branch</th>
-                                        <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Nationality</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employeeId')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
+                                        <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
                                         {#each weekdayNames as weekday}
                                             <th colspan="3" class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 bg-orange-500/50">
                                                 {weekday}
                                             </th>
                                         {/each}
-                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Action</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.action')}</th>
                                     </tr>
                                     <tr>
                                         <th colspan="4" class="text-xs"></th>
                                     {#each weekdayNames as weekday}
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">Start</th>
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">End</th>
-                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">Hours</th>
+                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.start')}</th>
+                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.end')}</th>
+                                            <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.hours')}</th>
                                         {/each}
                                         <th class="text-xs"></th>
                                     </tr>
@@ -1753,21 +1798,21 @@
                                                 <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.startTime}</td>
                                                 <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.endTime}</td>
                                                 <td class="px-2 py-3 text-xs text-center font-mono font-bold text-orange-700">
-                                                    {shiftCol.workingHours} {shiftCol.workingHours !== '—' ? 'hrs' : ''}
+                                                    {shiftCol.workingHours} {shiftCol.workingHours !== '—' ? $t('common.hrs') : ''}
                                                 </td>
                                             {/each}
                                             <td class="px-4 py-3 text-sm text-center flex gap-2 justify-center">
                                                 <button 
                                                     class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-orange-600 text-white font-bold hover:bg-orange-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                     on:click={() => openModal(employee.id)}
-                                                    title="Add/Edit special shift"
+                                                    title={$t('hr.shift.add_edit_special_tooltip')}
                                                 >
                                                     +
                                                 </button>
                                                 <button 
                                                     class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                     on:click={() => openDeleteModal(employee.id)}
-                                                    title="Delete special shift"
+                                                    title={$t('hr.shift.delete_special_tooltip')}
                                                 >
                                                     🗑️
                                                 </button>
@@ -1780,7 +1825,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {getFilteredSpecialWeekdayEmployees().length} of {employees.length} employee(s)
+                            {$t('hr.shift.showing_employees_filter', { current: getFilteredSpecialWeekdayEmployees().length, total: employees.length })}
                         </div>
                     </div>
                 {/if}
@@ -1791,17 +1836,17 @@
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading special shift date-wise data...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_special_date_wise')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadSpecialShiftDateWiseData}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else}
@@ -1809,39 +1854,42 @@
                     <div class="mb-4 flex gap-3">
                         <!-- Branch Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-branch-filter">{$t('hr.shift.filter_branch')}</label>
                             <select 
+                                id="spec-d-branch-filter"
                                 bind:value={specialDateBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Branches</option>
+                                <option value="">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Nationality Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-nationality-filter">{$t('hr.shift.filter_nationality')}</label>
                             <select 
+                                id="spec-d-nationality-filter"
                                 bind:value={specialDateNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Nationalities</option>
+                                <option value="">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Employee Search -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-employee-search">{$t('hr.shift.search_employee')}</label>
                             <input 
+                                id="spec-d-employee-search"
                                 type="text"
                                 bind:value={specialDateSearchQuery}
-                                placeholder="Search by name or ID..."
+                                placeholder={$t('hr.shift.search_placeholder')}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             />
                         </div>
@@ -1856,9 +1904,9 @@
                                 on:click={openEmployeeSelectModal}
                             >
                                 <span>⭐</span>
-                                Special Shift
+                                {$t('hr.shift.add_special_date')}
                             </button>
-                            <p class="text-xs text-slate-500 font-semibold">Click to add new special shift for a specific date</p>
+                            <p class="text-xs text-slate-500 font-semibold">{$t('hr.shift.click_to_add_special')}</p>
                         </div>
 
                         <!-- Table Wrapper -->
@@ -1867,26 +1915,26 @@
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No special shifts configured</p>
-                                        <p class="text-slate-400 text-sm mt-2">Click the "Special Shift" button above to add one</p>
+                                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_special_shifts')}</p>
+                                        <p class="text-slate-400 text-sm mt-2">{$t('hr.shift.click_button_to_add')}</p>
                                     </div>
                                 </div>
                             {:else}
                                 <table class="w-full border-collapse">
                                     <thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Employee ID</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Employee Name</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Branch</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Nationality</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Date</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Start Time</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Start Buffer</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">End Time</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">End Buffer</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Overlaps</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Working Hrs</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Action</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employeeId')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.date')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start_buffer')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.end')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.end_buffer')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.overlaps')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.working_hours')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
@@ -1898,22 +1946,22 @@
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(shift)}</td>
                                                 <td class="px-4 py-3 text-sm font-mono text-slate-800">{shift.shift_date}</td>
                                                 <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(shift.shift_start_time || '')}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_start_buffer || 0} hrs</td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_start_buffer || 0} {$t('common.hrs')}</td>
                                                 <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(shift.shift_end_time || '')}</td>
-                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_end_buffer || 0} hrs</td>
+                                                <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_end_buffer || 0} {$t('common.hrs')}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <span class="inline-block px-2 py-1 rounded-full text-xs font-black {shift.is_shift_overlapping_next_day ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'}">
-                                                        {shift.is_shift_overlapping_next_day ? 'Yes' : 'No'}
+                                                        {shift.is_shift_overlapping_next_day ? $t('common.yes') : $t('common.no')}
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center font-bold text-orange-700">
-                                                    {shift.working_hours} hrs
+                                                    {shift.working_hours} {$t('common.hrs')}
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <button 
                                                         class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                         on:click={() => deleteSpecialShiftDateWise(shift.id, shift.employee_id, shift.shift_date)}
-                                                        title="Delete this shift"
+                                                        title={$t('hr.shift.delete_tooltip')}
                                                     >
                                                         🗑️
                                                     </button>
@@ -1927,7 +1975,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {getFilteredSpecialDateShifts().length} of {dateWiseShifts.length} shift(s)
+                            {$t('hr.shift.showing_shifts', { current: getFilteredSpecialDateShifts().length, total: dateWiseShifts.length })}
                         </div>
                     </div>
                 {/if}
@@ -1938,17 +1986,17 @@
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading day off data...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_day_off_data')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadDayOffData}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else}
@@ -1956,39 +2004,42 @@
                     <div class="mb-4 flex gap-3">
                         <!-- Branch Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-branch-filter">{$t('hr.shift.filter_branch')}</label>
                             <select 
+                                id="do-d-branch-filter"
                                 bind:value={dayOffBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Branches</option>
+                                <option value="">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Nationality Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-nationality-filter">{$t('hr.shift.filter_nationality')}</label>
                             <select 
+                                id="do-d-nationality-filter"
                                 bind:value={dayOffNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Nationalities</option>
+                                <option value="">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Employee Search -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-employee-search">{$t('hr.shift.search_employee')}</label>
                             <input 
+                                id="do-d-employee-search"
                                 type="text"
                                 bind:value={dayOffSearchQuery}
-                                placeholder="Search by name or ID..."
+                                placeholder={$t('hr.shift.search_placeholder')}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             />
                         </div>
@@ -2003,9 +2054,9 @@
                                 on:click={openDayOffEmployeeSelectModal}
                             >
                                 <span>🏖️</span>
-                                Add Day Off (Date-wise)
+                                {$t('hr.shift.add_day_off_date')}
                             </button>
-                            <p class="text-xs text-slate-500 font-semibold">Click to assign a specific day off</p>
+                            <p class="text-xs text-slate-500 font-semibold">{$t('hr.shift.click_to_assign_day_off')}</p>
                         </div>
 
                         <!-- Table Wrapper -->
@@ -2014,20 +2065,20 @@
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No day offs found</p>
-                                        <p class="text-slate-400 text-sm mt-2">{dayOffs.length === 0 ? 'Click the button above to assign one' : 'Try adjusting your filters'}</p>
+                                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_day_offs')}</p>
+                                        <p class="text-slate-400 text-sm mt-2">{dayOffs.length === 0 ? $t('hr.shift.click_button_to_assign') : $t('hr.shift.try_adjusting_filters')}</p>
                                     </div>
                                 </div>
                             {:else}
                                 <table class="w-full border-collapse">
                                     <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee ID</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee Name</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Branch</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Nationality</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Day Off Date</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_date')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
@@ -2042,7 +2093,7 @@
                                                     <button 
                                                         class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                         on:click={() => deleteDayOff(dayOff.id, dayOff.employee_id, dayOff.day_off_date)}
-                                                        title="Delete this day off"
+                                                        title={$t('hr.shift.delete_day_off_tooltip')}
                                                     >
                                                         🗑️
                                                     </button>
@@ -2056,7 +2107,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {getFilteredDayOffs().length} of {dayOffs.length} day off(s)
+                            {$t('hr.shift.showing_day_offs', { current: getFilteredDayOffs().length, total: dayOffs.length })}
                         </div>
                     </div>
                 {/if}
@@ -2067,17 +2118,17 @@
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading day off weekday data...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_day_off_weekday_data')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadDayOffWeekdayData}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else}
@@ -2085,39 +2136,42 @@
                     <div class="mb-4 flex gap-3">
                         <!-- Branch Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Branch</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-w-branch-filter">{$t('hr.shift.filter_branch')}</label>
                             <select 
+                                id="do-w-branch-filter"
                                 bind:value={dayOffWeekdayBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Branches</option>
+                                <option value="">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{branch.name_en} {branch.name_ar ? `/ ${branch.name_ar}` : ''}</option>
+                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Nationality Filter -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Filter by Nationality</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-w-nationality-filter">{$t('hr.shift.filter_nationality')}</label>
                             <select 
+                                id="do-w-nationality-filter"
                                 bind:value={dayOffWeekdayNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             >
-                                <option value="">All Nationalities</option>
+                                <option value="">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{nationality.name_en} {nationality.name_ar ? `/ ${nationality.name_ar}` : ''}</option>
+                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
                                 {/each}
                             </select>
                         </div>
 
                         <!-- Employee Search -->
                         <div class="flex-1">
-                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Search Employee</label>
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-w-employee-search">{$t('hr.shift.search_employee')}</label>
                             <input 
+                                id="do-w-employee-search"
                                 type="text"
                                 bind:value={dayOffWeekdaySearchQuery}
-                                placeholder="Search by name or ID..."
+                                placeholder={$t('hr.shift.search_placeholder')}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             />
                         </div>
@@ -2132,9 +2186,9 @@
                                 on:click={openDayOffWeekdayEmployeeSelectModal}
                             >
                                 <span>📋</span>
-                                Add Day Off (Weekday-wise)
+                                {$t('hr.shift.add_day_off_weekday')}
                             </button>
-                            <p class="text-xs text-slate-500 font-semibold">Click to assign recurring day offs</p>
+                            <p class="text-xs text-slate-500 font-semibold">{$t('hr.shift.click_to_assign_recurring')}</p>
                         </div>
 
                         <!-- Table Wrapper -->
@@ -2143,20 +2197,20 @@
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No day offs found</p>
-                                        <p class="text-slate-400 text-sm mt-2">{dayOffsWeekday.length === 0 ? 'Click the button above to assign one' : 'Try adjusting your filters'}</p>
+                                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_day_offs')}</p>
+                                        <p class="text-slate-400 text-sm mt-2">{dayOffsWeekday.length === 0 ? $t('hr.shift.click_button_to_assign') : $t('hr.shift.try_adjusting_filters')}</p>
                                     </div>
                                 </div>
                             {:else}
                                 <table class="w-full border-collapse">
                                     <thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee ID</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Employee Name</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Branch</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Nationality</th>
-                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Day Off Weekday</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Action</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employeeId')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_weekday')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
@@ -2171,7 +2225,7 @@
                                                     <button 
                                                         class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
                                                         on:click={() => deleteDayOffWeekday(dayOff.id, dayOff.employee_id, dayOff.day_off_weekday)}
-                                                        title="Delete this day off"
+                                                        title={$t('hr.shift.delete_day_off_tooltip')}
                                                     >
                                                         🗑️
                                                     </button>
@@ -2185,7 +2239,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {getFilteredDayOffsWeekday().length} of {dayOffsWeekday.length} day off(s)
+                            {$t('hr.shift.showing_day_offs', { current: getFilteredDayOffsWeekday().length, total: dayOffsWeekday.length })}
                         </div>
                     </div>
                 {/if}
@@ -2220,9 +2274,9 @@
             <!-- Modal Header -->
             <div class="bg-gradient-to-r {activeTab === 'Regular Shift' ? 'from-emerald-600 to-emerald-500' : activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)' ? 'from-emerald-600 to-emerald-500' : 'from-orange-600 to-orange-500'} px-6 py-4">
                 <h3 class="text-xl font-black text-white">
-                    {activeTab === 'Regular Shift' ? 'Configure Regular Shift' : activeTab === 'Special Shift (weekday-wise)' ? 'Configure Special Shift (Weekday-wise)' : activeTab === 'Special Shift (date-wise)' ? 'Configure Special Shift (Date-wise)' : activeTab === 'Day Off (date-wise)' ? 'Assign Day Off (Date-wise)' : 'Assign Day Off (Weekday-wise)'}
+                    {activeTab === 'Regular Shift' ? $t('hr.shift.configure_regular_shift') : activeTab === 'Special Shift (weekday-wise)' ? $t('hr.shift.configure_special_shift_weekday') : activeTab === 'Special Shift (date-wise)' ? $t('hr.shift.configure_special_shift_date') : activeTab === 'Day Off (date-wise)' ? $t('hr.shift.assign_day_off_date') : $t('hr.shift.assign_day_off_weekday')}
                 </h3>
-                <p class="{activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)' ? 'text-emerald-100' : 'text-orange-100'} text-sm mt-1">Employee ID: {selectedEmployeeId}</p>
+                <p class="{activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)' ? 'text-emerald-100' : 'text-orange-100'} text-sm mt-1">{$t('hr.employeeId')}: {selectedEmployeeId}</p>
             </div>
 
             <!-- Modal Body -->
@@ -2230,7 +2284,7 @@
                 {#if activeTab === 'Special Shift (weekday-wise)' && 'weekday' in formData}
                     <!-- Weekday Selection -->
                     <div>
-                        <label for="weekday-select" class="block text-sm font-bold text-slate-700 mb-2">Select Weekday</label>
+                        <label for="weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.select_weekday')}</label>
                         <select 
                             id="weekday-select"
                             bind:value={formData.weekday}
@@ -2247,7 +2301,7 @@
                 {#if activeTab === 'Special Shift (date-wise)' && 'shift_date' in formData}
                     <!-- Date Selection -->
                     <div>
-                        <label for="shift-date-input" class="block text-sm font-bold text-slate-700 mb-2">Shift Date</label>
+                        <label for="shift-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_date')}</label>
                         <input 
                             id="shift-date-input"
                             type="date" 
@@ -2260,7 +2314,7 @@
                 {#if activeTab === 'Day Off (date-wise)'}
                     <!-- Day Off Date Selection -->
                     <div>
-                        <label for="dayoff-date-input" class="block text-sm font-bold text-slate-700 mb-2">Day Off Date</label>
+                        <label for="dayoff-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_date')}</label>
                         <input 
                             id="dayoff-date-input"
                             type="date" 
@@ -2273,7 +2327,7 @@
                 {#if activeTab === 'Day Off (weekday-wise)'}
                     <!-- Day Off Weekday Selection -->
                     <div>
-                        <label for="dayoff-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">Day Off Weekday</label>
+                        <label for="dayoff-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_weekday')}</label>
                         <select 
                             id="dayoff-weekday-select"
                             bind:value={selectedDayOffWeekday}
@@ -2289,7 +2343,7 @@
                 {#if activeTab !== 'Day Off (date-wise)' && activeTab !== 'Day Off (weekday-wise)'}
                     <!-- Shift Start Time -->
                     <div>
-                        <label for="start-time-input" class="block text-sm font-bold text-slate-700 mb-2">Shift Start Time</label>
+                        <label for="start-time-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_start_time')}</label>
                         {#if activeTab === 'Regular Shift'}
                             <input 
                                 id="start-time-input"
@@ -2309,7 +2363,7 @@
 
                     <!-- Start Time Buffer -->
                     <div>
-                        <label for="start-buffer-input" class="block text-sm font-bold text-slate-700 mb-2">Start Time Buffer (Hours)</label>
+                        <label for="start-buffer-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_buffer_hours')}</label>
                         {#if activeTab === 'Regular Shift'}
                             <input 
                                 id="start-buffer-input"
@@ -2335,7 +2389,7 @@
 
                     <!-- Shift End Time -->
                     <div>
-                        <label for="end-time-input" class="block text-sm font-bold text-slate-700 mb-2">Shift End Time</label>
+                        <label for="end-time-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_end_time')}</label>
                         {#if activeTab === 'Regular Shift'}
                             <input 
                                 id="end-time-input"
@@ -2355,7 +2409,7 @@
 
                     <!-- End Time Buffer -->
                     <div>
-                        <label for="end-buffer-input" class="block text-sm font-bold text-slate-700 mb-2">End Time Buffer (Hours)</label>
+                        <label for="end-buffer-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_buffer_hours')}</label>
                         {#if activeTab === 'Regular Shift'}
                             <input 
                                 id="end-buffer-input"
@@ -2397,7 +2451,7 @@
                             />
                         {/if}
                         <label for="overlapping" class="text-sm font-bold text-slate-700 cursor-pointer">
-                            Shift Overlaps to Next Day
+                            {$t('hr.shift.shift_overlaps_next_day')}
                         </label>
                     </div>
                 {/if}
@@ -2410,7 +2464,7 @@
                     on:click={closeModal}
                     disabled={isSaving}
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
                 {#if activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)'}
                     <button 
@@ -2418,7 +2472,7 @@
                         on:click={activeTab === 'Day Off (date-wise)' ? saveDayOff : activeTab === 'Day Off (weekday-wise)' ? saveDayOffWeekday : saveShiftData}
                         disabled={isSaving}
                     >
-                        {isSaving ? 'Saving...' : 'Save'}
+                        {isSaving ? $t('common.saving') : $t('common.save')}
                     </button>
                 {:else}
                     <button 
@@ -2426,7 +2480,7 @@
                         on:click={saveShiftData}
                         disabled={isSaving}
                     >
-                        {isSaving ? 'Saving...' : 'Save'}
+                        {isSaving ? $t('common.saving') : $t('common.save')}
                     </button>
                 {/if}
             </div>
@@ -2440,19 +2494,19 @@
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
             <!-- Modal Header -->
             <div class="px-6 py-4 bg-gradient-to-r from-orange-600 to-orange-500 text-white">
-                <h3 class="text-lg font-bold">Select Employee</h3>
-                <p class="text-orange-100 text-sm mt-1">Choose an employee to assign a special shift date</p>
+                <h3 class="text-lg font-bold">{$t('hr.shift.select_employee')}</h3>
+                <p class="text-orange-100 text-sm mt-1">{$t('hr.shift.choose_employee_special_shift_date')}</p>
             </div>
 
             <!-- Modal Body -->
             <div class="px-6 py-4 space-y-4">
                 <!-- Search Input -->
                 <div>
-                    <label for="employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">Search Employee</label>
+                    <label for="employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.search_employee')}</label>
                     <input 
                         id="employee-search-input"
                         type="text" 
-                        placeholder="Search by name, ID, or branch..."
+                        placeholder={$t('hr.shift.search_placeholder')}
                         bind:value={employeeSearchQuery}
                         on:input={onEmployeeSearchChange}
                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -2463,7 +2517,7 @@
                 <div class="border border-slate-200 rounded-lg max-h-96 overflow-y-auto">
                     {#if employeesForDateWiseSelection.length === 0}
                         <div class="px-4 py-6 text-center text-slate-500 text-sm">
-                            No employees found
+                            {$t('hr.shift.no_employees_found')}
                         </div>
                     {:else}
                         {#each employeesForDateWiseSelection as employee}
@@ -2472,14 +2526,11 @@
                                 on:click={() => selectEmployeeForDateWise(employee.id)}
                             >
                                 <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="font-semibold text-slate-900">{employee.employee_name_en}</p>
-                                        <p class="text-xs text-slate-500">{employee.id} • {employee.branch_name_en}</p>
-                                        {#if employee.employee_name_ar}
-                                            <p class="text-xs text-slate-600 mt-1">{employee.employee_name_ar}</p>
-                                        {/if}
+                                    <div class="{$locale === 'ar' ? 'text-right' : 'text-left'}">
+                                        <p class="font-semibold text-slate-900">{$locale === 'ar' ? (employee.employee_name_ar || employee.employee_name_en) : employee.employee_name_en}</p>
+                                        <p class="text-xs text-slate-500">{employee.id} • {$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</p>
                                     </div>
-                                    <div class="text-orange-600 font-bold">→</div>
+                                    <div class="text-orange-600 font-bold">{$locale === 'ar' ? '←' : '→'}</div>
                                 </div>
                             </button>
                         {/each}
@@ -2493,7 +2544,7 @@
                     class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
                     on:click={closeEmployeeSelectModal}
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
             </div>
         </div>
@@ -2506,19 +2557,19 @@
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
             <!-- Modal Header -->
             <div class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white">
-                <h3 class="text-lg font-bold">Select Employee</h3>
-                <p class="text-emerald-100 text-sm mt-1">Choose an employee to assign a day off</p>
+                <h3 class="text-lg font-bold">{$t('hr.shift.select_employee')}</h3>
+                <p class="text-emerald-100 text-sm mt-1">{$t('hr.shift.choose_employee_day_off')}</p>
             </div>
 
             <!-- Modal Body -->
             <div class="px-6 py-4 space-y-4">
                 <!-- Search Input -->
                 <div>
-                    <label for="dayoff-employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">Search Employee</label>
+                    <label for="dayoff-employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.search_employee')}</label>
                     <input 
                         id="dayoff-employee-search-input"
                         type="text" 
-                        placeholder="Search by name, ID, or branch..."
+                        placeholder={$t('hr.shift.search_placeholder')}
                         bind:value={employeeSearchQuery}
                         on:input={onEmployeeSearchChange}
                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -2529,7 +2580,7 @@
                 <div class="border border-slate-200 rounded-lg max-h-96 overflow-y-auto">
                     {#if employeesForDateWiseSelection.length === 0}
                         <div class="px-4 py-6 text-center text-slate-500 text-sm">
-                            No employees found
+                            {$t('hr.shift.no_employees_found')}
                         </div>
                     {:else}
                         {#each employeesForDateWiseSelection as employee}
@@ -2538,14 +2589,11 @@
                                 on:click={() => selectEmployeeForDayOff(employee.id)}
                             >
                                 <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="font-semibold text-slate-900">{employee.employee_name_en}</p>
-                                        <p class="text-xs text-slate-500">{employee.id} • {employee.branch_name_en}</p>
-                                        {#if employee.employee_name_ar}
-                                            <p class="text-xs text-slate-600 mt-1">{employee.employee_name_ar}</p>
-                                        {/if}
+                                    <div class="{$locale === 'ar' ? 'text-right' : 'text-left'}">
+                                        <p class="font-semibold text-slate-900">{$locale === 'ar' ? (employee.employee_name_ar || employee.employee_name_en) : employee.employee_name_en}</p>
+                                        <p class="text-xs text-slate-500">{employee.id} • {$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</p>
                                     </div>
-                                    <div class="text-emerald-600 font-bold">→</div>
+                                    <div class="text-emerald-600 font-bold">{$locale === 'ar' ? '←' : '→'}</div>
                                 </div>
                             </button>
                         {/each}
@@ -2559,7 +2607,7 @@
                     class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
                     on:click={closeDayOffEmployeeSelectModal}
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
             </div>
         </div>
@@ -2572,19 +2620,19 @@
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
             <!-- Modal Header -->
             <div class="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white">
-                <h3 class="text-lg font-bold">Select Employee</h3>
-                <p class="text-emerald-100 text-sm mt-1">Choose an employee to assign a recurring day off</p>
+                <h3 class="text-lg font-bold">{$t('hr.shift.select_employee')}</h3>
+                <p class="text-emerald-100 text-sm mt-1">{$t('hr.shift.choose_employee_recurring_day_off')}</p>
             </div>
 
             <!-- Modal Body -->
             <div class="px-6 py-4 space-y-4">
                 <!-- Search Input -->
                 <div>
-                    <label for="dayoff-weekday-employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">Search Employee</label>
+                    <label for="dayoff-weekday-employee-search-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.search_employee')}</label>
                     <input 
                         id="dayoff-weekday-employee-search-input"
                         type="text" 
-                        placeholder="Search by name, ID, or branch..."
+                        placeholder={$t('hr.shift.search_placeholder')}
                         bind:value={employeeSearchQuery}
                         on:input={onEmployeeSearchChange}
                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -2595,7 +2643,7 @@
                 <div class="border border-slate-200 rounded-lg max-h-96 overflow-y-auto">
                     {#if employeesForDateWiseSelection.length === 0}
                         <div class="px-4 py-6 text-center text-slate-500 text-sm">
-                            No employees found
+                            {$t('hr.shift.no_employees_found')}
                         </div>
                     {:else}
                         {#each employeesForDateWiseSelection as employee}
@@ -2604,14 +2652,11 @@
                                 on:click={() => selectEmployeeForDayOffWeekday(employee.id)}
                             >
                                 <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="font-semibold text-slate-900">{employee.employee_name_en}</p>
-                                        <p class="text-xs text-slate-500">{employee.id} • {employee.branch_name_en}</p>
-                                        {#if employee.employee_name_ar}
-                                            <p class="text-xs text-slate-600 mt-1">{employee.employee_name_ar}</p>
-                                        {/if}
+                                    <div class="{$locale === 'ar' ? 'text-right' : 'text-left'}">
+                                        <p class="font-semibold text-slate-900">{$locale === 'ar' ? (employee.employee_name_ar || employee.employee_name_en) : employee.employee_name_en}</p>
+                                        <p class="text-xs text-slate-500">{employee.id} • {$locale === 'ar' ? (employee.branch_name_ar || employee.branch_name_en) : employee.branch_name_en}</p>
                                     </div>
-                                    <div class="text-emerald-600 font-bold">→</div>
+                                    <div class="text-emerald-600 font-bold">{$locale === 'ar' ? '←' : '→'}</div>
                                 </div>
                             </button>
                         {/each}
@@ -2625,7 +2670,7 @@
                     class="px-4 py-2 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
                     on:click={closeDayOffWeekdayEmployeeSelectModal}
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
             </div>
         </div>
@@ -2638,15 +2683,15 @@
         <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
             <!-- Modal Header -->
             <div class="px-6 py-4 bg-gradient-to-r from-orange-600 to-orange-500 text-white">
-                <h3 class="text-lg font-bold">Delete Shift</h3>
-                <p class="text-orange-100 text-sm mt-1">Select which day to delete</p>
+                <h3 class="text-lg font-bold">{$t('hr.shift.delete_shift')}</h3>
+                <p class="text-orange-100 text-sm mt-1">{$t('hr.shift.select_day_to_delete')}</p>
             </div>
 
             <!-- Modal Body -->
             <div class="px-6 py-4 space-y-4">
                 <!-- Weekday Selector -->
                 <div>
-                    <label for="delete-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">Select Weekday to Delete</label>
+                    <label for="delete-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.select_weekday_to_delete')}</label>
                     <select 
                         id="delete-weekday-select"
                         bind:value={selectedDeleteWeekday}
@@ -2661,7 +2706,7 @@
                 </div>
 
                 <p class="text-sm text-red-600 font-semibold">
-                    ⚠️ This action cannot be undone.
+                    ⚠️ {$t('common.action_cannot_be_undone')}
                 </p>
             </div>
 
@@ -2672,14 +2717,14 @@
                     on:click={closeDeleteModal}
                     disabled={isSaving}
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
                 <button 
                     class="px-6 py-2 rounded-lg font-black text-white bg-red-600 hover:bg-red-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                     on:click={confirmDelete}
                     disabled={isSaving}
                 >
-                    {isSaving ? 'Deleting...' : 'Delete'}
+                    {isSaving ? $t('common.deleting') : $t('common.delete')}
                 </button>
             </div>
         </div>

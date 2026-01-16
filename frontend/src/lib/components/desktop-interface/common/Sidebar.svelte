@@ -2316,7 +2316,7 @@ function openApprovalCenter() {
 	<!-- Online/Offline Indicator -->
 	<div class="connection-indicator {isOnline ? 'online' : 'offline'}">
 		<div class="status-light"></div>
-		<span class="status-text">{isOnline ? 'Online' : 'Offline'}</span>
+		<span class="status-text">{isOnline ? t('nav.online') : t('nav.offline')}</span>
 	</div>
 	
 	<!-- Separator Line -->
@@ -2349,10 +2349,10 @@ function openApprovalCenter() {
 							showDeliveryDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -2375,10 +2375,10 @@ function openApprovalCenter() {
 							showDeliveryManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -2432,10 +2432,10 @@ function openApprovalCenter() {
 							showDeliveryOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -2473,10 +2473,10 @@ function openApprovalCenter() {
 							showDeliveryReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -2516,10 +2516,10 @@ function openApprovalCenter() {
 							showVendorDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -2530,7 +2530,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openReceiving}>
 								<span class="menu-icon">📦</span>
-								<span class="menu-text">Receiving</span>
+								<span class="menu-text">{t('nav.receiving')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2549,10 +2549,10 @@ function openApprovalCenter() {
 							showVendorManagerSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -2598,10 +2598,10 @@ function openApprovalCenter() {
 							showVendorOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -2620,7 +2620,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openReceivingRecords}>
 								<span class="menu-icon">📋</span>
-								<span class="menu-text">Receiving Records</span>
+								<span class="menu-text">{t('nav.receivingRecords')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2639,10 +2639,10 @@ function openApprovalCenter() {
 							showVendorReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -2689,10 +2689,10 @@ function openApprovalCenter() {
 							showMediaDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -2703,7 +2703,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openFlyerMaster}>
 							<span class="menu-icon">🏷️</span>
-							<span class="menu-text">Flyer Master</span>
+							<span class="menu-text">{t('nav.flyerMaster')}</span>
 						</button>
 					</div>
 				{/if}
@@ -2720,10 +2720,10 @@ function openApprovalCenter() {
 							showMediaManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -2734,7 +2734,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openProductMaster}>
 								<span class="menu-icon">📦</span>
-								<span class="menu-text">Product Master</span>
+								<span class="menu-text">{t('nav.productMaster')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2742,7 +2742,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openVariationManager}>
 								<span class="menu-icon">🔗</span>
-								<span class="menu-text">Variation Manager</span>
+								<span class="menu-text">{t('nav.variationManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2750,7 +2750,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openOfferManager}>
 								<span class="menu-icon">🎯</span>
-								<span class="menu-text">Offer Manager</span>
+								<span class="menu-text">{t('nav.offerManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2758,7 +2758,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openFlyerTemplates}>
 								<span class="menu-icon">🎨</span>
-								<span class="menu-text">Flyer Templates</span>
+								<span class="menu-text">{t('nav.flyerTemplates')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2766,7 +2766,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openFlyerSettings}>
 								<span class="menu-icon">⚙️</span>
-								<span class="menu-text">Settings</span>
+								<span class="menu-text">{t('nav.flyerSettings')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2774,7 +2774,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openSocialLinkManager}>
 								<span class="menu-icon">🔗</span>
-								<span class="menu-text">Social Link Manager</span>
+								<span class="menu-text">{t('nav.socialLinkManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2793,10 +2793,10 @@ function openApprovalCenter() {
 							showMediaOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -2807,7 +2807,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openOfferProductEditor}>
 								<span class="menu-icon">✅</span>
-								<span class="menu-text">Offer Product Editor</span>
+								<span class="menu-text">{t('nav.offerProductEditor')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2815,7 +2815,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateNewOffer}>
 								<span class="menu-icon">🏷️</span>
-								<span class="menu-text">Create New Offer</span>
+								<span class="menu-text">{t('nav.createNewOffer')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2823,7 +2823,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPricingManager}>
 								<span class="menu-icon">💵</span>
-								<span class="menu-text">Pricing Manager</span>
+								<span class="menu-text">{t('nav.pricingManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2831,7 +2831,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openGenerateFlyers}>
 								<span class="menu-icon">📄</span>
-								<span class="menu-text">Generate Flyers</span>
+								<span class="menu-text">{t('nav.generateFlyers')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2839,7 +2839,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openShelfPaperManager}>
 								<span class="menu-icon">🏷️</span>
-								<span class="menu-text">Shelf Paper Manager</span>
+								<span class="menu-text">{t('nav.shelfPaperManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -2858,10 +2858,10 @@ function openApprovalCenter() {
 							showMediaReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 		</div>
@@ -2894,11 +2894,11 @@ function openApprovalCenter() {
 							showPromoDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
 				
-				<span class="menu-text">Dashboard</span>
+				<span class="menu-text">{t('nav.dashboard')}</span>
 			</button>
 		</div>
 
@@ -2909,7 +2909,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCouponDashboardPromo}>
 							<span class="menu-icon">🎁</span>
-							<span class="menu-text">Coupon Dashboard</span>
+							<span class="menu-text">{t('nav.couponDashboard')}</span>
 						</button>
 					</div>
 				{/if}
@@ -2928,10 +2928,10 @@ function openApprovalCenter() {
 						showPromoManageSubmenu = true;
 					}
 				}}
-				title="Manage"
+				title={t('nav.manage')}
 			>
 				
-				<span class="menu-text">Manage</span>
+				<span class="menu-text">{t('nav.manage')}</span>
 			</button>
 		</div>
 
@@ -2942,7 +2942,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCampaignManager}>
 							<span class="menu-icon">📋</span>
-							<span class="menu-text">Manage Campaigns</span>
+							<span class="menu-text">{t('nav.manageCampaigns')}</span>
 						</button>
 					</div>
 				{/if}
@@ -2961,10 +2961,10 @@ function openApprovalCenter() {
 						showPromoOperationsSubmenu = true;
 					}
 				}}
-				title="Operations"
+				title={t('nav.operations')}
 			>
 				
-				<span class="menu-text">Operations</span>
+				<span class="menu-text">{t('nav.operations')}</span>
 			</button>
 		</div>
 
@@ -2975,7 +2975,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openViewOfferManager}>
 							<span class="menu-icon">📊</span>
-							<span class="menu-text">View Offer Manager</span>
+							<span class="menu-text">{t('nav.viewOfferManager')}</span>
 						</button>
 					</div>
 				{/if}
@@ -2983,7 +2983,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCustomerImporter}>
 							<span class="menu-icon">👥</span>
-							<span class="menu-text">Import Customers</span>
+							<span class="menu-text">{t('nav.importCustomers')}</span>
 						</button>
 					</div>
 				{/if}
@@ -2991,7 +2991,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openProductManagerPromo}>
 							<span class="menu-icon">🎁</span>
-							<span class="menu-text">Manage Products</span>
+							<span class="menu-text">{t('nav.manageProducts')}</span>
 						</button>
 					</div>
 				{/if}
@@ -3010,10 +3010,10 @@ function openApprovalCenter() {
 						showPromoReportsSubmenu = true;
 					}
 				}}
-				title="Reports"
+				title={t('nav.reports')}
 			>
 				
-				<span class="menu-text">Reports</span>
+				<span class="menu-text">{t('nav.reports')}</span>
 			</button>
 		</div>
 
@@ -3024,7 +3024,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCouponReports}>
 							<span class="menu-icon">📊</span>
-							<span class="menu-text">Reports & Stats</span>
+							<span class="menu-text">{t('nav.reportsAndStats')}</span>
 						</button>
 					</div>
 				{/if}
@@ -3058,10 +3058,10 @@ function openApprovalCenter() {
 							showFinanceDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -3072,7 +3072,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openApprovalCenter}>
 								<span class="menu-icon">✓</span>
-								<span class="menu-text">Approval Center</span>
+								<span class="menu-text">{t('nav.approvalCenter')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3091,10 +3091,10 @@ function openApprovalCenter() {
 							showFinanceManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -3104,14 +3104,14 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openCategoryManager}>
 							<span class="menu-icon">📁</span>
-							<span class="menu-text">Category Manager</span>
+							<span class="menu-text">{t('nav.categoryManager')}</span>
 						</button>
 					</div>
 					{#if isButtonAllowed('PURCHASE_VOUCHER_MANAGER')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPurchaseVoucherManager}>
 								<span class="menu-icon">📄</span>
-								<span class="menu-text">Purchase Voucher Manager</span>
+								<span class="menu-text">{t('nav.purchaseVoucherManager')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3119,7 +3119,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBankReconciliation}>
 								<span class="menu-icon">🏦</span>
-								<span class="menu-text">Bank Reconciliation</span>
+								<span class="menu-text">{t('nav.bankReconciliation')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3138,10 +3138,10 @@ function openApprovalCenter() {
 							showFinanceOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -3152,7 +3152,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openManualScheduling}>
 								<span class="menu-icon">📅</span>
-								<span class="menu-text">Manual Scheduling</span>
+								<span class="menu-text">{t('nav.manualScheduling')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3160,7 +3160,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDayBudgetPlanner}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Day Budget Planner</span>
+								<span class="menu-text">{t('nav.dayBudgetPlanner')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3192,7 +3192,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDenomination}>
 								<span class="menu-icon">💵</span>
-								<span class="menu-text">Denomination</span>
+								<span class="menu-text">{t('nav.denomination')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3200,7 +3200,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPettyCash}>
 								<span class="menu-icon">💰</span>
-								<span class="menu-text">Petty Cash</span>
+								<span class="menu-text">{t('nav.pettyCash')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3215,10 +3215,10 @@ function openApprovalCenter() {
 						collapseAllSubsections();
 						showFinanceReportsSubmenu = true;
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -3253,7 +3253,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openOverduesReport}>
 								<span class="menu-icon">⏰</span>
-								<span class="menu-text">Over dues</span>
+								<span class="menu-text">{t('nav.overdues')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3269,7 +3269,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPOSReport}>
 								<span class="menu-icon">🏪</span>
-								<span class="menu-text">POS</span>
+								<span class="menu-text">{t('nav.pos')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3305,10 +3305,10 @@ function openApprovalCenter() {
 							showHRDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -3331,10 +3331,10 @@ function openApprovalCenter() {
 							showHRManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -3345,7 +3345,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateDepartment}>
 								<span class="menu-icon">🏢</span>
-								<span class="menu-text">Create Department</span>
+								<span class="menu-text">{t('nav.createDepartment')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3353,7 +3353,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateLevel}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Create Level</span>
+								<span class="menu-text">{t('nav.createLevel')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3361,7 +3361,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreatePosition}>
 								<span class="menu-icon">💼</span>
-								<span class="menu-text">Create Position</span>
+								<span class="menu-text">{t('nav.createPosition')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3369,7 +3369,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openReportingMap}>
 								<span class="menu-icon">📈</span>
-								<span class="menu-text">Reporting Map</span>
+								<span class="menu-text">{t('nav.reportingMap')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3377,7 +3377,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openAssignPositions}>
 								<span class="menu-icon">🎯</span>
-								<span class="menu-text">Assign Positions</span>
+								<span class="menu-text">{t('nav.assignPositions')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3385,7 +3385,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openLinkID}>
 								<span class="menu-icon">🔗</span>
-								<span class="menu-text">Link ID</span>
+								<span class="menu-text">{t('nav.linkID')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3404,10 +3404,10 @@ function openApprovalCenter() {
 							showHROperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -3418,7 +3418,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openEmployeeFiles}>
 								<span class="menu-icon">📁</span>
-								<span class="menu-text">Employee Files</span>
+								<span class="menu-text">{t('nav.employeeFiles')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3426,7 +3426,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openFingerprintTransactions}>
 								<span class="menu-icon">👆</span>
-								<span class="menu-text">Fingerprint Transactions</span>
+								<span class="menu-text">{t('nav.fingerprintTransactions')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3434,7 +3434,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openProcessFingerprint}>
 								<span class="menu-icon">📂</span>
-								<span class="menu-text">Process Fingerprint</span>
+								<span class="menu-text">{t('nav.processFingerprint')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3442,7 +3442,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openSalaryAndWage}>
 								<span class="menu-icon">💰</span>
-								<span class="menu-text">Salary and Wage</span>
+								<span class="menu-text">{t('nav.salaryAndWage')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3450,7 +3450,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openShiftAndDayOff}>
 								<span class="menu-icon">⌚</span>
-								<span class="menu-text">Shift and Day Off</span>
+								<span class="menu-text">{t('nav.shiftAndDayOff')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3458,7 +3458,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openLeavesAndVacations}>
 								<span class="menu-icon">🌴</span>
-								<span class="menu-text">Leaves and Vacations</span>
+								<span class="menu-text">{t('nav.leavesAndVacations')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3466,7 +3466,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDiscipline}>
 								<span class="menu-icon">⚖️</span>
-								<span class="menu-text">Discipline</span>
+								<span class="menu-text">{t('nav.discipline')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3485,10 +3485,10 @@ function openApprovalCenter() {
 							showHRReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -3499,7 +3499,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openExportBiometricData}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Export Biometric Data</span>
+								<span class="menu-text">{t('nav.exportBiometricData')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3535,10 +3535,10 @@ function openApprovalCenter() {
 							showTasksDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -3566,10 +3566,10 @@ function openApprovalCenter() {
 							showTasksManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -3580,7 +3580,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateTask}>
 								<span class="menu-icon">✨</span>
-								<span class="menu-text">Create Task Template</span>
+								<span class="menu-text">{t('nav.createTaskTemplate')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3588,7 +3588,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openViewTasks}>
 								<span class="menu-icon">📋</span>
-								<span class="menu-text">View Task Templates</span>
+								<span class="menu-text">{t('nav.viewTaskTemplates')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3607,10 +3607,10 @@ function openApprovalCenter() {
 							showTasksOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -3621,7 +3621,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openAssignTasks}>
 								<span class="menu-icon">👥</span>
-								<span class="menu-text">Assign Tasks</span>
+								<span class="menu-text">{t('nav.assignTasks')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3636,10 +3636,10 @@ function openApprovalCenter() {
 						collapseAllSubsections();
 						showTasksReportsSubmenu = true;
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -3650,7 +3650,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openMyTasks}>
 								<span class="menu-icon">📝</span>
-								<span class="menu-text">View My Tasks</span>
+								<span class="menu-text">{t('nav.viewMyTasks')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3658,7 +3658,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openMyAssignments}>
 								<span class="menu-icon">👨‍💼</span>
-								<span class="menu-text">View My Assignments</span>
+								<span class="menu-text">{t('nav.viewMyAssignments')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3666,7 +3666,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openTaskStatus}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Task Status</span>
+								<span class="menu-text">{t('nav.taskStatus')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3674,7 +3674,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBranchPerformanceWindow}>
 								<span class="menu-icon">📊</span>
-								<span class="menu-text">Branch Performance</span>
+								<span class="menu-text">{t('nav.branchPerformance')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3710,10 +3710,10 @@ function openApprovalCenter() {
 							showNotificationsDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -3743,10 +3743,10 @@ function openApprovalCenter() {
 							showNotificationsManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -3769,10 +3769,10 @@ function openApprovalCenter() {
 							showNotificationsOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -3795,10 +3795,10 @@ function openApprovalCenter() {
 							showNotificationsReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -3838,10 +3838,10 @@ function openApprovalCenter() {
 							showUserDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -3852,7 +3852,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openUserManagement}>
 								<span class="menu-icon">👤</span>
-								<span class="menu-text">Users</span>
+								<span class="menu-text">{t('nav.usersList')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3871,10 +3871,10 @@ function openApprovalCenter() {
 							showUserManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -3885,7 +3885,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openCreateUser}>
 								<span class="menu-icon">👤</span>
-								<span class="menu-text">Create User</span>
+								<span class="menu-text">{t('nav.createUser')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3893,7 +3893,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openManageAdminUsers}>
 								<span class="menu-icon">👥</span>
-								<span class="menu-text">Manage Admin Users</span>
+								<span class="menu-text">{t('nav.manageAdminUsers')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3901,7 +3901,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openManageMasterAdmin}>
 								<span class="menu-icon">🔐</span>
-								<span class="menu-text">Manage Master Admin</span>
+								<span class="menu-text">{t('nav.manageMasterAdmin')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3909,7 +3909,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openInterfaceAccessManager}>
 								<span class="menu-icon">🔧</span>
-								<span class="menu-text">Interface Access</span>
+								<span class="menu-text">{t('nav.interfaceAccess')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3917,7 +3917,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openApprovalPermissions}>
 								<span class="menu-icon">🔐</span>
-								<span class="menu-text">Approval Permissions</span>
+								<span class="menu-text">{t('nav.approvalPermissions')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3936,10 +3936,10 @@ function openApprovalCenter() {
 							showUserOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -3962,10 +3962,10 @@ function openApprovalCenter() {
 							showUserReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -4005,10 +4005,10 @@ function openApprovalCenter() {
 							showControlsDashboardSubmenu = true;
 						}
 					}}
-					title="Dashboard"
+					title={t('nav.dashboard')}
 				>
 					
-					<span class="menu-text">Dashboard</span>
+					<span class="menu-text">{t('nav.dashboard')}</span>
 				</button>
 			</div>
 
@@ -4031,10 +4031,10 @@ function openApprovalCenter() {
 							showControlsManageSubmenu = true;
 						}
 					}}
-					title="Manage"
+					title={t('nav.manage')}
 				>
 					
-					<span class="menu-text">Manage</span>
+					<span class="menu-text">{t('nav.manage')}</span>
 				</button>
 			</div>
 
@@ -4077,7 +4077,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openButtonAccessControl}>
 								<span class="menu-icon">🎛️</span>
-								<span class="menu-text">Button Access Control</span>
+								<span class="menu-text">{t('nav.buttonAccessControl')}</span>
 							</button>
 						</div>
 					{/if}
@@ -4085,7 +4085,7 @@ function openApprovalCenter() {
 					<div class="submenu-item-container">
 						<button class="submenu-item" on:click={openButtonGenerator}>
 							<span class="menu-icon">🔨</span>
-							<span class="menu-text">Button Generator</span>
+							<span class="menu-text">{t('nav.buttonGenerator')}</span>
 						</button>
 					</div>
 				{/if}
@@ -4102,10 +4102,10 @@ function openApprovalCenter() {
 							showControlsOperationsSubmenu = true;
 						}
 					}}
-					title="Operations"
+					title={t('nav.operations')}
 				>
 					
-					<span class="menu-text">Operations</span>
+					<span class="menu-text">{t('nav.operations')}</span>
 				</button>
 			</div>
 
@@ -4128,10 +4128,10 @@ function openApprovalCenter() {
 							showControlsReportsSubmenu = true;
 						}
 					}}
-					title="Reports"
+					title={t('nav.reports')}
 				>
 					
-					<span class="menu-text">Reports</span>
+					<span class="menu-text">{t('nav.reports')}</span>
 				</button>
 			</div>
 
@@ -4149,8 +4149,8 @@ function openApprovalCenter() {
 	<div class="sidebar-footer">
 		<!-- Version Information -->
 		<div class="version-info">
-			<button class="version-text" on:click={showVersionInfo} title="Click to see what's new">
-				AQ32.12.7.7
+			<button class="version-text" on:click={showVersionInfo} title={t('nav.whatsNew')}>
+				AQ33.12.7.7
 			</button>
 		</div>
 	</div>
