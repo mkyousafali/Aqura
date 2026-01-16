@@ -1,6 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { t } from '$lib/i18n';
+    import { openWindow } from '$lib/utils/windowManagerUtils';
+    import ReportIncident from './ReportIncident.svelte';
+    import IssueWarning from './IssueWarning.svelte';
     
     let activeTab = 'Warning Categories Manager';
     let loading = false;
@@ -21,6 +24,11 @@
     let showSubModal = false;
     let showViolationModal = false;
     let isSaving = false;
+
+    // Employee data
+    let employees: any[] = [];
+    let selectedEmployee = '';
+    let selectedViolation: any = null;
 
     // Form Data
     let mainFormData = { id: '', name_en: '', name_ar: '' };
@@ -69,9 +77,7 @@
     }
 
     onMount(async () => {
-        if (activeTab === 'Warning Categories Manager') {
-            await loadWarningCategories();
-        }
+        await loadWarningCategories();
     });
 
     async function loadWarningCategories() {
@@ -108,6 +114,14 @@
             
             if (vioErr) throw vioErr;
             violations = violationData || [];
+
+            // Fetch employees
+            const { data: employeeData, error: empErr } = await supabase
+                .from('hr_employee_master')
+                .select('id, name_en, name_ar, employee_id_mapping')
+                .order('name_en');
+            if (empErr) throw empErr;
+            employees = employeeData || [];
         } catch (err) {
             console.error('Error loading warning categories:', err);
             error = err instanceof Error ? err.message : 'Failed to load data';
@@ -202,61 +216,63 @@
         return filtered;
     }
 
-    async function handleTabChange() {
-        if (activeTab === 'Warning Categories Manager') {
-            await loadWarningCategories();
-        }
+    function openReportModal(violation: any) {
+        selectedViolation = violation;
+        selectedEmployee = '';
+        const windowId = `report-incident-${Date.now()}`;
+        openWindow({
+            id: windowId,
+            title: `Report Incident - ${violation.name_en}`,
+            component: ReportIncident,
+            icon: '📝',
+            size: { width: 900, height: 600 },
+            position: { 
+                x: 100 + (Math.random() * 50),
+                y: 100 + (Math.random() * 50) 
+            },
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            closable: true,
+            props: {
+                violation: violation,
+                employees: employees
+            }
+        });
     }
+
+    function openWarningModal(violation: any) {
+        selectedViolation = violation;
+        selectedEmployee = '';
+        const windowId = `issue-warning-${Date.now()}`;
+        openWindow({
+            id: windowId,
+            title: `Issue Warning - ${violation.name_en}`,
+            component: IssueWarning,
+            icon: '⚠️',
+            size: { width: 900, height: 600 },
+            position: { 
+                x: 150 + (Math.random() * 50),
+                y: 150 + (Math.random() * 50) 
+            },
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            closable: true,
+            props: {
+                violation: violation,
+                employees: employees
+            }
+        });
+    }
+
+    async function handleTabChange() {
+        await loadWarningCategories();
+    }
+
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
-    <!-- Header/Navigation -->
-    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-start shadow-sm">
-        <div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
-            <button 
-                class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
-                {activeTab === 'Warning Categories Manager' 
-                    ? 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-[1.02]' 
-                    : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
-                on:click={() => { activeTab = 'Warning Categories Manager'; handleTabChange(); }}
-            >
-                <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📁</span>
-                <span class="relative z-10">Warning Categories Manager</span>
-                {#if activeTab === 'Warning Categories Manager'}
-                    <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
-                {/if}
-            </button>
-
-            <button 
-                class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
-                {activeTab === 'Report an Incident' 
-                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-100 scale-[1.02]' 
-                    : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
-                on:click={() => { activeTab = 'Report an Incident'; handleTabChange(); }}
-            >
-                <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">📝</span>
-                <span class="relative z-10">Report an Incident</span>
-                {#if activeTab === 'Report an Incident'}
-                    <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
-                {/if}
-            </button>
-
-            <button 
-                class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
-                {activeTab === 'Issue Warning' 
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-[1.02]' 
-                    : 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
-                on:click={() => { activeTab = 'Issue Warning'; handleTabChange(); }}
-            >
-                <span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">⚠️</span>
-                <span class="relative z-10">Issue Warning</span>
-                {#if activeTab === 'Issue Warning'}
-                    <div class="absolute inset-0 bg-white/10 animate-pulse"></div>
-                {/if}
-            </button>
-        </div>
-    </div>
-
     <!-- Main Content Area -->
     <div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
         <!-- Futuristic background decorative elements -->
@@ -264,8 +280,7 @@
         <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-100/20 rounded-full blur-[120px] -ml-64 -mb-64 animate-pulse" style="animation-delay: 2s;"></div>
 
         <div class="relative max-w-[99%] mx-auto h-full flex flex-col">
-            {#if activeTab === 'Warning Categories Manager'}
-                {#if loading}
+            {#if loading}
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
                             <div class="animate-spin inline-block">
@@ -368,6 +383,7 @@
                                         <th class="px-6 py-4 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Sub Category</th>
                                         <th class="px-6 py-4 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Violation (English)</th>
                                         <th class="px-6 py-4 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Violation (Arabic)</th>
+                                        <th class="px-6 py-4 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
@@ -384,11 +400,27 @@
                                             </td>
                                             <td class="px-6 py-4 text-sm font-medium text-slate-800">{violation.name_en}</td>
                                             <td class="px-6 py-4 text-sm font-medium text-slate-800 text-right" dir="rtl">{violation.name_ar}</td>
+                                            <td class="px-6 py-4 flex gap-2">
+                                                <button
+                                                    class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-all active:scale-95"
+                                                    on:click={() => openReportModal(violation)}
+                                                >
+                                                    <span>📝</span>
+                                                    Report
+                                                </button>
+                                                <button
+                                                    class="flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs font-bold hover:bg-yellow-700 transition-all active:scale-95"
+                                                    on:click={() => openWarningModal(violation)}
+                                                >
+                                                    <span>⚠️</span>
+                                                    Warning
+                                                </button>
+                                            </td>
                                         </tr>
                                     {/each}
                                     {#if getFilteredViolations().length === 0}
                                         <tr>
-                                            <td colspan="5" class="px-6 py-12 text-center text-slate-500 italic">No category data found matching your filters.</td>
+                                            <td colspan="6" class="px-6 py-12 text-center text-slate-500 italic">No category data found matching your filters.</td>
                                         </tr>
                                     {/if}
                                 </tbody>
@@ -396,15 +428,6 @@
                         </div>
                     </div>
                 {/if}
-            {:else if activeTab === 'Report an Incident'}
-                <div class="p-8 text-center text-slate-400 font-bold uppercase tracking-widest animate-pulse">
-                    Incident Reporting Content
-                </div>
-            {:else if activeTab === 'Issue Warning'}
-                <div class="p-8 text-center text-slate-400 font-bold uppercase tracking-widest animate-pulse">
-                    Issue Warning Content
-                </div>
-            {/if}
         </div>
     </div>
 </div>
