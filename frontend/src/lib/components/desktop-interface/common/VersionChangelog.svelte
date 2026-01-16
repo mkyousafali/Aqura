@@ -5,12 +5,29 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ32.12.7.7</p>
-			<p class="version-details">Desktop: 32 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
+			<p class="version-title">Version AQ33.12.7.7</p>
+			<p class="version-details">Desktop: 33 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
+			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
+			<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
+			<div class="change-details">
+				<h4>What Changed:</h4>
+				<ul>
+					<li>✅ HR: Implemented full Arabic/English bilingual support for Shift and Day Off management</li>
+					<li>✅ UI/UX: Added dynamic RTL/LTR support for all HR shift configuration modals</li>
+					<li>🌍 i18n: Major cleanup and synchronization of Arabic and English locale files</li>
+					<li>🌍 i18n: Added 100+ missing translation keys for HR, Navigation, and Common actions</li>
+					<li>🔧 Logic: Standardized i18n implementation using reactive $t store across all HR components</li>
+					<li>🔍 Verification: All HR shift operations (Regular, Special, Day Off) verified in both EN/AR</li>
+				</ul>
+			</div>
+			<p class="date">January 16, 2026</p>
+		</div>
+
+		<div class="previous-change">
 			<h3>✨ Feature Enhancement + Code Cleanup</h3>
 			<p class="change-description">Enhanced social links manager and cleaned up unused files</p>
 			<div class="change-details">
@@ -25,22 +42,6 @@
 				</ul>
 			</div>
 			<p class="date">December 31, 2025</p>
-		</div>
-
-		<div class="previous-change">
-			<h3>🐛 Bug Fix + Code Cleanup</h3>
-			<p class="change-description">Fix payment method validation and remove 227 lines of orphaned code</p>
-			<div class="change-details">
-				<h4>What Changed:</h4>
-				<ul>
-					<li>✅ Fixed: Allow auto-populated vendor payment methods to be saved without manual reselection</li>
-					<li>✅ Fixed: Payment method now marked as "explicitly selected" when vendor data loads</li>
-					<li>🧹 Cleanup: Removed 227 lines of dead/orphaned code (receivingUser, setAsDefaultBranch, old certification modal)</li>
-					<li>📉 File optimized: StartReceiving.svelte reduced from 8600 to 8373 lines</li>
-					<li>🔍 Verification: No duplicate code or breaking changes detected</li>
-				</ul>
-			</div>
-			<p class="date">December 11, 2025</p>
 		</div>
 
 		<div class="interface-info">
