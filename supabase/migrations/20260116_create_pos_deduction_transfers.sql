@@ -11,6 +11,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS pos_deduction_transfers (
     id TEXT NOT NULL REFERENCES hr_employee_master(id) ON DELETE CASCADE,
+    box_operation_id UUID NOT NULL REFERENCES box_operations(id) ON DELETE CASCADE,
     box_number INTEGER NOT NULL,
     branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     cashier_user_id TEXT NOT NULL REFERENCES hr_employee_master(id) ON DELETE CASCADE,

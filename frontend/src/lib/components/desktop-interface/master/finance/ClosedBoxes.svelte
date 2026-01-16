@@ -17,15 +17,15 @@
 	let branches: any[] = [];
 	let selectedBranch = '';
 	let completedBoxes: any[] = [];
-	let existingTransfers: Set<string> = new Set();
+	let existingTransfers: Map<string, string> = new Map();
 	let isLoading = true;
 	let realtimeChannel: RealtimeChannel | null = null;
 	
 	// Pagination
 	let currentPage = 1;
-	let pageSize = 50;
+	let pageSize = 30;
 	let totalCount = 0;
-	let totalPages = 0;
+	let hasMore = true;
 	
 	// Filters
 	let selectedStatus = 'all'; // all, with-deduction, without-deduction
@@ -44,9 +44,7 @@
 		}
 	});
 
-	async function handlePOSDeductionTransfer(box: any, isChecked: boolean) {
-		if (!isChecked) return;
-
+	async function handleStatusToggle(box: any) {
 		try {
 			const completeDetails = typeof box.complete_details === 'string' 
 				? JSON.parse(box.complete_details) 
@@ -70,34 +68,64 @@
 				return;
 			}
 
-			const { error } = await supabase
-				.from('pos_deduction_transfers')
-				.insert({
-					id: employeeData.id,
-					box_number: box.box_number,
-					branch_id: box.branch_id,
-					cashier_user_id: employeeData.id,
-					closed_by: box.completed_by_user_id,
-				completed_by_name: completeDetails?.completed_by_name || box.completed_by_name || 'N/A',
-				short_amount: Math.abs(completeDetails?.total_difference || 0),
-				status: 'Proposed',
-				date_created_box: box.created_at,
-				date_closed_box: box.updated_at
-			});
+			const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+			const currentStatus = existingTransfers.get(transferKey);
+			const shortAmount = Math.abs(completeDetails?.total_difference || 0);
 
-		if (error) throw error;
-		
-		// Add the transfer to the existing transfers set to update UI
-		const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
-		existingTransfers.add(transferKey);
-		existingTransfers = existingTransfers; // Trigger reactivity
-		
-		alert($currentLocale === 'ar' ? 'تم حفظ التحويل بنجاح' : 'Transfer saved successfully');
-	} catch (error) {
-		console.error('Error saving POS deduction transfer:', error);
-		alert($currentLocale === 'ar' ? 'خطأ في حفظ التحويل' : 'Error saving transfer');
+			if (!currentStatus) {
+				// State 1: Not Transferred -> Save as Forgiven
+				const { error } = await supabase
+					.from('pos_deduction_transfers')
+					.insert({
+						id: employeeData.id,
+						box_operation_id: box.id,
+						box_number: box.box_number,
+						branch_id: box.branch_id,
+						cashier_user_id: employeeData.id,
+						closed_by: box.completed_by_user_id,
+						completed_by_name: completeDetails?.completed_by_name || box.completed_by_name || 'N/A',
+						short_amount: shortAmount,
+						status: 'Forgiven',
+						date_created_box: box.created_at,
+						date_closed_box: box.updated_at
+					});
+
+				if (error) throw error;
+				existingTransfers.set(transferKey, 'Forgiven');
+				existingTransfers = new Map(existingTransfers);
+				completedBoxes = [...completedBoxes]; // Force re-render
+			} else if (currentStatus === 'Forgiven') {
+				// State 2: Forgiven -> Update to Proposed
+				const { error } = await supabase
+					.from('pos_deduction_transfers')
+					.update({ status: 'Proposed' })
+					.eq('id', employeeData.id)
+					.eq('box_number', box.box_number)
+					.eq('date_closed_box', box.updated_at);
+
+				if (error) throw error;
+				existingTransfers.set(transferKey, 'Proposed');
+				existingTransfers = new Map(existingTransfers);
+				completedBoxes = [...completedBoxes]; // Force re-render
+			} else if (currentStatus === 'Proposed') {
+				// State 3: Proposed -> Delete (Not Transferred)
+				const { error } = await supabase
+					.from('pos_deduction_transfers')
+					.delete()
+					.eq('id', employeeData.id)
+					.eq('box_number', box.box_number)
+					.eq('date_closed_box', box.updated_at);
+
+				if (error) throw error;
+				existingTransfers.delete(transferKey);
+				existingTransfers = new Map(existingTransfers);
+				completedBoxes = [...completedBoxes]; // Force re-render
+			}
+		} catch (error) {
+			console.error('Error toggling POS deduction status:', error);
+			alert($currentLocale === 'ar' ? 'خطأ في تغيير الحالة' : 'Error changing status');
+		}
 	}
-}
 
 async function loadBranches() {
 		try {
@@ -123,20 +151,23 @@ async function loadBranches() {
 		try {
 			const { data, error } = await supabase
 				.from('pos_deduction_transfers')
-				.select('box_number, branch_id, date_closed_box');
+				.select('box_number, branch_id, date_closed_box, status');
 
 			if (error) throw error;
 			
-			// Create a Set of unique keys for quick lookup
-			existingTransfers = new Set(
-				(data || []).map(t => `${t.box_number}-${t.branch_id}-${t.date_closed_box}`)
+			// Create a Map with key -> status for quick lookup
+			existingTransfers = new Map(
+				(data || []).map(t => [
+					`${t.box_number}-${t.branch_id}-${t.date_closed_box}`,
+					t.status
+				])
 			);
 		} catch (error) {
 			console.error('Error loading existing transfers:', error);
 		}
 	}
 
-	async function loadCompletedBoxes() {
+	async function loadCompletedBoxes(append = false) {
 		isLoading = true;
 		try {
 			let countQuery = supabase
@@ -176,13 +207,19 @@ async function loadBranches() {
 			if (selectedStatus !== 'all') {
 				boxes = boxes.filter(box => {
 					const difference = getClosingDifference(box.complete_details);
-					const hasShortage = difference < -5;
-					const hasTransfer = hasExistingTransfer(box);
+					const hasAnyShortage = difference < 0;
 					
-					if (selectedStatus === 'with-deduction') {
-						return hasTransfer;
-					} else if (selectedStatus === 'without-deduction') {
-						return !hasTransfer && hasShortage;
+					if (!hasAnyShortage) return false; // Only show boxes with shortage
+					
+					const transferKey = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+					const status = existingTransfers.get(transferKey);
+					
+					if (selectedStatus === 'not-transferred') {
+						return !status; // No transfer record
+					} else if (selectedStatus === 'forgiven') {
+						return status === 'Forgiven';
+					} else if (selectedStatus === 'proposed') {
+						return status === 'Proposed';
 					}
 					return true;
 				});
@@ -197,9 +234,15 @@ async function loadBranches() {
 			}
 
 			totalCount = countResult.count || 0;
-			totalPages = Math.ceil(totalCount / pageSize);
-			completedBoxes = boxes;
-			console.log(`📦 Loaded page ${currentPage}/${totalPages} (${completedBoxes.length} of ${totalCount} boxes)`);
+			
+			if (append) {
+				completedBoxes = [...completedBoxes, ...boxes];
+			} else {
+				completedBoxes = boxes;
+			}
+			
+			hasMore = completedBoxes.length < totalCount;
+			console.log(`📦 Loaded ${completedBoxes.length} of ${totalCount} boxes, hasMore: ${hasMore}`);
 		} catch (error) {
 			console.error('Error loading completed boxes:', error);
 			completedBoxes = [];
@@ -208,24 +251,10 @@ async function loadBranches() {
 		}
 	}
 
-	function goToPage(page: number) {
-		if (page < 1 || page > totalPages) return;
-		currentPage = page;
-		loadCompletedBoxes();
-	}
-
-	function nextPage() {
-		if (currentPage < totalPages) {
-			currentPage++;
-			loadCompletedBoxes();
-		}
-	}
-
-	function prevPage() {
-		if (currentPage > 1) {
-			currentPage--;
-			loadCompletedBoxes();
-		}
+	function loadMore() {
+		if (!hasMore || isLoading) return;
+		currentPage++;
+		loadCompletedBoxes(true);
 	}
 
 	function setupRealtimeSubscription() {
@@ -265,11 +294,20 @@ async function loadBranches() {
 				},
 				async (payload) => {
 					console.log('📡 POS Deduction transfer update:', payload);
-					// Add the new transfer to the set
-					if (payload.eventType === 'INSERT' && payload.new) {
-						const transferKey = `${payload.new.box_number}-${payload.new.branch_id}-${payload.new.date_closed_box}`;
-						existingTransfers.add(transferKey);
-						existingTransfers = existingTransfers; // Trigger reactivity
+					const transferKey = payload.new?.box_number 
+						? `${payload.new.box_number}-${payload.new.branch_id}-${payload.new.date_closed_box}`
+						: `${payload.old?.box_number}-${payload.old?.branch_id}-${payload.old?.date_closed_box}`;
+					
+					if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+						// Add or update the transfer in the map with status
+						existingTransfers.set(transferKey, payload.new.status);
+						existingTransfers = new Map(existingTransfers);
+						completedBoxes = [...completedBoxes]; // Force re-render
+					} else if (payload.eventType === 'DELETE') {
+						// Remove the transfer from the map
+						existingTransfers.delete(transferKey);
+						existingTransfers = new Map(existingTransfers);
+						completedBoxes = [...completedBoxes]; // Force re-render
 					}
 				}
 			)
@@ -351,6 +389,11 @@ async function loadBranches() {
 		return existingTransfers.has(key);
 	}
 
+	function getTransferStatus(box: any): string {
+		const key = `${box.box_number}-${box.branch_id}-${box.updated_at}`;
+		return existingTransfers.get(key) || '';
+	}
+
 	function getBranchName(branchId: number) {
 		const branch = branches.find(b => b.id === branchId);
 		if (!branch) return `Branch ${branchId}`;
@@ -408,11 +451,14 @@ async function loadBranches() {
 					<option value="all">
 						{$currentLocale === 'ar' ? '🔍 الكل' : '🔍 All'}
 					</option>
-					<option value="with-deduction">
-						{$currentLocale === 'ar' ? '✅ محول للخصم' : '✅ With Deduction'}
+					<option value="not-transferred">
+						{$currentLocale === 'ar' ? '🔴 غير محول' : '🔴 Not Transferred'}
 					</option>
-					<option value="without-deduction">
-						{$currentLocale === 'ar' ? '⚠️ بدون خصم' : '⚠️ Without Deduction'}
+					<option value="forgiven">
+						{$currentLocale === 'ar' ? '🟠 مسامح' : '🟠 Forgiven'}
+					</option>
+					<option value="proposed">
+						{$currentLocale === 'ar' ? '🟢 مقترح' : '🟢 Proposed'}
 					</option>
 				</select>
 			</div>
@@ -429,6 +475,17 @@ async function loadBranches() {
 					class="search-input"
 				/>
 			</div>
+			
+			{#if hasMore && !isLoading}
+				<div class="filter-section">
+					<button class="load-more-btn" on:click={loadMore}>
+						🔽 {$currentLocale === 'ar' ? 'تحميل المزيد' : 'Load More'}
+					</button>
+					<span class="load-more-info">
+						{$currentLocale === 'ar' ? `عرض ${completedBoxes.length} من ${totalCount}` : `Showing ${completedBoxes.length} of ${totalCount}`}
+					</span>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -474,18 +531,13 @@ async function loadBranches() {
 						<td class="amount {getClosingDifference(box.complete_details) >= 0 ? 'positive' : 'negative'}">
 							{parseFloat(getClosingDifference(box.complete_details) || 0).toFixed(2)}
 							</td>					<td class="pos-deduction-cell">
-						{#if getClosingDifference(box.complete_details) < -5}
-							{#if hasExistingTransfer(box)}
-								<span class="transferred-badge">✓ Transferred</span>
-							{:else}
-								<label class="checkbox-container">
-									<input 
-										type="checkbox" 
-										on:change={(e) => handlePOSDeductionTransfer(box, e.currentTarget.checked)}
-									/>
-									<span class="checkmark"></span>
-								</label>
-							{/if}
+						{#if getClosingDifference(box.complete_details) < 0}
+							<button 
+								class="status-toggle-btn status-{hasExistingTransfer(box) ? getTransferStatus(box).toLowerCase() : 'not-transferred'}" 
+								on:click={() => handleStatusToggle(box)}
+							>
+								{hasExistingTransfer(box) ? getTransferStatus(box) : 'Not Transferred'}
+							</button>
 						{:else}
 							<span class="na-text">N/A</span>
 						{/if}
@@ -499,28 +551,7 @@ async function loadBranches() {
 					{/each}
 				</tbody>
 			</table>
-		
-		{#if totalPages > 1}
-			<div class="pagination">
-				<button class="page-btn" on:click={prevPage} disabled={currentPage === 1}>
-					← {$currentLocale === 'ar' ? 'السابق' : 'Previous'}
-				</button>
-				
-				<div class="page-info">
-					<span class="page-text">
-						{$currentLocale === 'ar' ? 'صفحة' : 'Page'} {currentPage} {$currentLocale === 'ar' ? 'من' : 'of'} {totalPages}
-					</span>
-					<span class="total-text">
-						({totalCount} {$currentLocale === 'ar' ? 'صندوق' : 'boxes'})
-					</span>
-				</div>
-				
-				<button class="page-btn" on:click={nextPage} disabled={currentPage === totalPages}>
-					{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
-				</button>
-			</div>
 		{/if}
-	{/if}
 	</div>
 </div>
 
@@ -763,63 +794,36 @@ async function loadBranches() {
 		text-align: center;
 	}
 
-	.checkbox-container {
-		display: inline-block;
-		position: relative;
-		padding-left: 30px;
+	.status-toggle-btn {
+		padding: 0.5rem 1rem;
+		border: none;
+		border-radius: 1rem;
+		font-size: 0.8rem;
+		font-weight: 700;
 		cursor: pointer;
-		font-size: 16px;
-		user-select: none;
-	}
-
-	.checkbox-container input {
-		position: absolute;
-		opacity: 0;
-		cursor: pointer;
-		height: 0;
-		width: 0;
-	}
-
-	.checkmark {
-		position: absolute;
-		top: 0;
-		left: 0;
-		height: 22px;
-		width: 22px;
-		background-color: #fff;
-		border: 2px solid #1f7a3a;
-		border-radius: 4px;
 		transition: all 0.3s ease;
+		color: white;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+		letter-spacing: 0.3px;
 	}
 
-	.checkbox-container:hover input ~ .checkmark {
-		background-color: #e8f0ed;
-		box-shadow: 0 2px 8px rgba(31, 122, 58, 0.2);
+	.status-toggle-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 	}
 
-	.checkbox-container input:checked ~ .checkmark {
-		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
-		border-color: #1f7a3a;
+	.status-toggle-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 	}
 
-	.checkmark:after {
-		content: "";
-		position: absolute;
-		display: none;
+	.status-toggle-btn.status-not-transferred {
+		background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+		box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
 	}
 
-	.checkbox-container input:checked ~ .checkmark:after {
-		display: block;
-	}
-
-	.checkbox-container .checkmark:after {
-		left: 6px;
-		top: 2px;
-		width: 6px;
-		height: 11px;
-		border: solid white;
-		border-width: 0 2px 2px 0;
-		transform: rotate(45deg);
+	.status-toggle-btn.status-not-transferred:hover {
+		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
 	}
 
 	.na-text {
@@ -828,66 +832,72 @@ async function loadBranches() {
 		font-style: italic;
 	}
 
-	.transferred-badge {
+	.status-toggle-btn.status-proposed {
 		background: linear-gradient(135deg, #15a34a 0%, #16803d 100%);
-		color: white;
-		padding: 0.4rem 0.75rem;
-		border-radius: 1rem;
-		font-size: 0.8rem;
-		font-weight: 700;
-		display: inline-block;
 		box-shadow: 0 2px 6px rgba(21, 163, 74, 0.3);
-		letter-spacing: 0.3px;
 	}
 
-	.pagination {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		gap: 1.5rem;
-		margin-top: 1.5rem;
-		padding: 1rem;
+	.status-toggle-btn.status-proposed:hover {
+		box-shadow: 0 4px 12px rgba(21, 163, 74, 0.4);
 	}
 
-	.page-btn {
+	.status-toggle-btn.status-forgiven {
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
+	}
+
+	.status-toggle-btn.status-forgiven:hover {
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.status-toggle-btn.status-deducted {
+		background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+		box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+	}
+
+	.status-toggle-btn.status-deducted:hover {
+		box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+	}
+
+	.status-toggle-btn.status-cancelled {
+		background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+		box-shadow: 0 2px 6px rgba(107, 114, 128, 0.3);
+	}
+
+	.status-toggle-btn.status-cancelled:hover {
+		box-shadow: 0 4px 12px rgba(107, 114, 128, 0.4);
+	}
+
+	.load-more-btn {
 		background: linear-gradient(135deg, #1f7a3a 0%, #2d5f4f 100%);
 		color: white;
 		border: none;
 		padding: 0.75rem 1.5rem;
 		border-radius: 0.5rem;
 		font-size: 0.9rem;
-		font-weight: 600;
+		font-weight: 700;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		box-shadow: 0 4px 12px rgba(31, 122, 58, 0.3);
+		letter-spacing: 0.3px;
+		width: 100%;
 	}
 
-	.page-btn:hover:not(:disabled) {
+	.load-more-btn:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 6px 16px rgba(31, 122, 58, 0.4);
 	}
 
-	.page-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-		background: #ccc;
+	.load-more-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 4px 12px rgba(31, 122, 58, 0.3);
 	}
 
-	.page-info {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.page-text {
-		font-size: 1rem;
-		font-weight: 700;
-		color: #1f7a3a;
-	}
-
-	.total-text {
-		font-size: 0.85rem;
-		color: #666;
+	.load-more-info {
+		font-size: 0.8rem;
+		color: #2d5f4f;
+		font-weight: 600;
+		text-align: center;
+		margin-top: 0.5rem;
 	}
 </style>

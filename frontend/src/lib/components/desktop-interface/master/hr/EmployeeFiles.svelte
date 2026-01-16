@@ -76,6 +76,15 @@
 	let newInsuranceCompanyNameEn = '';
 	let newInsuranceCompanyNameAr = '';
 	let showCreateInsuranceModal = false;
+	
+	// POS Shortages
+	let posShortages: any = {
+		total: 0,
+		proposed: 0,
+		forgiven: 0,
+		deducted: 0,
+		cancelled: 0
+	};
 
 	// Banks list
 	const banks = [
@@ -103,6 +112,44 @@
 		await loadPositions();
 		await loadEmployees();
 	});
+
+	async function loadPOSShortages(employeeId: string) {
+		try {
+			const { data, error } = await supabase
+				.from('pos_deduction_transfers')
+				.select('status, short_amount')
+				.eq('cashier_user_id', employeeId);
+
+			if (error) throw error;
+
+			// Reset totals
+			posShortages = {
+				total: 0,
+				proposed: 0,
+				forgiven: 0,
+				deducted: 0,
+				cancelled: 0
+			};
+
+			// Calculate totals by status
+			(data || []).forEach(record => {
+				const amount = parseFloat(record.short_amount || 0);
+				posShortages.total += amount;
+				
+				if (record.status === 'Proposed') {
+					posShortages.proposed += amount;
+				} else if (record.status === 'Forgiven') {
+					posShortages.forgiven += amount;
+				} else if (record.status === 'Deducted') {
+					posShortages.deducted += amount;
+				} else if (record.status === 'Cancelled') {
+					posShortages.cancelled += amount;
+				}
+			});
+		} catch (error) {
+			console.error('Error loading POS shortages:', error);
+		}
+	}
 
 	function toggleFilters() {
 		filtersOpen = !filtersOpen;
@@ -374,6 +421,7 @@
 		calculateInsuranceDaysUntilExpiry();
 		calculateAge();
 		calculateProbationPeriodDaysUntilExpiry();
+		loadPOSShortages(employee.id);
 	}
 
 	function toggleEdit() {
@@ -2523,6 +2571,42 @@
 					</div>
 				</div>
 
+				<!-- Card 8: POS Shortages -->
+				<div class="file-card pos-shortages-card">
+					<div class="file-card-content pos-shortages-content">
+						<div class="pos-shortages-form">
+							<h5>💰 POS Shortages | نقص نقاط البيع</h5>
+							
+							<div class="shortage-total-compact">
+								<span class="label-text">Total Shortages:</span>
+								<span class="value-text total-value">{posShortages.total.toFixed(2)} SAR</span>
+							</div>
+							
+							<div class="shortage-items-compact">
+								<div class="shortage-row proposed">
+									<span class="status-text">🟢 Proposed</span>
+									<span class="amount-text">{posShortages.proposed.toFixed(2)} SAR</span>
+								</div>
+								
+								<div class="shortage-row forgiven">
+									<span class="status-text">🟠 Forgiven</span>
+									<span class="amount-text">{posShortages.forgiven.toFixed(2)} SAR</span>
+								</div>
+								
+								<div class="shortage-row deducted">
+									<span class="status-text">🔴 Deducted</span>
+									<span class="amount-text">{posShortages.deducted.toFixed(2)} SAR</span>
+								</div>
+								
+								<div class="shortage-row cancelled">
+									<span class="status-text">⚫ Cancelled</span>
+									<span class="amount-text">{posShortages.cancelled.toFixed(2)} SAR</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+
 				<!-- End of file cards grid -->
 				</div>
 			{:else}
@@ -3510,6 +3594,98 @@
 		border: 1px solid #dbeafe;
 		text-transform: uppercase;
 		letter-spacing: 0.025em;
+	}
+
+	/* POS Shortages Card Styles */
+	.pos-shortages-card {
+		background: #fef3c7;
+		border: 2px solid #f59e0b !important;
+	}
+
+	.pos-shortages-content {
+		align-items: stretch;
+		justify-content: flex-start;
+	}
+
+	.pos-shortages-form {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.pos-shortages-form h5 {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #333;
+		text-align: center;
+	}
+
+	.shortage-total-compact {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem;
+		background: white;
+		border-radius: 4px;
+		border: 1px solid #fbbf24;
+	}
+
+	.shortage-total-compact .label-text {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #78350f;
+	}
+
+	.shortage-total-compact .total-value {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #d97706;
+	}
+
+	.shortage-items-compact {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.shortage-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.35rem 0.5rem;
+		background: white;
+		border-radius: 3px;
+		border-left: 3px solid;
+		font-size: 0.75rem;
+	}
+
+	.shortage-row.proposed {
+		border-left-color: #15a34a;
+	}
+
+	.shortage-row.forgiven {
+		border-left-color: #f59e0b;
+	}
+
+	.shortage-row.deducted {
+		border-left-color: #dc2626;
+	}
+
+	.shortage-row.cancelled {
+		border-left-color: #6b7280;
+	}
+
+	.shortage-row .status-text {
+		font-weight: 500;
+		color: #333;
+	}
+
+	.shortage-row .amount-text {
+		font-weight: 600;
+		font-family: 'Courier New', monospace;
+		color: #666;
 	}
 
 	.secondary-button {
