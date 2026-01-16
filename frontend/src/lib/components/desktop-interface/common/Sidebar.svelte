@@ -97,6 +97,7 @@
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
 	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
+	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -834,15 +835,15 @@
 		showHRSubmenu = false;
 	}
 
-	function openDisciplinaryControl() {
+	function openDiscipline() {
 		collapseAllMenus();
-		const windowId = generateWindowId('disciplinary-control');
+		const windowId = generateWindowId('discipline');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
 		
 		openWindow({
 			id: windowId,
-			title: `Disciplinary Control #${instanceNumber}`,
-			component: null, // Empty for now as requested
+			title: `Discipline #${instanceNumber}`,
+			component: Discipline,
 			icon: '⚖️',
 			size: { width: 1000, height: 700 },
 			position: { 
@@ -3461,11 +3462,11 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('DISCIPLINARY_CONTROL')}
+					{#if isButtonAllowed('DISCIPLINE')}
 						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openDisciplinaryControl}>
+							<button class="submenu-item" on:click={openDiscipline}>
 								<span class="menu-icon">⚖️</span>
-								<span class="menu-text">Disciplinary Control</span>
+								<span class="menu-text">Discipline</span>
 							</button>
 						</div>
 					{/if}
