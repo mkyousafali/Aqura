@@ -87,8 +87,70 @@ export async function POST({ request }) {
     // Special handling for Accountant
     if (taskData.role_type === "accountant") {
       console.log("🧾 [API] Processing Accountant task completion...");
-      // Accountant validations are handled in the database function
-      // The database checks if inventory manager has uploaded original bill
+      
+      // Get the receiving record to check if required files are uploaded
+      const { data: receivingRecord, error: receivingError } = await supabase
+        .from("receiving_tasks")
+        .select("receiving_record_id")
+        .eq("id", receiving_task_id)
+        .single();
+
+      if (receivingError || !receivingRecord) {
+        console.log("❌ [API] Could not find receiving record for task");
+        return json(
+          { error: "Task record not found" },
+          { status: 404 },
+        );
+      }
+
+      // Check if required files exist by checking URLs
+      const { data: recordData, error: recordError } = await supabase
+        .from("receiving_records")
+        .select("original_bill_url, pr_excel_file_url")
+        .eq("id", receivingRecord.receiving_record_id)
+        .single();
+
+      if (recordError) {
+        console.log("❌ [API] Error fetching receiving record:", recordError);
+        return json(
+          { error: "Error checking file uploads" },
+          { status: 500 },
+        );
+      }
+
+      console.log("📋 [API] Received record data:", {
+        original_bill_url: recordData?.original_bill_url,
+        pr_excel_file_url: recordData?.pr_excel_file_url
+      });
+
+      const missingFiles = [];
+      if (!recordData?.original_bill_url || recordData.original_bill_url.trim() === '') {
+        missingFiles.push('Original Bill');
+        console.log("❌ [API] Original bill URL missing or empty");
+      } else {
+        console.log("✅ [API] Original bill URL exists:", recordData.original_bill_url.substring(0, 50) + "...");
+      }
+      if (!recordData?.pr_excel_file_url || recordData.pr_excel_file_url.trim() === '') {
+        missingFiles.push('PR Excel File');
+        console.log("❌ [API] PR Excel URL missing or empty");
+      } else {
+        console.log("✅ [API] PR Excel URL exists:", recordData.pr_excel_file_url.substring(0, 50) + "...");
+      }
+
+      if (missingFiles.length > 0) {
+        const errorMsg = `Missing required files: ${missingFiles.join(', ')}. Please ensure all files are uploaded before completing this task.`;
+        console.log("❌ [API] Accountant validation failed:", errorMsg);
+        return json(
+          {
+            error: errorMsg,
+            error_code: 'REQUIRED_FILES_NOT_UPLOADED',
+            message: errorMsg
+          },
+          { status: 400 },
+        );
+      }
+
+      console.log("✅ [API] Accountant validation passed - all required files present");
     }
 
     // Special handling for Purchase Manager

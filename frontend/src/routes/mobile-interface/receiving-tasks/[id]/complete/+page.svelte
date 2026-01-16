@@ -192,7 +192,11 @@
 				.from('vendor_payment_schedule')
 				.select('pr_excel_verified')
 				.eq('receiving_record_id', receivingRecord.id)
-				.single();
+				.maybeSingle();
+
+			if (scheduleError) {
+				console.warn('⚠️ [Mobile] Error checking PR Excel verification:', scheduleError);
+			}
 
 			if (!scheduleError && scheduleData) {
 				// Consider verified only if pr_excel_verified is explicitly true
