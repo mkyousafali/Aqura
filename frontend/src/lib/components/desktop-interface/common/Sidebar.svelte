@@ -834,6 +834,29 @@
 		showHRSubmenu = false;
 	}
 
+	function openDisciplinaryControl() {
+		collapseAllMenus();
+		const windowId = generateWindowId('disciplinary-control');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Disciplinary Control #${instanceNumber}`,
+			component: null, // Empty for now as requested
+			icon: '⚖️',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
 	function openOperationsMaster() {
 		const windowId = generateWindowId('operations-master');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -3435,6 +3458,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openLeavesAndVacations}>
 								<span class="menu-icon">🌴</span>
 								<span class="menu-text">Leaves and Vacations</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DISCIPLINARY_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDisciplinaryControl}>
+								<span class="menu-icon">⚖️</span>
+								<span class="menu-text">Disciplinary Control</span>
 							</button>
 						</div>
 					{/if}
