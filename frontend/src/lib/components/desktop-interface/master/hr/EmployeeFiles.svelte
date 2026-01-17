@@ -16,8 +16,8 @@
 	let selectedNationality = '';
 	let sponsorshipStatus = false;
 	let savedSponsorshipStatus = false;
-	let isCurrentlyEmployed = true;
-	let savedIsCurrentlyEmployed = true;
+	let employmentStatus = 'Resigned';
+	let savedEmploymentStatus = 'Resigned';
 	let isLoading = false;
 	let errorMessage = '';
 	let filtersOpen = true;
@@ -292,7 +292,7 @@
 					),
 					nationality_id,
 					sponsorship_status,
-					is_currently_employed,
+					employment_status,
 					id_number,
 					id_expiry_date,
 					work_permit_expiry_date,
@@ -374,8 +374,8 @@
 		selectedNationality = employee.nationality_id || '';
 		sponsorshipStatus = employee.sponsorship_status || false;
 		savedSponsorshipStatus = employee.sponsorship_status || false;
-		isCurrentlyEmployed = employee.is_currently_employed !== undefined ? employee.is_currently_employed : true;
-		savedIsCurrentlyEmployed = employee.is_currently_employed !== undefined ? employee.is_currently_employed : true;
+		employmentStatus = employee.employment_status || 'Resigned';
+		savedEmploymentStatus = employee.employment_status || 'Resigned';
 		isSaved = !!employee.nationality_id;
 		idNumber = employee.id_number || '';
 		savedIdNumber = employee.id_number || '';
@@ -1267,6 +1267,26 @@
 		}
 	}
 
+	function getEmploymentStatusText(status: string) {
+		switch (status) {
+			case 'Job (With Finger)': return $t('employeeFiles.inJob');
+			case 'Job (No Finger)': return $t('employeeFiles.jobNoFinger');
+			case 'Remote Job': return $t('employeeFiles.remoteJob');
+			case 'Vacation': return $t('employeeFiles.vacation');
+			case 'Terminated': return $t('employeeFiles.terminated');
+			case 'Run Away': return $t('employeeFiles.runAway');
+			case 'Resigned': return $t('employeeFiles.resigned');
+			default: return status;
+		}
+	}
+
+	function cycleEmploymentStatus() {
+		const statuses = ['Resigned', 'Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Terminated', 'Run Away'];
+		const currentIndex = statuses.indexOf(employmentStatus);
+		const nextIndex = (currentIndex + 1) % statuses.length;
+		employmentStatus = statuses[nextIndex];
+	}
+
 	async function saveEmploymentStatus() {
 		if (!selectedEmployee) {
 			alert($t('employeeFiles.alerts.selectEmployee'));
@@ -1276,7 +1296,7 @@
 		try {
 			const { error } = await supabase
 				.from('hr_employee_master')
-				.update({ is_currently_employed: isCurrentlyEmployed })
+				.update({ employment_status: employmentStatus })
 				.eq('id', selectedEmployee.id);
 
 			if (error) {
@@ -1285,8 +1305,8 @@
 				return;
 			}
 
-			selectedEmployee.is_currently_employed = isCurrentlyEmployed;
-			savedIsCurrentlyEmployed = isCurrentlyEmployed;
+			selectedEmployee.employment_status = employmentStatus;
+			savedEmploymentStatus = employmentStatus;
 			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving employment status:', error);
@@ -1487,17 +1507,20 @@
 										{/if}
 									</div>
 
-									<!-- Employment Status Toggle -->
+									<!-- Employment Status Cycling Button -->
 									<div class="employment-toggle">
 										<label class="toggle-label">
 											<span>{$t('employeeFiles.employmentStatus')}</span>
-											<div class="toggle-switch">
-												<input type="checkbox" bind:checked={isCurrentlyEmployed} class="toggle-input"/>
-												<span class="toggle-slider"></span>
-											</div>
-											<span class="toggle-status">{isCurrentlyEmployed ? $t('employeeFiles.inJob') : $t('employeeFiles.resigned')}</span>
+											<button 
+												class="employment-status-button"
+												on:click={cycleEmploymentStatus}
+												title="Click to cycle through employment statuses"
+											>
+												{getEmploymentStatusText(employmentStatus)}
+											</button>
+											<span class="toggle-status">{getEmploymentStatusText(employmentStatus)}</span>
 										</label>
-										{#if isCurrentlyEmployed !== savedIsCurrentlyEmployed}
+										{#if employmentStatus !== savedEmploymentStatus}
 											<button class="save-button-small" on:click={saveEmploymentStatus}>
 												💾 {$t('employeeFiles.saveStatus')}
 											</button>
@@ -3163,6 +3186,32 @@
 		background: #f0f8f5;
 		border-radius: 4px;
 		border: 1px solid #d4f3e8;
+	}
+
+	.employment-status-button {
+		padding: 0.6rem 1.2rem;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		display: inline-block;
+		width: fit-content;
+	}
+
+	.employment-status-button:hover {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+		transform: translateY(-1px);
+	}
+
+	.employment-status-button:active {
+		transform: translateY(0);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	.form-group-compact {
