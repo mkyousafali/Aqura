@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     
     interface EmployeeShift {
@@ -126,6 +126,8 @@
     let dayOffWeekdayNationalityFilter = '';
     let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
     let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
+    let supabase: any;
+    let realtimeChannel: any;
 
     $: weekdayNames = [
         $t('common.days.sunday'),
@@ -156,6 +158,11 @@
     ];
 
     onMount(async () => {
+        const { supabase: client } = await import('$lib/utils/supabase');
+        supabase = client;
+        
+        setupRealtime();
+
         if (activeTab === 'Regular Shift') {
             await loadEmployeeShiftData();
         } else if (activeTab === 'Special Shift (weekday-wise)') {
@@ -169,11 +176,51 @@
         }
     });
 
+    onDestroy(() => {
+        if (realtimeChannel && supabase) {
+            supabase.removeChannel(realtimeChannel);
+        }
+    });
+
+    function setupRealtime() {
+        if (!supabase) return;
+
+        realtimeChannel = supabase.channel('shift-and-day-off-realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hr_employee_master' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_shift' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_weekday' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_date_wise' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday' }, () => refreshCurrentTabData())
+            .subscribe();
+    }
+
+    async function refreshCurrentTabData() {
+        if (activeTab === 'Regular Shift') {
+            await loadEmployeeShiftData();
+        } else if (activeTab === 'Special Shift (weekday-wise)') {
+            await loadSpecialShiftWeekdayData();
+        } else if (activeTab === 'Special Shift (date-wise)') {
+            await loadSpecialShiftDateWiseData();
+        } else if (activeTab === 'Day Off (date-wise)') {
+            await loadDayOffData();
+        } else if (activeTab === 'Day Off (weekday-wise)') {
+            await loadDayOffWeekdayData();
+        }
+    }
+
+    async function initSupabase() {
+        if (!supabase) {
+            const { supabase: client } = await import('$lib/utils/supabase');
+            supabase = client;
+        }
+    }
+
     async function loadEmployeeShiftData() {
         loading = true;
         error = null;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
                 .from('hr_employee_master')
@@ -272,7 +319,7 @@
         loading = true;
         error = null;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
                 .from('hr_employee_master')
@@ -378,7 +425,7 @@
         loading = true;
         error = null;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             // Get all employees for selection
             const { data: employeeData, error: empError } = await supabase
@@ -545,7 +592,7 @@
         loading = true;
         error = null;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             // Get all employees for selection
             const { data: employeeData, error: empError } = await supabase
@@ -678,7 +725,7 @@
         loading = true;
         error = null;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             const { data: employeeData, error: empError } = await supabase
                 .from('hr_employee_master')
@@ -924,7 +971,7 @@
         if (!confirm($t('hr.shift.confirm_delete_shift_for', { day: weekdayNames[weekdayNum] }))) return;
         
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const shiftId = `${employeeId}-${weekdayNum}`;
             
             const { error } = await supabase
@@ -961,7 +1008,7 @@
         if (!selectedEmployeeId) return;
         
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const shiftId = `${selectedEmployeeId}-${selectedDeleteWeekday}`;
             
             const { error } = await supabase
@@ -989,7 +1036,7 @@
         if (!confirm($t('hr.shift.confirm_delete_shift'))) return;
 
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const { error } = await supabase
                 .from('special_shift_date_wise')
                 .delete()
@@ -1013,7 +1060,7 @@
 
         isSaving = true;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const dayOffId = `${selectedEmployeeId}-${selectedDayOffDate}`;
 
             const { error } = await supabase
@@ -1067,7 +1114,7 @@
         if (!confirm($t('hr.shift.confirm_delete_day_off'))) return;
 
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const { error } = await supabase
                 .from('day_off')
                 .delete()
@@ -1091,7 +1138,7 @@
 
         isSaving = true;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const dayOffId = `${selectedEmployeeId}-${selectedDayOffWeekday}`;
 
             const { error } = await supabase
@@ -1145,7 +1192,7 @@
         if (!confirm($t('hr.shift.confirm_delete_day_off'))) return;
 
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             const { error } = await supabase
                 .from('day_off_weekday')
                 .delete()
@@ -1164,7 +1211,7 @@
     async function saveShiftData() {
         isSaving = true;
         try {
-            const { supabase } = await import('$lib/utils/supabase');
+            await initSupabase();
             
             if (activeTab === 'Regular Shift') {
                 // Calculate working hours from the popup form data
@@ -1331,14 +1378,18 @@
 
     function getEmploymentStatusDisplay(status: string | undefined): { color: string; text: string } {
         switch (status) {
-            case 'Job':
-                return { color: 'bg-green-100 text-green-800', text: $t('employeeFiles.inJob') || 'Job' };
+            case 'Job (With Finger)':
+                return { color: 'bg-green-100 text-green-800', text: $t('employeeFiles.inJob') || 'Job (With Finger)' };
+            case 'Job (No Finger)':
+                return { color: 'bg-emerald-100 text-emerald-800', text: $t('employeeFiles.jobNoFinger') || 'Job (No Finger)' };
+            case 'Remote Job':
+                return { color: 'bg-cyan-100 text-cyan-800', text: $t('employeeFiles.remoteJob') || 'Remote Job' };
             case 'Vacation':
-                return { color: 'bg-blue-100 text-blue-800', text: 'Vacation' };
+                return { color: 'bg-blue-100 text-blue-800', text: $t('employeeFiles.vacation') || 'Vacation' };
             case 'Terminated':
-                return { color: 'bg-red-100 text-red-800', text: 'Terminated' };
+                return { color: 'bg-red-100 text-red-800', text: $t('employeeFiles.terminated') || 'Terminated' };
             case 'Run Away':
-                return { color: 'bg-purple-100 text-purple-800', text: 'Run Away' };
+                return { color: 'bg-purple-100 text-purple-800', text: $t('employeeFiles.runAway') || 'Run Away' };
             case 'Resigned':
             default:
                 return { color: 'bg-gray-100 text-gray-800', text: $t('employeeFiles.resigned') || 'Resigned' };
@@ -1374,11 +1425,13 @@
 
     function sortEmployees(employees: any[]): any[] {
         const employmentStatusOrder: { [key: string]: number } = {
-            'Job': 1,
-            'Vacation': 2,
-            'Resigned': 3,
-            'Terminated': 4,
-            'Run Away': 5
+            'Job (With Finger)': 1,
+            'Job (No Finger)': 2,
+            'Remote Job': 3,
+            'Vacation': 4,
+            'Resigned': 5,
+            'Terminated': 6,
+            'Run Away': 7
         };
 
         const sorted = employees.sort((a, b) => {
