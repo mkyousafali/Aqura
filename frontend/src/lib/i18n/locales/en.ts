@@ -1438,6 +1438,15 @@ export const englishLocale: LocaleData = {
       failedToProcessExcel: "Failed to process Excel file:",
       selectExcelFile: "Please select an Excel file (.xlsx or .xls)",
       failedToLoadBranches: "Failed to load branches: ",
+      processFingerprint: {
+        title: "Process Fingerprint",
+        process_with_data: "Process with data",
+        process_without_data: "Process without data",
+        process_result: "Process result",
+        start_process: "Start process",
+        loading_employees: "Loading employees...",
+        no_employees_with_finger: "No employees with employment status 'Job (With Finger)' found."
+      },
       salary: {
         title: "Salary and Wage Management",
         id: "ID",
@@ -1796,6 +1805,7 @@ export const englishLocale: LocaleData = {
 
     // Common Messages
     common: {
+      success: "Success",
       confirmDelete: "Are you sure you want to delete this item?",
       noData: "No data available",
       status: "Status",
@@ -1813,6 +1823,7 @@ export const englishLocale: LocaleData = {
       saving: "Saving...",
       delete: "Delete",
       deleting: "Deleting...",
+      processing: "Processing...",
       yes: "Yes",
       no: "No",
       date: "Date",
