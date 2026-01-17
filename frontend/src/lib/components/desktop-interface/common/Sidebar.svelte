@@ -93,6 +93,7 @@
 	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
 	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
 	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
+	import ProcessFingerprint from '$lib/components/desktop-interface/master/hr/ProcessFingerprint.svelte';
 	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
 	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
@@ -728,7 +729,7 @@
 		openWindow({
 			id: windowId,
 			title: `Process Fingerprint #${instanceNumber}`,
-			component: null,
+			component: ProcessFingerprint,
 			icon: '📂',
 			size: { width: 1000, height: 700 },
 			position: { 

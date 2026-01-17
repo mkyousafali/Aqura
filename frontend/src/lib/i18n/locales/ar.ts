@@ -1334,6 +1334,15 @@ export const arabicLocale: LocaleData = {
 
     // HR Master
     hr: {
+      processFingerprint: {
+        title: "معالجة بصمات الأصابع",
+        process_with_data: "المعالجة مع البيانات",
+        process_without_data: "المعالجة بدون بيانات",
+        process_result: "نتائج المعالجة",
+        start_process: "بدء المعالجة",
+        loading_employees: "جاري تحميل الموظفين...",
+        no_employees_with_finger: "لم يتم العثور على موظفين بحالة 'Job (With Finger)'."
+      },
       employee: "موظف",
       employees: "الموظفون",
       employeeId: "رقم الموظف",
@@ -1809,6 +1818,7 @@ export const arabicLocale: LocaleData = {
     common: {
       confirmDelete: "هل أنت متأكد من حذف هذا العنصر؟",
       noData: "لا توجد بيانات",
+      success: "نجح",
       status: "الحالة",
       loading: "جاري التحميل...",
       today: "اليوم",
@@ -1824,6 +1834,7 @@ export const arabicLocale: LocaleData = {
       saving: "جاري الحفظ...",
       delete: "حذف",
       deleting: "جاري الحذف...",
+      processing: "جاري المعالجة...",
       yes: "نعم",
       no: "لا",
       date: "التاريخ",

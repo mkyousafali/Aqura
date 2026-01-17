@@ -4,8 +4,18 @@
 	import { currentLocale, _ as t } from '$lib/i18n';
 
 	let employees: any[] = [];
+	let filteredEmployees: any[] = [];
 	let isLoading = false;
 	let errorMessage = '';
+	let searchQuery = '';
+	let statusFilter = '';
+	let branchFilter = '';
+	let nationalityFilter = '';
+	
+	let availableBranches: any[] = [];
+	let availableNationalities: any[] = [];
+	let availableEmploymentStatuses: string[] = ['Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'];
+
 	let basicSalaryValues: { [key: string]: string } = {};
 	let paymentModeValues: { [key: string]: string } = {};
 	let otherAllowanceValues: { [key: string]: string } = {};
@@ -26,6 +36,20 @@
 	let gosiIsPercentage: { [key: string]: boolean } = {};
 	let gosiPercentage: { [key: string]: string } = {};
 
+	$: filteredEmployees = employees.filter(emp => {
+		const matchesSearch = 
+			!searchQuery || 
+			emp.name_en?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			emp.name_ar?.includes(searchQuery) ||
+			emp.id?.toLowerCase().includes(searchQuery.toLowerCase());
+		
+		const matchesStatus = !statusFilter || emp.employment_status === statusFilter;
+		const matchesBranch = !branchFilter || String(emp.current_branch_id) === String(branchFilter);
+		const matchesNationality = !nationalityFilter || String(emp.nationality_id) === String(nationalityFilter);
+		
+		return matchesSearch && matchesStatus && matchesBranch && matchesNationality;
+	});
+
 	// Modal state
 	let showModal = false;
 	let currentEmployeeId = '';
@@ -33,9 +57,26 @@
 	let isSaving = false;
 
 	onMount(async () => {
-		await loadEmployees();
-		await loadBasicSalaries();
+		await Promise.all([
+			loadEmployees(),
+			loadBasicSalaries(),
+			loadFilterData()
+		]);
 	});
+
+	async function loadFilterData() {
+		try {
+			const [branchesRes, nationalitiesRes] = await Promise.all([
+				supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').order('name_en'),
+				supabase.from('nationalities').select('id, name_en, name_ar').order('name_en')
+			]);
+
+			if (branchesRes.data) availableBranches = branchesRes.data;
+			if (nationalitiesRes.data) availableNationalities = nationalitiesRes.data;
+		} catch (error) {
+			console.error('Error loading filter data:', error);
+		}
+	}
 
 	async function loadEmployees() {
 		isLoading = true;
@@ -49,6 +90,7 @@
 					name_en,
 					name_ar,
 					nationality_id,
+					employment_status,
 					sponsorship_status,
 					id_number,
 					current_branch_id,
@@ -73,11 +115,42 @@
 				return;
 			}
 			
-			// Sort numerically by extracting the number from the ID
+			// Sort employees using the same logic as ShiftAndDayOff
+			const employmentStatusOrder: { [key: string]: number } = {
+				'Job (With Finger)': 1,
+				'Job (No Finger)': 2,
+				'Remote Job': 3,
+				'Vacation': 4,
+				'Resigned': 5,
+				'Terminated': 6,
+				'Run Away': 7
+			};
+
 			employees = (data || []).sort((a, b) => {
-				const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-				const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-				return numA - numB;
+				// 1. Sort by employment status
+				const statusOrderA = employmentStatusOrder[a.employment_status] || 99;
+				const statusOrderB = employmentStatusOrder[b.employment_status] || 99;
+				if (statusOrderA !== statusOrderB) return statusOrderA - statusOrderB;
+
+				// 2. Sort by nationality (Saudi Arabia first)
+				const nationalityNameA = a.nationalities?.name_en || '';
+				const nationalityNameB = b.nationalities?.name_en || '';
+				const isSaudiA = nationalityNameA.toLowerCase().includes('saudi') ? 0 : 1;
+				const isSaudiB = nationalityNameB.toLowerCase().includes('saudi') ? 0 : 1;
+				if (isSaudiA !== isSaudiB) return isSaudiA - isSaudiB;
+
+				// 3. Sort by sponsorship status
+				const isSponsoredA = (a.sponsorship_status === true || a.sponsorship_status === 'true' || a.sponsorship_status === 'yes' || a.sponsorship_status === 'Yes' || a.sponsorship_status === '1') ? 0 : 1;
+				const isSponsoredB = (b.sponsorship_status === true || b.sponsorship_status === 'true' || b.sponsorship_status === 'yes' || b.sponsorship_status === 'Yes' || b.sponsorship_status === '1') ? 0 : 1;
+				if (isSponsoredA !== isSponsoredB) return isSponsoredA - isSponsoredB;
+
+				// 4. Sort by numeric ID
+				const numA = parseInt(a.id?.toString().replace(/\D/g, '') || '0') || 0;
+				const numB = parseInt(b.id?.toString().replace(/\D/g, '') || '0') || 0;
+				if (numA !== numB) return numA - numB;
+
+				// 5. Alphabetical nationality fallback
+				return nationalityNameA.localeCompare(nationalityNameB);
 			});
 		} catch (error) {
 			console.error('Error loading employees:', error);
@@ -298,6 +371,57 @@
 		
 		return basicVal + otherVal + accomVal + foodVal + travelVal - gosiVal;
 	}
+
+	function getEmploymentStatusText(status: string) {
+		if (!status) return $t('employeeFiles.statuses.unknown');
+		
+		switch (status) {
+			case 'Job (With Finger)': return $t('employeeFiles.statuses.jobWithFinger');
+			case 'Job (No Finger)': return $t('employeeFiles.statuses.jobNoFinger');
+			case 'Remote Job': return $t('employeeFiles.statuses.remoteJob');
+			case 'Vacation': return $t('employeeFiles.statuses.vacation');
+			case 'Resigned': return $t('employeeFiles.statuses.resigned');
+			case 'Terminated': return $t('employeeFiles.statuses.terminated');
+			case 'Run Away': return $t('employeeFiles.statuses.escape');
+			default: return status;
+		}
+	}
+
+	function getStatusColor(status: string) {
+		switch (status) {
+			case 'Job (With Finger)': return 'status-job-finger';
+			case 'Job (No Finger)': return 'status-job-no-finger';
+			case 'Remote Job': return 'status-remote';
+			case 'Vacation': return 'status-vacation';
+			case 'Resigned': return 'status-resigned';
+			case 'Terminated': return 'status-terminated';
+			case 'Run Away': return 'status-escape';
+			default: return 'status-unknown';
+		}
+	}
+
+	function getNationalityColor(id: string) {
+		switch (id?.toUpperCase()) {
+			case 'SA': return 'nat-sa';
+			case 'IND': return 'nat-ind';
+			case 'BAN': return 'nat-ban';
+			case 'YEM': return 'nat-yem';
+			case 'EGY': return 'nat-egy';
+			case 'PAK': return 'nat-pak';
+			case 'PHI': return 'nat-phi';
+			case 'SUD': return 'nat-sud';
+			default: return 'nat-default';
+		}
+	}
+
+	function getSponsorshipStatusDisplay(status: any) {
+		const isSponsored = status === true || status === 'true' || status === 'yes' || status === 'Yes' || status === '1';
+		if (isSponsored) {
+			return { color: 'bg-green-100 text-green-700', text: $t('common.yes') || 'Yes' };
+		} else {
+			return { color: 'bg-red-100 text-red-700', text: $t('common.no') || 'No' };
+		}
+	}
 </script>
 
 <div class="salary-wage-container">
@@ -315,175 +439,266 @@
 	{#if isLoading}
 		<div class="loading">{$t('common.loading')}</div>
 	{:else}
-		<div class="table-container">
-			<table>
-				<thead>
-					<tr>
-						<th>{$t('hr.salary.id')}</th>
-						<th>{$t('hr.salary.name')}</th>
-						<th>{$t('hr.salary.branch')}</th>
-						<th>{$t('hr.salary.nationality')}</th>
-						<th>{$t('hr.salary.sponsorship')}</th>
-						<th>{$t('hr.salary.idNumber')}</th>
-						<th>{$t('hr.salary.bankInfo')}</th>
-						<th>{$t('hr.salary.basicSalary')}</th>
-						<th>{$t('hr.salary.otherAllowance')}</th>
-						<th>{$t('hr.salary.accommodation')}</th>
-						<th>{$t('hr.salary.foodAllowance')}</th>
-						<th>{$t('hr.salary.travel')}</th>
-						<th>{$t('hr.salary.gosiDeduction')}</th>
-						<th>{$t('hr.salary.totalSalary')}</th>
-						<th>{$t('hr.salary.actions')}</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each employees as employee}
+		<!-- Filter Controls -->
+		<div class="mb-4 flex gap-3">
+			<!-- Branch Filter -->
+			<div class="flex-1">
+				<label for="branch-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
+				<select 
+					id="branch-filter"
+					bind:value={branchFilter}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+					style="color: #000000 !important; background-color: #ffffff !important;"
+				>
+					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
+					{#each availableBranches as branch}
+						<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+							{$currentLocale === 'ar' 
+								? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+								: `${branch.name_en || branch.branch_name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+						</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Nationality Filter -->
+			<div class="flex-1">
+				<label for="nationality-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
+				<select 
+					id="nationality-filter"
+					bind:value={nationalityFilter}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+					style="color: #000000 !important; background-color: #ffffff !important;"
+				>
+					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
+					{#each availableNationalities as nationality}
+						<option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+							{$currentLocale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+						</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Employment Status Filter -->
+			<div class="flex-1">
+				<label for="status-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
+				<select 
+					id="status-filter"
+					bind:value={statusFilter}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+					style="color: #000000 !important; background-color: #ffffff !important;"
+				>
+					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+					{#each availableEmploymentStatuses as status}
+						<option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusText(status)}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Employee Search -->
+			<div class="flex-1">
+				<label for="employee-search" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.search_employee')}</label>
+				<input 
+					id="employee-search"
+					type="text"
+					bind:value={searchQuery}
+					placeholder={$t('hr.shift.search_placeholder')}
+					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+				/>
+			</div>
+		</div>
+
+		<div class="table-container bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+			<div class="overflow-x-auto flex-1">
+				<table class="w-full border-collapse">
+					<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
 						<tr>
-							<td>{employee.id}</td>
-							<td>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.id')}</th>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.name')}</th>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.branch')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('employeeFiles.employmentStatus')}</th>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.nationality')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.sponsorship')}</th>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.idNumber')}</th>
+							<th class="px-4 py-3 {$currentLocale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.bankInfo')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.basicSalary')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.otherAllowance')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.accommodation')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.foodAllowance')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.travel')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.gosiDeduction')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.totalSalary')}</th>
+							<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.salary.actions')}</th>
+						</tr>
+					</thead>
+				<tbody class="divide-y divide-slate-200">
+					{#each filteredEmployees as employee, index}
+						<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+							<td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
+							<td class="px-4 py-3 text-sm text-slate-700">
 								<div class="name-cell">
 									{#if $currentLocale === 'ar'}
-										<div class="name-ar">{employee.name_ar || '-'}</div>
+										<div class="name-ar font-semibold">{employee.name_ar || '-'}</div>
 									{:else}
-										<div class="name-en">{employee.name_en || '-'}</div>
+										<div class="name-en font-semibold">{employee.name_en || '-'}</div>
 									{/if}
 								</div>
 							</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-slate-700">
 								<div class="name-cell">
 									{#if employee.branches}
 										{#if $currentLocale === 'ar'}
 											<div class="name-ar">
 												{employee.branches.name_ar || '-'}
 												{#if employee.branches.location_ar}
-													<span class="location">({employee.branches.location_ar})</span>
+													<span class="location text-xs text-slate-500">({employee.branches.location_ar})</span>
 												{/if}
 											</div>
 										{:else}
 											<div class="name-en">
 												{employee.branches.name_en || '-'}
 												{#if employee.branches.location_en}
-													<span class="location">({employee.branches.location_en})</span>
+													<span class="location text-xs text-slate-500">({employee.branches.location_en})</span>
 												{/if}
 											</div>
 										{/if}
 									{:else}
-										-
+										<span class="text-slate-400">-</span>
 									{/if}
 								</div>
 							</td>
-							<td>
-								<div class="name-cell">
-									{#if $currentLocale === 'ar'}
-										<div class="name-ar">{employee.nationalities?.name_ar || '-'}</div>
+							<td class="px-4 py-3 text-sm text-center">
+								<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold {getStatusColor(employee.employment_status || 'unknown')}">
+									{getEmploymentStatusText(employee.employment_status)}
+								</span>
+							</td>
+							<td class="px-4 py-3 text-sm text-slate-700">
+								<div class="flex justify-start">
+									{#if employee.nationality_id}
+										<span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-bold {getNationalityColor(employee.nationality_id)}">
+											{$currentLocale === 'ar' ? (employee.nationalities?.name_ar || '-') : (employee.nationalities?.name_en || '-')}
+										</span>
 									{:else}
-										<div class="name-en">{employee.nationalities?.name_en || '-'}</div>
+										<span class="text-slate-400">-</span>
 									{/if}
 								</div>
 							</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-center">
 								{#if employee.sponsorship_status !== null && employee.sponsorship_status !== undefined}
-									<span class="status-badge {employee.sponsorship_status ? 'active' : 'inactive'}">
-										{employee.sponsorship_status ? $t('hr.salary.active') : $t('hr.salary.inactive')}
+									{@const sponsorship = getSponsorshipStatusDisplay(employee.sponsorship_status)}
+									<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {sponsorship.color}">
+										{sponsorship.text}
 									</span>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>{employee.id_number || '-'}</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-slate-700">{employee.id_number || '-'}</td>
+							<td class="px-4 py-3 text-sm text-slate-700">
 								<div class="name-cell">
-									<div class="name-ar">{employee.bank_name || '-'}</div>
-									<div class="name-en">{employee.iban || '-'}</div>
+									<div class="text-xs font-semibold">{employee.bank_name || '-'}</div>
+									<div class="text-[10px] text-slate-500 font-mono">{employee.iban || '-'}</div>
 								</div>
 							</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-center font-mono">
 								{#if basicSalaryValues[employee.id]}
-									<div class="value-display">
-										<span class="amount">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
-										<span class="badge">{paymentModeValues[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-slate-800">{parseFloat(basicSalaryValues[employee.id]).toLocaleString()}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{paymentModeValues[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
-								{#if otherAllowanceValues[employee.id]}
-									<div class="value-display">
-										<span class="amount">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
-										<span class="badge">{otherAllowancePaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
+							<td class="px-4 py-3 text-sm text-center font-mono">
+								{#if otherAllowanceValues[employee.id] && parseFloat(otherAllowanceValues[employee.id]) > 0}
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-slate-800">{parseFloat(otherAllowanceValues[employee.id]).toLocaleString()}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{otherAllowancePaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
-								{#if accommodationValues[employee.id]}
-									<div class="value-display">
-										<span class="amount">{parseFloat(accommodationValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
-										<span class="badge">{accommodationPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
+							<td class="px-4 py-3 text-sm text-center font-mono">
+								{#if accommodationValues[employee.id] && parseFloat(accommodationValues[employee.id]) > 0}
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-slate-800">{parseFloat(accommodationValues[employee.id]).toLocaleString()}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{accommodationPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
-								{#if foodValues[employee.id]}
-									<div class="value-display">
-										<span class="amount">{parseFloat(foodValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
-										<span class="badge">{foodPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
+							<td class="px-4 py-3 text-sm text-center font-mono">
+								{#if foodValues[employee.id] && parseFloat(foodValues[employee.id]) > 0}
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-slate-800">{parseFloat(foodValues[employee.id]).toLocaleString()}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{foodPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
-								{#if travelValues[employee.id]}
-									<div class="value-display">
-										<span class="amount">{parseFloat(travelValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
-										<span class="badge">{travelPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
+							<td class="px-4 py-3 text-sm text-center font-mono">
+								{#if travelValues[employee.id] && parseFloat(travelValues[employee.id]) > 0}
+									<div class="flex flex-col items-center">
+										<span class="font-bold text-slate-800">{parseFloat(travelValues[employee.id]).toLocaleString()}</span>
+										<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{travelPaymentMode[employee.id] === 'Bank' ? $t('hr.salary.bank') : $t('hr.salary.cash')}</span>
 									</div>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
-								{#if gosiValues[employee.id]}
-									<span class="deduction-amount">-{parseFloat(gosiValues[employee.id]).toLocaleString()} {$t('common.sar')}</span>
+							<td class="px-4 py-3 text-sm text-center font-mono">
+								{#if gosiValues[employee.id] && parseFloat(gosiValues[employee.id]) > 0}
+									<span class="font-bold text-red-600">-{parseFloat(gosiValues[employee.id]).toLocaleString()}</span>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-center font-mono">
 								{#if getTotalSalary(employee.id) > 0}
 									{@const total = getTotalSalary(employee.id)}
-									<span class="total-amount">{total.toLocaleString()} {$t('common.sar')}</span>
+									<span class="font-black text-emerald-700 text-base">{total.toLocaleString()}</span>
 								{:else}
-									<span class="no-data">-</span>
+									<span class="text-slate-400">-</span>
 								{/if}
 							</td>
-							<td>
+							<td class="px-4 py-3 text-sm text-center">
 								{#if basicSalaryValues[employee.id]}
-									<button class="edit-btn" on:click={() => openModal(employee.id)}>
-										{$t('hr.salary.edit')}
+									<button 
+										class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
+										on:click={() => openModal(employee.id)}
+									>
+										✏️ {$t('hr.salary.edit')}
 									</button>
 								{:else}
-									<button class="add-btn" on:click={() => openModal(employee.id)}>
-										+ {$t('hr.salary.add')}
+									<button 
+										class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200"
+										on:click={() => openModal(employee.id)}
+									>
+										+
 									</button>
 								{/if}
 							</td>
 						</tr>
 					{/each}
-					{#if employees.length === 0}
+					{#if filteredEmployees.length === 0}
 						<tr>
-							<td colspan="15" class="no-data-row">{$t('hr.salary.noEmployeesFound')}</td>
+							<td colspan="11" class="px-4 py-12 text-center text-slate-500 italic">{$t('hr.salary.noEmployeesFound')}</td>
 						</tr>
 					{/if}
 				</tbody>
 			</table>
 		</div>
-	{/if}
+		
+		<!-- Footer with row count -->
+		<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold rounded-b-[2.5rem]">
+			{$t('hr.shift.showing_employees', { count: filteredEmployees.length })}
+		</div>
+	</div>
+{/if}
 </div>
 
 <!-- Modal -->
@@ -744,6 +959,35 @@
 		justify-content: space-between;
 	}
 
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 2rem;
+	}
+
+	.search-filters {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+	}
+
+	.filter-input {
+		padding: 0.5rem 1rem;
+		border: 1px solid #ced4da;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		width: 250px;
+	}
+
+	.filter-select {
+		padding: 0.5rem 1rem;
+		border: 1px solid #ced4da;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		background-color: white !important;
+		color: #333 !important;
+	}
+
 	h2 {
 		margin: 0;
 		font-size: 1.5rem;
@@ -785,161 +1029,35 @@
 		color: #666;
 	}
 
-	.table-container {
-		flex: 1;
-		overflow: auto;
-		background: white;
-		border-radius: 8px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-
-	thead {
-		position: sticky;
-		top: 0;
-		background: #f8f9fa;
-		z-index: 1;
-	}
-
-	th {
-		padding: 1rem;
-		text-align: left;
+	.status-chip {
+		display: inline-block;
+		padding: 0.25rem 0.6rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
 		font-weight: 600;
-		color: #495057;
-		border-bottom: 2px solid #dee2e6;
+		text-align: center;
 		white-space: nowrap;
 	}
 
-	td {
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid #dee2e6;
-		color: #212529;
-	}
+	.status-job-finger { background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+	.status-job-no-finger { background-color: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; }
+	.status-remote { background-color: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+	.status-vacation { background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+	.status-resigned { background-color: #fffaf5; color: #d97706; border: 1px solid #fed7aa; }
+	.status-terminated { background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+	.status-escape { background-color: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+	.status-unknown { background-color: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
 
-	tbody tr:hover {
-		background: #f8f9fa;
-	}
-
-	.no-data-row {
-		text-align: center;
-		color: #6c757d;
-		font-style: italic;
-		padding: 2rem !important;
-	}
-
-	.name-cell {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.name-ar {
-		font-weight: 500;
-		color: #212529;
-	}
-
-	.name-en {
-		font-size: 0.875rem;
-		color: #6c757d;
-	}
-
-	.location {
-		font-weight: normal;
-		opacity: 0.8;
-	}
-
-	.value-display {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.amount {
-		font-weight: 600;
-		color: #28a745;
-		font-size: 0.9rem;
-	}
-
-	.badge {
-		display: inline-block;
-		padding: 0.125rem 0.5rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 500;
-		background: #e7f3ff;
-		color: #0056b3;
-		width: fit-content;
-	}
-
-	.status-badge {
-		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-	}
-
-	.status-badge.active {
-		background: #d4edda;
-		color: #155724;
-		border: 1px solid #c3e6cb;
-	}
-
-	.status-badge.inactive {
-		background: #f8d7da;
-		color: #721c24;
-		border: 1px solid #f5c6cb;
-	}
-
-	.deduction-amount {
-		font-weight: 600;
-		color: #dc3545;
-		font-size: 0.9rem;
-	}
-
-	.total-amount {
-		font-weight: 700;
-		color: #0056b3;
-		font-size: 1rem;
-	}
-
-	.no-data {
-		color: #6c757d;
-		font-style: italic;
-	}
-
-	.edit-btn, .add-btn {
-		padding: 0.5rem 1rem;
-		border: none;
-		border-radius: 4px;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.2s;
-		font-weight: 500;
-	}
-
-	.edit-btn {
-		background: #007bff;
-		color: white;
-	}
-
-	.edit-btn:hover {
-		background: #0056b3;
-	}
-
-	.add-btn {
-		background: #17a2b8;
-		color: white;
-	}
-
-	.add-btn:hover {
-		background: #138496;
-	}
+	/* Nationality Badges */
+	.nat-sa { background-color: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+	.nat-ind { background-color: #ecfeff; color: #0891b2; border: 1px solid #cffafe; }
+	.nat-ban { background-color: #fffbeb; color: #d97706; border: 1px solid #fef3c7; }
+	.nat-yem { background-color: #fff1f2; color: #e11d48; border: 1px solid #ffe4e6; }
+	.nat-egy { background-color: #f5f3ff; color: #6d28d9; border: 1px solid #ede9fe; }
+	.nat-pak { background-color: #f0f9ff; color: #0369a1; border: 1px solid #e0f2fe; }
+	.nat-phi { background-color: #fdf2f8; color: #be185d; border: 1px solid #fce7f3; }
+	.nat-sud { background-color: #fafaf9; color: #44403c; border: 1px solid #f5f5f4; }
+	.nat-default { background-color: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
 
 	/* Modal Styles */
 	.modal-overlay {
