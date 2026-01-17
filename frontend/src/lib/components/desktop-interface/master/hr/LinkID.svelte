@@ -410,7 +410,7 @@
 				</thead>
 				<tbody>
 					{#each filteredUsers as user, userIndex (user.id)}
-						<tr class:inactive-row={user.status === 'inactive'}>
+						<tr class:inactive-row={user.status === 'inactive'} class:missing-master={!user.master_id}>
 							<td>{user.master_id || '-'}</td>
 							<td>{user.username}</td>
 							<td>{user.status || '-'}</td>
@@ -765,6 +765,14 @@
 
 	.inactive-row:hover {
 		background-color: #fecaca !important;
+	}
+
+	.missing-master {
+		background-color: #fef9c3 !important;
+	}
+
+	.missing-master:hover {
+		background-color: #fef08a !important;
 	}
 
 	.cell-with-button {

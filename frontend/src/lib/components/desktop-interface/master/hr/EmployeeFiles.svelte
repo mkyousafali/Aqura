@@ -77,6 +77,12 @@
 	let newInsuranceCompanyNameEn = '';
 	let newInsuranceCompanyNameAr = '';
 	let showCreateInsuranceModal = false;
+
+	let isCreatingNationality = false;
+	let newNationalityId = '';
+	let newNationalityNameEn = '';
+	let newNationalityNameAr = '';
+	let showCreateNationalityModal = false;
 	
 	// POS Shortages
 	let posShortages: any = {
@@ -250,6 +256,50 @@
 			alert($t('employeeFiles.alerts.createCompanyError'));
 		} finally {
 			isCreatingInsuranceCompany = false;
+		}
+	}
+
+	async function createNationality() {
+		if (!newNationalityId || !newNationalityNameEn || !newNationalityNameAr) {
+			alert($t('employeeFiles.alerts.enterNationalityDetails') || 'Please enter all nationality details (ID, English Name, Arabic Name)');
+			return;
+		}
+
+		isCreatingNationality = true;
+
+		try {
+			const { data, error } = await supabase
+				.from('nationalities')
+				.insert([
+					{
+						id: newNationalityId.toUpperCase(),
+						name_en: newNationalityNameEn,
+						name_ar: newNationalityNameAr
+					}
+				])
+				.select();
+
+			if (error) {
+				console.error('Error creating nationality:', error);
+				alert($t('employeeFiles.alerts.createNationalityError') || 'Error creating nationality. The ID might already exist.');
+				return;
+			}
+
+			if (data && data[0]) {
+				// Update nationalities list and sort it again
+				await loadNationalities();
+				selectedNationality = data[0].id;
+				newNationalityId = '';
+				newNationalityNameEn = '';
+				newNationalityNameAr = '';
+				showCreateNationalityModal = false;
+				alert($t('employeeFiles.alerts.createNationalitySuccess') || 'Nationality created successfully');
+			}
+		} catch (error) {
+			console.error('Error creating nationality:', error);
+			alert($t('employeeFiles.alerts.createNationalityError') || 'Error creating nationality');
+		} finally {
+			isCreatingNationality = false;
 		}
 	}
 
@@ -1475,12 +1525,17 @@
 										</div>
 									{:else}
 										<!-- Edit mode -->
-										<select bind:value={selectedNationality}>
-											<option value="">{$t('commands.close')}</option>
-											{#each nationalities as nationality}
-												<option value={nationality.id}>{nationality.name_ar} / {nationality.name_en}</option>
-											{/each}
-										</select>
+										<div class="input-with-button">
+											<select bind:value={selectedNationality}>
+												<option value="">{$t('commands.close')}</option>
+												{#each nationalities as nationality}
+													<option value={nationality.id}>{nationality.name_ar} / {nationality.name_en}</option>
+												{/each}
+											</select>
+											<button class="add-btn-small" on:click={() => showCreateNationalityModal = true} title={$t('employeeFiles.addNationality') || 'Add Nationality'}>
+												➕
+											</button>
+										</div>
 									{/if}
 									<button class="save-button" on:click={isSaved ? toggleEdit : saveNationality}>
 										{#if isSaved}
@@ -2697,6 +2752,56 @@
 	</div>
 {/if}
 
+<!-- Create Nationality Modal -->
+{#if showCreateNationalityModal}
+	<div class="modal-overlay" on:click={() => showCreateNationalityModal = false}>
+		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h3>{$t('employeeFiles.createNationality') || 'Create New Nationality'}</h3>
+				<button class="close-button" on:click={() => showCreateNationalityModal = false}>✕</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group-compact">
+					<label for="nationality-id">{$t('employeeFiles.nationalityId') || 'Nationality ID (e.g., SA, UK)'}</label>
+					<input 
+						type="text" 
+						id="nationality-id" 
+						bind:value={newNationalityId}
+						maxlength="10"
+						placeholder={$t('employeeFiles.enterNationalityId') || 'Enter ID'}
+					/>
+				</div>
+				<div class="form-group-compact">
+					<label for="nationality-name-en">{$t('employeeFiles.nationalityNameEn') || 'Name (English)'}</label>
+					<input 
+						type="text" 
+						id="nationality-name-en" 
+						bind:value={newNationalityNameEn}
+						placeholder={$t('employeeFiles.enterNationalityNameEn') || 'Enter name in English'}
+					/>
+				</div>
+				<div class="form-group-compact">
+					<label for="nationality-name-ar">{$t('employeeFiles.nationalityNameAr') || 'Name (Arabic)'}</label>
+					<input 
+						type="text" 
+						id="nationality-name-ar" 
+						bind:value={newNationalityNameAr}
+						placeholder={$t('employeeFiles.enterNationalityNameAr') || 'Enter name in Arabic'}
+					/>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="cancel-button" on:click={() => showCreateNationalityModal = false}>
+					{$t('employeeFiles.cancel')}
+				</button>
+				<button class="save-button" on:click={createNationality} disabled={isCreatingNationality}>
+					{isCreatingNationality ? `⏳ ${$t('employeeFiles.creating')}` : `✅ ${$t('employeeFiles.create')}`}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.employee-files-container {
 		display: flex;
@@ -3888,5 +3993,35 @@
 	.save-button:disabled {
 		background: #d1d5db;
 		cursor: not-allowed;
+	}
+
+	.input-with-button {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.input-with-button select,
+	.input-with-button input {
+		flex: 1;
+	}
+
+	.add-btn-small {
+		padding: 0.4rem 0.6rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.8rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: transform 0.2s, background-color 0.2s;
+	}
+
+	.add-btn-small:hover {
+		background: #059669;
+		transform: scale(1.05);
 	}
 </style>
