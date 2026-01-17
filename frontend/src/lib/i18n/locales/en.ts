@@ -753,11 +753,14 @@ export const englishLocale: LocaleData = {
       changeEducationExpiryDate: "Change Education Expiry Date",
       drivingLicence: "Driving Licence",
       drivingLicenceNumber: "Driving Licence Number",
+      licenceNumber: "Licence Number",
       drivingLicenceExpiryDate: "Driving Licence Expiry Date",
       enterDrivingLicenceNumber: "Enter driving licence number",
+      enterLicenceNumber: "Enter licence number",
       changeDrivingLicenceNumber: "Change Driving Licence Number",
       contract: "Contract",
       contractExpiryDate: "Contract Expiry Date",
+      workPermitExpiryDate: "Work Permit Expiry Date",
       saveContractDate: "Save Contract Date",
       updateContractDate: "Update Contract Date",
       insuranceCompany: "Insurance Company",
@@ -1312,6 +1315,8 @@ export const englishLocale: LocaleData = {
       inactive: "Inactive",
       pending: "Pending",
       nationality: "Nationality",
+      employmentStatus: "Employment Status",
+      sponsorshipStatus: "Sponsorship Status",
       // Biometric Data Dashboard
       biometricData: "Biometric Data",
       presentToday: "Present Today",
@@ -1814,6 +1819,8 @@ export const englishLocale: LocaleData = {
       back: "Back",
       backToLogin: "Back to Login",
       refresh: "Refresh",
+      active: "Active",
+      inactive: "Inactive",
       // Days of the week
       days: {
         monday: "Monday",

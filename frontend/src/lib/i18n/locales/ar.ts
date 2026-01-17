@@ -760,11 +760,14 @@ export const arabicLocale: LocaleData = {
       changeEducationExpiryDate: "تغيير تاريخ انتهاء التعليم",
       drivingLicence: "رخصة القيادة",
       drivingLicenceNumber: "رقم رخصة القيادة",
+      licenceNumber: "رقم الرخصة",
       drivingLicenceExpiryDate: "تاريخ انتهاء رخصة القيادة",
       enterDrivingLicenceNumber: "أدخل رقم رخصة القيادة",
+      enterLicenceNumber: "أدخل رقم الرخصة",
       changeDrivingLicenceNumber: "تغيير رقم رخصة القيادة",
       contract: "العقد",
       contractExpiryDate: "تاريخ انتهاء العقد",
+      workPermitExpiryDate: "تاريخ انتهاء تصريح العمل",
       saveContractDate: "حفظ تاريخ العقد",
       updateContractDate: "تحديث تاريخ العقد",
       insuranceCompany: "شركة التأمين",
@@ -1323,6 +1326,8 @@ export const arabicLocale: LocaleData = {
       inactive: "غير نشط",
       pending: "في الانتظار",
       nationality: "الجنسية",
+      employmentStatus: "حالة التوظيف",
+      sponsorshipStatus: "حالة الكفالة",
       // Biometric Data Dashboard
       biometricData: "بيانات المقاييس البيومترية",
       presentToday: "الحاضرون اليوم",
@@ -1825,6 +1830,8 @@ export const arabicLocale: LocaleData = {
       back: "رجوع",
       backToLogin: "العودة لتسجيل الدخول",
       refresh: "تحديث",
+      active: "نشط",
+      inactive: "غير نشط",
       // أيام الأسبوع
       days: {
         monday: "الاثنين",
