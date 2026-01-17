@@ -99,6 +99,7 @@
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
 	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
+	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
 	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
@@ -846,6 +847,29 @@
 			title: `Discipline #${instanceNumber}`,
 			component: Discipline,
 			icon: '⚖️',
+			size: { width: 1000, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openLeaveRequest() {
+		collapseAllMenus();
+		const windowId = generateWindowId('leave-request');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Leave Request #${instanceNumber}`,
+			component: LeaveRequest,
+			icon: '📋',
 			size: { width: 1000, height: 700 },
 			position: { 
 				x: 50 + (Math.random() * 100),
@@ -3468,6 +3492,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDiscipline}>
 								<span class="menu-icon">⚖️</span>
 								<span class="menu-text">{t('nav.discipline')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('LEAVE_REQUEST')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openLeaveRequest}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">{t('nav.leaveRequest')}</span>
 							</button>
 						</div>
 					{/if}

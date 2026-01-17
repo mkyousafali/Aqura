@@ -283,8 +283,35 @@
 		if (!applicableShift) return { late: 0, early: 0 };
 
 		const punchMinutes = timeToMinutes(punchTime);
+		const shiftStartMinutes = timeToMinutes(applicableShift.shift_start_time);
 		const shiftEndMinutes = timeToMinutes(applicableShift.shift_end_time);
 		
+		// Check if this is an overnight shift (end time < start time)
+		const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
+		
+		if (isOvernightShift) {
+			// For overnight shifts, checkout can be either:
+			// 1. In the early morning hours (0:00 to shift_end_time) - normal checkout
+			// 2. In the evening hours (shift_start_time onwards) - should not happen for checkout
+			
+			if (punchMinutes <= shiftEndMinutes) {
+				// This is a morning checkout (after midnight)
+				// Calculate early/late based on shift end time
+				if (punchMinutes > shiftEndMinutes) {
+					return { late: punchMinutes - shiftEndMinutes, early: 0 };
+				} else {
+					return { late: 0, early: shiftEndMinutes - punchMinutes };
+				}
+			} else if (punchMinutes >= shiftStartMinutes) {
+				// This is an evening punch (should be check-in, not check-out)
+				// But if it's being treated as checkout, it's very late
+				// Add 24 hours to shift end for comparison
+				const adjustedShiftEnd = shiftEndMinutes + (24 * 60);
+				return { late: punchMinutes - adjustedShiftEnd, early: 0 };
+			}
+		}
+		
+		// Normal shift (doesn't cross midnight)
 		if (punchMinutes > shiftEndMinutes) {
 			// Checkout is late (after shift end time)
 			return { late: punchMinutes - shiftEndMinutes, early: 0 };
@@ -303,7 +330,32 @@
 
 		const punchMinutes = timeToMinutes(punchTime);
 		const shiftStartMinutes = timeToMinutes(applicableShift.shift_start_time);
+		const shiftEndMinutes = timeToMinutes(applicableShift.shift_end_time);
 		
+		// Check if this is an overnight shift (end time < start time)
+		const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
+		
+		if (isOvernightShift) {
+			// For overnight shifts, check-in is only in the evening (between shift_start and midnight)
+			if (punchMinutes >= shiftStartMinutes) {
+				// Evening check-in
+				if (punchMinutes < shiftStartMinutes) {
+					// Early - shouldn't happen since we're >= shiftStart
+					return { late: 0, early: shiftStartMinutes - punchMinutes };
+				} else {
+					// Late - after shift start time
+					return { late: punchMinutes - shiftStartMinutes, early: 0 };
+				}
+			} else if (punchMinutes < shiftStartMinutes && punchMinutes < shiftEndMinutes) {
+				// This is a morning punch (shouldn't be check-in)
+				// Could be previous day's checkout or very early morning check-in
+				// Treat as very early (add 24 hours for comparison)
+				const adjustedShiftStart = shiftStartMinutes - (24 * 60);
+				return { late: 0, early: adjustedShiftStart - punchMinutes };
+			}
+		}
+		
+		// Normal shift (doesn't cross midnight)
 		if (punchMinutes < shiftStartMinutes) {
 			// Check-in is early (before shift start)
 			return { late: 0, early: shiftStartMinutes - punchMinutes };
@@ -338,17 +390,23 @@
 		try {
 			console.log('Loading transactions for employee:', employee.id, 'Date range:', startDate, 'to', endDate);
 			
-			// Extend end date by 1 day to capture overnight shift checkouts
+			// Extend date range by 1 day before and after to capture carryover punches
+			const extendedStartDate = new Date(startDate);
+			extendedStartDate.setDate(extendedStartDate.getDate() - 1);
+			const extendedStartDateStr = extendedStartDate.toISOString().split('T')[0];
+			
 			const extendedEndDate = new Date(endDate);
 			extendedEndDate.setDate(extendedEndDate.getDate() + 1);
 			const extendedEndDateStr = extendedEndDate.toISOString().split('T')[0];
 
-			// Now query with extended date range
+			console.log('Extended date range for query:', extendedStartDateStr, 'to', extendedEndDateStr);
+
+			// Query with extended date range
 			const { data, error } = await supabase
 				.from('processed_fingerprint_transactions')
 				.select('*')
 				.eq('center_id', employee.id)
-				.gte('punch_date', startDate)
+				.gte('punch_date', extendedStartDateStr)
 				.lte('punch_date', extendedEndDateStr)
 				.order('punch_date', { ascending: false });
 
@@ -368,7 +426,77 @@
 			loadingTransactions = false;
 			// Process punch pairs after loading transactions
 			punchPairs = createPunchPairs(transactionData);
+			// Fill in missing dates in the range
+			punchPairs = fillMissingDatesInRange(punchPairs);
 		}
+	}
+
+	function fillMissingDatesInRange(pairs: any[]): any[] {
+		const start = new Date(startDate);
+		const end = new Date(endDate);
+		const allDatePairs: any[] = [];
+		const existingDates = new Set<string>();
+
+		// Filter pairs to only include those within the original date range
+		const filteredPairs = pairs.filter(pair => {
+			const dateToCheck = pair.checkInDate || pair.checkOutDate;
+			if (!dateToCheck) return false;
+			
+			const dateParts = dateToCheck.split('-');
+			const pairDate = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
+			return pairDate >= start && pairDate <= end;
+		});
+
+		// Track which shift dates have pairs
+		filteredPairs.forEach(pair => {
+			if (pair.checkInDate) {
+				existingDates.add(pair.checkInDate);
+			}
+			if (pair.checkOutDate && !pair.checkInDate) {
+				existingDates.add(pair.checkOutDate);
+			}
+		});
+
+		// Create empty pairs for all missing dates in the range
+		for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+			const dateStr = formatDateddmmyyyy(d.toISOString().split('T')[0]);
+			
+			if (!existingDates.has(dateStr)) {
+				// Create empty pair for this date
+				allDatePairs.push({
+					checkInTxn: null,
+					checkInDate: dateStr,
+					checkInEarlyLateTime: { late: 0, early: 0 },
+					checkOutTxn: null,
+					checkOutDate: dateStr,
+					checkOutCalendarDate: null,
+					workedTime: null,
+					lateEarlyTime: { late: 0, early: 0 },
+					checkInMissing: true,
+					checkOutMissing: true,
+					isEmptyDate: true
+				});
+			}
+		}
+
+		// Combine filtered pairs with empty date pairs
+		const allPairs = [...filteredPairs, ...allDatePairs];
+		
+		// Sort by date (convert DD-MM-YYYY to comparable format)
+		allPairs.sort((a, b) => {
+			const aDate = a.checkInDate || a.checkOutDate;
+			const bDate = b.checkInDate || b.checkOutDate;
+			
+			const aParts = aDate.split('-');
+			const bParts = bDate.split('-');
+			
+			const aDateObj = new Date(`${aParts[2]}-${aParts[1]}-${aParts[0]}`);
+			const bDateObj = new Date(`${bParts[2]}-${bParts[1]}-${bParts[0]}`);
+			
+			return aDateObj.getTime() - bDateObj.getTime();
+		});
+
+		return allPairs;
 	}
 
 	function createPunchPairs(transactions: any[]): any[] {
@@ -409,6 +537,36 @@
 				if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
 					status = 'Check In';
 					shiftDate = calendarDate;
+				} else if (isOvernightShift && checkOutStart < 0) {
+					// For overnight shifts where checkout buffer crosses midnight
+					// Check-out can be:
+					// 1. Early morning (0 to checkOutEnd) - on next calendar day, but belongs to previous day's shift
+					// 2. Late evening (checkOutStart + 24*60 onwards) - on same calendar day
+					const adjustedCheckOutStart = checkOutStart + (24 * 60);
+					
+					// Early morning checkout (0:00 to 4:00 AM)
+					if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+						status = 'Check Out';
+						// This punch is on the next calendar day, but belongs to previous day's shift
+						shiftDate = getPreviousDate(calendarDate);
+						const assignedShift = getApplicableShift(shiftDate);
+						console.log(`Assigned early morning checkout on ${calendarDate} to shift date ${shiftDate}. Shift: ${calendarShift.shift_start_time}-${calendarShift.shift_end_time}`);
+					}
+					// Late evening checkout (10:00 PM to 11:59 PM)
+					else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
+						status = 'Check Out';
+						// This punch is on the same calendar day as check-in
+						shiftDate = calendarDate;
+						const assignedShift = getApplicableShift(shiftDate);
+						console.log(`Assigned late evening checkout on ${calendarDate}. Shift: ${calendarShift.shift_start_time}-${calendarShift.shift_end_time}`);
+					}
+					else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+						status = 'In Progress';
+						shiftDate = calendarDate;
+					} else {
+						status = 'Other';
+						shiftDate = calendarDate;
+					}
 				} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
 					status = 'Check Out';
 					// Assign to previous day's shift
@@ -465,16 +623,33 @@
 			console.log(`  ${sd}: ${groupedByShiftDate[sd].map(t => `${t.status}@${formatTime12Hour(t.punch_time)}`).join(', ')}`);
 		});
 		
+		// Track consumed transactions to avoid double pairing
+		const consumedTransactions = new Set<string>();
+		
 		// Create pairs for each shift date
 		Object.keys(groupedByShiftDate).sort().forEach(shiftDate => {
-			const shiftTransactions = groupedByShiftDate[shiftDate];
+			const shiftTransactions = groupedByShiftDate[shiftDate].filter(t => !consumedTransactions.has(t.id));
 			
-			// Sort transactions within each shift by calendar date (chronologically)
-			// This ensures check-in (earlier calendar date) comes before check-out (later calendar date)
+			// Get applicable shift for this shift date
+			const applicableShiftForDate = getApplicableShift(shiftDate);
+			const isOvernightShift = applicableShiftForDate && 
+				timeToMinutes(applicableShiftForDate.shift_end_time) < timeToMinutes(applicableShiftForDate.shift_start_time);
+			
+			// Sort transactions within each shift by: calendar date first, then by punch time
+			// This ensures check-in (earlier calendar date or earlier time) comes before check-out
 			shiftTransactions.sort((a, b) => {
 				const aDate = new Date(`${a.calendarDate.split('-').reverse().join('-')}`);
 				const bDate = new Date(`${b.calendarDate.split('-').reverse().join('-')}`);
-				return aDate.getTime() - bDate.getTime();
+				const dateComparison = aDate.getTime() - bDate.getTime();
+				
+				// If same calendar date, sort by punch time
+				if (dateComparison === 0) {
+					const aPunchMinutes = timeToMinutes(a.punch_time);
+					const bPunchMinutes = timeToMinutes(b.punch_time);
+					return aPunchMinutes - bPunchMinutes;
+				}
+				
+				return dateComparison;
 			});
 			
 			let i = 0;
@@ -482,18 +657,69 @@
 			while (i < shiftTransactions.length) {
 				const txn = shiftTransactions[i];
 				
-					if (txn.status === 'Check In') {
+				if (txn.status === 'Check In') {
 					// Look for corresponding checkout in the same shift
 					let checkOutTxn = null;
 					let checkOutCalendarDate = null;
+					let nextIdx = i + 1;
 					
-					if (i + 1 < shiftTransactions.length) {
-						const nextTxn = shiftTransactions[i + 1];
+					// First, try to find a proper "Check Out" status punch
+					if (nextIdx < shiftTransactions.length) {
+						const nextTxn = shiftTransactions[nextIdx];
 						if (nextTxn.status === 'Check Out') {
 							checkOutTxn = nextTxn;
 							checkOutCalendarDate = nextTxn.calendarDate;
 						}
+						// If no proper checkout found, use "In Progress" or "Other" punch as fallback checkout
+						// BUT only if it's on the same shift date (same calendar date for non-overnight shifts)
+						else if ((nextTxn.status === 'In Progress' || nextTxn.status === 'Other') && nextTxn.shiftDate === shiftDate) {
+							checkOutTxn = nextTxn;
+							checkOutCalendarDate = nextTxn.calendarDate;
+						}
 					}
+					
+					// For non-overlapping shifts, if still no checkout found, search for carryover checkout on next shift date
+					if (!checkOutTxn && !isOvernightShift) {
+						const applicableShift = getApplicableShift(shiftDate);
+						if (applicableShift) {
+							const nextShiftDate = getNextDate(shiftDate);
+							const nextShiftTransactions = groupedByShiftDate[nextShiftDate];
+							
+							if (nextShiftTransactions && nextShiftTransactions.length > 0) {
+								const nextDayShift = getApplicableShift(nextShiftDate);
+								if (nextDayShift) {
+									const nextShiftStartMinutes = timeToMinutes(nextDayShift.shift_start_time);
+									const nextShiftStartBuffer = (nextDayShift.shift_start_buffer || 0) * 60;
+									const nextDayCheckInStart = nextShiftStartMinutes - nextShiftStartBuffer; // Earliest punch that would be check-in
+									
+									// Look for any punch before the next day's check-in window
+									for (const nextTxn of nextShiftTransactions) {
+										if (consumedTransactions.has(nextTxn.id)) continue;
+										
+										const nextPunchMinutes = timeToMinutes(nextTxn.punch_time);
+										
+										// If this punch is BEFORE the next day's check-in window, it belongs to current day as checkout
+										if (nextPunchMinutes < nextDayCheckInStart) {
+											checkOutTxn = nextTxn;
+											checkOutCalendarDate = nextTxn.calendarDate;
+											// Mark this transaction as consumed
+											consumedTransactions.add(nextTxn.id);
+											break; // Use the first such punch found
+										}
+									}
+								}
+							}
+						}
+					}
+					
+					// Mark check-in as consumed
+					if (checkOutTxn && !consumedTransactions.has(txn.id)) {
+						consumedTransactions.add(txn.id);
+					}
+					
+					// For checkout late/early calculation, use the shift applicable to the checkout's shift date
+					// (which may differ from check-in date in carryover scenarios)
+					const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
 					
 					const pair = {
 						checkInTxn: txn,
@@ -503,26 +729,30 @@
 						checkOutDate: shiftDate,
 						checkOutCalendarDate: checkOutCalendarDate,
 						workedTime: checkOutTxn ? calculateWorkedTime(txn.punch_time, checkOutTxn.punch_time) : null,
-						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)) : { late: 0, early: 0 },
+						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift) : { late: 0, early: 0 },
 						checkOutMissing: !checkOutTxn
 					};
 					
 					pairs.push(pair);
 					i += checkOutTxn ? 2 : 1;
 				} else {
-					// Standalone checkout (check-in was before the query range)
-					const pair = {
-						checkInTxn: null,
-						checkInDate: null,
-						checkOutTxn: txn,
-						checkOutDate: shiftDate,
-						checkOutCalendarDate: txn.calendarDate,
-						workedTime: null,
-						lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate)),
-						checkInMissing: true
-					};
-					
-					pairs.push(pair);
+					// Standalone checkout (check-in was before the query range or is missing)
+					// Only show if not already consumed as a carryover
+					if (!consumedTransactions.has(txn.id)) {
+						const pair = {
+							checkInTxn: null,
+							checkInDate: null,
+							checkOutTxn: txn,
+							checkOutDate: shiftDate,
+							checkOutCalendarDate: txn.calendarDate,
+							workedTime: null,
+							lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate)),
+							checkInMissing: true
+						};
+						
+						pairs.push(pair);
+						consumedTransactions.add(txn.id);
+					}
 					i += 1;
 				}
 			}
@@ -658,8 +888,36 @@
 	{#if punchPairs.length > 0}
 		<div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
 			<div class="space-y-4 p-4">
-				{#each punchPairs as pair, idx (pair.checkInTxn?.id || pair.checkOutTxn?.id)}
-					{#if pair.checkInTxn}
+				{#each punchPairs as pair, idx (pair.checkInTxn?.id || pair.checkOutTxn?.id || pair.checkInDate || pair.checkOutDate)}
+					{#if pair.isEmptyDate}
+						<!-- Empty Date Card (No Transactions) -->
+						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
+						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
+						{@const isUnapprovedLeave = !isOfficial && !isSpecific}
+						<div class="border border-slate-300 rounded-lg overflow-hidden {isUnapprovedLeave ? 'bg-red-50' : 'bg-slate-50'}">
+							<div class="px-4 py-2 font-bold flex items-center justify-between {isUnapprovedLeave ? 'bg-red-500 text-white' : 'bg-slate-400 text-white'}">
+								<span>{pair.checkInDate}</span>
+								<div class="flex gap-2">
+									{#if isOfficial}
+										<span class="px-3 py-1 bg-red-600 rounded-full text-sm font-semibold">Official Day Off</span>
+									{/if}
+									{#if isSpecific}
+										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">Day Off</span>
+									{/if}
+									{#if isUnapprovedLeave}
+										<span class="px-3 py-1 bg-red-700 rounded-full text-sm font-semibold">Unapproved Leave</span>
+									{/if}
+								</div>
+							</div>
+							<div class="px-4 py-6 text-center text-sm {isUnapprovedLeave ? 'text-red-600 font-semibold' : 'text-slate-500'}">
+								{#if isUnapprovedLeave}
+									No check-in/check-out recorded
+								{:else}
+									No transactions recorded
+								{/if}
+							</div>
+						</div>
+					{:else if pair.checkInTxn}
 						<!-- Paired Check-In/Check-Out (always show under check-in date) -->
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
 							<div class="bg-blue-600 text-white px-4 py-2 font-bold flex items-center justify-between">
@@ -755,6 +1013,20 @@
 											</div>
 										{/if}
 									</div>
+								{:else if pair.checkInTxn}
+									<!-- Check-Out Missing -->
+									<div class="px-4 py-3 bg-yellow-50 border-t border-yellow-100">
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-3">
+												<div class="text-sm font-semibold text-yellow-800">No check-out recorded</div>
+											</div>
+											<div class="flex items-center gap-2">
+												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+													Check-Out Missing
+												</span>
+											</div>
+										</div>
+									</div>
 								{/if}
 							</div>
 						</div>
@@ -774,6 +1046,21 @@
 							</div>
 							
 							<div class="divide-y divide-slate-200">
+								{#if pair.checkInMissing}
+									<!-- Check-In Missing -->
+									<div class="px-4 py-3 bg-yellow-50 border-b border-yellow-100">
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-3">
+												<div class="text-sm font-semibold text-yellow-800">No check-in recorded</div>
+											</div>
+											<div class="flex items-center gap-2">
+												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+													Check-In Missing
+												</span>
+											</div>
+										</div>
+									</div>
+								{/if}
 								<div class="px-4 py-3 hover:bg-slate-50">
 									<div class="flex items-center justify-between mb-2">
 										<div class="flex items-center gap-3 flex-1">
@@ -788,11 +1075,6 @@
 											<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
 												Check Out
 											</span>
-											{#if pair.checkInMissing}
-												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													Check-In Missing
-												</span>
-											{/if}
 											{#if pair.lateEarlyTime?.late > 0}
 												<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
 												Overtime {Math.floor(pair.lateEarlyTime.late / 60)}h {pair.lateEarlyTime.late % 60}m
@@ -818,6 +1100,107 @@
 			<!-- Footer -->
 			<div class="px-4 py-3 bg-slate-50 text-xs text-slate-600 font-semibold border-t border-slate-200">
 				Total Punch Pairs: {punchPairs.length}
+			</div>
+		</div>
+		
+		<!-- Summary Table -->
+		{@const completePairs = punchPairs.filter(p => p.checkInTxn && p.checkOutTxn)}
+		{@const incompletePairs = punchPairs.filter(p => (p.checkInMissing || p.checkOutMissing) && !p.isEmptyDate)}
+		{@const emptyDates = punchPairs.filter(p => p.isEmptyDate)}
+		{@const officialDayOffs = emptyDates.filter(d => isOfficialDayOff(d.checkInDate))}
+		{@const specificDayOffs = emptyDates.filter(d => isSpecificDayOff(d.checkInDate))}
+		{@const unapprovedLeaves = emptyDates.filter(d => !isOfficialDayOff(d.checkInDate) && !isSpecificDayOff(d.checkInDate))}
+		{@const totalWorkedMinutes = completePairs.reduce((sum, p) => {
+			if (!p.workedTime) return sum;
+			const [hours, mins] = p.workedTime.split(':').map(Number);
+			return sum + (hours * 60) + mins;
+		}, 0)}
+		{@const totalWorkedHours = Math.floor(totalWorkedMinutes / 60)}
+		{@const totalWorkedMins = totalWorkedMinutes % 60}
+		{@const totalLateMinutes = completePairs.reduce((sum, p) => sum + (p.lateEarlyTime?.late || 0), 0)}
+		{@const totalLateHours = Math.floor(totalLateMinutes / 60)}
+		{@const totalLateMins = totalLateMinutes % 60}
+		{@const totalEarlyMinutes = completePairs.reduce((sum, p) => sum + (p.lateEarlyTime?.early || 0), 0)}
+		{@const totalEarlyHours = Math.floor(totalEarlyMinutes / 60)}
+		{@const totalEarlyMins = totalEarlyMinutes % 60}
+		
+		<div class="mt-8 bg-white rounded-lg border border-slate-200 overflow-hidden">
+			<div class="p-6">
+				<h3 class="text-lg font-bold text-slate-900 mb-6">Summary for {startDate} to {endDate}</h3>
+				
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+					<!-- Complete Days -->
+					<div class="bg-green-50 border border-green-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Complete Days</div>
+						<div class="text-3xl font-bold text-green-700">{completePairs.length}</div>
+						<div class="text-xs text-slate-500 mt-2">Check-in & Check-out recorded</div>
+					</div>
+					
+					<!-- Incomplete Days -->
+					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Incomplete Days</div>
+						<div class="text-3xl font-bold text-yellow-700">{incompletePairs.length}</div>
+						<div class="text-xs text-slate-500 mt-2">Missing check-in or check-out</div>
+					</div>
+					
+					<!-- Days Off -->
+					<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Days Off</div>
+						<div class="text-3xl font-bold text-blue-700">{officialDayOffs.length + specificDayOffs.length}</div>
+						<div class="text-xs text-slate-500 mt-2">Official & Approved</div>
+					</div>
+					
+					<!-- Unapproved Leaves -->
+					<div class="bg-red-50 border border-red-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Unapproved Leaves</div>
+						<div class="text-3xl font-bold text-red-700">{unapprovedLeaves.length}</div>
+						<div class="text-xs text-slate-500 mt-2">No recorded punches</div>
+					</div>
+				</div>
+				
+				<!-- Late/Early Time Row -->
+				<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+					<!-- Total Late Time -->
+					<div class="bg-red-50 border border-red-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Total Late Time</div>
+						<div class="text-3xl font-bold text-red-700">{totalLateHours}h {totalLateMins}m</div>
+						<div class="text-xs text-slate-500 mt-2">Overtime across all days</div>
+					</div>
+					
+					<!-- Total Early Time -->
+					<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Total Early Checkout</div>
+						<div class="text-3xl font-bold text-blue-700">{totalEarlyHours}h {totalEarlyMins}m</div>
+						<div class="text-xs text-slate-500 mt-2">Undertime across all days</div>
+					</div>
+				</div>
+				
+				<!-- Total Worked Hours -->
+				<div class="mt-6 bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-6">
+					<div class="flex items-center justify-between">
+						<div>
+							<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Total Worked Hours</div>
+							<div class="text-4xl font-bold text-slate-900">{totalWorkedHours}h {totalWorkedMins}m</div>
+							<div class="text-sm text-slate-600 mt-3">Across {completePairs.length} complete working days</div>
+						</div>
+						{#if regularShift}
+							{@const expectedHours = regularShift.working_hours || 0}
+							{@const expectedMinutes = expectedHours * 60}
+							{@const difference = totalWorkedMinutes - (completePairs.length * expectedMinutes)}
+							{@const diffHours = Math.floor(Math.abs(difference) / 60)}
+							{@const diffMins = Math.abs(difference) % 60}
+							<div class="text-right">
+								<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Expected vs Actual</div>
+								<div class={`text-2xl font-bold ${difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+									{difference >= 0 ? '+' : '-'}{diffHours}h {diffMins}m
+								</div>
+								<div class="text-xs text-slate-600 mt-3">
+									Expected: {completePairs.length * expectedHours}h total
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
 			</div>
 		</div>
 	{:else if !loadingTransactions && (startDate || endDate)}
