@@ -15,6 +15,8 @@
         nationality_id: string;
         nationality_name_en: string;
         nationality_name_ar: string;
+        sponsorship_status?: string;
+        employment_status?: string;
         shift_start_time?: string;
         shift_start_buffer?: number;
         shift_end_time?: string;
@@ -84,6 +86,7 @@
         current_branch_id: string;
         nationality_id: string;
         employment_status: string;
+        sponsorship_status?: string;
     }
 
     let activeTab = 'Regular Shift';
@@ -179,7 +182,9 @@
                     name_en,
                     name_ar,
                     current_branch_id,
-                    nationality_id
+                    nationality_id,
+                    employment_status,
+                    sponsorship_status
                 `);
 
             if (empError) throw empError;
@@ -242,6 +247,8 @@
                     nationality_id: emp.nationality_id,
                     nationality_name_en: nationality?.name_en || 'N/A',
                     nationality_name_ar: nationality?.name_ar || 'N/A',
+                    sponsorship_status: emp.sponsorship_status,
+                    employment_status: emp.employment_status,
                     shift_start_time: shift?.shift_start_time,
                     shift_start_buffer: shift?.shift_start_buffer,
                     shift_end_time: shift?.shift_end_time,
@@ -249,12 +256,10 @@
                     is_shift_overlapping_next_day: shift?.is_shift_overlapping_next_day,
                     working_hours: shift?.working_hours
                 };
-            }).sort((a, b) => {
-                // Extract numeric part from employee ID (e.g., "EMP1" -> 1)
-                const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-                return numA - numB;
             });
+            
+            // Sort and create new array reference for Svelte reactivity
+            employees = [...sortEmployees(employees)];
         } catch (err) {
             console.error('Error loading employee shift data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -276,7 +281,9 @@
                     name_en,
                     name_ar,
                     current_branch_id,
-                    nationality_id
+                    nationality_id,
+                    employment_status,
+                    sponsorship_status
                 `);
 
             if (empError) throw empError;
@@ -352,14 +359,13 @@
                     nationality_id: emp.nationality_id,
                     nationality_name_en: nationality?.name_en || 'N/A',
                     nationality_name_ar: nationality?.name_ar || 'N/A',
+                    sponsorship_status: emp.sponsorship_status,
+                    employment_status: emp.employment_status,
                     shifts: shiftsObj
                 };
-            }).sort((a, b) => {
-                // Extract numeric part from employee ID (e.g., "EMP1" -> 1)
-                const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-                return numA - numB;
             });
+            
+            employees = [...sortEmployees(employees)];
         } catch (err) {
             console.error('Error loading employee special shift data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -382,7 +388,9 @@
                     name_en,
                     name_ar,
                     current_branch_id,
-                    nationality_id
+                    nationality_id,
+                    employment_status,
+                    sponsorship_status
                 `);
 
             if (empError) throw empError;
@@ -418,11 +426,9 @@
                     branch_name_en: branch?.name_en || 'N/A',
                     branch_name_ar: branch?.name_ar || 'N/A'
                 };
-            }).sort((a, b) => {
-                const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-                return numA - numB;
             });
+            
+            allEmployeesForDateWise = [...sortEmployees(allEmployeesForDateWise)];
 
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
@@ -470,6 +476,8 @@
                     nationality_id: emp?.nationality_id,
                     nationality_name_en: nationality?.name_en || 'N/A',
                     nationality_name_ar: nationality?.name_ar || 'N/A',
+                    sponsorship_status: emp?.sponsorship_status,
+                    employment_status: emp?.employment_status,
                     shift_date: shift.shift_date,
                     shift_start_time: shift.shift_start_time,
                     shift_start_buffer: shift.shift_start_buffer,
@@ -479,6 +487,8 @@
                     working_hours: shift.working_hours
                 };
             });
+            
+            dateWiseShifts = [...sortEmployees(dateWiseShifts)];
         } catch (err) {
             console.error('Error loading special shift date-wise data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -545,7 +555,9 @@
                     name_en,
                     name_ar,
                     current_branch_id,
-                    nationality_id
+                    nationality_id,
+                    employment_status,
+                    sponsorship_status
                 `);
 
             if (empError) throw empError;
@@ -595,11 +607,9 @@
                     branch_name_en: branch?.name_en || 'N/A',
                     branch_name_ar: branch?.name_ar || 'N/A'
                 };
-            }).sort((a, b) => {
-                const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-                return numA - numB;
             });
+            
+            allEmployeesForDateWise = [...sortEmployees(allEmployeesForDateWise)];
 
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
@@ -630,9 +640,13 @@
                     nationality_id: emp?.nationality_id,
                     nationality_name_en: nationality?.name_en || 'N/A',
                     nationality_name_ar: nationality?.name_ar || 'N/A',
+                    sponsorship_status: emp?.sponsorship_status,
+                    employment_status: emp?.employment_status,
                     day_off_date: dayOff.day_off_date
                 };
             });
+            
+            dayOffs = [...sortEmployees(dayOffs)];
         } catch (err) {
             console.error('Error loading day off data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -673,7 +687,9 @@
                     name_en,
                     name_ar,
                     current_branch_id,
-                    nationality_id
+                    nationality_id,
+                    sponsorship_status,
+                    employment_status
                 `);
 
             if (empError) throw empError;
@@ -719,11 +735,9 @@
                     branch_name_en: branch?.name_en || 'N/A',
                     branch_name_ar: branch?.name_ar || 'N/A'
                 };
-            }).sort((a, b) => {
-                const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
-                return numA - numB;
             });
+            
+            allEmployeesForDateWise = [...sortEmployees(allEmployeesForDateWise)];
 
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
@@ -754,9 +768,13 @@
                     nationality_id: emp?.nationality_id,
                     nationality_name_en: nationality?.name_en || 'N/A',
                     nationality_name_ar: nationality?.name_ar || 'N/A',
+                    sponsorship_status: emp?.sponsorship_status,
+                    employment_status: emp?.employment_status,
                     day_off_weekday: dayOff.weekday
                 };
             });
+            
+            dayOffsWeekday = [...sortEmployees(dayOffsWeekday)];
         } catch (err) {
             console.error('Error loading day off weekday data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
@@ -1311,6 +1329,33 @@
         }
     }
 
+    function getEmploymentStatusDisplay(status: string | undefined): { color: string; text: string } {
+        switch (status) {
+            case 'Job':
+                return { color: 'bg-green-100 text-green-800', text: $t('employeeFiles.inJob') || 'Job' };
+            case 'Vacation':
+                return { color: 'bg-blue-100 text-blue-800', text: 'Vacation' };
+            case 'Terminated':
+                return { color: 'bg-red-100 text-red-800', text: 'Terminated' };
+            case 'Run Away':
+                return { color: 'bg-purple-100 text-purple-800', text: 'Run Away' };
+            case 'Resigned':
+            default:
+                return { color: 'bg-gray-100 text-gray-800', text: $t('employeeFiles.resigned') || 'Resigned' };
+        }
+    }
+
+    function getSponsorshipStatusDisplay(status: string | boolean | null | undefined): { color: string; text: string } {
+        // Handle both boolean and string values
+        const isSponsored = status === true || status === 'true' || status === 'yes' || status === 'Yes' || status === '1';
+        
+        if (isSponsored) {
+            return { color: 'bg-green-100 text-green-800', text: $t('common.yes') || 'Yes' };
+        } else {
+            return { color: 'bg-red-100 text-red-800', text: $t('common.no') || 'No' };
+        }
+    }
+
     function formatTimeDisplay(time: string | undefined): string {
         return formatTimeTo12Hour(time);
     }
@@ -1325,6 +1370,45 @@
             const location = emp.branch_location_en;
             return location ? `${name} (${location})` : name;
         }
+    }
+
+    function sortEmployees(employees: any[]): any[] {
+        const employmentStatusOrder: { [key: string]: number } = {
+            'Job': 1,
+            'Vacation': 2,
+            'Resigned': 3,
+            'Terminated': 4,
+            'Run Away': 5
+        };
+
+        const sorted = employees.sort((a, b) => {
+            // 1. Sort by employment status (Job > Vacation > Resigned > Terminated > Run Away)
+            const statusOrderA = employmentStatusOrder[a.employment_status] || 99;
+            const statusOrderB = employmentStatusOrder[b.employment_status] || 99;
+            if (statusOrderA !== statusOrderB) return statusOrderA - statusOrderB;
+
+            // 2. Sort by nationality (Saudi Arabia first, then others)
+            const nationalityNameA = a.nationality_name_en || '';
+            const nationalityNameB = b.nationality_name_en || '';
+            const isSaudiA = nationalityNameA.toLowerCase().includes('saudi') ? 0 : 1;
+            const isSaudiB = nationalityNameB.toLowerCase().includes('saudi') ? 0 : 1;
+            if (isSaudiA !== isSaudiB) return isSaudiA - isSaudiB;
+
+            // 3. Sort by sponsorship status (yes/true first, then no/false)
+            const isSponsoredA = a.sponsorship_status === true || a.sponsorship_status === 'true' || a.sponsorship_status === 'yes' || a.sponsorship_status === 'Yes' || a.sponsorship_status === '1' ? 0 : 1;
+            const isSponsoredB = b.sponsorship_status === true || b.sponsorship_status === 'true' || b.sponsorship_status === 'yes' || b.sponsorship_status === 'Yes' || b.sponsorship_status === '1' ? 0 : 1;
+            if (isSponsoredA !== isSponsoredB) return isSponsoredA - isSponsoredB;
+
+            // 4. Sort by numeric employee ID
+            const numA = parseInt(a.id?.toString().replace(/\D/g, '') || '0') || 0;
+            const numB = parseInt(b.id?.toString().replace(/\D/g, '') || '0') || 0;
+            if (numA !== numB) return numA - numB;
+
+            // If all else is equal, sort alphabetically by nationality
+            return nationalityNameA.localeCompare(nationalityNameB);
+        });
+        
+        return sorted;
     }
 
     function formatEmployeeNameDisplay(emp: EmployeeShift): string {
@@ -1399,7 +1483,7 @@
             );
         }
 
-        return filtered;
+        return sortEmployees(filtered);
     }
 
     function getFilteredSpecialWeekdayEmployees(): EmployeeShift[] {
@@ -1422,7 +1506,7 @@
             );
         }
 
-        return filtered;
+        return sortEmployees(filtered);
     }
 
     function getFilteredSpecialDateShifts() {
@@ -1445,7 +1529,7 @@
             );
         }
 
-        return filtered;
+        return sortEmployees(filtered);
     }
 
     function getFilteredDayOffs() {
@@ -1468,7 +1552,7 @@
             );
         }
 
-        return filtered;
+        return sortEmployees(filtered);
     }
 
     function getFilteredDayOffsWeekday() {
@@ -1491,7 +1575,7 @@
             );
         }
 
-        return filtered;
+        return sortEmployees(filtered);
     }
 
     function renderShiftColumns(employee: EmployeeShift) {
@@ -1629,6 +1713,8 @@
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.start_buffer')}</th>
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.end')}</th>
@@ -1645,6 +1731,16 @@
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(employee)}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(employee)}</td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(employee.employment_status).color}">
+                                                    {getEmploymentStatusDisplay(employee.employment_status).text}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(employee.sponsorship_status).color}">
+                                                    {getSponsorshipStatusDisplay(employee.sponsorship_status).text}
+                                                </span>
+                                            </td>
                                             <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(employee.shift_start_time)}</td>
                                             <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{employee.shift_start_buffer ?? '—'}</td>
                                             <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(employee.shift_end_time)}</td>
@@ -1770,6 +1866,8 @@
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
                                         <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employmentStatus')}</th>
+                                        <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.sponsorshipStatus')}</th>
                                         {#each weekdayNames as weekday}
                                             <th colspan="3" class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 bg-orange-500/50">
                                                 {weekday}
@@ -1778,7 +1876,7 @@
                                         <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.action')}</th>
                                     </tr>
                                     <tr>
-                                        <th colspan="4" class="text-xs"></th>
+                                        <th colspan="6" class="text-xs"></th>
                                     {#each weekdayNames as weekday}
                                             <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.start')}</th>
                                             <th class="px-2 py-2 text-center text-[10px] font-bold text-slate-600 border-b border-orange-300">{$t('hr.shift.end')}</th>
@@ -1794,6 +1892,16 @@
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(employee)}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(employee)}</td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(employee.employment_status).color}">
+                                                    {getEmploymentStatusDisplay(employee.employment_status).text}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-center">
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(employee.sponsorship_status).color}">
+                                                    {getSponsorshipStatusDisplay(employee.sponsorship_status).text}
+                                                </span>
+                                            </td>
                                             {#each renderShiftColumns(employee) as shiftCol}
                                                 <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.startTime}</td>
                                                 <td class="px-2 py-3 text-xs text-center font-mono text-slate-800">{shiftCol.endTime}</td>
@@ -1927,6 +2035,8 @@
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.employmentStatus')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('common.date')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{$t('hr.shift.start_buffer')}</th>
@@ -1944,6 +2054,16 @@
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(shift)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(shift)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(shift)}</td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(shift.employment_status).color}">
+                                                        {getEmploymentStatusDisplay(shift.employment_status).text}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(shift.sponsorship_status).color}">
+                                                        {getSponsorshipStatusDisplay(shift.sponsorship_status).text}
+                                                    </span>
+                                                </td>
                                                 <td class="px-4 py-3 text-sm font-mono text-slate-800">{shift.shift_date}</td>
                                                 <td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatTimeTo12Hour(shift.shift_start_time || '')}</td>
                                                 <td class="px-4 py-3 text-sm text-center font-mono text-slate-700">{shift.shift_start_buffer || 0} {$t('common.hrs')}</td>
@@ -2077,6 +2197,8 @@
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_date')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
@@ -2088,6 +2210,16 @@
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(dayOff)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(dayOff)}</td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(dayOff.employment_status).color}">
+                                                        {getEmploymentStatusDisplay(dayOff.employment_status).text}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(dayOff.sponsorship_status).color}">
+                                                        {getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}
+                                                    </span>
+                                                </td>
                                                 <td class="px-4 py-3 text-sm font-mono text-slate-800">{dayOff.day_off_date}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <button 
@@ -2209,6 +2341,8 @@
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_weekday')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
@@ -2220,6 +2354,16 @@
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatBranchDisplay(dayOff)}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatNationalityDisplay(dayOff)}</td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getEmploymentStatusDisplay(dayOff.employment_status).color}">
+                                                        {getEmploymentStatusDisplay(dayOff.employment_status).text}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getSponsorshipStatusDisplay(dayOff.sponsorship_status).color}">
+                                                        {getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}
+                                                    </span>
+                                                </td>
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{weekdayNames[dayOff.day_off_weekday]}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <button 
