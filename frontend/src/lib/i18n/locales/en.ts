@@ -1483,6 +1483,7 @@ export const englishLocale: LocaleData = {
         all_branches: "All Branches",
         filter_nationality: "Filter by Nationality",
         all_nationalities: "All Nationalities",
+        all_statuses: "All Statuses",
         search_employee: "Search Employee",
         search_placeholder: "Search by name or ID...",
         no_regular_shifts: "No regular shifts found",
