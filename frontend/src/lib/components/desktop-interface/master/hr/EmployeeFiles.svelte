@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
-	import { _ as t, localeData } from '$lib/i18n';
+	import { _ as t, localeData, locale } from '$lib/i18n';
 
 	// State
 	let branches: any[] = [];
@@ -1347,7 +1347,11 @@
 						<select id="branch-filter" bind:value={selectedBranch}>
 							<option value="">{$t('employeeFiles.allBranches')}</option>
 							{#each branches as branch}
-								<option value={branch.id}>{branch.branch_name}</option>
+								<option value={branch.id} style="color: #000000; background-color: #ffffff;">
+									{$locale === 'ar' 
+										? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+										: `${branch.name_en || branch.name}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+								</option>
 							{/each}
 						</select>
 					</div>
@@ -2844,6 +2848,13 @@
 		border-radius: 6px;
 		font-size: 0.95rem;
 		transition: border-color 0.2s;
+		color: #000000 !important;
+		background-color: #ffffff !important;
+	}
+
+	.form-group select option {
+		color: #000000 !important;
+		background-color: #ffffff !important;
 	}
 
 	:global([dir="rtl"]) .form-group select {

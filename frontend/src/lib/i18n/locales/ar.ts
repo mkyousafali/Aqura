@@ -1493,6 +1493,7 @@ export const arabicLocale: LocaleData = {
         all_branches: "جميع الفروع",
         filter_nationality: "الفلترة حسب الجنسية",
         all_nationalities: "جميع الجنسيات",
+        all_statuses: "جميع الحالات",
         search_employee: "البحث عن موظف",
         search_placeholder: "ابحث بالاسم أو الرقم الوظيفي...",
         no_regular_shifts: "لم يتم العثور على ورديات عادية",

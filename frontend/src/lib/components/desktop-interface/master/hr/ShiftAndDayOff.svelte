@@ -112,20 +112,42 @@
     let regularShiftSearchQuery = '';
     let selectedBranchFilter = '';
     let selectedNationalityFilter = '';
+    let selectedEmploymentStatusFilter = '';
     let specialWeekdaySearchQuery = '';
     let specialWeekdayBranchFilter = '';
     let specialWeekdayNationalityFilter = '';
+    let specialWeekdayEmploymentStatusFilter = '';
     let specialDateSearchQuery = '';
     let specialDateBranchFilter = '';
     let specialDateNationalityFilter = '';
+    let specialDateEmploymentStatusFilter = '';
     let dayOffSearchQuery = '';
     let dayOffBranchFilter = '';
     let dayOffNationalityFilter = '';
+    let dayOffEmploymentStatusFilter = '';
     let dayOffWeekdaySearchQuery = '';
     let dayOffWeekdayBranchFilter = '';
     let dayOffWeekdayNationalityFilter = '';
+    let dayOffWeekdayEmploymentStatusFilter = '';
     let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
     let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
+    
+    $: filteredRegularEmployees = getFilteredEmployees(employees, selectedBranchFilter, selectedNationalityFilter, selectedEmploymentStatusFilter, regularShiftSearchQuery);
+    $: filteredSpecialWeekdayEmployees = getFilteredSpecialWeekdayEmployees(employees, specialWeekdayBranchFilter, specialWeekdayNationalityFilter, specialWeekdayEmploymentStatusFilter, specialWeekdaySearchQuery);
+    $: filteredSpecialDateEmployees = getFilteredSpecialDateShifts(dateWiseShifts, specialDateBranchFilter, specialDateNationalityFilter, specialDateEmploymentStatusFilter, specialDateSearchQuery);
+    $: filteredDayOffsEmployees = getFilteredDayOffs(dayOffs, dayOffBranchFilter, dayOffNationalityFilter, dayOffEmploymentStatusFilter, dayOffSearchQuery);
+    $: filteredDayOffsWeekdayEmployees = getFilteredDayOffsWeekday(dayOffsWeekday, dayOffWeekdayBranchFilter, dayOffWeekdayNationalityFilter, dayOffWeekdayEmploymentStatusFilter, dayOffWeekdaySearchQuery);
+
+    $: availableEmploymentStatuses = [
+        'Job (With Finger)',
+        'Job (No Finger)',
+        'Remote Job',
+        'Vacation',
+        'Resigned',
+        'Terminated',
+        'Run Away'
+    ];
+    
     let supabase: any;
     let realtimeChannel: any;
 
@@ -267,9 +289,9 @@
 
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
 
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
-            const shiftMap = new Map<string, any>((shifts as any[] | null)?.map(s => [s.id, s]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [String(n.id), n]) || []);
+            const shiftMap = new Map<string, any>((shifts as any[] | null)?.map(s => [String(s.id), s]) || []);
 
             // Populate available branches for filter
             availableBranches = (branches as Branch[] | null) || [];
@@ -277,9 +299,9 @@
 
             // Combine data
             employees = (employeeData as EmployeeMaster[]).map(emp => {
-                const branch = branchMap.get(emp.current_branch_id);
-                const nationality = nationalityMap.get(emp.nationality_id);
-                const shift = shiftMap.get(emp.id);
+                const branch = branchMap.get(String(emp.current_branch_id));
+                const nationality = nationalityMap.get(String(emp.nationality_id));
+                const shift = shiftMap.get(String(emp.id));
 
                 return {
                     id: emp.id,
@@ -366,8 +388,8 @@
 
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
 
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [String(n.id), n]) || []);
 
             // Populate available branches and nationalities for filter
             availableBranches = (branches as Branch[] | null) || [];
@@ -376,17 +398,19 @@
             // Group shifts by employee_id and weekday
             const shiftMap = new Map<string, Map<number, any>>();
             (shifts as any[] | null)?.forEach(shift => {
-                if (!shiftMap.has(shift.employee_id)) {
-                    shiftMap.set(shift.employee_id, new Map());
+                const empId = String(shift.employee_id);
+                if (!shiftMap.has(empId)) {
+                    shiftMap.set(empId, new Map());
                 }
-                shiftMap.get(shift.employee_id)!.set(shift.weekday, shift);
+                shiftMap.get(empId)!.set(shift.weekday, shift);
             });
 
             // Combine data
             employees = (employeeData as EmployeeMaster[]).map(emp => {
-                const branch = branchMap.get(emp.current_branch_id);
-                const nationality = nationalityMap.get(emp.nationality_id);
-                const empShifts = shiftMap.get(emp.id) || new Map();
+                const empId = String(emp.id);
+                const branch = branchMap.get(String(emp.current_branch_id));
+                const nationality = nationalityMap.get(String(emp.nationality_id));
+                const empShifts = shiftMap.get(empId) || new Map();
 
                 const shiftsObj: {[key: number]: any} = {};
                 Array.from({length: 7}, (_, i) => i).forEach(dayNum => {
@@ -458,14 +482,14 @@
 
             if (branchError) throw branchError;
 
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
 
             // Populate available branches for filter
             availableBranches = (branches as Branch[] | null) || [];
 
             // Build employee selection list
             allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
-                const branch = branchMap.get(emp.current_branch_id);
+                const branch = branchMap.get(String(emp.current_branch_id));
                 return {
                     id: emp.id,
                     employee_name_en: emp.name_en,
@@ -491,7 +515,7 @@
                 nationalities = (nat as Nationality[]) || [];
             }
 
-            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [n.id, n]) || []);
+            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [String(n.id), n]) || []);
 
             // Populate available nationalities for filter
             availableNationalities = nationalities || [];
@@ -506,9 +530,9 @@
 
             // Map shifts with employee details
             dateWiseShifts = ((shifts as any[]) || []).map(shift => {
-                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === shift.employee_id);
-                const branch = emp ? branchMap.get(emp.current_branch_id) : null;
-                const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
+                const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(shift.employee_id));
+                const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
+                const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
 
                 return {
                     id: shift.id,
@@ -637,8 +661,8 @@
                 nationalities = (nat as Nationality[]) || [];
             }
 
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
+            const nationalityMap = new Map<string, Nationality>(nationalities.map(n => [String(n.id), n]) || []);
 
             // Populate available branches and nationalities for filter
             availableBranches = (branches as Branch[] | null) || [];
@@ -646,7 +670,7 @@
 
             // Build employee selection list
             allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
-                const branch = branchMap.get(emp.current_branch_id);
+                const branch = branchMap.get(String(emp.current_branch_id));
                 return {
                     id: emp.id,
                     employee_name_en: emp.name_en,
@@ -670,9 +694,9 @@
 
             // Map day offs with employee details
             dayOffs = ((dayOffData as any[]) || []).map(dayOff => {
-                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === dayOff.employee_id);
-                const branch = emp ? branchMap.get(emp.current_branch_id) : null;
-                const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
+                const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(dayOff.employee_id));
+                const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
+                const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
 
                 return {
                     id: dayOff.id,
@@ -765,8 +789,8 @@
 
             if (natError) throw natError;
 
-            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [b.id, b]) || []);
-            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [n.id, n]) || []);
+            const branchMap = new Map<string, Branch>((branches as Branch[] | null)?.map(b => [String(b.id), b]) || []);
+            const nationalityMap = new Map<string, Nationality>((nationalities as Nationality[] | null)?.map(n => [String(n.id), n]) || []);
 
             // Populate available branches and nationalities for filter
             availableBranches = (branches as Branch[] | null) || [];
@@ -774,7 +798,7 @@
 
             // Build employee selection list
             allEmployeesForDateWise = (employeeData as EmployeeMaster[]).map(emp => {
-                const branch = branchMap.get(emp.current_branch_id);
+                const branch = branchMap.get(String(emp.current_branch_id));
                 return {
                     id: emp.id,
                     employee_name_en: emp.name_en,
@@ -798,9 +822,9 @@
 
             // Map day offs with employee details
             dayOffsWeekday = ((dayOffWeekdayData as any[]) || []).map(dayOff => {
-                const emp = (employeeData as EmployeeMaster[]).find(e => e.id === dayOff.employee_id);
-                const branch = emp ? branchMap.get(emp.current_branch_id) : null;
-                const nationality = emp ? nationalityMap.get(emp.nationality_id) : null;
+                const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(dayOff.employee_id));
+                const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
+                const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
 
                 return {
                     id: dayOff.id,
@@ -879,18 +903,23 @@
         regularShiftSearchQuery = '';
         selectedBranchFilter = '';
         selectedNationalityFilter = '';
+        selectedEmploymentStatusFilter = '';
         specialWeekdaySearchQuery = '';
         specialWeekdayBranchFilter = '';
         specialWeekdayNationalityFilter = '';
+        specialWeekdayEmploymentStatusFilter = '';
         specialDateSearchQuery = '';
         specialDateBranchFilter = '';
         specialDateNationalityFilter = '';
+        specialDateEmploymentStatusFilter = '';
         dayOffSearchQuery = '';
         dayOffBranchFilter = '';
         dayOffNationalityFilter = '';
+        dayOffEmploymentStatusFilter = '';
         dayOffWeekdaySearchQuery = '';
         dayOffWeekdayBranchFilter = '';
         dayOffWeekdayNationalityFilter = '';
+        dayOffWeekdayEmploymentStatusFilter = '';
         showModal = false;
         showDeleteModal = false;
         showEmployeeSelectModal = false;
@@ -1513,118 +1542,139 @@
         return `${displayHours}:${displayMinutes} ${period}`;
     }
 
-    function getFilteredEmployees(): EmployeeShift[] {
-        let filtered = employees;
+    function getFilteredEmployees(itemList: EmployeeShift[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string): EmployeeShift[] {
+        let filtered = [...itemList];
 
         // Filter by branch
-        if (selectedBranchFilter) {
-            filtered = filtered.filter(emp => emp.branch_id === selectedBranchFilter);
+        if (branchFilter) {
+            filtered = filtered.filter(emp => String(emp.branch_id) === String(branchFilter));
         }
 
         // Filter by nationality
-        if (selectedNationalityFilter) {
-            filtered = filtered.filter(emp => emp.nationality_id === selectedNationalityFilter);
+        if (nationalityFilter) {
+            filtered = filtered.filter(emp => String(emp.nationality_id) === String(nationalityFilter));
+        }
+
+        // Filter by employment status
+        if (statusFilter) {
+            filtered = filtered.filter(emp => emp.employment_status === statusFilter);
         }
 
         // Filter by search query
-        if (regularShiftSearchQuery.trim()) {
-            const query = regularShiftSearchQuery.toLowerCase();
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
             filtered = filtered.filter(emp =>
                 emp.employee_name_en?.toLowerCase().includes(query) ||
                 (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
-                emp.id?.toLowerCase().includes(query)
+                String(emp.id).toLowerCase().includes(query)
             );
         }
 
         return sortEmployees(filtered);
     }
 
-    function getFilteredSpecialWeekdayEmployees(): EmployeeShift[] {
-        let filtered = employees;
+    function getFilteredSpecialWeekdayEmployees(itemList: EmployeeShift[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string): EmployeeShift[] {
+        let filtered = [...itemList];
 
-        if (specialWeekdayBranchFilter) {
-            filtered = filtered.filter(emp => emp.branch_id === specialWeekdayBranchFilter);
+        if (branchFilter) {
+            filtered = filtered.filter(emp => String(emp.branch_id) === String(branchFilter));
         }
 
-        if (specialWeekdayNationalityFilter) {
-            filtered = filtered.filter(emp => emp.nationality_id === specialWeekdayNationalityFilter);
+        if (nationalityFilter) {
+            filtered = filtered.filter(emp => String(emp.nationality_id) === String(nationalityFilter));
         }
 
-        if (specialWeekdaySearchQuery.trim()) {
-            const query = specialWeekdaySearchQuery.toLowerCase();
+        if (statusFilter) {
+            filtered = filtered.filter(emp => emp.employment_status === statusFilter);
+        }
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
             filtered = filtered.filter(emp =>
                 emp.employee_name_en?.toLowerCase().includes(query) ||
                 (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
-                emp.id?.toLowerCase().includes(query)
+                String(emp.id).toLowerCase().includes(query)
             );
         }
 
         return sortEmployees(filtered);
     }
 
-    function getFilteredSpecialDateShifts() {
-        let filtered = dateWiseShifts;
+    function getFilteredSpecialDateShifts(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string) {
+        let filtered = [...itemList];
 
-        if (specialDateBranchFilter) {
-            filtered = filtered.filter(emp => emp.branch_id === specialDateBranchFilter);
+        if (branchFilter) {
+            filtered = filtered.filter(emp => String(emp.branch_id) === String(branchFilter));
         }
 
-        if (specialDateNationalityFilter) {
-            filtered = filtered.filter(emp => emp.nationality_id === specialDateNationalityFilter);
+        if (nationalityFilter) {
+            filtered = filtered.filter(emp => String(emp.nationality_id) === String(nationalityFilter));
         }
 
-        if (specialDateSearchQuery.trim()) {
-            const query = specialDateSearchQuery.toLowerCase();
+        if (statusFilter) {
+            filtered = filtered.filter(emp => emp.employment_status === statusFilter);
+        }
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
             filtered = filtered.filter(emp =>
                 emp.employee_name_en?.toLowerCase().includes(query) ||
                 (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
-                emp.id?.toLowerCase().includes(query)
+                String(emp.id).toLowerCase().includes(query)
             );
         }
 
         return sortEmployees(filtered);
     }
 
-    function getFilteredDayOffs() {
-        let filtered = dayOffs;
+    function getFilteredDayOffs(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string) {
+        let filtered = [...itemList];
 
-        if (dayOffBranchFilter) {
-            filtered = filtered.filter(emp => emp.branch_id === dayOffBranchFilter);
+        if (branchFilter) {
+            filtered = filtered.filter(emp => String(emp.branch_id) === String(branchFilter));
         }
 
-        if (dayOffNationalityFilter) {
-            filtered = filtered.filter(emp => emp.nationality_id === dayOffNationalityFilter);
+        if (nationalityFilter) {
+            filtered = filtered.filter(emp => String(emp.nationality_id) === String(nationalityFilter));
         }
 
-        if (dayOffSearchQuery.trim()) {
-            const query = dayOffSearchQuery.toLowerCase();
+        if (statusFilter) {
+            filtered = filtered.filter(emp => emp.employment_status === statusFilter);
+        }
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
             filtered = filtered.filter(emp =>
                 emp.employee_name_en?.toLowerCase().includes(query) ||
                 (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
-                emp.id?.toLowerCase().includes(query)
+                String(emp.id).toLowerCase().includes(query)
             );
         }
 
         return sortEmployees(filtered);
     }
 
-    function getFilteredDayOffsWeekday() {
-        let filtered = dayOffsWeekday;
+    function getFilteredDayOffsWeekday(itemList: any[], branchFilter: string, nationalityFilter: string, statusFilter: string, searchQuery: string) {
+        let filtered = [...itemList];
 
-        if (dayOffWeekdayBranchFilter) {
-            filtered = filtered.filter(emp => emp.branch_id === dayOffWeekdayBranchFilter);
+        if (branchFilter) {
+            filtered = filtered.filter(emp => String(emp.branch_id) === String(branchFilter));
         }
 
-        if (dayOffWeekdayNationalityFilter) {
-            filtered = filtered.filter(emp => emp.nationality_id === dayOffWeekdayNationalityFilter);
+        if (nationalityFilter) {
+            filtered = filtered.filter(emp => String(emp.nationality_id) === String(nationalityFilter));
         }
 
-        if (dayOffWeekdaySearchQuery.trim()) {
-            const query = dayOffWeekdaySearchQuery.toLowerCase();
+        if (statusFilter) {
+            filtered = filtered.filter(emp => emp.employment_status === statusFilter);
+        }
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
             filtered = filtered.filter(emp =>
                 emp.employee_name_en?.toLowerCase().includes(query) ||
                 (emp.employee_name_ar && emp.employee_name_ar.toLowerCase().includes(query)) ||
-                emp.id?.toLowerCase().includes(query)
+                String(emp.id).toLowerCase().includes(query)
             );
         }
 
@@ -1719,10 +1769,15 @@
                                 id="reg-branch-filter"
                                 bind:value={selectedBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_branches')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+                                    <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' 
+                                            ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+                                            : `${branch.name_en || branch.name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+                                    </option>
                                 {/each}
                             </select>
                         </div>
@@ -1734,10 +1789,29 @@
                                 id="reg-nationality-filter"
                                 bind:value={selectedNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_nationalities')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
+                                    <option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+                                    </option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employment Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="reg-status-filter">{$t('employeeFiles.employmentStatus')}</label>
+                            <select 
+                                id="reg-status-filter"
+                                bind:value={selectedEmploymentStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                {#each availableEmploymentStatuses as status}
+                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -1778,7 +1852,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
-                                    {#each getFilteredEmployees() as employee, index}
+                                    {#each filteredRegularEmployees as employee, index}
                                         <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                             <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
@@ -1833,7 +1907,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_employees', { count: employees.length })}
+                            {$t('hr.shift.showing_employees', { count: filteredRegularEmployees.length })}
                         </div>
                     </div>
                 {/if}
@@ -1872,10 +1946,15 @@
                                 id="spec-w-branch-filter"
                                 bind:value={specialWeekdayBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_branches')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+                                    <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' 
+                                            ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+                                            : `${branch.name_en || branch.name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+                                    </option>
                                 {/each}
                             </select>
                         </div>
@@ -1887,10 +1966,29 @@
                                 id="spec-w-nationality-filter"
                                 bind:value={specialWeekdayNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_nationalities')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
+                                    <option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+                                    </option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employment Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-w-status-filter">{$t('employeeFiles.employmentStatus')}</label>
+                            <select 
+                                id="spec-w-status-filter"
+                                bind:value={specialWeekdayEmploymentStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                {#each availableEmploymentStatuses as status}
+                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -1939,7 +2037,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-200">
-                                    {#each getFilteredSpecialWeekdayEmployees() as employee, index}
+                                    {#each filteredSpecialWeekdayEmployees as employee, index}
                                         <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                             <td class="px-4 py-3 text-sm font-semibold text-slate-800">{employee.id}</td>
                                             <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(employee)}</td>
@@ -1986,7 +2084,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_employees_filter', { current: getFilteredSpecialWeekdayEmployees().length, total: employees.length })}
+                            {$t('hr.shift.showing_employees_filter', { current: filteredSpecialWeekdayEmployees.length, total: employees.length })}
                         </div>
                     </div>
                 {/if}
@@ -2020,10 +2118,15 @@
                                 id="spec-d-branch-filter"
                                 bind:value={specialDateBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_branches')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+                                    <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' 
+                                            ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+                                            : `${branch.name_en || branch.name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+                                    </option>
                                 {/each}
                             </select>
                         </div>
@@ -2035,10 +2138,29 @@
                                 id="spec-d-nationality-filter"
                                 bind:value={specialDateNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_nationalities')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
+                                    <option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+                                    </option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employment Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-status-filter">{$t('employeeFiles.employmentStatus')}</label>
+                            <select 
+                                id="spec-d-status-filter"
+                                bind:value={specialDateEmploymentStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                {#each availableEmploymentStatuses as status}
+                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2101,7 +2223,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each getFilteredSpecialDateShifts() as shift, index}
+                                        {#each filteredSpecialDateEmployees as shift, index}
                                             <tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{shift.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(shift)}</td>
@@ -2148,7 +2270,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_shifts', { current: getFilteredSpecialDateShifts().length, total: dateWiseShifts.length })}
+                            {$t('hr.shift.showing_shifts', { current: filteredSpecialDateEmployees.length, total: dateWiseShifts.length })}
                         </div>
                     </div>
                 {/if}
@@ -2182,10 +2304,15 @@
                                 id="do-d-branch-filter"
                                 bind:value={dayOffBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_branches')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+                                    <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' 
+                                            ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+                                            : `${branch.name_en || branch.name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+                                    </option>
                                 {/each}
                             </select>
                         </div>
@@ -2197,10 +2324,29 @@
                                 id="do-d-nationality-filter"
                                 bind:value={dayOffNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_nationalities')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
+                                    <option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+                                    </option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employment Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-status-filter">{$t('employeeFiles.employmentStatus')}</label>
+                            <select 
+                                id="do-d-status-filter"
+                                bind:value={dayOffEmploymentStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                {#each availableEmploymentStatuses as status}
+                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2234,7 +2380,7 @@
 
                         <!-- Table Wrapper -->
                         <div class="overflow-x-auto flex-1">
-                            {#if getFilteredDayOffs().length === 0}
+                            {#if filteredDayOffsEmployees.length === 0}
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
@@ -2257,7 +2403,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each getFilteredDayOffs() as dayOff, index}
+                                        {#each filteredDayOffsEmployees as dayOff, index}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
@@ -2292,7 +2438,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_day_offs', { current: getFilteredDayOffs().length, total: dayOffs.length })}
+                            {$t('hr.shift.showing_day_offs', { current: filteredDayOffsEmployees.length, total: dayOffs.length })}
                         </div>
                     </div>
                 {/if}
@@ -2326,10 +2472,15 @@
                                 id="do-w-branch-filter"
                                 bind:value={dayOffWeekdayBranchFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_branches')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
                                 {#each availableBranches as branch}
-                                    <option value={branch.id}>{$locale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}</option>
+                                    <option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' 
+                                            ? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+                                            : `${branch.name_en || branch.name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+                                    </option>
                                 {/each}
                             </select>
                         </div>
@@ -2341,10 +2492,29 @@
                                 id="do-w-nationality-filter"
                                 bind:value={dayOffWeekdayNationalityFilter}
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
                             >
-                                <option value="">{$t('hr.shift.all_nationalities')}</option>
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
                                 {#each availableNationalities as nationality}
-                                    <option value={nationality.id}>{$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : nationality.name_en}</option>
+                                    <option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+                                        {$locale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+                                    </option>
+                                {/each}
+                            </select>
+                        </div>
+
+                        <!-- Employment Status Filter -->
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-w-status-filter">{$t('employeeFiles.employmentStatus')}</label>
+                            <select 
+                                id="do-w-status-filter"
+                                bind:value={dayOffWeekdayEmploymentStatusFilter}
+                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                style="color: #000000 !important; background-color: #ffffff !important;"
+                            >
+                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+                                {#each availableEmploymentStatuses as status}
+                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2378,7 +2548,7 @@
 
                         <!-- Table Wrapper -->
                         <div class="overflow-x-auto flex-1">
-                            {#if getFilteredDayOffsWeekday().length === 0}
+                            {#if filteredDayOffsWeekdayEmployees.length === 0}
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
@@ -2401,7 +2571,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each getFilteredDayOffsWeekday() as dayOff, index}
+                                        {#each filteredDayOffsWeekdayEmployees as dayOff, index}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
@@ -2436,7 +2606,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            {$t('hr.shift.showing_day_offs', { current: getFilteredDayOffsWeekday().length, total: dayOffsWeekday.length })}
+                            {$t('hr.shift.showing_day_offs', { current: filteredDayOffsWeekdayEmployees.length, total: dayOffsWeekday.length })}
                         </div>
                     </div>
                 {/if}
@@ -2487,9 +2657,10 @@
                             bind:value={formData.weekday}
                             on:change={onWeekdayChange}
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            style="color: #000000 !important; background-color: #ffffff !important;"
                         >
                             {#each weekdayNames as day, index}
-                                <option value={index}>{day}</option>
+                                <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
                             {/each}
                         </select>
                     </div>
@@ -2529,9 +2700,10 @@
                             id="dayoff-weekday-select"
                             bind:value={selectedDayOffWeekday}
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            style="color: #000000 !important; background-color: #ffffff !important;"
                         >
                             {#each weekdayNames as day, index}
-                                <option value={index}>{day}</option>
+                                <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
                             {/each}
                         </select>
                     </div>
@@ -2893,10 +3065,11 @@
                         id="delete-weekday-select"
                         bind:value={selectedDeleteWeekday}
                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        style="color: #000000 !important; background-color: #ffffff !important;"
                     >
                         {#each weekdayNames as day, index}
                             {#if employees.find(e => e.id === selectedEmployeeId)?.shifts?.[index]}
-                                <option value={index}>{day}</option>
+                                <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
                             {/if}
                         {/each}
                     </select>
