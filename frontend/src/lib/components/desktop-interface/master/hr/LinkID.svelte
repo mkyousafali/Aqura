@@ -410,7 +410,7 @@
 				</thead>
 				<tbody>
 					{#each filteredUsers as user, userIndex (user.id)}
-						<tr class:inactive-row={user.status === 'inactive'} class:missing-master={!user.master_id}>
+						<tr class:inactive-row={user.status === 'inactive'} class:missing-master={!user.master_id || !branches.some(b => user[`branch_${b.id}_employee`])}>
 							<td>{user.master_id || '-'}</td>
 							<td>{user.username}</td>
 							<td>{user.status || '-'}</td>
