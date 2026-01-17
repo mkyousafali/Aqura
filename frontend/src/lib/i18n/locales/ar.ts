@@ -132,6 +132,7 @@ export const arabicLocale: LocaleData = {
       shiftAndDayOff: "المناوبات وأيام الإجازة",
       leavesAndVacations: "المغادرات والإجازات",
       discipline: "الانضباط",
+      leaveRequest: "طلب الإجازة",
       exportBiometricData: "تصدير البيانات الحيوية",
       createTaskTemplate: "إنشاء قالب مهمة",
       viewTaskTemplates: "عرض قوالب المهمات",

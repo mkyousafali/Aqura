@@ -129,6 +129,7 @@ export const englishLocale: LocaleData = {
       shiftAndDayOff: "Shift and Day Off",
       leavesAndVacations: "Leaves and Vacations",
       discipline: "Discipline",
+      leaveRequest: "Leave Request",
       exportBiometricData: "Export Biometric Data",
       createTaskTemplate: "Create Task Template",
       viewTaskTemplates: "View Task Templates",
