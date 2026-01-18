@@ -5,43 +5,58 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ33.12.7.7</p>
-			<p class="version-details">Desktop: 33 | Mobile: 12 | Cashier: 7 | Customer: 7</p>
+			<p class="version-title">Version AQ34.13.8.8</p>
+			<p class="version-details">Desktop: 34 | Mobile: 13 | Cashier: 8 | Customer: 8</p>
 			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
 		</div>
 
 		<div class="latest-change">
-			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
-			<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
+			<h3>✨ Bulk Employee Analysis + HR Module Redesign</h3>
+			<p class="change-description">Implemented massive bulk fingerprint analysis engine, redesigned mobile HR experience, and enhanced cashier localization.</p>
 			<div class="change-details">
-				<h4>What Changed:</h4>
+				<h4>January 19, 2026:</h4>
 				<ul>
-					<li>✅ HR: Implemented full Arabic/English bilingual support for Shift and Day Off management</li>
-					<li>✅ UI/UX: Added dynamic RTL/LTR support for all HR shift configuration modals</li>
-					<li>🌍 i18n: Major cleanup and synchronization of Arabic and English locale files</li>
-					<li>🌍 i18n: Added 100+ missing translation keys for HR, Navigation, and Common actions</li>
-					<li>🔧 Logic: Standardized i18n implementation using reactive $t store across all HR components</li>
-					<li>🔍 Verification: All HR shift operations (Regular, Special, Day Off) verified in both EN/AR</li>
+					<li>✅ <b>Desktop HR:</b> Implemented "Analyze All" bulk report engine with logic parity (midpoint detection, overnight shift support).</li>
+					<li>✅ <b>UI/UX:</b> Added sticky columns for RTL/LTR layouts ensuring ID/Name visibility during horizontal scrolling.</li>
+					<li>✅ <b>Cashier:</b> Localized branch selection dropdown to show "Name - Location" in both Arabic and English.</li>
+					<li>✅ <b>Mobile:</b> Fully redesigned Fingerprint Analysis with a modern futuristic theme (Orange/Green/Purple).</li>
+					<li>✅ <b>Mobile:</b> Integrated visual indicators for "Day Off", "Leave", and "Missing Punch" in employee analysis.</li>
 				</ul>
 			</div>
-			<p class="date">January 16, 2026</p>
+			
+			<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+				<h4>January 18, 2026:</h4>
+				<ul>
+					<li>✅ <b>Mobile HR:</b> Added "Leave Request" module to bottom navigation with photo upload capability.</li>
+					<li>✅ <b>HR Operations:</b> Implemented real-time synchronization between Analysis, Shift, and Salary modules.</li>
+					<li>✅ <b>Employee Master:</b> Added description field to Day Off requests and improved Approval Center display logic.</li>
+					<li>✅ <b>UI Fixes:</b> Standardized 12-hour time format across all HR configuration windows and fixed RTL arrow directions.</li>
+				</ul>
+			</div>
+
+			<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+				<h4>January 17, 2026:</h4>
+				<ul>
+					<li>✅ <b>HR Engine:</b> Implemented date-aware shift validation with dynamic buffers for overnight fingerprint pairing.</li>
+					<li>✅ <b>Employee Links:</b> Enhanced LinkID module to highlight missing master records and branch synchronization.</li>
+					<li>✅ <b>Data Schema:</b> Updated employment statuses (Remote, No Finger, With Finger) and added Nationality management.</li>
+				</ul>
+			</div>
+			<p class="date">Current Version</p>
 		</div>
 
 		<div class="previous-change">
-			<h3>✨ Feature Enhancement + Code Cleanup</h3>
-			<p class="change-description">Enhanced social links manager and cleaned up unused files</p>
+			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
+			<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
 			<div class="change-details">
-				<h4>What Changed:</h4>
+				<h4>January 16, 2026:</h4>
 				<ul>
-					<li>✅ Added: Click count display in social links manager</li>
-					<li>✅ Improved: Reordered social media platforms for better UX</li>
-					<li>🐛 Fixed: Removed duplicate if-block closing tag in templates</li>
-					<li>🧹 Cleanup: Removed 70+ unused utility scripts and documentation files</li>
-					<li>📉 Repository optimized: Reduced codebase size by cleaning unused files</li>
-					<li>🔍 Verification: All core functionality preserved, no breaking changes</li>
+					<li>✅ <b>HR Discipline:</b> Added "Discipline Warnings" management with Incident Reporting and Warning Issuance.</li>
+					<li>✅ <b>Finance:</b> Added Food Allowance to salary management and POS Deduction Transfer system with status tracking.</li>
+					<li>✅ <b>Bilingual:</b> Standardized $t store usage across all 300+ translation keys for HR modules.</li>
 				</ul>
 			</div>
-			<p class="date">December 31, 2025</p>
+			<p class="date">January 16, 2026</p>
 		</div>
 
 		<div class="interface-info">
