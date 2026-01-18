@@ -19,6 +19,7 @@
 	let selectedReason: DayOffReason | null = null;
 	let startDate: string = new Date().toISOString().split('T')[0];
 	let endDate: string = new Date().toISOString().split('T')[0];
+	let description: string = '';
 	let documentUploadSection: HTMLElement;
 	let submitSection: HTMLElement;
 	let documentFile: File | null = null;
@@ -228,6 +229,7 @@
 					approval_requested_by: currentUserData.id,
 					approval_requested_at: new Date().toISOString(),
 					document_url: documentUrl,
+					description: description || null,
 					is_deductible_on_salary: selectedReason!.is_deductible
 				};
 			});
@@ -289,6 +291,7 @@
 			selectedReason = null;
 			startDate = new Date().toISOString().split('T')[0];
 			endDate = new Date().toISOString().split('T')[0];
+			description = '';
 			documentFile = null;
 			documentProgress = 0;
 			isUploadingDocument = false;
@@ -434,6 +437,30 @@
 					</div>
 				{/if}
 
+				<!-- Description Field (optional) -->
+				{#if selectedReason}
+					<div class="form-group">
+						<label for="description">
+							📝 {$t('hr.shift.mobile_day_off_request.description') || 'Description'}
+							<span class="optional-badge">{$t('hr.shift.mobile_day_off_request.optional')}</span>
+						</label>
+						<textarea 
+							id="description"
+							bind:value={description}
+							placeholder={$currentLocale === 'ar' 
+								? 'أدخل وصفاً أو ملاحظة (اختياري)' 
+								: 'Enter a description or note (optional)'}
+							class="form-textarea"
+							rows="4"
+						/>
+						<p class="field-hint">
+							{$currentLocale === 'ar' 
+								? 'يمكنك إضافة أي معلومات إضافية عن طلب إجازتك' 
+								: 'You can add any additional information about your leave request'}
+						</p>
+					</div>
+				{/if}
+
 				<!-- Submit Button -->
 				<div class="submit-section" bind:this={submitSection}>
 					<button 
@@ -561,6 +588,36 @@
 		font-weight: 600;
 		color: #374151;
 		font-size: 0.875rem;
+	}
+
+	.field-hint {
+		margin-top: 0.5rem;
+		font-size: 0.8125rem;
+		color: #6B7280;
+		font-style: italic;
+	}
+
+	.form-input,
+	.form-textarea {
+		width: 100%;
+		padding: 0.75rem;
+		border: 2px solid #E5E7EB;
+		border-radius: 0.5rem;
+		font-size: 1rem;
+		font-family: inherit;
+		transition: border-color 0.2s;
+	}
+
+	.form-input:focus,
+	.form-textarea:focus {
+		outline: none;
+		border-color: #10B981;
+		box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+	}
+
+	.form-textarea {
+		resize: vertical;
+		min-height: 100px;
 	}
 
 	.document-label {

@@ -1947,6 +1947,7 @@ export const arabicLocale: LocaleData = {
     common: {
       confirmDelete: "هل أنت متأكد من حذف هذا العنصر؟",
       noData: "لا توجد بيانات",
+      no_data: "غير متاح",
       success: "نجح",
       status: "الحالة",
       loading: "جاري التحميل...",
@@ -1984,7 +1985,9 @@ export const arabicLocale: LocaleData = {
       unknown: "غير معروف",
       view: "عرض",
       reason: "السبب",
+      description: "الوصف",
       document: "وثيقة",
+      note: "ملاحظة",
       no_document: "لا توجد وثيقة",
       approved: "معتمد",
       rejected: "مرفوض",

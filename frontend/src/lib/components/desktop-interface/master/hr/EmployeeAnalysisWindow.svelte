@@ -1029,6 +1029,14 @@
 													📄 {$t('common.view') || 'View'}
 												</button>
 											{/if}
+											{#if dayOff?.description}
+												<button 
+													class="px-2 py-1 bg-white text-blue-600 rounded-full text-xs font-bold hover:bg-blue-50 transition"
+													title={dayOff.description}
+												>
+													📝 {$t('common.note') || 'Note'}
+												</button>
+											{/if}
 										</div>
 									{/if}
 									{#if !isOfficial && !isSpecific && isUnapprovedLeave}
@@ -1043,6 +1051,12 @@
 									{$t('hr.processFingerprint.no_transactions_recorded')}
 								{/if}
 							</div>
+							{#if isSpecific && dayOff?.description}
+								<div class="px-4 py-3 bg-blue-50 border-t border-blue-200">
+									<div class="text-xs font-semibold text-blue-700 mb-1">📝 {$t('common.description') || 'Description'}:</div>
+									<div class="text-sm text-blue-900">{dayOff.description}</div>
+								</div>
+							{/if}
 						</div>
 					{:else if pair.checkInTxn}
 						<!-- Paired Check-In/Check-Out (always show under check-in date) -->
@@ -1057,23 +1071,12 @@
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecific}
-										<div class="flex items-center gap-2">
-											<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
-												{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
-												{#if dayOff?.day_off_reasons}
-													: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
-												{/if}
-											</span>
-											{#if dayOff?.document_url}
-												<button 
-													class="px-2 py-1 bg-white text-orange-600 rounded-full text-xs font-bold hover:bg-orange-50 transition"
-													on:click={() => window.open(dayOff.document_url, '_blank')}
-													title="View Document"
-												>
-													📄 {$t('common.view') || 'View'}
-												</button>
+										<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
+											{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+											{#if dayOff?.day_off_reasons}
+												: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
 											{/if}
-										</div>
+										</span>
 									{/if}
 								</div>
 							</div>
