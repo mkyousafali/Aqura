@@ -419,21 +419,36 @@
 								{/if}
 							</label>
 						</div>
+
+					<div class="camera-upload">
+						<input 
+							id="camera"
+							type="file" 
+							accept="image/*"
+							capture="environment"
+							on:change={handleDocumentSelect}
+							class="hidden-file-input"
+						/>
+						<label for="camera" class="camera-trigger">
+							<span class="camera-icon">📷</span>
+							<span class="camera-text">{$t('hr.shift.mobile_day_off_request.takePhoto') || 'Take Photo'}</span>
+						</label>
+					</div>
 						
-						{#if documentFile}
-							<div class="file-info success">
-								<p>✓ {$t('hr.shift.mobile_day_off_request.selectFile')} {documentFile.name}</p>
-								{#if isUploadingDocument}
-									<div class="progress-bar">
-										<div class="progress-fill" style="width: {documentProgress}%"></div>
-									</div>
-								{/if}
-							</div>
-						{:else if selectedReason.is_document_mandatory}
-							<div class="file-info warning">
-								<p>⚠️ {$t('hr.shift.mobile_day_off_request.pleaseUploadDocument')}</p>
-							</div>
-						{/if}
+					{#if documentFile}
+						<div class="file-info success">
+							<p>✓ {$t('hr.shift.mobile_day_off_request.selectFile')} {documentFile.name}</p>
+							{#if isUploadingDocument}
+								<div class="progress-bar">
+									<div class="progress-fill" style="width: {documentProgress}%"></div>
+								</div>
+							{/if}
+						</div>
+					{:else if selectedReason.is_document_mandatory}
+						<div class="file-info warning">
+							<p>⚠️ {$t('hr.shift.mobile_day_off_request.pleaseUploadDocument')}</p>
+						</div>
+					{/if}
 					</div>
 				{/if}
 
@@ -712,6 +727,38 @@
 	.file-upload-trigger:hover {
 		border-color: #10B981;
 		background: #F0FDF4;
+	}
+
+	.camera-upload {
+		position: relative;
+		width: 100%;
+		margin-top: 0.75rem;
+	}
+
+	.camera-trigger {
+		display: flex;
+		align-items: center;
+		padding: 1rem;
+		border: 2px dashed #3B82F6;
+		border-radius: 0.5rem;
+		background: #EFF6FF;
+		cursor: pointer;
+		transition: all 0.2s;
+		gap: 0.75rem;
+	}
+
+	.camera-trigger:hover {
+		border-color: #2563EB;
+		background: #DBEAFE;
+	}
+
+	.camera-icon {
+		font-size: 1.25rem;
+	}
+
+	.camera-text {
+		color: #1E40AF;
+		font-weight: 500;
 	}
 
 	.upload-icon {

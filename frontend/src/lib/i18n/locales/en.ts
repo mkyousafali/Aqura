@@ -1715,6 +1715,8 @@ export const englishLocale: LocaleData = {
           submitting: "Submitting...",
           chooseFile: "Choose File",
           noFileChosen: "No file chosen",
+          takePhoto: "Take Photo",
+          description: "Description",
           error: "Error",
           errorEmployeeNotFound: "Employee ID not found. Please contact admin.",
           requiredFields: "Required",
