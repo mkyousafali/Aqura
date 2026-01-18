@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
-	import { locale } from '$lib/i18n';
+	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 
@@ -132,10 +132,10 @@
 	}
 
 	function formatBufferMinutes(bufferValue: number): string {
-		if (!bufferValue) return '0 min';
+		if (!bufferValue) return `0 ${$t('common.min')}`;
 		// If buffer is in hours (decimal), convert to minutes
 		const minutes = Math.round(bufferValue * 60);
-		return `${minutes} min`;
+		return `${minutes} ${$t('common.min')}`;
 	}
 
 	function formatTime12Hour(timeString: string): string {
@@ -144,7 +144,7 @@
 		const [hoursStr, minutesStr] = timeString.split(':');
 		let hour = parseInt(hoursStr);
 		const minutes = minutesStr;
-		const ampm = hour >= 12 ? 'PM' : 'AM';
+		const ampm = hour >= 12 ? $t('common.pm') : $t('common.am');
 		hour = hour % 12 || 12;
 		return `${String(hour).padStart(2, '0')}:${minutes} ${ampm}`;
 	}
@@ -171,8 +171,9 @@
 	}
 
 	function getDayName(dayNum: number): string {
-		const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-		return days[dayNum] || 'Unknown';
+		const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+		const dayKey = days[dayNum];
+		return dayKey ? $t(`common.days.${dayKey}`) : $t('common.unknown');
 	}
 
 	function getApplicableShift(dateStr: string) {
@@ -789,26 +790,26 @@
 		<div class="bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-600 rounded-lg p-3">
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-2">
 				<div class="bg-white rounded-lg p-3 shadow-sm border border-blue-100">
-					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Employee ID</div>
+					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.employeeId')}</div>
 					<div class="text-base font-bold text-slate-900">{employee.id}</div>
 				</div>
 
 				<div class="bg-white rounded-lg p-3 shadow-sm border border-blue-100">
-					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Full Name</div>
+					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.fullName')}</div>
 					<div class="text-sm font-semibold text-slate-900">
 						{$locale === 'ar' ? employee.name_ar || employee.name_en : employee.name_en}
 					</div>
 				</div>
 
 				<div class="bg-white rounded-lg p-3 shadow-sm border border-blue-100">
-					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Branch</div>
+					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.branch')}</div>
 					<div class="text-sm font-semibold text-slate-900">
 						{$locale === 'ar' ? employee.branch_name_ar || employee.branch_name_en : employee.branch_name_en}
 					</div>
 				</div>
 
 				<div class="bg-white rounded-lg p-3 shadow-sm border border-blue-100">
-					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Nationality</div>
+					<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.nationality')}</div>
 					<div class="text-sm font-semibold text-slate-900">
 						{$locale === 'ar' ? employee.nationality_name_ar || employee.nationality_name_en : employee.nationality_name_en}
 					</div>
@@ -821,27 +822,27 @@
 			<div class="bg-gradient-to-r from-green-50 to-green-100 border-l-4 border-green-600 rounded-lg p-3">
 				<div class="grid grid-cols-2 md:grid-cols-5 gap-2">
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-green-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Shift Start</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.shift_start')}</div>
 						<div class="text-sm font-semibold text-slate-900">{formatTime12Hour(regularShift.shift_start_time) || '-'}</div>
 					</div>
 
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-green-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Start Buffer</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.start_buffer')}</div>
 						<div class="text-sm font-semibold text-slate-900">{formatBufferMinutes(regularShift.shift_start_buffer)}</div>
 					</div>
 
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-green-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Shift End</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.shift_end')}</div>
 						<div class="text-sm font-semibold text-slate-900">{formatTime12Hour(regularShift.shift_end_time) || '-'}</div>
 					</div>
 
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-green-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">End Buffer</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.end_buffer')}</div>
 						<div class="text-sm font-semibold text-slate-900">{formatBufferMinutes(regularShift.shift_end_buffer)}</div>
 					</div>
 
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-green-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Working Hours</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.total_working_hours')}</div>
 						<div class="text-sm font-semibold text-slate-900">{regularShift.working_hours || '-'}</div>
 					</div>
 				</div>
@@ -853,7 +854,7 @@
 			<div class="bg-gradient-to-r from-orange-50 to-orange-100 border-l-4 border-orange-600 rounded-lg p-3">
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-2">
 					<div class="bg-white rounded-lg p-3 shadow-sm border border-orange-100">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Day Off</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.shift.day_off')}</div>
 						<div class="text-sm font-semibold text-slate-900">{dayOffWeekday.weekday !== undefined ? getDayName(dayOffWeekday.weekday) : '-'}</div>
 					</div>
 				</div>
@@ -862,10 +863,10 @@
 
 		<!-- Date Range Filter Section -->
 		<div class="bg-gradient-to-r from-purple-50 to-purple-100 border-l-4 border-purple-600 rounded-lg p-4">
-			<h3 class="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wide">Load Fingerprint Transactions</h3>
+			<h3 class="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wide">{$t('hr.processFingerprint.load_transactions_title')}</h3>
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
 				<div>
-					<label class="block text-xs font-semibold text-slate-600 mb-2">Start Date</label>
+					<label class="block text-xs font-semibold text-slate-600 mb-2">{$t('hr.startDate')}</label>
 					<input 
 						type="date" 
 						bind:value={startDate}
@@ -873,7 +874,7 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-semibold text-slate-600 mb-2">End Date</label>
+					<label class="block text-xs font-semibold text-slate-600 mb-2">{$t('hr.endDate')}</label>
 					<input 
 						type="date" 
 						bind:value={endDate}
@@ -886,7 +887,7 @@
 						on:click={loadTransactions}
 						disabled={loadingTransactions}
 					>
-						{loadingTransactions ? 'Loading...' : 'Load'}
+						{loadingTransactions ? $t('common.loading') : $t('hr.processFingerprint.load')}
 					</button>
 				</div>
 			</div>
@@ -911,21 +912,21 @@
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
 									{#if isOfficial}
-										<span class="px-3 py-1 bg-red-600 rounded-full text-sm font-semibold">Official Day Off</span>
+										<span class="px-3 py-1 bg-red-600 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecific}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">Day Off</span>
+										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
 									{/if}
 									{#if isUnapprovedLeave}
-										<span class="px-3 py-1 bg-red-700 rounded-full text-sm font-semibold">Unapproved Leave</span>
+										<span class="px-3 py-1 bg-red-700 rounded-full text-sm font-semibold">{$t('hr.shift.unapproved_leave')}</span>
 									{/if}
 								</div>
 							</div>
 							<div class="px-4 py-6 text-center text-sm {isUnapprovedLeave ? 'text-red-600 font-semibold' : 'text-slate-500'}">
 								{#if isUnapprovedLeave}
-									No check-in/check-out recorded
+									{$t('hr.processFingerprint.no_checkin_checkout_recorded')}
 								{:else}
-									No transactions recorded
+									{$t('hr.processFingerprint.no_transactions_recorded')}
 								{/if}
 							</div>
 						</div>
@@ -936,10 +937,10 @@
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
 									{#if isOfficialDayOff(pair.checkInDate)}
-										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">Official Day Off</span>
+										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecificDayOff(pair.checkInDate)}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">Day Off</span>
+										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
 									{/if}
 								</div>
 							</div>
@@ -955,20 +956,20 @@
 										</div>
 										<div class="flex items-center gap-2">
 											<span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-												Check In
+												{$t('hr.checkIn')}
 											</span>
 											{#if pair.checkInMissing}
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													Check-In Missing
+													{$t('hr.processFingerprint.checkin_missing')}
 												</span>
 											{/if}										{#if pair.checkInEarlyLateTime?.late > 0}
 											<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-												Late {Math.floor(pair.checkInEarlyLateTime.late / 60)}h {pair.checkInEarlyLateTime.late % 60}m
+												{$t('hr.processFingerprint.late')} {Math.floor(pair.checkInEarlyLateTime.late / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.late % 60}{$t('common.m')}
 											</span>
 										{/if}
 										{#if pair.checkInEarlyLateTime?.early > 0}
 											<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-												Early {Math.floor(pair.checkInEarlyLateTime.early / 60)}h {pair.checkInEarlyLateTime.early % 60}m
+												{$t('hr.processFingerprint.early')} {Math.floor(pair.checkInEarlyLateTime.early / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.early % 60}{$t('common.m')}
 											</span>
 										{/if}										</div>
 										<div class="text-right min-w-fit ml-4">
@@ -985,27 +986,27 @@
 												<div>
 													<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkOutTxn.punch_time) || '-'}</div>
 													{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== pair.checkInDate}
-														<div class="text-xs text-gray-500 mt-1">from {pair.checkOutCalendarDate}</div>
+														<div class="text-xs text-gray-500 mt-1">{$t('hr.processFingerprint.from_label')} {pair.checkOutCalendarDate}</div>
 													{/if}
 												</div>
 											</div>
 											<div class="flex items-center gap-2">
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-													Check Out
+													{$t('hr.checkOut')}
 												</span>
 												{#if pair.checkOutMissing}
 													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-														Check-Out Missing
+														{$t('hr.processFingerprint.checkout_missing')}
 													</span>
 												{/if}
 												{#if pair.lateEarlyTime?.late > 0}
 													<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-														Overtime {Math.floor(pair.lateEarlyTime.late / 60)}h {pair.lateEarlyTime.late % 60}m
+														{$t('hr.processFingerprint.overtime')} {Math.floor(pair.lateEarlyTime.late / 60)}{$t('common.h')} {pair.lateEarlyTime.late % 60}{$t('common.m')}
 													</span>
 												{/if}
 												{#if pair.lateEarlyTime?.early > 0}
 													<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-														Early {Math.floor(pair.lateEarlyTime.early / 60)}h {pair.lateEarlyTime.early % 60}m
+														{$t('hr.processFingerprint.early')} {Math.floor(pair.lateEarlyTime.early / 60)}{$t('common.h')} {pair.lateEarlyTime.early % 60}{$t('common.m')}
 													</span>
 												{/if}
 											</div>
@@ -1020,7 +1021,7 @@
 											{@const isWorkedEnough = workedMinutes >= assignedMinutes}
 											<div class="mt-3">
 												<span class={`px-4 py-2 rounded-full text-sm font-bold ${isWorkedEnough ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-													Worked: {pair.workedTime} {isWorkedEnough ? '✓' : '✗'}
+													{$t('hr.processFingerprint.worked')}: {pair.workedTime} {isWorkedEnough ? '✓' : '✗'}
 												</span>
 											</div>
 										{/if}
@@ -1030,11 +1031,11 @@
 									<div class="px-4 py-3 bg-yellow-50 border-t border-yellow-100">
 										<div class="flex items-center justify-between">
 											<div class="flex items-center gap-3">
-												<div class="text-sm font-semibold text-yellow-800">No check-out recorded</div>
+												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkout_recorded')}</div>
 											</div>
 											<div class="flex items-center gap-2">
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													Check-Out Missing
+													{$t('hr.processFingerprint.checkout_missing')}
 												</span>
 											</div>
 										</div>
@@ -1049,10 +1050,10 @@
 								<span>{pair.checkOutDate}</span>
 								<div class="flex gap-2">
 									{#if isOfficialDayOff(pair.checkOutDate)}
-										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">Official Day Off</span>
+										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecificDayOff(pair.checkOutDate)}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">Day Off</span>
+										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
 									{/if}
 								</div>
 							</div>
@@ -1063,11 +1064,11 @@
 									<div class="px-4 py-3 bg-yellow-50 border-b border-yellow-100">
 										<div class="flex items-center justify-between">
 											<div class="flex items-center gap-3">
-												<div class="text-sm font-semibold text-yellow-800">No check-in recorded</div>
+												<div class="text-sm font-semibold text-yellow-800">{$t('hr.processFingerprint.no_checkin_recorded')}</div>
 											</div>
 											<div class="flex items-center gap-2">
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
-													Check-In Missing
+													{$t('hr.processFingerprint.checkin_missing')}
 												</span>
 											</div>
 										</div>
@@ -1079,22 +1080,22 @@
 											<div>
 												<div class="font-mono text-sm font-semibold text-slate-900">{formatTime12Hour(pair.checkOutTxn.punch_time) || '-'}</div>
 												{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== pair.checkOutDate}
-													<div class="text-xs text-gray-500 mt-1">from {pair.checkOutCalendarDate}</div>
+													<div class="text-xs text-gray-500 mt-1">{$t('hr.processFingerprint.from_label')} {pair.checkOutCalendarDate}</div>
 												{/if}
 											</div>
 										</div>
 										<div class="flex items-center gap-2">
 											<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-												Check Out
+												{$t('hr.checkOut')}
 											</span>
 											{#if pair.lateEarlyTime?.late > 0}
 												<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-												Overtime {Math.floor(pair.lateEarlyTime.late / 60)}h {pair.lateEarlyTime.late % 60}m
+													{$t('hr.processFingerprint.overtime')} {Math.floor(pair.lateEarlyTime.late / 60)}{$t('common.h')} {pair.lateEarlyTime.late % 60}{$t('common.m')}
 												</span>
 											{/if}
 											{#if pair.lateEarlyTime?.early > 0}
 												<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-													Early {Math.floor(pair.lateEarlyTime.early / 60)}h {pair.lateEarlyTime.early % 60}m
+													{$t('hr.processFingerprint.early')} {Math.floor(pair.lateEarlyTime.early / 60)}{$t('common.h')} {pair.lateEarlyTime.early % 60}{$t('common.m')}
 												</span>
 											{/if}
 										</div>
@@ -1111,7 +1112,7 @@
 			
 			<!-- Footer -->
 			<div class="px-4 py-3 bg-slate-50 text-xs text-slate-600 font-semibold border-t border-slate-200">
-				Total Punch Pairs: {punchPairs.length}
+				{$t('hr.processFingerprint.total_punch_pairs')}: {punchPairs.length}
 			</div>
 		</div>
 		
@@ -1138,35 +1139,35 @@
 		
 		<div class="mt-8 bg-white rounded-lg border border-slate-200 overflow-hidden">
 			<div class="p-6">
-				<h3 class="text-lg font-bold text-slate-900 mb-6">Summary for {startDate} to {endDate}</h3>
+				<h3 class="text-lg font-bold text-slate-900 mb-6">{$t('hr.processFingerprint.summary_for').replace('{startDate}', startDate).replace('{endDate}', endDate)}</h3>
 				
 				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 					<!-- Complete Days -->
 					<div class="bg-green-50 border border-green-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Complete Days</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.complete_days')}</div>
 						<div class="text-3xl font-bold text-green-700">{completePairs.length}</div>
-						<div class="text-xs text-slate-500 mt-2">Check-in & Check-out recorded</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.checkin_checkout_recorded')}</div>
 					</div>
 					
 					<!-- Incomplete Days -->
 					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Incomplete Days</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.incomplete_days')}</div>
 						<div class="text-3xl font-bold text-yellow-700">{incompletePairs.length}</div>
-						<div class="text-xs text-slate-500 mt-2">Missing check-in or check-out</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.missing_checkin_checkout')}</div>
 					</div>
 					
 					<!-- Days Off -->
 					<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Days Off</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.days_off')}</div>
 						<div class="text-3xl font-bold text-blue-700">{officialDayOffs.length + specificDayOffs.length}</div>
-						<div class="text-xs text-slate-500 mt-2">Official & Approved</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.days_off_approved')}</div>
 					</div>
 					
 					<!-- Unapproved Leaves -->
 					<div class="bg-red-50 border border-red-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Unapproved Leaves</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.unapproved_leaves')}</div>
 						<div class="text-3xl font-bold text-red-700">{unapprovedLeaves.length}</div>
-						<div class="text-xs text-slate-500 mt-2">No recorded punches</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.no_recorded_punches')}</div>
 					</div>
 				</div>
 				
@@ -1174,16 +1175,16 @@
 				<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
 					<!-- Total Late Time -->
 					<div class="bg-red-50 border border-red-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Total Late Time</div>
-						<div class="text-3xl font-bold text-red-700">{totalLateHours}h {totalLateMins}m</div>
-						<div class="text-xs text-slate-500 mt-2">Overtime across all days</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.total_late_time')}</div>
+						<div class="text-3xl font-bold text-red-700">{totalLateHours}{$t('common.h')} {totalLateMins}{$t('common.m')}</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.overtime_across_days')}</div>
 					</div>
 					
 					<!-- Total Early Time -->
 					<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Total Early Checkout</div>
-						<div class="text-3xl font-bold text-blue-700">{totalEarlyHours}h {totalEarlyMins}m</div>
-						<div class="text-xs text-slate-500 mt-2">Undertime across all days</div>
+						<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">{$t('hr.processFingerprint.total_early_checkout')}</div>
+						<div class="text-3xl font-bold text-blue-700">{totalEarlyHours}{$t('common.h')} {totalEarlyMins}{$t('common.m')}</div>
+						<div class="text-xs text-slate-500 mt-2">{$t('hr.processFingerprint.undertime_across_days')}</div>
 					</div>
 				</div>
 				
@@ -1191,9 +1192,9 @@
 				<div class="mt-6 bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-6">
 					<div class="flex items-center justify-between">
 						<div>
-							<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Total Worked Hours</div>
-							<div class="text-4xl font-bold text-slate-900">{totalWorkedHours}h {totalWorkedMins}m</div>
-							<div class="text-sm text-slate-600 mt-3">Across {completePairs.length} complete working days</div>
+							<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">{$t('hr.processFingerprint.total_worked_hours')}</div>
+							<div class="text-4xl font-bold text-slate-900">{totalWorkedHours}{$t('common.h')} {totalWorkedMins}{$t('common.m')}</div>
+							<div class="text-sm text-slate-600 mt-3">{$t('hr.processFingerprint.across_complete_days').replace('{count}', completePairs.length.toString())}</div>
 						</div>
 						{#if regularShift}
 							{@const expectedHours = regularShift.working_hours || 0}
@@ -1202,12 +1203,12 @@
 							{@const diffHours = Math.floor(Math.abs(difference) / 60)}
 							{@const diffMins = Math.abs(difference) % 60}
 							<div class="text-right">
-								<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Expected vs Actual</div>
+								<div class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">{$t('hr.processFingerprint.expected_vs_actual')}</div>
 								<div class={`text-2xl font-bold ${difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-									{difference >= 0 ? '+' : '-'}{diffHours}h {diffMins}m
+									{difference >= 0 ? '+' : '-'}{diffHours}{$t('common.h')} {diffMins}{$t('common.m')}
 								</div>
 								<div class="text-xs text-slate-600 mt-3">
-									Expected: {completePairs.length * expectedHours}h total
+									{$t('hr.processFingerprint.expected_total').replace('{count}', (completePairs.length * expectedHours).toString())}
 								</div>
 							</div>
 						{/if}
@@ -1217,7 +1218,7 @@
 		</div>
 	{:else if !loadingTransactions && (startDate || endDate)}
 		<div class="text-center py-8 text-slate-500">
-			<p>No transactions found for the selected date range</p>
+			<p>{$t('hr.processFingerprint.no_transactions_found')}</p>
 		</div>
 	{/if}
 	</div>
