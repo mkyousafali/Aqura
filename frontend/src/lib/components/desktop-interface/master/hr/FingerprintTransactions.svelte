@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
@@ -231,7 +232,7 @@
 
 	function loadForPeriod() {
 		if (!periodStartDate || !periodEndDate) {
-			alert('Please select both start and end dates');
+			alert($t('hr.selectDateRangeError'));
 			return;
 		}
 
@@ -453,7 +454,7 @@
 	}
 </script>
 
-<div class="fingerprint-transactions-container">
+<div class="fingerprint-transactions-container" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 	{#if error}
 		<div class="error-message">{error}</div>
 	{/if}
@@ -461,61 +462,69 @@
 	<!-- Load Action Buttons -->
 	<div class="load-actions">
 		<button class="action-btn primary" on:click={loadLast30Days} disabled={loading}>
-			📅 Load Last 30 Days
+			📅 {$t('hr.loadLast30Days')}
 		</button>
 		<button class="action-btn secondary" on:click={loadAllData} disabled={loading}>
-			📊 Load All Data
+			📊 {$t('hr.loadAllData')}
 		</button>
 		<button class="action-btn tertiary" on:click={openEmployeeSelector} disabled={loading}>
-			👤 Load for Specific Employee
+			👤 {$t('hr.loadSpecificEmployee')}
 		</button>
 		<button class="action-btn quaternary" on:click={openPeriodSelector} disabled={loading}>
-			📆 Load for Specific Period
+			📆 {$t('hr.loadSpecificPeriod')}
 		</button>
 	</div>
 
 	<!-- Filters -->
 	<div class="filters">
 		<div class="filter-group">
-			<label>Branch:</label>
+			<label>{$t('hr.branch')}:</label>
 			<select bind:value={selectedBranch} on:change={onFilterChange}>
-				<option value={null}>All Branches</option>
+				<option value={null}>{$t('hr.allBranches')}</option>
 				{#each branches as branch}
-					<option value={branch.id}>{branch.name_en}</option>
+					<option value={branch.id}>{$locale === 'ar' ? branch.name_ar : branch.name_en}</option>
 				{/each}
 			</select>
 		</div>
 
 		<div class="filter-group">
-			<label>Status:</label>
+			<label>{$t('hr.status')}:</label>
 			<select bind:value={selectedStatus} on:change={onFilterChange}>
-				<option value="">All Status</option>
+				<option value="">{$t('hr.allStatus')}</option>
 				{#each statusOptions as status}
-					<option value={status}>{status}</option>
+					<option value={status}>
+						{status === 'Check In' ? $t('hr.checkIn') : 
+						 status === 'Check Out' ? $t('hr.checkOut') : 
+						 status === 'Break In' ? $t('hr.breakIn') : 
+						 status === 'Break Out' ? $t('hr.breakOut') : 
+						 status === 'Overtime In' ? $t('hr.overtimeIn') : 
+						 status === 'Overtime Out' ? $t('hr.overtimeOut') : 
+						 status}
+					</option>
 				{/each}
 			</select>
 		</div>
 
 		<div class="filter-group">
-			<label>📅 Specific Date:</label>
+			<label>📅 {$t('hr.loadSpecificDate')}:</label>
 			<input type="date" bind:value={selectedDate} on:change={onFilterChange} />
 		</div>
 
 		<div class="filter-group">
-			<label>Start Date:</label>
+			<label>{$t('hr.startDate')}:</label>
 			<input type="date" bind:value={startDate} on:change={onFilterChange} disabled={!!selectedDate} />
 		</div>
 
 		<div class="filter-group">
-			<label>End Date:</label>
+			<label>{$t('hr.endDate')}:</label>
 			<input type="date" bind:value={endDate} on:change={onFilterChange} disabled={!!selectedDate} />
 		</div>
 
 		<div class="filter-group">
-			<label>Employee:</label>
+			<label>{$t('hr.employee')}:</label>
 			<input 
 				type="text" 
-				placeholder="Search by name or ID..." 
+				placeholder={$t('hr.searchPlaceholder')} 
 				bind:value={selectedEmployee} 
 				on:input={handleFilterChange}
 			/>
@@ -525,16 +534,16 @@
 	<!-- Results Count and Pagination -->
 	<div class="pagination-controls">
 		<div class="results-info">
-			Showing {filteredTransactions.length} of {totalRecords} transactions
+			{$t('hr.resultsInfo', { current: filteredTransactions.length, total: totalRecords })}
 			{#if totalPages > 1}
-				<span class="page-info">| Page {currentPage} of {totalPages}</span>
+				<span class="page-info">| {$t('hr.page')} {currentPage} {$t('hr.of')} {totalPages}</span>
 			{/if}
 		</div>
 		
 		{#if totalPages > 1}
 			<div class="pagination-buttons">
 				<button on:click={prevPage} disabled={currentPage === 1 || loading}>
-					← Previous
+					{$locale === 'ar' ? '→' : '←'} {$t('hr.prev')}
 				</button>
 				<span class="page-numbers">
 					{#if currentPage > 2}
@@ -562,7 +571,7 @@
 					{/if}
 				</span>
 				<button on:click={nextPage} disabled={currentPage === totalPages || loading}>
-					Next →
+					{$t('hr.next')} {$locale === 'ar' ? '←' : '→'}
 				</button>
 			</div>
 		{/if}
@@ -571,31 +580,31 @@
 	<!-- Table -->
 	<div class="table-container">
 		{#if loading}
-			<div class="loading">Loading transactions...</div>
+			<div class="loading">{$t('hr.processFingerprint.loading_employees')}</div>
 		{:else if filteredTransactions.length === 0}
 			<div class="no-data">
 				<div class="no-data-icon">📋</div>
-				<h3>No Transactions Loaded</h3>
-				<p>To view fingerprint transactions, please use one of the load options above:</p>
+				<h3>{$t('hr.processFingerprint.no_transactions_recorded')}</h3>
+				<p>{$t('hr.processFingerprint.select_process_type')}</p>
 				<ul class="instructions">
-					<li><strong>📅 Load Last 30 Days</strong> - View recent transactions from the past 30 days</li>
-					<li><strong>📊 Load All Data</strong> - View all transactions in the database</li>
-					<li><strong>👤 Load for Specific Employee</strong> - View all transactions for a selected employee</li>
-					<li><strong>📆 Load for Specific Period</strong> - View transactions for a custom date range and branch</li>
+					<li><strong>{$t('hr.loadLast30Days')}</strong> - {$t('hr.processFingerprint.summary_for').replace('{startDate}', '...').replace('{endDate}', '...')}</li>
+					<li><strong>{$t('hr.loadAllData')}</strong> - {$t('hr.processFingerprint.total_transactions_processed')}</li>
+					<li><strong>{$t('hr.loadSpecificEmployee')}</strong> - {$t('hr.processFingerprint.search_by_id_or_name')}</li>
+					<li><strong>{$t('hr.loadSpecificPeriod')}</strong> - {$t('hr.processFingerprint.date_range')}</li>
 				</ul>
-				<p class="tip">💡 Tip: You can also use the filters below after loading data to refine your search</p>
+				<p class="tip">💡 {$t('hr.processFingerprint.select_date_range_employees')}</p>
 			</div>
 		{:else}
 			<table>
 				<thead>
 					<tr>
-						<th>Date</th>
-						<th>Time</th>
-						<th>Employee Name</th>
-						<th>Employee ID</th>
-						<th>Status</th>
-						<th>Branch</th>
-						<th>Location</th>
+						<th>{$t('hr.date')}</th>
+						<th>{$t('hr.time')}</th>
+						<th>{$t('hr.fullName')}</th>
+						<th>{$t('hr.employeeId')}</th>
+						<th>{$t('hr.status')}</th>
+						<th>{$t('hr.branch')}</th>
+						<th>{$t('hr.biometricData')}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -617,7 +626,13 @@
 							<td class="employee-id">{trans.employee_id}</td>
 							<td>
 								<span class="status-badge status-{trans.status.toLowerCase().replace(/\s+/g, '-')}">
-									{trans.status}
+									{trans.status === 'Check In' ? $t('hr.checkIn') : 
+									 trans.status === 'Check Out' ? $t('hr.checkOut') : 
+									 trans.status === 'Break In' ? $t('hr.breakIn') : 
+									 trans.status === 'Break Out' ? $t('hr.breakOut') : 
+									 trans.status === 'Overtime In' ? $t('hr.overtimeIn') : 
+									 trans.status === 'Overtime Out' ? $t('hr.overtimeOut') : 
+									 trans.status}
 								</span>
 							</td>
 							<td>
@@ -642,17 +657,17 @@
 
 <!-- Employee Selection Modal -->
 {#if showEmployeeModal}
-	<div class="modal-overlay" on:click={closeEmployeeModal}>
+	<div class="modal-overlay" on:click={closeEmployeeModal} dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>Select Employee</h3>
+				<h3>{$t('hr.processFingerprint.select_employees')}</h3>
 				<button class="close-btn" on:click={closeEmployeeModal}>✕</button>
 			</div>
 			
 			<div class="modal-search">
 				<input 
 					type="text" 
-					placeholder="Search by name or ID..." 
+					placeholder={$t('hr.searchPlaceholder')}
 					bind:value={employeeSearchTerm}
 					on:input={filterEmployees}
 				/>
@@ -669,7 +684,7 @@
 					</button>
 				{/each}
 				{#if filteredEmployees.length === 0}
-					<div class="no-employees">No employees found</div>
+					<div class="no-employees">{$t('hr.no_employees')}</div>
 				{/if}
 			</div>
 		</div>
@@ -678,36 +693,36 @@
 
 <!-- Period Selection Modal -->
 {#if showPeriodModal}
-	<div class="modal-overlay" on:click={closePeriodModal}>
+	<div class="modal-overlay" on:click={closePeriodModal} dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h3>📆 Select Period</h3>
+				<h3>📆 {$t('hr.loadSpecificPeriod')}</h3>
 				<button class="close-btn" on:click={closePeriodModal}>✕</button>
 			</div>
 			
 			<div class="period-form">
 				<div class="form-group">
-					<label>Start Date:</label>
+					<label>{$t('hr.startDate')}:</label>
 					<input type="date" bind:value={periodStartDate} />
 				</div>
 
 				<div class="form-group">
-					<label>End Date:</label>
+					<label>{$t('hr.endDate')}:</label>
 					<input type="date" bind:value={periodEndDate} />
 				</div>
 
 				<div class="form-group">
-					<label>Branch:</label>
+					<label>{$t('hr.branch')}:</label>
 					<select bind:value={periodBranch}>
-						<option value={null}>All Branches</option>
+						<option value={null}>{$t('hr.allBranches')}</option>
 						{#each branches as branch}
-							<option value={branch.id}>{branch.name_en}</option>
+							<option value={branch.id}>{$locale === 'ar' ? branch.name_ar : branch.name_en}</option>
 						{/each}
 					</select>
 				</div>
 
 				<button class="load-btn" on:click={loadForPeriod}>
-					Load Data
+					{$t('hr.loadData')}
 				</button>
 			</div>
 		</div>
@@ -1339,5 +1354,12 @@
 		background: #45a049;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+	}
+
+	/* RTL Adjustments for Select Arrows */
+	:global([dir="rtl"] select) {
+		background-position: left 0.75rem center !important;
+		padding-left: 2.5rem !important;
+		padding-right: 0.75rem !important;
 	}
 </style>
