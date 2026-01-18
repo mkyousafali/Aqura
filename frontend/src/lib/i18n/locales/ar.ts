@@ -162,6 +162,7 @@ export const arabicLocale: LocaleData = {
       approvals: "الموافقات",
       leaveRequest: "طلب إجازة",
       quickTask: "مهمة سريعة",
+      humanResources: "الموارد البشرية",
       assignTasks: "تعيين المهام",
       createTask: "إنشاء مهمة",
       completeTask: "إكمال المهمة",
