@@ -122,6 +122,7 @@
     let showReasonSearchModal = false;
     let selectedDayOffReason: DayOffReason | null = null;
     let reasonSearchQuery = '';
+    let dayOffDescription: string = '';
     let documentFile: File | null = null;
     let documentUploadProgress = 0;
     let isUploadingDocument = false;
@@ -339,7 +340,18 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_shift' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_weekday' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_date_wise' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, async (payload: any) => {
+                console.log('🔄 Real-time day_off change detected:', payload);
+                // Only reload if we're on the Day Off tab to ensure immediate updates
+                if (activeTab === 'Day Off (date-wise)') {
+                    await loadDayOffData();
+                    console.log('✅ Day off data reloaded from real-time event');
+                } else if (activeTab === 'Day Off (weekday-wise)') {
+                    await loadDayOffWeekdayData();
+                } else {
+                    await refreshCurrentTabData();
+                }
+            })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_reasons' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, () => refreshCurrentTabData())
@@ -819,10 +831,19 @@
             // Get day off data
             const { data: dayOffData, error: dayOffError } = await supabase
                 .from('day_off')
-                .select('*, day_off_reasons(*)')
+                .select('*,day_off_reasons(*)')
                 .order('day_off_date', { ascending: false });
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
+
+            console.log('📋 Raw day off data from DB:', dayOffData);
+            
+            // Check if description field exists in the response
+            if (dayOffData && dayOffData.length > 0) {
+                console.log('🔍 Sample day off object keys:', Object.keys(dayOffData[0]));
+                console.log('🔍 First day off full object:', dayOffData[0]);
+                console.log('🔍 Description field value:', dayOffData[0].description);
+            }
 
             // Map day offs with employee details
             dayOffs = ((dayOffData as any[]) || []).map(dayOff => {
@@ -830,7 +851,7 @@
                 const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
                 const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
 
-                return {
+                const mappedObject = {
                     id: dayOff.id,
                     employee_id: dayOff.employee_id,
                     employee_name_en: emp?.name_en || 'N/A',
@@ -849,9 +870,18 @@
                     approval_status: dayOff.approval_status,
                     reason_en: dayOff.day_off_reasons?.reason_en || 'N/A',
                     reason_ar: dayOff.day_off_reasons?.reason_ar || 'N/A',
-                    document_url: dayOff.document_url
+                    document_url: dayOff.document_url,
+                    description: dayOff.description || null
                 };
+                
+                if (dayOff.description) {
+                    console.log(`📝 Day off ${dayOff.id} has description: "${dayOff.description}"`);
+                }
+                
+                return mappedObject;
             });
+            
+            console.log('✅ Mapped day offs:', dayOffs);
             
             dayOffs = [...sortEmployees(dayOffs)];
         } catch (err) {
@@ -1125,6 +1155,9 @@
     function closeModal() {
         showModal = false;
         selectedEmployeeId = null;
+        selectedDayOffReason = null;
+        dayOffDescription = '';
+        documentFile = null;
     }
 
     function onWeekdayChange() {
@@ -2088,14 +2121,15 @@
                     approval_requested_by: requestedByUserId,
                     approval_requested_at: new Date().toISOString(),
                     document_url: documentUrl,
+                    description: dayOffDescription || null,
                     is_deductible_on_salary: selectedDayOffReason.is_deductible
                 };
             });
 
-            // Insert all records at once
+            // Upsert all records (insert or update if already exists)
             const { data: dayOffData, error: dayOffError } = await supabase
                 .from('day_off')
-                .insert(dayOffRecords)
+                .upsert(dayOffRecords)
                 .select();
 
             if (dayOffError) throw dayOffError;
@@ -2145,10 +2179,14 @@
             selectedDayOffStartDate = new Date().toISOString().split('T')[0];
             selectedDayOffEndDate = new Date().toISOString().split('T')[0];
             selectedDayOffReason = null;
+            dayOffDescription = '';
             documentFile = null;
             documentUploadProgress = 0;
 
+            // Reload day off data immediately to show new entries in real-time
+            console.log('🔄 Reloading day off data after save...');
             await loadDayOffData();
+            console.log('✅ Day off data refreshed, current count:', dayOffs.length);
             
             // Close modal and show success notification
             showModal = false;
@@ -2861,13 +2899,14 @@
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_date')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.reason') || 'Reason'}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">📝 {$t('common.description') || 'Description'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.document') || 'Document'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.status')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
-                                        {#each filteredDayOffsEmployees as dayOff, index}
+                                        {#each filteredDayOffsEmployees as dayOff, index (dayOff.id)}
                                             <tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
                                                 <td class="px-4 py-3 text-sm font-semibold text-slate-800">{dayOff.employee_id}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{formatEmployeeNameDisplay(dayOff)}</td>
@@ -2885,6 +2924,15 @@
                                                 </td>
                                                 <td class="px-4 py-3 text-sm font-mono text-slate-800">{dayOff.day_off_date}</td>
                                                 <td class="px-4 py-3 text-sm text-slate-700">{$locale === 'ar' ? (dayOff.reason_ar || dayOff.reason_en) : (dayOff.reason_en || dayOff.reason_ar)}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">
+                                                    {#if dayOff.description}
+                                                        <div class="max-w-xs truncate" title={dayOff.description}>
+                                                            {dayOff.description}
+                                                        </div>
+                                                    {:else}
+                                                        <span class="text-slate-400 text-xs italic">{$t('common.no_data') || 'N/A'}</span>
+                                                    {/if}
+                                                </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     {#if dayOff.document_url}
                                                         <button 
@@ -3354,6 +3402,21 @@
                                 {/if}
                             </div>
                         {/if}
+                    {/if}
+
+                    <!-- Description Field (Optional) -->
+                    {#if selectedDayOffReason}
+                        <div>
+                            <label for="day-off-description" class="block text-sm font-bold text-slate-700 mb-2">📝 Description (Optional)</label>
+                            <textarea 
+                                id="day-off-description"
+                                bind:value={dayOffDescription}
+                                placeholder="Enter any additional details or notes about this day off request..."
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                rows="4"
+                            />
+                            <p class="text-xs text-slate-500 mt-1">You can add any additional information that might be relevant to this request.</p>
+                        </div>
                     {/if}
                 {/if}
 

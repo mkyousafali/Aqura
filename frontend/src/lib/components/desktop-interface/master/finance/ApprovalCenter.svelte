@@ -2395,6 +2395,13 @@ async function loadHistoricalData() {
 							</div>
 						</div>
 
+						{#if selectedRequisition.description}
+							<div class="detail-item full-width">
+								<label>📝 Description</label>
+								<div class="detail-value description">{selectedRequisition.description}</div>
+							</div>
+						{/if}
+
 						<div class="detail-item">
 							<label>Deductible on Salary</label>
 							<div class="detail-value">{selectedRequisition.is_deductible_on_salary ? '💰 Yes' : 'No'}</div>
