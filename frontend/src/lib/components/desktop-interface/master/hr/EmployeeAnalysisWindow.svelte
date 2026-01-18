@@ -2,7 +2,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 
 	export let employee: any;
 	export let windowId: string;
@@ -33,8 +33,9 @@
 	let transactionData: any[] = [];
 	let loadingTransactions = false;
 	let punchPairs: any[] = []; // Store paired check-ins and check-outs with metadata
+	let realtimeChannel: any = null;
 
-	onMount(async () => {
+	async function loadEmployeeData() {
 		try {
 			// Load regular shift data
 			const { data: shiftData } = await supabase
@@ -59,7 +60,7 @@
 			// Load day off dates
 			const { data: dayOffDatesData } = await supabase
 				.from('day_off')
-				.select('*')
+				.select('*, day_off_reasons(*)')
 				.eq('employee_id', employee.id);
 			dayOffDates = dayOffDatesData || [];
 
@@ -88,8 +89,89 @@
 			}
 		} catch (error) {
 			console.error('Error loading employee data:', error);
-		} finally {
-			loading = false;
+		}
+	}
+
+	function setupRealtime() {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+
+		realtimeChannel = supabase
+			.channel('employee_analysis_changes')
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'regular_shift',
+					filter: `id=eq.${employee.id}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'day_off_weekday',
+					filter: `employee_id=eq.${employee.id}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'day_off',
+					filter: `employee_id=eq.${employee.id}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'special_shift_date_wise',
+					filter: `employee_id=eq.${employee.id}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'special_shift_weekday',
+					filter: `employee_id=eq.${employee.id}`
+				},
+				() => loadEmployeeData()
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'processed_fingerprint_transactions',
+					filter: `center_id=eq.${employee.id}`
+				},
+				() => loadTransactions()
+			)
+			.subscribe();
+	}
+
+	onMount(async () => {
+		loading = true;
+		await loadEmployeeData();
+		loading = false;
+		setupRealtime();
+	});
+
+	onDestroy(() => {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
 		}
 	});
 
@@ -168,6 +250,13 @@
 		const [day, month, year] = dateStr.split('-');
 		const dateFormatted = `${year}-${month}-${day}`; // Convert to YYYY-MM-DD
 		return dayOffDates.some(d => d.day_off_date === dateFormatted);
+	}
+
+	function getSpecificDayOff(dateStr: string): any {
+		// dateStr is in format DD-MM-YYYY
+		const [day, month, year] = dateStr.split('-');
+		const dateFormatted = `${year}-${month}-${day}`; // Convert to YYYY-MM-DD
+		return dayOffDates.find(d => d.day_off_date === dateFormatted);
 	}
 
 	function getDayName(dayNum: number): string {
@@ -906,18 +995,43 @@
 						<!-- Empty Date Card (No Transactions) -->
 						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
 						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
-						{@const isUnapprovedLeave = !isOfficial && !isSpecific}
-						<div class="border border-slate-300 rounded-lg overflow-hidden {isUnapprovedLeave ? 'bg-red-50' : 'bg-slate-50'}">
-							<div class="px-4 py-2 font-bold flex items-center justify-between {isUnapprovedLeave ? 'bg-red-500 text-white' : 'bg-slate-400 text-white'}">
+						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
+						{@const isApproved = isOfficial || (isSpecific && dayOff?.approval_status === 'approved')}
+						{@const isUnapprovedLeave = !isApproved}
+						<div class="border border-slate-300 rounded-lg overflow-hidden 
+							{(isUnapprovedLeave && !isSpecific) ? 'bg-red-50' : 
+							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' : 
+							 (isSpecific ? 'bg-orange-50' : 'bg-slate-50')}">
+							<div class="px-4 py-2 font-bold flex items-center justify-between 
+								{isOfficial ? 'bg-red-600' : 
+								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : 
+								 isSpecific ? 'bg-orange-400' : 
+								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
 									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-600 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecific}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
+										<div class="flex items-center gap-2">
+											<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
+												{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+												{#if dayOff?.day_off_reasons}
+													: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
+												{/if}
+											</span>
+											{#if dayOff?.document_url}
+												<button 
+													class="px-2 py-1 bg-white text-orange-600 rounded-full text-xs font-bold hover:bg-orange-50 transition"
+													on:click={() => window.open(dayOff.document_url, '_blank')}
+													title="View Document"
+												>
+													📄 {$t('common.view') || 'View'}
+												</button>
+											{/if}
+										</div>
 									{/if}
-									{#if isUnapprovedLeave}
+									{#if !isOfficial && !isSpecific && isUnapprovedLeave}
 										<span class="px-3 py-1 bg-red-700 rounded-full text-sm font-semibold">{$t('hr.shift.unapproved_leave')}</span>
 									{/if}
 								</div>
@@ -932,15 +1046,34 @@
 						</div>
 					{:else if pair.checkInTxn}
 						<!-- Paired Check-In/Check-Out (always show under check-in date) -->
+						{@const isOfficial = isOfficialDayOff(pair.checkInDate)}
+						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
+						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
-							<div class="bg-blue-600 text-white px-4 py-2 font-bold flex items-center justify-between">
+							<div class="{isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
-									{#if isOfficialDayOff(pair.checkInDate)}
+									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
-									{#if isSpecificDayOff(pair.checkInDate)}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
+									{#if isSpecific}
+										<div class="flex items-center gap-2">
+											<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
+												{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+												{#if dayOff?.day_off_reasons}
+													: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
+												{/if}
+											</span>
+											{#if dayOff?.document_url}
+												<button 
+													class="px-2 py-1 bg-white text-orange-600 rounded-full text-xs font-bold hover:bg-orange-50 transition"
+													on:click={() => window.open(dayOff.document_url, '_blank')}
+													title="View Document"
+												>
+													📄 {$t('common.view') || 'View'}
+												</button>
+											{/if}
+										</div>
 									{/if}
 								</div>
 							</div>
@@ -1045,15 +1178,34 @@
 						</div>
 					{:else}
 						<!-- Standalone Check-Out (Carryover from previous day) -->
+						{@const isOfficial = isOfficialDayOff(pair.checkOutDate)}
+						{@const isSpecific = isSpecificDayOff(pair.checkOutDate)}
+						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkOutDate) : null}
 						<div class="border border-slate-300 rounded-lg overflow-hidden">
-							<div class="bg-blue-600 text-white px-4 py-2 font-bold flex items-center justify-between">
+							<div class="{isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
 								<span>{pair.checkOutDate}</span>
 								<div class="flex gap-2">
-									{#if isOfficialDayOff(pair.checkOutDate)}
+									{#if isOfficial}
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
-									{#if isSpecificDayOff(pair.checkOutDate)}
-										<span class="px-3 py-1 bg-orange-500 rounded-full text-sm font-semibold">{$t('hr.shift.day_off')}</span>
+									{#if isSpecific}
+										<div class="flex items-center gap-2">
+											<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
+												{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+												{#if dayOff?.day_off_reasons}
+													: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
+												{/if}
+											</span>
+											{#if dayOff?.document_url}
+												<button 
+													class="px-2 py-1 bg-white text-orange-600 rounded-full text-xs font-bold hover:bg-orange-50 transition"
+													on:click={() => window.open(dayOff.document_url, '_blank')}
+													title="View Document"
+												>
+													📄 {$t('common.view') || 'View'}
+												</button>
+											{/if}
+										</div>
 									{/if}
 								</div>
 							</div>

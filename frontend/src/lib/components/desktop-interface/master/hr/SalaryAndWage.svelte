@@ -1,5 +1,5 @@
 ﻿<script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale, _ as t } from '$lib/i18n';
 
@@ -55,6 +55,7 @@
 	let currentEmployeeId = '';
 	let currentEmployee: any = null;
 	let isSaving = false;
+	let realtimeChannel: any = null;
 
 	onMount(async () => {
 		await Promise.all([
@@ -62,7 +63,27 @@
 			loadBasicSalaries(),
 			loadFilterData()
 		]);
+		setupRealtime();
 	});
+
+	onDestroy(() => {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+	});
+
+	function setupRealtime() {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+
+		realtimeChannel = supabase.channel('salary_wage_changes')
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'hr_employee_master' }, () => loadEmployees())
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'hr_basic_salary' }, () => loadBasicSalaries())
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, () => loadFilterData())
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => loadFilterData())
+			.subscribe();
+	}
 
 	async function loadFilterData() {
 		try {
