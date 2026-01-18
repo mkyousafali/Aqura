@@ -1726,6 +1726,8 @@ export const arabicLocale: LocaleData = {
           submitting: "جاري الإرسال...",
           chooseFile: "اختيار ملف",
           noFileChosen: "لم يتم اختيار ملف",
+          takePhoto: "التقاط صورة",
+          description: "الوصف",
           error: "خطأ",
           errorEmployeeNotFound: "لم يتم العثور على رقم الموظف. يرجى الاتصال بالإدارة.",
           requiredFields: "مطلوب",
