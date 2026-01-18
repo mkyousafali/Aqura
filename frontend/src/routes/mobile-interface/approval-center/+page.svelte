@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { goto } from '$app/navigation';
-	import { getTranslation } from '$lib/i18n';
+	import { getTranslation, locale } from '$lib/i18n';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
 
@@ -15,6 +15,8 @@
 	let myCreatedRequisitions = []; // Requisitions created by current user
 	let myCreatedSchedules = []; // Payment schedules created by current user
 	let myApprovedSchedules = []; // My approved schedules
+	let dayOffRequests = []; // Day off requests requiring approval
+	let myDayOffRequests = []; // My created day off requests
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
 	let selectedStatus = 'pending';
@@ -109,7 +111,9 @@
 			schedulesResult,
 			vendorPaymentsResult,
 			myRequisitionsResult,
-			mySchedulesResult
+			mySchedulesResult,
+			dayOffRequestsResult,
+			myDayOffRequestsResult
 		] = await Promise.all([
 			// 1. Requisitions where current user is approver (pending only)
 			supabase
@@ -175,56 +179,98 @@
 				.eq('approval_status', 'pending')
 				.in('schedule_type', ['single_bill', 'multiple_bill'])
 				.order('created_at', { ascending: false })
-				.limit(200)
-		]);
-		
-		// Process requisitions result
-		const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
-		if (requisitionsError) {
-			console.error('❌ Error loading requisitions:', requisitionsError);
-			throw requisitionsError;
-		}
-		
-		requisitions = requisitionsData || [];
-		
-		// Fetch usernames for requisitions if needed
-		if (requisitions.length > 0) {
-			const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
+			.limit(200),
 			
-			if (userIds.length > 0) {
-				const { data: usersData } = await supabase
-					.from('users')
-					.select('id, username')
-					.in('id', userIds);
-				
-				const userMap = {};
-				if (usersData) {
-					usersData.forEach(user => {
-						userMap[user.id] = user.username;
-					});
-				}
-				
-				requisitions = requisitions.map(req => ({
-					...req,
-					created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
-				}));
-			}
-		}
+// 6. Day off requests requiring approval (if user has permission)
+		// Show ALL pending day-off requests to users with can_approve_leave_requests permission
+		(approvalPerms && approvalPerms.can_approve_leave_requests) ?
+			supabase
+				.from('day_off')
+				.select(`
+					*,
+					requester:users!approval_requested_by (
+						id,
+						username
+					),
+					employee:hr_employee_master!employee_id (
+						id,
+						name_en,
+						name_ar
+					),
+					reason:day_off_reasons!day_off_reason_id (
+						id,
+						reason_en,
+						reason_ar
+					)
+				`)
+				.eq('approval_status', 'pending')
+					.order('approval_requested_at', { ascending: false })
+					.limit(200) :
+				Promise.resolve({ data: [], error: null }),
+			
+			// 7. My day off requests (only where I am the requester - all statuses)
+			supabase
+				.from('day_off')
+				.select(`
+					*,
+					reason:day_off_reasons!day_off_reason_id (
+						id,
+						reason_en,
+						reason_ar
+					)
+				`)
+				.eq('approval_requested_by', $currentUser.id)
+				.order('approval_requested_at', { ascending: false })
+				.limit(200)
+	]);
+	
+	// Process requisitions result
+	const { data: requisitionsData, error: requisitionsError } = requisitionsResult;
+	if (requisitionsError) {
+		console.error('❌ Error loading requisitions:', requisitionsError);
+	} else {
+		requisitions = requisitionsData || [];
+	}
+	
+	// Fetch usernames for requisitions if needed
+	if (requisitions.length > 0) {
+		const userIds = [...new Set(requisitions.map(r => r.created_by).filter(Boolean))];
 		
-		// Process payment schedules result
-		const { data: schedulesData, error: schedulesError } = schedulesResult;
-		if (schedulesError) {
-			console.error('❌ Error loading payment schedules:', schedulesError);
-		} else {
-			// Filter single_bill by due date, show all multiple_bill
-			paymentSchedules = (schedulesData || []).filter(schedule => {
-				if (schedule.schedule_type === 'multiple_bill') {
-					return true;
-				}
-				return schedule.due_date && schedule.due_date <= twoDaysDate;
-			});
-			console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+		if (userIds.length > 0) {
+			const { data: usersData } = await supabase
+				.from('users')
+				.select('id, username')
+				.in('id', userIds);
+			
+			const userMap = {};
+			if (usersData) {
+				usersData.forEach(user => {
+					userMap[user.id] = user.username;
+				});
+			}
+			
+			requisitions = requisitions.map(req => ({
+				...req,
+				created_by_username: userMap[req.created_by] || req.created_by || 'Unknown'
+			}));
 		}
+	}
+	console.log('✅ Loaded requisitions:', requisitions.length);
+	
+	// Process payment schedules result
+	const { data: schedulesData, error: schedulesError } = schedulesResult;
+	if (schedulesError) {
+		console.error('❌ Error loading payment schedules:', schedulesError);
+	} else {
+		// Filter single_bill by due date, show all multiple_bill
+		paymentSchedules = (schedulesData || []).filter(schedule => {
+			if (schedule.schedule_type === 'multiple_bill') {
+				return true;
+			}
+			return schedule.due_date && schedule.due_date <= twoDaysDate;
+		});
+		console.log('✅ Loaded payment schedules:', paymentSchedules.length);
+	}
 		
 		// Process vendor payments result
 		const { data: vendorPaymentsData, error: vendorPaymentsError } = vendorPaymentsResult;
@@ -255,19 +301,37 @@
 			console.log('✅ My created payment schedules:', myCreatedSchedules.length);
 		}
 		
+		// Process day off requests requiring approval
+		const { data: dayOffData, error: dayOffError } = dayOffRequestsResult;
+		if (dayOffError) {
+			console.error('❌ Error loading day off requests for approval:', dayOffError);
+		} else {
+			dayOffRequests = dayOffData || [];
+			console.log('✅ Day off requests for approval:', dayOffRequests.length, dayOffRequests);
+		}
+		
+		// Process my created day off requests
+		const { data: myDayOffData, error: myDayOffError } = myDayOffRequestsResult;
+		if (myDayOffError) {
+			console.error('❌ Error loading my day off requests:', myDayOffError);
+		} else {
+			myDayOffRequests = myDayOffData || [];
+			console.log('✅ My day off requests:', myDayOffRequests.length, myDayOffRequests);
+		}
+		
 		// Initialize empty arrays for historical data (will load on demand)
 		myApprovedSchedules = [];
 		approvedPaymentSchedules = [];
 		rejectedPaymentSchedules = [];
 
 		// Calculate stats (only pending for now, historical data will be loaded on demand)
-		stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+		stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length;
 		stats.approved = 0; // Will be loaded when user switches to approved tab
 		stats.rejected = 0; // Will be loaded when user switches to rejected tab
 		stats.total = stats.pending;
 
 		// Stats for my created requests (only pending initially)
-		myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length;
+		myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myDayOffRequests.length;
 		myStats.approved = 0; // Will be loaded on demand
 		myStats.rejected = 0; // Will be loaded on demand
 		myStats.total = myStats.pending;
@@ -448,6 +512,7 @@ async function loadHistoricalData() {
 			// Filter approvals assigned to me
 			let filtered = requisitions;
 			let filteredSchedules = [];
+			let filteredDayOffs = [];
 
 			// Filter requisitions by status
 			if (selectedStatus !== 'all') {
@@ -465,7 +530,12 @@ async function loadHistoricalData() {
 				filteredSchedules = [...rejectedPaymentSchedules];
 			}
 
-			// Combine filtered requisitions, payment schedules, and vendor payments
+			// Filter day off requests based on status
+			if (selectedStatus === 'all' || selectedStatus === 'pending') {
+				filteredDayOffs = dayOffRequests;
+			}
+
+			// Combine filtered requisitions, payment schedules, vendor payments, and day off requests
 			filteredRequisitions = [
 				...filtered.map(r => ({ ...r, item_type: 'requisition' })),
 				...filteredSchedules.map(s => ({ 
@@ -475,12 +545,14 @@ async function loadHistoricalData() {
 				})),
 				...(selectedStatus === 'pending' || selectedStatus === 'all' 
 					? vendorPayments.map(v => ({ ...v, item_type: 'vendor_payment' }))
-					: [])
+					: []),
+				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
 			];
 		} else {
 			// Filter my created requests
 			let filtered = myCreatedRequisitions;
 			let filteredSchedules = [];
+			let filteredMyDayOffs = [];
 
 			// Filter by status
 			if (selectedStatus === 'all') {
@@ -488,6 +560,8 @@ async function loadHistoricalData() {
 				filtered = myCreatedRequisitions;
 				// Combine all schedules: pending + rejected (from myCreatedSchedules) + approved (from myApprovedSchedules)
 				filteredSchedules = [...myCreatedSchedules, ...myApprovedSchedules];
+				// All day off requests
+				filteredMyDayOffs = myDayOffRequests;
 			} else {
 				// Filter requisitions by status
 				filtered = myCreatedRequisitions.filter(r => r.status === selectedStatus);
@@ -495,10 +569,13 @@ async function loadHistoricalData() {
 				// Filter schedules by status
 				if (selectedStatus === 'pending') {
 					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'pending');
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'pending');
 				} else if (selectedStatus === 'approved') {
 					filteredSchedules = myApprovedSchedules;
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'approved');
 				} else if (selectedStatus === 'rejected') {
 					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'rejected');
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'rejected');
 				}
 			}
 
@@ -509,9 +586,22 @@ async function loadHistoricalData() {
 					...s, 
 					item_type: 'payment_schedule',
 					approval_status: s.approval_status || 'approved'
-				}))
+				})),
+				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
 			];
+			
+			console.log('🔍 Filtered my requests:', {
+				requisitions: filtered.length,
+				schedules: filteredSchedules.length,
+				dayOffs: filteredMyDayOffs.length,
+				total: filteredMyRequests.length
+			});
 		}
+		
+		console.log('📊 Filtered approvals:', {
+			forMe: activeSection === 'approvals' ? filteredRequisitions.length : 0,
+			myRequests: activeSection === 'my_requests' ? filteredMyRequests.length : 0
+		});
 	}
 
 	function filterByStatus(status) {
@@ -1116,13 +1206,65 @@ async function rejectRequisition(reason) {
 									<span class="value">{formatDate(req.approval_requested_at)}</span>
 								</div>
 							</div>
+						{:else if req.item_type === 'day_off'}
+							<!-- Day Off Request Card -->
+							<div class="req-header">
+								<div class="req-number">
+									<span class="schedule-badge day-off">📅 DAY OFF</span>
+								</div>
+								<div class="status-badge status-{req.approval_status}">{req.approval_status?.toUpperCase() || 'PENDING'}</div>
+							</div>
+							<div class="req-info">
+								<div class="info-row">
+									<span class="label">Employee:</span>
+									<span class="value">👤 {req.employee ? (req.employee.name_en || req.employee.name_ar || 'N/A') : 'N/A'}</span>
+								</div>
+								{#if activeSection === 'approvals'}
+									<div class="info-row">
+										<span class="label">Requested by:</span>
+										<span class="value">👤 {req.requester?.username || 'Unknown User'}</span>
+									</div>
+								{/if}
+								<div class="info-row">
+									<span class="label">Reason:</span>
+									<span class="value">{req.reason ? (req.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || 'N/A') : 'No reason'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">Day Off Date:</span>
+									<span class="value">{req.day_off_date ? formatDate(req.day_off_date) : '-'}</span>
+								</div>
+								{#if req.is_deductible_on_salary}
+									<div class="info-row">
+										<span class="label">Deductible:</span>
+										<span class="value">💰 Yes</span>
+									</div>
+								{/if}
+								{#if req.document_url}
+									<div class="info-row">
+										<span class="label">Document:</span>
+										<span class="value">
+											<button 
+												class="btn-view-doc"
+												on:click={() => window.open(req.document_url, '_blank')}
+												title="Click to view document">
+												📄 View Document
+											</button>
+										</span>
+									</div>
+								{/if}
+								<div class="info-row">
+									<span class="label">Requested:</span>
+									<span class="value">{formatDate(req.approval_requested_at)}</span>
+								</div>
+							</div>
 						{/if}
 						</div>
 					</div>
 					<!-- Action Buttons -->
 					{#if ((req.item_type === 'requisition' && req.status === 'pending') || 
 					      (req.item_type === 'payment_schedule' && req.approval_status === 'pending') || 
-					      (req.item_type === 'vendor_payment')) && 
+					      (req.item_type === 'vendor_payment') ||
+					      (req.item_type === 'day_off' && req.approval_status === 'pending')) && 
 					     activeSection === 'approvals' && userCanApprove}
 						<div class="card-actions">
 							<button class="btn-approve-card" on:click|stopPropagation={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
@@ -1669,6 +1811,11 @@ async function rejectRequisition(reason) {
 	.schedule-badge.vendor-payment {
 		background: #dcfce7;
 		color: #166534;
+	}
+
+	.schedule-badge.day-off {
+		background: #e0e7ff;
+		color: #3730a3;
 	}
 
 	.bill-number {
@@ -2249,6 +2396,30 @@ async function rejectRequisition(reason) {
 	.btn-approve-bulk-modal:disabled {
 		opacity: 0.7;
 		cursor: not-allowed;
+	}
+
+	.btn-view-doc {
+		padding: 0.5rem 1rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		font-size: 0.95rem;
+		transition: all 0.2s;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.btn-view-doc:hover {
+		background: #059669;
+		transform: translateY(-2px);
+	}
+
+	.btn-view-doc:active {
+		transform: translateY(0);
 	}
 
 	.spinner-small {

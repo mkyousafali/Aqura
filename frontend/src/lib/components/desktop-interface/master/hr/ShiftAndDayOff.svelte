@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import { currentUser } from '$lib/utils/persistentAuth';
+    import { get } from 'svelte/store';
     
     interface EmployeeShift {
         id: string;
@@ -89,6 +91,14 @@
         sponsorship_status?: string;
     }
 
+    interface DayOffReason {
+        id: string;
+        reason_en: string;
+        reason_ar: string;
+        is_deductible: boolean;
+        is_document_mandatory: boolean;
+    }
+
     let activeTab = 'Regular Shift';
     let employees: EmployeeShift[] = [];
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
@@ -96,6 +106,7 @@
     let dateWiseShifts: (EmployeeShift & {shift_date?: string})[] = [];
     let dayOffs: (EmployeeShift & {day_off_date?: string})[] = [];
     let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
+    let dayOffReasons: DayOffReason[] = [];
     let loading = false;
     let error: string | null = null;
     let showModal = false;
@@ -103,6 +114,15 @@
     let showEmployeeSelectModal = false;
     let showDayOffEmployeeSelectModal = false;
     let showDayOffWeekdayEmployeeSelectModal = false;
+    let showReasonModal = false;
+    let showReasonDeleteModal = false;
+    let editingReasonId: string | null = null;
+    let showReasonSearchModal = false;
+    let selectedDayOffReason: DayOffReason | null = null;
+    let reasonSearchQuery = '';
+    let documentFile: File | null = null;
+    let documentUploadProgress = 0;
+    let isUploadingDocument = false;
     let selectedEmployeeId: string | null = null;
     let selectedDeleteWeekday: number = 0;
     let selectedDayOffWeekday: number = 0;
@@ -171,6 +191,15 @@
         }
     }
 
+    // Form data for day off reason modal
+    let reasonFormData: DayOffReason = {
+        id: '',
+        reason_en: '',
+        reason_ar: '',
+        is_deductible: false,
+        is_document_mandatory: false
+    };
+
     $: if (showModal) {
         syncTimeTo12h();
     }
@@ -219,8 +248,14 @@
         { id: 'Special Shift (weekday-wise)', label: $t('hr.shift.tabs.special_weekday'), icon: '📅', color: 'orange' },
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
         { id: 'Day Off (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
-        { id: 'Day Off (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' }
+        { id: 'Day Off (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
+        { id: 'Day Off Reasons', label: 'Day Off Reasons', icon: '📌', color: 'blue' }
     ];
+
+    // Reactive statement to handle tab changes
+    $: if (activeTab) {
+        refreshCurrentTabData();
+    }
 
     onMount(async () => {
         const { supabase: client } = await import('$lib/utils/supabase');
@@ -238,6 +273,8 @@
             await loadDayOffData();
         } else if (activeTab === 'Day Off (weekday-wise)') {
             await loadDayOffWeekdayData();
+        } else if (activeTab === 'Day Off Reasons') {
+            await loadDayOffReasons();
         }
     });
 
@@ -271,6 +308,8 @@
             await loadDayOffData();
         } else if (activeTab === 'Day Off (weekday-wise)') {
             await loadDayOffWeekdayData();
+        } else if (activeTab === 'Day Off Reasons') {
+            await loadDayOffReasons();
         }
     }
 
@@ -1742,6 +1781,276 @@
             };
         });
     }
+
+    // Day Off Reasons Functions
+    async function loadDayOffReasons() {
+        loading = true;
+        error = null;
+        try {
+            await initSupabase();
+
+            console.log('Loading day off reasons...');
+            const { data: reasons, error: reasonError } = await supabase
+                .from('day_off_reasons')
+                .select('*')
+                .order('id', { ascending: true });
+
+            console.log('Day off reasons data:', reasons);
+            console.log('Day off reasons error:', reasonError);
+
+            if (reasonError && reasonError.code !== 'PGRST116') throw reasonError;
+
+            dayOffReasons = (reasons as DayOffReason[]) || [];
+            console.log('Day off reasons loaded:', dayOffReasons.length);
+        } catch (err) {
+            console.error('Error loading day off reasons:', err);
+            error = err instanceof Error ? err.message : 'Failed to load reasons';
+        } finally {
+            loading = false;
+        }
+    }
+
+    function openReasonModal(reason?: DayOffReason) {
+        if (reason) {
+            editingReasonId = reason.id;
+            reasonFormData = { ...reason };
+        } else {
+            editingReasonId = null;
+            reasonFormData = {
+                id: '',
+                reason_en: '',
+                reason_ar: '',
+                is_deductible: false,
+                is_document_mandatory: false
+            };
+        }
+        showReasonModal = true;
+    }
+
+    function closeReasonModal() {
+        showReasonModal = false;
+        editingReasonId = null;
+    }
+
+    async function saveReason() {
+        if (!reasonFormData.reason_en.trim() || !reasonFormData.reason_ar.trim()) {
+            alert('Please fill in both English and Arabic reason names');
+            return;
+        }
+
+        // Generate ID if new
+        if (!reasonFormData.id) {
+            const maxNum = dayOffReasons
+                .map(r => parseInt(r.id.replace('DRS', '')) || 0)
+                .reduce((a, b) => Math.max(a, b), 0);
+            reasonFormData.id = `DRS${String(maxNum + 1).padStart(3, '0')}`;
+        }
+
+        isSaving = true;
+        try {
+            await initSupabase();
+
+            const { error: err } = await supabase
+                .from('day_off_reasons')
+                .upsert([reasonFormData], { onConflict: 'id' });
+
+            if (err) throw err;
+
+            await loadDayOffReasons();
+            closeReasonModal();
+        } catch (err) {
+            console.error('Error saving reason:', err);
+            alert('Error saving reason: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            isSaving = false;
+        }
+    }
+
+    async function deleteReason(id: string) {
+        if (!confirm('Are you sure you want to delete this reason?')) return;
+
+        try {
+            await initSupabase();
+
+            const { error: err } = await supabase
+                .from('day_off_reasons')
+                .delete()
+                .eq('id', id);
+
+            if (err) throw err;
+
+            await loadDayOffReasons();
+        } catch (err) {
+            console.error('Error deleting reason:', err);
+            alert('Error deleting reason: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    }
+
+    function openReasonSearchModal() {
+        showReasonSearchModal = true;
+        reasonSearchQuery = '';
+        selectedDayOffReason = null;
+    }
+
+    function closeReasonSearchModal() {
+        showReasonSearchModal = false;
+        reasonSearchQuery = '';
+    }
+
+    function selectReason(reason: DayOffReason) {
+        selectedDayOffReason = reason;
+        closeReasonSearchModal();
+    }
+
+    function handleDocumentSelect(event: Event) {
+        const target = event.target as HTMLInputElement;
+        documentFile = target.files?.[0] || null;
+    }
+
+    async function uploadDocument() {
+        if (!documentFile || !selectedEmployeeId || !selectedDayOffDate) {
+            alert('Please select employee, date, and document');
+            return;
+        }
+
+        isUploadingDocument = true;
+        documentUploadProgress = 0;
+
+        try {
+            await initSupabase();
+
+            const fileExt = documentFile.name.split('.').pop();
+            const fileName = `day_off_docs/${selectedEmployeeId}/${Date.now()}.${fileExt}`;
+
+            const { data, error: uploadError } = await supabase.storage
+                .from('employee-documents')
+                .upload(fileName, documentFile);
+
+            if (uploadError) throw uploadError;
+
+            // Get public URL
+            const { data: publicUrlData } = supabase.storage
+                .from('employee-documents')
+                .getPublicUrl(fileName);
+
+            documentUploadProgress = 100;
+            return publicUrlData.publicUrl;
+        } catch (err) {
+            console.error('Error uploading document:', err);
+            alert('Error uploading document: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            return null;
+        } finally {
+            isUploadingDocument = false;
+        }
+    }
+
+    async function saveDayOffWithApproval() {
+        if (!selectedEmployeeId || !selectedDayOffDate) {
+            alert('Please select employee and date');
+            return;
+        }
+
+        if (!selectedDayOffReason) {
+            alert('Please select a day off reason');
+            return;
+        }
+
+        // Check if document is mandatory
+        if (selectedDayOffReason.is_document_mandatory && !documentFile) {
+            alert('Document is mandatory for this reason. Please upload a document');
+            return;
+        }
+
+        isSaving = true;
+        try {
+            let documentUrl = null;
+
+            // Upload document if provided
+            if (documentFile) {
+                documentUrl = await uploadDocument();
+            }
+
+            await initSupabase();
+
+            // Find the user_id for the selected employee (employee_id → user_id)
+            const { data: employeeUser, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('employee_id', selectedEmployeeId)
+                .single();
+
+            if (userError || !employeeUser) {
+                throw new Error(`Could not find user account for employee ${selectedEmployeeId}`);
+            }
+
+            const employeeUserId = employeeUser.id;
+            console.log('✅ Found user_id for employee:', { employee_id: selectedEmployeeId, user_id: employeeUserId });
+
+            // Generate unique day off ID
+            const dayOffId = `DO${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+            // Create day off record with approval status
+            const { data: dayOffData, error: dayOffError } = await supabase
+                .from('day_off')
+                .insert([{
+                    id: dayOffId,
+                    employee_id: selectedEmployeeId,
+                    day_off_date: selectedDayOffDate,
+                    day_off_reason_id: selectedDayOffReason.id,
+                    approval_status: 'pending',
+                    approval_requested_by: employeeUserId,  // Use the employee's user_id (UUID from users table)
+                    approval_requested_at: new Date().toISOString(),
+                    document_url: documentUrl,
+                    is_deductible_on_salary: selectedDayOffReason.is_deductible
+                }])
+                .select();
+
+            if (dayOffError) throw dayOffError;
+
+            // Send approval request notification
+            if (dayOffData && dayOffData.length > 0) {
+                const dayOffRecord = dayOffData[0];
+
+                // Find approvers with permission
+                const { data: approvers, error: approvingError } = await supabase
+                    .from('approval_permissions')
+                    .select('user_id')
+                    .eq('can_approve_leave_requests', true)
+                    .eq('is_active', true);
+
+                if (!approvingError && approvers && approvers.length > 0) {
+                    const approverUserIds = approvers.map((a: any) => a.user_id);
+
+                    // Create notification for approvers
+                    await supabase
+                        .from('notifications')
+                        .insert([{
+                            type: 'approval_request',
+                            title: 'Leave Request Approval',
+                            message: `Leave request from ${selectedEmployeeId} for ${selectedDayOffDate} requires approval`,
+                            target_users: approverUserIds,
+                            related_id: dayOffRecord.id,
+                            read: false,
+                            created_at: new Date().toISOString()
+                        }]);
+                }
+            }
+
+            // Clear form
+            selectedDayOffDate = new Date().toISOString().split('T')[0];
+            selectedDayOffReason = null;
+            documentFile = null;
+            documentUploadProgress = 0;
+
+            await loadDayOffData();
+            alert('Day off request submitted for approval!');
+        } catch (err) {
+            console.error('Error saving day off:', err);
+            alert('Error: ' + (err instanceof Error ? err.message : 'Failed to save day off'));
+        } finally {
+            isSaving = false;
+        }
+    }
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
@@ -2653,6 +2962,107 @@
                         </div>
                     </div>
                 {/if}
+            {:else if activeTab === 'Day Off Reasons'}
+                {#if loading}
+                    <div class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                            <div class="animate-spin inline-block">
+                                <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+                            </div>
+                            <p class="mt-4 text-slate-600 font-semibold">Loading day off reasons...</p>
+                        </div>
+                    </div>
+                {:else if error}
+                    <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <button 
+                            class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                            on:click={loadDayOffReasons}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                {:else}
+                    <!-- Day Off Reasons Container -->
+                    <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+                        <!-- Action Button -->
+                        <div class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+                            <button 
+                                class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                                on:click={() => openReasonModal()}
+                            >
+                                <span>➕</span>
+                                Add Reason
+                            </button>
+                        </div>
+
+                        <!-- Table Wrapper -->
+                        <div class="overflow-x-auto flex-1">
+                            {#if dayOffReasons.length === 0}
+                                <div class="flex items-center justify-center h-64">
+                                    <div class="text-center">
+                                        <div class="text-5xl mb-4">📭</div>
+                                        <p class="text-slate-600 font-semibold">No day off reasons found</p>
+                                        <p class="text-slate-400 text-sm mt-2">Click the button above to add one</p>
+                                    </div>
+                                </div>
+                            {:else}
+                                <table class="w-full border-collapse">
+                                    <thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+                                        <tr>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">ID</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Reason (English)</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Reason (Arabic)</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Deductible</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Document Required</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-200">
+                                        {#each dayOffReasons as reason, index}
+                                            <tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{reason.id}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">{reason.reason_en}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700" dir="rtl">{reason.reason_ar}</td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {reason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                                        {reason.is_deductible ? '✓ Yes' : '✗ No'}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {reason.is_document_mandatory ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}">
+                                                        {reason.is_document_mandatory ? '✓ Yes' : '✗ No'}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <div class="flex gap-2 justify-center">
+                                                        <button 
+                                                            class="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
+                                                            on:click={() => openReasonModal(reason)}
+                                                        >
+                                                            ✏️ Edit
+                                                        </button>
+                                                        <button 
+                                                            class="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
+                                                            on:click={() => deleteReason(reason.id)}
+                                                        >
+                                                            🗑️ Delete
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            {/if}
+                        </div>
+
+                        <!-- Footer with row count -->
+                        <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                            Showing {dayOffReasons.length} day off reason{dayOffReasons.length !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                {/if}
             {:else}
                 <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200 transition-all duration-700 hover:bg-white/60">
                     <div class="relative mb-10">
@@ -2733,6 +3143,59 @@
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                     </div>
+
+                    <!-- Search Reason Button -->
+                    <div>
+                        <button 
+                            type="button"
+                            on:click={openReasonSearchModal}
+                            class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition"
+                        >
+                            🔍 Search Day Off Reason
+                        </button>
+                    </div>
+
+                    <!-- Selected Reason Display -->
+                    {#if selectedDayOffReason}
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                            <p class="text-sm font-bold text-slate-700 mb-2">Selected Reason:</p>
+                            <p class="text-base font-semibold text-slate-800">{selectedDayOffReason.reason_en}</p>
+                            <p class="text-base font-semibold text-slate-700" dir="rtl">{selectedDayOffReason.reason_ar}</p>
+                            
+                            <!-- Deductible Status -->
+                            <div class="mt-3 flex gap-2 flex-wrap">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {selectedDayOffReason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                    {selectedDayOffReason.is_deductible ? '✓ Deductible' : '✗ Not Deductible'}
+                                </span>
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {selectedDayOffReason.is_document_mandatory ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}">
+                                    {selectedDayOffReason.is_document_mandatory ? '📄 Document Required' : 'Optional Document'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Document Upload -->
+                        {#if selectedDayOffReason.is_document_mandatory || true}
+                            <div>
+                                <label for="doc-upload" class="block text-sm font-bold text-slate-700 mb-2">
+                                    {selectedDayOffReason.is_document_mandatory ? '📄 Upload Document (Required)' : '📄 Upload Document (Optional)'}
+                                </label>
+                                <input 
+                                    id="doc-upload"
+                                    type="file" 
+                                    on:change={handleDocumentSelect}
+                                    class="w-full px-3 py-2 border-2 border-dashed border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                                {#if documentFile}
+                                    <p class="text-xs text-slate-600 mt-2">Selected: {documentFile.name}</p>
+                                    {#if isUploadingDocument}
+                                        <div class="w-full bg-slate-200 rounded-lg h-2 mt-2">
+                                            <div class="bg-emerald-600 h-2 rounded-lg transition-all" style="width: {documentUploadProgress}%"></div>
+                                        </div>
+                                    {/if}
+                                {/if}
+                            </div>
+                        {/if}
+                    {/if}
                 {/if}
 
                 {#if activeTab === 'Day Off (weekday-wise)'}
@@ -2907,7 +3370,7 @@
                 {#if activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)'}
                     <button 
                         class="px-6 py-2 rounded-lg font-black text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                        on:click={activeTab === 'Day Off (date-wise)' ? saveDayOff : activeTab === 'Day Off (weekday-wise)' ? saveDayOffWeekday : saveShiftData}
+                        on:click={activeTab === 'Day Off (date-wise)' ? saveDayOffWithApproval : activeTab === 'Day Off (weekday-wise)' ? saveDayOffWeekday : saveShiftData}
                         disabled={isSaving}
                     >
                         {isSaving ? $t('common.saving') : $t('common.save')}
@@ -3166,6 +3629,178 @@
                     {isSaving ? $t('common.deleting') : $t('common.delete')}
                 </button>
             </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Reason Search Modal -->
+{#if showReasonSearchModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-900">Select Day Off Reason</h2>
+                <button 
+                    class="text-slate-400 hover:text-slate-600 text-2xl"
+                    on:click={closeReasonSearchModal}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <input 
+                type="text"
+                bind:value={reasonSearchQuery}
+                placeholder="Search by reason name..."
+                class="w-full px-4 py-2 border border-slate-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <!-- Reasons List -->
+            <div class="space-y-2 max-h-[60vh] overflow-y-auto">
+                {#each dayOffReasons.filter(r => 
+                    r.reason_en.toLowerCase().includes(reasonSearchQuery.toLowerCase()) ||
+                    r.reason_ar.toLowerCase().includes(reasonSearchQuery.toLowerCase()) ||
+                    r.id.toLowerCase().includes(reasonSearchQuery.toLowerCase())
+                ) as reason (reason.id)}
+                    <button 
+                        class="w-full p-4 border border-slate-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition text-left"
+                        on:click={() => selectReason(reason)}
+                    >
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <p class="font-bold text-slate-800">{reason.reason_en}</p>
+                                <p class="text-sm text-slate-600 font-semibold" dir="rtl">{reason.reason_ar}</p>
+                                <p class="text-xs text-slate-500 mt-1">ID: {reason.id}</p>
+                            </div>
+                            <div class="flex gap-2 ml-4">
+                                <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold {reason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                    {reason.is_deductible ? '✓ Ded' : '✗ Non-Ded'}
+                                </span>
+                                <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold {reason.is_document_mandatory ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}">
+                                    {reason.is_document_mandatory ? '📄' : '✓'}
+                                </span>
+                            </div>
+                        </div>
+                    </button>
+                {/each}
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button 
+                    type="button"
+                    on:click={closeReasonSearchModal}
+                    class="flex-1 px-4 py-2 rounded-lg font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Day Off Reason Modal -->
+{#if showReasonModal}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-slate-900">
+                    {editingReasonId ? 'Edit Day Off Reason' : 'Add Day Off Reason'}
+                </h2>
+                <button 
+                    class="text-slate-400 hover:text-slate-600 text-2xl"
+                    on:click={closeReasonModal}
+                >
+                    ✕
+                </button>
+            </div>
+
+            <form on:submit|preventDefault={saveReason} class="space-y-4">
+                <!-- ID Field (Read-only) -->
+                <!-- svelte-ignore a11y_label_has_associated_control -->
+                <div>
+                    <label for="reason-id" class="block text-sm font-bold text-slate-700 mb-2">ID</label>
+                    <input 
+                        id="reason-id"
+                        type="text"
+                        value={reasonFormData.id}
+                        disabled
+                        class="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-600 cursor-not-allowed"
+                        placeholder="Auto-generated"
+                    />
+                </div>
+
+                <!-- English Reason -->
+                <div>
+                    <label for="reason-en" class="block text-sm font-bold text-slate-700 mb-2">Reason (English)</label>
+                    <input 
+                        id="reason-en"
+                        type="text"
+                        bind:value={reasonFormData.reason_en}
+                        placeholder="Enter English reason"
+                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+
+                <!-- Arabic Reason -->
+                <!-- svelte-ignore a11y_label_has_associated_control -->
+                <div>
+                    <label for="reason-ar" class="block text-sm font-bold text-slate-700 mb-2">السبب (Arabic)</label>
+                    <input 
+                        id="reason-ar"
+                        type="text"
+                        bind:value={reasonFormData.reason_ar}
+                        placeholder="أدخل السبب بالعربية"
+                        dir="rtl"
+                        class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right"
+                    />
+                </div>
+
+                <!-- Is Deductible Toggle -->
+                <!-- svelte-ignore a11y_label_has_associated_control -->
+                <div>
+                    <label for="deductible-toggle" class="block text-sm font-bold text-slate-700 mb-2">Is Deductible?</label>
+                    <button 
+                        id="deductible-toggle"
+                        type="button"
+                        on:click={() => reasonFormData.is_deductible = !reasonFormData.is_deductible}
+                        class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all {reasonFormData.is_deductible ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}"
+                    >
+                        {reasonFormData.is_deductible ? '✓ Yes - Deductible' : '✗ No - Not Deductible'}
+                    </button>
+                </div>
+
+                <!-- Is Document Mandatory Toggle -->
+                <!-- svelte-ignore a11y_label_has_associated_control -->
+                <div>
+                    <label for="document-toggle" class="block text-sm font-bold text-slate-700 mb-2">Document Required?</label>
+                    <button 
+                        id="document-toggle"
+                        type="button"
+                        on:click={() => reasonFormData.is_document_mandatory = !reasonFormData.is_document_mandatory}
+                        class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all {reasonFormData.is_document_mandatory ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'}"
+                    >
+                        {reasonFormData.is_document_mandatory ? '✓ Yes - Document Required' : '✗ No - Document Not Required'}
+                    </button>
+                </div>
+
+                <!-- Buttons -->
+                <div class="flex gap-3 mt-6">
+                    <button 
+                        type="submit"
+                        disabled={isSaving}
+                        class="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                        {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button 
+                        type="button"
+                        on:click={closeReasonModal}
+                        class="flex-1 px-4 py-2 rounded-lg font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 {/if}
