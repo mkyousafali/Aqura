@@ -17,7 +17,7 @@
 	let currentTime = '';
 	
 	// Cashier interface version
-	let cashierVersion = 'AQ7';
+	let cashierVersion = 'AQ8';
 
 	function updateTime() {
 		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';

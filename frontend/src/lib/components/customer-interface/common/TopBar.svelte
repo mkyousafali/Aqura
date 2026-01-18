@@ -9,7 +9,7 @@
   let notificationCount = 0;
   
   // Customer interface version
-  let customerVersion = 'AQ7';
+  let customerVersion = 'AQ8';
 
   // Subscribe to cart count updates using reactive syntax
   $: cartItemCount = $cartCount;
