@@ -5,6 +5,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
+	import { locale } from '$lib/i18n';
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
@@ -15,6 +16,8 @@
 	let myCreatedRequisitions = []; // Requisitions created by current user
 	let myCreatedSchedules = []; // Payment schedules created by current user
 	let myCreatedVouchers = []; // Purchase vouchers created by current user
+	let dayOffRequests = []; // Day off requests requiring approval
+	let myDayOffRequests = []; // Day off requests created by current user
 	let myApprovedSchedules = []; // My approved schedules
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
@@ -128,7 +131,9 @@
 		purchaseVouchersResult,
 		myRequisitionsResult,
 		mySchedulesResult,
-		myVouchersResult
+		myVouchersResult,
+		dayOffRequestsResult,
+		myDayOffRequestsResult
 	] = await Promise.all([
 		// 1. Requisitions where current user is approver (pending only)
 		supabase
@@ -236,7 +241,49 @@
 		.eq('issued_by', $currentUser.id)
 		.eq('approval_status', 'pending')
 		.order('issued_date', { ascending: false })
-		.limit(200)
+		.limit(200),
+		
+		// 8. Day off approval requests (if user has permission)
+		// Show ALL pending day-off requests to users with can_approve_leave_requests permission
+		(approvalPerms && approvalPerms.can_approve_leave_requests) ?
+			supabase
+				.from('day_off')
+				.select(`
+					*,
+					requester:users!approval_requested_by (
+						id,
+						username
+					),
+					employee:hr_employee_master!employee_id (
+						id,
+						name_en,
+						name_ar
+					),
+					reason:day_off_reasons!day_off_reason_id (
+						id,
+						reason_en,
+						reason_ar
+					)
+				`)
+				.eq('approval_status', 'pending')
+				.order('approval_requested_at', { ascending: false })
+				.limit(200) :
+			Promise.resolve({ data: [], error: null }),
+		
+		// 9. My day off requests (all statuses)
+		supabase
+			.from('day_off')
+			.select(`
+				*,
+				reason:day_off_reasons!day_off_reason_id (
+					id,
+					reason_en,
+					reason_ar
+				)
+			`)
+			.eq('approval_requested_by', $currentUser.id)
+			.order('approval_requested_at', { ascending: false })
+			.limit(200)
 	]);
 	
 	// Process requisitions result
@@ -332,6 +379,24 @@
 		console.log('✅ My created purchase vouchers:', myCreatedVouchers.length);
 	}
 	
+	// Process day off approval requests
+	const { data: dayOffRequestsData, error: dayOffRequestsError } = dayOffRequestsResult;
+	if (dayOffRequestsError) {
+		console.error('❌ Error loading day off requests:', dayOffRequestsError);
+	} else {
+		dayOffRequests = dayOffRequestsData || [];
+		console.log('✅ Day off approval requests:', dayOffRequests.length, dayOffRequests);
+	}
+	
+	// Process my day off requests
+	const { data: myDayOffRequestsData, error: myDayOffRequestsError } = myDayOffRequestsResult;
+	if (myDayOffRequestsError) {
+		console.error('❌ Error loading my day off requests:', myDayOffRequestsError);
+	} else {
+		myDayOffRequests = myDayOffRequestsData || [];
+		console.log('✅ My day off requests:', myDayOffRequests.length, myDayOffRequests);
+	}
+	
 	// Initialize empty arrays for historical data (will load on demand)
 	myApprovedSchedules = [];
 	approvedPaymentSchedules = [];
@@ -342,13 +407,13 @@
 
 	// Calculate stats (only pending for now, historical data will be loaded on demand)
 	// Stats for approvals assigned to me
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length;
 	stats.approved = 0; // Will be loaded when user switches to approved tab
 	stats.rejected = 0; // Will be loaded when user switches to rejected tab
 	stats.total = stats.pending;
 
 	// Stats for my created requests (only pending initially)
-	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myCreatedVouchers.length;
+	myStats.pending = myCreatedRequisitions.length + myCreatedSchedules.length + myCreatedVouchers.length + myDayOffRequests.length;
 	myStats.approved = 0; // Will be loaded on demand
 	myStats.rejected = 0; // Will be loaded on demand
 	myStats.total = myStats.pending;
@@ -535,12 +600,14 @@ async function loadHistoricalData() {
 			// Filter approvals assigned to me
 			let filtered = requisitions;
 			let filteredSchedules = [];
+			let filteredDayOffs = [];
 
 			console.log('🔍 Filtering approvals assigned to me:', {
 				total: requisitions.length,
 				paymentSchedules: paymentSchedules.length,
 				approvedSchedules: approvedPaymentSchedules.length,
 				rejectedSchedules: rejectedPaymentSchedules.length,
+				dayOffRequests: dayOffRequests.length,
 				selectedStatus,
 				searchQuery
 			});
@@ -579,6 +646,21 @@ async function loadHistoricalData() {
 				filteredSchedules = [...rejectedPaymentSchedules];
 			}
 			
+			// Filter day off requests based on status
+			if (selectedStatus === 'all' || selectedStatus === 'pending') {
+				filteredDayOffs = dayOffRequests;
+			}
+			console.log('✅ Day off approvals to show:', {
+				count: filteredDayOffs.length,
+				data: filteredDayOffs.map(d => ({
+					id: d.id,
+					approval_requested_by: d.approval_requested_by,
+					currentUserId: $currentUser.id,
+					isOwnRequest: d.approval_requested_by === $currentUser.id,
+					approval_status: d.approval_status
+				}))
+			});
+			
 			// Apply search to payment schedules too
 			if (searchQuery.trim()) {
 				const query = searchQuery.toLowerCase();
@@ -609,7 +691,9 @@ async function loadHistoricalData() {
 				...(selectedStatus === 'pending' || selectedStatus === 'all' ? purchaseVouchers.map(pv => ({
 					...pv,
 					item_type: 'purchase_voucher'
-				})) : [])
+				})) : []),
+				// Add day off requests
+				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
 			];
 			
 			console.log('✅ Final filtered approvals:', {
@@ -617,17 +701,20 @@ async function loadHistoricalData() {
 				schedules: filteredSchedules.length,
 				vendorPayments: (selectedStatus === 'pending' || selectedStatus === 'all' ? vendorPayments.length : 0),
 				vouchers: (selectedStatus === 'pending' || selectedStatus === 'all' ? purchaseVouchers.length : 0),
+				dayOffs: filteredDayOffs.length,
 				total: filteredRequisitions.length
 			});
 		} else {
 			// Filter my created requests
 			let filtered = myCreatedRequisitions;
 			let filteredSchedules = [];
+			let filteredMyDayOffs = [];
 
 			console.log('🔍 Filtering my created requests:', {
 				total: myCreatedRequisitions.length,
 				mySchedules: myCreatedSchedules.length,
 				myApprovedSchedules: myApprovedSchedules.length,
+				myDayOffs: myDayOffRequests.length,
 				selectedStatus,
 				searchQuery
 			});
@@ -637,6 +724,18 @@ async function loadHistoricalData() {
 				filtered = myCreatedRequisitions;
 				// Combine all schedules: pending + rejected (from myCreatedSchedules) + approved (from myApprovedSchedules)
 				filteredSchedules = [...myCreatedSchedules, ...myApprovedSchedules];
+				// All day off requests
+				filteredMyDayOffs = myDayOffRequests;
+				console.log('✅ My day off requests (all statuses):', {
+					count: filteredMyDayOffs.length,
+					data: filteredMyDayOffs.map(d => ({
+						id: d.id,
+						approval_requested_by: d.approval_requested_by,
+						currentUserId: $currentUser.id,
+						isMyRequest: d.approval_requested_by === $currentUser.id,
+						approval_status: d.approval_status
+					}))
+				});
 			} else {
 				// Filter requisitions by status
 				filtered = myCreatedRequisitions.filter(r => r.status === selectedStatus);
@@ -644,10 +743,23 @@ async function loadHistoricalData() {
 				// Filter schedules by status
 				if (selectedStatus === 'pending') {
 					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'pending');
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'pending');
+					console.log('✅ My pending day off requests:', {
+						count: filteredMyDayOffs.length,
+						data: filteredMyDayOffs.map(d => ({
+							id: d.id,
+							approval_requested_by: d.approval_requested_by,
+							currentUserId: $currentUser.id,
+							isMyRequest: d.approval_requested_by === $currentUser.id,
+							approval_status: d.approval_status
+						}))
+					});
 				} else if (selectedStatus === 'approved') {
 					filteredSchedules = myApprovedSchedules;
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'approved');
 				} else if (selectedStatus === 'rejected') {
 					filteredSchedules = myCreatedSchedules.filter(s => s.approval_status === 'rejected');
+					filteredMyDayOffs = myDayOffRequests.filter(d => d.approval_status === 'rejected');
 				}
 			}
 
@@ -681,13 +793,16 @@ async function loadHistoricalData() {
 				...myCreatedVouchers.map(pv => ({
 					...pv,
 					item_type: 'purchase_voucher'
-				}))
+				})),
+				// Add my day off requests
+				...filteredMyDayOffs.map(d => ({ ...d, item_type: 'day_off' }))
 			];
 
 			console.log('✅ Final filtered my requests:', {
 				requisitions: filtered.length,
 				schedules: filteredSchedules.length,
 				vouchers: myCreatedVouchers.length,
+				dayOffs: filteredMyDayOffs.length,
 				total: filteredMyRequests.length
 			});
 		}
@@ -1616,6 +1731,53 @@ async function loadHistoricalData() {
 											</button>
 										{/if}
 									</td>
+								{:else if req.item_type === 'day_off'}
+									<!-- Day Off Request Row -->
+									<td class="req-number">
+										<span class="schedule-badge day-off">📅 DAY OFF</span>
+									</td>
+									<td>-</td>
+									<td>
+										<div class="generated-by-info">
+											<div class="generated-by-name">
+												👤 {activeSection === 'approvals' ? (req.requester?.username || 'Unknown') : 'My Request'}
+											</div>
+										</div>
+									</td>
+									<td>
+										<div class="requester-info">
+											<div class="requester-name">{req.employee ? (req.employee.name_en || req.employee.name_ar || 'N/A') : 'N/A'}</div>
+											<div class="requester-id">Employee</div>
+										</div>
+									</td>
+									<td>
+										<div class="category-info">
+											<div>Day Off Request</div>
+											<div class="category-ar">طلب إجازة يوم</div>
+										</div>
+									</td>
+									<td class="amount">-</td>
+									<td class="payment-type">{req.is_deductible_on_salary ? '💰 Deductible' : 'No Deduction'}</td>
+									<td>
+										<span class="status-badge status-{req.approval_status}">
+											{(req.approval_status || 'pending').toUpperCase()}
+										</span>
+									</td>
+									<td class="date due-date">{req.day_off_date ? formatDate(req.day_off_date) : '-'}</td>
+									<td class="date">{formatDate(req.approval_requested_at)}</td>
+									<td class="action-buttons">
+										<button class="btn-view" on:click={() => openDetail(req)}>
+											👁️
+										</button>
+										{#if req.approval_status === 'pending' && activeSection === 'approvals' && userCanApprove}
+											<button class="btn-approve-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'approve'; showConfirmModal = true; }} disabled={isProcessing}>
+												✅
+											</button>
+											<button class="btn-reject-inline" on:click={() => { selectedRequisition = req; pendingRequisitionId = req.id; confirmAction = 'reject'; showConfirmModal = true; }} disabled={isProcessing}>
+												❌
+											</button>
+										{/if}
+									</td>
 								{/if}
 							</tr>
 						{/each}
@@ -2076,19 +2238,117 @@ async function loadHistoricalData() {
 							<div class="detail-value">{formatDate(selectedRequisition.created_at)}</div>
 						</div>
 					</div>
+				{:else if selectedRequisition.item_type === 'day_off'}
+					<!-- Day Off Request Details -->
+					<div class="detail-grid">
+						<div class="detail-item">
+							<label>Request Status</label>
+							<span class="status-badge status-{selectedRequisition.approval_status}">
+								{selectedRequisition.approval_status?.toUpperCase() || 'PENDING'}
+							</span>
+						</div>
+
+						<div class="detail-item">
+							<label>Employee</label>
+							<div class="detail-value">
+								👤 {selectedRequisition.employee ? (selectedRequisition.employee.name_en || selectedRequisition.employee.name_ar || 'N/A') : 'N/A'}
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Requested By</label>
+							<div class="detail-value">
+								👤 {selectedRequisition.requester?.username || 'Unknown User'}
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Day Off Date</label>
+							<div class="detail-value">{selectedRequisition.day_off_date ? formatDate(selectedRequisition.day_off_date) : '-'}</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Reason</label>
+							<div class="detail-value">
+								{selectedRequisition.reason ? (selectedRequisition.reason[$locale === 'en' ? 'reason_en' : 'reason_ar'] || 'N/A') : 'No reason'}
+								{#if selectedRequisition.reason && selectedRequisition.reason.reason_en}
+									<br>
+									<small style="color: #666;">EN: {selectedRequisition.reason.reason_en}</small>
+								{/if}
+								{#if selectedRequisition.reason && selectedRequisition.reason.reason_ar}
+									<br>
+									<small style="color: #666;">AR: {selectedRequisition.reason.reason_ar}</small>
+								{/if}
+							</div>
+						</div>
+
+						<div class="detail-item">
+							<label>Deductible on Salary</label>
+							<div class="detail-value">{selectedRequisition.is_deductible_on_salary ? '💰 Yes' : 'No'}</div>
+						</div>
+
+						{#if selectedRequisition.document_url}
+							<div class="detail-item full-width">
+								<label>📎 Document Attached</label>
+								<div class="detail-value">
+									<button 
+										class="btn-view-doc"
+										on:click={() => window.open(selectedRequisition.document_url, '_blank')}
+										title="Click to view document">
+										📄 View Document
+									</button>
+									<br>
+									<small>Uploaded: {selectedRequisition.document_uploaded_at ? formatDate(selectedRequisition.document_uploaded_at) : 'N/A'}</small>
+								</div>
+							</div>
+						{/if}
+
+						<div class="detail-item">
+							<label>Requested On</label>
+							<div class="detail-value">{formatDate(selectedRequisition.approval_requested_at)}</div>
+						</div>
+
+						{#if selectedRequisition.approval_approved_at}
+							<div class="detail-item">
+								<label>Approved On</label>
+								<div class="detail-value">{formatDate(selectedRequisition.approval_approved_at)}</div>
+							</div>
+
+							<div class="detail-item">
+								<label>Approved By</label>
+								<div class="detail-value">👤 {selectedRequisition.approval_approved_by || 'System'}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.approval_notes}
+							<div class="detail-item full-width">
+								<label>Approval Notes</label>
+								<div class="detail-value description">{selectedRequisition.approval_notes}</div>
+							</div>
+						{/if}
+
+						{#if selectedRequisition.rejection_reason}
+							<div class="detail-item full-width">
+								<label style="color: #dc2626;">Rejection Reason</label>
+								<div class="detail-value description" style="color: #dc2626;">{selectedRequisition.rejection_reason}</div>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 
 		<div class="modal-footer">
-			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval') || (selectedRequisition.item_type === 'purchase_voucher' && selectedRequisition.approval_status === 'pending')}
+			{#if (selectedRequisition.item_type === 'requisition' && selectedRequisition.status === 'pending') || (selectedRequisition.item_type === 'payment_schedule' && (selectedRequisition.approval_status === 'pending' || !selectedRequisition.approval_status)) || (selectedRequisition.item_type === 'vendor_payment' && selectedRequisition.approval_status === 'sent_for_approval') || (selectedRequisition.item_type === 'purchase_voucher' && selectedRequisition.approval_status === 'pending') || (selectedRequisition.item_type === 'day_off' && selectedRequisition.approval_status === 'pending')}
 					{@const canApproveThis = selectedRequisition.item_type === 'payment_schedule' 
 						? selectedRequisition.approver_id === $currentUser?.id 
 						: selectedRequisition.item_type === 'vendor_payment'
 						? userCanApprove
 						: selectedRequisition.item_type === 'purchase_voucher'
 						? selectedRequisition.approver_id === $currentUser?.id || userCanApprove
+						: selectedRequisition.item_type === 'day_off'
+						? userCanApprove
 						: userCanApprove}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
 					{#if !canApproveThis}
 						<div class="permission-notice">
 							ℹ️ You do not have permission to approve or reject this {itemTypeName}.
@@ -2538,6 +2798,11 @@ async function loadHistoricalData() {
 		color: #166534;
 	}
 
+	.schedule-badge.day-off {
+		background: #e0e7ff;
+		color: #3730a3;
+	}
+
 	.schedule-id {
 		font-size: 0.7rem;
 		color: #64748b;
@@ -2573,6 +2838,30 @@ async function loadHistoricalData() {
 
 	.btn-view:hover {
 		background: #2563eb;
+	}
+
+	.btn-view-doc {
+		padding: 0.5rem 1rem;
+		background: #10b981;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 500;
+		font-size: 0.95rem;
+		transition: all 0.2s;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.btn-view-doc:hover {
+		background: #059669;
+		transform: translateY(-2px);
+	}
+
+	.btn-view-doc:active {
+		transform: translateY(0);
 	}
 
 	/* Inline action buttons */

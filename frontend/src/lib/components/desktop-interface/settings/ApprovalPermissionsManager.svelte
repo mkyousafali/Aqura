@@ -99,19 +99,141 @@
 		try {
 			saving = true;
 
-			const { error } = await supabase.from('approval_permissions').upsert(
-				{
-					...user.permissions,
-					user_id: user.id,
-					updated_at: new Date().toISOString(),
-					updated_by: $currentUser?.id
-				},
-				{
-					onConflict: 'user_id'
-				}
-			);
+			const permissionData = {
+				can_approve_requisitions: user.permissions.can_approve_requisitions === true,
+				requisition_amount_limit: parseFloat(user.permissions.requisition_amount_limit) || 0,
+				can_approve_single_bill: user.permissions.can_approve_single_bill === true,
+				single_bill_amount_limit: parseFloat(user.permissions.single_bill_amount_limit) || 0,
+				can_approve_multiple_bill: user.permissions.can_approve_multiple_bill === true,
+				multiple_bill_amount_limit: parseFloat(user.permissions.multiple_bill_amount_limit) || 0,
+				can_approve_recurring_bill: user.permissions.can_approve_recurring_bill === true,
+				recurring_bill_amount_limit: parseFloat(user.permissions.recurring_bill_amount_limit) || 0,
+				can_approve_vendor_payments: user.permissions.can_approve_vendor_payments === true,
+				vendor_payment_amount_limit: parseFloat(user.permissions.vendor_payment_amount_limit) || 0,
+				can_approve_leave_requests: user.permissions.can_approve_leave_requests === true,
+				can_approve_purchase_vouchers: user.permissions.can_approve_purchase_vouchers === true,
+				is_active: user.permissions.is_active === true
+			};
 
-		if (error) throw error;
+			console.log('💾 Saving approval permissions for user:', {
+				userId: user.id,
+				username: user.username,
+				permissionData: permissionData,
+				originalValues: {
+					can_approve_leave_requests: user.permissions.can_approve_leave_requests,
+					can_approve_requisitions: user.permissions.can_approve_requisitions
+				}
+			});
+
+			// Check if permission record exists
+			const { data: existingPerm, error: checkError } = await supabase
+				.from('approval_permissions')
+				.select('id')
+				.eq('user_id', user.id)
+				.maybeSingle();
+
+			if (checkError && checkError.code !== 'PGRST116') {
+				console.error('❌ Error checking existing permissions:', checkError);
+				throw checkError;
+			}
+
+			console.log('🔍 Existing permission record:', existingPerm ? 'YES - will UPDATE' : 'NO - will INSERT');
+
+			let updateError;
+			if (existingPerm) {
+				// Update existing record
+				console.log('↳ Executing UPDATE query...');
+				const { error: err, data: updateData } = await supabase
+					.from('approval_permissions')
+					.update({
+						can_approve_requisitions: permissionData.can_approve_requisitions,
+						requisition_amount_limit: permissionData.requisition_amount_limit,
+						can_approve_single_bill: permissionData.can_approve_single_bill,
+						single_bill_amount_limit: permissionData.single_bill_amount_limit,
+						can_approve_multiple_bill: permissionData.can_approve_multiple_bill,
+						multiple_bill_amount_limit: permissionData.multiple_bill_amount_limit,
+						can_approve_recurring_bill: permissionData.can_approve_recurring_bill,
+						recurring_bill_amount_limit: permissionData.recurring_bill_amount_limit,
+						can_approve_vendor_payments: permissionData.can_approve_vendor_payments,
+						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
+						can_approve_leave_requests: permissionData.can_approve_leave_requests,
+						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
+						is_active: permissionData.is_active,
+						updated_at: new Date().toISOString(),
+						updated_by: $currentUser?.id
+					})
+					.eq('user_id', user.id);
+				
+				updateError = err;
+				console.log('↳ UPDATE Result:', { error: err, data: updateData });
+			} else {
+				// Insert new record
+				console.log('↳ Executing INSERT query...');
+				const { error: err, data: insertData } = await supabase
+					.from('approval_permissions')
+					.insert([{
+						user_id: user.id,
+						can_approve_requisitions: permissionData.can_approve_requisitions,
+						requisition_amount_limit: permissionData.requisition_amount_limit,
+						can_approve_single_bill: permissionData.can_approve_single_bill,
+						single_bill_amount_limit: permissionData.single_bill_amount_limit,
+						can_approve_multiple_bill: permissionData.can_approve_multiple_bill,
+						multiple_bill_amount_limit: permissionData.multiple_bill_amount_limit,
+						can_approve_recurring_bill: permissionData.can_approve_recurring_bill,
+						recurring_bill_amount_limit: permissionData.recurring_bill_amount_limit,
+						can_approve_vendor_payments: permissionData.can_approve_vendor_payments,
+						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
+						can_approve_leave_requests: permissionData.can_approve_leave_requests,
+						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
+						is_active: permissionData.is_active,
+						created_at: new Date().toISOString(),
+						updated_at: new Date().toISOString(),
+						created_by: $currentUser?.id,
+						updated_by: $currentUser?.id
+					}]);
+				
+				updateError = err;
+				console.log('↳ INSERT Result:', { error: err, data: insertData });
+			}
+
+			if (updateError) {
+				console.error('❌ ERROR SAVING PERMISSIONS:', {
+					message: updateError.message,
+					code: updateError.code,
+					details: updateError.details,
+					hint: updateError.hint,
+					fullError: updateError
+				});
+				throw updateError;
+			}
+			
+			console.log('✅ Database update/insert successful');
+
+			// Wait a moment for the database to process
+			await new Promise(resolve => setTimeout(resolve, 500));
+
+			// Verify what was saved in database
+			const { data: verifyData, error: verifyError } = await supabase
+				.from('approval_permissions')
+				.select('*')
+				.eq('user_id', user.id)
+				.single();
+
+			if (verifyError) {
+				console.warn('⚠️ Error verifying saved data:', verifyError);
+			} else if (verifyData) {
+				console.log('✅ VERIFIED - Data in database:', {
+					userId: verifyData.user_id,
+					can_approve_leave_requests: verifyData.can_approve_leave_requests,
+					can_approve_requisitions: verifyData.can_approve_requisitions,
+					can_approve_single_bill: verifyData.can_approve_single_bill,
+					can_approve_vendor_payments: verifyData.can_approve_vendor_payments,
+					can_approve_purchase_vouchers: verifyData.can_approve_purchase_vouchers,
+					is_active: verifyData.is_active,
+					updated_at: verifyData.updated_at,
+					updated_by: verifyData.updated_by
+				});
+			}
 
 		// Send notification to the user whose permissions were updated
 		try {
@@ -165,8 +287,15 @@
 	}
 
 	function togglePermission(user: any, field: string) {
+		console.log(`🔄 Toggle ${field} for user ${user.username}:`, user.permissions[field], '→', !user.permissions[field]);
 		user.permissions[field] = !user.permissions[field];
 		users = [...users]; // Trigger reactivity
+		
+		// Auto-save after toggle
+		console.log('💾 Auto-saving after toggle...');
+		setTimeout(() => {
+			saveUserPermissions(user);
+		}, 300);
 	}
 
 	function updateAmountLimit(user: any, field: string, value: number) {
