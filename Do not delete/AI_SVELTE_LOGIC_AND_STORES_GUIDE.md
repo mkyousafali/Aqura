@@ -73,6 +73,36 @@ If you manually subscribe to a store in `<script>`, ensure you return the unsubs
 □ Did I use get_errors to check for compiler/lint issues?
 □ If I added an async function, did I handle errors (try/catch)?
 □ Are all my imports correctly resolved (no red squigglies)?
+
+---
+
+## 6. RTL (Arabic) UI Implementation Rule
+
+When implementing Arabic support, ensure the UI flips correctly.
+
+### **CSS for Dropdown Arrows**
+Standard browser dropdown arrows often don't flip or align well in RTL. Always add this global CSS to your Svelte component's `<style>` block:
+
+```css
+/* RTL Adjustments for Select Arrows */
+:global([dir="rtl"] select) {
+    background-position: left 0.75rem center !important;
+    padding-left: 2.5rem !important;
+    padding-right: 0.75rem !important;
+}
+```
+
+### **Directional Attributes**
+Ensure the root container or modals have the `dir` attribute:
+```svelte
+<div dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+```
+
+### **Arrow Symbols in Buttons**
+Manual arrow symbols (←, →) should be flipped manually:
+```svelte
+<button>{$locale === 'ar' ? '→' : '←'} {$t('hr.prev')}</button>
+```
 ```
 
 ## How to Update Without Errors

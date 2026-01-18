@@ -50,7 +50,13 @@ common: {
 ---
 
 ## 3. Usage in Svelte Components
-
+### Root Container Configuration
+Always wrap the component's main content in a container that responds to the locale direction to ensure text alignment and layout flip correctly.
+```svelte
+<div class="page-container" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+    <!-- Content goes here -->
+</div>
+```
 ### Import the I18N Tools
 ```svelte
 <script lang="ts">
@@ -96,6 +102,13 @@ Before adding a generic key like `cancel` or `edit`, search `en.ts` to see if it
 If you see `Translation key not found: path.to.key` in the console:
 - Verify the key exists in BOTH `en.ts` and `ar.ts`.
 - Verify the path in `$t('...')` matches the structure in the locale files exactly.
+- **CRITICAL:** Watch out for "Dual Prefixing". For example, if your code is inside the `hr` category, do not use `$t('hr.hr.key')`. Only use `$t('hr.key')`.
+
+### 6. Verification and Completeness
+- **Scan for Hardcoded Text:** Before finishing a task, search your `.svelte` file for English text strings wrapped in tags (e.g., `>Save<`). All visible text must be moved to translations.
+- **Bi-directional Keys:** Every key added to `en.ts` MUST exist in `ar.ts` with its Arabic equivalent. Never leave a key missing in one language.
+- **Placeholder Localization:** Localize placeholders in inputs: `<input placeholder={$t('hr.searchPlaceholder')} />`.
+- **Dynamic Content:** Use placeholders like `{startDate}` or `{count}` in your translation strings and pass them as an object: `$t('hr.results', { count: 10 })`.
 
 ---
 
