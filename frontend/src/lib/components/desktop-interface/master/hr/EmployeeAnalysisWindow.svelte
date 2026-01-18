@@ -44,6 +44,11 @@
 				.single();
 			regularShift = shiftData;
 
+			// Get shift overlap flag from the shift data
+			if (shiftData?.is_shift_overlapping_next_day) {
+				isShiftOverlappingNextDay = true;
+			}
+
 			// Load day off weekday data
 			const { data: dayOffWData } = await supabase
 				.from('day_off_weekday')
@@ -65,6 +70,11 @@
 				.eq('employee_id', employee.id);
 			specialShiftDateWise = specialDateData || [];
 
+			// Check for shift overlap in special date-wise shifts
+			if (specialDateData?.some(s => s.is_shift_overlapping_next_day)) {
+				isShiftOverlappingNextDay = true;
+			}
+
 			// Load special shift weekday
 			const { data: specialWeekdayData } = await supabase
 				.from('special_shift_weekday')
@@ -72,8 +82,10 @@
 				.eq('employee_id', employee.id);
 			specialShiftWeekday = specialWeekdayData || [];
 
-			// Get shift overlap flag from employee prop
-			isShiftOverlappingNextDay = employee.is_shift_overlapping_next_day || false;
+			// Check for shift overlap in special weekday shifts
+			if (specialWeekdayData?.some(s => s.is_shift_overlapping_next_day)) {
+				isShiftOverlappingNextDay = true;
+			}
 		} catch (error) {
 			console.error('Error loading employee data:', error);
 		} finally {
