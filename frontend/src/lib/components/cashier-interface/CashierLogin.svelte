@@ -23,7 +23,7 @@
 			loadingBranches = true;
 			const { data, error: branchError } = await supabase
 				.from('branches')
-				.select('id, name_ar, name_en')
+				.select('id, name_ar, name_en, location_ar, location_en')
 				.order('name_en');
 			
 			if (branchError) throw branchError;
@@ -386,10 +386,14 @@
 										}
 									}}
 								>
-								<option value="">{loadingBranches ? 'Loading branches...' : 'Select a branch'}</option>
+								<option value="">{loadingBranches ? (t('common.loading') || 'Loading...') : (t('coupon.selectBranch') || 'Select a branch')}</option>
 								{#each branches as branch}
 									<option value={branch.id}>
-										{branch.name_en} • {branch.name_ar}
+										{#if $currentLocale === 'ar'}
+											{branch.name_ar} {branch.location_ar ? `- ${branch.location_ar}` : ''}
+										{:else}
+											{branch.name_en} {branch.location_en ? `- ${branch.location_en}` : ''}
+										{/if}
 									</option>
 								{/each}
 								</select>
