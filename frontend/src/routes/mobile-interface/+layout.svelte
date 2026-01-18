@@ -506,6 +506,7 @@
 		if (path === '/mobile-interface/approval-center' || path === '/mobile-interface/approval-center/') return getTranslation('mobile.approvals');
 		if (path === '/mobile-interface/quick-task' || path === '/mobile-interface/quick-task/') return getTranslation('mobile.quickTask');
 		if (path === '/mobile-interface/day-off-request' || path === '/mobile-interface/day-off-request/') return getTranslation('mobile.leaveRequest');
+		if (path === '/mobile-interface/fingerprint-analysis' || path === '/mobile-interface/fingerprint-analysis/') return getTranslation('mobile.fingerprintAnalysis');
 		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
 		
 		// Sub-pages
@@ -831,6 +832,14 @@
 								<path d="M12 14v4m-3-2h6"/>
 							</svg>
 							<span>{getTranslation('mobile.leaveRequest')}</span>
+						</a>
+						<a href="/mobile-interface/fingerprint-analysis" class="hr-submenu-item" on:click={() => showHRMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/fingerprint-analysis')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 19.5C16.97 19.5 21 15.47 21 10.5S16.97 1.5 12 1.5 3 5.53 3 10.5 7.03 19.5 12 19.5Z"/>
+								<path d="M12 3v14M7.5 8h9"/>
+								<path d="M10 13h4"/>
+							</svg>
+							<span>{getTranslation('mobile.fingerprintAnalysis')}</span>
 						</a>
 					</div>
 				{/if}

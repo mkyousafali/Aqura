@@ -163,6 +163,7 @@ export const arabicLocale: LocaleData = {
       leaveRequest: "طلب إجازة",
       quickTask: "مهمة سريعة",
       humanResources: "الموارد البشرية",
+      fingerprintAnalysis: "تحليل البصمات",
       assignTasks: "تعيين المهام",
       createTask: "إنشاء مهمة",
       completeTask: "إكمال المهمة",
@@ -1339,6 +1340,9 @@ export const arabicLocale: LocaleData = {
     hr: {
       processFingerprint: {
         title: "معالجة بصمات الأصابع",
+        checkIn: "الدخول",
+        checkOut: "الخروج",
+        workedTime: "وقت العمل",
         process_with_data: "المعالجة مع البيانات",
         process_without_data: "المعالجة بدون بيانات",
         process_result: "نتائج المعالجة",
@@ -1663,6 +1667,7 @@ export const arabicLocale: LocaleData = {
         overlaps: "تداخل",
         hours: "ساعات",
         working_hours: "ساعات العمل",
+        regularShift: "الوردية العادية",
         shift_start: "بداية الوردية",
         shift_end: "نهاية الوردية",
         buffer_before: "وقت عازل قبل",
@@ -1952,6 +1957,7 @@ export const arabicLocale: LocaleData = {
       noData: "لا توجد بيانات",
       no_data: "غير متاح",
       success: "نجح",
+      fullName: "الاسم الكامل",
       status: "الحالة",
       loading: "جاري التحميل...",
       today: "اليوم",
