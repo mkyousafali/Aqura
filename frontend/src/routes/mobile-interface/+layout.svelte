@@ -502,6 +502,7 @@
 		if (path === '/mobile-interface/assignments' || path === '/mobile-interface/assignments/') return getTranslation('mobile.assignments');
 		if (path === '/mobile-interface/approval-center' || path === '/mobile-interface/approval-center/') return getTranslation('mobile.approvals');
 		if (path === '/mobile-interface/quick-task' || path === '/mobile-interface/quick-task/') return getTranslation('mobile.quickTask');
+		if (path === '/mobile-interface/day-off-request' || path === '/mobile-interface/day-off-request/') return getTranslation('mobile.leaveRequest');
 		if (path === '/mobile-interface/purchase-voucher' || path === '/mobile-interface/purchase-voucher/') return getTranslation('mobile.purchaseVoucher.title');
 		
 		// Sub-pages
@@ -800,6 +801,17 @@
 					</svg>
 				</div>
 				<span class="nav-label">{getTranslation('mobile.quickTask')}</span>
+			</a>
+
+			<a href="/mobile-interface/day-off-request" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<div class="nav-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M8 2v4m8-4v4M4 4h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
+						<path d="M3 10h18"/>
+						<path d="M12 14v4m-3-2h6"/>
+					</svg>
+				</div>
+				<span class="nav-label">{getTranslation('mobile.leaveRequest')}</span>
 			</a>
 		</nav>
 	</div>

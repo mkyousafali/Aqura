@@ -1,6 +1,6 @@
 <script>
 	// Approval Center Component
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -22,6 +22,7 @@
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
 	let loading = true;
+	let realtimeChannel = null;
 	let selectedStatus = 'pending';
 	let searchQuery = '';
 	let selectedRequisition = null;
@@ -54,7 +55,55 @@
 
 	onMount(() => {
 		loadRequisitions();
+		setupRealtime();
 	});
+
+	onDestroy(() => {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+	});
+
+	function setupRealtime() {
+		if (!supabase || !$currentUser?.id) return;
+
+		// Subscribe to changes in all relevant tables
+		realtimeChannel = supabase.channel('approval-center-realtime')
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requisitions' }, (payload) => {
+				console.log('Real-time update: expense_requisitions', payload);
+				// Check if the change involves current user (approver or creator)
+				const isRelevant = 
+					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.created_by === $currentUser.id)) ||
+					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.created_by === $currentUser.id));
+				
+				if (isRelevant) loadRequisitions();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'non_approved_payment_scheduler' }, (payload) => {
+				console.log('Real-time update: non_approved_payment_scheduler', payload);
+				const isRelevant = 
+					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.created_by === $currentUser.id)) ||
+					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.created_by === $currentUser.id));
+				
+				if (isRelevant) loadRequisitions();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'vendor_payment_schedule' }, () => {
+				loadRequisitions();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_voucher_items' }, (payload) => {
+				console.log('Real-time update: purchase_voucher_items', payload);
+				const isRelevant = 
+					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.issued_by === $currentUser.id)) ||
+					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.issued_by === $currentUser.id));
+				
+				if (isRelevant) loadRequisitions();
+			})
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, (payload) => {
+				console.log('Real-time update: day_off', payload);
+				// day_off requests are visible to all with leave approval permission, or if they are the requester
+				loadRequisitions();
+			})
+			.subscribe();
+	}
 
 	// Track if historical data is loaded
 	let historicalDataLoaded = false;
@@ -1039,6 +1088,37 @@ async function loadHistoricalData() {
 				}
 
 				notifications.add({ type: 'success', message: 'Purchase voucher approved successfully!' });
+			} else if (selectedRequisition.item_type === 'day_off') {
+				// Update day off status to approved
+				const { error: updateError } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'approved',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString()
+					})
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					if (selectedRequisition.approval_requested_by) {
+						await notificationService.createNotification({
+							title: 'Leave Request Approved',
+							message: `Your leave request for ${selectedRequisition.day_off_date} has been approved!\n\nApproved by: ${$currentUser?.username}`,
+							type: 'assignment_approved',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [selectedRequisition.approval_requested_by]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Approval notification sent to requester:', selectedRequisition.approval_requested_by);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+
+				notifications.add({ type: 'success', message: 'Leave request approved successfully!' });
 			} else {
 				// Get the requisition data first
 				const { data: reqData, error: reqError } = await supabase
@@ -1123,9 +1203,10 @@ async function loadHistoricalData() {
 			paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
 			vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
 			purchaseVouchers = purchaseVouchers.filter(pv => pv.id !== requisitionId);
+			dayOffRequests = dayOffRequests.filter(d => d.id !== requisitionId);
 
 			// Update stats
-			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
+			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length;
 			stats.total = stats.pending + stats.approved + stats.rejected;
 	
 			// Refresh filtered lists
@@ -1269,6 +1350,37 @@ async function loadHistoricalData() {
 				}
 
 				notifications.add({ type: 'warning', message: 'Purchase voucher rejected successfully!' });
+			} else if (selectedRequisition.item_type === 'day_off') {
+				// Update day off status to rejected
+				const { error: updateError } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'rejected',
+						rejection_reason: reason,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', requisitionId);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					if (selectedRequisition.approval_requested_by) {
+						await notificationService.createNotification({
+							title: 'Leave Request Rejected',
+							message: `Your leave request for ${selectedRequisition.day_off_date} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
+							type: 'assignment_rejected',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [selectedRequisition.approval_requested_by]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Rejection notification sent to requester:', selectedRequisition.approval_requested_by);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
+				notifications.add({ type: 'warning', message: 'Leave request rejected successfully!' });
 			} else {
 				// Get requisition data first
 				const { data: reqData, error: fetchError } = await supabase
@@ -1314,9 +1426,10 @@ async function loadHistoricalData() {
 			paymentSchedules = paymentSchedules.filter(s => s.id !== requisitionId);
 			vendorPayments = vendorPayments.filter(v => v.id !== requisitionId);
 			purchaseVouchers = purchaseVouchers.filter(pv => pv.id !== requisitionId);
+			dayOffRequests = dayOffRequests.filter(d => d.id !== requisitionId);
 
 			// Update stats
-			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length;
+			stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length;
 			stats.total = stats.pending + stats.approved + stats.rejected;
 
 			// Refresh filtered lists
@@ -1793,7 +1906,7 @@ async function loadHistoricalData() {
 	<div class="modal-overlay" on:click={closeDetail}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
-				<h2>📄 Requisition Details</h2>
+				<h2>📄 {selectedRequisition.item_type === 'day_off' ? 'Leave Request Details' : selectedRequisition.item_type === 'purchase_voucher' ? 'Voucher Details' : 'Requisition Details'}</h2>
 				<button class="modal-close" on:click={closeDetail}>×</button>
 			</div>
 
@@ -2372,7 +2485,7 @@ async function loadHistoricalData() {
 						{isProcessing ? '⏳ Processing...' : '❌ Reject'}
 					</button>
 				{:else}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'purchase_voucher' ? 'purchase voucher' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
 					<div class="status-info">
 						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
@@ -2393,9 +2506,21 @@ async function loadHistoricalData() {
 		
 		<p class="confirm-message">
 			{#if confirmAction === 'approve'}
-				Are you sure you want to approve this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+				Are you sure you want to approve this {
+					selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : 
+					selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 
+					selectedRequisition?.item_type === 'purchase_voucher' ? 'purchase voucher' :
+					selectedRequisition?.item_type === 'day_off' ? 'day off request' :
+					'requisition'
+				}?
 			{:else}
-				Are you sure you want to reject this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+				Are you sure you want to reject this {
+					selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : 
+					selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 
+					selectedRequisition?.item_type === 'purchase_voucher' ? 'purchase voucher' :
+					selectedRequisition?.item_type === 'day_off' ? 'day off request' :
+					'requisition'
+				}?
 			{/if}
 		</p>
 		

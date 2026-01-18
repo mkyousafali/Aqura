@@ -63,14 +63,16 @@
         id: string;
         name_en: string;
         name_ar: string;
-        location_en: string;
-        location_ar: string;
+        location_en?: string;
+        location_ar?: string;
+        name?: string;
     }
 
     interface Nationality {
         id: string;
         name_en: string;
         name_ar: string;
+        name?: string;
     }
 
     interface EmployeeForSelection {
@@ -104,7 +106,7 @@
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
     let allEmployeesForDateWise: EmployeeForSelection[] = [];
     let dateWiseShifts: (EmployeeShift & {shift_date?: string})[] = [];
-    let dayOffs: (EmployeeShift & {day_off_date?: string})[] = [];
+    let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string})[] = [];
     let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
     let dayOffReasons: DayOffReason[] = [];
     let loading = false;
@@ -129,6 +131,8 @@
     let isSaving = false;
     let employeeSearchQuery = '';
     let selectedDayOffDate: string = new Date().toISOString().split('T')[0];
+    let selectedDayOffStartDate: string = new Date().toISOString().split('T')[0];
+    let selectedDayOffEndDate: string = new Date().toISOString().split('T')[0];
     let regularShiftSearchQuery = '';
     let selectedBranchFilter = '';
     let selectedNationalityFilter = '';
@@ -149,8 +153,19 @@
     let dayOffWeekdayBranchFilter = '';
     let dayOffWeekdayNationalityFilter = '';
     let dayOffWeekdayEmploymentStatusFilter = '';
-    let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
-    let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
+    let availableBranches: Branch[] = [];
+    let availableNationalities: Nationality[] = [];
+    
+    // Notification state
+    let showNotification = false;
+    let notificationMessage = '';
+    let notificationType: 'success' | 'error' | 'warning' = 'success';
+    let notificationTimeout: NodeJS.Timeout | null = null;
+    
+    // Alert modal state
+    let showAlertModal = false;
+    let alertMessage = '';
+    let alertTitle = 'Alert';
     
     // 12-hour format UI state
     let startHour12 = '09';
@@ -189,6 +204,38 @@
                 endMinute12 = String(m || 0).padStart(2, '0');
             }
         }
+    }
+
+    function showSuccessNotification(message: string) {
+        notificationMessage = message;
+        notificationType = 'success';
+        showNotification = true;
+        
+        if (notificationTimeout) clearTimeout(notificationTimeout);
+        notificationTimeout = setTimeout(() => {
+            showNotification = false;
+        }, 3000);
+    }
+
+    function showErrorNotification(message: string) {
+        notificationMessage = message;
+        notificationType = 'error';
+        showNotification = true;
+        
+        if (notificationTimeout) clearTimeout(notificationTimeout);
+        notificationTimeout = setTimeout(() => {
+            showNotification = false;
+        }, 4000);
+    }
+
+    function openAlertModal(message: string, title: string = 'Alert') {
+        alertMessage = message;
+        alertTitle = title;
+        showAlertModal = true;
+    }
+
+    function closeAlertModal() {
+        showAlertModal = false;
     }
 
     // Form data for day off reason modal
@@ -294,6 +341,9 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_date_wise' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_reasons' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => refreshCurrentTabData())
             .subscribe();
     }
 
@@ -769,7 +819,7 @@
             // Get day off data
             const { data: dayOffData, error: dayOffError } = await supabase
                 .from('day_off')
-                .select('*')
+                .select('*, day_off_reasons(*)')
                 .order('day_off_date', { ascending: false });
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
@@ -795,7 +845,11 @@
                     nationality_name_ar: nationality?.name_ar || 'N/A',
                     sponsorship_status: emp?.sponsorship_status,
                     employment_status: emp?.employment_status,
-                    day_off_date: dayOff.day_off_date
+                    day_off_date: dayOff.day_off_date,
+                    approval_status: dayOff.approval_status,
+                    reason_en: dayOff.day_off_reasons?.reason_en || 'N/A',
+                    reason_ar: dayOff.day_off_reasons?.reason_ar || 'N/A',
+                    document_url: dayOff.document_url
                 };
             });
             
@@ -823,7 +877,9 @@
     function selectEmployeeForDayOff(employeeId: string) {
         selectedEmployeeId = employeeId;
         showDayOffEmployeeSelectModal = false;
-        selectedDayOffDate = new Date().toISOString().split('T')[0];
+        const today = new Date().toISOString().split('T')[0];
+        selectedDayOffStartDate = today;
+        selectedDayOffEndDate = today;
         showModal = true;
     }
 
@@ -1507,6 +1563,20 @@
         }
     }
 
+    function getApprovalStatusDisplay(status: string | undefined): { color: string; text: string } {
+        switch (status) {
+            case 'approved':
+                return { color: 'bg-emerald-100 text-emerald-800', text: $t('common.approved') };
+            case 'rejected':
+                return { color: 'bg-red-100 text-red-800', text: $t('common.rejected') };
+            case 'sent_for_approval':
+                return { color: 'bg-blue-100 text-blue-800', text: $t('common.sent_for_approval') || 'Sent for Approval' };
+            case 'pending':
+            default:
+                return { color: 'bg-orange-100 text-orange-800', text: $t('common.pending') };
+        }
+    }
+
     function getSponsorshipStatusDisplay(status: string | boolean | null | undefined): { color: string; text: string } {
         // Handle both boolean and string values
         const isSponsored = status === true || status === 'true' || status === 'yes' || status === 'Yes' || status === '1';
@@ -1834,7 +1904,7 @@
 
     async function saveReason() {
         if (!reasonFormData.reason_en.trim() || !reasonFormData.reason_ar.trim()) {
-            alert('Please fill in both English and Arabic reason names');
+            openAlertModal('Please fill in both English and Arabic reason names', 'Required Fields');
             return;
         }
 
@@ -1860,7 +1930,7 @@
             closeReasonModal();
         } catch (err) {
             console.error('Error saving reason:', err);
-            alert('Error saving reason: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            openAlertModal('Error saving reason: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Save Error');
         } finally {
             isSaving = false;
         }
@@ -1882,7 +1952,7 @@
             await loadDayOffReasons();
         } catch (err) {
             console.error('Error deleting reason:', err);
-            alert('Error deleting reason: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            openAlertModal('Error deleting reason: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Delete Error');
         }
     }
 
@@ -1890,6 +1960,10 @@
         showReasonSearchModal = true;
         reasonSearchQuery = '';
         selectedDayOffReason = null;
+        // Load reasons if not already loaded
+        if (dayOffReasons.length === 0) {
+            loadDayOffReasons();
+        }
     }
 
     function closeReasonSearchModal() {
@@ -1909,7 +1983,7 @@
 
     async function uploadDocument() {
         if (!documentFile || !selectedEmployeeId || !selectedDayOffDate) {
-            alert('Please select employee, date, and document');
+            openAlertModal('Please select employee, date, and document', 'Required Fields');
             return;
         }
 
@@ -1937,7 +2011,7 @@
             return publicUrlData.publicUrl;
         } catch (err) {
             console.error('Error uploading document:', err);
-            alert('Error uploading document: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            openAlertModal('Error uploading document: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Upload Error');
             return null;
         } finally {
             isUploadingDocument = false;
@@ -1945,19 +2019,25 @@
     }
 
     async function saveDayOffWithApproval() {
-        if (!selectedEmployeeId || !selectedDayOffDate) {
-            alert('Please select employee and date');
+        if (!selectedEmployeeId || !selectedDayOffStartDate || !selectedDayOffEndDate) {
+            openAlertModal('Please select employee, start date, and end date', 'Invalid Selection');
+            return;
+        }
+
+        // Validate date range
+        if (selectedDayOffStartDate > selectedDayOffEndDate) {
+            openAlertModal('Start date must be before or equal to end date', 'Invalid Date Range');
             return;
         }
 
         if (!selectedDayOffReason) {
-            alert('Please select a day off reason');
+            openAlertModal('Please select a day off reason', 'Invalid Selection');
             return;
         }
 
         // Check if document is mandatory
         if (selectedDayOffReason.is_document_mandatory && !documentFile) {
-            alert('Document is mandatory for this reason. Please upload a document');
+            openAlertModal('Document is mandatory for this reason. Please upload a document', 'Document Required');
             return;
         }
 
@@ -1965,88 +2045,117 @@
         try {
             let documentUrl = null;
 
-            // Upload document if provided
+            // Upload document if provided (only once for entire range)
             if (documentFile) {
                 documentUrl = await uploadDocument();
             }
 
             await initSupabase();
 
-            // Find the user_id for the selected employee (employee_id → user_id)
-            const { data: employeeUser, error: userError } = await supabase
-                .from('users')
-                .select('id')
-                .eq('employee_id', selectedEmployeeId)
-                .single();
-
-            if (userError || !employeeUser) {
-                throw new Error(`Could not find user account for employee ${selectedEmployeeId}`);
+            // Get current user for approval request tracking
+            const currentUserData = get(currentUser);
+            if (!currentUserData?.id) {
+                throw new Error('No user logged in');
             }
 
-            const employeeUserId = employeeUser.id;
-            console.log('✅ Found user_id for employee:', { employee_id: selectedEmployeeId, user_id: employeeUserId });
+            const requestedByUserId = currentUserData.id;
+            console.log('✅ Day off request from current user:', { user_id: requestedByUserId });
 
-            // Generate unique day off ID
-            const dayOffId = `DO${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+            // Generate array of dates between start and end date (inclusive)
+            const dateArray: string[] = [];
+            let currentDate = new Date(selectedDayOffStartDate);
+            const endDate = new Date(selectedDayOffEndDate);
+            
+            while (currentDate <= endDate) {
+                const dateStr = currentDate.toISOString().split('T')[0];
+                dateArray.push(dateStr);
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
 
-            // Create day off record with approval status
-            const { data: dayOffData, error: dayOffError } = await supabase
-                .from('day_off')
-                .insert([{
+            console.log(`Creating ${dateArray.length} day-off entries from ${selectedDayOffStartDate} to ${selectedDayOffEndDate}`);
+
+            // Create day off records for each date in range
+            const dayOffRecords = dateArray.map(dateStr => {
+                const dateStrFormatted = dateStr.replace(/-/g, ''); // Remove dashes: 20260118
+                const dayOffId = `${selectedEmployeeId}_${dateStrFormatted}`;
+                
+                return {
                     id: dayOffId,
                     employee_id: selectedEmployeeId,
-                    day_off_date: selectedDayOffDate,
+                    day_off_date: dateStr,
                     day_off_reason_id: selectedDayOffReason.id,
                     approval_status: 'pending',
-                    approval_requested_by: employeeUserId,  // Use the employee's user_id (UUID from users table)
+                    approval_requested_by: requestedByUserId,
                     approval_requested_at: new Date().toISOString(),
                     document_url: documentUrl,
                     is_deductible_on_salary: selectedDayOffReason.is_deductible
-                }])
+                };
+            });
+
+            // Insert all records at once
+            const { data: dayOffData, error: dayOffError } = await supabase
+                .from('day_off')
+                .insert(dayOffRecords)
                 .select();
 
             if (dayOffError) throw dayOffError;
 
-            // Send approval request notification
+            console.log(`✅ Created ${dayOffData?.length || 0} day-off records`);
+
+            // Send approval request notifications
             if (dayOffData && dayOffData.length > 0) {
-                const dayOffRecord = dayOffData[0];
+                try {
+                    // Find approvers with permission
+                    const { data: approvers, error: approvingError } = await supabase
+                        .from('approval_permissions')
+                        .select('user_id')
+                        .eq('can_approve_leave_requests', true)
+                        .eq('is_active', true);
 
-                // Find approvers with permission
-                const { data: approvers, error: approvingError } = await supabase
-                    .from('approval_permissions')
-                    .select('user_id')
-                    .eq('can_approve_leave_requests', true)
-                    .eq('is_active', true);
+                    if (!approvingError && approvers && approvers.length > 0) {
+                        const approverUserIds = approvers.map((a: any) => a.user_id);
 
-                if (!approvingError && approvers && approvers.length > 0) {
-                    const approverUserIds = approvers.map((a: any) => a.user_id);
-
-                    // Create notification for approvers
-                    await supabase
-                        .from('notifications')
-                        .insert([{
-                            type: 'approval_request',
-                            title: 'Leave Request Approval',
-                            message: `Leave request from ${selectedEmployeeId} for ${selectedDayOffDate} requires approval`,
-                            target_users: approverUserIds,
-                            related_id: dayOffRecord.id,
-                            read: false,
-                            created_at: new Date().toISOString()
-                        }]);
+                        // Create notification for approvers - wrap in try-catch in case it fails
+                        try {
+                            for (const approverId of approverUserIds) {
+                                await supabase
+                                    .from('notifications')
+                                    .insert({
+                                        type: 'approval_request',
+                                        title: 'Leave Request Approval',
+                                        message: `Leave request for ${selectedEmployeeId} from ${selectedDayOffStartDate} to ${selectedDayOffEndDate} (${dateArray.length} days) requires approval`,
+                                        target_user_id: approverId,
+                                        related_id: dayOffData[0].id,
+                                        read: false,
+                                        created_at: new Date().toISOString()
+                                    });
+                            }
+                            console.log('✅ Approval notifications sent to', approverUserIds.length, 'approvers');
+                        } catch (notificationError) {
+                            console.warn('⚠️ Warning: Could not send approval notifications:', notificationError);
+                            // Don't fail the entire operation if notifications fail
+                        }
+                    }
+                } catch (approvalError) {
+                    console.warn('⚠️ Warning: Could not send approvals:', approvalError);
                 }
             }
 
             // Clear form
-            selectedDayOffDate = new Date().toISOString().split('T')[0];
+            selectedDayOffStartDate = new Date().toISOString().split('T')[0];
+            selectedDayOffEndDate = new Date().toISOString().split('T')[0];
             selectedDayOffReason = null;
             documentFile = null;
             documentUploadProgress = 0;
 
             await loadDayOffData();
-            alert('Day off request submitted for approval!');
+            
+            // Close modal and show success notification
+            showModal = false;
+            showSuccessNotification(`Day off request submitted for ${dateArray.length} day${dateArray.length !== 1 ? 's' : ''}!`);
         } catch (err) {
             console.error('Error saving day off:', err);
-            alert('Error: ' + (err instanceof Error ? err.message : 'Failed to save day off'));
+            showErrorNotification('Error: ' + (err instanceof Error ? err.message : 'Failed to save day off'));
         } finally {
             isSaving = false;
         }
@@ -2751,6 +2860,9 @@
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.employmentStatus')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.sponsorshipStatus')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_date')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.reason') || 'Reason'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.document') || 'Document'}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.status')}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
@@ -2772,14 +2884,50 @@
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm font-mono text-slate-800">{dayOff.day_off_date}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">{$locale === 'ar' ? (dayOff.reason_ar || dayOff.reason_en) : (dayOff.reason_en || dayOff.reason_ar)}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
-                                                    <button 
-                                                        class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-                                                        on:click={() => deleteDayOff(dayOff.id, dayOff.employee_id, dayOff.day_off_date)}
-                                                        title={$t('hr.shift.delete_day_off_tooltip')}
-                                                    >
-                                                        🗑️
-                                                    </button>
+                                                    {#if dayOff.document_url}
+                                                        <button 
+                                                            class="inline-flex items-center justify-center gap-1 px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-all font-bold text-xs"
+                                                            on:click={() => window.open(dayOff.document_url, '_blank')}
+                                                        >
+                                                            <span>📄</span>
+                                                            {$t('common.view') || 'View'}
+                                                        </button>
+                                                    {:else}
+                                                        <span class="text-slate-400 text-xs italic">{$t('common.no_document') || 'No Document'}</span>
+                                                    {/if}
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getApprovalStatusDisplay(dayOff.approval_status).color}">
+                                                        {getApprovalStatusDisplay(dayOff.approval_status).text}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <div class="flex items-center justify-center gap-2">
+                                                        <!-- Edit Button -->
+                                                        <button 
+                                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+                                                            on:click={() => {
+                                                                selectedEmployeeId = dayOff.employee_id;
+                                                                selectedDayOffStartDate = dayOff.day_off_date;
+                                                                selectedDayOffEndDate = dayOff.day_off_date;
+                                                                showModal = true;
+                                                            }}
+                                                            title="Edit day off"
+                                                        >
+                                                            ✎️
+                                                        </button>
+                                                        
+                                                        <!-- Delete Button -->
+                                                        <button 
+                                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+                                                            on:click={() => deleteDayOff(dayOff.id, dayOff.employee_id, dayOff.day_off_date)}
+                                                            title={$t('hr.shift.delete_day_off_tooltip')}
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         {/each}
@@ -3133,13 +3281,24 @@
                 {/if}
 
                 {#if activeTab === 'Day Off (date-wise)'}
-                    <!-- Day Off Date Selection -->
+                    <!-- Day Off Start Date Selection -->
                     <div>
-                        <label for="dayoff-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_date')}</label>
+                        <label for="dayoff-start-date-input" class="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
                         <input 
-                            id="dayoff-date-input"
+                            id="dayoff-start-date-input"
                             type="date" 
-                            bind:value={selectedDayOffDate}
+                            bind:value={selectedDayOffStartDate}
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                    </div>
+
+                    <!-- Day Off End Date Selection -->
+                    <div>
+                        <label for="dayoff-end-date-input" class="block text-sm font-bold text-slate-700 mb-2">End Date</label>
+                        <input 
+                            id="dayoff-end-date-input"
+                            type="date" 
+                            bind:value={selectedDayOffEndDate}
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                     </div>
@@ -3805,6 +3964,51 @@
     </div>
 {/if}
 
+<!-- Alert Modal (Centered) -->
+{#if showAlertModal}
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000]">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 animate-in scale-in">
+            <div class="text-center">
+                <div class="text-5xl mb-4">⚠️</div>
+                <h2 class="text-2xl font-bold text-slate-900 mb-2">{alertTitle}</h2>
+                <p class="text-slate-600 text-base leading-relaxed mb-6">{alertMessage}</p>
+                <button 
+                    on:click={closeAlertModal}
+                    class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200"
+                >
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Notification Toast -->
+{#if showNotification}
+    <div class="fixed bottom-6 right-6 z-[9999] animate-in">
+        <div class="notification notification-{notificationType} shadow-2xl rounded-lg p-4 min-w-[300px] max-w-[500px]">
+            <div class="flex items-start gap-3">
+                {#if notificationType === 'success'}
+                    <span class="text-2xl">✅</span>
+                {:else if notificationType === 'error'}
+                    <span class="text-2xl">❌</span>
+                {:else}
+                    <span class="text-2xl">⚠️</span>
+                {/if}
+                <div class="flex-1">
+                    <p class="text-white font-semibold text-sm leading-relaxed">{notificationMessage}</p>
+                </div>
+                <button 
+                    on:click={() => showNotification = false}
+                    class="text-white hover:text-gray-300 transition text-lg leading-none"
+                >
+                    ✕
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
+
 <style>
     :global(.font-sans) {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -3852,4 +4056,25 @@
 
     /* Ensure search inputs also respect RTL padding if they have icons, 
        but here we just focus on the selects as requested */
+
+    /* Notification Toast Styles */
+    .notification {
+        display: flex;
+        align-items: center;
+        border-radius: 8px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .notification-success {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+
+    .notification-error {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    }
+
+    .notification-warning {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
 </style>
