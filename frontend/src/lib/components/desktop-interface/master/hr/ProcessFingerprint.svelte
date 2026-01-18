@@ -3,6 +3,7 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
+	import AnalyzeAllWindow from './AnalyzeAllWindow.svelte';
 
 	interface Employee {
 		id: string;
@@ -16,6 +17,7 @@
 		nationality_name_ar?: string;
 		employment_status: string;
 		sponsorship_status?: string;
+		employee_id_mapping?: any;
 	}
 
 	interface Branch {
@@ -524,6 +526,24 @@
 		});
 	}
 
+	function openAnalyzeAllWindow() {
+		const windowId = `analyze-all-${Date.now()}`;
+		openWindow({
+			id: windowId,
+			title: $t('hr.processFingerprint.analyze_all') || 'Analyze All Employees',
+			component: AnalyzeAllWindow,
+			props: {
+				windowId: windowId
+			},
+			icon: '📊',
+			size: { width: 1200, height: 800 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	async function loadEmployeesForDateRangeModal() {
 		try {
 			const { data: employeeData, error: empError } = await supabase
@@ -610,10 +630,29 @@
 		await loadProcessedRecords(dateRangeStartDate, dateRangeEndDate, Array.from(selectedEmployeesForDateRange));
 	}
 
-	function handleStartProcess(employeeId: string) {
+	async function handleStartProcess(employeeId: string) {
 		const selectedEmployee = employees.find(e => e.id === employeeId);
 		if (selectedEmployee) {
-			processEmployeeFingerprints(selectedEmployee);
+			try {
+				// Get current max sequence
+				const { data: maxRecord } = await supabase
+					.from('processed_fingerprint_transactions')
+					.select('id')
+					.order('id', { ascending: false })
+					.limit(1);
+
+				let currentSeq = 1;
+				if (maxRecord && maxRecord.length > 0 && maxRecord[0].id) {
+					const lastId = maxRecord[0].id.replace('PF', '');
+					currentSeq = parseInt(lastId) + 1;
+				}
+
+				await processEmployeeFingerprints(selectedEmployee, currentSeq);
+				showAlert($t('hr.processFingerprint.process_success') || 'Employee fingerprint processed successfully', 'success');
+			} catch (err) {
+				console.error('Error processing single employee:', err);
+				showAlert(err instanceof Error ? err.message : 'Processing failed', 'error');
+			}
 		}
 	}
 
@@ -1048,7 +1087,8 @@
 											type="checkbox"
 											checked={selectedEmployeesForDateRange.has(employee.id)}
 											on:change={(e) => {
-												if (e.target.checked) {
+												const target = e.currentTarget;
+												if (target.checked) {
 													selectedEmployeesForDateRange.add(employee.id);
 												} else {
 													selectedEmployeesForDateRange.delete(employee.id);
@@ -1087,7 +1127,7 @@
 			<div class="flex gap-3 mt-8">
 				<button
 					class="flex-1 px-4 py-2 bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition-colors"
-					on:click={closeDateRangeModal}
+					on:click={() => showDateRangeModal = false}
 				>
 					{$t('common.cancel')}
 				</button>
@@ -1158,21 +1198,17 @@
 				</div>
 			</div>
 
-			<!-- Start Process Button -->
+			<!-- Analyze All Button -->
 			<div class="flex items-end">
 				<button 
-					class="inline-flex items-center justify-center px-6 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-					on:click={processAllEmployees}
-					disabled={isProcessing || filteredEmployees.length === 0}
+					on:click={openAnalyzeAllWindow}
+					class="px-6 py-2.5 bg-gradient-to-br from-indigo-600 to-blue-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 transition-all flex items-center gap-2 whitespace-nowrap"
 				>
-					{#if isProcessing}
-						<span class="animate-spin inline-block mr-2">⚡</span>
-						{$t('common.processing')}
-					{:else}
-						⚡ {$t('hr.processFingerprint.start_process')}
-					{/if}
+					<span class="text-xl">📊</span>
+					{$t('hr.processFingerprint.analyze_all') || 'Analyze All'}
 				</button>
 			</div>
+
 		</div>
 
 		{#if loading}
