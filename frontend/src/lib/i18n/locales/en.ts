@@ -155,6 +155,7 @@ export const englishLocale: LocaleData = {
       approvals: "Approvals",
       leaveRequest: "Leave Request",
       quickTask: "Quick Task",
+      humanResources: "Human Resources",
       assignTasks: "Assign Tasks",
       createTask: "Create Task",
       completeTask: "Complete Task",

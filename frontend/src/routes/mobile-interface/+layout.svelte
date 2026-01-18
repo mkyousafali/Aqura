@@ -38,6 +38,9 @@
 	// Menu state
 	let showMenu = false;
 	
+	// HR Menu state
+	let showHRMenu = false;
+	
 	// Mobile version - will be extracted from full version
 	let mobileVersion = 'AQ12';
 	
@@ -803,16 +806,35 @@
 				<span class="nav-label">{getTranslation('mobile.quickTask')}</span>
 			</a>
 
-			<a href="/mobile-interface/day-off-request" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M8 2v4m8-4v4M4 4h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
-						<path d="M3 10h18"/>
-						<path d="M12 14v4m-3-2h6"/>
-					</svg>
-				</div>
-				<span class="nav-label">{getTranslation('mobile.leaveRequest')}</span>
-			</a>
+			<!-- Human Resources Menu Button -->
+			<div class="nav-item-menu-container">
+				<button class="nav-item hr-menu-btn" on:click={() => showHRMenu = !showHRMenu} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+						</svg>
+					</div>
+					<span class="nav-label">{getTranslation('mobile.humanResources')}</span>
+				</button>
+				
+				<!-- HR Submenu -->
+				{#if showHRMenu}
+					<div class="hr-submenu-overlay" on:click={() => showHRMenu = false}></div>
+					<div class="hr-submenu">
+						<a href="/mobile-interface/day-off-request" class="hr-submenu-item" on:click={() => showHRMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M8 2v4m8-4v4M4 4h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
+								<path d="M3 10h18"/>
+								<path d="M12 14v4m-3-2h6"/>
+							</svg>
+							<span>{getTranslation('mobile.leaveRequest')}</span>
+						</a>
+					</div>
+				{/if}
+			</div>
 		</nav>
 	</div>
 {:else}
@@ -1481,6 +1503,107 @@
 
 	.nav-item.pv-btn .nav-label {
 		font-weight: 600;
+	}
+
+	/* Human Resources Menu Styles */
+	.nav-item-menu-container {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.nav-item.hr-menu-btn {
+		border: none;
+		background: none;
+		cursor: pointer;
+	}
+
+	.nav-item.hr-menu-btn:hover {
+		color: #EC4899;
+		background: rgba(236, 72, 153, 0.05);
+	}
+
+	.nav-item.hr-menu-btn.active {
+		color: #EC4899;
+	}
+
+	.nav-item.hr-menu-btn.active .nav-icon {
+		background: rgba(236, 72, 153, 0.1);
+		color: #EC4899;
+	}
+
+	.nav-item.hr-menu-btn .nav-label {
+		font-weight: 600;
+	}
+
+	/* HR Submenu Styles */
+	.hr-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.hr-submenu {
+		position: absolute;
+		bottom: 3.8rem;
+		right: 0;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.15);
+		min-width: 180px;
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+	}
+
+	@keyframes slideUp {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.hr-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.hr-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.hr-submenu-item:hover {
+		background: #F3F4F6;
+		color: #EC4899;
+	}
+
+	.hr-submenu-item.active {
+		background: rgba(236, 72, 153, 0.1);
+		color: #EC4899;
+		font-weight: 600;
+	}
+
+	.hr-submenu-item svg {
+		flex-shrink: 0;
 	}
 
 	.mobile-error {
