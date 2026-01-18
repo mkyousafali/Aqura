@@ -132,6 +132,49 @@
     let availableBranches: {id: string, name_en: string, name_ar: string}[] = [];
     let availableNationalities: {id: string, name_en: string, name_ar: string}[] = []
     
+    // 12-hour format UI state
+    let startHour12 = '09';
+    let startMinute12 = '00';
+    let startPeriod12 = 'AM';
+    let endHour12 = '05';
+    let endMinute12 = '00';
+    let endPeriod12 = 'PM';
+
+    function updateStartTime24h() {
+        let h = parseInt(startHour12);
+        if (startPeriod12 === 'PM' && h < 12) h += 12;
+        if (startPeriod12 === 'AM' && h === 12) h = 0;
+        if (formData) (formData as any).shift_start_time = `${String(h).padStart(2, '0')}:${startMinute12}`;
+    }
+
+    function updateEndTime24h() {
+        let h = parseInt(endHour12);
+        if (endPeriod12 === 'PM' && h < 12) h += 12;
+        if (endPeriod12 === 'AM' && h === 12) h = 0;
+        if (formData) (formData as any).shift_end_time = `${String(h).padStart(2, '0')}:${endMinute12}`;
+    }
+
+    function syncTimeTo12h() {
+        if (formData) {
+            if ((formData as any).shift_start_time) {
+                const [h, m] = (formData as any).shift_start_time.split(':').map(Number);
+                startPeriod12 = h >= 12 ? 'PM' : 'AM';
+                startHour12 = String(h % 12 || 12).padStart(2, '0');
+                startMinute12 = String(m || 0).padStart(2, '0');
+            }
+            if ((formData as any).shift_end_time) {
+                const [h, m] = (formData as any).shift_end_time.split(':').map(Number);
+                endPeriod12 = h >= 12 ? 'PM' : 'AM';
+                endHour12 = String(h % 12 || 12).padStart(2, '0');
+                endMinute12 = String(m || 0).padStart(2, '0');
+            }
+        }
+    }
+
+    $: if (showModal) {
+        syncTimeTo12h();
+    }
+
     $: filteredRegularEmployees = getFilteredEmployees(employees, selectedBranchFilter, selectedNationalityFilter, selectedEmploymentStatusFilter, regularShiftSearchQuery);
     $: filteredSpecialWeekdayEmployees = getFilteredSpecialWeekdayEmployees(employees, specialWeekdayBranchFilter, specialWeekdayNationalityFilter, specialWeekdayEmploymentStatusFilter, specialWeekdaySearchQuery);
     $: filteredSpecialDateEmployees = getFilteredSpecialDateShifts(dateWiseShifts, specialDateBranchFilter, specialDateNationalityFilter, specialDateEmploymentStatusFilter, specialDateSearchQuery);
@@ -2713,21 +2756,34 @@
                     <!-- Shift Start Time -->
                     <div>
                         <label for="start-time-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_start_time')}</label>
-                        {#if activeTab === 'Regular Shift'}
-                            <input 
-                                id="start-time-input"
-                                type="time" 
-                                bind:value={formData.shift_start_time}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                        {:else}
-                            <input 
-                                id="start-time-input"
-                                type="time" 
-                                bind:value={formData.shift_start_time}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                        {/if}
+                        <div class="flex gap-2">
+                            <select 
+                                bind:value={startHour12}
+                                on:change={updateStartTime24h}
+                                class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
+                                    <option value={h}>{h}</option>
+                                {/each}
+                            </select>
+                            <select 
+                                bind:value={startMinute12}
+                                on:change={updateStartTime24h}
+                                class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
+                                    <option value={m}>{m}</option>
+                                {/each}
+                            </select>
+                            <select 
+                                bind:value={startPeriod12}
+                                on:change={updateStartTime24h}
+                                class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                <option value="AM">AM</option>
+                                <option value="PM">PM</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Start Time Buffer -->
@@ -2759,21 +2815,34 @@
                     <!-- Shift End Time -->
                     <div>
                         <label for="end-time-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_end_time')}</label>
-                        {#if activeTab === 'Regular Shift'}
-                            <input 
-                                id="end-time-input"
-                                type="time" 
-                                bind:value={formData.shift_end_time}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                        {:else}
-                            <input 
-                                id="end-time-input"
-                                type="time" 
-                                bind:value={formData.shift_end_time}
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                        {/if}
+                        <div class="flex gap-2">
+                            <select 
+                                bind:value={endHour12}
+                                on:change={updateEndTime24h}
+                                class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                {#each Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0')) as h}
+                                    <option value={h}>{h}</option>
+                                {/each}
+                            </select>
+                            <select 
+                                bind:value={endMinute12}
+                                on:change={updateEndTime24h}
+                                class="flex-1 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                {#each Array.from({length: 60}, (_, i) => String(i).padStart(2, '0')) as m}
+                                    <option value={m}>{m}</option>
+                                {/each}
+                            </select>
+                            <select 
+                                bind:value={endPeriod12}
+                                on:change={updateEndTime24h}
+                                class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
+                            >
+                                <option value="AM">AM</option>
+                                <option value="PM">PM</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- End Time Buffer -->
@@ -3138,4 +3207,14 @@
     .scale-in {
         animation: scaleIn 0.3s ease-out;
     }
+
+    /* RTL fixes for dropdown arrows */
+    :global([dir="rtl"] select) {
+        background-position: left 0.75rem center !important;
+        padding-left: 2.5rem !important;
+        padding-right: 1rem !important;
+    }
+
+    /* Ensure search inputs also respect RTL padding if they have icons, 
+       but here we just focus on the selects as requested */
 </style>

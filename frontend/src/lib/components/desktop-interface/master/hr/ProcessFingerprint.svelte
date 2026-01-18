@@ -505,7 +505,7 @@
 		const windowId = `employee-analysis-${employee.id}-${Date.now()}`;
 		openWindow({
 			id: windowId,
-			title: `Employee Analysis: ${employee.id}`,
+			title: `${$t('hr.processFingerprint.analyse')}: ${employee.id}`,
 			component: EmployeeAnalysisWindow,
 			props: {
 				employee: employee,
@@ -800,7 +800,7 @@
 				showTable = true;
 			} else {
 				processedRecords = [];
-				error = 'No processed fingerprint records found for the selected criteria';
+				error = $t('hr.processFingerprint.no_processed_records_found');
 			}
 		} catch (err) {
 			console.error('Error loading processed records:', err);
@@ -974,7 +974,7 @@
 				class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all duration-200 transform hover:scale-105 {alertType === 'success' ? 'bg-green-600 hover:bg-green-700' : alertType === 'error' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}"
 				on:click={closeAlert}
 			>
-				OK
+				{$t('hr.processFingerprint.ok')}
 			</button>
 		</div>
 	</div>
@@ -983,7 +983,7 @@
 {#if showDateRangeModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-			<h2 class="text-2xl font-bold text-slate-900 mb-6">Select Date Range & Employees</h2>
+			<h2 class="text-2xl font-bold text-slate-900 mb-6">{$t('hr.processFingerprint.select_date_range_employees')}</h2>
 			
 			{#if error}
 				<div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
@@ -994,10 +994,10 @@
 			<div class="space-y-6">
 				<!-- Date Range Section -->
 				<div class="border-b border-slate-200 pb-6">
-					<h3 class="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wide">Date Range</h3>
+					<h3 class="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wide">{$t('hr.processFingerprint.date_range')}</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div class="flex flex-col gap-2">
-							<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider">Start Date</label>
+							<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider">{$t('hr.startDate')}</label>
 							<input
 								type="date"
 								bind:value={dateRangeStartDate}
@@ -1006,7 +1006,7 @@
 						</div>
 
 						<div class="flex flex-col gap-2">
-							<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider">End Date</label>
+							<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider">{$t('hr.endDate')}</label>
 							<input
 								type="date"
 								bind:value={dateRangeEndDate}
@@ -1018,16 +1018,16 @@
 
 				<!-- Employee Selection Section -->
 				<div>
-					<h3 class="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wide">Select Employees</h3>
+					<h3 class="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wide">{$t('hr.processFingerprint.select_employees')}</h3>
 					
 					<!-- Search -->
 					<div class="mb-4">
-						<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2 block">Search Employee</label>
+						<label class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2 block">{$t('hr.shift.search_employee')}</label>
 						<div class="relative">
 							<input
 								type="text"
 								bind:value={dateRangeEmployeeSearchQuery}
-								placeholder="Search by ID or name..."
+								placeholder={$t('hr.processFingerprint.search_by_id_or_name')}
 								class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pl-10"
 							/>
 							<span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
@@ -1038,7 +1038,7 @@
 					<div class="border border-slate-300 rounded-lg max-h-64 overflow-y-auto bg-slate-50">
 						{#if filteredEmployeesForDateRange.length === 0}
 							<div class="p-4 text-center text-slate-500 text-sm">
-								No employees found
+								{$t('hr.shift.no_employees_found')}
 							</div>
 						{:else}
 							<div class="divide-y divide-slate-200">
@@ -1077,7 +1077,7 @@
 					<!-- Selected Count -->
 					{#if selectedEmployeesForDateRange.size > 0}
 						<div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 font-semibold">
-							✓ {selectedEmployeesForDateRange.size} employee(s) selected
+							{$t('hr.processFingerprint.employees_selected', { count: selectedEmployeesForDateRange.size })}
 						</div>
 					{/if}
 				</div>
@@ -1089,14 +1089,14 @@
 					class="flex-1 px-4 py-2 bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition-colors"
 					on:click={closeDateRangeModal}
 				>
-					Cancel
+					{$t('common.cancel')}
 				</button>
 				<button
 					class="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 					on:click={loadResultsWithDateRange}
 					disabled={!dateRangeStartDate || !dateRangeEndDate || selectedEmployeesForDateRange.size === 0}
 				>
-					Load Results
+					{$t('hr.processFingerprint.load_results')}
 				</button>
 			</div>
 		</div>
@@ -1228,9 +1228,9 @@
 								<th class="px-6 py-4 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.fullName')}</th>
 								<th class="px-6 py-4 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
 								<th class="px-6 py-4 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
-								<th class="px-6 py-4 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Fingerprint Machine IDs</th>
+								<th class="px-6 py-4 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.processFingerprint.fingerprint_machine_ids')}</th>
 								<th class="px-6 py-4 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('employeeFiles.inJob') || 'Status'}</th>
-								<th class="px-6 py-4 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Actions</th>
+								<th class="px-6 py-4 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.processFingerprint.actions')}</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-slate-200">
@@ -1289,7 +1289,7 @@
 											disabled={isProcessing}
 										>
 											<span>🔍</span>
-											Analyse
+											{$t('hr.processFingerprint.analyse')}
 										</button>
 									</td>
 								</tr>
@@ -1304,12 +1304,12 @@
 		{/if}
 	{:else if activeView === 'without_data'}
 		<div class="flex-1 flex items-center justify-center">
-			<p class="text-slate-500 font-medium">Process Without Data view will be implemented here.</p>
+			<p class="text-slate-500 font-medium">{$t('hr.processFingerprint.process_without_data_view')}</p>
 		</div>
 	{:else}
 		<div class="flex-1 flex flex-col items-center justify-center text-slate-400">
 			<div class="text-6xl mb-4">👆</div>
-			<p class="text-lg font-medium">Select a process type to begin</p>
+			<p class="text-lg font-medium">{$t('hr.processFingerprint.select_process_type')}</p>
 		</div>
 	{/if}
 </div>
