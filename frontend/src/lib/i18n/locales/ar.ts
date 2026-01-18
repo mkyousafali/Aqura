@@ -1342,7 +1342,8 @@ export const arabicLocale: LocaleData = {
         process_result: "نتائج المعالجة",
         start_process: "بدء المعالجة",
         loading_employees: "جاري تحميل الموظفين...",
-        no_employees_with_finger: "لم يتم العثور على موظفين بحالة 'Job (With Finger)'."
+        no_employees_with_finger: "لم يتم العثور على موظفين بحالة 'Job (With Finger)'.",
+        total_transactions_processed: "إجمالي المعاملات المعالجة"
       },
       employee: "موظف",
       employees: "الموظفون",

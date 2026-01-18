@@ -1446,7 +1446,8 @@ export const englishLocale: LocaleData = {
         process_result: "Process result",
         start_process: "Start process",
         loading_employees: "Loading employees...",
-        no_employees_with_finger: "No employees with employment status 'Job (With Finger)' found."
+        no_employees_with_finger: "No employees with employment status 'Job (With Finger)' found.",
+        total_transactions_processed: "total transactions processed"
       },
       salary: {
         title: "Salary and Wage Management",

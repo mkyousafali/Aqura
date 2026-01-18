@@ -37,6 +37,7 @@
 	let activeView = ''; // 'with_data', 'without_data', 'result'
 	let processedCount = 0;
 	let isProcessing = false;
+	let processProgress = 0; // 0-100 percentage
 	let processedRecords: any[] = [];
 	let filteredProcessedRecords: any[] = [];
 	// Date and Time Formatters
@@ -287,6 +288,12 @@
 
 	let supabase: any;
 
+	// Alert Modal
+	let showAlertModal = false;
+	let alertTitle = '';
+	let alertMessage = '';
+	let alertType: 'success' | 'error' | 'info' = 'info';
+
 	// Date Range Modal specific data
 	let dateRangeEmployeeSearchQuery = '';
 	let selectedEmployeesForDateRange: Set<string> = new Set();
@@ -329,6 +336,16 @@
 	onMount(async () => {
 		const { supabase: client } = await import('$lib/utils/supabase');
 		supabase = client;
+		
+		// Automatically load employees and start processing
+		activeView = 'with_data';
+		showTable = true;
+		await loadEmployeesWithFinger();
+		
+		// Auto-start processing after a short delay to ensure data is loaded
+		setTimeout(() => {
+			processAllEmployees();
+		}, 500);
 	});
 
 	async function loadEmployeesWithFinger() {
@@ -473,8 +490,15 @@
 		showDateRangeModal = true;
 	}
 
-	function closeDateRangeModal() {
-		showDateRangeModal = false;
+	function showAlert(message: string, type: 'success' | 'error' | 'info' = 'info', title?: string) {
+		alertMessage = message;
+		alertType = type;
+		alertTitle = title || (type === 'success' ? $t('common.success') : type === 'error' ? $t('common.error') : 'Info');
+		showAlertModal = true;
+	}
+
+	function closeAlert() {
+		showAlertModal = false;
 	}
 
 	function openAnalyseWindow(employee: Employee) {
@@ -597,6 +621,7 @@
 		isProcessing = true;
 		error = null;
 		processedCount = 0;
+		processProgress = 0;
 
 		try {
 			await initSupabase();
@@ -618,19 +643,27 @@
 
 			console.log('Starting sequence number:', currentSeq);
 
+			const totalEmployees = filteredEmployees.length;
+
 			// Process all filtered employees
-			for (const employee of filteredEmployees) {
+			for (let i = 0; i < filteredEmployees.length; i++) {
+				const employee = filteredEmployees[i];
 				const { recordsCreated, nextSeq } = await processEmployeeFingerprints(employee, currentSeq);
 				processedCount += recordsCreated;
 				currentSeq = nextSeq; // Update the sequence for the next employee
+				
+				// Update progress percentage
+				processProgress = Math.round(((i + 1) / totalEmployees) * 100);
 			}
 
-			alert($t('common.success') + `: ${processedCount} total transactions processed!`);
+			showAlert(`${processedCount} ${$t('hr.processFingerprint.total_transactions_processed') || 'total transactions processed'}!`, 'success');
 		} catch (err) {
 			console.error('Error processing all employees:', err);
 			error = err instanceof Error ? err.message : 'Failed to process employees';
+			showAlert(error, 'error');
 		} finally {
 			isProcessing = false;
+			processProgress = 0;
 		}
 	}
 
@@ -910,6 +943,43 @@
 		}
 	}</script>
 
+{#if showAlertModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-in fade-in zoom-in-95">
+			<!-- Alert Icon -->
+			<div class="flex justify-center mb-4">
+				{#if alertType === 'success'}
+					<div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+						<span class="text-3xl">✓</span>
+					</div>
+				{:else if alertType === 'error'}
+					<div class="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+						<span class="text-3xl">✕</span>
+					</div>
+				{:else}
+					<div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
+						<span class="text-3xl">ℹ</span>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Title -->
+			<h2 class="text-2xl font-bold text-center mb-2 {alertType === 'success' ? 'text-green-800' : alertType === 'error' ? 'text-red-800' : 'text-blue-800'}">{alertTitle}</h2>
+
+			<!-- Message -->
+			<p class="text-center text-slate-600 mb-6 leading-relaxed">{alertMessage}</p>
+
+			<!-- Button -->
+			<button
+				class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all duration-200 transform hover:scale-105 {alertType === 'success' ? 'bg-green-600 hover:bg-green-700' : alertType === 'error' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}"
+				on:click={closeAlert}
+			>
+				OK
+			</button>
+		</div>
+	</div>
+{/if}
+
 {#if showDateRangeModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -1034,24 +1104,7 @@
 {/if}
 
 <div class="process-fingerprint-container">
-	<!-- Top Buttons -->
-	<div class="flex flex-wrap gap-4 mb-8">
-		<button 
-			class="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md {activeView === 'with_data' ? 'ring-4 ring-emerald-200' : ''}"
-			on:click={handleProcessWithData}
-		>
-			<span>📊</span>
-			{$t('hr.processFingerprint.process_with_data')}
-		</button>
-
-		<button 
-			class="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm text-white bg-orange-600 hover:bg-orange-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md {activeView === 'without_data' ? 'ring-4 ring-orange-200' : ''}"
-			on:click={handleProcessWithoutData}
-		>
-			<span>📉</span>
-			{$t('hr.processFingerprint.process_without_data')}
-		</button>
-	</div>
+	<!-- Top Buttons Hidden - Auto-processing enabled -->
 
 	{#if activeView === 'with_data'}
 		<!-- Filter Controls -->
@@ -1147,7 +1200,26 @@
 				<p class="text-slate-600 font-semibold">{$t('hr.processFingerprint.no_employees_with_finger')}</p>
 			</div>
 		{:else}
-			<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+			<div class="relative bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+				{#if isProcessing}
+					<div class="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[2.5rem] z-40 flex flex-col items-center justify-center">
+						<div class="animate-spin inline-block mb-4">
+							<div class="w-12 h-12 border-4 border-white border-t-transparent rounded-full"></div>
+						</div>
+						<p class="text-white font-bold text-lg mb-6">{$t('common.processing')}</p>
+						
+						<!-- Progress Bar -->
+						<div class="w-48 bg-white/20 rounded-full h-2 overflow-hidden mb-4">
+							<div 
+								class="bg-white h-full transition-all duration-300" 
+								style="width: {processProgress}%"
+							></div>
+						</div>
+						
+						<!-- Percentage Text -->
+						<p class="text-white font-semibold text-sm">{processProgress}%</p>
+					</div>
+				{/if}
 				<div class="overflow-x-auto">
 					<table class="w-full border-collapse">
 						<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
@@ -1183,7 +1255,7 @@
 										return [];
 									}
 								})()}
-								<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+								<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {isProcessing ? 'opacity-60 pointer-events-none' : ''}">
 									<td class="px-6 py-4 text-sm font-semibold text-slate-800">{employee.id}</td>
 									<td class="px-6 py-4 text-sm text-slate-700">
 										{$locale === 'ar' ? employee.name_ar || employee.name_en : employee.name_en}
@@ -1212,8 +1284,9 @@
 									</td>
 									<td class="px-6 py-4 text-sm text-center">
 										<button
-											class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-semibold text-xs"
+											class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-semibold text-xs disabled:opacity-50 disabled:cursor-not-allowed"
 											on:click={() => openAnalyseWindow(employee)}
+											disabled={isProcessing}
 										>
 											<span>🔍</span>
 											Analyse
