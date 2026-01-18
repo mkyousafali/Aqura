@@ -378,12 +378,60 @@
 		return `${hours}h ${minutes}m`;
 	}
 
-	function calculateLateTime(punchTime: string, applicableShift: any): { late: number; early: number } {
+	function calculateWorkedMinutes(checkInTime: string, checkOutTime: string): number {
+		const inMinutes = timeToMinutes(checkInTime);
+		const outMinutes = timeToMinutes(checkOutTime);
+		let diff = outMinutes - inMinutes;
+		if (diff < 0) diff += (24 * 60);
+		return diff;
+	}
+
+	function isOfficialDayOff(dateStr: string): boolean {
+		if (!dayOffWeekday) return false;
+		const dateWeekday = getDayNameFromDate(dateStr);
+		return dateWeekday === dayOffWeekday.weekday;
+	}
+
+	function isSpecificDayOff(dateStr: string): boolean {
+		const [day, month, year] = dateStr.split('-');
+		const dateFormatted = `${year}-${month}-${day}`;
+		return dayOffDates.some(d => d.day_off_date === dateFormatted);
+	}
+
+	function getSpecificDayOff(dateStr: string): any {
+		const [day, month, year] = dateStr.split('-');
+		const dateFormatted = `${year}-${month}-${day}`;
+		return dayOffDates.find(d => d.day_off_date === dateFormatted);
+	}
+
+	function formatMinutesToHm(totalMinutes: number): string {
+		const hours = Math.floor(totalMinutes / 60);
+		const minutes = totalMinutes % 60;
+		if (hours > 0) {
+			return `${hours}h ${minutes}m`;
+		}
+		return `${minutes}m`;
+	}
+
+	function calculateLateTime(punchTime: string, applicableShift: any, punchCalendarDate?: string, shiftDate?: string): { late: number; early: number } {
 		if (!applicableShift) return { late: 0, early: 0 };
 
-		const punchMinutes = timeToMinutes(punchTime);
+		let punchMinutes = timeToMinutes(punchTime);
 		const shiftStartMinutes = timeToMinutes(applicableShift.shift_start_time);
 		const shiftEndMinutes = timeToMinutes(applicableShift.shift_end_time);
+
+		// If punch is on a different calendar date than the shift date, it's potentially next day
+		if (punchCalendarDate && shiftDate && punchCalendarDate !== shiftDate) {
+			// Basic next-day detection: if calendar date is after shift date
+			const [pDay, pMonth, pYear] = punchCalendarDate.split('-').map(Number);
+			const [sDay, sMonth, sYear] = shiftDate.split('-').map(Number);
+			const pDate = new Date(pYear, pMonth - 1, pDay);
+			const sDate = new Date(sYear, sMonth - 1, sDay);
+
+			if (pDate > sDate) {
+				punchMinutes += (24 * 60);
+			}
+		}
 		
 		// Check if this is an overnight shift (end time < start time)
 		const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
@@ -600,6 +648,8 @@
 					}
 
 					const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
+					const workedMinutes = checkOutTxn ? calculateWorkedMinutes(txn.punch_time, checkOutTxn.punch_time) : 0;
+					const expectedMinutes = (checkOutApplicableShift?.working_hours || 0) * 60;
 
 					const pair = {
 						checkInTxn: txn,
@@ -609,8 +659,10 @@
 						checkOutDate: shiftDate,
 						checkOutCalendarDate: checkOutCalendarDate,
 						workedTime: checkOutTxn ? calculateWorkedTime(txn.punch_time, checkOutTxn.punch_time) : null,
-						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift) : { late: 0, early: 0 },
-						checkOutMissing: !checkOutTxn
+						isUnderHours: checkOutTxn && workedMinutes < expectedMinutes,
+						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift, checkOutCalendarDate, shiftDate) : { late: 0, early: 0 },
+						checkOutMissing: !checkOutTxn,
+						checkInMissing: false
 					};
 
 					pairs.push(pair);
@@ -624,7 +676,7 @@
 							checkOutDate: shiftDate,
 							checkOutCalendarDate: txn.calendarDate,
 							workedTime: null,
-							lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate)),
+							lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate), txn.calendarDate, shiftDate),
 							checkInMissing: true
 						};
 
@@ -759,13 +811,36 @@
 	<div class="timeline-container">
 		{#if punchPairs.length > 0}
 			{#each punchPairs as pair (pair.checkInTxn?.id || pair.checkOutTxn?.id || pair.checkInDate || pair.checkOutDate)}
-				<div class="timeline-card">
+				{@const shiftDate = pair.checkInDate || pair.checkOutDate}
+				{@const isOfficial = isOfficialDayOff(shiftDate)}
+				{@const isSpecific = isSpecificDayOff(shiftDate)}
+				{@const dayOff = isSpecific ? getSpecificDayOff(shiftDate) : null}
+				{@const isUnapprovedLeave = pair.isEmptyDate && !isOfficial && !isSpecific}
+
+				<div class="timeline-card" class:is-day-off={isOfficial || (isSpecific && dayOff?.approval_status === 'approved')} class:is-unapproved={isUnapprovedLeave}>
 					<div class="timeline-header">
-						<div class="date-badge">{pair.checkInDate || pair.checkOutDate}</div>
+						<div class="header-left">
+							<div class="date-badge">{shiftDate}</div>
+							{#if isOfficial}
+								<span class="status-pill official">{$t('hr.shift.official_day_off')}</span>
+							{:else if isSpecific}
+								<span class="status-pill" class:approved={dayOff?.approval_status === 'approved'} class:unapproved={dayOff?.approval_status !== 'approved'}>
+									{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+								</span>
+							{:else if isUnapprovedLeave}
+								<span class="status-pill unapproved">{$t('hr.shift.unapproved_leave')}</span>
+							{/if}
+						</div>
 						{#if pair.workedTime}
-							<div class="work-duration">
-								<svg viewBox="0 0 24 24" fill="none" class="clock-icon"><path d="M12 8V12L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg>
-								{pair.workedTime}
+							<div class="work-duration" class:under-hours={pair.isUnderHours}>
+								<div class="status-indicator">
+									{#if pair.isUnderHours}
+										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="indicator-svg"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+									{:else}
+										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="indicator-svg"><polyline points="20 6 9 17 4 12"></polyline></svg>
+									{/if}
+								</div>
+								<span class="time-text">{pair.workedTime}</span>
 							</div>
 						{/if}
 					</div>
@@ -780,13 +855,25 @@
 									<span class="slot-status">{$t('hr.processFingerprint.checkIn')}</span>
 									<span class="slot-time">{formatTime12Hour(pair.checkInTxn.punch_time)}</span>
 								</div>
-								{#if pair.checkInEarlyLateTime}
-									{#if pair.checkInEarlyLateTime.late > 0}
-										<div class="slot-badge late">-{pair.checkInEarlyLateTime.late}m</div>
-									{:else if pair.checkInEarlyLateTime.early > 0}
-										<div class="slot-badge early">+{pair.checkInEarlyLateTime.early}m</div>
+								<div class="slot-badges-row">
+									{#if pair.checkInEarlyLateTime}
+										{#if pair.checkInEarlyLateTime.late > 0}
+											<div class="slot-badge late">-{pair.checkInEarlyLateTime.late}m</div>
+										{:else if pair.checkInEarlyLateTime.early > 0}
+											<div class="slot-badge early">+{pair.checkInEarlyLateTime.early}m</div>
+										{/if}
 									{/if}
-								{/if}
+								</div>
+							</div>
+						{:else if !pair.isEmptyDate && !pair.checkInTxn && pair.checkOutTxn}
+							<div class="slot-item check-in missing">
+								<div class="slot-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3H19C20.1046 3 21 3.89543 21 5V19C21 20.1046 20.1046 21 19 21H15" stroke-linecap="round"/><path d="M10 17L15 12L10 7" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 12H3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+								</div>
+								<div class="slot-data">
+									<span class="slot-status">{$t('hr.processFingerprint.checkIn')}</span>
+									<span class="slot-time missing">{$t('hr.processFingerprint.checkin_missing')}</span>
+								</div>
 							</div>
 						{/if}
 
@@ -796,19 +883,52 @@
 									<svg viewBox="0 0 24 24" fill="none"><path d="M9 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14 17L9 12L14 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
 								</div>
 								<div class="slot-data">
-									<span class="slot-status">{$t('hr.processFingerprint.checkOut')}</span>
+									<span class="slot-status space-between">
+										{$t('hr.processFingerprint.checkOut')}
+										{#if pair.checkOutCalendarDate && pair.checkOutCalendarDate !== shiftDate}
+											<span class="next-day-label">({pair.checkOutCalendarDate})</span>
+										{/if}
+									</span>
 									<span class="slot-time">{formatTime12Hour(pair.checkOutTxn.punch_time)}</span>
 								</div>
-								{#if pair.lateEarlyTime && pair.lateEarlyTime.early > 0}
-									<div class="slot-badge warning">-{pair.lateEarlyTime.early}m</div>
-								{/if}
+								<div class="slot-badges-row">
+									{#if pair.lateEarlyTime}
+										{#if pair.lateEarlyTime.early > 0}
+											<div class="slot-badge warning">-{pair.lateEarlyTime.early}m</div>
+										{:else if pair.lateEarlyTime.late > 0}
+											<div class="slot-badge early">+{formatMinutesToHm(pair.lateEarlyTime.late)}</div>
+										{/if}
+									{/if}
+								</div>
+							</div>
+						{:else if (pair.checkInTxn || !pair.isEmptyDate) && !pair.checkOutTxn}
+							<div class="slot-item check-out missing">
+								<div class="slot-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H9" stroke-linecap="round"/><path d="M14 17L9 12L14 7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12H21" stroke-linecap="round" stroke-linejoin="round"/></svg>
+								</div>
+								<div class="slot-data">
+									<span class="slot-status">{$t('hr.processFingerprint.checkOut')}</span>
+									<span class="slot-time missing">{$t('hr.processFingerprint.checkout_missing')}</span>
+								</div>
 							</div>
 						{/if}
 
 						{#if pair.isEmptyDate}
 							<div class="empty-slot">
-								<div class="empty-ring"></div>
-								{$t('common.no_data')}
+								{#if isOfficial}
+									<div class="empty-icon official">🏝️</div>
+								{:else if isSpecific}
+									<div class="empty-icon approved">🏖️</div>
+								{:else}
+									<div class="empty-icon missing">❓</div>
+								{/if}
+								<p>
+									{#if isUnapprovedLeave}
+										{$t('hr.processFingerprint.no_checkin_checkout_recorded')}
+									{:else}
+										{$t('hr.processFingerprint.no_transactions_recorded')}
+									{/if}
+								</p>
 							</div>
 						{/if}
 					</div>
@@ -1026,6 +1146,26 @@
 		align-items: center;
 	}
 
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.status-pill {
+		font-size: 0.65rem;
+		font-weight: 800;
+		padding: 0.2rem 0.6rem;
+		border-radius: 2rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+	}
+
+	.status-pill.official { background: #FEE2E2; color: #DC2626; border: 1px solid #FECACA; }
+	.status-pill.approved { background: #D1FAE5; color: #059669; border: 1px solid #A7F3D0; }
+	.status-pill.unapproved { background: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
+
 	.date-badge {
 		font-size: 0.875rem;
 		font-weight: 700;
@@ -1035,13 +1175,45 @@
 		border-radius: 0.75rem;
 	}
 
+	.timeline-card.is-day-off {
+		border-left: 4px solid #10B981;
+	}
+
+	.timeline-card.is-unapproved {
+		border-left: 4px solid #F97316;
+	}
+
 	.work-duration {
 		display: flex;
 		align-items: center;
-		gap: 0.375rem;
+		gap: 0.5rem;
 		font-size: 0.8125rem;
-		font-weight: 700;
+		font-weight: 800;
 		color: var(--futuristic-green);
+		background: rgba(16, 185, 129, 0.08);
+		padding: 0.35rem 0.75rem;
+		border-radius: 2rem;
+		transition: all 0.3s ease;
+	}
+
+	.work-duration.under-hours {
+		color: #EF4444;
+		background: rgba(239, 68, 68, 0.08);
+	}
+
+	.status-indicator {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.indicator-svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.time-text {
+		letter-spacing: -0.01em;
 	}
 
 	.clock-icon { width: 14px; height: 14px; }
@@ -1095,6 +1267,34 @@
 		color: var(--futuristic-text);
 	}
 
+	.slot-time.missing {
+		color: #EF4444;
+		font-size: 0.8rem;
+		font-style: italic;
+	}
+
+	.slot-status.space-between {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+	}
+
+	.next-day-label {
+		font-size: 0.6rem;
+		color: var(--futuristic-orange);
+		background: rgba(249, 115, 22, 0.05);
+		padding: 0.1rem 0.3rem;
+		border-radius: 0.25rem;
+	}
+
+	.slot-badges-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		align-items: flex-end;
+	}
+
 	.slot-badge {
 		padding: 0.25rem 0.5rem;
 		border-radius: 0.5rem;
@@ -1110,13 +1310,28 @@
 		padding: 1.5rem;
 		text-align: center;
 		color: var(--futuristic-text-light);
-		font-size: 0.875rem;
+		font-size: 0.8125rem;
 		font-weight: 500;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 0.75rem;
 	}
+
+	.empty-icon {
+		font-size: 1.5rem;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: var(--futuristic-bg);
+	}
+
+	.empty-icon.official { background: #FEE2E2; }
+	.empty-icon.approved { background: #D1FAE5; }
+	.empty-icon.missing { background: #FEF3C7; }
 
 	.empty-ring {
 		width: 24px;
