@@ -504,6 +504,20 @@
 	}
 
 	function openAnalyseWindow(employee: Employee) {
+		// Calculate date range: 25th of previous month to yesterday
+		const today = new Date();
+		
+		// Yesterday
+		const yesterday = new Date(today);
+		yesterday.setDate(today.getDate() - 1);
+		const initialEndDate = yesterday.toISOString().split('T')[0];
+		
+		// 25th of previous month
+		const prevMonth = new Date(today);
+		prevMonth.setMonth(today.getMonth() - 1);
+		prevMonth.setDate(25);
+		const initialStartDate = prevMonth.toISOString().split('T')[0];
+		
 		const windowId = `employee-analysis-${employee.id}-${Date.now()}`;
 		openWindow({
 			id: windowId,
@@ -511,7 +525,9 @@
 			component: EmployeeAnalysisWindow,
 			props: {
 				employee: employee,
-				windowId: windowId
+				windowId: windowId,
+				initialStartDate: initialStartDate,
+				initialEndDate: initialEndDate
 			},
 			icon: '🔍',
 			size: { width: 1000, height: 700 },
@@ -934,7 +950,7 @@
 					branch_id: transaction.branch_id,
 					punch_date: transaction.date,
 					punch_time: transaction.time,
-					status: transaction.status || 'check-in'
+					status: null // Status will be calculated dynamically based on shift configuration, not stored
 				};
 			});
 

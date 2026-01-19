@@ -2,10 +2,13 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
-	import { onMount, onDestroy } from 'svelte';
+	import { currentUser } from '$lib/utils/persistentAuth';
+	import { onMount, onDestroy, tick } from 'svelte';
 
 	export let employee: any;
 	export let windowId: string;
+	export let initialStartDate: string = '';
+	export let initialEndDate: string = '';
 
 	interface Employee {
 		id: string;
@@ -28,12 +31,24 @@
 	let specialShiftWeekday: any[] = [];
 	let isShiftOverlappingNextDay = false;
 	let loading = true;
-	let startDate = new Date().toISOString().split('T')[0];
-	let endDate = new Date().toISOString().split('T')[0];
+	let startDate = initialStartDate || new Date().toISOString().split('T')[0];
+	let endDate = initialEndDate || new Date().toISOString().split('T')[0];
 	let transactionData: any[] = [];
 	let loadingTransactions = false;
 	let punchPairs: any[] = []; // Store paired check-ins and check-outs with metadata
 	let realtimeChannel: any = null;
+	let showAddPunchModal = false;
+	let modalData: any = null;
+	let editPunchTime = '';
+	let editPunchStatus = '';
+	let editDeductionPercent: number | string = '';
+	let savingPunch = false;
+	let userCanAddPunches = false;
+	let permissionDeniedMessage = '';
+	let showPermissionDeniedPopup = false;
+	let showSyncResultModal = false;
+	let syncResultMessage = '';
+	let syncResultType: 'success' | 'error' | 'info' = 'info';
 
 	async function loadEmployeeData() {
 		try {
@@ -165,9 +180,46 @@
 	onMount(async () => {
 		loading = true;
 		await loadEmployeeData();
+		await checkUserPunchPermissions();
+		
+		// If initial dates were provided, load transactions automatically and then sync
+		if (initialStartDate && initialEndDate) {
+			await loadTransactions();
+			// Auto-sync after auto-load completes
+			await updateTransactionStatuses();
+		}
+		
 		loading = false;
 		setupRealtime();
 	});
+
+	async function checkUserPunchPermissions() {
+		try {
+			const userId = $currentUser?.id;
+			if (!userId) {
+				userCanAddPunches = false;
+				return;
+			}
+
+			const { data, error } = await supabase
+				.from('approval_permissions')
+				.select('can_add_missing_punches')
+				.eq('user_id', userId)
+				.single();
+
+			if (error) {
+				console.warn('Error checking punch permissions:', error);
+				userCanAddPunches = false;
+				return;
+			}
+
+			userCanAddPunches = data?.can_add_missing_punches || false;
+			console.log('✅ User can add missing punches:', userCanAddPunches);
+		} catch (err) {
+			console.error('Error checking permissions:', err);
+			userCanAddPunches = false;
+		}
+	}
 
 	onDestroy(() => {
 		if (realtimeChannel) {
@@ -177,6 +229,354 @@
 
 	function closeWindow() {
 		windowManager.closeWindow(windowId);
+	}
+
+	function generatePunchId(): string {
+		// Generate a unique ID for the punch
+		const timestamp = Date.now().toString(36);
+		const random = Math.random().toString(36).substring(2, 9);
+		return `PF${timestamp}${random}`.toUpperCase();
+	}
+
+	function openAddPunchModal(pair: any, isMissingCheckIn: boolean) {
+		console.log('openAddPunchModal called', { pair, isMissingCheckIn });
+		
+		// Check if user has permission to add missing punches
+		if (!userCanAddPunches) {
+			permissionDeniedMessage = "You don't have permission to add a punch.";
+			showPermissionDeniedPopup = true;
+			return;
+		}
+		
+		// Determine the date for the punch - use whichever date is available
+		const punchDate = pair.checkInDate || pair.checkOutDate;
+		console.log('punchDate:', punchDate);
+		if (!punchDate) {
+			console.log('No punchDate, returning early');
+			return; // Don't open modal if there's no date
+		}
+		const applicableShift = getApplicableShift(punchDate);
+		console.log('applicableShift:', applicableShift);
+
+		// Default punch time based on shift
+		let defaultTime = '';
+		let defaultStatus = '';
+
+		if (isMissingCheckIn && applicableShift) {
+			// Default to shift start time for missing check-in
+			defaultTime = applicableShift.shift_start_time;
+			defaultStatus = 'Check In';
+		} else if (!isMissingCheckIn && applicableShift) {
+			// Default to shift end time for missing check-out
+			defaultTime = applicableShift.shift_end_time;
+			defaultStatus = 'Check Out';
+		}
+
+		modalData = {
+			pair,
+			isMissingCheckIn,
+			punchDate,
+			applicableShift
+		};
+
+		editPunchTime = defaultTime;
+		editPunchStatus = defaultStatus;
+		editDeductionPercent = '';
+		console.log('Setting showAddPunchModal to true', { modalData, editPunchTime, editPunchStatus });
+		showAddPunchModal = true;
+		console.log('showAddPunchModal is now:', showAddPunchModal);
+	}
+
+	function closeAddPunchModal() {
+		showAddPunchModal = false;
+		modalData = null;
+		editPunchTime = '';
+		editPunchStatus = '';
+		editDeductionPercent = '';
+	}
+
+	function calculateAdjustedPunchTime(baseTime: string, deductionPercent: number, isMissingCheckIn: boolean, shiftStart: string, shiftEnd: string): string {
+		if (!deductionPercent || deductionPercent <= 0) return baseTime;
+
+		const shiftStartMinutes = timeToMinutes(shiftStart);
+		const shiftEndMinutes = timeToMinutes(shiftEnd);
+		
+		// Calculate assigned working hours in minutes
+		let assignedMinutes = shiftEndMinutes - shiftStartMinutes;
+		if (assignedMinutes < 0) assignedMinutes += 24 * 60; // Handle overnight shifts
+		
+		// Calculate deduction in minutes
+		const deductionMinutes = Math.round((deductionPercent / 100) * assignedMinutes);
+		
+		// Get base punch time in minutes
+		const basePunchMinutes = timeToMinutes(baseTime);
+		
+		let adjustedMinutes = basePunchMinutes;
+		
+		if (isMissingCheckIn) {
+			// Check-in case: add the deduction as late (move check-in forward)
+			adjustedMinutes += deductionMinutes;
+		} else {
+			// Check-out case: subtract the deduction as early leave (move check-out backward)
+			adjustedMinutes -= deductionMinutes;
+		}
+		
+		// Handle day wrapping
+		if (adjustedMinutes < 0) adjustedMinutes += 24 * 60;
+		if (adjustedMinutes >= 24 * 60) adjustedMinutes -= 24 * 60;
+		
+		// Convert back to HH:MM format
+		const hours = Math.floor(adjustedMinutes / 60);
+		const minutes = Math.round(adjustedMinutes % 60);
+		return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+	}
+
+	async function updateTransactionStatuses() {
+		// Don't start sync if already loading
+		if (loadingTransactions) {
+			console.log('Load in progress, waiting...');
+			// Wait for loading to complete
+			while (loadingTransactions) {
+				await new Promise(resolve => setTimeout(resolve, 100));
+			}
+		}
+		
+		// Update status for all transactions with null status in the loaded date range
+		loadingTransactions = true;
+		try {
+			const extendedStartDate = new Date(startDate);
+			extendedStartDate.setDate(extendedStartDate.getDate() - 1);
+			const extendedStartDateStr = extendedStartDate.toISOString().split('T')[0];
+			
+			const extendedEndDate = new Date(endDate);
+			extendedEndDate.setDate(extendedEndDate.getDate() + 1);
+			const extendedEndDateStr = extendedEndDate.toISOString().split('T')[0];
+
+			// Fetch ALL transactions in the date range (not just null status) so we can see pairing context
+			const { data: allTransactions, error: fetchError } = await supabase
+				.from('processed_fingerprint_transactions')
+				.select('*')
+				.eq('center_id', employee.id)
+				.gte('punch_date', extendedStartDateStr)
+				.lte('punch_date', extendedEndDateStr);
+
+			if (fetchError) {
+				console.error('Error fetching transactions:', fetchError);
+				syncResultMessage = 'Error fetching transactions: ' + fetchError.message;
+				syncResultType = 'error';
+				showSyncResultModal = true;
+				return;
+			}
+
+			if (!allTransactions || allTransactions.length === 0) {
+				syncResultMessage = 'No transactions found in this date range';
+				syncResultType = 'info';
+				showSyncResultModal = true;
+				return;
+			}
+			
+			// Filter to only transactions with null status that need updating
+			const transactionsToUpdate = allTransactions.filter(txn => txn.status === null);
+			
+			if (transactionsToUpdate.length === 0) {
+				syncResultMessage = 'ℹ️ No transactions with null status found in the date range';
+				syncResultType = 'info';
+				showSyncResultModal = true;
+				return;
+			}
+
+			console.log(`Updating status for ${transactionsToUpdate.length} transactions (out of ${allTransactions.length} total)`);
+
+			// Step 1: Classify only the null-status transactions by shift windows
+			const classifiedTransactions = transactionsToUpdate.map(txn => {
+				const calendarDate = formatDateddmmyyyy(txn.punch_date);
+				const punchTime = txn.punch_time;
+				const applicableShift = getApplicableShift(calendarDate);
+				
+				let status = 'Other';
+				
+				if (applicableShift) {
+					const punchMinutes = timeToMinutes(punchTime);
+					const shiftStartMinutes = timeToMinutes(applicableShift.shift_start_time);
+					const shiftEndMinutes = timeToMinutes(applicableShift.shift_end_time);
+					const startBufferMinutes = (applicableShift.shift_start_buffer || 0) * 60;
+					const endBufferMinutes = (applicableShift.shift_end_buffer || 0) * 60;
+					
+					const checkInStart = shiftStartMinutes - startBufferMinutes;
+					const checkInEnd = shiftStartMinutes + startBufferMinutes;
+					const checkOutStart = shiftEndMinutes - endBufferMinutes;
+					const checkOutEnd = shiftEndMinutes + endBufferMinutes;
+					
+					const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
+					
+					if (isOvernightShift) {
+						if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+							status = 'Check In';
+						} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+							status = 'Check Out';
+						} else if (checkOutStart < 0) {
+							const adjustedCheckOutStart = checkOutStart + (24 * 60);
+							const adjustedCheckOutEnd = checkOutEnd + (24 * 60);
+							if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
+								status = 'Check Out';
+							} else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+								status = 'In Progress';
+							} else {
+								status = 'Other';
+							}
+						} else {
+							status = 'Other';
+						}
+					} else {
+						if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+							status = 'Check In';
+						} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+							status = 'Check Out';
+						} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
+							status = 'In Progress';
+						} else {
+							status = 'Other';
+						}
+					}
+				}
+				
+				return {
+					...txn,
+					calendarDate,
+					initialStatus: status
+				};
+			});
+
+			// Step 2: Group ALL transactions (including already-classified ones) by shift date for pairing context
+			const groupedByShiftDate: { [key: string]: any[] } = {};
+			
+			// First add all classified transactions
+			classifiedTransactions.forEach(txn => {
+				if (!groupedByShiftDate[txn.calendarDate]) {
+					groupedByShiftDate[txn.calendarDate] = [];
+				}
+				groupedByShiftDate[txn.calendarDate].push(txn);
+			});
+			
+			// Then add all other transactions that already have status (for pairing context)
+			allTransactions.forEach(txn => {
+				if (txn.status !== null) { // Skip the ones we're updating
+					const calendarDate = formatDateddmmyyyy(txn.punch_date);
+					if (!groupedByShiftDate[calendarDate]) {
+						groupedByShiftDate[calendarDate] = [];
+					}
+					groupedByShiftDate[calendarDate].push({
+						...txn,
+						calendarDate,
+						initialStatus: txn.status // Use existing status
+					});
+				}
+			});
+
+			// Step 3: Apply pairing logic to reclassify "Other" punches
+			Object.keys(groupedByShiftDate).forEach(shiftDate => {
+				const shiftTransactions = groupedByShiftDate[shiftDate];
+				const checkIns = shiftTransactions.filter(t => t.initialStatus === 'Check In');
+				const checkOuts = shiftTransactions.filter(t => t.initialStatus === 'Check Out');
+				// Only consider "Others" that we're updating (not already-classified ones)
+				const others = classifiedTransactions.filter(t => t.calendarDate === shiftDate && (t.initialStatus === 'Other' || t.initialStatus === 'In Progress'));
+				
+				console.log(`[Pairing] ${shiftDate}: ${checkIns.length} Check Ins, ${checkOuts.length} Check Outs, ${others.length} Others to classify`);
+
+				// Reclassify "Other" punches as check-outs if they're paired with check-ins
+				let otherIdx = 0;
+				checkIns.forEach((checkIn, idx) => {
+					console.log(`[Pairing] Processing Check In ${idx}: needs checkout?`, idx >= checkOuts.length);
+					if (idx < checkOuts.length) {
+						// Already has a Check Out, no need to use Other
+						console.log(`[Pairing]   → Already has Check Out at index ${idx}`);
+						return;
+					}
+					// Use the next Other as Check Out
+					if (otherIdx < others.length) {
+						console.log(`[Pairing]   → Assigning Other ${others[otherIdx].id} as Check Out`);
+						others[otherIdx].initialStatus = 'Check Out';
+						console.log(`[Pairing]   → Reclassified ${others[otherIdx].id} from "Other" to "Check Out"`);
+						otherIdx++;
+					}
+				});
+			});
+
+			// Step 4: Prepare updates with final classified status
+			const updates = classifiedTransactions.map(txn => ({
+				id: txn.id,
+				status: txn.initialStatus
+			}));
+			
+			console.log('[Final Updates]', updates.map(u => `${u.id}: ${u.status}`).join(', '));
+
+			// Batch update the database
+			for (const update of updates) {
+				const { error: updateError } = await supabase
+					.from('processed_fingerprint_transactions')
+					.update({ status: update.status })
+					.eq('id', update.id);
+
+				if (updateError) {
+					console.error('Error updating transaction:', updateError);
+				}
+			}
+
+			console.log(`Successfully updated ${updates.length} transactions`);
+			syncResultMessage = `✅ Successfully updated ${updates.length} transaction(s) with calculated status`;
+			syncResultType = 'success';
+			showSyncResultModal = true;
+			
+			// Reload transactions to reflect the updates
+			await loadTransactions();
+		} catch (error) {
+			console.error('Error updating transaction statuses:', error);
+			syncResultMessage = 'Error updating statuses: ' + (error instanceof Error ? error.message : String(error));
+			syncResultType = 'error';
+			showSyncResultModal = true;
+		} finally {
+			loadingTransactions = false;
+		}
+	}
+
+	async function savePunch() {
+		if (!editPunchTime || !editPunchStatus || !modalData) return;
+
+		savingPunch = true;
+		try {
+			// Prepare the data for insertion
+			const newPunch = {
+				id: generatePunchId(),
+				center_id: employee.id,
+				employee_id: employee.id,
+				branch_id: employee.current_branch_id,
+				punch_date: modalData.punchDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+				punch_time: editPunchTime,
+				status: editPunchStatus,
+				processed_at: new Date().toISOString(),
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString()
+			};
+
+			// Insert into database
+			const { error } = await supabase
+				.from('processed_fingerprint_transactions')
+				.insert([newPunch]);
+
+			if (error) {
+				console.error('Error saving punch:', error);
+				alert($t('common.error') || 'Error' + ': ' + error.message);
+			} else {
+				// Close modal and reload transactions
+				closeAddPunchModal();
+				await loadTransactions();
+			}
+		} catch (error) {
+			console.error('Error saving punch:', error);
+			alert($t('common.error') || 'Error' + ': ' + (error as Error).message);
+		} finally {
+			savingPunch = false;
+		}
 	}
 
 	function groupTransactionsByDate(transactions: any[]) {
@@ -233,7 +633,10 @@
 
 	function getDayNameFromDate(dateStr: string): number {
 		// dateStr is in format DD-MM-YYYY
-		const [day, month, year] = dateStr.split('-');
+		if (!dateStr) return 0;
+		const parts = dateStr.split('-');
+		if (parts.length !== 3) return 0;
+		const [day, month, year] = parts;
 		const date = new Date(`${year}-${month}-${day}`);
 		return date.getDay(); // 0 = Sunday, 1 = Monday, etc.
 	}
@@ -267,6 +670,7 @@
 
 	function getApplicableShift(dateStr: string) {
 		// dateStr is in DD-MM-YYYY format
+		if (!dateStr) return null;
 		// Extract the weekday
 		const dayNum = getDayNameFromDate(dateStr);
 
@@ -530,6 +934,8 @@
 			punchPairs = createPunchPairs(transactionData);
 			// Fill in missing dates in the range
 			punchPairs = fillMissingDatesInRange(punchPairs);
+			// Sort by date descending (latest first)
+			punchPairs = sortPunchPairsNewestFirst(punchPairs);
 		}
 	}
 
@@ -601,6 +1007,23 @@
 		return allPairs;
 	}
 
+	function sortPunchPairsNewestFirst(pairs: any[]): any[] {
+		// Sort by date descending (newest/latest first)
+		return pairs.sort((a, b) => {
+			const aDate = a.checkInDate || a.checkOutDate;
+			const bDate = b.checkInDate || b.checkOutDate;
+			
+			const aParts = aDate.split('-');
+			const bParts = bDate.split('-');
+			
+			const aDateObj = new Date(`${aParts[2]}-${aParts[1]}-${aParts[0]}`);
+			const bDateObj = new Date(`${bParts[2]}-${bParts[1]}-${bParts[0]}`);
+			
+			// Return in descending order (latest first): b - a instead of a - b
+			return bDateObj.getTime() - aDateObj.getTime();
+		});
+	}
+
 	function createPunchPairs(transactions: any[]): any[] {
 		const pairs: any[] = [];
 		
@@ -619,11 +1042,13 @@
 			// Get the applicable shift for this calendar date
 			const calendarShift = getApplicableShift(calendarDate);
 			
+			// ALWAYS recalculate status based on shift windows and buffers, NOT database status
 			// Detect if shift is overnight (shift_end_time < shift_start_time in minutes)
 			const isOvernightShift = calendarShift && 
 				timeToMinutes(calendarShift.shift_end_time) < timeToMinutes(calendarShift.shift_start_time);
 			
-			if ((isShiftOverlappingNextDay || isOvernightShift) && calendarShift) {
+			// Calculate status using the shift's buffer windows
+			if (calendarShift) {
 				const punchMinutes = timeToMinutes(punchTime);
 				const shiftStartMinutes = timeToMinutes(calendarShift.shift_start_time);
 				const shiftEndMinutes = timeToMinutes(calendarShift.shift_end_time);
@@ -635,58 +1060,79 @@
 				const checkOutStart = shiftEndMinutes - endBufferMinutes;
 				const checkOutEnd = shiftEndMinutes + endBufferMinutes;
 				
-				// Determine if this is check-in or checkout based on calendar date's shift
-				if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-					status = 'Check In';
-					shiftDate = calendarDate;
-				} else if (isOvernightShift && checkOutStart < 0) {
-					// For overnight shifts where checkout buffer crosses midnight
-					// Check-out can be:
-					// 1. Early morning (0 to checkOutEnd) - on next calendar day, but belongs to previous day's shift
-					// 2. Late evening (checkOutStart + 24*60 onwards) - on same calendar day
-					const adjustedCheckOutStart = checkOutStart + (24 * 60);
-					
-					// Early morning checkout (0:00 to 4:00 AM)
-					if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+				console.log(`Punch ${txn.id} on ${calendarDate} at ${punchTime}:`, {
+					punchMinutes,
+					shiftStart: `${calendarShift.shift_start_time} (${shiftStartMinutes}m)`,
+					shiftEnd: `${calendarShift.shift_end_time} (${shiftEndMinutes}m)`,
+					startBuffer: `${startBufferMinutes}m`,
+					endBuffer: `${endBufferMinutes}m`,
+					checkInWindow: `${checkInStart}-${checkInEnd}`,
+					checkOutWindow: `${checkOutStart}-${checkOutEnd}`,
+					isOvernight: isOvernightShift
+				});
+				
+				// For overnight shifts, the checkout window crosses midnight
+				if (isOvernightShift) {
+					// Check-in window: 8 PM - 3h to 8 PM + 3h = 5 PM to 11 PM (same calendar date)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						status = 'Check In';
+						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS CHECK IN (overnight)`);
+					}
+					// Checkout window for overnight: 8 AM - 3h to 8 AM + 3h = 5 AM to 11 AM
+					// But since the shift spans two calendar days, 5 AM to 11 AM is on the NEXT calendar day
+					// So we need to check: is this punch in the 5 AM to 11 AM range?
+					else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
 						status = 'Check Out';
-						// This punch is on the next calendar day, but belongs to previous day's shift
+						// Early morning punch (5 AM to 11 AM) = belongs to previous shift (started yesterday)
 						shiftDate = getPreviousDate(calendarDate);
-						const assignedShift = getApplicableShift(shiftDate);
-						console.log(`Assigned early morning checkout on ${calendarDate} to shift date ${shiftDate}. Shift: ${calendarShift.shift_start_time}-${calendarShift.shift_end_time}`);
+						console.log(`  → CLASSIFIED AS CHECK OUT (overnight, assigned to previous day)`);
 					}
-					// Late evening checkout (10:00 PM to 11:59 PM)
-					else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
-						status = 'Check Out';
-						// This punch is on the same calendar day as check-in
-						shiftDate = calendarDate;
-						const assignedShift = getApplicableShift(shiftDate);
-						console.log(`Assigned late evening checkout on ${calendarDate}. Shift: ${calendarShift.shift_start_time}-${calendarShift.shift_end_time}`);
-					}
-					else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
-						status = 'In Progress';
-						shiftDate = calendarDate;
+					// Midnight crossing: if checkOutStart is negative, it means the window includes early morning
+					else if (checkOutStart < 0) {
+						const adjustedCheckOutStart = checkOutStart + (24 * 60);
+						const adjustedCheckOutEnd = checkOutEnd + (24 * 60);
+						// Early morning (0:00 to late morning)
+						if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
+							status = 'Check Out';
+							shiftDate = getPreviousDate(calendarDate);
+							console.log(`  → CLASSIFIED AS CHECK OUT (early morning, assigned to previous day)`);
+						}
+						// In progress
+						else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+							status = 'In Progress';
+							shiftDate = calendarDate;
+							console.log(`  → CLASSIFIED AS IN PROGRESS`);
+						} else {
+							status = 'Other';
+							shiftDate = calendarDate;
+							console.log(`  → CLASSIFIED AS OTHER`);
+						}
 					} else {
 						status = 'Other';
 						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS OTHER`);
 					}
-				} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-					status = 'Check Out';
-					// Assign to previous day's shift
-					shiftDate = getPreviousDate(calendarDate);
-					// Verify that the assigned shift date also expects this as a checkout
-					const assignedShift = getApplicableShift(shiftDate);
-					console.log(`Assigned checkout from ${calendarDate} to ${shiftDate}. Calendar shift: ${calendarShift.shift_start_time}-${calendarShift.shift_end_time}, Assigned shift: ${assignedShift?.shift_start_time}-${assignedShift?.shift_end_time}`);
-				} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
-					status = 'In Progress';
-					shiftDate = calendarDate;
 				} else {
-					status = 'Other';
-					shiftDate = calendarDate;
+					// Normal shift (doesn't cross midnight)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						status = 'Check In';
+						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS CHECK IN`);
+					} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+						status = 'Check Out';
+						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS CHECK OUT`);
+					} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
+						status = 'In Progress';
+						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS IN PROGRESS`);
+					} else {
+						status = 'Other';
+						shiftDate = calendarDate;
+						console.log(`  → CLASSIFIED AS OTHER`);
+					}
 				}
-			} else {
-				// No overnight shift, use default logic
-				status = getTransactionStatus(punchTime, calendarShift);
-				shiftDate = calendarDate;
 			}
 			
 			return {
@@ -711,9 +1157,26 @@
 			return isInRange;
 		});
 		
-		// Group filtered transactions by shift date
-		const groupedByShiftDate: { [key: string]: any[] } = {};
+		// Deduplicate: Keep only the last punch of each status type on same shift date
+		const dedupedTransactions: any[] = [];
+		const shiftDateStatusMap: { [key: string]: any } = {};
+
 		filteredTransactions.forEach(txn => {
+			const key = `${txn.shiftDate}-${txn.status}`;
+			// Keep the latest punch for each status on each shift date
+			if (!shiftDateStatusMap[key] || txn.created_at > shiftDateStatusMap[key].created_at) {
+				shiftDateStatusMap[key] = txn;
+			}
+		});
+
+		// Convert back to array
+		Object.values(shiftDateStatusMap).forEach(txn => {
+			dedupedTransactions.push(txn);
+		});
+		
+		// Group deduplicated transactions by shift date
+		const groupedByShiftDate: { [key: string]: any[] } = {};
+		dedupedTransactions.forEach(txn => {
 			if (!groupedByShiftDate[txn.shiftDate]) {
 				groupedByShiftDate[txn.shiftDate] = [];
 			}
@@ -754,110 +1217,124 @@
 				return dateComparison;
 			});
 			
-			let i = 0;
+			// Separate transactions by their computed status
+			const checkInTransactions = shiftTransactions.filter(t => t.status === 'Check In');
+			const checkOutTransactions = shiftTransactions.filter(t => t.status === 'Check Out');
+			const otherTransactions = shiftTransactions.filter(t => t.status === 'In Progress' || t.status === 'Other');
 			
-			while (i < shiftTransactions.length) {
-				const txn = shiftTransactions[i];
+			// Pair check-ins with check-outs
+			let checkOutIdx = 0;
+			let otherIdx = 0;
+			
+			checkInTransactions.forEach(checkInTxn => {
+				// Try to find a matching check-out transaction
+				let checkOutTxn = null;
+				let checkOutCalendarDate = null;
 				
-				if (txn.status === 'Check In') {
-					// Look for corresponding checkout in the same shift
-					let checkOutTxn = null;
-					let checkOutCalendarDate = null;
-					let nextIdx = i + 1;
-					
-					// First, try to find a proper "Check Out" status punch
-					if (nextIdx < shiftTransactions.length) {
-						const nextTxn = shiftTransactions[nextIdx];
-						if (nextTxn.status === 'Check Out') {
-							checkOutTxn = nextTxn;
-							checkOutCalendarDate = nextTxn.calendarDate;
-						}
-						// If no proper checkout found, use "In Progress" or "Other" punch as fallback checkout
-						// BUT only if it's on the same shift date (same calendar date for non-overnight shifts)
-						else if ((nextTxn.status === 'In Progress' || nextTxn.status === 'Other') && nextTxn.shiftDate === shiftDate) {
-							checkOutTxn = nextTxn;
-							checkOutCalendarDate = nextTxn.calendarDate;
-						}
-					}
-					
-					// For non-overlapping shifts, if still no checkout found, search for carryover checkout on next shift date
-					if (!checkOutTxn && !isOvernightShift) {
-						const applicableShift = getApplicableShift(shiftDate);
-						if (applicableShift) {
-							const nextShiftDate = getNextDate(shiftDate);
-							const nextShiftTransactions = groupedByShiftDate[nextShiftDate];
-							
-							if (nextShiftTransactions && nextShiftTransactions.length > 0) {
-								const nextDayShift = getApplicableShift(nextShiftDate);
-								if (nextDayShift) {
-									const nextShiftStartMinutes = timeToMinutes(nextDayShift.shift_start_time);
-									const nextShiftStartBuffer = (nextDayShift.shift_start_buffer || 0) * 60;
-									const nextDayCheckInStart = nextShiftStartMinutes - nextShiftStartBuffer; // Earliest punch that would be check-in
+				// First priority: Use a Check Out status transaction if available
+				if (checkOutIdx < checkOutTransactions.length) {
+					checkOutTxn = checkOutTransactions[checkOutIdx];
+					checkOutCalendarDate = checkOutTxn.calendarDate;
+					checkOutIdx++;
+					consumedTransactions.add(checkOutTxn.id);
+				}
+				// Second priority: Use "In Progress" or "Other" as fallback
+				else if (otherIdx < otherTransactions.length) {
+					checkOutTxn = otherTransactions[otherIdx];
+					checkOutCalendarDate = checkOutTxn.calendarDate;
+					otherIdx++;
+					consumedTransactions.add(checkOutTxn.id);
+				}
+				
+				// For non-overlapping shifts, if still no checkout found, search for carryover checkout on next shift date
+				if (!checkOutTxn && !isOvernightShift) {
+					const applicableShift = getApplicableShift(shiftDate);
+					if (applicableShift) {
+						const nextShiftDate = getNextDate(shiftDate);
+						const nextShiftTransactions = groupedByShiftDate[nextShiftDate];
+						
+						if (nextShiftTransactions && nextShiftTransactions.length > 0) {
+							const nextDayShift = getApplicableShift(nextShiftDate);
+							if (nextDayShift) {
+								const nextShiftStartMinutes = timeToMinutes(nextDayShift.shift_start_time);
+								const nextShiftStartBuffer = (nextDayShift.shift_start_buffer || 0) * 60;
+								const nextDayCheckInStart = nextShiftStartMinutes - nextShiftStartBuffer; // Earliest punch that would be check-in
+								
+								// Look for any punch before the next day's check-in window
+								for (const nextTxn of nextShiftTransactions) {
+									if (consumedTransactions.has(nextTxn.id)) continue;
 									
-									// Look for any punch before the next day's check-in window
-									for (const nextTxn of nextShiftTransactions) {
-										if (consumedTransactions.has(nextTxn.id)) continue;
-										
-										const nextPunchMinutes = timeToMinutes(nextTxn.punch_time);
-										
-										// If this punch is BEFORE the next day's check-in window, it belongs to current day as checkout
-										if (nextPunchMinutes < nextDayCheckInStart) {
-											checkOutTxn = nextTxn;
-											checkOutCalendarDate = nextTxn.calendarDate;
-											// Mark this transaction as consumed
-											consumedTransactions.add(nextTxn.id);
-											break; // Use the first such punch found
-										}
+									const nextPunchMinutes = timeToMinutes(nextTxn.punch_time);
+									
+									// If this punch is BEFORE the next day's check-in window, it belongs to current day as checkout
+									if (nextPunchMinutes < nextDayCheckInStart) {
+										checkOutTxn = nextTxn;
+										checkOutCalendarDate = nextTxn.calendarDate;
+										// Mark this transaction as consumed
+										consumedTransactions.add(nextTxn.id);
+										break; // Use the first such punch found
 									}
 								}
 							}
 						}
 					}
-					
-					// Mark check-in as consumed
-					if (checkOutTxn && !consumedTransactions.has(txn.id)) {
-						consumedTransactions.add(txn.id);
-					}
-					
-					// For checkout late/early calculation, use the shift applicable to the checkout's shift date
-					// (which may differ from check-in date in carryover scenarios)
-					const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
-					
+				}
+				
+				const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
+				
+				const pair = {
+					checkInTxn: checkInTxn,
+					checkInDate: shiftDate,
+					checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, getApplicableShift(shiftDate)),
+					checkOutTxn: checkOutTxn,
+					checkOutDate: shiftDate,
+					checkOutCalendarDate: checkOutCalendarDate,
+					workedTime: checkOutTxn ? calculateWorkedTime(checkInTxn.punch_time, checkOutTxn.punch_time) : null,
+					lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift) : { late: 0, early: 0 },
+					checkOutMissing: !checkOutTxn
+				};
+				
+				pairs.push(pair);
+				consumedTransactions.add(checkInTxn.id);
+			});
+			
+			// Handle remaining check-outs that weren't paired with check-ins
+			checkOutTransactions.forEach(checkOutTxn => {
+				if (!consumedTransactions.has(checkOutTxn.id)) {
 					const pair = {
-						checkInTxn: txn,
-						checkInDate: shiftDate,
-						checkInEarlyLateTime: calculateEarlyLateForCheckIn(txn.punch_time, getApplicableShift(shiftDate)),
+						checkInTxn: null,
+						checkInDate: null,
 						checkOutTxn: checkOutTxn,
 						checkOutDate: shiftDate,
-						checkOutCalendarDate: checkOutCalendarDate,
-						workedTime: checkOutTxn ? calculateWorkedTime(txn.punch_time, checkOutTxn.punch_time) : null,
-						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift) : { late: 0, early: 0 },
-						checkOutMissing: !checkOutTxn
+						checkOutCalendarDate: checkOutTxn.calendarDate,
+						workedTime: null,
+						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate)),
+						checkInMissing: true
 					};
 					
 					pairs.push(pair);
-					i += checkOutTxn ? 2 : 1;
-				} else {
-					// Standalone checkout (check-in was before the query range or is missing)
-					// Only show if not already consumed as a carryover
-					if (!consumedTransactions.has(txn.id)) {
-						const pair = {
-							checkInTxn: null,
-							checkInDate: null,
-							checkOutTxn: txn,
-							checkOutDate: shiftDate,
-							checkOutCalendarDate: txn.calendarDate,
-							workedTime: null,
-							lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate)),
-							checkInMissing: true
-						};
-						
-						pairs.push(pair);
-						consumedTransactions.add(txn.id);
-					}
-					i += 1;
+					consumedTransactions.add(checkOutTxn.id);
 				}
-			}
+			});
+			
+			// Handle remaining "Other" transactions that weren't paired
+			otherTransactions.forEach(otherTxn => {
+				if (!consumedTransactions.has(otherTxn.id)) {
+					const pair = {
+						checkInTxn: null,
+						checkInDate: null,
+						checkOutTxn: otherTxn,
+						checkOutDate: shiftDate,
+						checkOutCalendarDate: otherTxn.calendarDate,
+						workedTime: null,
+						lateEarlyTime: calculateLateTime(otherTxn.punch_time, getApplicableShift(shiftDate)),
+						checkInMissing: true
+					};
+					
+					pairs.push(pair);
+					consumedTransactions.add(otherTxn.id);
+				}
+			});
 		});
 		
 		console.log('Created pairs:', pairs.length);
@@ -953,7 +1430,7 @@
 		<!-- Date Range Filter Section -->
 		<div class="bg-gradient-to-r from-purple-50 to-purple-100 border-l-4 border-purple-600 rounded-lg p-4">
 			<h3 class="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wide">{$t('hr.processFingerprint.load_transactions_title')}</h3>
-			<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+			<div class="grid grid-cols-1 md:grid-cols-4 gap-3">
 				<div>
 					<label class="block text-xs font-semibold text-slate-600 mb-2">{$t('hr.startDate')}</label>
 					<input 
@@ -977,6 +1454,16 @@
 						disabled={loadingTransactions}
 					>
 						{loadingTransactions ? $t('common.loading') : $t('hr.processFingerprint.load')}
+					</button>
+				</div>
+				<div class="flex items-end">
+					<button
+						class="w-full px-4 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 transition-colors disabled:bg-slate-400"
+						on:click={updateTransactionStatuses}
+						disabled={loadingTransactions}
+						title="Update status for all transactions with null status in the date range"
+					>
+						{loadingTransactions ? $t('common.saving') : '🔄 Sync Status'}
 					</button>
 				</div>
 			</div>
@@ -1173,6 +1660,13 @@
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
 													{$t('hr.processFingerprint.checkout_missing')}
 												</span>
+												<button
+													class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
+													on:click={() => openAddPunchModal(pair, false)}
+													disabled={savingPunch}
+												>
+													➕ {$t('actions.add') || 'Add'}
+												</button>
 											</div>
 										</div>
 									</div>
@@ -1225,6 +1719,13 @@
 												<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
 													{$t('hr.processFingerprint.checkin_missing')}
 												</span>
+												<button
+													class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition"
+													on:click={() => openAddPunchModal(pair, true)}
+													disabled={savingPunch}
+												>
+													➕ {$t('actions.add') || 'Add'}
+												</button>
 											</div>
 										</div>
 									</div>
@@ -1378,6 +1879,215 @@
 	{/if}
 	</div>
 </div>
+
+<!-- Add Punch Modal - Positioned at document root -->
+{#if showAddPunchModal && modalData}
+	<div style="position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+		<div style="background-color: white; border-radius: 0.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); max-width: 28rem; width: 100%; margin: 1rem;">
+			<!-- Modal Header -->
+			<div style="background: linear-gradient(to right, #2563eb, #1d4ed8); color: white; padding: 1.5rem; border-radius: 0.5rem 0.5rem 0 0; display: flex; align-items: center; justify-content: space-between;">
+				<h2 style="font-size: 1.125rem; font-weight: bold;">
+					{modalData.isMissingCheckIn ? $t('hr.checkIn') : $t('hr.checkOut')} - {$t('actions.add') || 'Add'}
+				</h2>
+				<button 
+					on:click={closeAddPunchModal}
+					style="background: transparent; border: none; color: white; cursor: pointer; padding: 0.25rem; border-radius: 9999px; font-size: 1.25rem;"
+					disabled={savingPunch}
+				>
+					✕
+				</button>
+			</div>
+
+			<!-- Modal Body -->
+			<div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+				<!-- Date Display -->
+				<div>
+					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('common.date') || 'Date'}</div>
+					<div style="padding: 0.5rem 1rem; background-color: #f3f4f6; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827;">
+						{modalData.punchDate}
+					</div>
+				</div>
+
+				<!-- Punch Time Input -->
+				<div>
+					<label for="punch_time_input" style="display: block; font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('hr.processFingerprint.punch_time') || 'Punch Time'}</label>
+					<input 
+						id="punch_time_input"
+						type="time" 
+						bind:value={editPunchTime}
+						style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;"
+						disabled={savingPunch}
+					/>
+					<div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">
+						{$t('hr.processFingerprint.auto_filled') || 'Auto-filled based on shift'}: 
+						{modalData.applicableShift ? formatTime12Hour(modalData.isMissingCheckIn ? modalData.applicableShift.shift_start_time : modalData.applicableShift.shift_end_time) : 'N/A'}
+					</div>
+				</div>
+
+				<!-- Deduction % Input -->
+				<div>
+					<label for="deduction_percent_input" style="display: block; font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Deduction %</label>
+					<input 
+						id="deduction_percent_input"
+						type="number" 
+						min="0"
+						max="100"
+						step="0.1"
+						bind:value={editDeductionPercent}
+						on:input={() => {
+							if (editDeductionPercent && modalData.applicableShift && editPunchTime) {
+								editPunchTime = calculateAdjustedPunchTime(
+									editPunchTime,
+									Number(editDeductionPercent),
+									modalData.isMissingCheckIn,
+									modalData.applicableShift.shift_start_time,
+									modalData.applicableShift.shift_end_time
+								);
+							}
+						}}
+						style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;"
+						disabled={savingPunch}
+						placeholder="Enter deduction percentage (0-100)"
+					/>
+					<div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">
+						{#if editDeductionPercent && modalData.applicableShift}
+							{@const shiftStart = timeToMinutes(modalData.applicableShift.shift_start_time)}
+							{@const shiftEnd = timeToMinutes(modalData.applicableShift.shift_end_time)}
+							{@const assignedMinutes = shiftEnd >= shiftStart ? (shiftEnd - shiftStart) : (shiftEnd - shiftStart + 24 * 60)}
+							{@const deductionMinutes = Math.round((Number(editDeductionPercent) / 100) * assignedMinutes)}
+							Deduction: {deductionMinutes} minutes ({(deductionMinutes / 60).toFixed(2)} hours)
+						{:else}
+							Enter percentage to calculate deduction
+						{/if}
+					</div>
+				</div>
+
+				<!-- Status Display -->
+				<div>
+					<div style="font-size: 0.75rem; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{$t('common.status') || 'Status'}</div>
+					<div style="padding: 0.5rem 1rem; background-color: #f3f4f6; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #111827;">
+						{editPunchStatus}
+					</div>
+				</div>
+
+				<!-- Shift Information -->
+				{#if modalData.applicableShift}
+					<div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.5rem; padding: 0.75rem;">
+						<div style="font-size: 0.75rem; font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">{$t('hr.shift.shift_details') || 'Shift Details'}</div>
+						<div style="font-size: 0.75rem; color: #1e3a8a; display: flex; flex-direction: column; gap: 0.25rem;">
+							<div>{$t('hr.shift.shift_start') || 'Start'}: {formatTime12Hour(modalData.applicableShift.shift_start_time)}</div>
+							<div>{$t('hr.shift.shift_end') || 'End'}: {formatTime12Hour(modalData.applicableShift.shift_end_time)}</div>
+							<div>{$t('hr.shift.total_working_hours') || 'Working Hours'}: {modalData.applicableShift.working_hours || 'N/A'}</div>
+						</div>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Modal Footer -->
+			<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 0 0 0.5rem 0.5rem; display: flex; gap: 0.75rem; border-top: 1px solid #e5e7eb;">
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #d1d5db; color: #374151; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={closeAddPunchModal}
+					disabled={savingPunch}
+				>
+					{$t('common.cancel') || 'Cancel'}
+				</button>
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #2563eb; color: white; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={savePunch}
+					disabled={savingPunch || !editPunchTime}
+				>
+					{savingPunch ? $t('common.saving') || 'Saving...' : $t('common.save') || 'Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Permission Denied Popup -->
+{#if showPermissionDeniedPopup}
+	<div style="position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+		<div style="background-color: white; border-radius: 0.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); max-width: 24rem; width: 100%; margin: 1rem;">
+			<!-- Popup Header -->
+			<div style="background: linear-gradient(to right, #ef4444, #dc2626); color: white; padding: 1.5rem; border-radius: 0.5rem 0.5rem 0 0; display: flex; align-items: center; justify-content: space-between;">
+				<h2 style="font-size: 1.125rem; font-weight: bold;">⚠️ Permission Denied</h2>
+				<button 
+					on:click={() => showPermissionDeniedPopup = false}
+					style="background: transparent; border: none; color: white; cursor: pointer; padding: 0.25rem; border-radius: 9999px; font-size: 1.25rem;"
+				>
+					✕
+				</button>
+			</div>
+
+			<!-- Popup Body -->
+			<div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+				<p style="font-size: 0.875rem; color: #374151; margin: 0;">
+					{permissionDeniedMessage}
+				</p>
+				<p style="font-size: 0.75rem; color: #6b7280; margin: 0;">
+					Please contact your administrator to request this permission.
+				</p>
+			</div>
+
+			<!-- Popup Footer -->
+			<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 0 0 0.5rem 0.5rem; display: flex; gap: 0.75rem; border-top: 1px solid #e5e7eb;">
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: #2563eb; color: white; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={() => showPermissionDeniedPopup = false}
+				>
+					OK
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Sync Result Modal -->
+{#if showSyncResultModal}
+	<div style="position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+		<div style="background-color: white; border-radius: 0.5rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); max-width: 28rem; width: 100%; margin: 1rem;">
+			<!-- Modal Header -->
+			<div style="
+				background: linear-gradient(to right, 
+					{syncResultType === 'success' ? '#10b981, #059669' : syncResultType === 'error' ? '#ef4444, #dc2626' : '#3b82f6, #2563eb'}
+				); 
+				color: white; 
+				padding: 1.5rem; 
+				border-radius: 0.5rem 0.5rem 0 0; 
+				display: flex; 
+				align-items: center; 
+				justify-content: space-between;
+			">
+				<h2 style="font-size: 1.125rem; font-weight: bold;">
+					{syncResultType === 'success' ? '✅ Success' : syncResultType === 'error' ? '❌ Error' : 'ℹ️ Information'}
+				</h2>
+				<button 
+					on:click={() => showSyncResultModal = false}
+					style="background: transparent; border: none; color: white; cursor: pointer; padding: 0.25rem; border-radius: 9999px; font-size: 1.25rem;"
+				>
+					✕
+				</button>
+			</div>
+
+			<!-- Modal Body -->
+			<div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+				<p style="font-size: 0.875rem; color: #374151; margin: 0; line-height: 1.5;">
+					{syncResultMessage}
+				</p>
+			</div>
+
+			<!-- Modal Footer -->
+			<div style="background-color: #f9fafb; padding: 1.5rem; border-radius: 0 0 0.5rem 0.5rem; display: flex; gap: 0.75rem; border-top: 1px solid #e5e7eb;">
+				<button
+					style="flex: 1; padding: 0.75rem 1rem; background-color: {syncResultType === 'success' ? '#10b981' : syncResultType === 'error' ? '#ef4444' : '#3b82f6'}; color: white; font-weight: 600; border-radius: 0.5rem; border: none; cursor: pointer;"
+					on:click={() => showSyncResultModal = false}
+				>
+					OK
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.employee-analysis-window {

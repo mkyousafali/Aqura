@@ -1343,6 +1343,8 @@ export const arabicLocale: LocaleData = {
         analyze_all: "تحليل الكل",
         checkIn: "الدخول",
         checkOut: "الخروج",
+        punch_time: "وقت البصمة",
+        auto_filled: "تم ملؤها تلقائياً بناءً على الوردية",
         workedTime: "وقت العمل",
         process_with_data: "المعالجة مع البيانات",
         process_without_data: "المعالجة بدون بيانات",
@@ -1620,6 +1622,10 @@ export const arabicLocale: LocaleData = {
         exportBiometricData: "تصدير البيانات الحيوية",
       },
       shift: {
+        shift_details: "تفاصيل الوردية",
+        shift_start: "بداية الوردية",
+        shift_end: "نهاية الوردية",
+        total_working_hours: "إجمالي ساعات العمل",
         tabs: {
           regular: "الوردية العادية",
           special_weekday: "الوردية الخاصة (حسب يوم الأسبوع)",
@@ -1687,15 +1693,12 @@ export const arabicLocale: LocaleData = {
         hours: "ساعات",
         working_hours: "ساعات العمل",
         regularShift: "الوردية العادية",
-        shift_start: "بداية الوردية",
-        shift_end: "نهاية الوردية",
         buffer_before: "وقت عازل قبل",
         buffer_after: "وقت عازل بعد",
         midnight_shift: "وردية منتصف الليل",
         midnight_shift_hint: "تنتهي الوردية في اليوم التالي",
         specify_working_hours: "تحديد ساعات العمل",
         working_hours_hint: "تجاوز المدة المحسوبة للحضور",
-        total_working_hours: "إجمالي ساعات العمل",
         working_hours_calculation_hint: "سيتم استخدام هذا للحسابات بدلاً من (وقت النهاية - وقت البداية)",
         save_configuration: "حفظ الإعدادات",
         configure_regular_shift: "تكوين الوردية العادية",
@@ -1768,6 +1771,13 @@ export const arabicLocale: LocaleData = {
           errorLoadingReasons: "خطأ في تحميل الأسباب",
           failedToLoadEmployee: "فشل في تحميل معلومات الموظف",
           couldNotFindEmployee: "لم يتم العثور على سجل الموظف الخاص بك. يرجى الاتصال بالإدارة.",
+        },
+        // Punch permission messages
+        permissions: {
+          add_missing_punch: "إضافة بصمة مفقودة",
+          permission_denied_title: "تم رفض الإذن",
+          permission_denied_message: "ليس لديك إذن لإضافة بصمة.",
+          contact_admin: "يرجى الاتصال بمسؤولك لطلب هذا الإذن.",
         }
       }
     },
