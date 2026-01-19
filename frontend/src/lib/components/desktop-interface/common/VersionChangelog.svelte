@@ -5,9 +5,8 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-			<p class="version-title">Version AQ34.13.8.8</p>
-			<p class="version-details">Desktop: 34 | Mobile: 13 | Cashier: 8 | Customer: 8</p>
-			<p class="version-note">Format: AQ[Desktop].[Mobile].[Cashier].[Customer]</p>
+		<p class="version-title">Version AQ36.14.9.9</p>
+		<p class="version-details">Desktop: 36 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">

@@ -68,13 +68,19 @@ Before running your final `git push`, perform this check in order:
    - For mobile changes: Mobile version should increase (AQ36.**X**.9.9)
    - For cashier changes: Cashier version should increase (AQ36.14.**X**.9)
    - For customer changes: Customer version should increase (AQ36.14.9.**X**)
-3. **Update Changelog**: Open `VersionChangelog.svelte` and expand the automated entry with real details:
+3. **Update Changelog Display**: ⚠️ **CRITICAL** - Update the version number in `VersionChangelog.svelte`:
+   - Open: `frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte`
+   - Find the `<div class="version-format">` section
+   - Update `<p class="version-title">Version AQX.X.X.X</p>` to match the new version
+   - Update `<p class="version-details">Desktop: X | Mobile: X | Cashier: X | Customer: X</p>` with new numbers
+   - **This is displayed to users in the app - do NOT forget!**
+4. **Expand Changelog Content**: Open `VersionChangelog.svelte` and expand the automated entry with real details:
    - Add sub-headers by date (e.g., `<h4>January 19, 2026:</h4>`)
    - Use bold prefixes like **HR Module:**, **Security:**, **UI/UX:**
    - Include impact and reasoning
-4. **Commit & Push**: 
+5. **Commit & Push**: 
    - Stage the changelog: `git add frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte`
    - Commit: `git commit -m "docs(changelog): update AQ[X] entry with [feature details]"`
    - Push: `git push`
 
-**Failure to update versions results in deployment confusion and makes it impossible for users to track what features they are currently using.**
+**REMEMBER: The version number in VersionChangelog.svelte is what users see in the app. Missing this step means users see outdated version info!**
