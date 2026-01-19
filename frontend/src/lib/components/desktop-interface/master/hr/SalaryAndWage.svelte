@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale, _ as t } from '$lib/i18n';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import PrepareSalaryStatementWindow from './PrepareSalaryStatementWindow.svelte';
 
 	let employees: any[] = [];
 	let filteredEmployees: any[] = [];
@@ -443,14 +445,37 @@
 			return { color: 'bg-red-100 text-red-700', text: $t('common.no') || 'No' };
 		}
 	}
+
+	function openPrepareSalaryWindow() {
+		const windowId = `prepare-salary-statement-${Date.now()}`;
+		openWindow({
+			id: windowId,
+			title: '📄 Prepare Salary Statement',
+			component: PrepareSalaryStatementWindow,
+			props: {
+				windowId: windowId
+			},
+			icon: '📄',
+			size: { width: 900, height: 600 },
+			position: {
+				x: 150,
+				y: 150
+			}
+		});
+	}
 </script>
 
 <div class="salary-wage-container">
 	<div class="header">
 		<h2>{$t('hr.salary.title')}</h2>
-		<button class="refresh-btn" on:click={() => { loadEmployees(); loadBasicSalaries(); }} disabled={isLoading}>
-			{isLoading ? $t('common.loading') : `🔄 ${$t('hr.salary.refresh')}`}
-		</button>
+		<div class="header-buttons">
+			<button class="refresh-btn" on:click={() => { loadEmployees(); loadBasicSalaries(); }} disabled={isLoading}>
+				{isLoading ? $t('common.loading') : `🔄 ${$t('hr.salary.refresh')}`}
+			</button>
+			<button class="prepare-statement-btn" on:click={openPrepareSalaryWindow}>
+				📄 Prepare Salary Statement
+			</button>
+		</div>
 	</div>
 
 	{#if errorMessage}
@@ -461,71 +486,73 @@
 		<div class="loading">{$t('common.loading')}</div>
 	{:else}
 		<!-- Filter Controls -->
-		<div class="mb-4 flex gap-3">
-			<!-- Branch Filter -->
-			<div class="flex-1">
-				<label for="branch-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
-				<select 
-					id="branch-filter"
-					bind:value={branchFilter}
-					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-					style="color: #000000 !important; background-color: #ffffff !important;"
-				>
-					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
-					{#each availableBranches as branch}
-						<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
-							{$currentLocale === 'ar' 
-								? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
-								: `${branch.name_en || branch.branch_name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
-						</option>
-					{/each}
-				</select>
-			</div>
+		<div class="filters-container bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+			<div class="flex gap-3">
+				<!-- Branch Filter -->
+				<div class="flex-1">
+					<label for="branch-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_branch')}</label>
+					<select 
+						id="branch-filter"
+						bind:value={branchFilter}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					>
+						<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_branches')}</option>
+						{#each availableBranches as branch}
+							<option value={branch.id} style="color: #000000 !important; background-color: #ffffff !important;">
+								{$currentLocale === 'ar' 
+									? `${branch.name_ar || branch.name_en}${branch.location_ar ? ' (' + branch.location_ar + ')' : ''}`
+									: `${branch.name_en || branch.branch_name || 'Unnamed'}${branch.location_en ? ' (' + branch.location_en + ')' : ''}`}
+							</option>
+						{/each}
+					</select>
+				</div>
 
-			<!-- Nationality Filter -->
-			<div class="flex-1">
-				<label for="nationality-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
-				<select 
-					id="nationality-filter"
-					bind:value={nationalityFilter}
-					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-					style="color: #000000 !important; background-color: #ffffff !important;"
-				>
-					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
-					{#each availableNationalities as nationality}
-						<option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
-							{$currentLocale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
-						</option>
-					{/each}
-				</select>
-			</div>
+				<!-- Nationality Filter -->
+				<div class="flex-1">
+					<label for="nationality-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.filter_nationality')}</label>
+					<select 
+						id="nationality-filter"
+						bind:value={nationalityFilter}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					>
+						<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_nationalities')}</option>
+						{#each availableNationalities as nationality}
+							<option value={nationality.id} style="color: #000000 !important; background-color: #ffffff !important;">
+								{$currentLocale === 'ar' ? (nationality.name_ar || nationality.name_en) : (nationality.name_en || nationality.name || 'Unnamed')}
+							</option>
+						{/each}
+					</select>
+				</div>
 
-			<!-- Employment Status Filter -->
-			<div class="flex-1">
-				<label for="status-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
-				<select 
-					id="status-filter"
-					bind:value={statusFilter}
-					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-					style="color: #000000 !important; background-color: #ffffff !important;"
-				>
-					<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
-					{#each availableEmploymentStatuses as status}
-						<option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusText(status)}</option>
-					{/each}
-				</select>
-			</div>
+				<!-- Employment Status Filter -->
+				<div class="flex-1">
+					<label for="status-filter" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('employeeFiles.employmentStatus')}</label>
+					<select 
+						id="status-filter"
+						bind:value={statusFilter}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+						style="color: #000000 !important; background-color: #ffffff !important;"
+					>
+						<option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
+						{#each availableEmploymentStatuses as status}
+							<option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusText(status)}</option>
+						{/each}
+					</select>
+				</div>
 
-			<!-- Employee Search -->
-			<div class="flex-1">
-				<label for="employee-search" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.search_employee')}</label>
-				<input 
-					id="employee-search"
-					type="text"
-					bind:value={searchQuery}
-					placeholder={$t('hr.shift.search_placeholder')}
-					class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-				/>
+				<!-- Employee Search -->
+				<div class="flex-1">
+					<label for="employee-search" class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{$t('hr.shift.search_employee')}</label>
+					<input 
+						id="employee-search"
+						type="text"
+						bind:value={searchQuery}
+						placeholder={$t('hr.shift.search_placeholder')}
+						class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+					/>
+				</div>
 			</div>
 		</div>
 
@@ -980,6 +1007,12 @@
 		justify-content: space-between;
 	}
 
+	.header-buttons {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+	}
+
 	.header-left {
 		display: flex;
 		align-items: center;
@@ -1009,6 +1042,10 @@
 		color: #333 !important;
 	}
 
+	.filters-container {
+		margin-bottom: 1.5rem;
+	}
+
 	h2 {
 		margin: 0;
 		font-size: 1.5rem;
@@ -1016,22 +1053,49 @@
 	}
 
 	.refresh-btn {
-		padding: 0.5rem 1rem;
+		padding: 0.75rem 1.5rem;
 		border: none;
-		border-radius: 4px;
+		border-radius: 0.75rem;
 		font-size: 0.875rem;
 		cursor: pointer;
 		transition: all 0.2s;
-		font-weight: 500;
-		background: #17a2b8;
+		font-weight: 600;
+		background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
 		color: white;
+		box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
 	}
 
 	.refresh-btn:hover:not(:disabled) {
-		background: #138496;
+		background: linear-gradient(135deg, #138496 0%, #0f6b78 100%);
+		box-shadow: 0 6px 16px rgba(23, 162, 184, 0.4);
+		transform: translateY(-2px);
 	}
 
 	.refresh-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.prepare-statement-btn {
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 0.75rem;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-weight: 600;
+		background: linear-gradient(135deg, #6610f2 0%, #5a0fe3 100%);
+		color: white;
+		box-shadow: 0 4px 12px rgba(102, 16, 242, 0.3);
+	}
+
+	.prepare-statement-btn:hover {
+		background: linear-gradient(135deg, #5a0fe3 0%, #4a0bc9 100%);
+		box-shadow: 0 6px 16px rgba(102, 16, 242, 0.4);
+		transform: translateY(-2px);
+	}
+
+	.prepare-statement-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}

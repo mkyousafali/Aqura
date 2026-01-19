@@ -1551,6 +1551,8 @@ export const englishLocale: LocaleData = {
         total_approved_days_off: "Total approved days off",
         total_expected_work_days: "Total expected work days",
         total_worked_days_header: "Total worked days",
+        expected_hours_minutes: "Expected Hours",
+        actual_hours_minutes: "Actual Hours",
         status_worked: "Worked",
         status_official_day_off: "Official Day Off",
         status_approved_leave: "Approved Leave",
