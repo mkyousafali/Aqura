@@ -42,6 +42,9 @@
 	let gosiDeductions: { [key: string]: number } = {};
 	let foodAllowances: { [key: string]: number } = {};
 	let foodPaymentModes: { [key: string]: string } = {};
+	let posShortageDeductions: { [key: string]: number } = {};
+	let posDeductionsList: { [key: string]: any[] } = {}; // Store detailed POS deductions per employee
+	let expandedPosDropdown: { [key: string]: boolean } = {}; // Track which employee's dropdown is open
 
 	// Reactive filtering and sorting for the view
 	$: filteredAnalysisData = analysisData
@@ -220,14 +223,16 @@
 				{ data: dayOffWeekdays },
 				{ data: specialShiftsDW },
 				{ data: specialShiftsWD },
-				{ data: specificDayOffs }
+				{ data: specificDayOffs },
+				{ data: posDeductions }
 			] = await Promise.all([
 				supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
 				supabase.from('regular_shift').select('*').in('id', empIds),
 				supabase.from('day_off_weekday').select('*').in('employee_id', empIds),
 				supabase.from('special_shift_date_wise').select('*').in('employee_id', empIds),
 				supabase.from('special_shift_weekday').select('*').in('employee_id', empIds),
-				supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds)
+				supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds),
+				supabase.from('pos_deduction_transfers').select('*').in('id', empIds).eq('status', 'Proposed').gte('date_closed_box', startDate).lte('date_closed_box', endDate)
 			]);
 
 			// Organize data maps for efficient lookup
@@ -253,6 +258,25 @@
 				const list = employeeSpecificDayOffs.get(String(d.employee_id)) || [];
 				list.push(d);
 				employeeSpecificDayOffs.set(String(d.employee_id), list);
+			});
+
+			// Process POS shortage deductions - aggregate by employee
+			posShortageDeductions = {};
+			posDeductionsList = {};
+			posDeductions?.forEach(deduction => {
+				const empId = String(deduction.id);
+				
+				// Store detailed list
+				if (!posDeductionsList[empId]) {
+					posDeductionsList[empId] = [];
+				}
+				posDeductionsList[empId].push(deduction);
+				
+				// Aggregate total
+				if (!posShortageDeductions[empId]) {
+					posShortageDeductions[empId] = 0;
+				}
+				posShortageDeductions[empId] += deduction.short_amount || 0;
 			});
 
 			const txnsByEmp = new Map();
@@ -307,6 +331,43 @@
 			maximizable: true,
 			closable: true
 		});
+	}
+
+	async function togglePosDeductionForgiveness(deductionId: string, boxNumber: number, dateClosedBox: string, currentStatus: string) {
+		try {
+			const newStatus = currentStatus === 'Proposed' ? 'Forgiven' : 'Proposed';
+			
+			const { error } = await supabase
+				.from('pos_deduction_transfers')
+				.update({ status: newStatus })
+				.eq('id', deductionId)
+				.eq('box_number', boxNumber)
+				.eq('date_closed_box', dateClosedBox);
+			
+			if (error) {
+				console.error('Error updating POS deduction status:', error);
+				alert('Failed to update status');
+				return;
+			}
+
+			// Update local state
+			const deductions = posDeductionsList[deductionId] || [];
+			const deduction = deductions.find(d => d.box_number === boxNumber && d.date_closed_box === dateClosedBox);
+			if (deduction) {
+				deduction.status = newStatus;
+				// Recalculate totals if changing to Forgiven
+				if (newStatus === 'Forgiven') {
+					posShortageDeductions[deductionId] -= deduction.short_amount || 0;
+				} else {
+					posShortageDeductions[deductionId] += deduction.short_amount || 0;
+				}
+				posDeductionsList = posDeductionsList; // Trigger reactivity
+				posShortageDeductions = posShortageDeductions; // Trigger reactivity
+			}
+		} catch (error) {
+			console.error('Error toggling POS deduction forgiveness:', error);
+			alert('An error occurred');
+		}
 	}
 
 	function timeToMinutes(timeStr: string): number {
@@ -1025,8 +1086,40 @@
 										-
 									{/if}
 								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-pink-700 bg-pink-50/20 w-[150px] whitespace-nowrap group-hover:bg-pink-100/50 transition-colors">
-									-
+								<td class="px-4 py-3 border-r text-center font-bold text-pink-700 bg-pink-50/20 w-[150px] whitespace-nowrap group-hover:bg-pink-100/50 transition-colors relative">
+									{#if posShortageDeductions[row.employeeId] && posShortageDeductions[row.employeeId] > 0}
+										<button 
+											class="font-bold text-slate-800 cursor-pointer hover:bg-pink-200/50 px-2 py-1 rounded transition-colors"
+											on:click={() => expandedPosDropdown[row.employeeId] = !expandedPosDropdown[row.employeeId]}
+											title="Click to Forgive"
+										>
+											{posShortageDeductions[row.employeeId].toLocaleString()}
+										</button>
+										
+										{#if expandedPosDropdown[row.employeeId]}
+											<div class="absolute top-full left-0 right-0 mt-1 bg-white border border-pink-300 rounded shadow-lg z-50 max-h-64 overflow-y-auto">
+												<div class="px-3 py-2 bg-pink-100 text-pink-800 font-semibold text-xs border-b border-pink-300 sticky top-0">
+													Click to Forgive
+												</div>
+												{#each posDeductionsList[row.employeeId] || [] as deduction}
+													<div class="px-3 py-2 border-b border-pink-100 text-left text-sm hover:bg-pink-50/30 flex items-center gap-2">
+														<input 
+															type="checkbox" 
+															checked={deduction.status === 'Forgiven'}
+															on:change={() => togglePosDeductionForgiveness(deduction.id, deduction.box_number, deduction.date_closed_box, deduction.status)}
+															class="w-4 h-4 cursor-pointer"
+														/>
+														<div class="flex-1 text-xs">
+															<div class="font-semibold text-slate-700">Box #{deduction.box_number}</div>
+															<div class="text-slate-600">{deduction.short_amount.toLocaleString()} - {deduction.status}</div>
+														</div>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									{:else}
+										<span class="text-slate-400">-</span>
+									{/if}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 bg-rose-50/20 w-[150px] whitespace-nowrap group-hover:bg-rose-100/50 transition-colors">
 									-
@@ -1123,9 +1216,10 @@
 										const loanDed = 0;
 										const penaltiesDed = 0;
 										const otherDed = 0;
+										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										
 										// Calculate net salary
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + otherDed);
+										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + posShortageDed + otherDed);
 										
 										return netSalary.toFixed(2);
 									})()}
@@ -1183,9 +1277,10 @@
 										const loanDed = 0;
 										const penaltiesDed = 0;
 										const otherDed = 0;
+										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										
 										// Calculate net salary
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + otherDed);
+										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + posShortageDed + otherDed);
 										
 										// Calculate bank and cash portions based on payment modes
 										const basicPayMode = paymentModes[row.employeeId] || 'Bank';
@@ -1266,9 +1361,10 @@
 										const loanDed = 0;
 										const penaltiesDed = 0;
 										const otherDed = 0;
+										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
 										
 										// Calculate net salary
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + otherDed);
+										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + salaryAdvanceDed + loanDed + penaltiesDed + unapprovedLeaveDeduction + posShortageDed + otherDed);
 										
 										// Calculate bank and cash portions based on payment modes
 										const basicPayMode = paymentModes[row.employeeId] || 'Bank';
