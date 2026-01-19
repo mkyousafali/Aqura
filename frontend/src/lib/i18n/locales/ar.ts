@@ -1407,6 +1407,8 @@ export const arabicLocale: LocaleData = {
         total_approved_days_off: "إجمالي أيام الإجازات المعتمدة",
         total_expected_work_days: "إجمالي أيام العمل المتوقعة",
         total_worked_days_header: "إجمالي أيام العمل",
+        expected_hours_minutes: "الساعات المتوقعة",
+        actual_hours_minutes: "الساعات الفعلية",
         status_worked: "تم العمل",
         status_official_day_off: "إجازة رسمية",
         status_approved_leave: "إجازة معتمدة",

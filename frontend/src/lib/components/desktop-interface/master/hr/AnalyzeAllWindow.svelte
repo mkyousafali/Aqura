@@ -375,8 +375,13 @@
 		// Get regular shift for layout
 		const regShift = employeeShifts.get(String(emp.id));
 		let shiftInfo = '';
+		let expectedMinutesPerDay = 0;
 		if (regShift) {
 			shiftInfo = `${formatTime12Hour(regShift.shift_start_time)} - ${formatTime12Hour(regShift.shift_end_time)}`;
+			const sStart = timeToMinutes(regShift.shift_start_time);
+			const sEnd = timeToMinutes(regShift.shift_end_time);
+			expectedMinutesPerDay = sEnd - sStart;
+			if (expectedMinutesPerDay < 0) expectedMinutesPerDay += 24 * 60;
 		}
 
 		// 1. Assign transactions to shift dates (carryover logic)
@@ -597,6 +602,7 @@
 		});
 
 		const totalExpectedWorkDays = datesInRange.length - totalApprovedDaysOff;
+		const totalExpectedMinutes = expectedMinutesPerDay * totalExpectedWorkDays;
 
 		return {
 			employeeId: emp.id,
@@ -613,7 +619,8 @@
 			totalOfficialLeaveDays,
 			totalApprovedDaysOff,
 			totalExpectedWorkDays,
-			totalWorkedDays: actualWorkedDaysCount
+			totalWorkedDays: actualWorkedDaysCount,
+			totalExpectedMinutes
 		};
 	}
 
@@ -741,6 +748,8 @@
 								</th>
 							{/each}
 							<th class="px-4 py-4 font-bold text-indigo-700 border-b border-r bg-indigo-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_worked_hours_minutes')}</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.expected_hours_minutes')}</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.actual_hours_minutes')}</th>
 							<th class="px-4 py-4 font-bold text-red-700 border-b border-r bg-red-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_under_worked_hours_minutes')}</th>
 							<th class="px-4 py-4 font-bold text-amber-700 border-b border-r bg-amber-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_late_hours_minutes')}</th>
 							<th class="px-4 py-4 font-bold text-rose-700 border-b border-r text-center w-[120px] whitespace-nowrap">{$t('hr.processFingerprint.total_incomplete_days')}</th>
@@ -797,6 +806,12 @@
 									</td>
 								{/each}
 								<td class="px-4 py-3 border-r text-center font-bold text-indigo-700 bg-indigo-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
+									{formatMinutes(row.totalWorkedMinutes)}
+								</td>
+								<td class="px-4 py-3 border-r text-center font-bold text-slate-700 bg-slate-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
+									{formatMinutes(row.totalExpectedMinutes)}
+								</td>
+								<td class="px-4 py-3 border-r text-center font-bold text-slate-700 bg-slate-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
 									{formatMinutes(row.totalWorkedMinutes)}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-700 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
