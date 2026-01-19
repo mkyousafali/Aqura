@@ -1560,6 +1560,7 @@
 		position: absolute;
 		bottom: 3.8rem;
 		right: 0;
+		left: auto;
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.15);
@@ -1567,6 +1568,19 @@
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
+	}
+
+	@supports selector(:dir(rtl)) {
+		:dir(rtl) .hr-submenu {
+			right: auto;
+			left: 0;
+		}
+	}
+
+	/* Fallback for RTL using locale */
+	:global([dir="rtl"]) .hr-submenu {
+		right: auto;
+		left: 0;
 	}
 
 	@keyframes slideUp {

@@ -2,7 +2,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 
@@ -92,8 +92,106 @@
 	let employeeSpecialShiftsWeekday: Map<string, any[]> = new Map();
 	let employeeSpecificDayOffs: Map<string, any[]> = new Map();
 
+	// Realtime subscriptions
+	let subscriptions: any[] = [];
+	let reloadTimeout: any = null;
+	let pollingInterval: any = null;
+	let isRealtimeReload = false;
+
+	async function handleRefresh() {
+		if (loading || analysisData.length === 0) return;
+		
+		console.log('🔄 Manual refresh triggered');
+		loading = true;
+		
+		try {
+			// Clear ALL caches completely - shifts, day offs, salaries, everything
+			employeeShifts = new Map();
+			employeeDayOffs = new Map();
+			employeeSpecialShiftsDateWise = new Map();
+			employeeSpecialShiftsWeekday = new Map();
+			employeeSpecificDayOffs = new Map();
+			posShortageDeductions = {};
+			posDeductionsList = {};
+			
+			// Clear salary data
+			basicSalaries = {};
+			paymentModes = {};
+			otherAllowances = {};
+			otherAllowancePaymentModes = {};
+			accommodationAllowances = {};
+			accommodationPaymentModes = {};
+			travelAllowances = {};
+			travelPaymentModes = {};
+			gosiDeductions = {};
+			foodAllowances = {};
+			foodPaymentModes = {};
+			editableWorkedDays = {};
+			
+			// Clear analysis data
+			analysisData = [];
+			datesInRange = [];
+			
+			// Reload initial data (to get fresh salary data)
+			await loadInitialData();
+			
+			// Reload analysis with fresh data
+			await loadAnalysis();
+			console.log('✅ Data refreshed successfully');
+		} catch (error) {
+			console.error('❌ Error refreshing data:', error);
+			alert('Error refreshing data. Please try again.');
+		} finally {
+			loading = false;
+		}
+	}
+
+	function debouncedReload() {
+		// Clear existing timeout to prevent multiple calls
+		if (reloadTimeout) {
+			clearTimeout(reloadTimeout);
+		}
+		
+		// Set timeout and reload in background without blocking UI
+		reloadTimeout = setTimeout(() => {
+			if (startDate && endDate && analysisData.length > 0) {
+				console.log('🔄 Background update starting...');
+				
+				// Flag that this is a realtime reload
+				isRealtimeReload = true;
+				
+				// Reload in background asynchronously without blocking UI
+				setTimeout(async () => {
+					try {
+						// Clear only the data that changes (shifts, day offs, pos deductions)
+						employeeShifts = new Map();
+						employeeDayOffs = new Map();
+						employeeSpecialShiftsDateWise = new Map();
+						employeeSpecialShiftsWeekday = new Map();
+						employeeSpecificDayOffs = new Map();
+						posShortageDeductions = {};
+						posDeductionsList = {};
+						
+						// Reload analysis with fresh data
+						await loadAnalysis();
+						console.log('✅ Background update complete');
+						isRealtimeReload = false;
+					} catch (error) {
+						console.error('❌ Background update error:', error);
+						isRealtimeReload = false;
+					}
+				}, 100);
+			}
+		}, 1000);
+	}
+
 	onMount(async () => {
 		await loadInitialData();
+		// Realtime subscriptions disabled - causes too many reloads
+		// await setupRealtimeSubscriptions();
+		
+		// Polling disabled - causes table to reload constantly
+		// pollingInterval setup removed
 		
 		// Set default date range: 25th of previous month to yesterday
 		const today = new Date();
@@ -113,6 +211,30 @@
 		if (employees.length > 0) {
 			await loadAnalysis();
 		}
+	});
+
+	onDestroy(() => {
+		// Cleanup timeout
+		if (reloadTimeout) {
+			clearTimeout(reloadTimeout);
+		}
+		
+		// Cleanup polling interval (if enabled)
+		if (pollingInterval) {
+			clearInterval(pollingInterval);
+		}
+		
+		// Cleanup all realtime subscriptions (if enabled)
+		subscriptions.forEach(sub => {
+			if (sub) {
+				try {
+					supabase.removeChannel(sub);
+				} catch (e) {
+					// ignore
+				}
+			}
+		});
+		subscriptions = [];
 	});
 
 	async function loadInitialData() {
@@ -331,6 +453,147 @@
 			maximizable: true,
 			closable: true
 		});
+	}
+
+	async function setupRealtimeSubscriptions() {
+		try {
+			// Subscribe to processed_fingerprint_transactions changes
+			const fxnSub = supabase
+				.channel('processed_fingerprint_transactions_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'processed_fingerprint_transactions'
+				}, (payload) => {
+					console.log('📡 Fingerprint transactions changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to processed_fingerprint_transactions');
+					}
+				})
+				.subscribe();
+			subscriptions.push(fxnSub);
+
+			// Subscribe to regular_shift changes
+			const shiftSub = supabase
+				.channel('regular_shift_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'regular_shift'
+				}, (payload) => {
+					console.log('📡 Shifts changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to regular_shift');
+					}
+				})
+				.subscribe();
+			subscriptions.push(shiftSub);
+
+			// Subscribe to day_off_weekday changes
+			const dayOffWeekdaySub = supabase
+				.channel('day_off_weekday_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'day_off_weekday'
+				}, (payload) => {
+					console.log('📡 Day off weekday changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to day_off_weekday');
+					}
+				})
+				.subscribe();
+			subscriptions.push(dayOffWeekdaySub);
+
+			// Subscribe to special_shift_date_wise changes
+			const specialShiftDWSub = supabase
+				.channel('special_shift_date_wise_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'special_shift_date_wise'
+				}, (payload) => {
+					console.log('📡 Special shift date-wise changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to special_shift_date_wise');
+					}
+				})
+				.subscribe();
+			subscriptions.push(specialShiftDWSub);
+
+			// Subscribe to special_shift_weekday changes
+			const specialShiftWDSub = supabase
+				.channel('special_shift_weekday_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'special_shift_weekday'
+				}, (payload) => {
+					console.log('📡 Special shift weekday changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to special_shift_weekday');
+					}
+				})
+				.subscribe();
+			subscriptions.push(specialShiftWDSub);
+
+			// Subscribe to day_off changes
+			const dayOffSub = supabase
+				.channel('day_off_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'day_off'
+				}, (payload) => {
+					console.log('📡 Day off changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to day_off');
+					}
+				})
+				.subscribe();
+			subscriptions.push(dayOffSub);
+
+			// Subscribe to pos_deduction_transfers changes
+			const posSub = supabase
+				.channel('pos_deduction_transfers_changes')
+				.on('postgres_changes', {
+					event: '*',
+					schema: 'public',
+					table: 'pos_deduction_transfers'
+				}, (payload) => {
+					console.log('📡 POS deductions changed:', payload);
+					debouncedReload();
+				})
+				.on('subscribe', (status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✅ Subscribed to pos_deduction_transfers');
+					}
+				})
+				.subscribe();
+			subscriptions.push(posSub);
+
+			console.log('✅ All realtime subscriptions initialized');
+		} catch (error) {
+			console.error('Error setting up realtime subscriptions:', error);
+		}
 	}
 
 	async function togglePosDeductionForgiveness(deductionId: string, boxNumber: number, dateClosedBox: string, currentStatus: string) {
@@ -817,6 +1080,18 @@
 				class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-slate-300 h-[38px]"
 			>
 				{loading ? $t('hr.processFingerprint.processing') : $t('hr.processFingerprint.load_analysis')}
+			</button>
+
+			<button 
+				on:click={handleRefresh}
+				disabled={loading || analysisData.length === 0}
+				class="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
+				title="Refresh data without reloading entire table"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+				</svg>
+				Refresh
 			</button>
 
 			<button 
