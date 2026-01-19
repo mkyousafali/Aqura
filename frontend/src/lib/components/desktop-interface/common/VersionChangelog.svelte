@@ -11,39 +11,39 @@
 		</div>
 
 		<div class="latest-change">
-			<h3>✨ Bulk Employee Analysis + HR Module Redesign</h3>
-			<p class="change-description">Implemented massive bulk fingerprint analysis engine, redesigned mobile HR experience, and enhanced cashier localization.</p>
-			<div class="change-details">
-				<h4>January 19, 2026:</h4>
-				<ul>
-					<li>✅ <b>Desktop HR:</b> Implemented "Analyze All" bulk report engine with logic parity (midpoint detection, overnight shift support).</li>
-					<li>✅ <b>UI/UX:</b> Added sticky columns for RTL/LTR layouts ensuring ID/Name visibility during horizontal scrolling.</li>
-					<li>✅ <b>Cashier:</b> Localized branch selection dropdown to show "Name - Location" in both Arabic and English.</li>
-					<li>✅ <b>Mobile:</b> Fully redesigned Fingerprint Analysis with a modern futuristic theme (Orange/Green/Purple).</li>
-					<li>✅ <b>Mobile:</b> Integrated visual indicators for "Day Off", "Leave", and "Missing Punch" in employee analysis.</li>
-				</ul>
-			</div>
-			
-			<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
-				<h4>January 18, 2026:</h4>
-				<ul>
-					<li>✅ <b>Mobile HR:</b> Added "Leave Request" module to bottom navigation with photo upload capability.</li>
-					<li>✅ <b>HR Operations:</b> Implemented real-time synchronization between Analysis, Shift, and Salary modules.</li>
-					<li>✅ <b>Employee Master:</b> Added description field to Day Off requests and improved Approval Center display logic.</li>
-					<li>✅ <b>UI Fixes:</b> Standardized 12-hour time format across all HR configuration windows and fixed RTL arrow directions.</li>
-				</ul>
-			</div>
-
-			<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
-				<h4>January 17, 2026:</h4>
-				<ul>
-					<li>✅ <b>HR Engine:</b> Implemented date-aware shift validation with dynamic buffers for overnight fingerprint pairing.</li>
-					<li>✅ <b>Employee Links:</b> Enhanced LinkID module to highlight missing master records and branch synchronization.</li>
-					<li>✅ <b>Data Schema:</b> Updated employment statuses (Remote, No Finger, With Finger) and added Nationality management.</li>
-				</ul>
-			</div>
-			<p class="date">Current Version</p>
+		<h3>✨ HR Status Sync & Punch Pair Classification Fix</h3>
+		<p class="change-description">Fixed critical punch classification logic to properly sync status based on pairing context, ensuring "Other" punches are reclassified to "Check Out" when paired with Check Ins.</p>
+		<div class="change-details">
+			<h4>January 19, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>HR Module:</b> Fixed updateTransactionStatuses() to load ALL transactions for pairing context, not just null-status ones.</li>
+				<li>✅ <b>Punch Classification:</b> Implemented 3-step status sync: classify → group → reclassify based on pairing logic.</li>
+				<li>✅ <b>Bug Fix:</b> Punches classified as "Other" (outside buffer window) now correctly reclassified to "Check Out" when paired with Check Ins.</li>
+				<li>✅ <b>Data Persistence:</b> Status synced to database only after confirming valid pairing context, eliminating false "Other" classifications.</li>
+				<li>✅ <b>Debugging:</b> Added comprehensive console logging for troubleshooting punch classification mismatches between display and database.</li>
+			</ul>
 		</div>
+
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>January 18-19, 2026:</h4>
+			<ul>
+				<li>✅ <b>Add Missing Punch:</b> Complete modal implementation with deduction % field and shift auto-fill.</li>
+				<li>✅ <b>Permissions:</b> Added can_add_missing_punches permission to approval_permissions table with admin controls.</li>
+				<li>✅ <b>Deep-linking:</b> AnalyzeAllWindow → EmployeeAnalysisWindow now auto-loads date range (25th prev month to yesterday).</li>
+				<li>✅ <b>Sort & Display:</b> Punch pairs now sorted newest-first (latest date first) for better UX.</li>
+				<li>✅ <b>Modal UI:</b> Replaced browser alerts with professional in-app modals (success/error/info) with proper z-indexing.</li>
+			</ul>
+		</div>
+
+		<div class="change-details" style="margin-top: 15px; border-top: 1px dashed #e2e8f0; pt-4">
+			<h4>January 17, 2026:</h4>
+			<ul>
+				<li>✅ <b>Bulk Employee Analysis:</b> Implemented "Analyze All" feature with matching logic to EmployeeAnalysisWindow.</li>
+				<li>✅ <b>Mobile Parity:</b> Updated mobile fingerprint analysis to match desktop punch classification logic exactly.</li>
+				<li>✅ <b>Status Persistence:</b> Changed ProcessFingerprint import to save status as NULL, calculate dynamically on frontend.</li>
+			</ul>
+		</div>
+		<p class="date">Current Version (AQ36)</p>
 
 		<div class="previous-change">
 			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
