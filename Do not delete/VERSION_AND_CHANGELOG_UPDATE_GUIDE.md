@@ -60,11 +60,21 @@ The script automatically adds a basic entry to `VersionChangelog.svelte`, but an
 
 ## 🚀 Final Verification Before Git Push
 
-Before running your final `git push`, perform this check:
+Before running your final `git push`, perform this check in order:
 
-- [ ] I ran `simple-push.js` with a meaningful commit message.
-- [ ] I checked `VersionChangelog.svelte` and expanded the automated entry with real details.
-- [ ] I verified the version number matches in the UI (e.g., in the Desktop Sidebar).
-- [ ] I included "What Changed" and "Why" in the changelog.
+1. **Check Git Status**: Run `git status` to see which files changed
+2. **Verify Version Number**: Check that only the changed interface version incremented:
+   - For desktop changes: Desktop version should increase (AQ**X**.14.9.9)
+   - For mobile changes: Mobile version should increase (AQ36.**X**.9.9)
+   - For cashier changes: Cashier version should increase (AQ36.14.**X**.9)
+   - For customer changes: Customer version should increase (AQ36.14.9.**X**)
+3. **Update Changelog**: Open `VersionChangelog.svelte` and expand the automated entry with real details:
+   - Add sub-headers by date (e.g., `<h4>January 19, 2026:</h4>`)
+   - Use bold prefixes like **HR Module:**, **Security:**, **UI/UX:**
+   - Include impact and reasoning
+4. **Commit & Push**: 
+   - Stage the changelog: `git add frontend/src/lib/components/desktop-interface/common/VersionChangelog.svelte`
+   - Commit: `git commit -m "docs(changelog): update AQ[X] entry with [feature details]"`
+   - Push: `git push`
 
 **Failure to update versions results in deployment confusion and makes it impossible for users to track what features they are currently using.**
