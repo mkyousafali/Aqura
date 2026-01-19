@@ -44,8 +44,9 @@
 			</ul>
 		</div>
 		<p class="date">Current Version (AQ36)</p>
+	</div>
 
-		<div class="previous-change">
+	<div class="previous-change">
 			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
 			<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
 			<div class="change-details">
