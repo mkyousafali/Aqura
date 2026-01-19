@@ -1487,6 +1487,8 @@ export const englishLocale: LocaleData = {
         analyze_all: "Analyze All",
         checkIn: "Check In",
         checkOut: "Check Out",
+        punch_time: "Punch Time",
+        auto_filled: "Auto-filled based on shift",
         workedTime: "Worked Time",
         process_with_data: "Process with data",
         process_without_data: "Process without data",
@@ -1609,6 +1611,10 @@ export const englishLocale: LocaleData = {
         exportBiometricData: "Export Biometric Data",
       },
       shift: {
+        shift_details: "Shift Details",
+        shift_start: "Shift Start",
+        shift_end: "Shift End",
+        total_working_hours: "Total Working Hours",
         tabs: {
           regular: "Regular Shift",
           special_weekday: "Special Shift (weekday-wise)",
@@ -1676,15 +1682,6 @@ export const englishLocale: LocaleData = {
         hours: "Hours",
         working_hours: "Working Hours",
         regularShift: "Regular Shift",
-        shift_start: "Shift Start",
-        shift_end: "Shift End",
-        buffer_before: "Buffer Before",
-        buffer_after: "Buffer After",
-        midnight_shift: "Midnight Shift",
-        midnight_shift_hint: "Shift ends on the next calendar day",
-        specify_working_hours: "Specify Working Hours",
-        working_hours_hint: "Override calculated duration for attendance",
-        total_working_hours: "Total Working Hours",
         working_hours_calculation_hint: "This will be used for calculations instead of (End Time - Start Time)",
         save_configuration: "Save Configuration",
         configure_regular_shift: "Configure Regular Shift",
@@ -1757,6 +1754,13 @@ export const englishLocale: LocaleData = {
           errorLoadingReasons: "Error loading reasons",
           failedToLoadEmployee: "Failed to load employee information",
           couldNotFindEmployee: "Could not find your employee record. Please contact admin.",
+        },
+        // Punch permission messages
+        permissions: {
+          add_missing_punch: "Add Missing Punch",
+          permission_denied_title: "Permission Denied",
+          permission_denied_message: "You don't have permission to add a punch.",
+          contact_admin: "Please contact your administrator to request this permission.",
         }
       }
     },

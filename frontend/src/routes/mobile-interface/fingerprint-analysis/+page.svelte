@@ -497,53 +497,77 @@
 			let status = 'Other';
 
 			const calendarShift = getApplicableShift(calendarDate);
+
+			// ALWAYS recalculate status based on shift windows and buffers, NOT database status
+			// Detect if shift is overnight (shift_end_time < shift_start_time in minutes)
 			const isOvernightShift = calendarShift && 
 				timeToMinutes(calendarShift.shift_end_time) < timeToMinutes(calendarShift.shift_start_time);
 
-			if ((isShiftOverlappingNextDay || isOvernightShift) && calendarShift) {
+			// Calculate status using the shift's buffer windows
+			if (calendarShift) {
 				const punchMinutes = timeToMinutes(punchTime);
 				const shiftStartMinutes = timeToMinutes(calendarShift.shift_start_time);
 				const shiftEndMinutes = timeToMinutes(calendarShift.shift_end_time);
 				const startBufferMinutes = (calendarShift.shift_start_buffer || 0) * 60;
 				const endBufferMinutes = (calendarShift.shift_end_buffer || 0) * 60;
-
+				
 				const checkInStart = shiftStartMinutes - startBufferMinutes;
 				const checkInEnd = shiftStartMinutes + startBufferMinutes;
 				const checkOutStart = shiftEndMinutes - endBufferMinutes;
 				const checkOutEnd = shiftEndMinutes + endBufferMinutes;
-
-				if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
-					status = 'Check In';
-					shiftDate = calendarDate;
-				} else if (isOvernightShift && checkOutStart < 0) {
-					const adjustedCheckOutStart = checkOutStart + (24 * 60);
-
-					if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+				
+				// For overnight shifts, the checkout window crosses midnight
+				if (isOvernightShift) {
+					// Check-in window: 8 PM - 3h to 8 PM + 3h = 5 PM to 11 PM (same calendar date)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						status = 'Check In';
+						shiftDate = calendarDate;
+					}
+					// Checkout window for overnight: 8 AM - 3h to 8 AM + 3h = 5 AM to 11 AM
+					// But since the shift spans two calendar days, 5 AM to 11 AM is on the NEXT calendar day
+					// So we need to check: is this punch in the 5 AM to 11 AM range?
+					else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
 						status = 'Check Out';
+						// Early morning punch (5 AM to 11 AM) = belongs to previous shift (started yesterday)
 						shiftDate = getPreviousDate(calendarDate);
-					} else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
+					}
+					// Midnight crossing: if checkOutStart is negative, it means the window includes early morning
+					else if (checkOutStart < 0) {
+						const adjustedCheckOutStart = checkOutStart + (24 * 60);
+						const adjustedCheckOutEnd = checkOutEnd + (24 * 60);
+						// Early morning (0:00 to late morning)
+						if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
+							status = 'Check Out';
+							shiftDate = getPreviousDate(calendarDate);
+						}
+						// In progress
+						else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+							status = 'In Progress';
+							shiftDate = calendarDate;
+						} else {
+							status = 'Other';
+							shiftDate = calendarDate;
+						}
+					} else {
+						status = 'Other';
+						shiftDate = calendarDate;
+					}
+				} else {
+					// Normal shift (doesn't cross midnight)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						status = 'Check In';
+						shiftDate = calendarDate;
+					} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
 						status = 'Check Out';
 						shiftDate = calendarDate;
-					} else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+					} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
 						status = 'In Progress';
 						shiftDate = calendarDate;
 					} else {
 						status = 'Other';
 						shiftDate = calendarDate;
 					}
-				} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-					status = 'Check Out';
-					shiftDate = getPreviousDate(calendarDate);
-				} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
-					status = 'In Progress';
-					shiftDate = calendarDate;
-				} else {
-					status = 'Other';
-					shiftDate = calendarDate;
 				}
-			} else {
-				status = getTransactionStatus(punchTime, calendarShift);
-				shiftDate = calendarDate;
 			}
 
 			return {
@@ -563,8 +587,25 @@
 			return txnDate >= startDateObj && txnDate <= endDateObj;
 		});
 
-		const groupedByShiftDate: { [key: string]: any[] } = {};
+		// Deduplicate: Keep only the last punch of each status type on same shift date
+		const dedupedTransactions: any[] = [];
+		const shiftDateStatusMap: { [key: string]: any } = {};
+
 		filteredTransactions.forEach(txn => {
+			const key = `${txn.shiftDate}-${txn.status}`;
+			// Keep the latest punch for each status on each shift date
+			if (!shiftDateStatusMap[key] || txn.created_at > shiftDateStatusMap[key].created_at) {
+				shiftDateStatusMap[key] = txn;
+			}
+		});
+
+		// Convert back to array
+		Object.values(shiftDateStatusMap).forEach(txn => {
+			dedupedTransactions.push(txn);
+		});
+
+		const groupedByShiftDate: { [key: string]: any[] } = {};
+		dedupedTransactions.forEach(txn => {
 			if (!groupedByShiftDate[txn.shiftDate]) {
 				groupedByShiftDate[txn.shiftDate] = [];
 			}
@@ -577,7 +618,11 @@
 			const shiftTransactions = groupedByShiftDate[shiftDate].filter(t => !consumedTransactions.has(t.id));
 
 			const applicableShiftForDate = getApplicableShift(shiftDate);
+			const isOvernightShift = applicableShiftForDate && 
+				timeToMinutes(applicableShiftForDate.shift_end_time) < timeToMinutes(applicableShiftForDate.shift_start_time);
 
+			// Sort transactions within each shift by: calendar date first, then by punch time
+			// This ensures check-in (earlier calendar date or earlier time) comes before check-out
 			shiftTransactions.sort((a, b) => {
 				const aDate = new Date(`${a.calendarDate.split('-').reverse().join('-')}`);
 				const bDate = new Date(`${b.calendarDate.split('-').reverse().join('-')}`);
@@ -592,100 +637,128 @@
 				return dateComparison;
 			});
 
-			let i = 0;
+			// Separate transactions by their computed status
+			const checkInTransactions = shiftTransactions.filter(t => t.status === 'Check In');
+			const checkOutTransactions = shiftTransactions.filter(t => t.status === 'Check Out');
+			const otherTransactions = shiftTransactions.filter(t => t.status === 'In Progress' || t.status === 'Other');
 
-			while (i < shiftTransactions.length) {
-				const txn = shiftTransactions[i];
+			// Pair check-ins with check-outs
+			let checkOutIdx = 0;
+			let otherIdx = 0;
 
-				if (txn.status === 'Check In') {
-					let checkOutTxn = null;
-					let checkOutCalendarDate = null;
-					let nextIdx = i + 1;
+			checkInTransactions.forEach(checkInTxn => {
+				// Try to find a matching check-out transaction
+				let checkOutTxn = null;
+				let checkOutCalendarDate = null;
 
-					if (nextIdx < shiftTransactions.length) {
-						const nextTxn = shiftTransactions[nextIdx];
-						if (nextTxn.status === 'Check Out') {
-							checkOutTxn = nextTxn;
-							checkOutCalendarDate = nextTxn.calendarDate;
-						} else if ((nextTxn.status === 'In Progress' || nextTxn.status === 'Other') && nextTxn.shiftDate === shiftDate) {
-							checkOutTxn = nextTxn;
-							checkOutCalendarDate = nextTxn.calendarDate;
-						}
-					}
+				// First priority: Use a Check Out status transaction if available
+				if (checkOutIdx < checkOutTransactions.length) {
+					checkOutTxn = checkOutTransactions[checkOutIdx];
+					checkOutCalendarDate = checkOutTxn.calendarDate;
+					checkOutIdx++;
+					consumedTransactions.add(checkOutTxn.id);
+				}
+				// Second priority: Use "In Progress" or "Other" as fallback
+				else if (otherIdx < otherTransactions.length) {
+					checkOutTxn = otherTransactions[otherIdx];
+					checkOutCalendarDate = checkOutTxn.calendarDate;
+					otherIdx++;
+					consumedTransactions.add(checkOutTxn.id);
+				}
 
-					if (!checkOutTxn && !isShiftOverlappingNextDay) {
-						const applicableShift = getApplicableShift(shiftDate);
-						if (applicableShift) {
-							const nextShiftDate = getNextDate(shiftDate);
-							const nextShiftTransactions = groupedByShiftDate[nextShiftDate];
+				// For non-overlapping shifts, if still no checkout found, search for carryover checkout on next shift date
+				if (!checkOutTxn && !isOvernightShift) {
+					const applicableShift = getApplicableShift(shiftDate);
+					if (applicableShift) {
+						const nextShiftDate = getNextDate(shiftDate);
+						const nextShiftTransactions = groupedByShiftDate[nextShiftDate];
 
-							if (nextShiftTransactions && nextShiftTransactions.length > 0) {
-								const nextDayShift = getApplicableShift(nextShiftDate);
-								if (nextDayShift) {
-									const nextShiftStartMinutes = timeToMinutes(nextDayShift.shift_start_time);
-									const nextShiftStartBuffer = (nextDayShift.shift_start_buffer || 0) * 60;
-									const nextDayCheckInStart = nextShiftStartMinutes - nextShiftStartBuffer;
+						if (nextShiftTransactions && nextShiftTransactions.length > 0) {
+							const nextDayShift = getApplicableShift(nextShiftDate);
+							if (nextDayShift) {
+								const nextShiftStartMinutes = timeToMinutes(nextDayShift.shift_start_time);
+								const nextShiftStartBuffer = (nextDayShift.shift_start_buffer || 0) * 60;
+								const nextDayCheckInStart = nextShiftStartMinutes - nextShiftStartBuffer; // Earliest punch that would be check-in
 
-									for (const nextTxn of nextShiftTransactions) {
-										if (consumedTransactions.has(nextTxn.id)) continue;
+								// Look for any punch before the next day's check-in window
+								for (const nextTxn of nextShiftTransactions) {
+									if (consumedTransactions.has(nextTxn.id)) continue;
 
-										const nextPunchMinutes = timeToMinutes(nextTxn.punch_time);
+									const nextPunchMinutes = timeToMinutes(nextTxn.punch_time);
 
-										if (nextPunchMinutes < nextDayCheckInStart) {
-											checkOutTxn = nextTxn;
-											checkOutCalendarDate = nextTxn.calendarDate;
-											consumedTransactions.add(nextTxn.id);
-											break;
-										}
+									// If this punch is BEFORE the next day's check-in window, it belongs to current day as checkout
+									if (nextPunchMinutes < nextDayCheckInStart) {
+										checkOutTxn = nextTxn;
+										checkOutCalendarDate = nextTxn.calendarDate;
+										// Mark this transaction as consumed
+										consumedTransactions.add(nextTxn.id);
+										break; // Use the first such punch found
 									}
 								}
 							}
 						}
 					}
+				}
 
-					if (checkOutTxn && !consumedTransactions.has(txn.id)) {
-						consumedTransactions.add(txn.id);
-					}
+				const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
+				const workedMinutes = checkOutTxn ? calculateWorkedMinutes(checkInTxn.punch_time, checkOutTxn.punch_time) : 0;
+				const expectedMinutes = (checkOutApplicableShift?.working_hours || 0) * 60;
 
-					const checkOutApplicableShift = checkOutTxn ? getApplicableShift(shiftDate) : null;
-					const workedMinutes = checkOutTxn ? calculateWorkedMinutes(txn.punch_time, checkOutTxn.punch_time) : 0;
-					const expectedMinutes = (checkOutApplicableShift?.working_hours || 0) * 60;
+				const pair = {
+					checkInTxn: checkInTxn,
+					checkInDate: shiftDate,
+					checkInEarlyLateTime: calculateEarlyLateForCheckIn(checkInTxn.punch_time, getApplicableShift(shiftDate)),
+					checkOutTxn: checkOutTxn,
+					checkOutDate: shiftDate,
+					checkOutCalendarDate: checkOutCalendarDate,
+					workedTime: checkOutTxn ? calculateWorkedTime(checkInTxn.punch_time, checkOutTxn.punch_time) : null,
+					isUnderHours: checkOutTxn && workedMinutes < expectedMinutes,
+					lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift, checkOutCalendarDate, shiftDate) : { late: 0, early: 0 },
+					checkOutMissing: !checkOutTxn,
+					checkInMissing: false
+				};
 
+				pairs.push(pair);
+				consumedTransactions.add(checkInTxn.id);
+			});
+
+			// Handle remaining check-outs that weren't paired with check-ins
+			checkOutTransactions.forEach(checkOutTxn => {
+				if (!consumedTransactions.has(checkOutTxn.id)) {
 					const pair = {
-						checkInTxn: txn,
-						checkInDate: shiftDate,
-						checkInEarlyLateTime: calculateEarlyLateForCheckIn(txn.punch_time, getApplicableShift(shiftDate)),
+						checkInTxn: null,
+						checkInDate: null,
 						checkOutTxn: checkOutTxn,
 						checkOutDate: shiftDate,
-						checkOutCalendarDate: checkOutCalendarDate,
-						workedTime: checkOutTxn ? calculateWorkedTime(txn.punch_time, checkOutTxn.punch_time) : null,
-						isUnderHours: checkOutTxn && workedMinutes < expectedMinutes,
-						lateEarlyTime: checkOutTxn ? calculateLateTime(checkOutTxn.punch_time, checkOutApplicableShift, checkOutCalendarDate, shiftDate) : { late: 0, early: 0 },
-						checkOutMissing: !checkOutTxn,
-						checkInMissing: false
+						checkOutCalendarDate: checkOutTxn.calendarDate,
+						workedTime: null,
+						lateEarlyTime: calculateLateTime(checkOutTxn.punch_time, getApplicableShift(shiftDate), checkOutTxn.calendarDate, shiftDate),
+						checkInMissing: true
 					};
 
 					pairs.push(pair);
-					i += checkOutTxn ? 2 : 1;
-				} else {
-					if (!consumedTransactions.has(txn.id)) {
-						const pair = {
-							checkInTxn: null,
-							checkInDate: null,
-							checkOutTxn: txn,
-							checkOutDate: shiftDate,
-							checkOutCalendarDate: txn.calendarDate,
-							workedTime: null,
-							lateEarlyTime: calculateLateTime(txn.punch_time, getApplicableShift(shiftDate), txn.calendarDate, shiftDate),
-							checkInMissing: true
-						};
-
-						pairs.push(pair);
-						consumedTransactions.add(txn.id);
-					}
-					i += 1;
+					consumedTransactions.add(checkOutTxn.id);
 				}
-			}
+			});
+
+			// Handle remaining "Other" transactions that weren't paired
+			otherTransactions.forEach(otherTxn => {
+				if (!consumedTransactions.has(otherTxn.id)) {
+					const pair = {
+						checkInTxn: null,
+						checkInDate: null,
+						checkOutTxn: otherTxn,
+						checkOutDate: shiftDate,
+						checkOutCalendarDate: otherTxn.calendarDate,
+						workedTime: null,
+						lateEarlyTime: calculateLateTime(otherTxn.punch_time, getApplicableShift(shiftDate), otherTxn.calendarDate, shiftDate),
+						checkInMissing: true
+					};
+
+					pairs.push(pair);
+					consumedTransactions.add(otherTxn.id);
+				}
+			});
 		});
 
 		return pairs;

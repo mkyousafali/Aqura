@@ -83,6 +83,7 @@
 						vendor_payment_amount_limit: 0,
 						can_approve_leave_requests: false,
 						can_approve_purchase_vouchers: false,
+						can_add_missing_punches: false,
 						is_active: true
 					}
 				};
@@ -112,6 +113,7 @@
 				vendor_payment_amount_limit: parseFloat(user.permissions.vendor_payment_amount_limit) || 0,
 				can_approve_leave_requests: user.permissions.can_approve_leave_requests === true,
 				can_approve_purchase_vouchers: user.permissions.can_approve_purchase_vouchers === true,
+				can_add_missing_punches: user.permissions.can_add_missing_punches === true,
 				is_active: user.permissions.is_active === true
 			};
 
@@ -158,8 +160,7 @@
 						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
-						is_active: permissionData.is_active,
-						updated_at: new Date().toISOString(),
+					can_add_missing_punches: permissionData.can_add_missing_punches,
 						updated_by: $currentUser?.id
 					})
 					.eq('user_id', user.id);
@@ -185,8 +186,7 @@
 						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
-						is_active: permissionData.is_active,
-						created_at: new Date().toISOString(),
+					can_add_missing_punches: permissionData.can_add_missing_punches,
 						updated_at: new Date().toISOString(),
 						created_by: $currentUser?.id,
 						updated_by: $currentUser?.id
@@ -256,6 +256,9 @@
 			if (user.permissions.can_approve_leave_requests) {
 				permissionsList.push('Leave Requests');
 			}
+			if (user.permissions.can_add_missing_punches) {
+				permissionsList.push('Add Missing Punches');
+			}
 
 			const message = permissionsList.length > 0
 				? `Your approval permissions have been updated:\n\n${permissionsList.join('\n')}`
@@ -320,7 +323,8 @@
 			perms.can_approve_recurring_bill ||
 			perms.can_approve_vendor_payments ||
 			perms.can_approve_leave_requests ||
-			perms.can_approve_purchase_vouchers
+			perms.can_approve_purchase_vouchers ||
+			perms.can_add_missing_punches
 		);
 	}
 
@@ -409,6 +413,7 @@
 							<th>💰 Vendor Payment</th>
 							<th>🏖️ Leave Request</th>
 							<th>🎫 Purchase Voucher</th>
+							<th>⏱️ Add Missing Punch</th>
 							<th class="action-col">Actions</th>
 						</tr>
 					</thead>
@@ -625,6 +630,20 @@
 										</label>
 									</div>
 								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_add_missing_punches}
+												on:change={() =>
+													togglePermission(user, 'can_add_missing_punches')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
 								<td class="action-col">
 									<button
 										class="btn-save-row"
@@ -638,7 +657,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="10" class="no-results">No users found matching filters</td>
+								<td colspan="11" class="no-results">No users found matching filters</td>
 							</tr>
 						{/each}
 					</tbody>

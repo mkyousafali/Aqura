@@ -3,6 +3,8 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 
 	export let windowId: string;
 
@@ -233,6 +235,34 @@
 		}
 	}
 
+	function openEmployeeAnalysis(empId: string) {
+		const emp = employees.find((e) => String(e.id) === String(empId));
+		if (!emp) return;
+
+		const winId = `employee-analysis-${emp.id}-${Date.now()}`;
+		openWindow({
+			id: winId,
+			title: `${$t('hr.processFingerprint.analyse')}: ${emp.id}`,
+			component: EmployeeAnalysisWindow,
+			props: {
+				employee: emp,
+				windowId: winId,
+				initialStartDate: startDate,
+				initialEndDate: endDate
+			},
+			icon: '🔍',
+			size: { width: 1000, height: 700 },
+			position: {
+				x: 100 + Math.random() * 100,
+				y: 100 + Math.random() * 100
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	function timeToMinutes(timeStr: string): number {
 		if (!timeStr) return 0;
 		const parts = timeStr.split(':');
@@ -379,15 +409,78 @@
 		const txnsByShiftDate = new Map();
 		assignedTransactions.forEach(t => {
 			const shift = getApplicableShift(emp.id, t.shiftDate);
-			const status = getTransactionStatus(t.punch_time, shift);
-			const list = txnsByShiftDate.get(t.shiftDate) || [];
-			list.push({ ...t, status });
-			txnsByShiftDate.set(t.shiftDate, list);
+			const punchMinutes = timeToMinutes(t.punch_time);
+			const shiftStartMinutes = timeToMinutes(shift?.shift_start_time || '00:00');
+			const shiftEndMinutes = timeToMinutes(shift?.shift_end_time || '00:00');
+			const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
+
+			let status = '';
+			let finalShiftDate = t.shiftDate;
+
+			if (!shift) {
+				status = 'Other';
+			} else {
+				const startBufferMinutes = (shift.shift_start_buffer || 0) * 60;
+				const endBufferMinutes = (shift.shift_end_buffer || 0) * 60;
+				const checkInStart = shiftStartMinutes - startBufferMinutes;
+				const checkInEnd = shiftStartMinutes + startBufferMinutes;
+				const checkOutStart = shiftEndMinutes - endBufferMinutes;
+				const checkOutEnd = shiftEndMinutes + endBufferMinutes;
+
+				if (isOvernightShift) {
+					// For overnight shifts (e.g., 8 PM - 8 AM)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						// Evening check-in window (within shift start ± buffer)
+						status = 'Check In';
+						finalShiftDate = t.shiftDate;
+				} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+					// Morning check-out window (5 AM to 11 AM for 8 AM end time)
+					status = 'Check Out';
+					// Early morning checkouts belong to the PREVIOUS shift (started yesterday)
+					finalShiftDate = getPreviousDateStr(t.shiftDate);
+				} else if (checkOutStart < 0) {
+					// Midnight crossing: if checkOutStart is negative, it means the window includes early morning
+					const adjustedCheckOutStart = checkOutStart + (24 * 60);
+					const adjustedCheckOutEnd = checkOutEnd + (24 * 60);
+					// Early morning (0:00 to late morning)
+					if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
+						status = 'Check Out';
+						finalShiftDate = getPreviousDateStr(t.shiftDate);
+					}
+					// In progress
+					else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+						status = 'In Progress';
+						finalShiftDate = t.shiftDate;
+					} else {
+						status = 'Other';
+						finalShiftDate = t.shiftDate;
+					}
+				} else {
+					status = 'Other';
+					finalShiftDate = t.shiftDate;
+					}
+				} else {
+					// Normal shift (e.g., 9 AM - 6 PM)
+					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
+						status = 'Check In';
+					} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+						status = 'Check Out';
+					} else if (punchMinutes > checkInEnd && punchMinutes < checkOutStart) {
+						status = 'In Progress';
+					} else {
+						status = 'Other';
+					}
+				}
+			}
+
+			const list = txnsByShiftDate.get(finalShiftDate) || [];
+			list.push({ ...t, status, shiftDate: finalShiftDate });
+			txnsByShiftDate.set(finalShiftDate, list);
 		});
 
 		for (const date of datesInRange) {
 			const shift = getApplicableShift(emp.id, date);
-			const shiftTransactions = txnsByShiftDate.get(date) || [];
+			let allTransactions = txnsByShiftDate.get(date) || [];
 			
 			const isOff = isOfficialDayOff(emp.id, date);
 			const specOff = getSpecificDayOff(emp.id, date);
@@ -405,78 +498,53 @@
 			} else if (isApprovedOff) {
 				status = 'Approved Leave';
 				totalOfficialLeaveDays++;
-			} else if (shiftTransactions.length === 0) {
+			} else if (allTransactions.length === 0) {
 				status = 'Unapproved Day Off';
 				totalUnapprovedDaysOff++;
 			} else {
-				// Use the pairing logic from EmployeeAnalysisWindow
-				shiftTransactions.sort((a, b) => {
+				// DEDUPLICATION: Keep only the last punch per status type
+				const shiftDateStatusMap: { [key: string]: any } = {};
+				allTransactions.forEach(txn => {
+					const key = `${txn.shiftDate}-${txn.status}`;
+					if (!shiftDateStatusMap[key] || new Date(txn.created_at) > new Date(shiftDateStatusMap[key].created_at)) {
+						shiftDateStatusMap[key] = txn;
+					}
+				});
+				const filteredTransactions = Object.values(shiftDateStatusMap);
+
+				// Sort by punch time
+				filteredTransactions.sort((a, b) => {
 					if (a.calendarDate !== b.calendarDate) return a.calendarDate.localeCompare(b.calendarDate);
 					return a.punch_time.localeCompare(b.punch_time);
 				});
 
-				const consumedIds = new Set();
+				// Separate by status: Check In transactions, Check Out transactions, Other transactions
+				const checkInTransactions = filteredTransactions.filter(t => t.status === 'Check In');
+				const checkOutTransactions = filteredTransactions.filter(t => t.status === 'Check Out');
+				const otherTransactions = filteredTransactions.filter(t => t.status !== 'Check In' && t.status !== 'Check Out');
+
+				// Pair Check-In with Check-Out: min(checkIns.length, checkOuts.length) pairs
 				const pairs = [];
-				let i = 0;
+				const pairCount = Math.min(checkInTransactions.length, checkOutTransactions.length);
 
-				while (i < shiftTransactions.length) {
-					const txn = shiftTransactions[i];
-					if (consumedIds.has(txn.id)) { i++; continue; }
-
-					if (txn.status === 'Check In') {
-						let checkOutTxn = null;
-						if (i + 1 < shiftTransactions.length) {
-							const nextTxn = shiftTransactions[i + 1];
-							if (nextTxn.status === 'Check Out' || nextTxn.status === 'In Progress' || nextTxn.status === 'Other') {
-								checkOutTxn = nextTxn;
-							}
-						}
-
-						if (checkOutTxn) {
-							pairs.push({ in: txn, out: checkOutTxn });
-							consumedIds.add(txn.id);
-							consumedIds.add(checkOutTxn.id);
-						} else {
-							// For non-overlapping shifts, if still no checkout found, search for carryover checkout on next calendar date
-							const isOverlap = shift.is_shift_overlapping_next_day || (timeToMinutes(shift.shift_end_time) < timeToMinutes(shift.shift_start_time));
-							
-							if (!isOverlap) {
-								const nextCalDate = getNextDateStr(txn.calendarDate);
-								// Find a punch on the NEXT day that doesn't belong to the NEXT day's shift
-								const nextDayTxns = txnsByShiftDate.get(nextCalDate) || [];
-								const nextShift = getApplicableShift(emp.id, nextCalDate);
-								
-								let fallbackOut = null;
-								if (nextShift) {
-									const nextStart = timeToMinutes(nextShift.shift_start_time);
-									const nextBuffer = (nextShift.shift_start_buffer || 0) * 60;
-									const nextCheckInStart = nextStart - nextBuffer;
-									
-									fallbackOut = nextDayTxns.find(nt => !consumedIds.has(nt.id) && timeToMinutes(nt.punch_time) < nextCheckInStart);
-								}
-
-								if (fallbackOut) {
-									pairs.push({ in: txn, out: fallbackOut });
-									consumedIds.add(txn.id);
-									consumedIds.add(fallbackOut.id);
-								} else {
-									pairs.push({ in: txn, out: null });
-									consumedIds.add(txn.id);
-								}
-							} else {
-								pairs.push({ in: txn, out: null });
-								consumedIds.add(txn.id);
-							}
-						}
-						// After handling check-in, the pointers will naturally skip consumed IDs in the next loop
-						i++;
-					} else {
-						// Standalone checkout or other punch
-						pairs.push({ in: null, out: txn });
-						consumedIds.add(txn.id);
-						i++;
-					}
+				for (let i = 0; i < pairCount; i++) {
+					pairs.push({ in: checkInTransactions[i], out: checkOutTransactions[i] });
 				}
+
+				// Leftover Check-Ins (missing checkout)
+				for (let i = pairCount; i < checkInTransactions.length; i++) {
+					pairs.push({ in: checkInTransactions[i], out: null });
+				}
+
+				// Leftover Check-Outs (missing checkin)
+				for (let i = pairCount; i < checkOutTransactions.length; i++) {
+					pairs.push({ in: null, out: checkOutTransactions[i] });
+				}
+
+				// Add other transactions as incomplete pairs
+				otherTransactions.forEach(t => {
+					pairs.push({ in: null, out: t });
+				});
 
 				// Calculate totals from pairs
 				let hasIncompletePair = false;
@@ -659,8 +727,11 @@
 				<table class="w-max min-w-full border-separate border-spacing-0 text-start text-sm table-fixed" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 					<thead class="sticky top-0 z-40 bg-slate-50">
 						<tr>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[100px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-0' : 'left-0'}">{$t('hr.employeeId')}</th>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[100px]' : 'left-[100px]'}">{$t('hr.fullName')}</th>
+							<th class="px-2 py-4 font-bold text-slate-700 border-b border-r w-[40px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-0' : 'left-0'}">
+								<div class="flex justify-center italic text-[10px]">#</div>
+							</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[100px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">{$t('hr.employeeId')}</th>
+							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r w-[200px] sticky z-50 bg-slate-50 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">{$t('hr.fullName')}</th>
 							{#each datesInRange as date}
 								<th class="px-3 py-2 font-bold text-slate-700 border-b border-r text-center w-[100px] whitespace-nowrap bg-slate-50">
 									<div class="flex flex-col items-center">
@@ -683,10 +754,22 @@
 					<tbody class="divide-y divide-slate-200">
 						{#each filteredAnalysisData as row}
 							<tr class="transition-colors group even:bg-slate-100/80">
-								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-0' : 'left-0'}">
+								<td class="px-2 py-3 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 flex justify-center items-center {$locale === 'ar' ? 'right-0' : 'left-0'}">
+									<button 
+										class="p-1 hover:bg-slate-200 rounded-full transition-colors text-blue-600"
+										on:click={() => openEmployeeAnalysis(row.employeeId)}
+										title={$t('hr.processFingerprint.analyse')}
+									>
+										<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+										</svg>
+									</button>
+								</td>
+								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'}">
 									{row.employeeId}
 								</td>
-								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[100px]' : 'left-[100px]'}">
+								<td class="px-4 py-3 font-semibold text-slate-900 border-r sticky z-20 bg-white group-even:bg-slate-100/80 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[140px]' : 'left-[140px]'}">
 									<div class="flex flex-col">
 										<span>{row.employeeName}</span>
 										{#if row.shiftInfo}
