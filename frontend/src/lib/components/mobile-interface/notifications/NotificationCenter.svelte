@@ -341,9 +341,17 @@
 		return date.toLocaleDateString();
 	}
 
+	// Reactive statement to load notifications when user is available
+	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
+		loadNotifications();
+	}
+
 	// Load notifications on mount
 	onMount(async () => {
-		await loadNotifications();
+		// Initial load
+		if ($currentUser?.id) {
+			await loadNotifications();
+		}
 		
 		// Listen for refresh events from the global header
 		const handleRefresh = () => {
@@ -378,17 +386,21 @@
 	});
 
 	async function loadNotifications() {
+		// Don't load if user is not available yet
+		if (!$currentUser?.id) {
+			isLoading = false;
+			return;
+		}
+
 		try {
 			isLoading = true;
 			errorMessage = '';
 			currentPage = 0;
 			
 			// All users should get the same notification format with full details
-			if ($currentUser?.id) {
-				const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
-				allNotifications = await transformNotificationData(apiNotifications);
-				hasMoreNotifications = apiNotifications.length === pageSize;
-			}
+			const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
+			allNotifications = await transformNotificationData(apiNotifications);
+			hasMoreNotifications = apiNotifications.length === pageSize;
 
 		} catch (error) {
 			console.error('❌ [Mobile Notification] Error loading notifications:', error);

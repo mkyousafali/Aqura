@@ -26,6 +26,8 @@
 	let documentProgress = 0;
 	let isUploadingDocument = false;
 	let userEmployeeId: string | null = null;
+	let userEmployeeName: string = '';
+	let userEmployeeNameAr: string = '';
 	let showAlertModal = false;
 	let showSuccessModal = false;
 	let alertMessage = '';
@@ -43,13 +45,15 @@
 				// Find employee record with this user ID
 				const { data: employees, error } = await supabase
 					.from('hr_employee_master')
-					.select('id')
+					.select('id, name_en, name_ar')
 					.eq('user_id', currentUserData.id)
 					.single();
 
 				if (!error && employees) {
 					userEmployeeId = employees.id;
-					console.log('✅ Found employee ID for logged-in user:', userEmployeeId);
+					userEmployeeName = employees.name_en || employees.id;
+					userEmployeeNameAr = employees.name_ar || employees.name_en || employees.id;
+					console.log('✅ Found employee for logged-in user:', userEmployeeId, userEmployeeName, userEmployeeNameAr);
 				} else {
 					errorMessage = 'Could not find your employee record. Please contact admin.';
 					console.error('❌ Error finding employee:', error);
@@ -256,22 +260,26 @@
 					const approverUserIds = approvers.map((a: any) => a.user_id);
 
 					try {
-						for (const approverId of approverUserIds) {
-							await supabase
-								.from('notifications')
-								.insert({
-									type: 'approval_request',
-									title: $currentLocale === 'ar' ? 'طلب موافقة على إجازة' : 'Leave Request Approval',
-									message: $currentLocale === 'ar' 
-										? `طلب إجازة للموظف ${userEmployeeId} من ${startDate} إلى ${endDate} (${dateArray.length} أيام) يتطلب موافقة`
-										: `Leave request for ${userEmployeeId} from ${startDate} to ${endDate} (${dateArray.length} days) requires approval`,
-									target_user_id: approverId,
-									related_id: dayOffData[0].id,
-									read: false,
-									created_at: new Date().toISOString()
-								});
+						const { error: notifError } = await supabase
+							.from('notifications')
+							.insert({
+								type: 'approval_request',
+								title: 'طلب موافقة على إجازة | Leave Request Approval',
+								message: `طلب إجازة للموظف ${userEmployeeNameAr} (${userEmployeeId}) من ${startDate} إلى ${endDate} (${dateArray.length} أيام) يتطلب موافقة\n\nLeave request for ${userEmployeeName} (${userEmployeeId}) from ${startDate} to ${endDate} (${dateArray.length} days) requires approval`,
+								priority: 'high',
+								target_type: 'specific_users',
+								target_users: approverUserIds,
+								created_by: currentUserData.username || currentUserData.id,
+								created_by_name: currentUserData.username || 'Unknown',
+								created_by_role: currentUserData.role || 'User',
+								status: 'published'
+							});
+
+						if (notifError) {
+							console.error('Error creating notification:', notifError);
+						} else {
+							console.log('✅ Notification sent to', approverUserIds.length, 'approvers');
 						}
-						console.log('✅ Notifications sent to', approverUserIds.length, 'approvers');
 					} catch (notificationError) {
 						console.warn('⚠️ Warning: Could not send notifications:', notificationError);
 					}
