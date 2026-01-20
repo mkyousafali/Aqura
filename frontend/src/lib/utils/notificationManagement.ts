@@ -261,7 +261,7 @@ export class NotificationManagementService {
         )
         .eq("user_id", userId)
         .eq("notifications.status", "published")
-        .order("created_at", { ascending: false, foreignTable: "notifications" })
+        .order("created_at", { ascending: false })
         .range(from, to);
 
       if (error) {

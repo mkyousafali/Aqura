@@ -2,6 +2,7 @@
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
+    import { notificationService } from '$lib/utils/notificationManagement';
     import { get } from 'svelte/store';
     
     interface EmployeeShift {
@@ -2209,22 +2210,29 @@
                     if (!approvingError && approvers && approvers.length > 0) {
                         const approverUserIds = approvers.map((a: any) => a.user_id);
 
-                        // Create notification for approvers - wrap in try-catch in case it fails
+                        // Create notification using direct database insert
                         try {
-                            for (const approverId of approverUserIds) {
-                                await supabase
-                                    .from('notifications')
-                                    .insert({
-                                        type: 'approval_request',
-                                        title: 'Leave Request Approval',
-                                        message: `Leave request for ${selectedEmployeeId} from ${selectedDayOffStartDate} to ${selectedDayOffEndDate} (${dateArray.length} days) requires approval`,
-                                        target_user_id: approverId,
-                                        related_id: dayOffData[0].id,
-                                        read: false,
-                                        created_at: new Date().toISOString()
-                                    });
+                            const { error: notifError } = await supabase
+                                .from('notifications')
+                                .insert({
+                                    title: 'طلب موافقة على إجازة | Leave Request Approval',
+                                    message: `طلب إجازة للموظف ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || selectedEmployeeId} (${selectedEmployeeId}) من ${selectedDayOffStartDate} إلى ${selectedDayOffEndDate} (${dateArray.length} أيام) يتطلب موافقة\n\nLeave request for ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || selectedEmployeeId} (${selectedEmployeeId}) from ${selectedDayOffStartDate} to ${selectedDayOffEndDate} (${dateArray.length} days) requires approval`,
+                                    type: 'approval_request',
+                                    priority: 'high',
+                                    target_type: 'specific_users',
+                                    target_users: approverUserIds,
+                                    created_by: $currentUser?.username || $currentUser?.id || 'system',
+                                    created_by_name: $currentUser?.username || 'System',
+                                    created_by_role: $currentUser?.role || 'User',
+                                    status: 'published'
+                                });
+
+                            if (notifError) {
+                                console.error('Error creating notification:', notifError);
+                            } else {
+                                console.log('✅ Notification sent to', approverUserIds.length, 'approvers');
+                                // Database trigger will automatically create notification_recipients
                             }
-                            console.log('✅ Approval notifications sent to', approverUserIds.length, 'approvers');
                         } catch (notificationError) {
                             console.warn('⚠️ Warning: Could not send approval notifications:', notificationError);
                             // Don't fail the entire operation if notifications fail
@@ -3507,7 +3515,7 @@
                                 placeholder={$t('hr.shift.enter_description')}
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 rows="4"
-                            />
+                            ></textarea>
                             <p class="text-xs text-slate-500 mt-1">{$t('hr.shift.description_info')}</p>
                         </div>
                     {/if}
