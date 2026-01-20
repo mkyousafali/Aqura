@@ -134,6 +134,9 @@
     let selectedDayOffDate: string = new Date().toISOString().split('T')[0];
     let selectedDayOffStartDate: string = new Date().toISOString().split('T')[0];
     let selectedDayOffEndDate: string = new Date().toISOString().split('T')[0];
+    let isRangeSpecialShift = false;
+    let specialShiftStartDate: string = new Date().toISOString().split('T')[0];
+    let specialShiftEndDate: string = new Date().toISOString().split('T')[0];
     let regularShiftSearchQuery = '';
     let selectedBranchFilter = '';
     let selectedNationalityFilter = '';
@@ -229,7 +232,7 @@
         }, 4000);
     }
 
-    function openAlertModal(message: string, title: string = 'Alert') {
+    function openAlertModal(message: string, title: string = $t('common.alert')) {
         alertMessage = message;
         alertTitle = title;
         showAlertModal = true;
@@ -239,7 +242,7 @@
         showAlertModal = false;
     }
 
-    // Form data for day off reason modal
+    // Form data for Leave reason modal
     let reasonFormData: DayOffReason = {
         id: '',
         reason_en: '',
@@ -259,13 +262,13 @@
     $: filteredDayOffsWeekdayEmployees = getFilteredDayOffsWeekday(dayOffsWeekday, dayOffWeekdayBranchFilter, dayOffWeekdayNationalityFilter, dayOffWeekdayEmploymentStatusFilter, dayOffWeekdaySearchQuery);
 
     $: availableEmploymentStatuses = [
-        'Job (With Finger)',
-        'Job (No Finger)',
-        'Remote Job',
-        'Vacation',
-        'Resigned',
-        'Terminated',
-        'Run Away'
+        { id: 'Job (With Finger)', label: $t('employeeFiles.statuses.jobWithFinger') },
+        { id: 'Job (No Finger)', label: $t('employeeFiles.statuses.jobNoFinger') },
+        { id: 'Remote Job', label: $t('employeeFiles.statuses.remoteJob') },
+        { id: 'Vacation', label: $t('employeeFiles.statuses.vacation') },
+        { id: 'Resigned', label: $t('employeeFiles.statuses.resigned') },
+        { id: 'Terminated', label: $t('employeeFiles.statuses.terminated') },
+        { id: 'Run Away', label: $t('employeeFiles.statuses.escape') }
     ];
     
     let supabase: any;
@@ -285,9 +288,9 @@
     let formData: RegularShiftData | SpecialShiftWeekdayData | SpecialShiftDateWiseData = {
         id: '',
         shift_start_time: '09:00',
-        shift_start_buffer: 0,
+        shift_start_buffer: 3,
         shift_end_time: '17:00',
-        shift_end_buffer: 0,
+        shift_end_buffer: 3,
         is_shift_overlapping_next_day: false
     } as RegularShiftData;
 
@@ -295,9 +298,9 @@
         { id: 'Regular Shift', label: $t('hr.shift.tabs.regular'), icon: '🕒', color: 'green' },
         { id: 'Special Shift (weekday-wise)', label: $t('hr.shift.tabs.special_weekday'), icon: '📅', color: 'orange' },
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
-        { id: 'Day Off (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
-        { id: 'Day Off (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
-        { id: 'Day Off Reasons', label: 'Day Off Reasons', icon: '📌', color: 'blue' }
+        { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
+        { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
+        { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' }
     ];
 
     // Reactive statement to handle tab changes
@@ -317,11 +320,11 @@
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
             await loadSpecialShiftDateWiseData();
-        } else if (activeTab === 'Day Off (date-wise)') {
+        } else if (activeTab === 'Leave (date-wise)') {
             await loadDayOffData();
-        } else if (activeTab === 'Day Off (weekday-wise)') {
+        } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
-        } else if (activeTab === 'Day Off Reasons') {
+        } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
     });
@@ -342,11 +345,11 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_date_wise' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, async (payload: any) => {
                 console.log('🔄 Real-time day_off change detected:', payload);
-                // Only reload if we're on the Day Off tab to ensure immediate updates
-                if (activeTab === 'Day Off (date-wise)') {
+                // Only reload if we're on the Leave tab to ensure immediate updates
+                if (activeTab === 'Leave (date-wise)') {
                     await loadDayOffData();
-                    console.log('✅ Day off data reloaded from real-time event');
-                } else if (activeTab === 'Day Off (weekday-wise)') {
+                    console.log('✅ Leave data reloaded from real-time event');
+                } else if (activeTab === 'Leave (weekday-wise)') {
                     await loadDayOffWeekdayData();
                 } else {
                     await refreshCurrentTabData();
@@ -366,11 +369,11 @@
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
             await loadSpecialShiftDateWiseData();
-        } else if (activeTab === 'Day Off (date-wise)') {
+        } else if (activeTab === 'Leave (date-wise)') {
             await loadDayOffData();
-        } else if (activeTab === 'Day Off (weekday-wise)') {
+        } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
-        } else if (activeTab === 'Day Off Reasons') {
+        } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
     }
@@ -714,6 +717,14 @@
 
     function openEmployeeSelectModal() {
         showEmployeeSelectModal = true;
+        isRangeSpecialShift = false;
+        employeeSearchQuery = '';
+        employeesForDateWiseSelection = [...allEmployeesForDateWise];
+    }
+
+    function openSpecialShiftRangeModal() {
+        showEmployeeSelectModal = true;
+        isRangeSpecialShift = true;
         employeeSearchQuery = '';
         employeesForDateWiseSelection = [...allEmployeesForDateWise];
     }
@@ -728,14 +739,20 @@
         selectedEmployeeId = employeeId;
         showEmployeeSelectModal = false;
         
+        const today = new Date().toISOString().split('T')[0];
+        if (isRangeSpecialShift) {
+            specialShiftStartDate = today;
+            specialShiftEndDate = today;
+        }
+
         (formData as SpecialShiftDateWiseData) = {
-            id: `${employeeId}-${new Date().toISOString().split('T')[0]}`,
+            id: `${employeeId}-${today}`,
             employee_id: employeeId,
-            shift_date: new Date().toISOString().split('T')[0],
+            shift_date: today,
             shift_start_time: '09:00',
-            shift_start_buffer: 0,
+            shift_start_buffer: 3,
             shift_end_time: '17:00',
-            shift_end_buffer: 0,
+            shift_end_buffer: 3,
             is_shift_overlapping_next_day: false
         };
 
@@ -828,7 +845,7 @@
 
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
-            // Get day off data
+            // Get Leave data
             const { data: dayOffData, error: dayOffError } = await supabase
                 .from('day_off')
                 .select('*,day_off_reasons(*)')
@@ -836,16 +853,16 @@
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
 
-            console.log('📋 Raw day off data from DB:', dayOffData);
+            console.log('📋 Raw Leave data from DB:', dayOffData);
             
             // Check if description field exists in the response
             if (dayOffData && dayOffData.length > 0) {
-                console.log('🔍 Sample day off object keys:', Object.keys(dayOffData[0]));
-                console.log('🔍 First day off full object:', dayOffData[0]);
+                console.log('🔍 Sample Leave object keys:', Object.keys(dayOffData[0]));
+                console.log('🔍 First Leave full object:', dayOffData[0]);
                 console.log('🔍 Description field value:', dayOffData[0].description);
             }
 
-            // Map day offs with employee details
+            // Map Leaves with employee details
             dayOffs = ((dayOffData as any[]) || []).map(dayOff => {
                 const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(dayOff.employee_id));
                 const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
@@ -875,17 +892,17 @@
                 };
                 
                 if (dayOff.description) {
-                    console.log(`📝 Day off ${dayOff.id} has description: "${dayOff.description}"`);
+                    console.log(`📝 Leave ${dayOff.id} has description: "${dayOff.description}"`);
                 }
                 
                 return mappedObject;
             });
             
-            console.log('✅ Mapped day offs:', dayOffs);
+            console.log('✅ Mapped Leaves:', dayOffs);
             
             dayOffs = [...sortEmployees(dayOffs)];
         } catch (err) {
-            console.error('Error loading day off data:', err);
+            console.error('Error loading Leave data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
@@ -980,7 +997,7 @@
 
             employeesForDateWiseSelection = [...allEmployeesForDateWise];
 
-            // Get day off weekday data
+            // Get Leave weekday data
             const { data: dayOffWeekdayData, error: dayOffError } = await supabase
                 .from('day_off_weekday')
                 .select('*')
@@ -988,7 +1005,7 @@
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError;
 
-            // Map day offs with employee details
+            // Map Leaves with employee details
             dayOffsWeekday = ((dayOffWeekdayData as any[]) || []).map(dayOff => {
                 const emp = (employeeData as EmployeeMaster[]).find(e => String(e.id) === String(dayOff.employee_id));
                 const branch = emp ? branchMap.get(String(emp.current_branch_id)) : null;
@@ -1015,7 +1032,7 @@
             
             dayOffsWeekday = [...sortEmployees(dayOffsWeekday)];
         } catch (err) {
-            console.error('Error loading day off weekday data:', err);
+            console.error('Error loading Leave weekday data:', err);
             error = err instanceof Error ? err.message : $t('hr.shift.error_failed_load');
         } finally {
             loading = false;
@@ -1051,7 +1068,7 @@
                 emp.id.toLowerCase().includes(query) ||
                 emp.branch_name_en.toLowerCase().includes(query)
             );
-        } else if (activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)') {
+        } else if (activeTab === 'Leave (date-wise)' || activeTab === 'Leave (weekday-wise)') {
             const query = employeeSearchQuery.toLowerCase();
             employeesForDateWiseSelection = allEmployeesForDateWise.filter(emp =>
                 emp.employee_name_en.toLowerCase().includes(query) ||
@@ -1093,6 +1110,7 @@
         showEmployeeSelectModal = false;
         showDayOffEmployeeSelectModal = false;
         showDayOffWeekdayEmployeeSelectModal = false;
+        isRangeSpecialShift = false;
         selectedEmployeeId = null;
         employeeSearchQuery = '';
         selectedDayOffDate = new Date().toISOString().split('T')[0];
@@ -1104,9 +1122,9 @@
             loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
             loadSpecialShiftDateWiseData();
-        } else if (activeTab === 'Day Off (date-wise)') {
+        } else if (activeTab === 'Leave (date-wise)') {
             loadDayOffData();
-        } else if (activeTab === 'Day Off (weekday-wise)') {
+        } else if (activeTab === 'Leave (weekday-wise)') {
             loadDayOffWeekdayData();
         }
     }
@@ -1121,18 +1139,18 @@
                 (formData as RegularShiftData) = {
                     id: employeeId,
                     shift_start_time: employee.shift_start_time,
-                    shift_start_buffer: employee.shift_start_buffer || 0,
+                    shift_start_buffer: employee.shift_start_buffer ?? 3,
                     shift_end_time: employee.shift_end_time || '17:00',
-                    shift_end_buffer: employee.shift_end_buffer || 0,
+                    shift_end_buffer: employee.shift_end_buffer ?? 3,
                     is_shift_overlapping_next_day: employee.is_shift_overlapping_next_day || false
                 };
             } else {
                 (formData as RegularShiftData) = {
                     id: employeeId,
                     shift_start_time: '09:00',
-                    shift_start_buffer: 0,
+                    shift_start_buffer: 3,
                     shift_end_time: '17:00',
-                    shift_end_buffer: 0,
+                    shift_end_buffer: 3,
                     is_shift_overlapping_next_day: false
                 };
             }
@@ -1142,9 +1160,9 @@
                 employee_id: employeeId,
                 weekday: 1,
                 shift_start_time: '09:00',
-                shift_start_buffer: 0,
+                shift_start_buffer: 3,
                 shift_end_time: '17:00',
-                shift_end_buffer: 0,
+                shift_end_buffer: 3,
                 is_shift_overlapping_next_day: false
             };
         }
@@ -1279,7 +1297,7 @@
             // Update local data
             const dayOffIndex = dayOffs.findIndex(d => d.employee_id === selectedEmployeeId && d.day_off_date === selectedDayOffDate);
             if (dayOffIndex === -1) {
-                // Add new day off
+                // Add new Leave
                 const emp = allEmployeesForDateWise.find(e => e.id === selectedEmployeeId);
                 if (emp) {
                     dayOffs = [{
@@ -1303,7 +1321,7 @@
             showModal = false;
             selectedEmployeeId = null;
         } catch (err) {
-            console.error('Error saving day off:', err);
+            console.error('Error saving Leave:', err);
             alert($t('hr.shift.error_failed_save_day_off') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         } finally {
             isSaving = false;
@@ -1325,7 +1343,7 @@
             // Update local data
             dayOffs = dayOffs.filter(d => !(d.employee_id === employeeId && d.day_off_date === dayOffDate));
         } catch (err) {
-            console.error('Error deleting day off:', err);
+            console.error('Error deleting Leave:', err);
             alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
@@ -1357,7 +1375,7 @@
             // Update local data
             const dayOffIndex = dayOffsWeekday.findIndex(d => d.employee_id === selectedEmployeeId && d.day_off_weekday === selectedDayOffWeekday);
             if (dayOffIndex === -1) {
-                // Add new day off
+                // Add new Leave
                 const emp = allEmployeesForDateWise.find(e => e.id === selectedEmployeeId);
                 if (emp) {
                     dayOffsWeekday = [{
@@ -1381,7 +1399,7 @@
             showModal = false;
             selectedEmployeeId = null;
         } catch (err) {
-            console.error('Error saving day off weekday:', err);
+            console.error('Error saving Leave weekday:', err);
             alert($t('hr.shift.error_failed_save_day_off') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         } finally {
             isSaving = false;
@@ -1403,7 +1421,7 @@
             // Update local data
             dayOffsWeekday = dayOffsWeekday.filter(d => !(d.employee_id === employeeId && d.day_off_weekday === weekday));
         } catch (err) {
-            console.error('Error deleting day off weekday:', err);
+            console.error('Error deleting Leave weekday:', err);
             alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
         }
     }
@@ -1503,15 +1521,27 @@
                     data.is_shift_overlapping_next_day
                 );
                 
-                // Update ID with date
-                const newId = `${data.employee_id}-${data.shift_date}`;
-                
-                const { error } = await supabase
-                    .from('special_shift_date_wise')
-                    .upsert({
-                        id: newId,
+                if (isRangeSpecialShift) {
+                    const start = new Date(specialShiftStartDate);
+                    const end = new Date(specialShiftEndDate);
+                    
+                    if (start > end) {
+                        showErrorNotification('Start date cannot be after end date');
+                        isSaving = false;
+                        return;
+                    }
+
+                    const dateArray: string[] = [];
+                    let dt = new Date(start);
+                    while (dt <= end) {
+                        dateArray.push(new Date(dt).toISOString().split('T')[0]);
+                        dt.setDate(dt.getDate() + 1);
+                    }
+
+                    const upsertData = dateArray.map(date => ({
+                        id: `${data.employee_id}-${date}`,
                         employee_id: data.employee_id,
-                        shift_date: data.shift_date,
+                        shift_date: date,
                         shift_start_time: data.shift_start_time,
                         shift_start_buffer: data.shift_start_buffer,
                         shift_end_time: data.shift_end_time,
@@ -1519,42 +1549,46 @@
                         is_shift_overlapping_next_day: data.is_shift_overlapping_next_day,
                         working_hours: workingHours,
                         updated_at: new Date().toISOString()
-                    }, {
-                        onConflict: 'id'
-                    });
+                    }));
 
-                if (error) throw error;
+                    const { error } = await supabase
+                        .from('special_shift_date_wise')
+                        .upsert(upsertData, {
+                            onConflict: 'id'
+                        });
 
-                // Update local data
-                const shiftIndex = dateWiseShifts.findIndex(s => s.employee_id === data.employee_id && s.shift_date === data.shift_date);
-                if (shiftIndex !== -1) {
-                    dateWiseShifts[shiftIndex] = {
-                        ...dateWiseShifts[shiftIndex],
-                        shift_date: data.shift_date,
-                        shift_start_time: data.shift_start_time,
-                        shift_start_buffer: data.shift_start_buffer,
-                        shift_end_time: data.shift_end_time,
-                        shift_end_buffer: data.shift_end_buffer,
-                        is_shift_overlapping_next_day: data.is_shift_overlapping_next_day,
-                        working_hours: workingHours
-                    };
+                    if (error) throw error;
+
+                    await loadSpecialShiftDateWiseData();
+                    showSuccessNotification(`Special shifts assigned for ${dateArray.length} days!`);
                 } else {
-                    // Add new shift entry
-                    const emp = allEmployeesForDateWise.find(e => e.id === data.employee_id);
-                    if (emp) {
-                        dateWiseShifts = [{
+                    // Update ID with date
+                    const newId = `${data.employee_id}-${data.shift_date}`;
+                    
+                    const { error } = await supabase
+                        .from('special_shift_date_wise')
+                        .upsert({
                             id: newId,
                             employee_id: data.employee_id,
-                            employee_name_en: emp.employee_name_en,
-                            employee_name_ar: emp.employee_name_ar,
-                            branch_id: '',
-                            branch_name_en: emp.branch_name_en,
-                            branch_name_ar: emp.branch_name_ar,
-                            branch_location_en: '',
-                            branch_location_ar: '',
-                            nationality_id: '',
-                            nationality_name_en: 'N/A',
-                            nationality_name_ar: 'N/A',
+                            shift_date: data.shift_date,
+                            shift_start_time: data.shift_start_time,
+                            shift_start_buffer: data.shift_start_buffer,
+                            shift_end_time: data.shift_end_time,
+                            shift_end_buffer: data.shift_end_buffer,
+                            is_shift_overlapping_next_day: data.is_shift_overlapping_next_day,
+                            working_hours: workingHours,
+                            updated_at: new Date().toISOString()
+                        }, {
+                            onConflict: 'id'
+                        });
+
+                    if (error) throw error;
+
+                    // Update local data
+                    const shiftIndex = dateWiseShifts.findIndex(s => s.employee_id === data.employee_id && s.shift_date === data.shift_date);
+                    if (shiftIndex !== -1) {
+                        dateWiseShifts[shiftIndex] = {
+                            ...dateWiseShifts[shiftIndex],
                             shift_date: data.shift_date,
                             shift_start_time: data.shift_start_time,
                             shift_start_buffer: data.shift_start_buffer,
@@ -1562,7 +1596,33 @@
                             shift_end_buffer: data.shift_end_buffer,
                             is_shift_overlapping_next_day: data.is_shift_overlapping_next_day,
                             working_hours: workingHours
-                        }, ...dateWiseShifts];
+                        };
+                    } else {
+                        // Add new shift entry
+                        const emp = allEmployeesForDateWise.find(e => e.id === data.employee_id);
+                        if (emp) {
+                            dateWiseShifts = [{
+                                id: newId,
+                                employee_id: data.employee_id,
+                                employee_name_en: emp.employee_name_en,
+                                employee_name_ar: emp.employee_name_ar,
+                                branch_id: '',
+                                branch_name_en: emp.branch_name_en,
+                                branch_name_ar: emp.branch_name_ar,
+                                branch_location_en: '',
+                                branch_location_ar: '',
+                                nationality_id: '',
+                                nationality_name_en: 'N/A',
+                                nationality_name_ar: 'N/A',
+                                shift_date: data.shift_date,
+                                shift_start_time: data.shift_start_time,
+                                shift_start_buffer: data.shift_start_buffer,
+                                shift_end_time: data.shift_end_time,
+                                shift_end_buffer: data.shift_end_buffer,
+                                is_shift_overlapping_next_day: data.is_shift_overlapping_next_day,
+                                working_hours: workingHours
+                            }, ...dateWiseShifts];
+                        }
                     }
                 }
             }
@@ -1885,28 +1945,28 @@
         });
     }
 
-    // Day Off Reasons Functions
+    // Leave Reasons Functions
     async function loadDayOffReasons() {
         loading = true;
         error = null;
         try {
             await initSupabase();
 
-            console.log('Loading day off reasons...');
+            console.log('Loading Leave reasons...');
             const { data: reasons, error: reasonError } = await supabase
                 .from('day_off_reasons')
                 .select('*')
                 .order('id', { ascending: true });
 
-            console.log('Day off reasons data:', reasons);
-            console.log('Day off reasons error:', reasonError);
+            console.log('Leave reasons data:', reasons);
+            console.log('Leave reasons error:', reasonError);
 
             if (reasonError && reasonError.code !== 'PGRST116') throw reasonError;
 
             dayOffReasons = (reasons as DayOffReason[]) || [];
-            console.log('Day off reasons loaded:', dayOffReasons.length);
+            console.log('Leave reasons loaded:', dayOffReasons.length);
         } catch (err) {
-            console.error('Error loading day off reasons:', err);
+            console.error('Error loading Leave reasons:', err);
             error = err instanceof Error ? err.message : 'Failed to load reasons';
         } finally {
             loading = false;
@@ -1937,7 +1997,7 @@
 
     async function saveReason() {
         if (!reasonFormData.reason_en.trim() || !reasonFormData.reason_ar.trim()) {
-            openAlertModal('Please fill in both English and Arabic reason names', 'Required Fields');
+            openAlertModal($t('hr.shift.errors.fill_reason_names'), $t('common.requiredFields'));
             return;
         }
 
@@ -1963,14 +2023,14 @@
             closeReasonModal();
         } catch (err) {
             console.error('Error saving reason:', err);
-            openAlertModal('Error saving reason: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Save Error');
+            openAlertModal($t('common.saveError') + ': ' + (err instanceof Error ? err.message : $t('common.unknown_error')), $t('common.saveError'));
         } finally {
             isSaving = false;
         }
     }
 
     async function deleteReason(id: string) {
-        if (!confirm('Are you sure you want to delete this reason?')) return;
+        if (!confirm($t('common.confirmDelete'))) return;
 
         try {
             await initSupabase();
@@ -1985,7 +2045,7 @@
             await loadDayOffReasons();
         } catch (err) {
             console.error('Error deleting reason:', err);
-            openAlertModal('Error deleting reason: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Delete Error');
+            openAlertModal($t('common.deleteError') + ': ' + (err instanceof Error ? err.message : $t('common.unknown_error')), $t('common.deleteError'));
         }
     }
 
@@ -2016,7 +2076,7 @@
 
     async function uploadDocument() {
         if (!documentFile || !selectedEmployeeId || !selectedDayOffDate) {
-            openAlertModal('Please select employee, date, and document', 'Required Fields');
+            openAlertModal($t('hr.shift.errors.select_employee_date_doc'), $t('common.requiredFields'));
             return;
         }
 
@@ -2044,7 +2104,7 @@
             return publicUrlData.publicUrl;
         } catch (err) {
             console.error('Error uploading document:', err);
-            openAlertModal('Error uploading document: ' + (err instanceof Error ? err.message : 'Unknown error'), 'Upload Error');
+            openAlertModal($t('common.uploadError') + ': ' + (err instanceof Error ? err.message : $t('common.unknown_error')), $t('common.uploadError'));
             return null;
         } finally {
             isUploadingDocument = false;
@@ -2053,24 +2113,24 @@
 
     async function saveDayOffWithApproval() {
         if (!selectedEmployeeId || !selectedDayOffStartDate || !selectedDayOffEndDate) {
-            openAlertModal('Please select employee, start date, and end date', 'Invalid Selection');
+            openAlertModal($t('hr.shift.errors.select_employee_date'), $t('common.invalidSelection'));
             return;
         }
 
         // Validate date range
         if (selectedDayOffStartDate > selectedDayOffEndDate) {
-            openAlertModal('Start date must be before or equal to end date', 'Invalid Date Range');
+            openAlertModal($t('hr.shift.errors.start_before_end'), $t('common.invalidDateRange'));
             return;
         }
 
         if (!selectedDayOffReason) {
-            openAlertModal('Please select a day off reason', 'Invalid Selection');
+            openAlertModal($t('hr.shift.errors.select_day_off_reason'), $t('common.invalidSelection'));
             return;
         }
 
         // Check if document is mandatory
         if (selectedDayOffReason.is_document_mandatory && !documentFile) {
-            openAlertModal('Document is mandatory for this reason. Please upload a document', 'Document Required');
+            openAlertModal($t('hr.shift.errors.doc_mandatory'), $t('common.documentRequired'));
             return;
         }
 
@@ -2092,7 +2152,7 @@
             }
 
             const requestedByUserId = currentUserData.id;
-            console.log('✅ Day off request from current user:', { user_id: requestedByUserId });
+            console.log('✅ Leave request from current user:', { user_id: requestedByUserId });
 
             // Generate array of dates between start and end date (inclusive)
             const dateArray: string[] = [];
@@ -2107,7 +2167,7 @@
 
             console.log(`Creating ${dateArray.length} day-off entries from ${selectedDayOffStartDate} to ${selectedDayOffEndDate}`);
 
-            // Create day off records for each date in range
+            // Create Leave records for each date in range
             const dayOffRecords = dateArray.map(dateStr => {
                 const dateStrFormatted = dateStr.replace(/-/g, ''); // Remove dashes: 20260118
                 const dayOffId = `${selectedEmployeeId}_${dateStrFormatted}`;
@@ -2183,17 +2243,17 @@
             documentFile = null;
             documentUploadProgress = 0;
 
-            // Reload day off data immediately to show new entries in real-time
-            console.log('🔄 Reloading day off data after save...');
+            // Reload Leave data immediately to show new entries in real-time
+            console.log('🔄 Reloading Leave data after save...');
             await loadDayOffData();
-            console.log('✅ Day off data refreshed, current count:', dayOffs.length);
+            console.log('✅ Leave data refreshed, current count:', dayOffs.length);
             
             // Close modal and show success notification
             showModal = false;
-            showSuccessNotification(`Day off request submitted for ${dateArray.length} day${dateArray.length !== 1 ? 's' : ''}!`);
+            showSuccessNotification(`Leave request submitted for ${dateArray.length} day${dateArray.length !== 1 ? 's' : ''}!`);
         } catch (err) {
-            console.error('Error saving day off:', err);
-            showErrorNotification('Error: ' + (err instanceof Error ? err.message : 'Failed to save day off'));
+            console.error('Error saving Leave:', err);
+            showErrorNotification('Error: ' + (err instanceof Error ? err.message : 'Failed to save Leave'));
         } finally {
             isSaving = false;
         }
@@ -2310,7 +2370,7 @@
                             >
                                 <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                                 {#each availableEmploymentStatuses as status}
-                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
+                                    <option value={status.id} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status.id).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2487,7 +2547,7 @@
                             >
                                 <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                                 {#each availableEmploymentStatuses as status}
-                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
+                                    <option value={status.id} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status.id).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2659,7 +2719,7 @@
                             >
                                 <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                                 {#each availableEmploymentStatuses as status}
-                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
+                                    <option value={status.id} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status.id).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2687,6 +2747,13 @@
                             >
                                 <span>⭐</span>
                                 {$t('hr.shift.add_special_date')}
+                            </button>
+                            <button 
+                                class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md"
+                                on:click={openSpecialShiftRangeModal}
+                            >
+                                <span>📅</span>
+                                {$t('hr.shift.add_special_range') || 'Add Special Range'}
                             </button>
                             <p class="text-xs text-slate-500 font-semibold">{$t('hr.shift.click_to_add_special')}</p>
                         </div>
@@ -2773,7 +2840,7 @@
                         </div>
                     </div>
                 {/if}
-            {:else if activeTab === 'Day Off (date-wise)'}
+            {:else if activeTab === 'Leave (date-wise)'}
                 {#if loading}
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
@@ -2845,7 +2912,7 @@
                             >
                                 <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                                 {#each availableEmploymentStatuses as status}
-                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
+                                    <option value={status.id} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status.id).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -2863,7 +2930,7 @@
                         </div>
                     </div>
 
-                    <!-- Day Off Container -->
+                    <!-- Leave Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
                         <div class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
@@ -2962,7 +3029,7 @@
                                                                 selectedDayOffEndDate = dayOff.day_off_date;
                                                                 showModal = true;
                                                             }}
-                                                            title="Edit day off"
+                                                            title={$t('common.edit')}
                                                         >
                                                             ✎️
                                                         </button>
@@ -2990,7 +3057,7 @@
                         </div>
                     </div>
                 {/if}
-            {:else if activeTab === 'Day Off (weekday-wise)'}
+            {:else if activeTab === 'Leave (weekday-wise)'}
                 {#if loading}
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
@@ -3062,7 +3129,7 @@
                             >
                                 <option value="" style="color: #000000 !important; background-color: #ffffff !important;">{$t('hr.shift.all_statuses') || 'All Statuses'}</option>
                                 {#each availableEmploymentStatuses as status}
-                                    <option value={status} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status).text}</option>
+                                    <option value={status.id} style="color: #000000 !important; background-color: #ffffff !important;">{getEmploymentStatusDisplay(status.id).text}</option>
                                 {/each}
                             </select>
                         </div>
@@ -3080,7 +3147,7 @@
                         </div>
                     </div>
 
-                    <!-- Day Off Weekday Container -->
+                    <!-- Leave Weekday Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
                         <div class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
@@ -3158,28 +3225,28 @@
                         </div>
                     </div>
                 {/if}
-            {:else if activeTab === 'Day Off Reasons'}
+            {:else if activeTab === 'Leave Reasons'}
                 {#if loading}
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
                             <div class="animate-spin inline-block">
                                 <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
                             </div>
-                            <p class="mt-4 text-slate-600 font-semibold">Loading day off reasons...</p>
+                            <p class="mt-4 text-slate-600 font-semibold">{$t('hr.shift.loading_day_off_reasons')}</p>
                         </div>
                     </div>
                 {:else if error}
                     <div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-                        <p class="text-red-700 font-semibold">Error: {error}</p>
+                        <p class="text-red-700 font-semibold">{$t('common.error')}: {error}</p>
                         <button 
                             class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                             on:click={loadDayOffReasons}
                         >
-                            Retry
+                            {$t('common.retry')}
                         </button>
                     </div>
                 {:else}
-                    <!-- Day Off Reasons Container -->
+                    <!-- Leave Reasons Container -->
                     <div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
                         <!-- Action Button -->
                         <div class="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
@@ -3188,7 +3255,7 @@
                                 on:click={() => openReasonModal()}
                             >
                                 <span>➕</span>
-                                Add Reason
+                                {$t('hr.shift.add_reason')}
                             </button>
                         </div>
 
@@ -3198,20 +3265,20 @@
                                 <div class="flex items-center justify-center h-64">
                                     <div class="text-center">
                                         <div class="text-5xl mb-4">📭</div>
-                                        <p class="text-slate-600 font-semibold">No day off reasons found</p>
-                                        <p class="text-slate-400 text-sm mt-2">Click the button above to add one</p>
+                                        <p class="text-slate-600 font-semibold">{$t('hr.shift.no_day_off_reasons')}</p>
+                                        <p class="text-slate-400 text-sm mt-2">{$t('hr.shift.click_button_to_add')}</p>
                                     </div>
                                 </div>
                             {:else}
                                 <table class="w-full border-collapse">
                                     <thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
                                         <tr>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">ID</th>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Reason (English)</th>
-                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Reason (Arabic)</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Deductible</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Document Required</th>
-                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Actions</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.employeeId')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.reason_name_en')}</th>
+                                            <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.reason_name_ar')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('hr.shift.deductible')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('common.documentRequired')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200">
@@ -3222,12 +3289,12 @@
                                                 <td class="px-4 py-3 text-sm text-slate-700" dir="rtl">{reason.reason_ar}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {reason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                                                        {reason.is_deductible ? '✓ Yes' : '✗ No'}
+                                                        {reason.is_deductible ? '✓ ' + $t('common.yes') : '✗ ' + $t('common.no')}
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {reason.is_document_mandatory ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}">
-                                                        {reason.is_document_mandatory ? '✓ Yes' : '✗ No'}
+                                                        {reason.is_document_mandatory ? '✓ ' + $t('common.yes') : '✗ ' + $t('common.no')}
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
@@ -3236,13 +3303,13 @@
                                                             class="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
                                                             on:click={() => openReasonModal(reason)}
                                                         >
-                                                            ✏️ Edit
+                                                            ✏️ {$t('common.edit')}
                                                         </button>
                                                         <button 
                                                             class="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
                                                             on:click={() => deleteReason(reason.id)}
                                                         >
-                                                            🗑️ Delete
+                                                            🗑️ {$t('common.delete')}
                                                         </button>
                                                     </div>
                                                 </td>
@@ -3255,7 +3322,7 @@
 
                         <!-- Footer with row count -->
                         <div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-                            Showing {dayOffReasons.length} day off reason{dayOffReasons.length !== 1 ? 's' : ''}
+                            {$t('hr.shift.showing_total_reasons', { count: dayOffReasons.length })}
                         </div>
                     </div>
                 {/if}
@@ -3270,11 +3337,13 @@
                         </div>
                     </div>
 
-                    <h2 class="text-4xl font-black text-slate-900 mb-4 tracking-tight">{activeTab}</h2>
+                    <h2 class="text-4xl font-black text-slate-900 mb-4 tracking-tight">
+                        {tabs.find(t => t.id === activeTab)?.label}
+                    </h2>
                     
                     <div class="flex items-center gap-4 mb-12">
                         <div class="h-[3px] w-16 rounded-full {tabs.find(t => t.id === activeTab)?.color === 'green' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]'}"></div>
-                        <p class="text-slate-400 font-black text-[10px] uppercase tracking-[0.4em]">Ready for configuration</p>
+                        <p class="text-slate-400 font-black text-[10px] uppercase tracking-[0.4em]">{$t('hr.shift.ready_for_config')}</p>
                         <div class="h-[3px] w-16 rounded-full {tabs.find(t => t.id === activeTab)?.color === 'green' ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]'}"></div>
                     </div>
                 </div>
@@ -3288,11 +3357,11 @@
     <div class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
         <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in scale-in duration-300 origin-center">
             <!-- Modal Header -->
-            <div class="bg-gradient-to-r {activeTab === 'Regular Shift' ? 'from-emerald-600 to-emerald-500' : activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)' ? 'from-emerald-600 to-emerald-500' : 'from-orange-600 to-orange-500'} px-6 py-4">
+            <div class="bg-gradient-to-r {activeTab === 'Regular Shift' ? 'from-emerald-600 to-emerald-500' : activeTab === 'Leave (date-wise)' || activeTab === 'Leave (weekday-wise)' ? 'from-emerald-600 to-emerald-500' : 'from-orange-600 to-orange-500'} px-6 py-4">
                 <h3 class="text-xl font-black text-white">
-                    {activeTab === 'Regular Shift' ? $t('hr.shift.configure_regular_shift') : activeTab === 'Special Shift (weekday-wise)' ? $t('hr.shift.configure_special_shift_weekday') : activeTab === 'Special Shift (date-wise)' ? $t('hr.shift.configure_special_shift_date') : activeTab === 'Day Off (date-wise)' ? $t('hr.shift.assign_day_off_date') : $t('hr.shift.assign_day_off_weekday')}
+                    {activeTab === 'Regular Shift' ? $t('hr.shift.configure_regular_shift') : activeTab === 'Special Shift (weekday-wise)' ? $t('hr.shift.configure_special_shift_weekday') : activeTab === 'Special Shift (date-wise)' ? $t('hr.shift.configure_special_shift_date') : activeTab === 'Leave (date-wise)' ? $t('hr.shift.assign_day_off_date') : $t('hr.shift.assign_day_off_weekday')}
                 </h3>
-                <p class="{activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)' ? 'text-emerald-100' : 'text-orange-100'} text-sm mt-1">{$t('hr.employeeId')}: {selectedEmployeeId}</p>
+                <p class="{activeTab === 'Regular Shift' || activeTab === 'Leave (date-wise)' || activeTab === 'Leave (weekday-wise)' ? 'text-emerald-100' : 'text-orange-100'} text-sm mt-1">{$t('hr.employeeId')}: {selectedEmployeeId}</p>
             </div>
 
             <!-- Modal Body -->
@@ -3316,22 +3385,46 @@
                 {/if}
 
                 {#if activeTab === 'Special Shift (date-wise)' && 'shift_date' in formData}
-                    <!-- Date Selection -->
-                    <div>
-                        <label for="shift-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_date')}</label>
-                        <input 
-                            id="shift-date-input"
-                            type="date" 
-                            bind:value={formData.shift_date}
-                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        />
-                    </div>
+                    {#if isRangeSpecialShift}
+                        <!-- Special Shift Start Date Selection -->
+                        <div>
+                            <label for="spec-shift-start-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date')}</label>
+                            <input 
+                                id="spec-shift-start-date-input"
+                                type="date" 
+                                bind:value={specialShiftStartDate}
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                        </div>
+
+                        <!-- Special Shift End Date Selection -->
+                        <div>
+                            <label for="spec-shift-end-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date')}</label>
+                            <input 
+                                id="spec-shift-end-date-input"
+                                type="date" 
+                                bind:value={specialShiftEndDate}
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                        </div>
+                    {:else}
+                        <!-- Date Selection (Single) -->
+                        <div>
+                            <label for="shift-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_date')}</label>
+                            <input 
+                                id="shift-date-input"
+                                type="date" 
+                                bind:value={formData.shift_date}
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                        </div>
+                    {/if}
                 {/if}
 
-                {#if activeTab === 'Day Off (date-wise)'}
-                    <!-- Day Off Start Date Selection -->
+                {#if activeTab === 'Leave (date-wise)'}
+                    <!-- Leave Start Date Selection -->
                     <div>
-                        <label for="dayoff-start-date-input" class="block text-sm font-bold text-slate-700 mb-2">Start Date</label>
+                        <label for="dayoff-start-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.start_date')}</label>
                         <input 
                             id="dayoff-start-date-input"
                             type="date" 
@@ -3340,9 +3433,9 @@
                         />
                     </div>
 
-                    <!-- Day Off End Date Selection -->
+                    <!-- Leave End Date Selection -->
                     <div>
-                        <label for="dayoff-end-date-input" class="block text-sm font-bold text-slate-700 mb-2">End Date</label>
+                        <label for="dayoff-end-date-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.end_date')}</label>
                         <input 
                             id="dayoff-end-date-input"
                             type="date" 
@@ -3358,24 +3451,24 @@
                             on:click={openReasonSearchModal}
                             class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition"
                         >
-                            🔍 Search Day Off Reason
+                            🔍 {$t('hr.shift.search_reason')}
                         </button>
                     </div>
 
                     <!-- Selected Reason Display -->
                     {#if selectedDayOffReason}
                         <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
-                            <p class="text-sm font-bold text-slate-700 mb-2">Selected Reason:</p>
+                            <p class="text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.selected_reason')}:</p>
                             <p class="text-base font-semibold text-slate-800">{selectedDayOffReason.reason_en}</p>
                             <p class="text-base font-semibold text-slate-700" dir="rtl">{selectedDayOffReason.reason_ar}</p>
                             
                             <!-- Deductible Status -->
                             <div class="mt-3 flex gap-2 flex-wrap">
                                 <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {selectedDayOffReason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                                    {selectedDayOffReason.is_deductible ? '✓ Deductible' : '✗ Not Deductible'}
+                                    {selectedDayOffReason.is_deductible ? '✓ ' + $t('hr.shift.deductible_yes') : '✗ ' + $t('hr.shift.deductible_no')}
                                 </span>
                                 <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold {selectedDayOffReason.is_document_mandatory ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}">
-                                    {selectedDayOffReason.is_document_mandatory ? '📄 Document Required' : 'Optional Document'}
+                                    {selectedDayOffReason.is_document_mandatory ? '📄 ' + $t('hr.shift.document_required_short') : $t('hr.shift.document_optional')}
                                 </span>
                             </div>
                         </div>
@@ -3384,7 +3477,7 @@
                         {#if selectedDayOffReason.is_document_mandatory || true}
                             <div>
                                 <label for="doc-upload" class="block text-sm font-bold text-slate-700 mb-2">
-                                    {selectedDayOffReason.is_document_mandatory ? '📄 Upload Document (Required)' : '📄 Upload Document (Optional)'}
+                                    {selectedDayOffReason.is_document_mandatory ? '📄 ' + $t('hr.shift.upload_document_required') : '📄 ' + $t('hr.shift.upload_document_optional')}
                                 </label>
                                 <input 
                                     id="doc-upload"
@@ -3393,7 +3486,7 @@
                                     class="w-full px-3 py-2 border-2 border-dashed border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 />
                                 {#if documentFile}
-                                    <p class="text-xs text-slate-600 mt-2">Selected: {documentFile.name}</p>
+                                    <p class="text-xs text-slate-600 mt-2">{$t('hr.shift.selected_file')}: {documentFile.name}</p>
                                     {#if isUploadingDocument}
                                         <div class="w-full bg-slate-200 rounded-lg h-2 mt-2">
                                             <div class="bg-emerald-600 h-2 rounded-lg transition-all" style="width: {documentUploadProgress}%"></div>
@@ -3407,21 +3500,21 @@
                     <!-- Description Field (Optional) -->
                     {#if selectedDayOffReason}
                         <div>
-                            <label for="day-off-description" class="block text-sm font-bold text-slate-700 mb-2">📝 Description (Optional)</label>
+                            <label for="day-off-description" class="block text-sm font-bold text-slate-700 mb-2">📝 {$t('hr.shift.description_optional')}</label>
                             <textarea 
                                 id="day-off-description"
                                 bind:value={dayOffDescription}
-                                placeholder="Enter any additional details or notes about this day off request..."
+                                placeholder={$t('hr.shift.enter_description')}
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 rows="4"
                             />
-                            <p class="text-xs text-slate-500 mt-1">You can add any additional information that might be relevant to this request.</p>
+                            <p class="text-xs text-slate-500 mt-1">{$t('hr.shift.description_info')}</p>
                         </div>
                     {/if}
                 {/if}
 
-                {#if activeTab === 'Day Off (weekday-wise)'}
-                    <!-- Day Off Weekday Selection -->
+                {#if activeTab === 'Leave (weekday-wise)'}
+                    <!-- Leave Weekday Selection -->
                     <div>
                         <label for="dayoff-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_weekday')}</label>
                         <select 
@@ -3437,7 +3530,7 @@
                     </div>
                 {/if}
 
-                {#if activeTab !== 'Day Off (date-wise)' && activeTab !== 'Day Off (weekday-wise)'}
+                {#if activeTab !== 'Leave (date-wise)' && activeTab !== 'Leave (weekday-wise)'}
                     <!-- Shift Start Time -->
                     <div>
                         <label for="start-time-input" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.shift_start_time')}</label>
@@ -3465,8 +3558,8 @@
                                 on:change={updateStartTime24h}
                                 class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
                             >
-                                <option value="AM">AM</option>
-                                <option value="PM">PM</option>
+                                <option value="AM">{$t('common.am')}</option>
+                                <option value="PM">{$t('common.pm')}</option>
                             </select>
                         </div>
                     </div>
@@ -3524,8 +3617,8 @@
                                 on:change={updateEndTime24h}
                                 class="w-20 px-2 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 {activeTab === 'Regular Shift' ? 'focus:ring-emerald-500' : 'focus:ring-orange-500'}"
                             >
-                                <option value="AM">AM</option>
-                                <option value="PM">PM</option>
+                                <option value="AM">{$t('common.am')}</option>
+                                <option value="PM">{$t('common.pm')}</option>
                             </select>
                         </div>
                     </div>
@@ -3589,10 +3682,10 @@
                 >
                     {$t('common.cancel')}
                 </button>
-                {#if activeTab === 'Regular Shift' || activeTab === 'Day Off (date-wise)' || activeTab === 'Day Off (weekday-wise)'}
+                {#if activeTab === 'Regular Shift' || activeTab === 'Leave (date-wise)' || activeTab === 'Leave (weekday-wise)'}
                     <button 
                         class="px-6 py-2 rounded-lg font-black text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                        on:click={activeTab === 'Day Off (date-wise)' ? saveDayOffWithApproval : activeTab === 'Day Off (weekday-wise)' ? saveDayOffWeekday : saveShiftData}
+                        on:click={activeTab === 'Leave (date-wise)' ? saveDayOffWithApproval : activeTab === 'Leave (weekday-wise)' ? saveDayOffWeekday : saveShiftData}
                         disabled={isSaving}
                     >
                         {isSaving ? $t('common.saving') : $t('common.save')}
@@ -3674,7 +3767,7 @@
     </div>
 {/if}
 
-<!-- Employee Select Modal for Day Off -->
+<!-- Employee Select Modal for Leave -->
 {#if showDayOffEmployeeSelectModal}
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
@@ -3737,7 +3830,7 @@
     </div>
 {/if}
 
-<!-- Employee Select Modal for Day Off Weekday -->
+<!-- Employee Select Modal for Leave Weekday -->
 {#if showDayOffWeekdayEmployeeSelectModal}
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
@@ -3858,9 +3951,9 @@
 <!-- Reason Search Modal -->
 {#if showReasonSearchModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold text-slate-900">Select Day Off Reason</h2>
+                <h2 class="text-2xl font-bold text-slate-900">{$t('hr.shift.select_day_off_reason_title')}</h2>
                 <button 
                     class="text-slate-400 hover:text-slate-600 text-2xl"
                     on:click={closeReasonSearchModal}
@@ -3873,7 +3966,7 @@
             <input 
                 type="text"
                 bind:value={reasonSearchQuery}
-                placeholder="Search by reason name..."
+                placeholder={$t('hr.shift.search_by_reason')}
                 class="w-full px-4 py-2 border border-slate-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
 
@@ -3889,14 +3982,14 @@
                         on:click={() => selectReason(reason)}
                     >
                         <div class="flex justify-between items-start">
-                            <div class="flex-1">
+                            <div class="flex-1 {$locale === 'ar' ? 'text-right' : 'text-left'}">
                                 <p class="font-bold text-slate-800">{reason.reason_en}</p>
-                                <p class="text-sm text-slate-600 font-semibold" dir="rtl">{reason.reason_ar}</p>
-                                <p class="text-xs text-slate-500 mt-1">ID: {reason.id}</p>
+                                <p class="text-sm text-slate-600 font-semibold">{reason.reason_ar}</p>
+                                <p class="text-xs text-slate-500 mt-1">{$t('hr.employeeId')}: {reason.id}</p>
                             </div>
                             <div class="flex gap-2 ml-4">
                                 <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold {reason.is_deductible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                                    {reason.is_deductible ? '✓ Ded' : '✗ Non-Ded'}
+                                    {reason.is_deductible ? '✓ ' + $t('hr.shift.deductible') : '✗'}
                                 </span>
                                 <span class="inline-flex items-center px-2 py-1 rounded text-xs font-bold {reason.is_document_mandatory ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}">
                                     {reason.is_document_mandatory ? '📄' : '✓'}
@@ -3913,20 +4006,20 @@
                     on:click={closeReasonSearchModal}
                     class="flex-1 px-4 py-2 rounded-lg font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
                 >
-                    Cancel
+                    {$t('common.cancel')}
                 </button>
             </div>
         </div>
     </div>
 {/if}
 
-<!-- Day Off Reason Modal -->
+<!-- Leave Reason Modal -->
 {#if showReasonModal}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-2xl font-bold text-slate-900">
-                    {editingReasonId ? 'Edit Day Off Reason' : 'Add Day Off Reason'}
+                    {editingReasonId ? $t('hr.shift.edit_day_off_reason') : $t('hr.shift.add_day_off_reason')}
                 </h2>
                 <button 
                     class="text-slate-400 hover:text-slate-600 text-2xl"
@@ -3940,25 +4033,25 @@
                 <!-- ID Field (Read-only) -->
                 <!-- svelte-ignore a11y_label_has_associated_control -->
                 <div>
-                    <label for="reason-id" class="block text-sm font-bold text-slate-700 mb-2">ID</label>
+                    <label for="reason-id" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.employeeId')}</label>
                     <input 
                         id="reason-id"
                         type="text"
                         value={reasonFormData.id}
                         disabled
                         class="w-full px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-600 cursor-not-allowed"
-                        placeholder="Auto-generated"
+                        placeholder={$t('common.autoDetected')}
                     />
                 </div>
 
                 <!-- English Reason -->
                 <div>
-                    <label for="reason-en" class="block text-sm font-bold text-slate-700 mb-2">Reason (English)</label>
+                    <label for="reason-en" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.reason_name_en')}</label>
                     <input 
                         id="reason-en"
                         type="text"
                         bind:value={reasonFormData.reason_en}
-                        placeholder="Enter English reason"
+                        placeholder={$t('hr.shift.enter_reason_en')}
                         class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                 </div>
@@ -3966,12 +4059,12 @@
                 <!-- Arabic Reason -->
                 <!-- svelte-ignore a11y_label_has_associated_control -->
                 <div>
-                    <label for="reason-ar" class="block text-sm font-bold text-slate-700 mb-2">السبب (Arabic)</label>
+                    <label for="reason-ar" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.reason_name_ar')}</label>
                     <input 
                         id="reason-ar"
                         type="text"
                         bind:value={reasonFormData.reason_ar}
-                        placeholder="أدخل السبب بالعربية"
+                        placeholder={$t('hr.shift.enter_reason_ar')}
                         dir="rtl"
                         class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right"
                     />
@@ -3980,28 +4073,28 @@
                 <!-- Is Deductible Toggle -->
                 <!-- svelte-ignore a11y_label_has_associated_control -->
                 <div>
-                    <label for="deductible-toggle" class="block text-sm font-bold text-slate-700 mb-2">Is Deductible?</label>
+                    <label for="deductible-toggle" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.is_deductible')}</label>
                     <button 
                         id="deductible-toggle"
                         type="button"
                         on:click={() => reasonFormData.is_deductible = !reasonFormData.is_deductible}
                         class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all {reasonFormData.is_deductible ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}"
                     >
-                        {reasonFormData.is_deductible ? '✓ Yes - Deductible' : '✗ No - Not Deductible'}
+                        {reasonFormData.is_deductible ? '✓ ' + $t('hr.shift.yes_deductible') : '✗ ' + $t('hr.shift.no_not_deductible')}
                     </button>
                 </div>
 
                 <!-- Is Document Mandatory Toggle -->
                 <!-- svelte-ignore a11y_label_has_associated_control -->
                 <div>
-                    <label for="document-toggle" class="block text-sm font-bold text-slate-700 mb-2">Document Required?</label>
+                    <label for="document-toggle" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.document_required')}</label>
                     <button 
                         id="document-toggle"
                         type="button"
                         on:click={() => reasonFormData.is_document_mandatory = !reasonFormData.is_document_mandatory}
                         class="w-full px-4 py-3 rounded-lg font-bold text-white transition-all {reasonFormData.is_document_mandatory ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'}"
                     >
-                        {reasonFormData.is_document_mandatory ? '✓ Yes - Document Required' : '✗ No - Document Not Required'}
+                        {reasonFormData.is_document_mandatory ? '✓ ' + $t('hr.shift.yes_document_required') : '✗ ' + $t('hr.shift.no_document_not_required')}
                     </button>
                 </div>
 
@@ -4012,14 +4105,14 @@
                         disabled={isSaving}
                         class="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 transition disabled:opacity-50"
                     >
-                        {isSaving ? 'Saving...' : 'Save'}
+                        {isSaving ? $t('common.saving') : $t('common.save')}
                     </button>
                     <button 
                         type="button"
                         on:click={closeReasonModal}
                         class="flex-1 px-4 py-2 rounded-lg font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition"
                     >
-                        Cancel
+                        {$t('common.cancel')}
                     </button>
                 </div>
             </form>
@@ -4039,7 +4132,7 @@
                     on:click={closeAlertModal}
                     class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200"
                 >
-                    OK
+                    {$t('common.ok')}
                 </button>
             </div>
         </div>

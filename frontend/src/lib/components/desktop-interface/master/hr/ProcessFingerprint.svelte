@@ -169,7 +169,7 @@
 				.from('regular_shift')
 				.select('shift_start_time, shift_end_time')
 				.eq('id', employeeId)
-				.single();
+				.maybeSingle();
 			
 			if (shiftError) {
 				console.warn(`No shift data found for ${employeeId}:`, shiftError);
@@ -366,7 +366,6 @@
 					sponsorship_status,
 					employee_id_mapping
 				`)
-				.eq('employment_status', 'Job (With Finger)')
 				.not('employee_id_mapping', 'is', null);
 
 			if (empError) throw empError;
@@ -574,7 +573,6 @@
 					sponsorship_status,
 					employee_id_mapping
 				`)
-				.eq('employment_status', 'Job (With Finger)')
 				.not('employee_id_mapping', 'is', null);
 
 			if (empError) throw empError;
@@ -650,20 +648,7 @@
 		const selectedEmployee = employees.find(e => e.id === employeeId);
 		if (selectedEmployee) {
 			try {
-				// Get current max sequence
-				const { data: maxRecord } = await supabase
-					.from('processed_fingerprint_transactions')
-					.select('id')
-					.order('id', { ascending: false })
-					.limit(1);
-
-				let currentSeq = 1;
-				if (maxRecord && maxRecord.length > 0 && maxRecord[0].id) {
-					const lastId = maxRecord[0].id.replace('PF', '');
-					currentSeq = parseInt(lastId) + 1;
-				}
-
-				await processEmployeeFingerprints(selectedEmployee, currentSeq);
+				await processEmployeeFingerprints(selectedEmployee);
 				showAlert($t('hr.processFingerprint.process_success') || 'Employee fingerprint processed successfully', 'success');
 			} catch (err) {
 				console.error('Error processing single employee:', err);
@@ -681,31 +666,13 @@
 		try {
 			await initSupabase();
 
-			// Get the current max sequence ONCE at the start
-			const { data: maxRecord } = await supabase
-				.from('processed_fingerprint_transactions')
-				.select('id')
-				.order('id', { ascending: false })
-				.limit(1);
-
-			let currentSeq = 1;
-			if (maxRecord && maxRecord.length > 0 && maxRecord[0].id) {
-				const match = maxRecord[0].id.match(/(\d+)$/);
-				if (match) {
-					currentSeq = parseInt(match[1]) + 1;
-				}
-			}
-
-			console.log('Starting sequence number:', currentSeq);
-
 			const totalEmployees = filteredEmployees.length;
 
 			// Process all filtered employees
 			for (let i = 0; i < filteredEmployees.length; i++) {
 				const employee = filteredEmployees[i];
-				const { recordsCreated, nextSeq } = await processEmployeeFingerprints(employee, currentSeq);
+				const { recordsCreated } = await processEmployeeFingerprints(employee);
 				processedCount += recordsCreated;
-				currentSeq = nextSeq; // Update the sequence for the next employee
 				
 				// Update progress percentage
 				processProgress = Math.round(((i + 1) / totalEmployees) * 100);
@@ -865,7 +832,16 @@
 		}
 	}
 
-	async function processEmployeeFingerprints(employee: Employee, startSeqParam: number) {
+	// Helper function to generate deterministic ID from transaction data
+	function generateDeterministicId(employeeId: string, date: string, time: string): string {
+		// Clean up time to remove any special characters
+		const cleanTime = time.replace(/:/g, '');
+		const cleanDate = date.replace(/-/g, '');
+		// Format: PF-{employeeId}-{YYYYMMDD}-{HHMMSS}
+		return `PF-${employeeId}-${cleanDate}-${cleanTime}`;
+	}
+
+	async function processEmployeeFingerprints(employee: Employee): Promise<{ recordsCreated: number }> {
 		try {
 			await initSupabase();
 
@@ -905,78 +881,83 @@
 					console.warn('Failed to parse employee_id_mapping:', parseError);
 					employeeIds = [employee.id]; // Fallback to current employee ID
 				}
-			} else {
-				employeeIds = [employee.id]; // Use the center employee ID if mapping is empty
 			}
 
 			// Remove duplicates
 			employeeIds = [...new Set(employeeIds)];
 
-			console.log(`Extracted employee IDs for ${employee.id}:`, employeeIds);
-
+			// If mapping was empty or didn't yield any IDs, use the employee's own ID as fallback
 			if (employeeIds.length === 0) {
-				throw new Error('No employee IDs found in mapping');
+				console.log(`No mapping found for ${employee.id}, using employee ID as fallback`);
+				employeeIds = [employee.id];
 			}
 
-			// Step 3: Get unprocessed fingerprint transactions for all extracted employee IDs
+			console.log(`Extracted employee IDs for ${employee.id}:`, employeeIds);
+
+			// Step 3: Get ALL fingerprint transactions for all extracted employee IDs
 			const { data: fingerprintTransactions, error: fingerprintError } = await supabase
 				.from('hr_fingerprint_transactions')
 				.select('employee_id, branch_id, date, time, status, id')
-				.in('employee_id', employeeIds)
-				.eq('processed', false);
+				.in('employee_id', employeeIds);
 
 			if (fingerprintError) {
 				console.warn('Fingerprint query error:', fingerprintError);
 				throw fingerprintError;
 			}
 
-			console.log(`Found ${fingerprintTransactions?.length || 0} unprocessed transactions for employee IDs:`, employeeIds);
+			console.log(`Found ${fingerprintTransactions?.length || 0} total transactions for employee IDs:`, employeeIds);
 
 			if (!fingerprintTransactions || fingerprintTransactions.length === 0) {
-				console.log(`No unprocessed transactions for employee ${employee.id}`);
-				return { recordsCreated: 0, nextSeq: startSeqParam };
+				console.log(`No transactions found for employee ${employee.id}`);
+				return { recordsCreated: 0 };
 			}
 
-			// Step 4: Use the passed sequence number
-			let startSeq = startSeqParam;
-
-			// Step 5: Prepare records for insertion
-			const recordsToInsert = fingerprintTransactions.map((transaction, index) => {
-				const seqNum = startSeq + index;
+			// Step 4: Prepare records with DETERMINISTIC IDs based on transaction data
+			// This ensures the same transaction always gets the same ID
+			const recordsToInsert = fingerprintTransactions.map((transaction) => {
 				return {
-					id: `PF${seqNum}`,
+					id: generateDeterministicId(transaction.employee_id, transaction.date, transaction.time),
 					center_id: employee.id,
 					employee_id: transaction.employee_id,
 					branch_id: transaction.branch_id,
 					punch_date: transaction.date,
 					punch_time: transaction.time,
-					status: null // Status will be calculated dynamically based on shift configuration, not stored
+					status: null // Status will be calculated dynamically based on shift configuration
 				};
 			});
 
-			console.log(`Preparing to insert ${recordsToInsert.length} records for ${employee.id}, starting from PF${startSeq}`);
+			console.log(`Preparing to upsert ${recordsToInsert.length} records for ${employee.id}`);
 
-			// Step 6: Insert or upsert records in batches to avoid size limits
-			const batchSize = 500; // Supabase limit is typically 1000, but we use 500 to be safe
+			// Step 5: Upsert records in batches - duplicates will be ignored due to deterministic ID
+			const batchSize = 500;
+			let insertedCount = 0;
+			
 			for (let i = 0; i < recordsToInsert.length; i += batchSize) {
 				const batch = recordsToInsert.slice(i, i + batchSize);
-				console.log(`Inserting batch ${Math.floor(i / batchSize) + 1} with ${batch.length} records (${i}-${i + batch.length})`);
+				console.log(`Upserting batch ${Math.floor(i / batchSize) + 1} with ${batch.length} records`);
 
+				// Use upsert with ignoreDuplicates to skip existing records
 				const { error: insertError, data: insertedData } = await supabase
 					.from('processed_fingerprint_transactions')
-					.upsert(batch, { onConflict: 'id' });
+					.upsert(batch, { 
+						onConflict: 'id',
+						ignoreDuplicates: true 
+					})
+					.select('id');
 
 				if (insertError) {
-					console.error(`Batch ${Math.floor(i / batchSize) + 1} insert error:`, insertError);
+					console.error(`Batch ${Math.floor(i / batchSize) + 1} upsert error:`, insertError);
 					throw insertError;
 				}
-				console.log(`Batch inserted successfully`);
+				
+				// Count how many were actually inserted (not duplicates)
+				if (insertedData) {
+					insertedCount += insertedData.length;
+				}
+				console.log(`Batch upserted successfully`);
 			}
 
-			const nextSeq = startSeq + recordsToInsert.length;
-			console.log(`Successfully inserted all ${recordsToInsert.length} records for ${employee.id}. Next sequence: PF${nextSeq}`);
-
-			// Step 7: Mark the source records as processed
+			// Step 6: Mark the source records as processed
 			const transactionIds = fingerprintTransactions.map(t => t.id);
 			const { error: updateError } = await supabase
 				.from('hr_fingerprint_transactions')
@@ -985,12 +966,11 @@
 
 			if (updateError) {
 				console.warn('Warning: Could not mark records as processed:', updateError);
-				// Don't throw here - data is already in processed table
 			}
 
-			console.log(`Employee ${employee.id}: ${recordsToInsert.length} transactions processed`);
+			console.log(`Employee ${employee.id}: ${recordsToInsert.length} transactions processed (${insertedCount} new)`);
 			
-			return { recordsCreated: recordsToInsert.length, nextSeq };
+			return { recordsCreated: insertedCount };
 		} catch (err) {
 			console.error(`Error processing fingerprints for employee ${employee.id}:`, err);
 			error = err instanceof Error ? err.message : 'Failed to process fingerprints';
@@ -1214,8 +1194,8 @@
 				</div>
 			</div>
 
-			<!-- Analyze All Button -->
-			<div class="flex items-end">
+			<!-- Analyze All Button with Progress -->
+			<div class="flex items-end gap-4">
 				<button 
 					on:click={openAnalyzeAllWindow}
 					class="px-6 py-2.5 bg-gradient-to-br from-indigo-600 to-blue-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 transition-all flex items-center gap-2 whitespace-nowrap"
@@ -1223,6 +1203,21 @@
 					<span class="text-xl">📊</span>
 					{$t('hr.processFingerprint.analyze_all') || 'Analyze All'}
 				</button>
+
+				{#if isProcessing}
+					<!-- SVG Progress Ring NEXT TO Button -->
+					<div class="flex items-center gap-2">
+						<svg class="w-12 h-12 transform -rotate-90" viewBox="0 0 80 80">
+							<circle cx="40" cy="40" r="36" fill="none" stroke="#e0e7ff" stroke-width="2"></circle>
+							<circle 
+								cx="40" cy="40" r="36" fill="none" stroke="#10b981" stroke-width="2"
+								stroke-dasharray="226.19" stroke-dashoffset="{226.19 * (1 - processProgress / 100)}"
+								class="transition-all duration-300"
+							></circle>
+						</svg>
+						<span class="text-sm font-bold text-green-600 whitespace-nowrap">{processProgress}%</span>
+					</div>
+				{/if}
 			</div>
 
 		</div>
@@ -1252,26 +1247,7 @@
 				<p class="text-slate-600 font-semibold">{$t('hr.processFingerprint.no_employees_with_finger')}</p>
 			</div>
 		{:else}
-			<div class="relative bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
-				{#if isProcessing}
-					<div class="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[2.5rem] z-40 flex flex-col items-center justify-center">
-						<div class="animate-spin inline-block mb-4">
-							<div class="w-12 h-12 border-4 border-white border-t-transparent rounded-full"></div>
-						</div>
-						<p class="text-white font-bold text-lg mb-6">{$t('common.processing')}</p>
-						
-						<!-- Progress Bar -->
-						<div class="w-48 bg-white/20 rounded-full h-2 overflow-hidden mb-4">
-							<div 
-								class="bg-white h-full transition-all duration-300" 
-								style="width: {processProgress}%"
-							></div>
-						</div>
-						
-						<!-- Percentage Text -->
-						<p class="text-white font-semibold text-sm">{processProgress}%</p>
-					</div>
-				{/if}
+			<div class="relative bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">>
 				<div class="overflow-x-auto">
 					<table class="w-full border-collapse">
 						<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
@@ -1307,7 +1283,7 @@
 										return [];
 									}
 								})()}
-								<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {isProcessing ? 'opacity-60 pointer-events-none' : ''}">
+								<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 									<td class="px-6 py-4 text-sm font-semibold text-slate-800">{employee.id}</td>
 									<td class="px-6 py-4 text-sm text-slate-700">
 										{$locale === 'ar' ? employee.name_ar || employee.name_en : employee.name_en}
@@ -1336,9 +1312,8 @@
 									</td>
 									<td class="px-6 py-4 text-sm text-center">
 										<button
-											class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-semibold text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+											class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors font-semibold text-xs"
 											on:click={() => openAnalyseWindow(employee)}
-											disabled={isProcessing}
 										>
 											<span>🔍</span>
 											{$t('hr.processFingerprint.analyse')}
