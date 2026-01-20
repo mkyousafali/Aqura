@@ -363,15 +363,6 @@
 	function analyzeEmployee(emp: Employee, txns: any[]) {
 		const dayByDay: any = {};
 		
-		let totalWorkedMinutes = 0;
-		let totalUnderWorkedMinutes = 0;
-		let totalLateMinutes = 0;
-		let totalIncompleteDays = 0;
-		let totalUnapprovedDaysOff = 0;
-		let totalOfficialLeaveDays = 0;
-		let totalApprovedDaysOff = 0;
-		let totalCompleteDays = 0;
-
 		// Get regular shift for layout
 		const regShift = employeeShifts.get(String(emp.id));
 		let shiftInfo = '';
@@ -526,6 +517,8 @@
 			const isOff = isOfficialDayOff(emp.id, date);
 			const specOff = getSpecificDayOff(emp.id, date);
 			const isApprovedOff = specOff && specOff.approval_status === 'approved';
+			const isPendingOff = specOff && (!specOff.approval_status || specOff.approval_status === 'pending');
+			const isRejectedOff = specOff && specOff.approval_status === 'rejected';
 
 			let workedMins = 0;
 			let lateMins = 0;
@@ -535,13 +528,27 @@
 
 			if (isOff) {
 				status = 'Official Day Off';
-				totalApprovedDaysOff++;
 			} else if (isApprovedOff) {
-				status = 'Approved Leave';
-				totalOfficialLeaveDays++;
+				// Check deduction status for approved leaves
+				if (specOff.is_deductible_on_salary) {
+					status = 'Approved Leave (Deductible)';
+				} else {
+					status = 'Approved Leave (No Deduction)';
+				}
+			} else if (isPendingOff) {
+				status = 'Pending Approval';
+				// Don't count in any total for pending
+			} else if (isRejectedOff && allTransactions.length === 0) {
+				// Only show rejected status if employee didn't work that day
+				// Check deduction status for rejected leaves
+				if (specOff.is_deductible_on_salary) {
+					status = 'Rejected-Deducted';
+				} else {
+					status = 'Rejected-Not Deducted';
+				}
+				// Don't count in any total for rejected
 			} else if (allTransactions.length === 0) {
-				status = 'Unapproved Day Off';
-				totalUnapprovedDaysOff++;
+				status = 'Absent';
 			} else {
 				// DEDUPLICATION: Keep only the last punch per status type
 				// BUT: If there are multiple punches of the same status and NO complementary punch exists,
@@ -668,7 +675,6 @@
 
 				if (hasIncompletePair) {
 					isIncomplete = true;
-					totalIncompleteDays++;
 					status = missingType;
 				} else {
 					if (shift) {
@@ -677,26 +683,13 @@
 						let expected = sEnd - sStart;
 						if (expected < 0) expected += 24 * 60;
 						if (workedMins < expected) underMins = expected - workedMins;
-						totalCompleteDays++;
 					}
 					status = 'Worked';
 				}
-
-				totalWorkedMinutes += workedMins;
-				totalLateMinutes += lateMins;
-				totalUnderWorkedMinutes += underMins;
 			}
 
 			dayByDay[date] = { workedMins, status, lateMins, underMins };
 		}
-
-		let actualWorkedDaysCount = 0;
-		(Object.values(dayByDay) as { workedMins: number; status: string; lateMins: number; underMins: number }[]).forEach(d => {
-			if (d.workedMins > 0) actualWorkedDaysCount++;
-		});
-
-		const totalExpectedWorkDays = datesInRange.length - totalApprovedDaysOff;
-		const totalExpectedMinutes = expectedMinutesPerDay * totalExpectedWorkDays;
 
 		return {
 			employeeId: emp.id,
@@ -704,17 +697,7 @@
 			currentBranchId: emp.current_branch_id,
 			nationality: emp.nationality_name_en,
 			shiftInfo,
-			dayByDay,
-			totalWorkedMinutes,
-			totalUnderWorkedMinutes,
-			totalLateMinutes,
-			totalIncompleteDays,
-			totalUnapprovedDaysOff,
-			totalOfficialLeaveDays,
-			totalApprovedDaysOff,
-			totalExpectedWorkDays,
-			totalWorkedDays: actualWorkedDaysCount,
-			totalExpectedMinutes
+			dayByDay
 		};
 	}
 
@@ -738,8 +721,15 @@
 		switch (status) {
 			case 'Worked': return $t('hr.processFingerprint.status_worked');
 			case 'Official Day Off': return $t('hr.processFingerprint.status_official_day_off');
+			case 'Approved Leave (Deductible)': return $t('hr.processFingerprint.status_approved_leave_deductible') || 'Approved Leave (Deductible)';
+			case 'Approved Leave (No Deduction)': return $t('hr.processFingerprint.status_approved_leave_no_deduction') || 'Approved Leave (No Deduction)';
+			case 'Pending Approval': return $t('hr.processFingerprint.status_pending_approval') || 'Pending Approval';
+			case 'Rejected-Deducted': return $t('hr.processFingerprint.status_rejected_deducted') || 'Rejected-Deducted';
+			case 'Rejected-Not Deducted': return $t('hr.processFingerprint.status_rejected_not_deducted') || 'Rejected-Not Deducted';
+			case 'Rejected Leave': return $t('hr.processFingerprint.status_rejected_leave') || 'Rejected Leave';
 			case 'Approved Leave': return $t('hr.processFingerprint.status_approved_leave');
 			case 'Unapproved Day Off': return $t('hr.processFingerprint.status_unapproved_day_off');
+		case 'Absent': return $t('hr.processFingerprint.status_absent');
 			case 'Incomplete': return $t('hr.processFingerprint.status_incomplete');
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
 			case 'Check-Out Missing': return $t('hr.processFingerprint.checkout_missing');
@@ -763,8 +753,15 @@
 			case 'Worked': return 'text-emerald-600';
 			case 'Incomplete': return 'text-red-500 font-bold';
 			case 'Unapproved Day Off': return 'text-rose-700 font-bold';
+		case 'Absent': return 'text-gray-700 font-bold';
 			case 'Official Day Off': return 'text-blue-600';
 			case 'Approved Leave': return 'text-indigo-600';
+			case 'Approved Leave (Deductible)': return 'text-purple-600 font-semibold';
+			case 'Approved Leave (No Deduction)': return 'text-indigo-500';
+			case 'Pending Approval': return 'text-amber-600 font-semibold';
+			case 'Rejected-Deducted': return 'text-red-700 font-bold';
+			case 'Rejected-Not Deducted': return 'text-red-500 font-semibold';
+			case 'Rejected Leave': return 'text-red-600 font-bold';
 			default: return 'text-slate-400';
 		}
 	}
@@ -841,17 +838,6 @@
 									</div>
 								</th>
 							{/each}
-							<th class="px-4 py-4 font-bold text-indigo-700 border-b border-r bg-indigo-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_worked_hours_minutes')}</th>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.expected_hours_minutes')}</th>
-							<th class="px-4 py-4 font-bold text-slate-700 border-b border-r bg-slate-50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.actual_hours_minutes')}</th>
-							<th class="px-4 py-4 font-bold text-red-700 border-b border-r bg-red-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_under_worked_hours_minutes')}</th>
-							<th class="px-4 py-4 font-bold text-amber-700 border-b border-r bg-amber-50/50 text-center w-[150px] whitespace-nowrap">{$t('hr.processFingerprint.total_late_hours_minutes')}</th>
-							<th class="px-4 py-4 font-bold text-rose-700 border-b border-r text-center w-[120px] whitespace-nowrap">{$t('hr.processFingerprint.total_incomplete_days')}</th>
-							<th class="px-4 py-4 font-bold text-rose-800 border-b border-r text-center w-[120px] whitespace-nowrap">{$t('hr.processFingerprint.total_unapproved_days_off')}</th>
-							<th class="px-4 py-4 font-bold text-blue-700 border-b border-r text-center w-[120px] whitespace-nowrap">{$t('hr.processFingerprint.total_official_leave_days')}</th>
-							<th class="px-4 py-4 font-bold text-emerald-700 border-b border-r text-center w-[120px] whitespace-nowrap">{$t('hr.processFingerprint.total_approved_days_off')}</th>
-							<th class="px-4 py-4 font-bold text-indigo-800 border-b text-center w-[120px] whitespace-nowrap bg-indigo-50 z-50 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] border-l sticky {$locale === 'ar' ? 'left-[120px]' : 'right-[120px]'}">{$t('hr.processFingerprint.total_expected_work_days')}</th>
-							<th class="px-4 py-4 font-bold text-slate-900 border-b text-center w-[120px] whitespace-nowrap bg-slate-100 z-50 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] border-l sticky {$locale === 'ar' ? 'left-0' : 'right-0'}">{$t('hr.processFingerprint.total_worked_days_header')}</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-200">
@@ -899,31 +885,6 @@
 										</div>
 									</td>
 								{/each}
-								<td class="px-4 py-3 border-r text-center font-bold text-indigo-700 bg-indigo-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
-									{formatMinutes(row.totalWorkedMinutes)}
-								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-slate-700 bg-slate-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
-									{formatMinutes(row.totalExpectedMinutes)}
-								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-slate-700 bg-slate-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
-									{formatMinutes(row.totalWorkedMinutes)}
-								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-red-700 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
-									{formatMinutes(row.totalUnderWorkedMinutes)}
-								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-amber-700 bg-amber-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">
-									{formatMinutes(row.totalLateMinutes)}
-								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{row.totalIncompleteDays}</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-rose-900 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{row.totalUnapprovedDaysOff}</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-blue-800 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{row.totalOfficialLeaveDays}</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-emerald-800 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{row.totalApprovedDaysOff}</td>
-								<td class="px-4 py-3 text-center font-bold text-indigo-900 bg-indigo-50 z-20 w-[120px] whitespace-nowrap shadow-[-2px_0_4px_rgba(0,0,0,0.1)] border-l group-hover:bg-emerald-100 transition-colors text-xs sticky {$locale === 'ar' ? 'left-[120px]' : 'right-[120px]'}">
-									{row.totalExpectedWorkDays}
-								</td>
-								<td class="px-4 py-3 text-center font-black text-slate-950 bg-slate-200 z-20 w-[120px] whitespace-nowrap shadow-[-2px_0_4px_rgba(0,0,0,0.1)] border-l group-hover:bg-emerald-200 transition-colors text-xs sticky {$locale === 'ar' ? 'left-0' : 'right-0'}">
-									{row.totalWorkedDays}
-								</td>
 							</tr>
 						{/each}
 					</tbody>

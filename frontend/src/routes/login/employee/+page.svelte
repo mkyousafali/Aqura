@@ -1076,6 +1076,7 @@
 		display: grid;
 		grid-template-columns: repeat(6, 1fr);
 		gap: 0.5rem;
+		direction: ltr;
 	}
 
 	.digit-input {
@@ -1089,6 +1090,7 @@
 		text-align: center;
 		transition: all 0.3s ease;
 		background: transparent;
+		direction: ltr !important;
 	}
 
 	.digit-input:focus {
@@ -1423,5 +1425,75 @@
 		.form-header {
 			margin-bottom: 1rem;
 		}
+	}
+
+	/* RTL Support */
+	:global(html[dir="rtl"]) .back-btn-top {
+		flex-direction: row-reverse;
+	}
+
+	:global(html[dir="rtl"]) .back-btn-top svg {
+		transform: scaleX(-1);
+	}
+
+	:global(html[dir="rtl"]) .method-btn {
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .method-info {
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .form-header {
+		direction: rtl;
+	}
+
+	:global(html[dir="rtl"]) .field-group {
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .field-group label {
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .field-input {
+		text-align: right;
+		direction: rtl;
+	}
+
+	:global(html[dir="rtl"]) .field-input[type="password"],
+	:global(html[dir="rtl"]) .field-input[inputmode="numeric"] {
+		direction: ltr;
+		text-align: left;
+	}
+
+	:global(html[dir="rtl"]) .quick-access-digits {
+		direction: ltr !important;
+	}
+
+	:global(html[dir="rtl"]) .digit-input {
+		direction: ltr !important;
+		text-align: center !important;
+	}
+
+	:global(html[dir="rtl"]) .checkbox-option {
+		flex-direction: row-reverse;
+	}
+
+	:global(html[dir="rtl"]) .auth-submit-btn {
+		flex-direction: row-reverse;
+	}
+
+	:global(html[dir="rtl"]) .status-message {
+		flex-direction: row-reverse;
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .language-toggle-main {
+		flex-direction: row-reverse;
+	}
+
+	:global(html[dir="rtl"]) .interface-btn {
+		direction: rtl;
 	}
 </style>
