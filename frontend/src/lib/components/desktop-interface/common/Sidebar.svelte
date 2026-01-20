@@ -3475,7 +3475,7 @@ function openApprovalCenter() {
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openShiftAndDayOff}>
 								<span class="menu-icon">⌚</span>
-								<span class="menu-text">{t('nav.shiftAndDayOff')}</span>
+								<span class="menu-text">{t('nav.shiftAndLeave')}</span>
 							</button>
 						</div>
 					{/if}

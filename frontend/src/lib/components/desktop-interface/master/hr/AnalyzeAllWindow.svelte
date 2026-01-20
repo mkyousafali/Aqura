@@ -390,20 +390,43 @@
 			const punchTime = txn.punch_time;
 			const punchMinutes = timeToMinutes(punchTime);
 			
-			const prevDateStr = getPreviousDateStr(calendarDate);
-			const prevShift = getApplicableShift(emp.id, prevDateStr);
+			let shiftDate = calendarDate;
+			let status = 'Other';
 			
-			if (prevShift) {
-				const isOverlap = prevShift.is_shift_overlapping_next_day || 
-								 timeToMinutes(prevShift.shift_end_time) < timeToMinutes(prevShift.shift_start_time);
+			// Get the applicable shift for this calendar date
+			const calendarShift = getApplicableShift(emp.id, calendarDate);
+			
+			// CRITICAL: Check if this is a morning punch that belongs to the PREVIOUS day's overnight shift
+			// If punch time is before the current day's shift check-in window starts, it might be an early checkout from previous day
+			const calendarShiftStartMinutes = calendarShift ? timeToMinutes(calendarShift.shift_start_time) : 24 * 60;
+			const calendarShiftStartBuffer = calendarShift ? (calendarShift.shift_start_buffer || 0) * 60 : 0;
+			const calendarCheckInStart = calendarShiftStartMinutes - calendarShiftStartBuffer;
+			
+			if (punchMinutes < calendarCheckInStart) {  // Before current day's shift check-in window
+				const prevDateStr = getPreviousDateStr(calendarDate);
+				const prevShift = getApplicableShift(emp.id, prevDateStr);
 				
-				if (isOverlap) {
-					const shiftEndMinutes = timeToMinutes(prevShift.shift_end_time);
-					const endBufferMinutes = (prevShift.shift_end_buffer || 0) * 60;
-					const checkOutEnd = shiftEndMinutes + endBufferMinutes;
+				if (prevShift) {
+					const prevShiftEndMinutes = timeToMinutes(prevShift.shift_end_time);
+					const prevShiftStartMinutes = timeToMinutes(prevShift.shift_start_time);
+					const isOvernightPrevShift = prevShiftEndMinutes < prevShiftStartMinutes;
 					
-					if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
-						return { ...txn, shiftDate: prevDateStr, calendarDate };
+					// If previous shift is overnight (ends after it starts in time, meaning crosses midnight)
+					if (isOvernightPrevShift) {
+						const prevEndBufferMinutes = (prevShift.shift_end_buffer || 0) * 60;
+						const prevCheckOutStart = prevShiftEndMinutes - prevEndBufferMinutes;
+						const prevCheckOutEnd = prevShiftEndMinutes + prevEndBufferMinutes;
+						
+						// Adjust for negative (midnight crossing)
+						const adjustedCheckOutEnd = prevCheckOutEnd < 0 ? prevCheckOutEnd + (24 * 60) : prevCheckOutEnd;
+						
+						// Check if this punch is in the previous shift's checkout window
+						if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
+							// This is an early morning checkout for the PREVIOUS day's shift
+							shiftDate = prevDateStr;
+							status = 'Check Out';
+							return { ...txn, calendarDate, shiftDate, status };
+						}
 					}
 				}
 			}
@@ -433,36 +456,49 @@
 				const checkOutEnd = shiftEndMinutes + endBufferMinutes;
 
 				if (isOvernightShift) {
-					// For overnight shifts (e.g., 8 PM - 8 AM)
+					// For overnight shifts (e.g., 4 PM - 12 AM with wrapping checkout window)
+					// Check-in window: shift_start ± buffer (e.g., 4 PM ± 3h = 1 PM to 7 PM)
 					if (punchMinutes >= checkInStart && punchMinutes <= checkInEnd) {
 						// Evening check-in window (within shift start ± buffer)
 						status = 'Check In';
 						finalShiftDate = t.shiftDate;
-				} else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
-					// Morning check-out window (5 AM to 11 AM for 8 AM end time)
-					status = 'Check Out';
-					// Early morning checkouts belong to the PREVIOUS shift (started yesterday)
-					finalShiftDate = getPreviousDateStr(t.shiftDate);
-				} else if (checkOutStart < 0) {
-					// Midnight crossing: if checkOutStart is negative, it means the window includes early morning
-					const adjustedCheckOutStart = checkOutStart + (24 * 60);
-					const adjustedCheckOutEnd = checkOutEnd + (24 * 60);
-					// Early morning (0:00 to late morning)
-					if (punchMinutes >= 0 && punchMinutes <= adjustedCheckOutEnd) {
-						status = 'Check Out';
-						finalShiftDate = getPreviousDateStr(t.shiftDate);
+					} 
+					// For overnight shifts ending at/near midnight:
+					// If shift_end is 00:00 (midnight) with 3h buffer:
+					//   checkOutStart = 0 - 180 = -180 (21:00 previous day)
+					//   checkOutEnd = 0 + 180 = 180 (03:00 next day)
+					// Both evening (21:00-23:59) and early morning (00:00-03:00) are valid checkout times on THIS calendar date
+					else if (checkOutStart < 0) {
+						// Shift ends at or near midnight - checkout window wraps around
+						const adjustedCheckOutStart = checkOutStart + (24 * 60); // Convert negative to evening time
+						
+						// Case 1: Early morning punch (00:00 to 03:00) = checkout for this shift
+						if (punchMinutes >= 0 && punchMinutes <= checkOutEnd) {
+							status = 'Check Out';
+							finalShiftDate = t.shiftDate; // FIXED: Keep on same calendar date
+						}
+						// Case 2: Evening punch (21:00 to 23:59) = checkout for this shift
+						else if (punchMinutes >= adjustedCheckOutStart && punchMinutes < (24 * 60)) {
+							status = 'Check Out';
+							finalShiftDate = t.shiftDate;
+						}
+						// Case 3: In progress
+						else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
+							status = 'In Progress';
+							finalShiftDate = t.shiftDate;
+						} else {
+							status = 'Other';
+							finalShiftDate = t.shiftDate;
+						}
 					}
-					// In progress
-					else if (punchMinutes > checkInEnd && punchMinutes < adjustedCheckOutStart) {
-						status = 'In Progress';
+					// Checkout window doesn't cross midnight (normal overnight case)
+					else if (punchMinutes >= checkOutStart && punchMinutes <= checkOutEnd) {
+						status = 'Check Out';
 						finalShiftDate = t.shiftDate;
-					} else {
+					}
+					else {
 						status = 'Other';
 						finalShiftDate = t.shiftDate;
-					}
-				} else {
-					status = 'Other';
-					finalShiftDate = t.shiftDate;
 					}
 				} else {
 					// Normal shift (e.g., 9 AM - 6 PM)
@@ -508,14 +544,46 @@
 				totalUnapprovedDaysOff++;
 			} else {
 				// DEDUPLICATION: Keep only the last punch per status type
-				const shiftDateStatusMap: { [key: string]: any } = {};
-				allTransactions.forEach(txn => {
-					const key = `${txn.shiftDate}-${txn.status}`;
-					if (!shiftDateStatusMap[key] || new Date(txn.created_at) > new Date(shiftDateStatusMap[key].created_at)) {
-						shiftDateStatusMap[key] = txn;
-					}
-				});
-				const filteredTransactions = Object.values(shiftDateStatusMap);
+				// BUT: If there are multiple punches of the same status and NO complementary punch exists,
+				// keep all of them so they can be paired together (e.g., two Check Ins can become check-in/check-out)
+				const allCheckIns = allTransactions.filter(t => t.status === 'Check In');
+				const allCheckOuts = allTransactions.filter(t => t.status === 'Check Out');
+				const allOthers = allTransactions.filter(t => t.status !== 'Check In' && t.status !== 'Check Out');
+				
+				let filteredTransactions: any[] = [];
+				
+				// If we have multiple Check Ins but NO Check Outs, keep all Check Ins (they can be paired together)
+				if (allCheckIns.length >= 2 && allCheckOuts.length === 0) {
+					filteredTransactions.push(...allCheckIns);
+				} else if (allCheckIns.length > 0) {
+					// Normal case: deduplicate check-ins, keep latest
+					const checkInMap: { [key: string]: any } = {};
+					allCheckIns.forEach(txn => {
+						const key = `${txn.shiftDate}-${txn.calendarDate}`;
+						if (!checkInMap[key] || new Date(txn.created_at) > new Date(checkInMap[key].created_at)) {
+							checkInMap[key] = txn;
+						}
+					});
+					filteredTransactions.push(...Object.values(checkInMap));
+				}
+				
+				// If we have multiple Check Outs but NO Check Ins, keep all Check Outs (they can be paired together)
+				if (allCheckOuts.length >= 2 && allCheckIns.length === 0) {
+					filteredTransactions.push(...allCheckOuts);
+				} else if (allCheckOuts.length > 0) {
+					// Normal case: deduplicate check-outs, keep latest
+					const checkOutMap: { [key: string]: any } = {};
+					allCheckOuts.forEach(txn => {
+						const key = `${txn.shiftDate}-${txn.calendarDate}`;
+						if (!checkOutMap[key] || new Date(txn.created_at) > new Date(checkOutMap[key].created_at)) {
+							checkOutMap[key] = txn;
+						}
+					});
+					filteredTransactions.push(...Object.values(checkOutMap));
+				}
+				
+				// Keep all "In Progress" and "Other" transactions
+				filteredTransactions.push(...allOthers);
 
 				// Sort by punch time
 				filteredTransactions.sort((a, b) => {
@@ -528,22 +596,48 @@
 				const checkOutTransactions = filteredTransactions.filter(t => t.status === 'Check Out');
 				const otherTransactions = filteredTransactions.filter(t => t.status !== 'Check In' && t.status !== 'Check Out');
 
-				// Pair Check-In with Check-Out: min(checkIns.length, checkOuts.length) pairs
+				// Pair Check-In with Check-Out
 				const pairs = [];
-				const pairCount = Math.min(checkInTransactions.length, checkOutTransactions.length);
-
-				for (let i = 0; i < pairCount; i++) {
-					pairs.push({ in: checkInTransactions[i], out: checkOutTransactions[i] });
+				
+				// Special case: If we have multiple Check Ins but NO Check Outs, pair them together
+				if (checkInTransactions.length >= 2 && checkOutTransactions.length === 0) {
+					// Pair consecutive check-ins: first is check-in, second is check-out
+					for (let i = 0; i < checkInTransactions.length - 1; i += 2) {
+						pairs.push({ in: checkInTransactions[i], out: checkInTransactions[i + 1] });
+					}
+					// If odd number, last one is incomplete
+					if (checkInTransactions.length % 2 === 1) {
+						pairs.push({ in: checkInTransactions[checkInTransactions.length - 1], out: null });
+					}
 				}
-
-				// Leftover Check-Ins (missing checkout)
-				for (let i = pairCount; i < checkInTransactions.length; i++) {
-					pairs.push({ in: checkInTransactions[i], out: null });
+				// Special case: If we have multiple Check Outs but NO Check Ins, pair them together
+				else if (checkOutTransactions.length >= 2 && checkInTransactions.length === 0) {
+					// Pair consecutive check-outs: first is check-in, second is check-out
+					for (let i = 0; i < checkOutTransactions.length - 1; i += 2) {
+						pairs.push({ in: checkOutTransactions[i], out: checkOutTransactions[i + 1] });
+					}
+					// If odd number, last one is incomplete
+					if (checkOutTransactions.length % 2 === 1) {
+						pairs.push({ in: null, out: checkOutTransactions[checkOutTransactions.length - 1] });
+					}
 				}
+				// Normal case: pair Check Ins with Check Outs
+				else {
+					const pairCount = Math.min(checkInTransactions.length, checkOutTransactions.length);
 
-				// Leftover Check-Outs (missing checkin)
-				for (let i = pairCount; i < checkOutTransactions.length; i++) {
-					pairs.push({ in: null, out: checkOutTransactions[i] });
+					for (let i = 0; i < pairCount; i++) {
+						pairs.push({ in: checkInTransactions[i], out: checkOutTransactions[i] });
+					}
+
+					// Leftover Check-Ins (missing checkout)
+					for (let i = pairCount; i < checkInTransactions.length; i++) {
+						pairs.push({ in: checkInTransactions[i], out: null });
+					}
+
+					// Leftover Check-Outs (missing checkin)
+					for (let i = pairCount; i < checkOutTransactions.length; i++) {
+						pairs.push({ in: null, out: checkOutTransactions[i] });
+					}
 				}
 
 				// Add other transactions as incomplete pairs
@@ -597,7 +691,7 @@
 		}
 
 		let actualWorkedDaysCount = 0;
-		Object.values(dayByDay).forEach(d => {
+		(Object.values(dayByDay) as { workedMins: number; status: string; lateMins: number; underMins: number }[]).forEach(d => {
 			if (d.workedMins > 0) actualWorkedDaysCount++;
 		});
 
@@ -625,9 +719,9 @@
 	}
 
 	function formatMinutes(mins: number): string {
-		const h = Math.floor(mins / 60);
-		const m = mins % 60;
-		return `${h}h ${m}m`;
+		const hours = Math.floor(mins / 60);
+		const minutes = mins % 60;
+		return `${hours}${$t('common.h')} ${minutes}${$t('common.m')}`;
 	}
 
 	function formatTime12Hour(timeString: string | null): string {
@@ -794,12 +888,12 @@
 													{formatMinutes(row.dayByDay[date].workedMins)}
 												</div>
 												{#if row.dayByDay[date].lateMins > 0}
-													<div class="text-[8px] text-amber-700 font-bold">L: {row.dayByDay[date].lateMins}m</div>
+													<div class="text-[8px] text-amber-700 font-bold">{$t('hr.processFingerprint.late_abbr')}: {formatMinutes(row.dayByDay[date].lateMins)}</div>
 												{/if}
 											{:else}
 												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>
 											{#if row.dayByDay[date].lateMins > 0}
-													<div class="text-[8px] text-amber-700 font-bold">L: {row.dayByDay[date].lateMins}m</div>
+													<div class="text-[8px] text-amber-700 font-bold">{$t('hr.processFingerprint.late_abbr')}: {formatMinutes(row.dayByDay[date].lateMins)}</div>
 												{/if}
 											{/if}
 										</div>
