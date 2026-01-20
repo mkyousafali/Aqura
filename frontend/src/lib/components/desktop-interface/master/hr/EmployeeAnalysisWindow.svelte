@@ -1653,15 +1653,19 @@
 						{@const isSpecific = isSpecificDayOff(pair.checkInDate)}
 						{@const dayOff = isSpecific ? getSpecificDayOff(pair.checkInDate) : null}
 						{@const isApproved = isOfficial || (isSpecific && dayOff?.approval_status === 'approved')}
-						{@const isUnapprovedLeave = !isApproved}
+						{@const isPending = isSpecific && (!dayOff?.approval_status || dayOff?.approval_status === 'pending')}
+						{@const isRejected = isSpecific && dayOff?.approval_status === 'rejected'}
+						{@const isUnapprovedLeave = !isApproved && !isPending && !isRejected}
 						<div class="border border-slate-300 rounded-lg overflow-hidden 
 							{(isUnapprovedLeave && !isSpecific) ? 'bg-red-50' : 
 							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' : 
-							 (isSpecific ? 'bg-orange-50' : 'bg-slate-50')}">
+							 (isPending ? 'bg-amber-50' :
+							 (isRejected ? 'bg-rose-50' : 'bg-slate-50'))}}">
 							<div class="px-4 py-2 font-bold flex items-center justify-between 
 								{isOfficial ? 'bg-red-600' : 
 								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : 
-								 isSpecific ? 'bg-orange-400' : 
+								 isPending ? 'bg-amber-500' :
+								 isRejected ? 'bg-rose-600' :
 								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
 								<span>{pair.checkInDate}</span>
 								<div class="flex gap-2">
@@ -1696,11 +1700,11 @@
 										</div>
 									{/if}
 									{#if !isOfficial && !isSpecific && isUnapprovedLeave}
-										<span class="px-3 py-1 bg-red-700 rounded-full text-sm font-semibold">{$t('hr.shift.unapproved_leave')}</span>
+										<span class="px-3 py-1 bg-gray-700 rounded-full text-sm font-semibold">{$t('hr.processFingerprint.status_absent')}</span>
 									{/if}
 								</div>
 							</div>
-							<div class="px-4 py-6 text-center text-sm {isUnapprovedLeave ? 'text-red-600 font-semibold' : 'text-slate-500'}">
+							<div class="px-4 py-6 text-center text-sm {isUnapprovedLeave ? 'text-gray-600 font-semibold' : 'text-slate-500'}">
 								{#if isUnapprovedLeave}
 									{$t('hr.processFingerprint.no_checkin_checkout_recorded')}
 								{:else}
@@ -1727,8 +1731,16 @@
 										<span class="px-3 py-1 bg-red-500 rounded-full text-sm font-semibold">{$t('hr.shift.official_day_off')}</span>
 									{/if}
 									{#if isSpecific}
-										<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? 'bg-green-600' : 'bg-red-700'} rounded-full text-sm font-semibold">
-											{$t(dayOff?.approval_status === 'approved' ? 'hr.shift.approved_leave' : 'hr.shift.unapproved_leave')}
+										<span class="px-3 py-1 {dayOff?.approval_status === 'approved' ? (dayOff?.is_deductible_on_salary ? 'bg-purple-600' : 'bg-green-600') : dayOff?.approval_status === 'pending' ? 'bg-amber-600' : dayOff?.approval_status === 'rejected' ? 'bg-red-700' : 'bg-red-700'} rounded-full text-sm font-semibold">
+											{#if dayOff?.approval_status === 'approved'}
+												{$t(dayOff?.is_deductible_on_salary ? 'hr.processFingerprint.status_approved_leave_deductible' : 'hr.processFingerprint.status_approved_leave_no_deduction')}
+											{:else if dayOff?.approval_status === 'pending'}
+												{$t('hr.processFingerprint.status_pending_approval')}
+											{:else if dayOff?.approval_status === 'rejected'}
+												{$t(dayOff?.is_deductible_on_salary ? 'hr.processFingerprint.status_rejected_deducted' : 'hr.processFingerprint.status_rejected_not_deducted')}
+											{:else}
+												{$t('hr.shift.unapproved_leave')}
+											{/if}
 											{#if dayOff?.day_off_reasons}
 												: {$locale === 'ar' ? (dayOff.day_off_reasons.reason_ar || dayOff.day_off_reasons.reason_en) : (dayOff.day_off_reasons.reason_en || dayOff.day_off_reasons.reason_ar)}
 											{/if}

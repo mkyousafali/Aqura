@@ -94,6 +94,32 @@
         sponsorship_status?: string;
     }
 
+    // Update deduction status for a day off
+    async function updateDayOffDeduction(dayOffId: string, isDeductible: boolean) {
+        try {
+            const { error } = await supabase
+                .from('day_off')
+                .update({ is_deductible_on_salary: isDeductible })
+                .eq('id', dayOffId);
+
+            if (error) throw error;
+
+            // Update local state
+            dayOffs = dayOffs.map(d => 
+                d.id === dayOffId ? { ...d, is_deductible_on_salary: isDeductible } : d
+            );
+
+            showSuccessNotification(
+                isDeductible ? 
+                    $t('hr.shift.deduction_enabled') : 
+                    $t('hr.shift.deduction_disabled')
+            );
+        } catch (err: any) {
+            console.error('Error updating deduction status:', err);
+            showErrorNotification($t('hr.shift.deduction_update_error'));
+        }
+    }
+
     interface DayOffReason {
         id: string;
         reason_en: string;
@@ -107,7 +133,7 @@
     let employeesForDateWiseSelection: EmployeeForSelection[] = [];
     let allEmployeesForDateWise: EmployeeForSelection[] = [];
     let dateWiseShifts: (EmployeeShift & {shift_date?: string})[] = [];
-    let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string})[] = [];
+    let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string, is_deductible_on_salary?: boolean})[] = [];
     let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
     let dayOffReasons: DayOffReason[] = [];
     let loading = false;
@@ -158,6 +184,10 @@
     let dayOffWeekdayBranchFilter = '';
     let dayOffWeekdayNationalityFilter = '';
     let dayOffWeekdayEmploymentStatusFilter = '';
+    let specialDateFilterStart = '';
+    let specialDateFilterEnd = '';
+    let dayOffFilterStart = '';
+    let dayOffFilterEnd = '';
     let availableBranches: Branch[] = [];
     let availableNationalities: Nationality[] = [];
     
@@ -301,6 +331,8 @@
         { id: 'Special Shift (date-wise)', label: $t('hr.shift.tabs.special_date'), icon: '📆', color: 'orange' },
         { id: 'Leave (date-wise)', label: $t('hr.shift.tabs.day_off_date'), icon: '🏖️', color: 'green' },
         { id: 'Leave (weekday-wise)', label: $t('hr.shift.tabs.day_off_weekday'), icon: '📋', color: 'green' },
+        { id: 'Time Off (Hours)', label: 'Time Off (Hours)', icon: '⏱️', color: 'purple' },
+        { id: 'Early Leave', label: 'Early Leave', icon: '🚪', color: 'red' },
         { id: 'Leave Reasons', label: $t('hr.shift.tabs.day_off_reasons'), icon: '📌', color: 'blue' }
     ];
 
@@ -319,12 +351,12 @@
             await loadEmployeeShiftData();
         } else if (activeTab === 'Special Shift (weekday-wise)') {
             await loadSpecialShiftWeekdayData();
-        } else if (activeTab === 'Special Shift (date-wise)') {
-            await loadSpecialShiftDateWiseData();
-        } else if (activeTab === 'Leave (date-wise)') {
-            await loadDayOffData();
         } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
+        } else if (activeTab === 'Time Off (Hours)') {
+            // Future logic
+        } else if (activeTab === 'Early Leave') {
+            // Future logic
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
@@ -369,11 +401,21 @@
         } else if (activeTab === 'Special Shift (weekday-wise)') {
             await loadSpecialShiftWeekdayData();
         } else if (activeTab === 'Special Shift (date-wise)') {
+            const dateRange = getDefaultDateRange();
+            specialDateFilterStart = dateRange.start;
+            specialDateFilterEnd = dateRange.end;
             await loadSpecialShiftDateWiseData();
         } else if (activeTab === 'Leave (date-wise)') {
+            const dateRange = getDefaultDateRange();
+            dayOffFilterStart = dateRange.start;
+            dayOffFilterEnd = dateRange.end;
             await loadDayOffData();
         } else if (activeTab === 'Leave (weekday-wise)') {
             await loadDayOffWeekdayData();
+        } else if (activeTab === 'Time Off (Hours)') {
+            // Placeholder: Time Off (Hours) logic to be added
+        } else if (activeTab === 'Early Leave') {
+            // Placeholder: Early Leave logic to be added
         } else if (activeTab === 'Leave Reasons') {
             await loadDayOffReasons();
         }
@@ -672,6 +714,8 @@
             const { data: shifts, error: shiftError } = await supabase
                 .from('special_shift_date_wise')
                 .select('*')
+                .gte('shift_date', specialDateFilterStart)
+                .lte('shift_date', specialDateFilterEnd)
                 .order('shift_date', { ascending: false });
 
             if (shiftError && shiftError.code !== 'PGRST116') throw shiftError; // 404 is OK
@@ -850,6 +894,8 @@
             const { data: dayOffData, error: dayOffError } = await supabase
                 .from('day_off')
                 .select('*,day_off_reasons(*)')
+                .gte('day_off_date', dayOffFilterStart)
+                .lte('day_off_date', dayOffFilterEnd)
                 .order('day_off_date', { ascending: false });
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError; // 404 is OK
@@ -889,7 +935,8 @@
                     reason_en: dayOff.day_off_reasons?.reason_en || 'N/A',
                     reason_ar: dayOff.day_off_reasons?.reason_ar || 'N/A',
                     document_url: dayOff.document_url,
-                    description: dayOff.description || null
+                    description: dayOff.description || null,
+                    is_deductible_on_salary: dayOff.is_deductible_on_salary || false
                 };
                 
                 if (dayOff.description) {
@@ -1107,27 +1154,31 @@
         dayOffWeekdayNationalityFilter = '';
         dayOffWeekdayEmploymentStatusFilter = '';
         showModal = false;
-        showDeleteModal = false;
-        showEmployeeSelectModal = false;
-        showDayOffEmployeeSelectModal = false;
-        showDayOffWeekdayEmployeeSelectModal = false;
-        isRangeSpecialShift = false;
-        selectedEmployeeId = null;
-        employeeSearchQuery = '';
-        selectedDayOffDate = new Date().toISOString().split('T')[0];
-        selectedDayOffWeekday = 0;
+    }
 
-        if (activeTab === 'Regular Shift') {
-            loadEmployeeShiftData();
-        } else if (activeTab === 'Special Shift (weekday-wise)') {
-            loadSpecialShiftWeekdayData();
-        } else if (activeTab === 'Special Shift (date-wise)') {
-            loadSpecialShiftDateWiseData();
-        } else if (activeTab === 'Leave (date-wise)') {
-            loadDayOffData();
-        } else if (activeTab === 'Leave (weekday-wise)') {
-            loadDayOffWeekdayData();
-        }
+    function getDefaultDateRange() {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth();
+        
+        // Start date: 25th of previous month
+        const startDate = new Date(currentYear, currentMonth - 1, 25);
+        
+        // End date: 24th of current month
+        const endDate = new Date(currentYear, currentMonth, 24);
+        
+        // Format as YYYY-MM-DD using local time
+        const formatDate = (date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        
+        return {
+            start: formatDate(startDate),
+            end: formatDate(endDate)
+        };
     }
 
     function openModal(employeeId: string) {
@@ -2743,6 +2794,39 @@
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
                             />
                         </div>
+
+                        <!-- Date Range Selection -->
+                        <div class="flex gap-2">
+                            <div class="w-36">
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-start-date">{$t('hr.startDate')}</label>
+                                <input 
+                                    type="date" 
+                                    id="spec-d-start-date"
+                                    bind:value={specialDateFilterStart}
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                                />
+                            </div>
+                            <div class="w-36">
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="spec-d-end-date">{$t('hr.endDate')}</label>
+                                <input 
+                                    type="date" 
+                                    id="spec-d-end-date"
+                                    bind:value={specialDateFilterEnd}
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Load Button -->
+                        <div class="self-end pb-0.5">
+                            <button 
+                                on:click={loadSpecialShiftDateWiseData}
+                                class="px-6 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-200 transition-all flex items-center gap-2 h-[42px]"
+                            >
+                                <span class="text-sm">🔄</span>
+                                Load Data
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Special Shift Date-wise Container -->
@@ -2936,6 +3020,39 @@
                                 class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                             />
                         </div>
+
+                        <!-- Date Range Selection -->
+                        <div class="flex gap-2">
+                            <div class="w-36">
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-start-date">{$t('hr.startDate')}</label>
+                                <input 
+                                    type="date" 
+                                    id="do-d-start-date"
+                                    bind:value={dayOffFilterStart}
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                />
+                            </div>
+                            <div class="w-36">
+                                <label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide" for="do-d-end-date">{$t('hr.endDate')}</label>
+                                <input 
+                                    type="date" 
+                                    id="do-d-end-date"
+                                    bind:value={dayOffFilterEnd}
+                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                />
+                            </div>
+                        </div>
+
+                        <!-- Load Button -->
+                        <div class="self-end pb-0.5">
+                            <button 
+                                on:click={loadDayOffData}
+                                class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all flex items-center gap-2 h-[42px]"
+                            >
+                                <span class="text-sm">🔄</span>
+                                Load Data
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Leave Container -->
@@ -2977,6 +3094,7 @@
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">📝 {$t('common.description') || 'Description'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.document') || 'Document'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.status')}</th>
+                                            <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">💰 {$t('hr.shift.deduction') || 'Deduction'}</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
@@ -3025,6 +3143,16 @@
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold {getApprovalStatusDisplay(dayOff.approval_status).color}">
                                                         {getApprovalStatusDisplay(dayOff.approval_status).text}
                                                     </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm text-center">
+                                                    <label class="inline-flex items-center cursor-pointer" title={$t('hr.shift.toggle_deduction') || 'Toggle Deduction'}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={dayOff.is_deductible_on_salary || false}
+                                                            on:change={(e) => updateDayOffDeduction(dayOff.id, e.currentTarget.checked)}
+                                                            class="w-5 h-5 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer"
+                                                        />
+                                                    </label>
                                                 </td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <div class="flex items-center justify-center gap-2">

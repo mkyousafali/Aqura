@@ -671,13 +671,13 @@ export class NotificationManagementService {
   async markAllAsRead(userId: string): Promise<{ success: boolean }> {
     try {
       // Get only notifications targeted to this specific user via notification_recipients
+      // Remove limit to get ALL notifications for the user, not just first 100
       const { data: recipients, error: fetchError } = await supabase
         .from("notification_recipients")
         .select("notification_id, notifications!inner(status)")
         .eq("user_id", userId)
         .eq("notifications.status", "published")
-        .order("created_at", { ascending: false, foreignTable: "notifications" })
-        .limit(100);
+        .order("created_at", { ascending: false, foreignTable: "notifications" });
 
       if (fetchError) {
         throw fetchError;
