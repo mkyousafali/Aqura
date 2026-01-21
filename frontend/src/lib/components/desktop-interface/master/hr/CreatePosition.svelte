@@ -16,8 +16,7 @@
 		nameAr: '',
 		nameEn: '',
 		departmentId: '',
-		levelId: '',
-		description: ''
+		levelId: ''
 	};
 
 	// Data arrays from database
@@ -84,7 +83,6 @@
 			const positionData = {
 				position_title_ar: formData.nameAr.trim(),
 				position_title_en: formData.nameEn.trim(),
-				description: formData.description.trim(),
 				department_id: formData.departmentId,
 				level_id: formData.levelId
 			};
@@ -104,7 +102,7 @@
 					
 					isEditing = false;
 					editingId = null;
-					formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '', description: '' };
+					formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '' };
 				}
 			} else {
 				// Create new position
@@ -116,7 +114,7 @@
 				} else {
 					// Add to local state
 					positions = [...positions, data];
-					formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '', description: '' };
+					formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '' };
 				}
 			}
 		} catch (error) {
@@ -133,7 +131,6 @@
 		formData = {
 			nameAr: position.position_title_ar,
 			nameEn: position.position_title_en,
-			description: position.description || '',
 			departmentId: position.department_id,
 			levelId: position.level_id
 		};
@@ -142,7 +139,7 @@
 	function cancelEdit() {
 		isEditing = false;
 		editingId = null;
-		formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '', description: '' };
+		formData = { nameAr: '', nameEn: '', departmentId: '', levelId: '' };
 	}
 
 	async function deletePosition(id) {
@@ -273,16 +270,6 @@
 							{/each}
 						</select>
 					</div>
-					<div class="form-group span-2">
-						<label for="description">Description</label>
-						<textarea
-							id="description"
-							bind:value={formData.description}
-							placeholder="Position responsibilities and requirements"
-							disabled={isLoading}
-							rows="3"
-						></textarea>
-					</div>
 				</div>
 
 				<!-- Error Message -->
@@ -341,7 +328,6 @@
 								<th>Position Name</th>
 								<th>Department</th>
 								<th>Level</th>
-								<th>Description</th>
 								<th>Created Date</th>
 								<th>Actions</th>
 							</tr>
@@ -365,9 +351,6 @@
 											<div class="level-en">{getLevelName(position.level_id)}</div>
 											<div class="level-ar">{getLevelNameAr(position.level_id)}</div>
 										</div>
-									</td>
-									<td class="description-cell">
-										{position.description || 'No description'}
 									</td>
 									<td class="date-cell">{formatDate(position.created_at)}</td>
 									<td>

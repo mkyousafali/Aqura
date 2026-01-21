@@ -35,7 +35,7 @@
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data } = await supabase
 				.from('branches')
-				.select('id, name_en')
+				.select('id, name_en, location_en')
 				.eq('is_active', true)
 				.order('name_en', { ascending: true });
 			branches = data || [];
@@ -161,18 +161,32 @@
 
 			expenseLoadingPercent = 25;
 
-			const { data, error } = await supabase
-				.from('expense_scheduler')
-				.select('id, description, amount, due_date, is_paid, payment_method')
-				.lte('due_date', dueDateLimit)
-				.eq('is_paid', false)
-				.order('due_date', { ascending: true })
-				.limit(1000);
+		const { data: expenseSchedules, error } = await supabase
+			.from('expense_scheduler')
+			.select('id, description, amount, due_date, is_paid, payment_method, branch_id')
+			.lte('due_date', dueDateLimit)
+			.eq('is_paid', false)
+			.order('due_date', { ascending: true })
+			.limit(1000);
+
+		expenseLoadingPercent = 50;
+
+		if (!error && expenseSchedules && expenseSchedules.length > 0) {
+			const branchIds = [...new Set(expenseSchedules.map(e => e.branch_id))];
+			const { data: branches } = await supabase
+				.from('branches')
+				.select('id, name_en')
+				.in('id', branchIds);
 
 			expenseLoadingPercent = 75;
 
-			if (!error && data) {
-				expenseData = data.filter(row => parseFloat(row.amount) >= 0.01);
+			const branchMap = new Map(branches?.map(b => [b.id, b.name_en]) || []);
+			expenseData = expenseSchedules
+				.filter(row => parseFloat(row.amount) >= 0.01)
+				.map(row => ({
+					...row,
+					branch_name: branchMap.get(row.branch_id) || 'N/A'
+				}));
 				filteredExpenseData = expenseData;
 				expenseLoadingPercent = 100;
 				showExpenseTable = true;
@@ -350,7 +364,7 @@
 						<select id="vendor-branch" bind:value={selectedVendorBranch} class="filter-select">
 							<option value={null}>All Branches</option>
 							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en}</option>
+								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
 							{/each}
 						</select>
 					</div>
@@ -424,7 +438,7 @@
 						<select id="expense-branch" bind:value={selectedExpenseBranch} class="filter-select">
 							<option value={null}>All Branches</option>
 							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en}</option>
+								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
 							{/each}
 						</select>
 					</div>
@@ -434,6 +448,7 @@
 						<thead>
 							<tr>
 								<th>Description</th>
+								<th>Branch</th>
 								<th>Amount</th>
 								<th>Due Date</th>
 								<th>Payment Method</th>
@@ -444,6 +459,7 @@
 						{#each filteredExpenseData as row (row.id)}
 							<tr>
 						<td>{row.description || 'N/A'}</td>
+						<td>{row.branch_name || 'N/A'}</td>
 						<td>{formatCurrency(row.amount || 0)}</td>
 						<td class="editable-cell" on:dblclick={() => {
 							editingExpenseId = row.id;

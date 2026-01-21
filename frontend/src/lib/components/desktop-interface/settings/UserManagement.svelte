@@ -189,8 +189,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<div class="filters">
 					<select bind:value={branchFilter} class="filter-select">
 						<option value="">All Branches</option>
-						{#each uniqueBranches as branch}
-							<option value={branch.id.toString()}>{branch.name}</option>
+						{#each branches as branch}
+							<option value={branch.id.toString()}>{branch.name_en} - {branch.location_en}</option>
 						{/each}
 					</select>
 					<select bind:value={statusFilter} class="filter-select">
