@@ -34,10 +34,16 @@
 	let showEditModal = false;
 	let editingExpense: any = null;
 	let editForm = {
+		branch_id: '',
 		category: '',
 		bill_type: '',
 		description: '',
-		due_date: ''
+		due_date: '',
+		bill_date: '',
+		amount: '',
+		payment_method: '',
+		is_paid: false,
+		bill_number: ''
 	};
 
 	// Real-time subscriptions
@@ -341,6 +347,29 @@
 		}
 	}
 
+	async function loadAll() {
+		if (loadingMore) return;
+		loadingMore = true;
+		try {
+			console.log('📥 Loading all expenses...');
+			
+			// Load all remaining data
+			const { data, error: fetchError } = await buildQuery();
+
+			if (fetchError) throw fetchError;
+
+			console.log('✅ Loaded all expenses:', data?.length || 0);
+			const allExpenses = (data || []).filter(exp => exp.amount && Number(exp.amount) !== 0);
+			expenses = allExpenses;
+			filteredExpenses = expenses;
+			totalExpenses = expenses.length;
+		} catch (err: any) {
+			console.error('❌ Error loading all expenses:', err);
+		} finally {
+			loadingMore = false;
+		}
+	}
+
 	function resetFilters() {
 		searchTerm = '';
 		filterBranch = '';
@@ -406,12 +435,18 @@
 		console.log('📝 Opening edit modal with expense:', expense);
 		console.log('📝 Bill type from DB:', expense.bill_type);
 		editForm = {
+			branch_id: expense.branch_id?.toString() || '',
 			category: expense.expense_category_name_en || '',
 			bill_type: expense.bill_type || '',
 			description: expense.description || '',
-			due_date: expense.due_date || ''
+			due_date: expense.due_date || '',
+			bill_date: expense.bill_date || '',
+			amount: expense.amount?.toString() || '',
+			payment_method: expense.payment_method || '',
+			is_paid: expense.is_paid || false,
+			bill_number: expense.bill_number || ''
 		};
-		console.log('📝 Edit form:', editForm);
+		console.log('📝 Edit form initialized:', editForm);
 		showEditModal = true;
 	}
 
@@ -427,10 +462,16 @@
 			const { error: updateError } = await supabase
 				.from('expense_scheduler')
 				.update({
+					branch_id: editForm.branch_id ? Number(editForm.branch_id) : null,
 					expense_category_name_en: editForm.category,
 					bill_type: editForm.bill_type,
 					description: editForm.description,
-					due_date: editForm.due_date
+					due_date: editForm.due_date,
+					bill_date: editForm.bill_date,
+					amount: editForm.amount ? Number(editForm.amount) : null,
+					payment_method: editForm.payment_method,
+					is_paid: editForm.is_paid,
+					bill_number: editForm.bill_number
 				})
 				.eq('id', editingExpense.id);
 
@@ -442,10 +483,16 @@
 			if (index >= 0) {
 				expenses[index] = {
 					...expenses[index],
+					branch_id: editForm.branch_id ? Number(editForm.branch_id) : null,
 					expense_category_name_en: editForm.category,
 					bill_type: editForm.bill_type,
 					description: editForm.description,
-					due_date: editForm.due_date
+					due_date: editForm.due_date,
+					bill_date: editForm.bill_date,
+					amount: editForm.amount ? Number(editForm.amount) : null,
+					payment_method: editForm.payment_method,
+					is_paid: editForm.is_paid,
+					bill_number: editForm.bill_number
 				};
 				expenses = [...expenses];
 			}
@@ -666,6 +713,7 @@
 			<table class="expenses-table">
 				<thead>
 					<tr>
+						<th>ID</th>
 						<th>Bill #</th>
 						<th>Branch</th>
 						<th>Category</th>
@@ -683,6 +731,7 @@
 				<tbody>
 					{#each filteredExpenses as expense}
 					<tr>
+						<td class="expense-id">{expense.id}</td>
 						<td class="bill-number">{expense.bill_number || '-'}</td>
 						<td class="branch-name">{expense.branches?.name_en || expense.branch_name || '-'}</td>
 							<td>{expense.expense_category_name_en || '-'}</td>
@@ -702,11 +751,9 @@
 						<td class="description">{expense.description || '-'}</td>
 						<td class="actions">
 							<div class="action-buttons">
-								{#if canEdit}
-									<button class="edit-btn" on:click={() => openEditModal(expense)}>
-										✏️ Edit
-									</button>
-								{/if}
+								<button class="edit-btn" on:click={() => openEditModal(expense)}>
+									✏️ Edit
+								</button>
 								{#if expense.bill_file_url}
 									<button class="view-bill-btn" on:click={() => window.open(expense.bill_file_url, '_blank')}>
 										📄 View Bill
@@ -736,6 +783,14 @@
 				>
 					{loadingMore ? '⏳ Loading...' : `📥 Load More (${expenses.length}/...)`}
 				</button>
+				<button 
+					class="load-all-btn" 
+					on:click={loadAll}
+					disabled={loadingMore}
+					style="opacity: 0.7;"
+				>
+					{loadingMore ? '⏳ Loading...' : '📥 Load All'}
+				</button>
 			{:else if totalExpenses > expenses.length}
 				<button 
 					class="load-more-btn" 
@@ -743,6 +798,13 @@
 					disabled={loadingMore}
 				>
 					{loadingMore ? '⏳ Loading...' : `📥 Load More (${expenses.length}/${totalExpenses})`}
+				</button>
+				<button 
+					class="load-all-btn" 
+					on:click={loadAll}
+					disabled={loadingMore}
+				>
+					{loadingMore ? '⏳ Loading...' : `📥 Load All (${totalExpenses})`}
 				</button>
 			{:else}
 				<p class="all-loaded">✅ All {totalExpenses} expenses loaded</p>
@@ -760,23 +822,84 @@
 				<button class="close-btn" on:click={closeEditModal}>✕</button>
 			</div>
 			<div class="modal-body">
-				<div class="form-group">
-					<label for="category">Category</label>
-					<select id="category" bind:value={editForm.category}>
-						<option value="" disabled>Select Category</option>
-						{#each subCategories as subCategory}
-							<option value="{subCategory.name_en}">{subCategory.name_en}</option>
-						{/each}
-					</select>
+				<div class="form-row">
+					<div class="form-group">
+						<label for="bill_number">Bill Number</label>
+						<input
+							type="text"
+							id="bill_number"
+							bind:value={editForm.bill_number}
+							placeholder="Enter bill number"
+						/>
+					</div>
+					<div class="form-group">
+						<label for="branch">Branch</label>
+						<select id="branch" bind:value={editForm.branch_id}>
+							<option value="" disabled>Select Branch</option>
+							{#each branches as branch}
+								<option value="{branch.id}">{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
+							{/each}
+						</select>
+					</div>
 				</div>
-				<div class="form-group">
-					<label for="bill_type">Bill Type</label>
-					<select id="bill_type" bind:value={editForm.bill_type}>
-						<option value="" disabled>Select Bill Type</option>
-						<option value="vat_applicable">Vat Applicable</option>
-						<option value="no_vat">No Vat</option>
-						<option value="no_bill">No Bill</option>
-					</select>
+				<div class="form-row">
+					<div class="form-group">
+						<label for="category">Category</label>
+						<select id="category" bind:value={editForm.category}>
+							<option value="" disabled>Select Category</option>
+							{#each subCategories as subCategory}
+								<option value="{subCategory.name_en}">{subCategory.name_en}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="form-group">
+						<label for="bill_type">Bill Type</label>
+						<select id="bill_type" bind:value={editForm.bill_type}>
+							<option value="" disabled>Select Bill Type</option>
+							<option value="vat_applicable">Vat Applicable</option>
+							<option value="no_vat">No Vat</option>
+							<option value="no_bill">No Bill</option>
+						</select>
+					</div>
+				</div>
+				<div class="form-row">
+					<div class="form-group">
+						<label for="amount">Amount (SAR)</label>
+						<input
+							type="number"
+							id="amount"
+							bind:value={editForm.amount}
+							placeholder="Enter amount"
+							step="0.01"
+						/>
+					</div>
+					<div class="form-group">
+						<label for="payment_method">Payment Method</label>
+						<input
+							type="text"
+							id="payment_method"
+							bind:value={editForm.payment_method}
+							placeholder="Enter payment method"
+						/>
+					</div>
+				</div>
+				<div class="form-row">
+					<div class="form-group">
+						<label for="bill_date">Bill Date</label>
+						<input
+							type="date"
+							id="bill_date"
+							bind:value={editForm.bill_date}
+						/>
+					</div>
+					<div class="form-group">
+						<label for="due_date">Due Date</label>
+						<input
+							type="date"
+							id="due_date"
+							bind:value={editForm.due_date}
+						/>
+					</div>
 				</div>
 				<div class="form-group">
 					<label for="description">Description</label>
@@ -788,12 +911,13 @@
 					></textarea>
 				</div>
 				<div class="form-group">
-					<label for="due_date">Due Date</label>
-					<input
-						type="date"
-						id="due_date"
-						bind:value={editForm.due_date}
-					/>
+					<label class="checkbox-label">
+						<input
+							type="checkbox"
+							bind:checked={editForm.is_paid}
+						/>
+						<span>Mark as Paid</span>
+					</label>
 				</div>
 			</div>
 			<div class="modal-footer">
@@ -1001,6 +1125,12 @@
 		background: #f8f9fa;
 	}
 
+	.expense-id {
+		font-weight: 600;
+		color: #6c757d;
+		font-size: 12px;
+	}
+
 	.bill-number {
 		font-weight: 600;
 		color: #007bff;
@@ -1150,7 +1280,7 @@
 		background: white;
 		border-radius: 8px;
 		width: 90%;
-		max-width: 500px;
+		max-width: 700px;
 		max-height: 90vh;
 		overflow-y: auto;
 		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -1192,6 +1322,13 @@
 		padding: 20px;
 	}
 
+	.form-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 15px;
+		margin-bottom: 15px;
+	}
+
 	.form-group {
 		margin-bottom: 20px;
 	}
@@ -1204,6 +1341,23 @@
 		font-size: 14px;
 	}
 
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		width: auto;
+		margin: 0;
+		cursor: pointer;
+	}
+
+	.checkbox-label span {
+		font-weight: 500;
+	}
+
 	.form-group input,
 	.form-group select,
 	.form-group textarea {
@@ -1213,6 +1367,7 @@
 		border-radius: 4px;
 		font-size: 14px;
 		font-family: inherit;
+		box-sizing: border-box;
 	}
 
 	.form-group textarea {
@@ -1306,6 +1461,7 @@
 		display: flex;
 		justify-content: center;
 		align-items: center;
+		gap: 12px;
 		padding: 20px;
 		margin: 10px 0;
 		background: #f8f9fa;
@@ -1331,6 +1487,27 @@
 	}
 
 	.load-more-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.load-all-btn {
+		padding: 10px 24px;
+		background: #28a745;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 500;
+		transition: background 0.2s;
+	}
+
+	.load-all-btn:hover:not(:disabled) {
+		background: #218838;
+	}
+
+	.load-all-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}
