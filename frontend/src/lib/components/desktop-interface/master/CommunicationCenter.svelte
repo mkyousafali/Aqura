@@ -23,9 +23,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		// Initial fetch
 		fetchNotificationCounts();
 		// Refresh counts every 30 seconds
-		const interval = setInterval(fetchNotificationCounts, 30000);
+		const interval = setInterval(() => {
+			fetchNotificationCounts();
+		}, 30000);
 		return () => clearInterval(interval);
 	});
+
+	// Reactive statement to fetch counts when user becomes available
+	$: if ($currentUser?.id && $notificationCounts.total === 0 && !$notificationCounts.loading) {
+		console.log('🔄 [CommunicationCenter] User available, fetching notification counts');
+		fetchNotificationCounts();
+	}
 
 	function openNotificationCenter() {
 		const windowId = generateWindowId('notification-center');

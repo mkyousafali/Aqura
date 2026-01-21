@@ -12,11 +12,29 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import AdminReadStatusModal from '$lib/components/desktop-interface/master/communication/AdminReadStatusModal.svelte';
 	import TaskCompletionModal from '$lib/components/desktop-interface/master/tasks/TaskCompletionModal.svelte';
 	import FileDownload from '$lib/components/common/FileDownload.svelte';
+	import { 
+		isPushSupported, 
+		hasActiveSubscription,
+		subscribeToPushNotifications,
+		unsubscribeFromPushNotifications
+	} from '$lib/utils/pushNotifications';
 
 	// Current user for role-based access (check cashier user first, then desktop user)
 	$: activeUser = $cashierUser || $currentUser;
 	$: userRole = activeUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
+
+	// Auto-load notifications when activeUser becomes available (after initial mount)
+	let hasAttemptedInitialLoad = false;
+	$: if (activeUser?.id && allNotifications.length === 0 && !isLoading && hasAttemptedInitialLoad) {
+		console.log('🔄 [Desktop NotificationCenter] Reactive: User available, auto-loading notifications');
+		forceRefreshNotifications();
+	}
+
+	// Push notification state
+	let pushSupported = false;
+	let pushEnabled = false;
+	let pushLoading = false;
 
 	// User cache for displaying usernames
 	let userCache: Record<string, string> = {};
@@ -24,7 +42,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Notification data from API
 	let allNotifications: any[] = [];
 	let previousNotificationIds: Set<string> = new Set();
-	let isLoading = true;
+	let isLoading = false;
 	let errorMessage = '';
 
 	// Image modal
@@ -330,15 +348,56 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Load notifications on mount
 	onMount(async () => {
-		await loadNotifications();
+		console.log('🔔 [Desktop NotificationCenter] onMount called, activeUser:', activeUser?.id);
+		
+		// Check push notification support and status
+		pushSupported = isPushSupported();
+		if (pushSupported && activeUser) {
+			pushEnabled = await hasActiveSubscription();
+		}
+
+		// Force load notifications - use forceRefreshNotifications like mobile
+		console.log('🔔 [Desktop NotificationCenter] Force loading notifications from onMount');
+		await forceRefreshNotifications();
+		
+		// Mark that we've attempted initial load, so reactive statement can work
+		hasAttemptedInitialLoad = true;
 	});
 
+	// Toggle push notifications
+	async function togglePushNotifications() {
+		if (pushLoading || !activeUser) return;
+
+		pushLoading = true;
+		try {
+			if (pushEnabled) {
+				await unsubscribeFromPushNotifications();
+				pushEnabled = false;
+			} else {
+				await subscribeToPushNotifications();
+				pushEnabled = true;
+			}
+		} catch (error) {
+			console.error('Error toggling push notifications:', error);
+			alert('Failed to toggle push notifications');
+		} finally {
+			pushLoading = false;
+		}
+	}
+
 	async function loadNotifications() {
+		// Don't load if user is not available yet
+		if (!activeUser?.id) {
+			console.warn('⚠️ [Desktop NotificationCenter] loadNotifications called but no user available');
+			isLoading = false;
+			return;
+		}
+		
 		try {
 			isLoading = true;
 			errorMessage = '';
 			
-			console.log('🔔 [NotificationCenter] Loading notifications for user:', activeUser);
+			console.log('📥 [Desktop NotificationCenter] Fetching notifications for user:', activeUser?.id);
 			
 			// Store previous notification IDs to detect new ones
 			const previousIds = new Set(allNotifications.map(n => n.id));
@@ -347,7 +406,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				// Admin users can see all notifications with their read states
 				console.log('👑 [NotificationCenter] Loading as admin/master');
 				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
+				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications from API');
 				allNotifications = await transformNotificationData(apiNotifications);
+				console.log('✅ [Desktop NotificationCenter] Transformed to', allNotifications.length, 'notifications');
 			} else if (activeUser?.id) {
 				// Regular users see only their targeted notifications
 				console.log('👤 [NotificationCenter] Loading as regular user');
@@ -436,26 +497,39 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	// Force refresh function that clears cache and reloads notifications
 	async function forceRefreshNotifications() {
 		try {
-			// Clear the current notifications array and user cache
-			allNotifications = [];
-			userCache = {};
 			isLoading = true;
 			errorMessage = '';
 			
-			// Add cache-busting parameter to force fresh data
-			const timestamp = Date.now();
-			console.log('🔄 [NotificationCenter] Force refreshing notifications at:', new Date().toISOString());
+			console.log('🔄 [Desktop NotificationCenter] Force refreshing notifications, user:', activeUser?.id);
+			
+			// Check if user is available
+			if (!activeUser?.id) {
+				console.warn('⚠️ [Desktop NotificationCenter] No user available for force refresh');
+				isLoading = false;
+				return;
+			}
+			
+			// Clear the current notifications array and user cache
+			allNotifications = [];
+			userCache = {};
 			
 			// Force clear any browser cache by adding timestamp to requests
 			if (isAdminOrMaster) {
 				// Force fresh data by bypassing any cache
-				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
+				console.log('👑 [Desktop NotificationCenter] Loading as admin/master');
+				const apiNotifications = await notificationManagement.getAllNotifications(activeUser.id, 0, 30);
+				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications');
+				console.log('🔍 [Desktop NotificationCenter] First notification is_read:', apiNotifications[0]?.is_read);
 				allNotifications = await transformNotificationData(apiNotifications);
+				console.log('✅ [Desktop NotificationCenter] Transformed to', allNotifications.length, 'notifications');
+				console.log('🔍 [Desktop NotificationCenter] First transformed read:', allNotifications[0]?.read);
 				
 				// Load user cache after getting notifications
 				await loadUserCache();
 			} else if (activeUser?.id) {
+				console.log('👤 [Desktop NotificationCenter] Loading as regular user');
 				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
+				console.log('📥 [Desktop NotificationCenter] Received', userNotifications.length, 'notifications');
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -468,35 +542,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					createdBy: notification.created_by_name,
 					attachments: notification.attachments || []
 				}));
+				console.log('✅ [Desktop NotificationCenter] Mapped to', allNotifications.length, 'notifications');
 				
 				// Load user cache after getting notifications
 				await loadUserCache();
 			}
 			
-			// Filter out any notifications that might reference non-existent tasks
-			const validNotifications = [];
-			for (const notification of allNotifications) {
-				if (notification.type === 'task_assigned') {
-					// Skip this notification if it seems to reference a deleted task
-					// This is a client-side safety check
-					try {
-						if (notification.metadata?.task_id) {
-							// Could add a check here to verify task exists
-							// For now, include all notifications from the cleaned database
-						}
-						validNotifications.push(notification);
-					} catch (error) {
-						console.warn('Skipping potentially invalid notification:', notification.id);
-					}
-				} else {
-					validNotifications.push(notification);
-				}
-			}
-			
-			allNotifications = validNotifications;
-			console.log('✅ [NotificationCenter] Force refresh completed. Total notifications:', allNotifications.length);
+			console.log('✅ [Desktop NotificationCenter] Force refresh completed. Total:', allNotifications.length);
 		} catch (error) {
-			console.error('❌ [NotificationCenter] Error force refreshing notifications:', error);
+			console.error('❌ [Desktop NotificationCenter] Error force refreshing notifications:', error);
 			errorMessage = 'Failed to refresh notifications. Please try again.';
 		} finally {
 			isLoading = false;
@@ -507,7 +561,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: notifications = allNotifications; // All filtering is now done by API
 
 	let filterType = 'all';
-	let showUnreadOnly = true; // Changed: Hide read notifications by default
+	let showUnreadOnly = true; // Hide read notifications by default
 
 	// Computed filtered notifications
 	$: filteredNotifications = notifications.filter(notification => {
@@ -515,6 +569,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		if (filterType === 'all') return true;
 		return notification.type === filterType;
 	});
+
+	// Debug log for filtered notifications
+	$: if (allNotifications.length > 0) {
+		console.log('🔍 [Desktop NotificationCenter] Filtering:', {
+			total: allNotifications.length,
+			unread: allNotifications.filter(n => !n.read).length,
+			read: allNotifications.filter(n => n.read).length,
+			showUnreadOnly,
+			filtered: filteredNotifications.length
+		});
+	}
 
 	$: unreadCount = notifications.filter(n => !n.read).length;
 
@@ -909,10 +974,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					Read Status
 				</button>
 			{/if}
-			<button class="refresh-btn" on:click={forceRefreshNotifications} disabled={isLoading} title="Force refresh and clear cache">
-				<span class="icon">🔄</span>
-				{isLoading ? 'Refreshing...' : 'Refresh'}
-			</button>
+			{#if pushSupported && activeUser}
+				<button 
+					class="push-toggle-btn {pushEnabled ? 'enabled' : 'disabled'}" 
+					on:click={togglePushNotifications}
+					disabled={pushLoading}
+					title={pushEnabled ? 'Disable push notifications' : 'Enable push notifications'}
+				>
+					<span class="icon">{pushEnabled ? '🔔' : '🔕'}</span>
+					{pushLoading ? 'Processing...' : pushEnabled ? 'Push On' : 'Push Off'}
+				</button>
+			{/if}
 			
 			<span class="unread-badge">{unreadCount} Unread</span>
 			{#if unreadCount > 0}
@@ -1193,6 +1265,45 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	.status-btn .icon {
+		font-size: 16px;
+	}
+
+	.push-toggle-btn {
+		border: 2px solid;
+		border-radius: 6px;
+		padding: 8px 16px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.push-toggle-btn.enabled {
+		background: #D1FAE5;
+		border-color: #10B981;
+		color: #065F46;
+	}
+
+	.push-toggle-btn.disabled {
+		background: #FEF2F2;
+		border-color: #FCA5A5;
+		color: #991B1B;
+	}
+
+	.push-toggle-btn:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.push-toggle-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.push-toggle-btn .icon {
 		font-size: 16px;
 	}
 

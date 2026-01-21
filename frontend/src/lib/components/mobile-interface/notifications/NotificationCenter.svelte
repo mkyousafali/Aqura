@@ -7,6 +7,12 @@
 	import { refreshNotificationCounts } from '$lib/stores/notifications';
 	import TaskCompletionModal from '../tasks/TaskCompletionModal.svelte';
 	import { locale, getTranslation } from '$lib/i18n';
+	import { 
+		isPushSupported, 
+		hasActiveSubscription,
+		subscribeToPushNotifications,
+		unsubscribeFromPushNotifications
+	} from '$lib/utils/pushNotifications';
 
 	// Current user for role-based access
 	$: userRole = $currentUser?.role || 'Position-based';
@@ -16,6 +22,11 @@
 	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
 		loadNotifications();
 	}
+
+	// Push notification state
+	let pushSupported = false;
+	let pushEnabled = false;
+	let pushLoading = false;
 
 	// User cache for displaying usernames
 	let userCache: Record<string, string> = {};
@@ -348,15 +359,18 @@
 
 	// Reactive statement to load notifications when user is available
 	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
+		console.log('🔄 [Mobile NotificationCenter] Reactive: User available, loading notifications');
 		loadNotifications();
 	}
 
 	// Load notifications on mount
 	onMount(async () => {
-		// Initial load
-		if ($currentUser?.id) {
-			await loadNotifications();
-		}
+		console.log('🔔 [Mobile NotificationCenter] onMount called, user:', $currentUser?.id);
+		
+		// Force load notifications even if user not immediately available
+		// The forceRefreshNotifications will handle it
+		console.log('🔔 [Mobile NotificationCenter] Force loading notifications from onMount');
+		await forceRefreshNotifications(false); // Not silent, show loading
 		
 		// Listen for refresh events from the global header
 		const handleRefresh = () => {
@@ -393,6 +407,7 @@
 	async function loadNotifications() {
 		// Don't load if user is not available yet
 		if (!$currentUser?.id) {
+			console.warn('⚠️ [Mobile NotificationCenter] loadNotifications called but no user available');
 			isLoading = false;
 			return;
 		}
@@ -402,9 +417,15 @@
 			errorMessage = '';
 			currentPage = 0;
 			
+			console.log('📥 [Mobile NotificationCenter] Fetching notifications for user:', $currentUser.id);
+			
 			// All users should get the same notification format with full details
 			const apiNotifications = await notificationManagement.getAllNotifications($currentUser.id, currentPage, pageSize);
+			console.log('📥 [Mobile NotificationCenter] Received', apiNotifications.length, 'notifications from API');
+			
 			allNotifications = await transformNotificationData(apiNotifications);
+			console.log('✅ [Mobile NotificationCenter] Transformed to', allNotifications.length, 'notifications');
+			
 			hasMoreNotifications = apiNotifications.length === pageSize;
 
 		} catch (error) {
@@ -1197,13 +1218,40 @@
 	}
 
 	// Refresh notifications periodically
-	onMount(() => {
+	onMount(async () => {
+		// Check push notification support and status
+		pushSupported = isPushSupported();
+		if (pushSupported && $currentUser) {
+			pushEnabled = await hasActiveSubscription();
+		}
+
 		const interval = setInterval(() => {
 			silentRefreshNotifications();
 		}, 30000); // Refresh every 30 seconds
 
 		return () => clearInterval(interval);
 	});
+
+	// Toggle push notifications
+	async function togglePushNotifications() {
+		if (pushLoading || !$currentUser) return;
+
+		pushLoading = true;
+		try {
+			if (pushEnabled) {
+				await unsubscribeFromPushNotifications();
+				pushEnabled = false;
+			} else {
+				await subscribeToPushNotifications();
+				pushEnabled = true;
+			}
+		} catch (error) {
+			console.error('Error toggling push notifications:', error);
+			alert('Failed to toggle push notifications');
+		} finally {
+			pushLoading = false;
+		}
+	}
 </script>
 
 <div class="mobile-notification-center">
@@ -1229,6 +1277,22 @@
 				<button class="create-notification-btn" on:click={openCreateNotification}>
 					<span class="btn-icon">📝</span>
 					{getTranslation('mobile.assignContent.createNotification')}
+				</button>
+			</div>
+		{/if}
+
+		<!-- Push Notification Toggle -->
+		{#if pushSupported && $currentUser}
+			<div class="push-toggle-section">
+				<button 
+					class="push-toggle-btn {pushEnabled ? 'enabled' : 'disabled'}" 
+					on:click={togglePushNotifications}
+					disabled={pushLoading}
+				>
+					<span class="push-icon">{pushEnabled ? '🔔' : '🔕'}</span>
+					<span class="push-text">
+						{pushLoading ? 'Processing...' : pushEnabled ? 'Push Enabled' : 'Enable Push Notifications'}
+					</span>
 				</button>
 			</div>
 		{/if}
@@ -1501,9 +1565,60 @@
 		font-size: 18px;
 	}
 
-	.error-banner {
+	.push-toggle-section {
+		padding: 0.75rem 1rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.push-toggle-btn {
+		width: 100%;
 		display: flex;
 		align-items: center;
+		gap: 0.75rem;
+		padding: 0.875rem 1rem;
+		border-radius: 12px;
+		border: 2px solid #E5E7EB;
+		background: white;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.push-toggle-btn.enabled {
+		background: #D1FAE5;
+		border-color: #10B981;
+		color: #065F46;
+	}
+
+	.push-toggle-btn.disabled {
+		background: #FEF2F2;
+		border-color: #FCA5A5;
+		color: #991B1B;
+	}
+
+	.push-toggle-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.push-toggle-btn:not(:disabled):active {
+		transform: scale(0.98);
+	}
+
+	.push-icon {
+		font-size: 20px;
+	}
+
+	.push-text {
+		flex: 1;
+		text-align: left;
+	}
+
+	.error-banner {
+		display: flex;
+		alignitems: center;
 		gap: 0.5rem;
 		padding: 1rem;
 		margin: 1rem;

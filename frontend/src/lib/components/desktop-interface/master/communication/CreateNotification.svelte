@@ -90,31 +90,16 @@
 		try {
 			isLoadingUsers = true;
 			
-			// Get users with employee information, position, and branch details
+			// Get users with employee information and branch details
 			const { data: users, error } = await supabase
 				.from('users')
 				.select(`
 					id,
 					username,
-					role_type,
 					employee_id,
 					branch_id,
-					hr_employees(
-						id,
-						name,
-						employee_id,
-						branch_id,
-						hr_position_assignments(
-							id,
-							position_id,
-							is_current,
-							hr_positions(position_title_en, position_title_ar)
-						)
-					),
-					branches(
-						id,
-						name_en
-					)
+					hr_employees!users_employee_id_fkey(id, name),
+					branches(id, name_en)
 				`)
 				.order('username');
 

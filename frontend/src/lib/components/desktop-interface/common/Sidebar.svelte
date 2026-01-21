@@ -107,6 +107,7 @@
 	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
+	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -1276,6 +1277,27 @@ function openApprovalCenter() {
 			closable: true
 		});
 		showSettingsSubmenu = false;
+	}
+
+	function openPushNotificationSettings() {
+		const windowId = generateWindowId('push-notifications');
+		
+		openWindow({
+			id: windowId,
+			title: 'Push Notification Settings',
+			component: PushNotificationSettings,
+			icon: '🔔',
+			size: { width: 650, height: 550 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 80 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllSubsections();
 	}
 
 	function openButtonAccessControl() {
@@ -4145,7 +4167,15 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showControlsOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Operations items will be added here -->
+					<!-- Push Notification Settings -->
+					<button 
+						class="submenu-subitem-button" 
+						on:click={openPushNotificationSettings}
+						title="Push Notification Settings"
+					>
+						<span class="menu-icon">🔔</span>
+						<span class="menu-text">Push Notifications</span>
+					</button>
 				</div>
 			{/if}
 

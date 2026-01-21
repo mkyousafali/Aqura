@@ -28,21 +28,16 @@ if (workbox) {
 }
 
 // Skip waiting and claim clients immediately for faster activation
-self.skipWaiting();
 self.addEventListener('activate', event => {
   event.waitUntil(
     (async () => {
-      // Wait for the service worker to fully activate
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Skip waiting to activate immediately
+      await self.skipWaiting();
       
-      // Only claim clients if this SW is actually active
+      // Claim all clients immediately
       try {
-        if (self.registration && self.registration.active === self) {
-          await self.clients.claim();
-          console.log('[ServiceWorker] Successfully claimed clients');
-        } else {
-          console.log('[ServiceWorker] Skipping client claim - not the active worker');
-        }
+        await self.clients.claim();
+        console.log('[ServiceWorker] Successfully claimed clients');
       } catch (error) {
         console.warn('[ServiceWorker] Client claim failed:', error);
       }
@@ -782,3 +777,105 @@ async function removePendingOperation(type, id) {
 	// Implementation would remove completed operation from IndexedDB
 	return true;
 }
+
+// ============================================
+// PUSH NOTIFICATION HANDLERS
+// ============================================
+
+/**
+ * Handle incoming push notifications
+ * Displays notification to user
+ */
+self.addEventListener('push', (event) => {
+	console.log('[ServiceWorker] 📬 Push notification received');
+	
+	if (!event.data) {
+		console.log('[ServiceWorker] Push event has no data');
+		return;
+	}
+
+	try {
+		const data = event.data.json();
+		console.log('[ServiceWorker] Push data:', data);
+
+		const title = data.title || 'New Notification';
+		const options = {
+			body: data.body || data.message || 'You have a new notification',
+			icon: data.icon || '/icons/icon-192x192.png',
+			badge: data.badge || '/icons/icon-72x72.png',
+			image: data.image,
+			vibrate: data.vibrate || [200, 100, 200],
+			tag: data.tag || `notification-${Date.now()}`,
+			requireInteraction: data.requireInteraction || false,
+			data: {
+				url: data.url || '/',
+				notificationId: data.notificationId,
+				type: data.type,
+				...data.data
+			},
+			actions: data.actions || []
+		};
+
+		// Show the notification
+		event.waitUntil(
+			self.registration.showNotification(title, options)
+		);
+
+	} catch (error) {
+		console.error('[ServiceWorker] Error parsing push data:', error);
+		
+		// Show generic notification if parsing fails
+		event.waitUntil(
+			self.registration.showNotification('New Notification', {
+				body: 'You have a new notification',
+				icon: '/icons/icon-192x192.png',
+				badge: '/icons/icon-72x72.png'
+			})
+		);
+	}
+});
+
+/**
+ * Handle notification click events
+ * Opens the app and navigates to relevant page
+ */
+self.addEventListener('notificationclick', (event) => {
+	console.log('[ServiceWorker] 🖱️ Notification clicked:', event.notification.tag);
+	
+	event.notification.close();
+
+	const notificationData = event.notification.data || {};
+	const urlToOpen = notificationData.url || '/';
+
+	event.waitUntil(
+		clients.matchAll({ type: 'window', includeUncontrolled: true })
+			.then((clientList) => {
+				// Check if app is already open
+				for (const client of clientList) {
+					if (client.url === new URL(urlToOpen, self.location.origin).href && 'focus' in client) {
+						return client.focus();
+					}
+				}
+				
+				// If no window is open, open a new one
+				if (clients.openWindow) {
+					return clients.openWindow(urlToOpen);
+				}
+			})
+	);
+});
+
+/**
+ * Handle notification close events
+ * Track when users dismiss notifications
+ */
+self.addEventListener('notificationclose', (event) => {
+	console.log('[ServiceWorker] 🔕 Notification closed:', event.notification.tag);
+	
+	// Optional: Send analytics or update read status
+	const notificationData = event.notification.data || {};
+	if (notificationData.notificationId) {
+		// Could send a request to mark as dismissed/read
+		console.log('[ServiceWorker] Notification dismissed:', notificationData.notificationId);
+	}
+});
