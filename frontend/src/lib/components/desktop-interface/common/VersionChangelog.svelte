@@ -5,15 +5,31 @@
 <div class="version-changelog-window">
 	<div class="window-content">
 		<div class="version-format">
-		<p class="version-title">Version AQ36.14.9.9</p>
-		<p class="version-details">Desktop: 36 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
+		<p class="version-title">Version AQ37.14.9.9</p>
+		<p class="version-details">Desktop: 37 | Mobile: 14 | Cashier: 9 | Customer: 9</p>
 		</div>
 
 		<div class="latest-change">
+		<h3>✨ User Management Enhancement - HR Master Employee Integration</h3>
+		<p class="change-description">Enhanced User Management to display employee data from hr_employee_master table with bilingual name support and accurate employee IDs.</p>
+		<div class="change-details">
+			<h4>January 21, 2026 (Latest):</h4>
+			<ul>
+				<li>✅ <b>Data Source Migration:</b> User Management now fetches employee names from hr_employee_master table (mapped by user_id) with automatic fallback to hr_employees for backward compatibility.</li>
+				<li>✅ <b>Bilingual Display:</b> Employee names now display both English (name_en) and Arabic (name_ar) with proper RTL formatting for Arabic text.</li>
+				<li>✅ <b>Employee ID Accuracy:</b> Employee ID column now shows the hr_employee_master.id (primary key) instead of the legacy employee_code, with fallback support.</li>
+				<li>✅ <b>Search Enhancement:</b> Search functionality updated to filter by both English and Arabic employee names simultaneously.</li>
+				<li>✅ <b>UI Polish:</b> Added distinct styling for bilingual names with English in bold (primary) and Arabic in lighter color with RTL direction.</li>
+			</ul>
+		</div>
+		<p class="date">Current Version (AQ37)</p>
+	</div>
+
+	<div class="previous-change">
 		<h3>✨ HR Status Sync & Punch Pair Classification Fix</h3>
 		<p class="change-description">Fixed critical punch classification logic to properly sync status based on pairing context, ensuring "Other" punches are reclassified to "Check Out" when paired with Check Ins.</p>
 		<div class="change-details">
-			<h4>January 19, 2026 (Latest):</h4>
+			<h4>January 19, 2026:</h4>
 			<ul>
 				<li>✅ <b>HR Module:</b> Fixed updateTransactionStatuses() to load ALL transactions for pairing context, not just null-status ones.</li>
 				<li>✅ <b>Punch Classification:</b> Implemented 3-step status sync: classify → group → reclassify based on pairing logic.</li>
@@ -42,22 +58,22 @@
 				<li>✅ <b>Status Persistence:</b> Changed ProcessFingerprint import to save status as NULL, calculate dynamically on frontend.</li>
 			</ul>
 		</div>
-		<p class="date">Current Version (AQ36)</p>
+		<p class="date">January 19, 2026 (AQ36)</p>
 	</div>
 
 	<div class="previous-change">
-			<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
-			<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
-			<div class="change-details">
-				<h4>January 16, 2026:</h4>
-				<ul>
-					<li>✅ <b>HR Discipline:</b> Added "Discipline Warnings" management with Incident Reporting and Warning Issuance.</li>
-					<li>✅ <b>Finance:</b> Added Food Allowance to salary management and POS Deduction Transfer system with status tracking.</li>
-					<li>✅ <b>Bilingual:</b> Standardized $t store usage across all 300+ translation keys for HR modules.</li>
-				</ul>
-			</div>
-			<p class="date">January 16, 2026</p>
+		<h3>✨ HR Module Enhancements + i18n Cleanup</h3>
+		<p class="change-description">Implemented full bilingual support for HR Shift management and standardized i18n implementation</p>
+		<div class="change-details">
+			<h4>January 16, 2026:</h4>
+			<ul>
+				<li>✅ <b>HR Discipline:</b> Added "Discipline Warnings" management with Incident Reporting and Warning Issuance.</li>
+				<li>✅ <b>Finance:</b> Added Food Allowance to salary management and POS Deduction Transfer system with status tracking.</li>
+				<li>✅ <b>Bilingual:</b> Standardized $t store usage across all 300+ translation keys for HR modules.</li>
+			</ul>
 		</div>
+		<p class="date">January 16, 2026</p>
+	</div>
 
 		<div class="interface-info">
 			<div class="interface-card">
