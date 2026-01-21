@@ -12,6 +12,8 @@
 	let vendorPayments = [];
 	let expenseSchedules = [];
 	let nonApprovedPayments = [];
+	let branches = [];
+	let branchMap = new Map(); // branch_id -> {name_en, location_en}
 	
 	// Checkbox selections for budget calculation
 	let selectedVendorPayments = new Set();
@@ -530,11 +532,39 @@
 		calculateBudget();
 	}
 
+	async function loadBranches() {
+		try {
+			const { data, error } = await supabase
+				.from('branches')
+				.select('id, name_en, location_en')
+				.eq('is_active', true);
+			
+			if (error) throw error;
+			branches = data || [];
+			
+			// Create branch map for quick lookup
+			branchMap = new Map();
+			branches.forEach(branch => {
+				branchMap.set(branch.id, {
+					name_en: branch.name_en,
+					location_en: branch.location_en,
+					display: `${branch.name_en} - ${branch.location_en}`
+				});
+			});
+			
+			console.log('✅ Loaded branches:', branches.length);
+		} catch (error) {
+			console.error('Error loading branches:', error);
+		}
+	}
+
 	async function loadScheduledItems() {
 		if (!selectedDate) return;
 
 		isLoading = true;
 		try {
+			// Load branches first, then load payments
+			await loadBranches();
 			await Promise.all([
 				loadVendorPayments(),
 				loadExpenseSchedules(),
@@ -559,7 +589,16 @@
 				.order('bill_amount', { ascending: false });
 
 			if (error) throw error;
-			vendorPayments = data || [];
+			
+			// Map branch_id to branch name + location
+			vendorPayments = (data || []).map(payment => {
+				const branchInfo = branchMap.get(payment.branch_id);
+				return {
+					...payment,
+					branch_name: branchInfo ? branchInfo.display : payment.branch_name || 'Unknown Branch'
+				};
+			});
+			
 			console.log('✅ Loaded vendor payments for', selectedDate, ':', vendorPayments.length);
 		} catch (error) {
 			console.error('Error loading vendor payments:', error);
@@ -577,7 +616,16 @@
 				.order('amount', { ascending: false });
 
 			if (error) throw error;
-			expenseSchedules = data || [];
+			
+			// Map branch_id to branch name + location
+			expenseSchedules = (data || []).map(expense => {
+				const branchInfo = branchMap.get(expense.branch_id);
+				return {
+					...expense,
+					branch_name: branchInfo ? branchInfo.display : expense.branch_name || 'Unknown Branch'
+				};
+			});
+			
 			console.log('✅ Loaded expense schedules for', selectedDate, ':', expenseSchedules.length);
 		} catch (error) {
 			console.error('Error loading expense schedules:', error);

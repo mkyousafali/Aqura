@@ -119,7 +119,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.eq('is_active', true)
 				.order('name_en', { ascending: true })
 				.limit(5000);
@@ -132,7 +132,8 @@
 			branches = data || [];
 			branchMap = {};
 			branches.forEach(branch => {
-				branchMap[branch.id] = branch.name_en;
+				const display = branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en;
+				branchMap[branch.id] = display;
 			});
 		} catch (error) {
 			console.error('Error loading branches:', error);
@@ -753,7 +754,7 @@
 				<select id="filter-branch" bind:value={filterBranch}>
 					<option value="">All Branches</option>
 					{#each branches as branch}
-						<option value={branch.id}>{branch.name_en}</option>
+						<option value={branch.id}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 					{/each}
 				</select>
 			</div>
