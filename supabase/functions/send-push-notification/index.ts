@@ -62,6 +62,7 @@ Deno.serve(async (req) => {
     }
 
     console.log('📬 [Push Function] Sending push to', userIds.length, 'users')
+    console.log('📬 [Push Function] Payload received:', JSON.stringify(payload, null, 2))
 
     // Get active push subscriptions for these users
     const { data: subscriptions, error: subError } = await supabase
