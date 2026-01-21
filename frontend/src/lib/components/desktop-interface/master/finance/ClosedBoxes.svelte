@@ -127,6 +127,30 @@
 		}
 	}
 
+	async function handleBoxStatusToggle(box: any) {
+		try {
+			// Toggle between "completed" and "pending_close"
+			const newStatus = box.status === 'completed' ? 'pending_close' : 'completed';
+			
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ status: newStatus })
+				.eq('id', box.id);
+
+			if (error) throw error;
+
+			// Update local state
+			const index = completedBoxes.findIndex(b => b.id === box.id);
+			if (index >= 0) {
+				completedBoxes[index].status = newStatus;
+				completedBoxes = [...completedBoxes];
+			}
+		} catch (error) {
+			console.error('Error toggling box status:', error);
+			alert($currentLocale === 'ar' ? 'خطأ في تغيير حالة الصندوق' : 'Error changing box status');
+		}
+	}
+
 async function loadBranches() {
 		try {
 			const { data, error } = await supabase
@@ -504,6 +528,7 @@ async function loadBranches() {
 				<thead>
 					<tr>
 						<th>{$currentLocale === 'ar' ? 'رقم الصندوق' : 'Box #'}</th>
+						<th>{$currentLocale === 'ar' ? 'الحالة' : 'Status'}</th>
 						<th>{$currentLocale === 'ar' ? 'الفرع' : 'Branch'}</th>
 						<th>{$currentLocale === 'ar' ? 'الكاشير' : 'Cashier'}</th>
 						<th>{$currentLocale === 'ar' ? 'المشرف' : 'Supervisor'}</th>
@@ -520,6 +545,14 @@ async function loadBranches() {
 						<tr>
 							<td class="box-number">
 								<span class="box-badge">Box {box.box_number}</span>
+							</td>
+							<td class="status-cell">
+								<button 
+									class="status-toggle-btn status-{box.status}"
+									on:click={() => handleBoxStatusToggle(box)}
+								>
+								{box.status === 'completed' ? '✓ Completed' : box.status === 'pending_close' ? '⏳ Pending Close' : box.status || 'N/A'}
+								</button>
 							</td>
 							<td>{getBranchName(box.branch_id)}</td>
 							<td>{parseCashierName(box.notes)}</td>
@@ -899,5 +932,45 @@ async function loadBranches() {
 		font-weight: 600;
 		text-align: center;
 		margin-top: 0.5rem;
+	}
+
+	.status-cell {
+		text-align: center;
+	}
+
+	.status-toggle-btn.status-completed {
+		background: linear-gradient(135deg, #15a34a 0%, #16803d 100%);
+		box-shadow: 0 2px 6px rgba(21, 163, 74, 0.3);
+	}
+
+	.status-toggle-btn.status-completed:hover {
+		box-shadow: 0 4px 12px rgba(21, 163, 74, 0.4);
+	}
+
+	.status-toggle-btn.status-pending_close {
+		background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+		box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
+	}
+
+	.status-toggle-btn.status-pending_close:hover {
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+	}
+
+	.status-toggle-btn.status-open {
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+		box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+	}
+
+	.status-toggle-btn.status-open:hover {
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+	}
+
+	.status-toggle-btn.status-cancelled {
+		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+		box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);
+	}
+
+	.status-toggle-btn.status-cancelled:hover {
+		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 	}
 </style>
