@@ -1271,15 +1271,13 @@
 			<p>Loading notifications...</p>
 		</div>
 	{:else}
-		<!-- Create Notification Button (Admin Only) -->
-		{#if isAdminOrMaster}
-			<div class="action-header">
-				<button class="create-notification-btn" on:click={openCreateNotification}>
-					<span class="btn-icon">📝</span>
-					{getTranslation('mobile.assignContent.createNotification')}
-				</button>
-			</div>
-		{/if}
+		<!-- Create Notification Button -->
+		<div class="action-header">
+			<button class="create-notification-btn" on:click={openCreateNotification}>
+				<span class="btn-icon">📝</span>
+				{getTranslation('mobile.assignContent.createNotification')}
+			</button>
+		</div>
 
 		<!-- Push Notification Toggle -->
 		{#if pushSupported && $currentUser}

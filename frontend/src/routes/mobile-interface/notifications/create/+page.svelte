@@ -11,10 +11,10 @@
 	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
-	// Redirect if not admin
-	$: if (!isAdminOrMaster) {
-		goto('/mobile-interface/notifications');
-	}
+	// Remove admin restriction - accessible to all users
+	// $: if (!isAdminOrMaster) {
+	// 	goto('/mobile-interface/notifications');
+	// }
 
 	// Form data
 	let notificationData = {
@@ -79,10 +79,9 @@
 				.select(`
 					id,
 					username,
-					role_type,
 					employee_id,
 					branch_id,
-					hr_employees(
+					hr_employees!users_employee_id_fkey(
 						id,
 						name,
 						employee_id,
@@ -128,7 +127,7 @@
 					employee_name: employee?.name || null,
 					employee_id: employee?.employee_id || null,
 					position_name: positionTitle || null,
-					role_type: user.role_type,
+					role_type: 'Employee', // Default role type since column doesn't exist
 					branch_id: user.branch_id?.toString() || null,
 					branch_name: branch?.name_en || 'Unknown Branch'
 				};
@@ -147,7 +146,7 @@
 					employee_name: null,
 					employee_id: null,
 					position_name: null,
-					role_type: user.role_type || 'Employee',
+					role_type: 'Employee',
 					branch_id: null,
 					branch_name: 'Unknown Branch'
 				}));
