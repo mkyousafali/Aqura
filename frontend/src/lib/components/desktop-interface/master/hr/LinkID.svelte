@@ -137,7 +137,10 @@
 		}
 	}
 
-	async function openBranchModal(branchId, userIndex) {
+	async function openBranchModal(branchId, userId) {
+		const userIndex = users.findIndex(u => u.id === userId);
+		if (userIndex === -1) return;
+		
 		selectedBranch = branchId;
 		selectedUserIndex = userIndex;
 		selectedUsername = users[userIndex].username;
@@ -173,7 +176,10 @@
 		employeeSearchQuery = '';
 	}
 
-	function openNameModal(userIndex) {
+	function openNameModal(userId) {
+		const userIndex = users.findIndex(u => u.id === userId);
+		if (userIndex === -1) return;
+		
 		nameModalUserIndex = userIndex;
 		englishNameInput = users[userIndex].english_name || '';
 		arabicNameInput = users[userIndex].arabic_name || '';
@@ -418,7 +424,7 @@
 							<td class="cell-with-button">
 								<div 
 									class="cell-content"
-									on:dblclick={() => openNameModal(userIndex)}
+									on:dblclick={() => openNameModal(user.id)}
 									role="button"
 									tabindex="0"
 								>
@@ -430,7 +436,7 @@
 								{#if !user.english_name && !user.arabic_name}
 									<button 
 										class="add-btn"
-										on:click={() => openNameModal(userIndex)}
+										on:click={() => openNameModal(user.id)}
 										title="Add names"
 									>
 										+
@@ -441,7 +447,7 @@
 								<td class="cell-with-button">
 									<div 
 										class="cell-content"
-										on:dblclick={() => openBranchModal(branch.id, userIndex)}
+										on:dblclick={() => openBranchModal(branch.id, user.id)}
 										role="button"
 										tabindex="0"
 									>
@@ -458,7 +464,7 @@
 									{:else}
 										<button 
 											class="add-btn"
-											on:click={() => openBranchModal(branch.id, userIndex)}
+											on:click={() => openBranchModal(branch.id, user.id)}
 											title="Add employee"
 										>
 											+
