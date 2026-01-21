@@ -3679,7 +3679,7 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showTasksReportsSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('MY_TASKS')}
+					{#if isButtonAllowed('VIEW_MY_TASKS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openMyTasks}>
 								<span class="menu-icon">📝</span>
@@ -3687,7 +3687,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('MY_ASSIGNMENTS')}
+					{#if isButtonAllowed('VIEW_MY_ASSIGNMENTS')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openMyAssignments}>
 								<span class="menu-icon">👨‍💼</span>
@@ -3703,7 +3703,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('BRANCH_PERFORMANCE_WINDOW')}
+					{#if isButtonAllowed('BRANCH_PERFORMANCE')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBranchPerformanceWindow}>
 								<span class="menu-icon">📊</span>

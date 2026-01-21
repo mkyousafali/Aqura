@@ -12,6 +12,11 @@
 	$: userRole = $currentUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
+	// Auto-load notifications when currentUser becomes available
+	$: if ($currentUser?.id && allNotifications.length === 0 && !isLoading) {
+		loadNotifications();
+	}
+
 	// User cache for displaying usernames
 	let userCache: Record<string, string> = {};
 

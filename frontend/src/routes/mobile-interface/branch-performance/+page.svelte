@@ -93,80 +93,114 @@
 					safeQuery(
 						supabase
 							.from('receiving_tasks')
-							.select('id, task_status, receiving_records(branch_id)', { count: 'exact' })
-							.eq('receiving_records.branch_id', branch.id)
-					.gte('created_at', todayStartUTC.toISOString())
-					.lt('created_at', todayEndUTC.toISOString())
+							.select('id, task_status, receiving_record_id')
+							.gte('created_at', todayStartUTC.toISOString())
+							.lt('created_at', todayEndUTC.toISOString())
 					),
 					// Today's task assignments
 					safeQuery(
 						supabase
 							.from('task_assignments')
-							.select('id, status', { count: 'exact' })
+							.select('id, status, assigned_to_branch_id')
 							.eq('assigned_to_branch_id', branch.id)
-					.gte('assigned_at', todayStartUTC.toISOString())
-					.lt('assigned_at', todayEndUTC.toISOString())
+							.gte('assigned_at', todayStartUTC.toISOString())
+							.lt('assigned_at', todayEndUTC.toISOString())
 					),
 					// Today's quick tasks
 					safeQuery(
 						supabase
 							.from('quick_task_assignments')
-							.select('id, status, quick_tasks(assigned_to_branch_id)', { count: 'exact' })
-							.eq('quick_tasks.assigned_to_branch_id', branch.id)
-							.gte('created_at', `${today}T00:00:00`)
-							.lt('created_at', `${today}T23:59:59`)
+							.select('id, status, quick_task_id')
+							.gte('created_at', todayStartUTC.toISOString())
+							.lt('created_at', todayEndUTC.toISOString())
 					),
 					// Yesterday's receiving tasks
 					safeQuery(
 						supabase
 							.from('receiving_tasks')
-							.select('id, task_status, receiving_records(branch_id)', { count: 'exact' })
-							.eq('receiving_records.branch_id', branch.id)
-						.gte('created_at', yesterdayStartUTC.toISOString())
-						.lt('created_at', yesterdayEndUTC.toISOString())
+							.select('id, task_status, receiving_record_id')
+							.gte('created_at', yesterdayStartUTC.toISOString())
+							.lt('created_at', yesterdayEndUTC.toISOString())
 					),
 					// Yesterday's task assignments
 					safeQuery(
 						supabase
 							.from('task_assignments')
-							.select('id, status', { count: 'exact' })
+							.select('id, status, assigned_to_branch_id')
 							.eq('assigned_to_branch_id', branch.id)
-						.gte('assigned_at', yesterdayStartUTC.toISOString())
-						.lt('assigned_at', yesterdayEndUTC.toISOString())
+							.gte('assigned_at', yesterdayStartUTC.toISOString())
+							.lt('assigned_at', yesterdayEndUTC.toISOString())
 					),
 					// Yesterday's quick tasks
 					safeQuery(
 						supabase
 							.from('quick_task_assignments')
-							.select('id, status, quick_tasks(assigned_to_branch_id)', { count: 'exact' })
-							.eq('quick_tasks.assigned_to_branch_id', branch.id)
-							.gte('created_at', `${yesterday}T00:00:00`)
-							.lt('created_at', `${yesterday}T23:59:59`)
+							.select('id, status, quick_task_id')
+							.gte('created_at', yesterdayStartUTC.toISOString())
+							.lt('created_at', yesterdayEndUTC.toISOString())
 					)
 				]);
 
-				// Calculate today's stats - safely handle null/undefined
-				const todayReceivingData = todayReceiving.data || [];
+				// Get receiving records to map to branch
+				const receivingRecordIds = [
+					...(todayReceiving.data || []).map(r => r.receiving_record_id),
+					...(yesterdayReceiving.data || []).map(r => r.receiving_record_id)
+				].filter(Boolean);
+
+				const receivingRecordMap: Record<string, string> = {};
+				if (receivingRecordIds.length > 0) {
+					const { data: records } = await supabase
+						.from('receiving_records')
+						.select('id, branch_id')
+						.in('id', receivingRecordIds);
+					if (records) {
+						records.forEach((r: any) => {
+							receivingRecordMap[r.id] = r.branch_id;
+						});
+					}
+				}
+
+				// Get quick tasks to map to branch
+				const quickTaskIds = [
+					...(todayQuick.data || []).map(q => q.quick_task_id),
+					...(yesterdayQuick.data || []).map(q => q.quick_task_id)
+				].filter(Boolean);
+
+				const quickTaskMap: Record<string, string> = {};
+				if (quickTaskIds.length > 0) {
+					const { data: quickTasks } = await supabase
+						.from('quick_tasks')
+						.select('id, assigned_to_branch_id')
+						.in('id', quickTaskIds);
+					if (quickTasks) {
+						quickTasks.forEach((qt: any) => {
+							quickTaskMap[qt.id] = qt.assigned_to_branch_id;
+						});
+					}
+				}
+
+				// Calculate today's stats - filter by this branch only
+				const todayReceivingData = (todayReceiving.data || []).filter(r => receivingRecordMap[r.receiving_record_id] === branch.id);
 				const todayTasksData = todayTasks.data || [];
-				const todayQuickData = todayQuick.data || [];
+				const todayQuickData = (todayQuick.data || []).filter(q => quickTaskMap[q.quick_task_id] === branch.id);
 
-				const todayReceivingCompleted = todayReceivingData.filter(r => r.task_status === 'completed').length || 0;
-				const todayTasksCompleted = todayTasksData.filter(t => t.status === 'completed').length || 0;
-				const todayQuickCompleted = todayQuickData.filter(q => q.status === 'completed').length || 0;
+				const todayReceivingCompleted = todayReceivingData.filter(r => r.task_status === 'completed').length;
+				const todayTasksCompleted = todayTasksData.filter(t => t.status === 'completed').length;
+				const todayQuickCompleted = todayQuickData.filter(q => q.status === 'completed').length;
 
-				const todayTotal = (todayReceiving.count || 0) + (todayTasks.count || 0) + (todayQuick.count || 0);
+				const todayTotal = todayReceivingData.length + todayTasksData.length + todayQuickData.length;
 				const todayCompleted = todayReceivingCompleted + todayTasksCompleted + todayQuickCompleted;
 
-				// Calculate yesterday's stats - safely handle null/undefined
-				const yesterdayReceivingData = yesterdayReceiving.data || [];
+				// Calculate yesterday's stats - filter by this branch only
+				const yesterdayReceivingData = (yesterdayReceiving.data || []).filter(r => receivingRecordMap[r.receiving_record_id] === branch.id);
 				const yesterdayTasksData = yesterdayTasks.data || [];
-				const yesterdayQuickData = yesterdayQuick.data || [];
+				const yesterdayQuickData = (yesterdayQuick.data || []).filter(q => quickTaskMap[q.quick_task_id] === branch.id);
 
-				const yesterdayReceivingCompleted = yesterdayReceivingData.filter(r => r.task_status === 'completed').length || 0;
-				const yesterdayTasksCompleted = yesterdayTasksData.filter(t => t.status === 'completed').length || 0;
-				const yesterdayQuickCompleted = yesterdayQuickData.filter(q => q.status === 'completed').length || 0;
+				const yesterdayReceivingCompleted = yesterdayReceivingData.filter(r => r.task_status === 'completed').length;
+				const yesterdayTasksCompleted = yesterdayTasksData.filter(t => t.status === 'completed').length;
+				const yesterdayQuickCompleted = yesterdayQuickData.filter(q => q.status === 'completed').length;
 
-				const yesterdayTotal = (yesterdayReceiving.count || 0) + (yesterdayTasks.count || 0) + (yesterdayQuick.count || 0);
+				const yesterdayTotal = yesterdayReceivingData.length + yesterdayTasksData.length + yesterdayQuickData.length;
 				const yesterdayCompleted = yesterdayReceivingCompleted + yesterdayTasksCompleted + yesterdayQuickCompleted;
 
 				return {
@@ -230,7 +264,7 @@
 		<section class="performance-section">
 			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.todayPerformance')}</h2>
 			<div class="branch-grid">
-				{#each branchPerformance.todayStats as stat}
+				{#each branchPerformance.todayStats.filter(s => s.total > 0) as stat}
 					<div class="branch-card">
 						<h3 class="branch-name">{stat.branchName}</h3>
 						<div class="pie-chart-container">
@@ -287,7 +321,7 @@
 		<section class="performance-section">
 			<h2>{getTranslation('mobile.dashboardContent.branchPerformance.yesterdayPerformance')}</h2>
 			<div class="branch-grid">
-				{#each branchPerformance.yesterdayStats as stat}
+				{#each branchPerformance.yesterdayStats.filter(s => s.total > 0) as stat}
 					<div class="branch-card">
 						<h3 class="branch-name">{stat.branchName}</h3>
 						<div class="pie-chart-container">
