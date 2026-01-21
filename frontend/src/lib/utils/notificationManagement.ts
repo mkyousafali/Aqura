@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { persistentAuthService, currentUser } from "./persistentAuth";
 import { notificationSoundManager } from "./inAppNotificationSounds";
+import { sendPushForNotification } from "./pushNotificationSender";
 
 // Types for notification management
 interface CreateNotificationRequest {
@@ -542,6 +543,16 @@ export class NotificationManagementService {
         "✅ [NotificationManagement] Notification created successfully:",
         data,
       );
+
+      // Send push notifications to subscribed users
+      console.log("📬 [NotificationManagement] Sending push notifications...");
+      try {
+        const pushResult = await sendPushForNotification(data.id);
+        console.log("✅ [NotificationManagement] Push notifications sent:", pushResult);
+      } catch (pushError) {
+        console.error("⚠️ [NotificationManagement] Failed to send push notifications:", pushError);
+        // Don't fail the entire notification creation if push fails
+      }
 
       // Queue the notification for push delivery - TEMPORARILY DISABLED
       console.log(
