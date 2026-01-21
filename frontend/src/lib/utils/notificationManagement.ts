@@ -547,7 +547,15 @@ export class NotificationManagementService {
       // Send push notifications to subscribed users
       console.log("📬 [NotificationManagement] Sending push notifications...");
       try {
-        const pushResult = await sendPushForNotification(data.id);
+        const pushResult = await sendPushForNotification(
+          data.id,
+          data.title,
+          data.message,
+          {
+            url: `/notifications?id=${data.id}`,
+            type: data.type,
+          }
+        );
         console.log("✅ [NotificationManagement] Push notifications sent:", pushResult);
       } catch (pushError) {
         console.error("⚠️ [NotificationManagement] Failed to send push notifications:", pushError);
@@ -1328,13 +1336,13 @@ export class NotificationManagementService {
                 }
 
                 // Show push notification
-                await this.sendPushNotification(
+                await sendPushForNotification(
+                  notification.id,
                   notification.title,
                   notification.message,
-                  [currentUser.id],
                   {
-                    notification_id: notification.id,
                     url: `/notifications?id=${notification.id}`,
+                    type: notification.type,
                   },
                 );
               }

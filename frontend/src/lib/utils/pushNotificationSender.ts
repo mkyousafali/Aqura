@@ -31,25 +31,30 @@ export async function sendPushNotification(options: SendPushOptions): Promise<{
     console.log('📤 [Push Sender] Sending push notification:', {
       notificationId: options.notificationId,
       userCount: options.userIds.length,
-      title: options.title
+      title: options.title,
+      body: options.body
     });
 
-    const { data, error } = await supabase.functions.invoke('send-push-notification', {
-      body: {
+    const requestBody = {
+      notificationId: options.notificationId,
+      userIds: options.userIds,
+      payload: {
         notificationId: options.notificationId,
-        userIds: options.userIds,
-        payload: {
-          notificationId: options.notificationId,
-          title: options.title,
-          body: options.body,
-          icon: options.icon,
-          badge: options.badge,
-          image: options.image,
-          url: options.url,
-          type: options.type,
-          data: options.data
-        }
+        title: options.title,
+        body: options.body,
+        icon: options.icon,
+        badge: options.badge,
+        image: options.image,
+        url: options.url,
+        type: options.type,
+        data: options.data
       }
+    };
+
+    console.log('📤 [Push Sender] Full request body:', JSON.stringify(requestBody, null, 2));
+
+    const { data, error } = await supabase.functions.invoke('send-push-notification', {
+      body: requestBody
     });
 
     if (error) {

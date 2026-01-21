@@ -108,6 +108,7 @@
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
 	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
+	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -2309,6 +2310,28 @@ function openApprovalCenter() {
 		});
 	}
 
+	// Notification Management - Create Notification
+	function openCreateNotification() {
+		collapseAllMenus();
+		const windowId = generateWindowId('create-notification');
+		
+		openWindow({
+			id: windowId,
+			title: 'Create Notification',
+			component: CreateNotification,
+			icon: '📝',
+			size: { width: 600, height: 700 },
+			position: { 
+				x: 150 + (Math.random() * 100), 
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// User Management - Manage Admin Users
 	function openManageAdminUsers() {
 		collapseAllMenus();
@@ -3834,7 +3857,14 @@ function openApprovalCenter() {
 			<!-- Operations Subsection Items -->
 			{#if showNotificationsOperationsSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Operations items will be added here -->
+					{#if isButtonAllowed('CREATE_NOTIFICATION')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openCreateNotification}>
+								<span class="menu-icon">📝</span>
+								<span class="menu-text">{t('nav.createNotification') || 'Create Notification'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
