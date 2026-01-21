@@ -242,7 +242,7 @@
 		// Load branches, vendors, users FIRST (fast queries)
 		const [branchResult, vendorResult, userResult] = await Promise.all([
 			uniqueBranchIds.length > 0 
-				? supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds)
+				? supabase.from('branches').select('id, name_en, location_en').in('id', uniqueBranchIds)
 				: Promise.resolve({ data: [] }),
 			uniqueVendorIds.length > 0
 				? supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, branch_id').in('erp_vendor_id', uniqueVendorIds)
@@ -357,7 +357,7 @@
 			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
 
 			const [branchResult, vendorResult, userResult] = await Promise.all([
-				supabase.from('branches').select('id, name_en').in('id', uniqueBranchIds),
+				supabase.from('branches').select('id, name_en, location_en').in('id', uniqueBranchIds),
 				supabase.from('vendors').select('erp_vendor_id, vendor_name, vat_number, salesman_name, salesman_contact, branch_id').in('erp_vendor_id', uniqueVendorIds),
 				supabase.from('users').select('id, username, hr_employees(name)').in('id', uniqueUserIds)
 			]);
@@ -1062,7 +1062,7 @@
 			{#each [...new Set(allLoadedRecords.map(r => r.branch_id))] as branchId}
 				{@const branch = allLoadedRecords.find(r => r.branch_id === branchId)?.branches}
 				{#if branch}
-					<option value={branchId}>{branch.name_en}</option>
+					<option value={branchId}>{branch.name_en} - {branch.location_en}</option>
 				{/if}
 			{/each}
 		</select>

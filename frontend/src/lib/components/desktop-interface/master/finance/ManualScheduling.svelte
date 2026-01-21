@@ -70,7 +70,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.order('name_en');
 
 			if (error) throw error;
@@ -520,7 +520,7 @@
 						>
 							<option value="">Choose a branch...</option>
 							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en}</option>
+								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
 							{/each}
 						</select>
 					</div>

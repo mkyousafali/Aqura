@@ -439,7 +439,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					<select bind:value={selectedBranch} class="branch-select">
 						<option value="">-- Select a branch --</option>
 						{#each branches as branch}
-							<option value={branch.id}>{branch.name_en}</option>
+							<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
 						{/each}
 					</select>
 				</div>

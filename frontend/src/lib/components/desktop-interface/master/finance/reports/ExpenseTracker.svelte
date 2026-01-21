@@ -212,7 +212,7 @@
 			// Load branches
 			const { data: branchData } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -580,7 +580,7 @@
 			<select class="filter-select" bind:value={filterBranch}>
 				<option value="">All Branches</option>
 				{#each branches as branch}
-					<option value={branch.id}>{branch.name_en}</option>
+					<option value={branch.id}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 				{/each}
 			</select>
 

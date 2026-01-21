@@ -118,7 +118,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -409,7 +409,7 @@
 							<select id="branch-filter" bind:value={selectedBranchId} class="filter-select">
 								<option value="">All Branches</option>
 								{#each branches as branch}
-									<option value={branch.id.toString()}>{branch.name_en}</option>
+									<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 								{/each}
 							</select>
 						</div>
@@ -545,7 +545,7 @@
 						<select id="edit-branch" bind:value={editFormData.branch_id} class="form-input">
 							<option value="">Select Branch</option>
 							{#each branches as branch}
-								<option value={branch.id.toString()}>{branch.name_en}</option>
+								<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 							{/each}
 						</select>
 					</div>

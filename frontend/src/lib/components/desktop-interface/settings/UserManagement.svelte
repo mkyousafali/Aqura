@@ -4,11 +4,13 @@
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { userManagement } from '$lib/utils/userManagement';
+	import { supabase } from '$lib/utils/supabase';
 	import EditUser from '$lib/components/desktop-interface/settings/user/EditUser.svelte';
 
 	// Real user data from database
 	let users = [];
 	let branches = [];
+	let employeeMasterMap = new Map(); // Map user_id to hr_employee_master name
 	let loading = true;
 	let error = null;
 
@@ -27,21 +29,55 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			error = null;
 
 			// Load all necessary data concurrently
-			const [usersResult, branchesResult] = await Promise.all([
+			const [usersResult, branchesResult, employeeMasterResult] = await Promise.all([
 				userManagement.getAllUsers(),
-				userManagement.getBranches()
+				userManagement.getBranches(),
+				loadEmployeeMasterData()
 			]);
 
 			users = usersResult;
 			branches = branchesResult;
 
+			// Create a map of user_id to employee data from hr_employee_master
+			employeeMasterMap = new Map();
+			if (employeeMasterResult && employeeMasterResult.length > 0) {
+				employeeMasterResult.forEach(emp => {
+					if (emp.user_id) {
+						employeeMasterMap.set(emp.user_id, {
+							id: emp.id,
+							name_en: emp.name_en,
+							name_ar: emp.name_ar
+						});
+					}
+				});
+			}
+
 			console.log('Loaded users:', users);
 			console.log('Loaded branches:', branches);
+			console.log('Loaded employee master map:', employeeMasterMap);
 		} catch (err) {
 			console.error('Error loading user management data:', err);
 			error = err.message;
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadEmployeeMasterData() {
+		try {
+			const { data, error } = await supabase
+				.from('hr_employee_master')
+				.select('id, user_id, name_en, name_ar');
+
+			if (error) {
+				console.error('Error loading employee master data:', error);
+				return [];
+			}
+
+			return data || [];
+		} catch (err) {
+			console.error('Error in loadEmployeeMasterData:', err);
+			return [];
 		}
 	}
 
@@ -131,11 +167,48 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	
 	$: uniqueStatuses = ['active', 'inactive', 'locked'];
 
+	// Function to get employee name with fallback
+	function getEmployeeName(user) {
+		// First try to get from hr_employee_master via user_id mapping
+		if (employeeMasterMap.has(user.id)) {
+			return employeeMasterMap.get(user.id);
+		}
+		// Fallback to hr_employees data
+		return user.employee_name || 'Not Assigned';
+	}
+
+	// Function to get employee name object with English and Arabic
+	function getEmployeeNameFull(user) {
+		// First try to get from hr_employee_master via user_id mapping
+		const masterData = Array.from(employeeMasterMap.entries()).find(([userId]) => userId === user.id);
+		if (masterData && masterData[1]) {
+			return masterData[1]; // Returns the full object with id, name_en and name_ar
+		}
+		// Fallback to hr_employees data
+		return { 
+			id: null,
+			name_en: user.employee_name || null, 
+			name_ar: null 
+		};
+	}
+
+	// Function to get employee ID from hr_employee_master
+	function getEmployeeId(user) {
+		const employeeData = getEmployeeNameFull(user);
+		// Return id from hr_employee_master if available, otherwise fallback to employee_code
+		return employeeData.id || user.employee_code || null;
+	}
+
 	// Filtered users based on search and filters
 	$: filteredUsers = users.filter(user => {
+		const employeeNameObj = getEmployeeNameFull(user);
+		const employeeNameEn = employeeNameObj.name_en || '';
+		const employeeNameAr = employeeNameObj.name_ar || '';
+		
 		const matchesSearch = searchQuery === '' || 
 			(user.username && user.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
-			(user.employee_name && user.employee_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+			(employeeNameEn && employeeNameEn.toLowerCase().includes(searchQuery.toLowerCase())) ||
+			(employeeNameAr && employeeNameAr.toLowerCase().includes(searchQuery.toLowerCase())) ||
 			(user.branch_name && user.branch_name.toLowerCase().includes(searchQuery.toLowerCase()));
 		
 		// Filter by branch_id when a filter is selected
@@ -255,11 +328,22 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 										<span class="username">{user.username}</span>
 									</td>
 									<td class="employee-cell">
-										{user.employee_name || 'Not Assigned'}
+										{#if getEmployeeNameFull(user).name_en || getEmployeeNameFull(user).name_ar}
+											<div class="employee-names">
+												{#if getEmployeeNameFull(user).name_en}
+													<div class="name-en">{getEmployeeNameFull(user).name_en}</div>
+												{/if}
+												{#if getEmployeeNameFull(user).name_ar}
+													<div class="name-ar">{getEmployeeNameFull(user).name_ar}</div>
+												{/if}
+											</div>
+										{:else}
+											<span class="not-assigned">Not Assigned</span>
+										{/if}
 									</td>
 									<td class="employee-id-cell">
-										{#if user.employee_code}
-											<code class="employee-code">{user.employee_code}</code>
+										{#if getEmployeeId(user)}
+											<code class="employee-code">{getEmployeeId(user)}</code>
 										{:else}
 											<span class="no-code">-</span>
 										{/if}
@@ -716,6 +800,29 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.username {
 		font-weight: 600;
 		color: #111827;
+	}
+
+	.employee-names {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.name-en {
+		font-weight: 500;
+		color: #111827;
+		font-size: 14px;
+	}
+
+	.name-ar {
+		color: #6b7280;
+		font-size: 13px;
+		direction: rtl;
+	}
+
+	.not-assigned {
+		color: #9ca3af;
+		font-style: italic;
 	}
 
 	.role-badge, .status-badge {

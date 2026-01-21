@@ -8,7 +8,7 @@
 	let totalCount = 0;
 	let searchQuery = '';
 	let searchType: 'bill' | 'vendor' | 'vendor_id' = 'bill'; // Search type: bill number, vendor name, or vendor ID
-	let branches: Array<{ id: number; name_en: string; name_ar: string }> = [];
+	let branches: Array<{ id: number; name_en: string; name_ar: string; location_en: string }> = [];
 	let selectedBranchId = '';
 
 	// Server-side Pagination
@@ -34,7 +34,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.eq('is_active', true)
 				.order('name_en');
 
@@ -257,7 +257,7 @@
 						>
 							<option value="">All Branches</option>
 							{#each branches as branch}
-								<option value={branch.id.toString()}>{branch.name_en}</option>
+								<option value={branch.id.toString()}>{branch.name_en} - {branch.location_en}</option>
 							{/each}
 						</select>
 					</div>

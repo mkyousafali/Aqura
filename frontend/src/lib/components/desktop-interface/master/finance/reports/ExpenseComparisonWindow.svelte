@@ -170,7 +170,7 @@
 		try {
 			const { data, error: fetchError } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar')
+				.select('id, name_en, name_ar, location_en')
 				.order('name_en');
 
 			if (fetchError) throw fetchError;
@@ -562,7 +562,7 @@
 			<select class="branch-filter" bind:value={selectedBranch} on:change={processChartData}>
 				<option value="all">All Branches</option>
 				{#each branches as branch}
-					<option value={branch.id}>{branch.name_en}</option>
+					<option value={branch.id}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 				{/each}
 			</select>
 			<button class="custom-period-btn" on:click={openCustomPeriodModal}>
