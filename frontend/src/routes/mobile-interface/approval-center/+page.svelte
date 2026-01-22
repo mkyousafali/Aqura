@@ -785,6 +785,37 @@ async function loadHistoricalData() {
 				}
 
 				notifications.add({ type: 'success', message: 'Vendor payment approved successfully!' });
+			} else if (selectedRequisition.item_type === 'day_off') {
+				// Approve day off request
+				const { error: updateError } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'approved',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString()
+					})
+					.eq('id', selectedRequisition.id);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					if (selectedRequisition.approval_requested_by) {
+						await notificationService.createNotification({
+							title: 'Leave Request Approved',
+							message: `Your leave request for ${selectedRequisition.day_off_date} has been approved!\n\nApproved by: ${$currentUser?.username}`,
+							type: 'assignment_approved',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [selectedRequisition.approval_requested_by]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Approval notification sent to requester:', selectedRequisition.approval_requested_by);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+
+				notifications.add({ type: 'success', message: 'Leave request approved successfully!' });
 			} else {
 				// Update regular requisition
 				const { error } = await supabase
@@ -853,9 +884,10 @@ async function loadHistoricalData() {
 	requisitions = requisitions.filter(r => r.id !== selectedRequisition.id);
 	paymentSchedules = paymentSchedules.filter(s => s.id !== selectedRequisition.id);
 	vendorPayments = vendorPayments.filter(v => v.id !== selectedRequisition.id);
+	dayOffRequests = dayOffRequests.filter(d => d.id !== selectedRequisition.id);
 	
 	// Update stats
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length;
 	stats.total = stats.pending + stats.approved + stats.rejected;
 	
 	// Refresh filtered lists
@@ -943,6 +975,38 @@ async function rejectRequisition(reason) {
 				}
 
 				notifications.add({ type: 'success', message: 'Vendor payment rejected.' });
+			} else if (selectedRequisition.item_type === 'day_off') {
+				// Reject day off request
+				const { error: updateError } = await supabase
+					.from('day_off')
+					.update({
+						approval_status: 'rejected',
+						approval_approved_by: $currentUser.id,
+						approval_approved_at: new Date().toISOString(),
+						rejection_reason: reason
+					})
+					.eq('id', selectedRequisition.id);
+
+				if (updateError) throw updateError;
+
+				// Send notification to the requester
+				try {
+					if (selectedRequisition.approval_requested_by) {
+						await notificationService.createNotification({
+							title: 'Leave Request Rejected',
+							message: `Your leave request for ${selectedRequisition.day_off_date} has been rejected.\n\nReason: ${reason}\n\nRejected by: ${$currentUser?.username}`,
+							type: 'assignment_rejected',
+							priority: 'high',
+							target_type: 'specific_users',
+							target_users: [selectedRequisition.approval_requested_by]
+						}, $currentUser?.id || $currentUser?.username || 'System');
+						console.log('✅ Rejection notification sent to requester:', selectedRequisition.approval_requested_by);
+					}
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+
+				notifications.add({ type: 'success', message: 'Leave request rejected.' });
 			} else {
 				// Update regular requisition
 				const { error } = await supabase
@@ -1517,7 +1581,7 @@ async function rejectRequisition(reason) {
 						</button>
 					</div>
 				{:else}
-					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}
+					{@const itemTypeName = selectedRequisition.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition.item_type === 'day_off' ? 'day off request' : 'requisition'}
 					<div class="status-info">
 						This {itemTypeName} has been {selectedRequisition.status || selectedRequisition.approval_status}
 					</div>
@@ -1537,9 +1601,9 @@ async function rejectRequisition(reason) {
 		
 		<p class="confirm-message">
 			{#if confirmAction === 'approve'}
-				Are you sure you want to approve this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+				Are you sure you want to approve this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition?.item_type === 'day_off' ? 'day off request' : 'requisition'}?
 			{:else}
-				Are you sure you want to reject this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : 'requisition'}?
+				Are you sure you want to reject this {selectedRequisition?.item_type === 'payment_schedule' ? 'payment schedule' : selectedRequisition?.item_type === 'vendor_payment' ? 'vendor payment' : selectedRequisition?.item_type === 'day_off' ? 'day off request' : 'requisition'}?
 			{/if}
 		</p>
 		
