@@ -3492,14 +3492,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('FINGERPRINT_TRANSACTIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openFingerprintTransactions}>
-								<span class="menu-icon">👆</span>
-								<span class="menu-text">{t('nav.fingerprintTransactions')}</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('PROCESS_FINGERPRINT')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openProcessFingerprint}>
@@ -3524,27 +3516,11 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('LEAVES_AND_VACATIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openLeavesAndVacations}>
-								<span class="menu-icon">🌴</span>
-								<span class="menu-text">{t('nav.leavesAndVacations')}</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('DISCIPLINE')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openDiscipline}>
 								<span class="menu-icon">⚖️</span>
 								<span class="menu-text">{t('nav.discipline')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('LEAVE_REQUEST')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openLeaveRequest}>
-								<span class="menu-icon">📋</span>
-								<span class="menu-text">{t('nav.leaveRequest')}</span>
 							</button>
 						</div>
 					{/if}
@@ -3573,6 +3549,14 @@ function openApprovalCenter() {
 			<!-- Reports Subsection Items -->
 			{#if showHRReportsSubmenu}
 				<div class="submenu-subitem-container">
+					{#if isButtonAllowed('FINGERPRINT_TRANSACTIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openFingerprintTransactions}>
+								<span class="menu-icon">👆</span>
+								<span class="menu-text">{t('nav.fingerprintTransactions')}</span>
+							</button>
+						</div>
+					{/if}
 					{#if isButtonAllowed('EXPORT_BIOMETRIC_DATA')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openExportBiometricData}>
