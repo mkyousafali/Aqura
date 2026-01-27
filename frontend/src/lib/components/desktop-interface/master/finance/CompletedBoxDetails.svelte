@@ -704,10 +704,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			} else if (netDiff > 0) {
 				// NET IS EXCESS (positive) - need to record the excess
 				if (absNetDiff > 5) {
-					// Excess more than 5 - charge to Employee Salary Account
+					// Excess more than 5 - still charge to POS Excess
 					entryToPassData.adjustments.push({
-						account: 'POS Cash Excess to Employee Salary',
-						debitAccount: 'Employee Salary Account',
+						account: 'POS Cash Excess to POS Excess',
+						debitAccount: 'POS Cash',
 						debitAmount: absNetDiff,
 						creditAccount: 'POS Excess',
 						creditAmount: absNetDiff
