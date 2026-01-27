@@ -579,13 +579,13 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Positive = POS Cash needs DR, Negative = POS Cash needs CR
 	$: differenceInCashSales = Math.round((totalCashSales - ((Number(systemCashSales) || 0) - (Number(systemReturn) || 0))) * 100) / 100;
 
-	// Auto-calculate difference in card sales (system card sales - real bank received)
-	// Positive = POS Bank needs CR, Negative = POS Bank needs DR
-	$: differenceInCardSales = Math.round(((Number(systemCardSales) || 0) - bankTotal) * 100) / 100;
+	// Auto-calculate difference in card sales (real bank received - system card sales)
+	// Positive = POS Bank needs DR, Negative = POS Bank needs CR
+	$: differenceInCardSales = Math.round((bankTotal - (Number(systemCardSales) || 0)) * 100) / 100;
 
 	// Auto-calculate total difference (net position)
-	// Cash positive = DR, Bank positive = CR, so subtract bank from cash to get net
-	$: totalDifference = Math.round((differenceInCashSales - differenceInCardSales) * 100) / 100;
+	// Both positive = DR, both negative = CR, so add them together
+	$: totalDifference = Math.round((differenceInCashSales + differenceInCardSales) * 100) / 100;
 
 	// Entry to Pass - Automatic adjustment entries calculation
 	let entryToPassData: any = {
@@ -623,58 +623,55 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 		// Get differences
 		const cashDiff = differenceInCashSales;      // positive = DR, negative = CR
-		const bankDiff = differenceInCardSales;      // positive = CR, negative = DR
+		const bankDiff = differenceInCardSales;      // positive = DR, negative = CR
 		const cashAbs = Math.abs(cashDiff);
 		const bankAbs = Math.abs(bankDiff);
 		const netDiff = totalDifference;             // Already accounts for sign differences
 
-		// STEP 1: Transfer the LARGER absolute difference to balance that account first
-		const transferAmount = Math.max(cashAbs, bankAbs);
+		// STEP 1: Determine transfer amount
+		// If signs are same: transfer smaller amount to balance one account
+		// If signs are different: transfer bank amount to resolve the discrepancy
+		const sameSigns = (cashDiff > 0 && bankDiff > 0) || (cashDiff < 0 && bankDiff < 0);
+		const transferAmount = sameSigns ? Math.min(cashAbs, bankAbs) : bankAbs;
 
 		if (transferAmount > 0.01) {  // Account for floating point rounding
-			// Determine which account is being balanced and which direction the transfer goes
-			if (bankAbs > cashAbs) {
-				// Bank difference is larger - always transfer involving bank
-				if (bankDiff > 0) {
-					// Bank needs CR - transfer FROM bank TO cash
-					entryToPassData.transfers.push({
-						account: 'POS Bank to POS Cash Transfer',
-						debitAccount: 'POS Cash',
-						debitAmount: transferAmount,
-						creditAccount: 'POS Bank',
-						creditAmount: transferAmount
-					});
-				} else {
-					// Bank needs DR - transfer FROM cash TO bank
-					entryToPassData.transfers.push({
-						account: 'POS Cash to POS Bank Transfer',
-						debitAccount: 'POS Bank',
-						debitAmount: transferAmount,
-						creditAccount: 'POS Cash',
-						creditAmount: transferAmount
-					});
-				}
-			} else if (cashAbs > bankAbs) {
-				// Cash difference is larger - always transfer involving cash
-				if (cashDiff > 0) {
-					// Cash needs DR - transfer FROM bank TO cash
-					entryToPassData.transfers.push({
-						account: 'POS Bank to POS Cash Transfer',
-						debitAccount: 'POS Cash',
-						debitAmount: transferAmount,
-						creditAccount: 'POS Bank',
-						creditAmount: transferAmount
-					});
-				} else {
-					// Cash needs CR - transfer FROM cash TO bank
-					entryToPassData.transfers.push({
-						account: 'POS Cash to POS Bank Transfer',
-						debitAccount: 'POS Bank',
-						debitAmount: transferAmount,
-						creditAccount: 'POS Cash',
-						creditAmount: transferAmount
-					});
-				}
+			// When both differences have same sign, transfer the smaller to balance the smaller difference
+			if (cashDiff > 0 && bankDiff > 0) {
+				// Both need DR - transfer from cash to bank (reduce the smaller difference)
+				entryToPassData.transfers.push({
+					account: 'POS Cash to POS Bank Transfer',
+					debitAccount: 'POS Bank',
+					debitAmount: transferAmount,
+					creditAccount: 'POS Cash',
+					creditAmount: transferAmount
+				});
+			} else if (cashDiff < 0 && bankDiff < 0) {
+				// Both need CR - transfer from bank to cash (reduce the smaller difference)
+				entryToPassData.transfers.push({
+					account: 'POS Bank to POS Cash Transfer',
+					debitAccount: 'POS Cash',
+					debitAmount: transferAmount,
+					creditAccount: 'POS Bank',
+					creditAmount: transferAmount
+				});
+			} else if (cashDiff > 0 && bankDiff < 0) {
+				// Cash overstated (needs CR), Bank understated (needs DR) - transfer from bank to cash
+				entryToPassData.transfers.push({
+					account: 'POS Bank to POS Cash Transfer',
+					debitAccount: 'POS Cash',
+					debitAmount: transferAmount,
+					creditAccount: 'POS Bank',
+					creditAmount: transferAmount
+				});
+			} else if (cashDiff < 0 && bankDiff > 0) {
+				// Cash needs CR, Bank needs DR - transfer from cash to bank
+				entryToPassData.transfers.push({
+					account: 'POS Cash to POS Bank Transfer',
+					debitAccount: 'POS Bank',
+					debitAmount: transferAmount,
+					creditAccount: 'POS Cash',
+					creditAmount: transferAmount
+				});
 			}
 		}
 
@@ -712,16 +709,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 						account: 'POS Cash Excess to Employee Salary',
 						debitAccount: 'Employee Salary Account',
 						debitAmount: absNetDiff,
-						creditAccount: 'POS Cash',
+						creditAccount: 'POS Excess',
 						creditAmount: absNetDiff
 					});
 				} else {
 					// Excess 5 or less - charge to POS Excess
 					entryToPassData.adjustments.push({
 						account: 'POS Cash Excess to POS Excess',
-						debitAccount: 'POS Excess',
+						debitAccount: 'POS Cash',
 						debitAmount: absNetDiff,
-						creditAccount: 'POS Cash',
+						creditAccount: 'POS Excess',
 						creditAmount: absNetDiff
 					});
 				}
@@ -2656,28 +2653,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</div>
 		</div>
 		<div class="half-card split-card">
-			<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; padding: 0.5rem;">
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
-					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Status POS Cash</label>
-					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
-						<input type="number" value={Math.abs(differenceInCashSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
-						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
-							{differenceInCashSales >= 0 ? "DR" : "CR"}
-						</div>
-					</div>
-				</div>
-				<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem;">
-					<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.3rem; text-align: center;">Status POS Bank</label>
-					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
-						<input type="number" value={Math.abs(differenceInCardSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
-						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
-							{differenceInCardSales >= 0 ? "CR" : "DR"}
-						</div>
-					</div>
-				</div>
-			</div>
-<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
-				
+			<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
+			
 {#if entryToPassData.transfers.length > 0}
 				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
 					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">📤 Transfers:</div>
