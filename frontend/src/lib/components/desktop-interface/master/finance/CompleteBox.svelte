@@ -580,14 +580,17 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let differenceInCashSales: number = 0;
 	let differenceInCardSales: number = 0;
 
-	// Auto-calculate difference in cash sales (total cash sales - (system cash sales - returns))
+	// Auto-calculate difference in cash sales (real cash received - system cash sales + return)
+	// Positive = POS Cash needs DR, Negative = POS Cash needs CR
 	$: differenceInCashSales = Math.round((totalCashSales - ((Number(systemCashSales) || 0) - (Number(systemReturn) || 0))) * 100) / 100;
 
-	// Auto-calculate difference in card sales (bank total - system card sales)
-	$: differenceInCardSales = Math.round((bankTotal - (Number(systemCardSales) || 0)) * 100) / 100;
+	// Auto-calculate difference in card sales (system card sales - real bank received)
+	// Positive = POS Bank needs CR, Negative = POS Bank needs DR
+	$: differenceInCardSales = Math.round(((Number(systemCardSales) || 0) - bankTotal) * 100) / 100;
 
-	// Auto-calculate total difference
-	$: totalDifference = Math.round((differenceInCashSales + differenceInCardSales) * 100) / 100;
+	// Auto-calculate total difference (net position)
+	// Cash positive = DR, Bank positive = CR, so subtract bank from cash to get net
+	$: totalDifference = Math.round((differenceInCashSales - differenceInCardSales) * 100) / 100;
 
 	// Entry to Pass - Automatic adjustment entries calculation
 	let entryToPassData: any = {
@@ -606,174 +609,129 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	};
 
 	// Calculate required entries based on POS Cash and POS Bank balances
+	// Corrected logic for reconciliation entries
 	$: {
-		const posCashValue = Math.abs(differenceInCashSales);
-		const posCashType = differenceInCashSales >= 0 ? 'DR' : 'CR';
-		const posBankValue = Math.abs(differenceInCardSales);
-		const posBankType = differenceInCardSales >= 0 ? 'DR' : 'CR';
-
 		entryToPassData = {
 			transfers: [],
 			adjustments: [],
 			cashReceipt: {
-				value: posCashValue,
+				value: Math.abs(differenceInCashSales),
 				adjustment: 0,
 				total: totalCashSales
 			},
 			bankReceipt: {
-				value: posBankValue,
+				value: Math.abs(differenceInCardSales),
 				adjustment: 0,
 				total: bankTotal
 			}
 		};
 
-		// Logic: Handle all four DR/CR combinations
-		if (posCashType === 'DR' && posBankType === 'CR') {
-			// Cash has surplus (DR), Bank has deficit (CR)
-			// Transfer from Cash to Bank
-			const transferAmount = Math.min(posCashValue, posBankValue);
-			entryToPassData.transfers.push({
-				account: 'POS Cash → POS Bank',
-				debitAccount: 'POS Bank',
-				debitAmount: transferAmount,
-				creditAccount: 'POS Cash',
-				creditAmount: transferAmount
-			});
+		// Get differences
+		const cashDiff = differenceInCashSales;      // positive = DR, negative = CR
+		const bankDiff = differenceInCardSales;      // positive = CR, negative = DR
+		const cashAbs = Math.abs(cashDiff);
+		const bankAbs = Math.abs(bankDiff);
+		const netDiff = totalDifference;             // Already accounts for sign differences
 
-			// Check remaining balances
-			const remainingCash = posCashValue - transferAmount;
-			const remainingBank = posBankValue - transferAmount;
+		// STEP 1: Transfer the LARGER absolute difference to balance that account first
+		const transferAmount = Math.max(cashAbs, bankAbs);
 
-			if (remainingCash > 0) {
-				entryToPassData.adjustments.push({
-					account: 'POS Excess Adjustment',
-					debitAccount: 'POS Excess',
-					debitAmount: remainingCash,
-					creditAccount: 'POS Cash',
-					creditAmount: remainingCash
-				});
-				entryToPassData.cashReceipt.adjustment = remainingCash;
-			}
-
-			if (remainingBank > 0) {
-				entryToPassData.adjustments.push({
-					account: 'POS Short Adjustment',
-					debitAccount: 'POS Bank',
-					debitAmount: remainingBank,
-					creditAccount: 'POS Short',
-					creditAmount: remainingBank
-				});
-				entryToPassData.bankReceipt.adjustment = remainingBank;
-
-				// Add cashier salary entry if short is >= 5
-				if (remainingBank >= 5) {
-					entryToPassData.adjustments.push({
-						account: 'POS Short to Cashier Salary',
-						debitAccount: 'Cashier Salary Account',
-						debitAmount: remainingBank,
-						creditAccount: 'POS Short',
-						creditAmount: remainingBank
+		if (transferAmount > 0.01) {  // Account for floating point rounding
+			// Determine which account is being balanced and which direction the transfer goes
+			if (bankAbs > cashAbs) {
+				// Bank difference is larger - always transfer involving bank
+				if (bankDiff > 0) {
+					// Bank needs CR - transfer FROM bank TO cash
+					entryToPassData.transfers.push({
+						account: 'POS Bank to POS Cash Transfer',
+						debitAccount: 'POS Cash',
+						debitAmount: transferAmount,
+						creditAccount: 'POS Bank',
+						creditAmount: transferAmount
 					});
 				} else {
-					// Add note if short is less than 5
-					entryToPassData.adjustments.push({
-						account: 'POS Short Note',
-						note: '⚠️ Short amount is less than 5 - No need to post to Cashier Salary Account'
+					// Bank needs DR - transfer FROM cash TO bank
+					entryToPassData.transfers.push({
+						account: 'POS Cash to POS Bank Transfer',
+						debitAccount: 'POS Bank',
+						debitAmount: transferAmount,
+						creditAccount: 'POS Cash',
+						creditAmount: transferAmount
+					});
+				}
+			} else if (cashAbs > bankAbs) {
+				// Cash difference is larger - always transfer involving cash
+				if (cashDiff > 0) {
+					// Cash needs DR - transfer FROM bank TO cash
+					entryToPassData.transfers.push({
+						account: 'POS Bank to POS Cash Transfer',
+						debitAccount: 'POS Cash',
+						debitAmount: transferAmount,
+						creditAccount: 'POS Bank',
+						creditAmount: transferAmount
+					});
+				} else {
+					// Cash needs CR - transfer FROM cash TO bank
+					entryToPassData.transfers.push({
+						account: 'POS Cash to POS Bank Transfer',
+						debitAccount: 'POS Bank',
+						debitAmount: transferAmount,
+						creditAccount: 'POS Cash',
+						creditAmount: transferAmount
 					});
 				}
 			}
-		} else if (posCashType === 'CR' && posBankType === 'DR') {
-			// Cash has deficit (CR), Bank has surplus (DR)
-			// Transfer from Bank to Cash
-			const transferAmount = Math.min(posCashValue, posBankValue);
-			entryToPassData.transfers.push({
-				account: 'POS Bank → POS Cash',
-				debitAccount: 'POS Cash',
-				debitAmount: transferAmount,
-				creditAccount: 'POS Bank',
-				creditAmount: transferAmount
-			});
+		}
 
-			// Check remaining balances
-			const remainingCash = posCashValue - transferAmount;
-			const remainingBank = posBankValue - transferAmount;
+		// STEP 2: Handle net position (remaining imbalance after transfer)
+		const absNetDiff = Math.abs(netDiff);
 
-			if (remainingCash > 0) {
-				entryToPassData.adjustments.push({
-					account: 'POS Short Adjustment',
-					debitAccount: 'POS Short',
-					debitAmount: remainingCash,
-					creditAccount: 'POS Cash',
-					creditAmount: remainingCash
-				});
-				entryToPassData.cashReceipt.adjustment = remainingCash;
-
-				// Add cashier salary entry if short is >= 5
-				if (remainingCash >= 5) {
+		if (absNetDiff > 0.01) {  // Account for floating point rounding
+			if (netDiff < 0) {
+				// NET IS SHORT (negative) - need to charge the shortage
+				if (absNetDiff > 5) {
+					// Short more than 5 - charge to Employee Salary Account
 					entryToPassData.adjustments.push({
-						account: 'POS Short to Cashier Salary',
-						debitAccount: 'Cashier Salary Account',
-						debitAmount: remainingCash,
-						creditAccount: 'POS Short',
-						creditAmount: remainingCash
+						account: 'POS Cash Short to Employee Salary',
+						debitAccount: 'Employee Salary Account',
+						debitAmount: absNetDiff,
+						creditAccount: 'POS Cash',
+						creditAmount: absNetDiff
 					});
 				} else {
-					// Add note if short is less than 5
+					// Short 5 or less - charge to POS Short
 					entryToPassData.adjustments.push({
-						account: 'POS Short Note',
-						note: '⚠️ Short amount is less than 5 - No need to post to Cashier Salary Account'
+						account: 'POS Cash Short to POS Short',
+						debitAccount: 'POS Short',
+						debitAmount: absNetDiff,
+						creditAccount: 'POS Cash',
+						creditAmount: absNetDiff
 					});
 				}
+				entryToPassData.cashReceipt.adjustment = -absNetDiff;
+			} else if (netDiff > 0) {
+				// NET IS EXCESS (positive) - need to record the excess
+				if (absNetDiff > 5) {
+					// Excess more than 5 - charge to Employee Salary Account
+					entryToPassData.adjustments.push({
+						account: 'POS Cash Excess to Employee Salary',
+						debitAccount: 'Employee Salary Account',
+						debitAmount: absNetDiff,
+						creditAccount: 'POS Cash',
+						creditAmount: absNetDiff
+					});
+				} else {
+					// Excess 5 or less - charge to POS Excess
+					entryToPassData.adjustments.push({
+						account: 'POS Cash Excess to POS Excess',
+						debitAccount: 'POS Excess',
+						debitAmount: absNetDiff,
+						creditAccount: 'POS Cash',
+						creditAmount: absNetDiff
+					});
+				}
+				entryToPassData.cashReceipt.adjustment = absNetDiff;
 			}
-
-			if (remainingBank > 0) {
-				entryToPassData.adjustments.push({
-					account: 'POS Excess Adjustment',
-					debitAccount: 'POS Bank',
-					debitAmount: remainingBank,
-					creditAccount: 'POS Excess',
-					creditAmount: remainingBank
-				});
-				entryToPassData.bankReceipt.adjustment = remainingBank;
-			}
-		} else if (posCashType === 'DR' && posBankType === 'DR') {
-			// Both have surplus (both DR)
-			// Cash to POS Excess, Bank to POS Excess
-			entryToPassData.adjustments.push({
-				account: 'POS Cash Excess Adjustment',
-				debitAccount: 'POS Excess',
-				debitAmount: posCashValue,
-				creditAccount: 'POS Cash',
-				creditAmount: posCashValue
-			});
-			entryToPassData.adjustments.push({
-				account: 'POS Bank Excess Adjustment',
-				debitAccount: 'POS Excess',
-				debitAmount: posBankValue,
-				creditAccount: 'POS Bank',
-				creditAmount: posBankValue
-			});
-			entryToPassData.cashReceipt.adjustment = posCashValue;
-			entryToPassData.bankReceipt.adjustment = posBankValue;
-		} else if (posCashType === 'CR' && posBankType === 'CR') {
-			// Both have deficit (both CR)
-			// POS Short from both Cash and Bank
-			entryToPassData.adjustments.push({
-				account: 'POS Cash Short Adjustment',
-				debitAccount: 'POS Short',
-				debitAmount: posCashValue,
-				creditAccount: 'POS Cash',
-				creditAmount: posCashValue
-			});
-			entryToPassData.adjustments.push({
-				account: 'POS Bank Short Adjustment',
-				debitAccount: 'POS Short',
-				debitAmount: posBankValue,
-				creditAccount: 'POS Bank',
-				creditAmount: posBankValue
-			});
-			entryToPassData.cashReceipt.adjustment = posCashValue;
-			entryToPassData.bankReceipt.adjustment = posBankValue;
 		}
 	}
 
@@ -2752,7 +2710,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					<div style="display: flex; gap: 0.3rem; width: 100%; align-items: center;">
 						<input type="number" value={Math.abs(differenceInCardSales)} readonly style="flex: 2; padding: 0.3rem; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size: 0.8rem; font-weight: bold;" />
 						<div style="flex: 1; padding: 0.3rem; text-align: center; font-size: 0.75rem; font-weight: 600; color: #0369a1;">
-							{differenceInCardSales >= 0 ? "DR" : "CR"}
+							{differenceInCardSales >= 0 ? "CR" : "DR"}
 						</div>
 					</div>
 				</div>
@@ -2764,8 +2722,20 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">📤 Transfers:</div>
 					{#each entryToPassData.transfers as transfer}
 						<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #ffedd5; border-radius: 3px; width: 100%; font-size: 0.65rem;">
-							<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
-							<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
+							{#if transfer.debitAccount === 'POS Cash'}
+								<div style="margin-bottom: 0.1rem;"><strong>Dr POS {selectedPosNumber}:</strong> {transfer.debitAmount.toFixed(2)}</div>
+							{:else if transfer.debitAccount === 'POS Bank'}
+								<div style="margin-bottom: 0.1rem;"><strong>Dr POS Bank:</strong> {transfer.debitAmount.toFixed(2)}</div>
+							{:else}
+								<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
+							{/if}
+							{#if transfer.creditAccount === 'POS Cash'}
+								<div><strong>Cr POS {selectedPosNumber}:</strong> {transfer.creditAmount.toFixed(2)}</div>
+							{:else if transfer.creditAccount === 'POS Bank'}
+								<div><strong>Cr POS Bank:</strong> {transfer.creditAmount.toFixed(2)}</div>
+							{:else}
+								<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -2779,8 +2749,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if adjustment.note}
 								<div style="color: #dc2626; font-weight: 600; background: #fee2e2; padding: 0.3rem; border-radius: 3px; border-left: 3px solid #dc2626;">{adjustment.note}</div>
 							{:else}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
-								<div><strong>Cr {adjustment.creditAccount}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
+								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : adjustment.debitAccount}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
+								<div><strong>Cr {adjustment.creditAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : adjustment.creditAccount}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
 							{/if}
 						</div>
 					{/each}
@@ -2810,44 +2780,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 		<!-- Net Short/Excess Card -->
 		<div class="blank-card" style="background: #fef2f2; border: 2px solid #ef4444; min-height: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15); padding: 0.5rem; width: 100%;">
-			{#if differenceInCashSales < 0 && differenceInCardSales < 0}
-				<!-- Both CR (both short) -->
-				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
-				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
-					<strong>Net Short:</strong> {(Math.abs(differenceInCashSales) + Math.abs(differenceInCardSales)).toFixed(2)}
-				</div>
-			{:else if differenceInCashSales > 0 && differenceInCardSales > 0}
-				<!-- Both DR (both excess) -->
-				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
-				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
-					<strong>Net Excess:</strong> {(differenceInCashSales + differenceInCardSales).toFixed(2)}
-				</div>
-			{:else if Math.abs(differenceInCashSales) > Math.abs(differenceInCardSales)}
-				<!-- Mixed: Cash larger -->
-				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
-				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
-					{#if differenceInCashSales > 0}
-						<strong>Net Excess:</strong> {(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)}
-					{:else}
-						<strong>Net Short:</strong> {(Math.abs(differenceInCashSales) - Math.abs(differenceInCardSales)).toFixed(2)}
-					{/if}
-				</div>
-			{:else if Math.abs(differenceInCardSales) > Math.abs(differenceInCashSales)}
-				<!-- Mixed: Bank larger -->
-				<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
-				<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
-					{#if differenceInCardSales > 0}
-						<strong>Net Excess:</strong> {(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)}
-					{:else}
-						<strong>Net Short:</strong> {(Math.abs(differenceInCardSales) - Math.abs(differenceInCashSales)).toFixed(2)}
-					{/if}
-				</div>
-			{:else}
-				<div style="font-weight: 600; color: #15803d; font-size: 0.7rem;">✅ Balanced</div>
-				<div style="font-size: 0.65rem; color: #15803d; margin-top: 0.3rem;">
-					No net short or excess
-				</div>
-			{/if}
+			<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
+			<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
+				{#if totalDifference < 0}
+					<strong>Net Short:</strong> {Math.abs(totalDifference).toFixed(2)}
+				{:else if totalDifference > 0}
+					<strong>Net Excess:</strong> {totalDifference.toFixed(2)}
+				{:else}
+					<strong>Balanced:</strong> 0.00
+				{/if}
+			</div>
 		</div>
 	</div>
 	</div>
