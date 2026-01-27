@@ -2653,7 +2653,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</div>
 		</div>
 		<div class="half-card split-card">
-			<label style="font-size: 0.7rem; color: #0369a1; font-weight: 600; margin-bottom: 0.5rem; text-align: center; width: 100%;">Entry to Pass</label>
+			<div style="background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%); border-radius: 0.5rem; padding: 0.5rem; margin-bottom: 0.5rem; box-shadow: 0 4px 12px rgba(3, 105, 161, 0.2);">
+				<div style="font-size: 0.75rem; color: white; font-weight: 700; text-align: center; letter-spacing: 0.5px;">📝 Entry to Pass</div>
+			</div>
 			
 {#if entryToPassData.transfers.length > 0}
 				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
@@ -2687,8 +2689,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 							{#if adjustment.note}
 								<div style="color: #dc2626; font-weight: 600; background: #fee2e2; padding: 0.3rem; border-radius: 3px; border-left: 3px solid #dc2626;">{adjustment.note}</div>
 							{:else}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : adjustment.debitAccount}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
-								<div><strong>Cr {adjustment.creditAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : adjustment.creditAccount}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
+								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : (adjustment.debitAccount === 'POS Cash' ? `POS ${selectedPosNumber}` : adjustment.debitAccount)}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
+								<div><strong>Cr {adjustment.creditAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : (adjustment.creditAccount === 'POS Cash' ? `POS ${selectedPosNumber}` : adjustment.creditAccount)}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
 							{/if}
 						</div>
 					{/each}
@@ -2697,19 +2699,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 			<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
 				<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">💵 Cash Receipt</div>
-				{#if entryToPassData.cashReceipt.adjustment > 0}
-					<div style="margin-bottom: 0.1rem; font-size: 0.65rem;"><strong>Adjustment:</strong> {entryToPassData.cashReceipt.adjustment.toFixed(2)}</div>
-				{/if}
 				<div style="font-weight: 600; color: #15803d; margin-top: 0.2rem; border-top: 2px solid #22c55e; padding-top: 0.2rem; width: 100%; font-size: 0.65rem;"><strong>Total Cash Receipt:</strong> {entryToPassData.cashReceipt.total.toFixed(2)}</div>
-			</div>
-
-			<div class="blank-card" style="background: #f0f9ff; border: 2px solid #0ea5e9; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15); padding: 0.5rem; width: 100%;">
-				<div style="font-weight: 600; color: #0369a1; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">🏦 Bank Receipt</div>
-				<div style="font-size: 0.6rem; color: #0284c7; margin-bottom: 0.3rem; font-style: italic; font-weight: 600; width: 100%;">📌 Instruction: Do not post entry until bank statement is available for reconciliation</div>
-				{#if entryToPassData.bankReceipt.adjustment > 0}
-					<div style="margin-bottom: 0.1rem; font-size: 0.65rem;"><strong>Adjustment:</strong> {entryToPassData.bankReceipt.adjustment.toFixed(2)}</div>
-				{/if}
-				<div style="font-weight: 600; color: #0369a1; margin-top: 0.2rem; border-top: 2px solid #0ea5e9; padding-top: 0.2rem; width: 100%; font-size: 0.65rem;"><strong>Total Bank Receipt:</strong> {entryToPassData.bankReceipt.total.toFixed(2)}</div>
 			</div>
 
 		{#if entryToPassData.transfers.length === 0 && entryToPassData.adjustments.length === 0}
