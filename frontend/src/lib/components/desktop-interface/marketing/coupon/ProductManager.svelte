@@ -424,7 +424,16 @@
 					successCount++;
 				} catch (error: any) {
 					console.error(`Error creating product ${payload.product_name_en}:`, error);
-					throw error;
+					
+					// If it's a duplicate key error, show a specific message
+					if (error.code === '23505') {
+						notifications.add({
+							message: `Product "${payload.product_name_en}" (${payload.special_barcode}) already exists in this campaign`,
+							type: 'warning'
+						});
+					} else {
+						throw error;
+					}
 				}
 			}
 
@@ -457,10 +466,14 @@
 			await loadProducts();
 		} catch (error: any) {
 			console.error('Error saving products:', error);
-			notifications.add({
-				message: error.message || 'Error saving products',
-				type: 'error'
-			});
+			
+			// Don't show generic error if we've already handled specific errors (like duplicates)
+			if (error.code !== '23505') {
+				notifications.add({
+					message: error.message || 'Error saving products',
+					type: 'error'
+				});
+			}
 		} finally {
 			saving = false;
 		}

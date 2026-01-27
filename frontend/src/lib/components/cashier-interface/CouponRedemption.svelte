@@ -7,11 +7,14 @@
 
 	let mobileNumber = '';
 	let campaignCode = '';
-	let step: 'input' | 'validating' | 'result' = 'input';
+	let step: 'input' | 'validating' | 'selectProduct' | 'claiming' | 'result' = 'input';
 	let loading = false;
 	let result: any = null;
 	let error = '';
 	let printDisabled = false;
+	let availableProducts: any[] = [];
+	let selectedProduct: any = null;
+	let validationData: any = null;
 
 	// Helper function to translate error messages from database
 	function translateErrorMessage(message: string): string {
@@ -71,24 +74,58 @@
 			};
 			step = 'result';
 			return;
-		}			// Step 2: Select random product from campaign
-			const { data: selectedProduct, error: productError } = await supabase
-				.rpc('select_random_product', {
-					p_campaign_id: validation.campaign_id
-				});
+		}
 
-			if (productError || !selectedProduct || selectedProduct.length === 0) {
-				throw new Error('No products available for this campaign');
+			// Store validation data for later use
+			validationData = validation;
+
+			// Step 2: Load all available products from campaign
+			const { data: products, error: productError } = await supabase
+				.from('coupon_products')
+				.select('*')
+				.eq('campaign_id', validation.campaign_id)
+				.eq('is_active', true)
+				.gt('stock_remaining', 0)
+				.order('product_name_en');
+
+			if (productError) {
+				throw new Error(productError.message);
 			}
 
-			const product = selectedProduct[0];
+			if (!products || products.length === 0) {
+				throw new Error('No products with stock available for this campaign');
+			}
 
-			// Step 3: Claim the coupon
+			// Filter out any products with zero or negative stock (extra safety check)
+			availableProducts = products.filter(p => p.stock_remaining > 0);
+			
+			if (availableProducts.length === 0) {
+				throw new Error('All products are out of stock');
+			}
+
+			step = 'selectProduct';
+		} catch (err: any) {
+			console.error('Validation error:', err);
+			error = err.message || 'Failed to validate coupon';
+			step = 'input';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function claimSelectedProduct() {
+		if (!selectedProduct || !validationData) return;
+
+		try {
+			loading = true;
+			step = 'claiming';
+
+			// Claim the coupon with selected product
 			const { data: claim, error: claimError } = await supabase
 				.rpc('claim_coupon', {
-					p_campaign_id: validation.campaign_id,
+					p_campaign_id: validationData.campaign_id,
 					p_mobile_number: mobileNumber,
-					p_product_id: product.id,
+					p_product_id: selectedProduct.id,
 					p_branch_id: branch.id,
 					p_user_id: user.id
 				});
@@ -97,19 +134,21 @@
 				throw new Error(claimError.message);
 			}
 
-		if (!claim?.success) {
-			throw new Error(translateErrorMessage(claim?.error_message || ''));
-		}			// Success!
+			if (!claim?.success) {
+				throw new Error(translateErrorMessage(claim?.error_message || ''));
+			}
+
+			// Success!
 			result = {
 				eligible: true,
-				campaign_name: validation.campaign_name,
+				campaign_name: validationData.campaign_name,
 				product: {
-					name_en: product.product_name_en,
-					name_ar: product.product_name_ar,
-					barcode: product.special_barcode,
-					original_price: product.original_price,
-					offer_price: product.offer_price,
-					image_url: product.product_image_url
+					name_en: selectedProduct.product_name_en,
+					name_ar: selectedProduct.product_name_ar,
+					barcode: selectedProduct.special_barcode,
+					original_price: selectedProduct.original_price,
+					offer_price: selectedProduct.offer_price,
+					image_url: selectedProduct.product_image_url
 				},
 				claim_id: claim.claim_id,
 				validity_date: claim.validity_date
@@ -117,9 +156,9 @@
 
 			step = 'result';
 		} catch (err: any) {
-			console.error('Validation error:', err);
-			error = err.message || 'Failed to validate coupon';
-			step = 'input';
+			console.error('Claim error:', err);
+			error = err.message || 'Failed to claim coupon';
+			step = 'selectProduct';
 		} finally {
 			loading = false;
 		}
@@ -132,6 +171,9 @@
 		result = null;
 		error = '';
 		printDisabled = false;
+		availableProducts = [];
+		selectedProduct = null;
+		validationData = null;
 	}
 
 	function printReceipt() {
@@ -434,7 +476,7 @@
 					<li>{t('coupon.instruction1') || 'Enter customer mobile number (10 digits starting with 05)'}</li>
 					<li>{t('coupon.instruction2') || 'Enter the campaign code provided by management'}</li>
 					<li>{t('coupon.instruction3') || 'Click Validate & Claim to check eligibility'}</li>
-					<li>{t('coupon.instruction4') || 'If eligible, a random product will be selected'}</li>
+				<li>{t('coupon.instruction4') || 'If eligible, select a product from the available options'}</li>
 					<li>{t('coupon.instruction5') || 'Print the receipt and give the product to customer'}</li>
 				</ul>
 			</div>
@@ -445,7 +487,90 @@
 		<div class="validating-state">
 			<div class="spinner-large"></div>
 			<h2>{t('common.validating') || 'Validating...'}</h2>
-			<p>{t('coupon.checkingEligibility') || 'Checking customer eligibility and selecting product'}</p>
+			<p>{t('coupon.checkingEligibility') || 'Checking customer eligibility'}</p>
+		</div>
+
+	{:else if step === 'selectProduct'}
+		<!-- Product Selection State -->
+		<div class="product-selection">
+			<div class="selection-header">
+				<h2>{t('coupon.selectProduct') || 'Select Product'}</h2>
+				<p>{t('coupon.chooseProductForCustomer') || 'Choose a product to give to the customer'}</p>
+				{#if validationData?.campaign_name}
+					<p class="campaign-name">{validationData.campaign_name}</p>
+				{/if}
+			</div>
+
+			{#if error}
+				<div class="error-message">
+					⚠️ {error}
+				</div>
+			{/if}
+
+			<div class="products-grid">
+				{#each availableProducts.filter(p => p.stock_remaining > 0) as product}
+					<div 
+						class="product-option" 
+						class:selected={selectedProduct?.id === product.id}
+						class:low-stock={product.stock_remaining <= 5}
+						on:click={() => selectedProduct = product}
+						on:keydown={(e) => e.key === 'Enter' && (selectedProduct = product)}
+						role="button"
+						tabindex="0"
+					>
+						{#if product.product_image_url}
+							<img src={product.product_image_url} alt={product.product_name_en} class="product-thumb" />
+						{:else}
+							<div class="product-thumb-placeholder">🎁</div>
+						{/if}
+						<div class="product-info">
+							<h3>{product.product_name_en}</h3>
+							<h4>{product.product_name_ar}</h4>
+							{#if product.original_price && product.offer_price}
+								<div class="product-pricing">
+									<span class="original-price">{product.original_price.toFixed(2)} SAR</span>
+									<span class="offer-price">{product.offer_price.toFixed(2)} SAR</span>
+								</div>
+							{/if}
+							<div class="stock-info" class:low-stock-badge={product.stock_remaining <= 5}>
+								{t('coupon.stockRemaining') || 'Stock'}: {product.stock_remaining}
+								{#if product.stock_remaining <= 5}
+									⚠️
+								{/if}
+							</div>
+						</div>
+						{#if selectedProduct?.id === product.id}
+							<div class="selected-badge">✓</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+
+			<div class="selection-actions">
+				<button class="cancel-btn" on:click={resetForm}>
+					{t('common.cancel') || 'Cancel'}
+				</button>
+				<button 
+					class="confirm-btn" 
+					on:click={claimSelectedProduct}
+					disabled={!selectedProduct || loading}
+				>
+					{#if loading}
+						<span class="spinner"></span>
+						{t('common.processing') || 'Processing...'}
+					{:else}
+						{t('coupon.confirmSelection') || 'Confirm Selection'}
+					{/if}
+				</button>
+			</div>
+		</div>
+
+	{:else if step === 'claiming'}
+		<!-- Claiming State -->
+		<div class="validating-state">
+			<div class="spinner-large"></div>
+			<h2>{t('coupon.claiming') || 'Claiming Coupon...'}</h2>
+			<p>{t('coupon.processingClaim') || 'Processing your claim, please wait'}</p>
 		</div>
 
 	{:else if step === 'result'}
@@ -854,6 +979,198 @@
 	.retry-btn:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+	}
+
+	/* Product Selection Styles */
+	.product-selection {
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+
+	.selection-header {
+		text-align: center;
+		margin-bottom: 2rem;
+	}
+
+	.selection-header h2 {
+		font-size: 1.75rem;
+		color: #111827;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.selection-header p {
+		color: #6b7280;
+		margin: 0.25rem 0;
+	}
+
+	.products-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		gap: 1.5rem;
+		margin-bottom: 2rem;
+		max-height: 500px;
+		overflow-y: auto;
+		padding: 0.5rem;
+	}
+
+	.product-option {
+		background: white;
+		border: 2px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 1.5rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+	}
+
+	.product-option:hover {
+		border-color: #4b5563;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		transform: translateY(-2px);
+	}
+
+	.product-option.selected {
+		border-color: #059669;
+		background: #f0fdf4;
+		box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+	}
+
+	.product-thumb,
+	.product-thumb-placeholder {
+		width: 120px;
+		height: 120px;
+		object-fit: contain;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+	}
+
+	.product-thumb-placeholder {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #f3f4f6;
+		font-size: 3rem;
+	}
+
+	.product-info {
+		width: 100%;
+	}
+
+	.product-info h3 {
+		font-size: 1.1rem;
+		color: #111827;
+		margin: 0 0 0.25rem 0;
+		font-weight: 600;
+	}
+
+	.product-info h4 {
+		font-size: 0.95rem;
+		color: #6b7280;
+		margin: 0 0 0.75rem 0;
+		font-weight: 400;
+	}
+
+	.product-pricing {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.product-pricing .original-price {
+		text-decoration: line-through;
+		color: #9ca3af;
+		font-size: 0.9rem;
+	}
+
+	.product-pricing .offer-price {
+		color: #059669;
+		font-size: 1.1rem;
+		font-weight: 700;
+	}
+
+	.stock-info {
+		font-size: 0.85rem;
+		color: #6b7280;
+		background: #f9fafb;
+		padding: 0.25rem 0.75rem;
+		border-radius: 4px;
+		display: inline-block;
+	}
+
+	.stock-info.low-stock-badge {
+		background: #fef3c7;
+		color: #92400e;
+		font-weight: 600;
+	}
+
+	.product-option.low-stock {
+		border-color: #fbbf24;
+	}
+
+	.selected-badge {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		background: #059669;
+		color: white;
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.2rem;
+		font-weight: bold;
+	}
+
+	.selection-actions {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+	}
+
+	.cancel-btn,
+	.confirm-btn {
+		padding: 1rem 2rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		transition: all 0.2s;
+	}
+
+	.cancel-btn {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.cancel-btn:hover {
+		background: #e5e7eb;
+	}
+
+	.confirm-btn {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		color: white;
+	}
+
+	.confirm-btn:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+	}
+
+	.confirm-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	@media print {
