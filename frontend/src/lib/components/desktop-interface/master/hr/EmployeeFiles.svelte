@@ -63,6 +63,9 @@
 	let age = 0;
 	let joinDate = '';
 	let savedJoinDate = '';
+	let workedYears = 0;
+	let workedMonths = 0;
+	let workedDays = 0;
 	let probationPeriodExpiryDate = '';
 	let savedProbationPeriodExpiryDate = '';
 	let probationPeriodDaysUntilExpiry = 0;
@@ -77,6 +80,9 @@
 	let newInsuranceCompanyNameEn = '';
 	let newInsuranceCompanyNameAr = '';
 	let showCreateInsuranceModal = false;
+	let showEffectiveDateModal = false;
+	let effectiveDate = '';
+	let effectiveDateReason = '';
 
 	let isCreatingNationality = false;
 	let newNationalityId = '';
@@ -472,6 +478,7 @@
 		calculateInsuranceDaysUntilExpiry();
 		calculateAge();
 		calculateProbationPeriodDaysUntilExpiry();
+		calculateWorkedDuration(employee);
 		loadPOSShortages(employee.id);
 	}
 
@@ -686,6 +693,47 @@
 		}
 		
 		age = calculatedAge;
+	}
+
+	function calculateWorkedDuration(employee: any) {
+		if (!savedJoinDate) {
+			workedYears = 0;
+			workedMonths = 0;
+			workedDays = 0;
+			return;
+		}
+
+		// Determine the end date based on employment status
+		let endDate = new Date(); // Default to today
+
+		const statusesWithEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+		if (statusesWithEffectiveDate.includes(employmentStatus) && employee.employment_status_effective_date) {
+			endDate = new Date(employee.employment_status_effective_date);
+		}
+
+		const startDate = new Date(savedJoinDate);
+		
+		// Calculate years, months, and days
+		let years = endDate.getFullYear() - startDate.getFullYear();
+		let months = endDate.getMonth() - startDate.getMonth();
+		let days = endDate.getDate() - startDate.getDate();
+
+		// Adjust for negative days
+		if (days < 0) {
+			months--;
+			const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0);
+			days += prevMonth.getDate();
+		}
+
+		// Adjust for negative months
+		if (months < 0) {
+			years--;
+			months += 12;
+		}
+
+		workedYears = years;
+		workedMonths = months;
+		workedDays = days;
 	}
 
 	function calculateProbationPeriodDaysUntilExpiry() {
@@ -1160,6 +1208,8 @@
 
 			selectedEmployee.join_date = joinDate;
 			savedJoinDate = joinDate;
+			// Recalculate worked duration when join date changes
+			calculateWorkedDuration(selectedEmployee);
 			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving join date:', error);
@@ -1330,11 +1380,13 @@
 		}
 	}
 
-	function cycleEmploymentStatus() {
-		const statuses = ['Resigned', 'Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Terminated', 'Run Away'];
-		const currentIndex = statuses.indexOf(employmentStatus);
-		const nextIndex = (currentIndex + 1) % statuses.length;
-		employmentStatus = statuses[nextIndex];
+	function checkStatusRequiresEffectiveDate(status: string) {
+		const statusesRequiringEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+		if (statusesRequiringEffectiveDate.includes(status)) {
+			effectiveDate = '';
+			effectiveDateReason = '';
+			showEffectiveDateModal = true;
+		}
 	}
 
 	async function saveEmploymentStatus() {
@@ -1344,9 +1396,18 @@
 		}
 
 		try {
+			const updateData: any = { employment_status: employmentStatus };
+			
+			// Add effective date if the status requires it
+			const statusesRequiringEffectiveDate = ['Resigned', 'Terminated', 'Run Away'];
+			if (statusesRequiringEffectiveDate.includes(employmentStatus)) {
+				updateData.employment_status_effective_date = effectiveDate;
+				updateData.employment_status_reason = effectiveDateReason;
+			}
+
 			const { error } = await supabase
 				.from('hr_employee_master')
-				.update({ employment_status: employmentStatus })
+				.update(updateData)
 				.eq('id', selectedEmployee.id);
 
 			if (error) {
@@ -1357,6 +1418,12 @@
 
 			selectedEmployee.employment_status = employmentStatus;
 			savedEmploymentStatus = employmentStatus;
+			// Update the effective date in the employee object if applicable
+			if (statusesRequiringEffectiveDate.includes(employmentStatus)) {
+				selectedEmployee.employment_status_effective_date = effectiveDate;
+			}
+			// Recalculate worked duration
+			calculateWorkedDuration(selectedEmployee);
 			alert($t('employeeFiles.alerts.saveSuccess'));
 		} catch (error) {
 			console.error('Error saving employment status:', error);
@@ -1566,19 +1633,27 @@
 										{/if}
 									</div>
 
-									<!-- Employment Status Cycling Button -->
-									<div class="employment-toggle">
-										<label class="toggle-label">
-											<span>{$t('employeeFiles.employmentStatus')}</span>
-											<button 
-												class="employment-status-button"
-												on:click={cycleEmploymentStatus}
-												title="Click to cycle through employment statuses"
-											>
-												{getEmploymentStatusText(employmentStatus)}
-											</button>
-											<span class="toggle-status">{getEmploymentStatusText(employmentStatus)}</span>
-										</label>
+									<!-- Employment Status Toggle Buttons (7 Rows) -->
+									<div class="employment-status-section">
+										<label class="status-section-label">{$t('employeeFiles.employmentStatus')}</label>
+										<div class="employment-status-rows">
+											{#each ['Job (With Finger)', 'Job (No Finger)', 'Remote Job', 'Vacation', 'Resigned', 'Terminated', 'Run Away'] as status}
+												<div class="status-row">
+													<label class="status-radio-label">
+														<input 
+															type="radio" 
+															name="employment-status"
+															value={status}
+															bind:group={employmentStatus}
+															on:change={() => checkStatusRequiresEffectiveDate(status)}
+															class="status-radio-input"
+														/>
+														<span class="status-radio-button"></span>
+														<span class="status-text">{getEmploymentStatusText(status)}</span>
+													</label>
+												</div>
+											{/each}
+										</div>
 										{#if employmentStatus !== savedEmploymentStatus}
 											<button class="save-button-small" on:click={saveEmploymentStatus}>
 												💾 {$t('employeeFiles.saveStatus')}
@@ -2602,6 +2677,24 @@
 									{/if}
 								{/if}
 
+								<!-- Worked Duration Display -->
+								{#if savedJoinDate}
+									<div class="worked-duration-info">
+										<div class="duration-label">{$t('employeeFiles.workedDuration') || 'Worked Duration'}:</div>
+										<div class="duration-display">
+											{#if workedYears > 0}
+												<span class="duration-item">{workedYears} {workedYears === 1 ? $t('employeeFiles.year') || 'year' : $t('employeeFiles.years') || 'years'}</span>
+											{/if}
+											{#if workedMonths > 0}
+												<span class="duration-item">{workedMonths} {workedMonths === 1 ? $t('employeeFiles.month') || 'month' : $t('employeeFiles.months') || 'months'}</span>
+											{/if}
+											{#if workedDays > 0 || (workedYears === 0 && workedMonths === 0)}
+												<span class="duration-item">{workedDays} {workedDays === 1 ? $t('employeeFiles.day') || 'day' : $t('employeeFiles.days') || 'days'}</span>
+											{/if}
+										</div>
+									</div>
+								{/if}
+
 							<!-- Probation Period Expiry Date Field -->
 							{#if !savedProbationPeriodExpiryDate}
 								<!-- Show input when no date is saved -->
@@ -2746,6 +2839,56 @@
 				</button>
 				<button class="save-button" on:click={createInsuranceCompany} disabled={isCreatingInsuranceCompany}>
 					{isCreatingInsuranceCompany ? `⏳ ${$t('employeeFiles.creating')}` : `✅ ${$t('employeeFiles.create')}`}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Employment Status Effective Date Modal -->
+{#if showEffectiveDateModal}
+	<div class="modal-overlay" on:click={() => showEffectiveDateModal = false}>
+		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h3>{$t('employeeFiles.effectiveDate') || 'Effective Date'}</h3>
+				<button class="close-button" on:click={() => showEffectiveDateModal = false}>✕</button>
+			</div>
+			<div class="modal-body">
+				<div class="form-group-compact">
+					<label for="effective-date">{$t('employeeFiles.effectiveDate') || 'Effective Date'} *</label>
+					<input 
+						type="date" 
+						id="effective-date" 
+						bind:value={effectiveDate}
+					/>
+				</div>
+				<div class="form-group-compact">
+					<label for="effective-reason">{$t('employeeFiles.reason') || 'Reason'}</label>
+					<textarea 
+						id="effective-reason" 
+						bind:value={effectiveDateReason}
+						placeholder="Enter reason (optional)"
+						rows="3"
+					></textarea>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button class="cancel-button" on:click={() => showEffectiveDateModal = false}>
+					{$t('employeeFiles.cancel')}
+				</button>
+				<button 
+					class="save-button" 
+					on:click={() => {
+						if (!effectiveDate) {
+							alert('Effective date is required');
+							return;
+						}
+						showEffectiveDateModal = false;
+						saveEmploymentStatus();
+					}}
+					disabled={!effectiveDate}
+				>
+					✅ {$t('employeeFiles.saveStatus')}
 				</button>
 			</div>
 		</div>
@@ -3294,40 +3437,77 @@
 		color: #ff9500;
 	}
 
-	.employment-toggle {
+	.employment-status-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.75rem;
 		padding: 0.75rem;
 		background: #f0f8f5;
 		border-radius: 4px;
 		border: 1px solid #d4f3e8;
 	}
 
-	.employment-status-button {
-		padding: 0.6rem 1.2rem;
-		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.95rem;
+	.status-section-label {
+		font-size: 0.9rem;
 		font-weight: 600;
+		color: #333;
+		margin-bottom: 0.25rem;
+	}
+
+	.employment-status-rows {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.status-row {
+		display: flex;
+		align-items: center;
+	}
+
+	.status-radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		flex: 1;
+	}
+
+	.status-radio-input {
+		appearance: none;
+		width: 18px;
+		height: 18px;
+		border: 2px solid #10b981;
+		border-radius: 50%;
 		cursor: pointer;
 		transition: all 0.3s ease;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-		display: inline-block;
-		width: fit-content;
+		margin: 0;
+		padding: 0;
 	}
 
-	.employment-status-button:hover {
-		background: linear-gradient(135deg, #059669 0%, #047857 100%);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-		transform: translateY(-1px);
+	.status-radio-input:hover {
+		border-color: #059669;
+		box-shadow: 0 0 6px rgba(16, 185, 129, 0.3);
 	}
 
-	.employment-status-button:active {
-		transform: translateY(0);
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+	.status-radio-input:checked {
+		background: #10b981;
+		box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.5);
+	}
+
+	.status-radio-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+	}
+
+	.status-text {
+		font-size: 0.9rem;
+		color: #333;
+		font-weight: 500;
+		user-select: none;
 	}
 
 	.form-group-compact {
@@ -3380,6 +3560,38 @@
 	.date-value {
 		font-weight: 600;
 		color: #ff9500;
+	}
+
+	.worked-duration-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #f0f8f5;
+		border: 1px solid #10b981;
+		border-radius: 4px;
+		margin-top: 0.5rem;
+	}
+
+	.duration-label {
+		font-weight: 600;
+		color: #047857;
+		font-size: 0.9rem;
+	}
+
+	.duration-display {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+	}
+
+	.duration-item {
+		background: #d1f3dc;
+		color: #065f46;
+		padding: 0.25rem 0.6rem;
+		border-radius: 3px;
+		font-weight: 500;
 	}
 
 	.expiry-info {
