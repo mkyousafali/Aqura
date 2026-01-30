@@ -48,6 +48,12 @@
 	let isLoadingAllProducts: boolean = false;
 	let allProductsSearch: string = '';
 	let filteredAllProducts: any[] = [];
+	let isLoadingDropdownsData: boolean = false;
+	let dropdownsDataLoaded: boolean = false;
+	
+	// Direct unit and category lists
+	let allUnits: any[] = [];
+	let allCategories: any[] = [];
 	
 	// Image loading state
 	let loadingImages: Set<string> = new Set(); // Track which images are currently loading
@@ -82,6 +88,18 @@
 	let imageCheckResult: 'success' | 'error' | null = null;
 	let foundImageUrl: string = '';
 	
+	// Create unit popup
+	let showCreateUnitPopup: boolean = false;
+	let newUnitName: string = '';
+	let newUnitNameAr: string = '';
+	let isSavingUnit: boolean = false;
+	
+	// Create category popup
+	let showCreateCategoryPopup: boolean = false;
+	let newCategoryName: string = '';
+	let newCategoryNameAr: string = '';
+	let isSavingCategory: boolean = false;
+	
 	// Filter no-image products based on search query
 	$: filteredNoImageProducts = noImageProducts.filter(product => {
 		if (!noImageSearchQuery.trim()) return true;
@@ -94,10 +112,10 @@
 	});
 	
 	// Extract unique values for dropdowns
-	$: uniqueUnits = [...new Set(allProductsForDropdowns.map(p => p.unit_name).filter(Boolean))].sort();
-	$: uniqueParentCategories = [...new Set(allProductsForDropdowns.map(p => p.parent_category).filter(Boolean))].sort();
-	$: uniqueParentSubCategories = [...new Set(allProductsForDropdowns.map(p => p.parent_sub_category).filter(Boolean))].sort();
-	$: uniqueSubCategories = [...new Set(allProductsForDropdowns.map(p => p.sub_category).filter(Boolean))].sort();
+	$: uniqueUnits = allUnits.map(u => u.name_en).filter(Boolean).sort();
+	$: uniqueParentCategories = allCategories.map(c => c.name_en).filter(Boolean).sort();
+	$: uniqueParentSubCategories = []; // Not available in current schema
+	$: uniqueSubCategories = []; // Not available in current schema
 	
 	// Quota tracking
 	interface QuotaData {
@@ -380,16 +398,16 @@
 	loadDatabaseStats();
 	
 	function downloadTemplate() {
-		// Create template data with sample row
+		// Create template data with sample row - matching the actual database schema
 		const templateData = [
 			{
 				'Barcode': '123456789',
 				'Product name english': 'Sample Product',
 				'Product name arabic': 'منتج عينة',
-				'unit': 'piece',
-				'Parent Category': 'Food',
-				'Parent Sub Category': 'Dairy',
-				'Sub Category': 'Milk'
+				'Unit english': 'piece',
+				'Unit arabic': 'قطعة',
+				'Category english': 'Food',
+				'Category arabic': 'غذاء'
 			}
 		];
 		
@@ -403,10 +421,10 @@
 			{ wch: 15 }, // Barcode
 			{ wch: 25 }, // Product name english
 			{ wch: 25 }, // Product name arabic
-			{ wch: 10 }, // unit
-			{ wch: 20 }, // Parent Category
-			{ wch: 20 }, // Parent Sub Category
-			{ wch: 20 }  // Sub Category
+			{ wch: 15 }, // Unit english
+			{ wch: 15 }, // Unit arabic
+			{ wch: 20 }, // Category english
+			{ wch: 20 }  // Category arabic
 		];
 		
 		// Download file
@@ -524,26 +542,46 @@
 		try {
 			const { data, error } = await supabase
 				.from('products')
-				.select('*')
+				.select(`
+					*,
+					product_units (
+						name_en,
+						name_ar
+					),
+					product_categories (
+						name_en,
+						name_ar
+					)
+				`)
 				.order('product_name_en', { ascending: true });
 			
 			if (error) {
 				console.error('Error loading all products:', error);
 				alert('Error loading products. Please try again.');
 			} else {
-				// For each product, if image_url is null, try to get it from storage
-				const productsWithImages = await Promise.all((data || []).map(async (product) => {
-					if (!product.image_url && product.barcode) {
-						// Try to get public URL from storage
+				// Process products synchronously without async storage checks
+				const productsWithImages = (data || []).map((product) => {
+					let imageUrl = product.image_url;
+					
+					// If no image_url, generate the public URL from storage
+					if (!imageUrl && product.barcode) {
 						const { data: urlData } = supabase.storage
 							.from('flyer-product-images')
 							.getPublicUrl(`${product.barcode}.png`);
-						
-						// Return product with potential image URL
-						return { ...product, image_url: urlData.publicUrl };
+						imageUrl = urlData.publicUrl;
 					}
-					return product;
-				}));
+					
+					return {
+						...product,
+						image_url: imageUrl,
+						unit_name: product.product_units?.name_en || '',
+						unit_name_en: product.product_units?.name_en || '',
+						unit_name_ar: product.product_units?.name_ar || '',
+						parent_category: product.product_categories?.name_en || '',
+						parent_category_en: product.product_categories?.name_en || '',
+						parent_category_ar: product.product_categories?.name_ar || ''
+					};
+				});
 				
 				allProductsList = productsWithImages;
 				filteredAllProducts = allProductsList;
@@ -565,23 +603,156 @@
 	
 	// Load all products for dropdown data (without showing the view)
 	async function loadAllProductsForDropdowns() {
+		if (dropdownsDataLoaded || isLoadingDropdownsData) return; // Prevent multiple calls
+		
+		isLoadingDropdownsData = true;
 		try {
-			const { data, error } = await supabase
-				.from('products')
-				.select('unit_name, parent_category, parent_sub_category, sub_category');
+			// Load all units directly from product_units table
+			const { data: unitsData, error: unitsError } = await supabase
+				.from('product_units')
+				.select('id, name_en, name_ar')
+				.order('name_en', { ascending: true });
 			
-			if (!error && data) {
-				allProductsForDropdowns = data;
+			if (!unitsError && unitsData) {
+				allUnits = unitsData;
+			}
+			
+			// Load all categories directly from product_categories table
+			const { data: categoriesData, error: categoriesError } = await supabase
+				.from('product_categories')
+				.select('id, name_en, name_ar')
+				.order('name_en', { ascending: true });
+			
+			if (!categoriesError && categoriesData) {
+				allCategories = categoriesData;
+			}
+			
+			// Also load products for reference (optional, for future use)
+			const { data: productsData, error: productsError } = await supabase
+				.from('products')
+				.select(`
+					category_id,
+					product_units (
+						name_en,
+						name_ar
+					),
+					product_categories (
+						name_en,
+						name_ar
+					)
+				`);
+			
+			if (!productsError && productsData) {
+				// Transform the data to include unit_name and category_name for backward compatibility
+				allProductsForDropdowns = productsData.map(item => ({
+					unit_name: item.product_units?.name_en || '',
+					category_id: item.category_id,
+					category_name: item.product_categories?.name_en || '',
+					parent_category: item.product_categories?.name_en || ''
+				}));
 				console.log('Loaded dropdown data:', {
-					total: data.length,
-					units: [...new Set(data.map(p => p.unit_name).filter(Boolean))],
-					parentCategories: [...new Set(data.map(p => p.parent_category).filter(Boolean))],
-					parentSubCategories: [...new Set(data.map(p => p.parent_sub_category).filter(Boolean))],
-					subCategories: [...new Set(data.map(p => p.sub_category).filter(Boolean))]
+					total: productsData.length,
+					units: allUnits.length,
+					categories: allCategories.length
 				});
 			}
+			dropdownsDataLoaded = true;
 		} catch (error) {
 			console.error('Error loading products for dropdowns:', error);
+		} finally {
+			isLoadingDropdownsData = false;
+		}
+	}
+	
+	// Create unit functions
+	function openCreateUnitPopup() {
+		showCreateUnitPopup = true;
+		newUnitName = '';
+		newUnitNameAr = '';
+	}
+	
+	function closeCreateUnitPopup() {
+		showCreateUnitPopup = false;
+		newUnitName = '';
+		newUnitNameAr = '';
+	}
+	
+	async function saveNewUnit() {
+		if (!newUnitName.trim()) {
+			alert('Unit name (English) is required!');
+			return;
+		}
+		
+		isSavingUnit = true;
+		try {
+			const { data, error } = await supabase
+				.from('product_units')
+				.insert({
+					name_en: newUnitName.trim(),
+					name_ar: newUnitNameAr.trim() || newUnitName.trim()
+				})
+				.select('id');
+			
+			if (error) {
+				alert('Error creating unit: ' + error.message);
+			} else {
+				alert('Unit created successfully!');
+				// Reload dropdown data
+				dropdownsDataLoaded = false;
+				await loadAllProductsForDropdowns();
+				closeCreateUnitPopup();
+			}
+		} catch (error) {
+			console.error('Error creating unit:', error);
+			alert('Error creating unit. Please try again.');
+		} finally {
+			isSavingUnit = false;
+		}
+	}
+	
+	// Create category functions
+	function openCreateCategoryPopup() {
+		showCreateCategoryPopup = true;
+		newCategoryName = '';
+		newCategoryNameAr = '';
+	}
+	
+	function closeCreateCategoryPopup() {
+		showCreateCategoryPopup = false;
+		newCategoryName = '';
+		newCategoryNameAr = '';
+	}
+	
+	async function saveNewCategory() {
+		if (!newCategoryName.trim()) {
+			alert('Category name (English) is required!');
+			return;
+		}
+		
+		isSavingCategory = true;
+		try {
+			const { data, error } = await supabase
+				.from('product_categories')
+				.insert({
+					name_en: newCategoryName.trim(),
+					name_ar: newCategoryNameAr.trim() || newCategoryName.trim()
+				})
+				.select('id');
+			
+			if (error) {
+				alert('Error creating category: ' + error.message);
+			} else {
+				alert('Category created successfully!');
+				// Reload dropdown data
+				dropdownsDataLoaded = false;
+				await loadAllProductsForDropdowns();
+				closeCreateCategoryPopup();
+			}
+		} catch (error) {
+			console.error('Error creating category:', error);
+			alert('Error creating category. Please try again.');
+		} finally {
+			isSavingCategory = false;
 		}
 	}
 	
@@ -596,9 +767,7 @@
 				product.product_name_en?.toLowerCase().includes(search) ||
 				product.product_name_ar?.includes(search) ||
 				product.unit_name?.toLowerCase().includes(search) ||
-				product.parent_category?.toLowerCase().includes(search) ||
-				product.parent_sub_category?.toLowerCase().includes(search) ||
-				product.sub_category?.toLowerCase().includes(search)
+				product.category_id?.toLowerCase().includes(search)
 			);
 		}
 	}
@@ -1232,11 +1401,92 @@
 		let imageFoundCount = 0;
 		const totalProducts = productList.length;
 		
+		// First, load all units and categories for mapping (including Arabic)
+		const { data: unitsData } = await supabase.from('product_units').select('id, name_en, name_ar');
+		const { data: categoriesData } = await supabase.from('product_categories').select('id, name_en, name_ar');
+		
+		const unitMap = new Map(unitsData?.map(u => [u.name_en.toLowerCase(), u.id]) || []);
+		const unitMapAr = new Map(unitsData?.map(u => [u.name_ar.toLowerCase(), u.id]) || []);
+		const categoryMap = new Map(categoriesData?.map(c => [c.name_en.toLowerCase(), c.id]) || []);
+		const categoryMapAr = new Map(categoriesData?.map(c => [c.name_ar.toLowerCase(), c.id]) || []);
+		
 		for (let i = 0; i < productList.length; i++) {
 			const product = productList[i];
 			try {
-				const barcode = String(product.Barcode || '');
+				const barcode = String(product.Barcode || product['barcode'] || '');
 				if (!barcode) continue;
+				
+				// Get or create unit_id from unit name (English or Arabic)
+				let unit_id = null;
+				const unitNameEn = (product['Unit english'] || product['unit'] || product['Unit'] || '').toString().trim();
+				const unitNameAr = (product['Unit arabic'] || '').toString().trim();
+				
+				if (unitNameEn || unitNameAr) {
+					const unitNameEnLower = unitNameEn.toLowerCase();
+					const unitNameArLower = unitNameAr.toLowerCase();
+					
+					// Try to find existing unit by English name
+					if (unitNameEn && unitMap.has(unitNameEnLower)) {
+						unit_id = unitMap.get(unitNameEnLower);
+					}
+					// Try to find existing unit by Arabic name
+					else if (unitNameAr && unitMapAr.has(unitNameArLower)) {
+						unit_id = unitMapAr.get(unitNameArLower);
+					}
+					// Create new unit if it doesn't exist
+					else if (unitNameEn) {
+						const { data: newUnit, error: unitError } = await supabase
+							.from('product_units')
+							.insert({
+								name_en: unitNameEn,
+								name_ar: unitNameAr || unitNameEn // Use Arabic if provided, otherwise use English
+							})
+							.select('id');
+						
+						if (!unitError && newUnit && newUnit.length > 0) {
+							unit_id = newUnit[0].id;
+							unitMap.set(unitNameEnLower, unit_id); // Cache it for future lookups
+							if (unitNameAr) unitMapAr.set(unitNameArLower, unit_id);
+							console.log(`Created new unit: ${unitNameEn} (${unitNameAr || unitNameEn}) with ID ${unit_id}`);
+						}
+					}
+				}
+				
+				// Get or create category_id from category name (English or Arabic)
+				let category_id = null;
+				const categoryNameEn = (product['Category english'] || product['Category'] || product['category'] || '').toString().trim();
+				const categoryNameAr = (product['Category arabic'] || '').toString().trim();
+				
+				if (categoryNameEn || categoryNameAr) {
+					const categoryNameEnLower = categoryNameEn.toLowerCase();
+					const categoryNameArLower = categoryNameAr.toLowerCase();
+					
+					// Try to find existing category by English name
+					if (categoryNameEn && categoryMap.has(categoryNameEnLower)) {
+						category_id = categoryMap.get(categoryNameEnLower);
+					}
+					// Try to find existing category by Arabic name
+					else if (categoryNameAr && categoryMapAr.has(categoryNameArLower)) {
+						category_id = categoryMapAr.get(categoryNameArLower);
+					}
+					// Create new category if it doesn't exist
+					else if (categoryNameEn) {
+						const { data: newCategory, error: categoryError } = await supabase
+							.from('product_categories')
+							.insert({
+								name_en: categoryNameEn,
+								name_ar: categoryNameAr || categoryNameEn // Use Arabic if provided, otherwise use English
+							})
+							.select('id');
+						
+						if (!categoryError && newCategory && newCategory.length > 0) {
+							category_id = newCategory[0].id;
+							categoryMap.set(categoryNameEnLower, category_id); // Cache it for future lookups
+							if (categoryNameAr) categoryMapAr.set(categoryNameArLower, category_id);
+							console.log(`Created new category: ${categoryNameEn} (${categoryNameAr || categoryNameEn}) with ID ${category_id}`);
+						}
+					}
+				}
 				
 				// Check if image actually exists in storage before setting image_url
 				let imageUrl = null;
@@ -1264,18 +1514,15 @@
 					}
 				}
 				
-				// Insert or update product in database
-				// upsert will automatically handle both new and existing products
+				// Insert or update product in database with correct field mappings
 				const { error: dbError } = await supabase
 					.from('products')
 					.upsert({
 						barcode: barcode,
 						product_name_en: product['Product name english'] || product['Product name_en'] || '',
 						product_name_ar: product['Product name arabic'] || product['Product name_ar'] || '',
-						unit_name: product['unit'] || product['Unit name'] || '',
-						parent_category: product['Parent Category'] || '',
-						parent_sub_category: product['Parent Sub Category'] || '',
-						sub_category: product['Sub Category'] || '',
+						unit_id: unit_id, // Map unit name to unit_id (will be null if empty)
+						category_id: category_id, // Map category name to category_id (will be null if empty)
 						image_url: imageUrl, // Will be null if image doesn't exist
 						updated_at: new Date().toISOString()
 					}, {
@@ -1586,7 +1833,7 @@
 						<!-- Parent Category -->
 						<div>
 							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Parent Category ({uniqueParentCategories.length} options)
+								Category ({uniqueParentCategories.length} options)
 							</label>
 							<select
 								bind:value={newProduct.parent_category}
@@ -1602,50 +1849,6 @@
 								bind:value={newProduct.parent_category}
 								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
 								placeholder="Or type custom category"
-							/>
-						</div>
-						
-						<!-- Parent Sub Category -->
-						<div>
-							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Parent Sub Category ({uniqueParentSubCategories.length} options)
-							</label>
-							<select
-								bind:value={newProduct.parent_sub_category}
-								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
-							>
-								<option value="">-- Select or type below --</option>
-								{#each uniqueParentSubCategories as subCategory}
-									<option value={subCategory}>{subCategory}</option>
-								{/each}
-							</select>
-							<input
-								type="text"
-								bind:value={newProduct.parent_sub_category}
-								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-								placeholder="Or type custom sub category"
-							/>
-						</div>
-						
-						<!-- Sub Category -->
-						<div>
-							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Sub Category ({uniqueSubCategories.length} options)
-							</label>
-							<select
-								bind:value={newProduct.sub_category}
-								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
-							>
-								<option value="">-- Select or type below --</option>
-								{#each uniqueSubCategories as subCategory}
-									<option value={subCategory}>{subCategory}</option>
-								{/each}
-							</select>
-							<input
-								type="text"
-								bind:value={newProduct.sub_category}
-								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-								placeholder="Or type custom sub category"
 							/>
 						</div>
 					</div>
@@ -1764,7 +1967,7 @@
 						<!-- Parent Category -->
 						<div>
 							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Parent Category ({uniqueParentCategories.length} options)
+								Category ({uniqueParentCategories.length} options)
 							</label>
 							<select
 								bind:value={editingProduct.parent_category}
@@ -1780,50 +1983,6 @@
 								bind:value={editingProduct.parent_category}
 								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 								placeholder="Or type custom category"
-							/>
-						</div>
-						
-						<!-- Parent Sub Category -->
-						<div>
-							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Parent Sub Category ({uniqueParentSubCategories.length} options)
-							</label>
-							<select
-								bind:value={editingProduct.parent_sub_category}
-								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-							>
-								<option value="">-- Select or type below --</option>
-								{#each uniqueParentSubCategories as subCategory}
-									<option value={subCategory}>{subCategory}</option>
-								{/each}
-							</select>
-							<input
-								type="text"
-								bind:value={editingProduct.parent_sub_category}
-								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-								placeholder="Or type custom sub category"
-							/>
-						</div>
-						
-						<!-- Sub Category -->
-						<div>
-							<label class="block text-sm font-semibold text-gray-700 mb-2">
-								Sub Category ({uniqueSubCategories.length} options)
-							</label>
-							<select
-								bind:value={editingProduct.sub_category}
-								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-							>
-								<option value="">-- Select or type below --</option>
-								{#each uniqueSubCategories as subCategory}
-									<option value={subCategory}>{subCategory}</option>
-								{/each}
-							</select>
-							<input
-								type="text"
-								bind:value={editingProduct.sub_category}
-								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-								placeholder="Or type custom sub category"
 							/>
 						</div>
 					</div>
@@ -1854,6 +2013,174 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
 							</svg>
 							Save Changes
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Create Unit Popup -->
+	{#if showCreateUnitPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreateUnitPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-md w-full" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-cyan-600 to-teal-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<h3 class="text-lg font-bold text-white">Create New Unit</h3>
+					</div>
+					<button 
+						on:click={closeCreateUnitPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 space-y-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Unit Name (English) <span class="text-red-500">*</span>
+						</label>
+						<input
+							type="text"
+							bind:value={newUnitName}
+							placeholder="e.g., piece, kilogram, liter"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+						/>
+					</div>
+					
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Unit Name (Arabic)
+						</label>
+						<input
+							type="text"
+							bind:value={newUnitNameAr}
+							dir="rtl"
+							placeholder="e.g., قطعة، كيلوغرام، لتر"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+						/>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreateUnitPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingUnit}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewUnit}
+						disabled={isSavingUnit}
+						class="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingUnit}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Unit
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Create Category Popup -->
+	{#if showCreateCategoryPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreateCategoryPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-md w-full" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-purple-600 to-pink-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<h3 class="text-lg font-bold text-white">Create New Category</h3>
+					</div>
+					<button 
+						on:click={closeCreateCategoryPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 space-y-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Category Name (English) <span class="text-red-500">*</span>
+						</label>
+						<input
+							type="text"
+							bind:value={newCategoryName}
+							placeholder="e.g., Food, Beverages, Electronics"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+						/>
+					</div>
+					
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Category Name (Arabic)
+						</label>
+						<input
+							type="text"
+							bind:value={newCategoryNameAr}
+							dir="rtl"
+							placeholder="e.g., غذاء، مشروبات، الإلكترونيات"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+						/>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreateCategoryPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingCategory}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewCategory}
+						disabled={isSavingCategory}
+						class="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingCategory}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Category
 						{/if}
 					</button>
 				</div>
@@ -2223,6 +2550,26 @@
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 				</svg>
 				Import from Excel
+			</button>
+			
+			<button 
+				on:click={openCreateUnitPopup}
+				class="px-6 py-3 bg-gradient-to-r from-cyan-600 to-teal-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				Create Unit
+			</button>
+			
+			<button 
+				on:click={openCreateCategoryPopup}
+				class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				Create Category
 			</button>
 		</div>
 	</div>
@@ -2653,13 +3000,7 @@
 									Unit
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Parent Category
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Parent Sub Category
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Sub Category
+									Category
 								</th>
 							</tr>
 						</thead>
@@ -2747,12 +3088,6 @@
 									<td class="px-6 py-4 text-sm text-gray-900">
 										{product.parent_category || '-'}
 									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-										{product.parent_sub_category || '-'}
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-								{product.sub_category || '-'}
-							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -2821,13 +3156,13 @@
 								Unit
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Parent Category
+								Unit (AR)
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Parent Sub Category
+								Category
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Sub Category
+								Category (AR)
 							</th>
 						</tr>
 					</thead>
@@ -2868,14 +3203,14 @@
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 									{product['unit'] || product['Unit name'] || product.Unit_name || ''}
 								</td>
-								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Parent Category'] || ''}
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{product['Unit arabic'] || product['Unit name arabic'] || ''}
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Parent Sub Category'] || ''}
+									{product['Category'] || product['Category english'] || product['Category_en'] || ''}
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Sub Category'] || ''}
+									{product['Category arabic'] || product['Category_ar'] || ''}
 								</td>
 							</tr>
 						{/each}

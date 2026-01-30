@@ -45,24 +45,31 @@
 	let totalGroups: number = 0;
 	
 	onMount(async () => {
-		await loadProducts();
-		await loadStats();
+		await loadProductsAndStats();
 	});
 	
-	async function loadProducts() {
+	async function loadProductsAndStats() {
 		isLoading = true;
 		try {
-			const { data, error } = await supabase
+			// Load only essential columns for products list to reduce data transfer
+			const { data: productsData, error: productsError } = await supabase
 				.from('products')
-				.select('*')
+				.select('barcode, product_name_en, product_name_ar, is_variation, parent_product_barcode, created_at, image_url')
 				.order('product_name_en', { ascending: true });
 			
-			if (error) throw error;
+			if (productsError) throw productsError;
 			
-			products = data || [];
+			products = productsData || [];
+			
+			// Calculate stats from the products data we already loaded (avoid second query)
+			totalProducts = products.length;
+			groupedProducts = products.filter(p => p.is_variation).length;
+			const parents = products.filter(p => p.is_variation && !p.parent_product_barcode) || [];
+			totalGroups = parents.length;
+			
 			applyFilters();
 		} catch (error) {
-			console.error('Error loading products:', error);
+			console.error('Error loading products and stats:', error);
 			notifications.add({
 				message: 'Failed to load products',
 				type: 'error',
@@ -70,25 +77,6 @@
 			});
 		} finally {
 			isLoading = false;
-		}
-	}
-	
-	async function loadStats() {
-		try {
-			const { data: allProducts, error } = await supabase
-				.from('products')
-				.select('id, is_variation, parent_product_barcode');
-			
-			if (error) throw error;
-			
-			totalProducts = allProducts?.length || 0;
-			groupedProducts = allProducts?.filter(p => p.is_variation).length || 0;
-			
-			// Count unique groups (products with is_variation=true and parent_product_barcode=null)
-			const parents = allProducts?.filter(p => p.is_variation && !p.parent_product_barcode) || [];
-			totalGroups = parents.length;
-		} catch (error) {
-			console.error('Error loading stats:', error);
 		}
 	}
 	
