@@ -6,7 +6,7 @@
 	
 	let products: any[] = [];
 	let filteredProducts: any[] = [];
-	let isLoading: boolean = true;
+	let isLoading: boolean = false;
 	let searchQuery: string = '';
 	
 	// Variation modal state
@@ -22,13 +22,13 @@
 	
 	// Filter selections
 	let selectedParentCategory: string = '';
-	let selectedParentSubCategory: string = '';
-	let selectedSubCategory: string = '';
 	
 	// Filter options (unique values from products)
 	let parentCategories: string[] = [];
-	let parentSubCategories: string[] = [];
-	let subCategories: string[] = [];
+	
+	// Product loading - automatic batch loading
+	let pageSize: number = 25; // Batch size for automatic loading
+	let totalProducts: number = 0;
 	
 	// Wizard steps
 	let currentStep: number = 1;
@@ -137,10 +137,25 @@
 	// Load variation group and show modal
 	async function loadVariationGroup(templateId: string, parentBarcode: string) {
 		try {
-			// Call database function to get all variations
-			const { data, error } = await supabase.rpc('get_product_variations', {
-				p_barcode: parentBarcode
-			});
+			// Get the parent product first to find the variation group
+			const { data: parentData, error: parentError } = await supabase
+				.from('products')
+				.select('variation_group_name_en, variation_group_name_ar')
+				.eq('barcode', parentBarcode)
+				.single();
+			
+			if (parentError) {
+				console.error('Error loading parent product:', parentError);
+				alert('Error loading variation group. Please try again.');
+				return;
+			}
+			
+			// Get all products in the same variation group
+			const { data, error } = await supabase
+				.from('products')
+				.select('*')
+				.eq('variation_group_name_en', parentData.variation_group_name_en)
+				.eq('is_active', true);
 			
 			if (error) {
 				console.error('Error loading variations:', error);
@@ -148,9 +163,9 @@
 				return;
 			}
 			
-			// Separate parent from variations
-			const parentProduct = data.find(p => p.is_parent);
-			const variations = data.filter(p => !p.is_parent);
+			// Separate parent from variations (parent has parent_product_barcode as null)
+			const parentProduct = data.find(p => p.parent_product_barcode === null || p.barcode === parentBarcode);
+			const variations = data.filter(p => p.parent_product_barcode !== null && p.barcode !== parentBarcode);
 			
 			if (!parentProduct) {
 				console.error('Parent product not found in variation group');
@@ -322,6 +337,12 @@
 				alert('Please fill in start and end dates for all templates');
 				return;
 			}
+			
+			// Only load products when actually entering step 2
+			if (products.length === 0 && !isLoading) {
+				console.log('Loading products for step 2...');
+				loadProducts();
+			}
 		}
 		currentStep = step;
 	}
@@ -459,47 +480,131 @@
 		isLoading = false;
 	}
 	
-	// Load all products from database
+	// Load products with automatic batch loading
 	async function loadProducts() {
+		if (isLoading) {
+			console.log('Products already loading, skipping...');
+			return;
+		}
+		
 		isLoading = true;
+		products = [];
+		
+		console.log('Starting automatic batch loading...');
 		
 		try {
-			const { data, error } = await supabase
+			// First, get the total count
+			const countResult = await supabase
 				.from('products')
-				.select('*')
-				.order('product_name_en', { ascending: true });
+				.select('*', { count: 'exact', head: true });
 			
-			if (error) {
-				console.error('Error loading products:', error);
-				alert('Error loading products. Please try again.');
-			} else {
-				products = data || [];
-				extractFilterOptions();
-				applyFilters();
+			if (countResult.error) {
+				throw countResult.error;
 			}
+			
+			totalProducts = countResult.count || 0;
+			console.log(`Total products to load: ${totalProducts}`);
+			
+			// Load categories once
+			const categoriesResult = await supabase
+				.from('product_categories')
+				.select('id, name_en')
+				.eq('is_active', true);
+			
+			// Load units once
+			const unitsResult = await supabase
+				.from('product_units')
+				.select('id, name_en');
+			
+			// Create category lookup map
+			const categoryMap = new Map();
+			if (categoriesResult.data) {
+				console.log('Categories loaded:', categoriesResult.data.length);
+				categoriesResult.data.forEach(cat => {
+					categoryMap.set(cat.id, cat.name_en);
+				});
+			}
+			
+			// Create unit lookup map
+			const unitMap = new Map();
+			if (unitsResult.data) {
+				console.log('Units loaded:', unitsResult.data.length);
+				unitsResult.data.forEach(unit => {
+					unitMap.set(unit.id, unit.name_en);
+				});
+			}
+			
+			// Load all products in batches
+			let loadedCount = 0;
+			const batchSize = 25;
+			
+			while (loadedCount < totalProducts) {
+				const from = loadedCount;
+				const to = Math.min(from + batchSize - 1, totalProducts - 1);
+				
+				console.log(`Loading batch: ${from} to ${to} (${loadedCount + 1}-${to + 1} of ${totalProducts})`);
+				
+				const batchResult = await supabase
+					.from('products')
+					.select('id, barcode, product_name_en, product_name_ar, category_id, unit_id, image_url, is_variation, parent_product_barcode, variation_group_name_en, variation_group_name_ar')
+					.order('product_name_en', { ascending: true })
+					.range(from, to);
+				
+				if (batchResult.error) {
+					console.error('Batch loading error:', batchResult.error);
+					throw batchResult.error;
+				}
+				
+				// Transform batch with category and unit names and create unique key based on position
+				const batchProducts = (batchResult.data || []).map((product, index) => ({
+					...product,
+					category_name: categoryMap.get(product.category_id) || product.category_id || 'Uncategorized',
+					unit_name: unitMap.get(product.unit_id) || product.unit_id || '-',
+					_uniqueKey: `${from + index}-${product.barcode}`
+				}));
+				
+				// Add to total products
+				products = [...products, ...batchProducts];
+				loadedCount = to + 1;
+				
+				console.log(`Loaded ${loadedCount} of ${totalProducts} products`);
+				
+				// Small delay to prevent overwhelming the UI and server
+				await new Promise(resolve => setTimeout(resolve, 100));
+			}
+			
+			// Update filters and apply them once after all batches are loaded
+			extractFilterOptions();
+			applyFilters();
+			
+			console.log(`All products loaded successfully! Total: ${products.length}`);
+
 		} catch (error) {
-			console.error('Error loading products:', error);
-			alert('Error loading products. Please try again.');
+			console.error('Error loading products:', {
+				error,
+				message: error.message,
+				loadedSoFar: products.length
+			});
+			
+			if (error.message?.includes('Failed to fetch')) {
+				alert(`Network error: Loaded ${products.length} products before error. Please refresh to try again.`);
+			} else {
+				alert(`Error loading products: ${error.message || 'Unknown error'}. Loaded ${products.length} products.`);
+			}
 		}
 		
 		isLoading = false;
 	}
-	
+
 	// Extract unique category values for filter dropdowns
 	function extractFilterOptions() {
-		const parentCats = new Set<string>();
-		const parentSubCats = new Set<string>();
-		const subCats = new Set<string>();
+		const categories = new Set<string>();
 		
 		products.forEach(product => {
-			if (product.parent_category) parentCats.add(product.parent_category);
-			if (product.parent_sub_category) parentSubCats.add(product.parent_sub_category);
-			if (product.sub_category) subCats.add(product.sub_category);
+			if (product.category_name) categories.add(product.category_name);
 		});
 		
-		parentCategories = Array.from(parentCats).sort();
-		parentSubCategories = Array.from(parentSubCats).sort();
-		subCategories = Array.from(subCats).sort();
+		parentCategories = Array.from(categories).sort();
 	}
 	
 	// Apply all filters
@@ -513,24 +618,17 @@
 				product.barcode?.toLowerCase().includes(search) ||
 				product.product_name_en?.toLowerCase().includes(search) ||
 				product.product_name_ar?.includes(search) ||
-				product.parent_category?.toLowerCase().includes(search) ||
-				product.parent_sub_category?.toLowerCase().includes(search) ||
-				product.sub_category?.toLowerCase().includes(search)
+				product.category_name?.toLowerCase().includes(search)
 			);
 		}
 		
 		// Apply category filters
 		if (selectedParentCategory) {
-			filtered = filtered.filter(product => product.parent_category === selectedParentCategory);
+			filtered = filtered.filter(product => product.category_name === selectedParentCategory);
 		}
 		
-		if (selectedParentSubCategory) {
-			filtered = filtered.filter(product => product.parent_sub_category === selectedParentSubCategory);
-		}
-		
-		if (selectedSubCategory) {
-			filtered = filtered.filter(product => product.sub_category === selectedSubCategory);
-		}
+		// Note: Parent sub category and sub category filters are disabled 
+		// since they don't exist in the current database schema
 		
 		filteredProducts = filtered;
 	}
@@ -538,17 +636,15 @@
 	// Clear all filters
 	function clearFilters() {
 		selectedParentCategory = '';
-		selectedParentSubCategory = '';
-		selectedSubCategory = '';
 		searchQuery = '';
 		applyFilters();
 	}
 	
 	// Watch for filter changes
-	$: searchQuery, selectedParentCategory, selectedParentSubCategory, selectedSubCategory, applyFilters();
+	$: searchQuery, selectedParentCategory, applyFilters();
 	
 	onMount(() => {
-		loadProducts();
+		// Don't load products immediately - only load when user reaches step 2
 	});
 </script>
 
@@ -716,9 +812,9 @@
 				</div>
 				
 				<!-- Category Filters -->
-				<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1">Parent Category</label>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
 						<select 
 							bind:value={selectedParentCategory}
 							class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -726,32 +822,6 @@
 							<option value="">All Categories</option>
 							{#each parentCategories as category}
 								<option value={category}>{category}</option>
-							{/each}
-						</select>
-					</div>
-					
-					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1">Parent Sub Category</label>
-						<select 
-							bind:value={selectedParentSubCategory}
-							class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-						>
-							<option value="">All Sub Categories</option>
-							{#each parentSubCategories as subCategory}
-								<option value={subCategory}>{subCategory}</option>
-							{/each}
-						</select>
-					</div>
-					
-					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1">Sub Category</label>
-						<select 
-							bind:value={selectedSubCategory}
-							class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-						>
-							<option value="">All Sub Categories</option>
-							{#each subCategories as subCat}
-								<option value={subCat}>{subCat}</option>
 							{/each}
 						</select>
 					</div>
@@ -781,7 +851,18 @@
 						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 					</svg>
-					<p class="text-gray-600">Loading products...</p>
+					<p class="text-lg font-medium text-gray-800 mb-2">Loading Products...</p>
+					<p class="text-sm text-gray-600 mb-4">Loading first 25 products from database</p>
+					
+					<button 
+						on:click={() => {
+							isLoading = false;
+							console.log('Loading cancelled by user');
+						}}
+						class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-sm font-medium transition-colors"
+					>
+						Cancel Loading
+					</button>
 				</div>
 			{:else if filteredProducts.length === 0}
 				<div class="bg-white rounded-lg shadow-lg p-12 text-center">
@@ -806,6 +887,9 @@
 										Product Name
 									</th>
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+										Unit
+									</th>
+									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Category
 									</th>
 									
@@ -822,7 +906,7 @@
 								</tr>
 							</thead>
 							<tbody class="bg-white divide-y divide-gray-200">
-								{#each filteredProducts as product (product.barcode)}
+								{#each filteredProducts as product, i (i)}
 									<tr class="hover:bg-gray-50 transition-colors">
 										<td class="px-6 py-4 whitespace-nowrap sticky left-0 bg-white z-10">
 											<div class="w-16 h-16 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
@@ -831,6 +915,7 @@
 														src={product.image_url}
 														alt={product.product_name_en || product.barcode}
 														class="w-full h-full object-contain"
+														loading="lazy"
 														on:error={(e) => {
 															const img = e.target;
 															img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect fill="%23f3f4f6" width="64" height="64"/><text x="32" y="32" font-size="10" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">No Image</text></svg>';
@@ -855,7 +940,10 @@
 										</div>
 									</td>
 									<td class="px-6 py-4 text-sm text-gray-900">
-										{product.parent_sub_category || '-'}
+										{product.unit_name || '-'}
+									</td>
+									<td class="px-6 py-4 text-sm text-gray-900">
+										{product.category_name || 'Uncategorized'}
 									</td>										<!-- Dynamic Template Checkboxes -->
 										{#each templates as template (template.id)}
 											<td class="px-4 py-4 text-center bg-blue-50 border-l-2 border-blue-200">
@@ -872,6 +960,8 @@
 							</tbody>
 						</table>
 					</div>
+					
+					<!-- Products load automatically in 25-item batches -->
 				</div>
 			{/if}
 		</div>

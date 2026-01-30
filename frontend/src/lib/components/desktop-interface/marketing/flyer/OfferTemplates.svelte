@@ -11,12 +11,10 @@
 	let isSaving: boolean = false;
 	let searchQuery: string = '';
 	let filteredProducts: any[] = [];
-	let selectedParentCategory: string = '';
-	let selectedParentSubCategory: string = '';
-	let selectedSubCategory: string = '';
-	let parentCategories: string[] = [];
-	let parentSubCategories: string[] = [];
-	let subCategories: string[] = [];
+	let selectedCategoryId: string = '';
+	let categories: any[] = [];
+	let categoryMap: Map<string, string> = new Map();
+	let unitMap: Map<string, string> = new Map();
 
 	// Load all active offer templates
 	async function loadOfferTemplates() {
@@ -47,48 +45,64 @@
 		selectedProducts.clear();
 
 		try {
-			// Load all products
-			const { data: products, error: productsError } = await supabase
-				.from('products')
-				.select('*')
-				.order('barcode', { ascending: true });
+			// Load everything in parallel for better performance
+			const [categoriesResult, unitsResult, productsResult, selectedResult] = await Promise.all([
+				// Load categories
+				supabase
+					.from('product_categories')
+					.select('id, name_en')
+					.eq('is_active', true),
+				// Load units
+				supabase
+					.from('product_units')
+					.select('id, name_en'),
+				// Load only essential product columns (not *)
+				supabase
+					.from('products')
+					.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en')
+					.order('barcode', { ascending: true }),
+				// Load selected products for this template
+				supabase
+					.from('flyer_offer_products')
+					.select('product_barcode')
+					.eq('offer_id', templateId)
+			]);
 
-			if (productsError) {
-				console.error('Error loading products:', productsError);
+			// Process categories
+			if (categoriesResult.error) {
+				console.error('Error loading categories:', categoriesResult.error);
+			} else if (categoriesResult.data) {
+				categories = categoriesResult.data;
+				categoriesResult.data.forEach(cat => {
+					categoryMap.set(cat.id, cat.name_en);
+				});
+			}
+
+			// Process units
+			if (unitsResult.error) {
+				console.error('Error loading units:', unitsResult.error);
+			} else if (unitsResult.data) {
+				unitsResult.data.forEach(unit => {
+					unitMap.set(unit.id, unit.name_en);
+				});
+			}
+
+			// Process products
+			if (productsResult.error) {
+				console.error('Error loading products:', productsResult.error);
 				alert('Error loading products. Please try again.');
 				isLoadingProducts = false;
 				return;
 			}
 
-			allProducts = products || [];
+			allProducts = productsResult.data || [];
 
-			// Extract unique categories
-			const parentCatSet = new Set<string>();
-			const parentSubCatSet = new Set<string>();
-			const subCatSet = new Set<string>();
-			
-			allProducts.forEach(product => {
-				if (product.parent_category) parentCatSet.add(product.parent_category);
-				if (product.parent_sub_category) parentSubCatSet.add(product.parent_sub_category);
-				if (product.sub_category) subCatSet.add(product.sub_category);
-			});
-			
-			parentCategories = Array.from(parentCatSet).sort();
-			parentSubCategories = Array.from(parentSubCatSet).sort();
-			subCategories = Array.from(subCatSet).sort();
-
-			// Load selected products for this template
-			const { data: selectedProductsData, error: selectedError } = await supabase
-				.from('flyer_offer_products')
-				.select('product_barcode')
-				.eq('offer_id', templateId);
-
-			if (selectedError) {
-				console.error('Error loading selected products:', selectedError);
+			// Process selected products
+			if (selectedResult.error) {
+				console.error('Error loading selected products:', selectedResult.error);
 				alert('Error loading selected products. Please try again.');
-			} else {
-				// Add selected products to the Set
-				selectedProductsData?.forEach(item => {
+			} else if (selectedResult.data) {
+				selectedResult.data.forEach(item => {
 					selectedProducts.add(item.product_barcode);
 				});
 				selectedProducts = selectedProducts; // Trigger reactivity
@@ -110,15 +124,9 @@
 		// Start with all products
 		products = allProducts;
 		
-		// Apply category filters
-		if (selectedParentCategory) {
-			products = products.filter(p => p.parent_category === selectedParentCategory);
-		}
-		if (selectedParentSubCategory) {
-			products = products.filter(p => p.parent_sub_category === selectedParentSubCategory);
-		}
-		if (selectedSubCategory) {
-			products = products.filter(p => p.sub_category === selectedSubCategory);
+		// Apply category filter
+		if (selectedCategoryId) {
+			products = products.filter(p => p.category_id === selectedCategoryId);
 		}
 		
 		// Apply text search (only barcode and name)
@@ -139,12 +147,10 @@
 		});
 	}
 
-	// Handle search input
+	// Handle search input and filters
 	$: {
 		searchQuery;
-		selectedParentCategory;
-		selectedParentSubCategory;
-		selectedSubCategory;
+		selectedCategoryId;
 		filterProducts();
 	}
 
@@ -238,12 +244,9 @@
 		allProducts = [];
 		selectedProducts.clear();
 		searchQuery = '';
-		selectedParentCategory = '';
-		selectedParentSubCategory = '';
-		selectedSubCategory = '';
-		parentCategories = [];
-		parentSubCategories = [];
-		subCategories = [];
+		selectedCategoryId = '';
+		categories = [];
+		categoryMap.clear();
 	}
 
 	onMount(() => {
@@ -374,41 +377,17 @@
 					</button>
 				</div>
 
-				<!-- Category Filters -->
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-2">Parent Category</label>
+				<!-- Category Filter -->
+				<div class="flex gap-4">
+					<div class="flex-1">
+						<label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
 						<select
-							bind:value={selectedParentCategory}
+							bind:value={selectedCategoryId}
 							class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 						>
-							<option value="">All Parent Categories</option>
-							{#each parentCategories as category}
-								<option value={category}>{category}</option>
-							{/each}
-						</select>
-					</div>
-					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-2">Parent Sub Category</label>
-						<select
-							bind:value={selectedParentSubCategory}
-							class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-						>
-							<option value="">All Parent Sub Categories</option>
-							{#each parentSubCategories as category}
-								<option value={category}>{category}</option>
-							{/each}
-						</select>
-					</div>
-					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-2">Sub Category</label>
-						<select
-							bind:value={selectedSubCategory}
-							class="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-						>
-							<option value="">All Sub Categories</option>
-							{#each subCategories as category}
-								<option value={category}>{category}</option>
+							<option value="">All Categories</option>
+							{#each categories as category}
+								<option value={category.id}>{category.name_en}</option>
 							{/each}
 						</select>
 					</div>
@@ -478,18 +457,15 @@
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Product Name (AR)
 									</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Variation Group
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Parent Category
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Parent Sub Category
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Sub Category
-								</th>
+									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+										Unit
+									</th>
+									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+										Category
+									</th>
+									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+										Variation Group
+									</th>
 								</tr>
 							</thead>
 							<tbody class="bg-white divide-y divide-gray-200">
@@ -528,26 +504,23 @@
 										<td class="px-6 py-4 text-sm text-gray-900">
 											{product.product_name_en || '-'}
 										</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-										{product.product_name_ar || '-'}
-									</td>
-									<td class="px-6 py-4 text-sm">
-										{#if product.is_variation && product.variation_group_name_en}
-											<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1">
-												🔗 {product.variation_group_name_en}
-											</span>
-										{:else}
-											<span class="text-gray-400">—</span>
-										{/if}
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900">
-										{product.parent_category || '-'}
-									</td>
-										<td class="px-6 py-4 text-sm text-gray-900">
-											{product.parent_sub_category || '-'}
+										<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
+											{product.product_name_ar || '-'}
 										</td>
 										<td class="px-6 py-4 text-sm text-gray-900">
-											{product.sub_category || '-'}
+											{product.unit_id ? (unitMap.get(product.unit_id) || '-') : '-'}
+										</td>
+										<td class="px-6 py-4 text-sm text-gray-900">
+											{product.category_id ? (categoryMap.get(product.category_id) || '-') : '-'}
+										</td>
+										<td class="px-6 py-4 text-sm">
+											{#if product.is_variation && product.variation_group_name_en}
+												<span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1">
+													🔗 {product.variation_group_name_en}
+												</span>
+											{:else}
+												<span class="text-gray-400">—</span>
+											{/if}
 										</td>
 									</tr>
 								{/each}
