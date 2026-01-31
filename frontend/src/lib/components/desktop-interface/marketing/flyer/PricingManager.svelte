@@ -9,6 +9,7 @@
 	let selectedOfferId: string | null = null;
 	let selectedProducts: any[] = [];
 	let productsVersion = 0; // Force reactivity counter
+	let searchQuery: string = '';
 	let isLoading: boolean = true;
 	let isLoadingProducts: boolean = false;
 	let isSavingPrices: boolean = false;
@@ -79,6 +80,17 @@
 	function markAsChanged() {
 		hasUnsavedChanges = true;
 	}
+	
+	// Filter products by search query
+	$: filteredProducts = selectedProducts.filter(product => {
+		if (!searchQuery.trim()) return true;
+		const query = searchQuery.toLowerCase();
+		return (
+			product.product_name_en?.toLowerCase().includes(query) ||
+			product.product_name_ar?.toLowerCase().includes(query) ||
+			product.barcode?.toLowerCase().includes(query)
+		);
+	});
 	
 	// Sync offer price across variation group
 	function syncGroupOfferPrice(product: any, newOfferPricePerUnit: number) {
@@ -1330,21 +1342,21 @@
 					offer_price,
 					profit_after_offer,
 					decrease_amount,
+					created_at,
 					products (
 						barcode,
 						product_name_en,
 						product_name_ar,
-						unit_name,
 						image_url,
-						parent_category,
-						parent_sub_category,
-						sub_category,
 						is_variation,
 						variation_group_name_en,
-						variation_group_name_ar
+						variation_group_name_ar,
+						product_units (name_en, name_ar),
+						product_categories (name_en, name_ar)
 					)
 				`)
-				.eq('offer_id', offerId);
+				.eq('offer_id', offerId)
+				.order('created_at', { ascending: true });
 			
 			if (error) {
 				console.error('Error loading offer products:', error);
@@ -1352,6 +1364,10 @@
 			} else {
 				selectedProducts = data?.map(item => ({
 					...item.products,
+					unit_name: item.products?.product_units?.name_en || '',
+					unit_name_ar: item.products?.product_units?.name_ar || '',
+					parent_category: item.products?.product_categories?.name_en || '',
+					parent_category_ar: item.products?.product_categories?.name_ar || '',
 					offer_product_id: item.id,
 					cost: item.cost,
 					sales_price: item.sales_price,
@@ -1619,6 +1635,36 @@
 					</button>
 				</div>
 			</div>
+			
+			<!-- Search Bar -->
+			{#if selectedProducts.length > 0}
+				<div class="mb-4 flex items-center gap-4">
+					<div class="relative flex-1 max-w-md">
+						<svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+						</svg>
+						<input
+							type="text"
+							bind:value={searchQuery}
+							placeholder="Search by product name or barcode..."
+							class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+						/>
+						{#if searchQuery}
+							<button
+								on:click={() => searchQuery = ''}
+								class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+							>
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						{/if}
+					</div>
+					<span class="text-sm text-gray-500">
+						{filteredProducts.length} of {selectedProducts.length} products
+					</span>
+				</div>
+			{/if}
 
 			{#if isLoadingProducts}
 				<div class="text-center py-8">
@@ -1639,7 +1685,7 @@
 				<!-- Scrollable table container -->
 				<div class="overflow-auto max-h-[600px]">
 					<table class="min-w-full table-fixed border-collapse">
-						<thead class="bg-gray-100">
+						<thead class="bg-gray-100 sticky top-0 z-10">
 							<tr>
 								<th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Image
@@ -1657,7 +1703,7 @@
 									Unit
 								</th>
 								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
-									Parent Sub Category
+									Category
 								</th>
 								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Offer Type
@@ -1701,7 +1747,7 @@
 							</tr>
 						</thead>
 						<tbody class="bg-white divide-y divide-gray-200">
-							{#each selectedProducts as product (product.barcode)}
+							{#each filteredProducts as product (product.barcode)}
 								<tr class="hover:bg-gray-50 transition-colors">
 									<td class="w-20 px-4 py-4 align-middle">
 										<div class="w-14 h-14 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
@@ -1749,7 +1795,7 @@
 										{product.unit_name || '-'}
 									</td>
 									<td class="w-40 px-4 py-4 align-middle text-xs text-gray-900">
-										{product.parent_sub_category || '-'}
+										{product.parent_category || '-'}
 									</td>
 									<td class="w-40 px-4 py-4 align-middle">
 										<span class="px-2 py-1 text-xs font-semibold rounded-full {
