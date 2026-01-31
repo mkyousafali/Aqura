@@ -48,6 +48,10 @@
 	let isLoadingAllProducts: boolean = false;
 	let allProductsSearch: string = '';
 	let filteredAllProducts: any[] = [];
+	let allProductsWithImages: number = 0; // Count of products that have images
+
+
+
 	let isLoadingDropdownsData: boolean = false;
 	let dropdownsDataLoaded: boolean = false;
 	
@@ -57,6 +61,13 @@
 	
 	// Image loading state
 	let loadingImages: Set<string> = new Set(); // Track which images are currently loading
+	let loadedImages: Set<string> = new Set(); // Track which images have loaded successfully
+	
+	// Find missing images in storage
+	let showFindMissingImagesPopup: boolean = false;
+	let isFindingMissingImages: boolean = false;
+	let foundMissingImages: { barcode: string; productName: string; imageUrl: string }[] = [];
+	let isSavingFoundImages: boolean = false;
 	
 	// Web image search
 	let showImageSearchPopup: boolean = false;
@@ -206,74 +217,30 @@
 	
 	// Load all images from Supabase Storage once
 	async function loadStorageImageCache() {
-		if (isCacheLoaded) return;
-		
-		uploadProgress = 'Loading image list from storage...';
-		storageImageCache.clear();
+		// Skip heavy storage listing - use on-demand image checks instead
+		isCacheLoaded = true;
+	}
+	
+	// Check if image exists in storage (fast single file check)
+	async function checkImageExists(barcode: string): Promise<boolean> {
+		if (storageImageCache.has(barcode)) return true;
 		
 		try {
-			let allFiles: any[] = [];
-			let page = 1;
-			let hasMore = true;
-			const limit = 1000;
+			const { data, error } = await supabase.storage
+				.from('flyer-product-images')
+				.list('', {
+					limit: 1,
+					search: `${barcode}.`
+				});
 			
-			// Use a different approach - keep loading until we get no more files
-			while (hasMore && page <= 10) { // Max 10 pages = 10,000 files
-				console.log(`Loading page ${page} (limit: ${limit})`);
-				
-				const { data: files, error } = await supabase.storage
-					.from('flyer-product-images')
-					.list('', {
-						limit: limit,
-						offset: (page - 1) * limit
-					});
-				
-				if (error) {
-					console.error('Error loading storage files:', error);
-					break;
-				}
-				
-				if (!files || files.length === 0) {
-					console.log('No more files to load');
-					hasMore = false;
-					break;
-				}
-				
-				console.log(`Page ${page}: Loaded ${files.length} files`);
-				allFiles.push(...files);
-				
-				// If we got less than limit, we've reached the end
-				if (files.length < limit) {
-					console.log('Reached end of files');
-					hasMore = false;
-				}
-				
-				page++;
-				uploadProgress = `Loaded ${allFiles.length} files from storage...`;
+			const exists = data && data.length > 0;
+			if (exists) {
+				storageImageCache.add(barcode);
 			}
-			
-			console.log(`Total files loaded: ${allFiles.length}`);
-			
-			// Now process all files and add to cache
-			allFiles.forEach(file => {
-				// Check if it's a file (not a folder or placeholder)
-				if (file.name && !file.name.endsWith('/') && !file.name.includes('.emptyFolder')) {
-					const barcode = file.name.replace(/\.(png|jpg|jpeg|webp)$/i, '');
-					storageImageCache.add(barcode);
-				}
-			});
-			
-			isCacheLoaded = true;
-			console.log(`Total images cached: ${storageImageCache.size}`);
-			console.log('Sample barcodes:', Array.from(storageImageCache).slice(0, 10));
-			uploadProgress = `Cache loaded: ${storageImageCache.size} images`;
-			setTimeout(() => { uploadProgress = ''; }, 3000);
-			
-			// Trigger table refresh by reassigning filteredProducts
-			filteredProducts = [...filteredProducts];
+			return exists;
 		} catch (error) {
-			console.error('Error loading storage cache:', error);
-			uploadProgress = '';
+			console.error('Error checking image:', error);
+			return false;
 		}
 	}
 	
@@ -450,17 +417,29 @@
 		showNoImageProducts = true;
 		
 		try {
+			// Load with pagination - get first 50 products without images
 			const { data, error } = await supabase
 				.from('products')
-				.select('*')
+				.select(`
+					id,
+					barcode,
+					product_name_en,
+					product_name_ar,
+					product_units (name_en, name_ar)
+				`)
 				.or('image_url.is.null,image_url.eq.')
-				.order('created_at', { ascending: false });
+				.order('created_at', { ascending: false })
+				.range(0, 49);
 			
 			if (error) {
 				console.error('Error loading products without images:', error);
 				noImageProducts = [];
 			} else {
-				noImageProducts = data || [];
+				// Map unit data to unit_name
+				noImageProducts = (data || []).map((product: any) => ({
+					...product,
+					unit_name: product.product_units?.name_en || ''
+				}));
 			}
 		} catch (error) {
 			console.error('Error:', error);
@@ -533,59 +512,216 @@
 		noImageProducts = [];
 	}
 	
+	// Export missing images to Excel (CSV format)
+	function exportMissingImagesToExcel() {
+		if (filteredNoImageProducts.length === 0) {
+			alert('No products to export');
+			return;
+		}
+		
+		// Prepare CSV data with proper escaping for Excel
+		// Barcode uses ="value" format to force Excel to treat it as text (preserve leading zeros)
+		const headers = ['Barcode', 'Product (English)', 'Product (Arabic)', 'Unit Name'];
+		const rows = filteredNoImageProducts.map(product => [
+			`="${(product.barcode || '').replace(/"/g, '""')}"`,
+			`"${(product.product_name_en || '').replace(/"/g, '""')}"`,
+			`"${(product.product_name_ar || '').replace(/"/g, '""')}"`,
+			`"${(product.unit_name || '').replace(/"/g, '""')}"`
+		]);
+		
+		// Create CSV content with BOM for Excel UTF-8 support
+		const BOM = '\uFEFF';
+		const csvContent = BOM + [
+			headers.join(','),
+			...rows.map(row => row.join(','))
+		].join('\n');
+		
+		// Create blob and download
+		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(blob);
+		link.setAttribute('href', url);
+		link.setAttribute('download', `missing-images-${new Date().toISOString().split('T')[0]}.csv`);
+		link.style.visibility = 'hidden';
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+	}
+	
+	// Find missing images in storage for products without image_url
+	async function findMissingImagesInStorage() {
+		isFindingMissingImages = true;
+		foundMissingImages = [];
+		
+		try {
+			// Get products without images
+			const productsWithoutImages = allProductsList.filter(p => !p.image_url);
+			
+			if (productsWithoutImages.length === 0) {
+				alert('All products already have images!');
+				isFindingMissingImages = false;
+				return;
+			}
+			
+			// Check storage for each barcode
+			const foundImages: { barcode: string; productName: string; imageUrl: string }[] = [];
+			
+			for (const product of productsWithoutImages) {
+				// Try common image extensions
+				const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+				
+				for (const ext of extensions) {
+					const fileName = `${product.barcode}.${ext}`;
+					const { data } = supabase.storage
+						.from('flyer-product-images')
+						.getPublicUrl(fileName);
+					
+					if (data?.publicUrl) {
+						// Check if the image actually exists by trying to fetch it
+						try {
+							const response = await fetch(data.publicUrl, { method: 'HEAD' });
+							if (response.ok) {
+								foundImages.push({
+									barcode: product.barcode,
+									productName: product.product_name_en || product.product_name_ar || product.barcode,
+									imageUrl: data.publicUrl
+								});
+								break; // Found image, no need to check other extensions
+							}
+						} catch (e) {
+							// Image doesn't exist, continue
+						}
+					}
+				}
+			}
+			
+			foundMissingImages = foundImages;
+			showFindMissingImagesPopup = true;
+		} catch (error) {
+			console.error('Error finding missing images:', error);
+			alert('Error searching for images. Please try again.');
+		}
+		
+		isFindingMissingImages = false;
+	}
+	
+	// Save found images to products
+	async function saveFoundImagesToProducts() {
+		if (foundMissingImages.length === 0) return;
+		
+		isSavingFoundImages = true;
+		
+		try {
+			let savedCount = 0;
+			
+			for (const item of foundMissingImages) {
+				const { error } = await supabase
+					.from('products')
+					.update({ image_url: item.imageUrl })
+					.eq('barcode', item.barcode);
+				
+				if (!error) {
+					savedCount++;
+				}
+			}
+			
+			alert(`Successfully updated ${savedCount} products with images!`);
+			showFindMissingImagesPopup = false;
+			foundMissingImages = [];
+			
+			// Refresh the products list
+			await loadAllProducts();
+		} catch (error) {
+			console.error('Error saving images:', error);
+			alert('Error saving images. Please try again.');
+		}
+		
+		isSavingFoundImages = false;
+	}
+	
+	// Close find missing images popup
+	function closeFindMissingImagesPopup() {
+		showFindMissingImagesPopup = false;
+		foundMissingImages = [];
+	}
+	
 	// Load all products from database
 	async function loadAllProducts() {
 		showAllProducts = true;
 		isLoadingAllProducts = true;
 		allProductsList = [];
+		filteredAllProducts = [];
 		
 		try {
-			const { data, error } = await supabase
-				.from('products')
-				.select(`
-					*,
-					product_units (
-						name_en,
-						name_ar
-					),
-					product_categories (
-						name_en,
-						name_ar
-					)
-				`)
-				.order('product_name_en', { ascending: true });
+			let allProducts: any[] = [];
+			let offset = 0;
+			const limit = 500; // Load 500 at a time
+			let hasMore = true;
 			
-			if (error) {
-				console.error('Error loading all products:', error);
-				alert('Error loading products. Please try again.');
-			} else {
-				// Process products synchronously without async storage checks
-				const productsWithImages = (data || []).map((product) => {
-					let imageUrl = product.image_url;
-					
-					// If no image_url, generate the public URL from storage
-					if (!imageUrl && product.barcode) {
-						const { data: urlData } = supabase.storage
-							.from('flyer-product-images')
-							.getPublicUrl(`${product.barcode}.png`);
-						imageUrl = urlData.publicUrl;
-					}
-					
+			// Load all products in chunks without blocking UI
+			while (hasMore) {
+				const { data, error } = await supabase
+					.from('products')
+					.select(`
+						id,
+						barcode,
+						product_name_en,
+						product_name_ar,
+						image_url,
+						product_units (name_en, name_ar),
+						product_categories (name_en, name_ar)
+					`)
+					.order('product_name_en', { ascending: true })
+					.range(offset, offset + limit - 1);
+				
+				if (error) {
+					console.error('Error loading products chunk:', error);
+					break;
+				}
+				
+				if (!data || data.length === 0) {
+					hasMore = false;
+					break;
+				}
+				
+				// Process this chunk
+				const processedChunk = (data || []).map((product: any) => {
 					return {
 						...product,
-						image_url: imageUrl,
 						unit_name: product.product_units?.name_en || '',
-						unit_name_en: product.product_units?.name_en || '',
 						unit_name_ar: product.product_units?.name_ar || '',
 						parent_category: product.product_categories?.name_en || '',
-						parent_category_en: product.product_categories?.name_en || '',
 						parent_category_ar: product.product_categories?.name_ar || ''
 					};
 				});
 				
-				allProductsList = productsWithImages;
-				filteredAllProducts = allProductsList;
+				allProducts = [...allProducts, ...processedChunk];
+				
+				// Update UI with loaded products so far
+				allProductsList = allProducts;
+				filteredAllProducts = allProducts;
+				
+				// Allow UI to update between chunks
+				await new Promise(resolve => setTimeout(resolve, 100));
+				
+				offset += limit;
+				if (data.length < limit) {
+					hasMore = false;
+				}
 			}
+			
+			allProductsList = allProducts;
+			filteredAllProducts = allProducts;
+			
+			// Debug: Log first few products with image URLs
+			console.log('All products loaded:', allProducts.length);
+			console.log('Products with images:', allProducts.filter(p => p.image_url).length);
+			if (allProducts.length > 0) {
+				console.log('Sample product:', allProducts[0]);
+			}
+			
+			// Set count of products with images
+			allProductsWithImages = allProducts.filter(p => p.image_url).length;
 		} catch (error) {
 			console.error('Error loading all products:', error);
 			alert('Error loading products. Please try again.');
@@ -770,6 +906,9 @@
 				product.category_id?.toLowerCase().includes(search)
 			);
 		}
+		// Clear loaded images when search changes to reset loading counter
+		loadedImages.clear();
+		loadedImages = loadedImages;
 	}
 	
 	// Search for product images on the web
@@ -1064,12 +1203,48 @@
 	function openEditPopup(product: any) {
 		editingProduct = { ...product };
 		showEditPopup = true;
+		// Ensure dropdowns are loaded
+		if (!dropdownsDataLoaded) {
+			loadAllProductsForDropdowns();
+		}
 	}
 	
 	function closeEditPopup() {
 		showEditPopup = false;
 		editingProduct = null;
 		isSavingEdit = false;
+	}
+	
+	async function deleteProduct(barcode: string) {
+		if (!confirm(`Are you sure you want to delete product ${barcode}? This action cannot be undone.`)) {
+			return;
+		}
+		
+		try {
+			const { error } = await supabase
+				.from('products')
+				.delete()
+				.eq('barcode', barcode);
+			
+			if (error) {
+				console.error('Error deleting product:', error);
+				alert('Failed to delete product: ' + error.message);
+			} else {
+				alert('Product deleted successfully!');
+				
+				// Reload the appropriate views
+				await loadAllProducts();
+				if (showNoImageProducts) {
+					await loadNoImageProducts();
+				}
+				
+				// Refresh statistics
+				await loadDatabaseStats();
+			}
+		} catch (error) {
+			console.error('Error deleting product:', error);
+			alert('Error deleting product. Please try again.');
+		}
 	}
 	
 	async function saveProductEdit() {
@@ -1129,6 +1304,10 @@
 		isCheckingImage = false;
 		imageCheckStatus = '';
 		imageCheckResult = null;
+		// Ensure dropdowns are loaded
+		if (!dropdownsDataLoaded) {
+			loadAllProductsForDropdowns();
+		}
 		foundImageUrl = '';
 		showCreatePopup = true;
 	}
@@ -1387,6 +1566,39 @@
 		reader.readAsBinaryString(file);
 	}
 	
+	async function deleteAllProducts() {
+		const confirmed = confirm('Are you sure you want to DELETE ALL products? This cannot be undone!');
+		if (!confirmed) return;
+		
+		try {
+			uploadProgress = 'Deleting all products...';
+			const { error } = await supabase
+				.from('products')
+				.delete()
+				.neq('id', ''); // Delete all rows
+			
+			if (error) {
+				console.error('Error deleting products:', error);
+				alert('Failed to delete products: ' + error.message);
+			} else {
+				alert('All products deleted successfully!');
+				products = [];
+				filteredProducts = [];
+				hasUnsavedData = false;
+				uploadProgress = '';
+				
+				// Reload all views
+				await loadProducts();
+				await loadDatabaseStats();
+				if (showAllProducts) await loadAllProducts();
+				if (showNoImageProducts) await loadNoImageProducts();
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			alert('Error deleting products');
+		}
+	}
+	
 	async function handleSave() {
 		if (!hasUnsavedData || products.length === 0) return;
 		await saveProductsToDatabase(products);
@@ -1404,17 +1616,61 @@
 		// First, load all units and categories for mapping (including Arabic)
 		const { data: unitsData } = await supabase.from('product_units').select('id, name_en, name_ar');
 		const { data: categoriesData } = await supabase.from('product_categories').select('id, name_en, name_ar');
+		const { data: existingProducts } = await supabase.from('products').select('id, barcode');
 		
 		const unitMap = new Map(unitsData?.map(u => [u.name_en.toLowerCase(), u.id]) || []);
 		const unitMapAr = new Map(unitsData?.map(u => [u.name_ar.toLowerCase(), u.id]) || []);
 		const categoryMap = new Map(categoriesData?.map(c => [c.name_en.toLowerCase(), c.id]) || []);
 		const categoryMapAr = new Map(categoriesData?.map(c => [c.name_ar.toLowerCase(), c.id]) || []);
+		const existingBarcodes = new Set(existingProducts?.map(p => p.barcode) || []);
+		
+		// Get highest unit ID number (extract number from U1, U2, U3, etc.)
+		let highestUnitNum = 0;
+		if (unitsData && unitsData.length > 0) {
+			highestUnitNum = Math.max(...unitsData.map(u => {
+				const match = u.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Get highest product ID number (extract number from P1, P2, P3, etc.)
+		let highestProductNum = 0;
+		if (existingProducts && existingProducts.length > 0) {
+			highestProductNum = Math.max(...existingProducts.map(p => {
+				const match = p.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Get highest category ID number (extract number from C1, C2, C3, etc.)
+		let highestCategoryNum = 0;
+		if (categoriesData && categoriesData.length > 0) {
+			highestCategoryNum = Math.max(...categoriesData.map(c => {
+				const match = c.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Counters for new units and categories created during this import
+		let newUnitCounter = highestUnitNum;
+		let newCategoryCounter = highestCategoryNum;
+		let newProductNum = highestProductNum;
 		
 		for (let i = 0; i < productList.length; i++) {
 			const product = productList[i];
 			try {
 				const barcode = String(product.Barcode || product['barcode'] || '');
 				if (!barcode) continue;
+				
+				// Skip if product with this barcode already exists
+				if (existingBarcodes.has(barcode)) {
+					console.log(`Skipping product ${barcode} - already exists in database`);
+					continue;
+				}
+				
+				// Use incrementing product ID (P1, P2, P3, etc.)
+				newProductNum++;
+				const productId = `P${newProductNum}`;
 				
 				// Get or create unit_id from unit name (English or Arabic)
 				let unit_id = null;
@@ -1435,11 +1691,15 @@
 					}
 					// Create new unit if it doesn't exist
 					else if (unitNameEn) {
+						newUnitCounter++;
+						const unitId = `U${newUnitCounter}`;
 						const { data: newUnit, error: unitError } = await supabase
 							.from('product_units')
 							.insert({
+								id: unitId,
 								name_en: unitNameEn,
-								name_ar: unitNameAr || unitNameEn // Use Arabic if provided, otherwise use English
+								name_ar: unitNameAr || unitNameEn,
+								is_active: true
 							})
 							.select('id');
 						
@@ -1471,11 +1731,15 @@
 					}
 					// Create new category if it doesn't exist
 					else if (categoryNameEn) {
+						newCategoryCounter++;
+						const categoryId = `C${newCategoryCounter}`;
 						const { data: newCategory, error: categoryError } = await supabase
 							.from('product_categories')
 							.insert({
+								id: categoryId,
 								name_en: categoryNameEn,
-								name_ar: categoryNameAr || categoryNameEn // Use Arabic if provided, otherwise use English
+								name_ar: categoryNameAr || categoryNameEn,
+								is_active: true
 							})
 							.select('id');
 						
@@ -1518,6 +1782,7 @@
 				const { error: dbError } = await supabase
 					.from('products')
 					.upsert({
+						id: productId, // Use generated ID (P1, P2, P3, etc.)
 						barcode: barcode,
 						product_name_en: product['Product name english'] || product['Product name_en'] || '',
 						product_name_ar: product['Product name arabic'] || product['Product name_ar'] || '',
@@ -1558,8 +1823,10 @@
 		filteredProducts = [];
 		searchBarcode = '';
 		
-		// Refresh database statistics
+		// Refresh database statistics and reload dropdowns
 		await loadDatabaseStats();
+		dropdownsDataLoaded = false; // Force reload of dropdowns
+		await loadAllProductsForDropdowns();
 		
 		setTimeout(() => {
 			isSavingProducts = false;
@@ -1589,23 +1856,47 @@
 	}
 	
 	function handleImageError(event: Event) {
-		// Show placeholder if image doesn't exist
+		// Hide the image and show placeholder if image doesn't exist
 		const img = event.target as HTMLImageElement;
 		const barcode = img.getAttribute('data-barcode');
+		const src = img.getAttribute('src');
+		console.error(`Image failed to load: barcode=${barcode}, src=${src}`);
 		if (barcode) {
 			loadingImages.delete(barcode);
 			loadingImages = loadingImages; // Trigger reactivity
 		}
-		img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f3f4f6" width="100" height="100"/><text x="50" y="50" font-size="12" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">No Image</text></svg>';
+		// Hide the image element
+		img.style.display = 'none';
+		// Show the parent's no-image placeholder
+		const parent = img.parentElement;
+		if (parent) {
+			const noImageSvg = parent.querySelector('svg');
+			if (noImageSvg) {
+				noImageSvg.style.display = 'block';
+			}
+		}
 	}
 	
 	function handleImageLoad(event: Event) {
 		// Remove from loading state when image loads successfully
 		const img = event.target as HTMLImageElement;
 		const barcode = img.getAttribute('data-barcode');
+		console.log(`Image loaded successfully: barcode=${barcode}, naturalSize=${img.naturalWidth}x${img.naturalHeight}, displaySize=${img.width}x${img.height}, style.display=${img.style.display}`);
+		
+		// Hide the placeholder SVG when image loads
+		const parent = img.parentElement;
+		if (parent) {
+			const placeholder = parent.querySelector('svg');
+			if (placeholder) {
+				placeholder.style.display = 'none';
+			}
+		}
+		
 		if (barcode) {
 			loadingImages.delete(barcode);
+			loadedImages.add(barcode);
 			loadingImages = loadingImages; // Trigger reactivity
+			loadedImages = loadedImages; // Trigger reactivity
 		}
 	}
 	
@@ -2413,6 +2704,103 @@
 		</div>
 	{/if}
 
+	<!-- Find Missing Images Popup -->
+	{#if showFindMissingImagesPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Missing Images Found</h3>
+							<p class="text-purple-100 text-sm">Found {foundMissingImages.length} images in storage</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeFindMissingImagesPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+						title="Close"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="flex-1 overflow-y-auto p-4">
+					{#if foundMissingImages.length === 0}
+						<div class="text-center py-8">
+							<svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 12h.01M12 12h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							<h4 class="text-lg font-semibold text-gray-700 mb-2">No Images Found</h4>
+							<p class="text-gray-500">No matching images were found in storage for products without images.</p>
+						</div>
+					{:else}
+						<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+							{#each foundMissingImages as item}
+								<div class="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+									<div class="aspect-square bg-white flex items-center justify-center p-2">
+										<img 
+											src={item.imageUrl} 
+											alt={item.productName}
+											class="max-w-full max-h-full object-contain"
+										/>
+									</div>
+									<div class="p-2 border-t border-gray-200">
+										<p class="text-xs font-mono text-gray-600 truncate" title={item.barcode}>{item.barcode}</p>
+										<p class="text-xs text-gray-500 truncate" title={item.productName}>{item.productName}</p>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 p-4 border-t border-gray-200 flex items-center justify-between">
+					<p class="text-sm text-gray-600">
+						{foundMissingImages.length} image{foundMissingImages.length !== 1 ? 's' : ''} will be linked to products
+					</p>
+					<div class="flex gap-2">
+						<button
+							on:click={closeFindMissingImagesPopup}
+							class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+						>
+							Cancel
+						</button>
+						{#if foundMissingImages.length > 0}
+							<button
+								on:click={saveFoundImagesToProducts}
+								disabled={isSavingFoundImages}
+								class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							>
+								{#if isSavingFoundImages}
+									<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Saving...
+								{:else}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+									</svg>
+									Save All ({foundMissingImages.length})
+								{/if}
+							</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Image Upload Progress Bar -->
 	{#if isUploadingImages && imageUploadProgress >= 0}
 		<div class="bg-white rounded-lg shadow-md p-4 border-2 border-green-200">
@@ -2468,199 +2856,149 @@
 		</div>
 	{/if}
 
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-3xl font-bold text-gray-800">Product Dashboard</h1>
-			<p class="text-gray-600 mt-1">Manage your products by importing from Excel</p>
-			{#if hasUnsavedData}
-				<p class="text-sm text-orange-600 mt-2 font-semibold">
-					⚠️ You have unsaved data. Click "Save to Database" to save.
-				</p>
-			{/if}
+	<!-- Action Bar with Refresh Button -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<button 
+				on:click={() => { loadProducts(); loadDatabaseStats(); }}
+				class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 hover:shadow-md transition-all duration-200 border border-slate-200/50"
+				title="Refresh the product list"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+				</svg>
+				<span class="text-xs font-black uppercase tracking-wide">Refresh</span>
+			</button>
 		</div>
 		
-		<div class="flex gap-3">
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
 			{#if hasUnsavedData}
 				<button 
 					on:click={handleSave}
 					disabled={isSavingProducts}
-					class="px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+					{isSavingProducts 
+						? 'bg-green-600 text-white shadow-lg shadow-green-200 scale-[1.02] opacity-75' 
+						: 'bg-green-600 text-white shadow-lg shadow-green-200 scale-[1.02] hover:bg-green-700'}"
 				>
 					{#if isSavingProducts}
 						<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
 							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 						</svg>
-						Saving...
 					{:else}
 						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
 						</svg>
-						Save to Database
 					{/if}
+					<span class="relative z-10">Save</span>
 				</button>
 			{/if}
 			
 			<button 
 				on:click={openCreatePopup}
-				class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
 			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 				</svg>
-				Create Product
+				<span class="relative z-10">Create Product</span>
 			</button>
 			
 			<button 
 				on:click={handleUploadImages}
 				disabled={isUploadingImages}
-				class="px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{isUploadingImages 
+					? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02] opacity-75' 
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
 			>
 				{#if isUploadingImages}
 					<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
 						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 					</svg>
-					Uploading...
 				{:else}
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
 					</svg>
-					Upload Images
 				{/if}
+				<span class="relative z-10">Upload Images</span>
 			</button>
 			
 			<button 
 				on:click={downloadTemplate}
-				class="px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
 			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 				</svg>
-				Download Template
+				<span class="relative z-10">Template</span>
 			</button>
 			
 			<button 
 				on:click={handleImport}
 				disabled={isSavingProducts}
-				class="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{isSavingProducts 
+					? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02] opacity-75' 
+					: 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02] hover:bg-purple-700'}"
 			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 				</svg>
-				Import from Excel
+				<span class="relative z-10">Import</span>
 			</button>
 			
 			<button 
 				on:click={openCreateUnitPopup}
-				class="px-6 py-3 bg-gradient-to-r from-cyan-600 to-teal-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
 			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 				</svg>
-				Create Unit
+				<span class="relative z-10">Unit</span>
 			</button>
 			
 			<button 
 				on:click={openCreateCategoryPopup}
-				class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
 			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 				</svg>
-				Create Category
+				<span class="relative z-10">Category</span>
+			</button>
+			
+			<button 
+				on:click={loadAllProducts}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+				</svg>
+				<span class="relative z-10">All Products ({dbTotalProducts})</span>
+			</button>
+			
+			<button 
+				on:click={loadNoImageProducts}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+				</svg>
+				<span class="relative z-10">Missing Images ({dbProductsWithoutImages})</span>
 			</button>
 		</div>
 	</div>
 
-	<!-- Database Statistics Cards -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-		<!-- Total Products in Database Card -->
-		<div class="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-			<div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4">
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<div class="bg-white bg-opacity-20 rounded-lg p-2">
-							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-							</svg>
-						</div>
-						<h3 class="text-white font-bold text-lg">Total Products</h3>
-					</div>
-				</div>
-			</div>
-			<div class="p-5 bg-gradient-to-br from-gray-50 to-white">
-				{#if isLoadingDbStats}
-					<div class="flex items-center justify-center gap-2 py-4">
-						<svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-						<span class="text-sm text-gray-600">Loading...</span>
-					</div>
-				{:else}
-					<div class="flex items-center justify-between">
-						<div>
-							<p class="text-4xl font-bold text-gray-900 mb-1">{dbTotalProducts.toLocaleString()}</p>
-							<p class="text-sm text-gray-500">Products in database</p>
-						</div>
-						{#if dbTotalProducts > 0}
-							<button
-								on:click={loadAllProducts}
-								class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md transition-colors"
-							>
-								View All
-							</button>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-
-		<!-- Products Without Images Card -->
-		<div class="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-			<div class="bg-gradient-to-r from-orange-600 to-red-600 p-4">
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<div class="bg-white bg-opacity-20 rounded-lg p-2">
-							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-							</svg>
-						</div>
-						<h3 class="text-white font-bold text-lg">Missing Images</h3>
-					</div>
-				</div>
-			</div>
-			<div class="p-5 bg-gradient-to-br from-gray-50 to-white">
-				{#if isLoadingDbStats}
-					<div class="flex items-center justify-center gap-2 py-4">
-						<svg class="animate-spin w-6 h-6 text-orange-600" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-						<span class="text-sm text-gray-600">Loading...</span>
-					</div>
-				{:else}
-					<div class="flex items-center justify-between">
-						<div>
-							<p class="text-4xl font-bold text-gray-900 mb-1">{dbProductsWithoutImages.toLocaleString()}</p>
-							<p class="text-sm text-gray-500">Products without images</p>
-						</div>
-						{#if dbProductsWithoutImages > 0}
-							<button
-								on:click={loadNoImageProducts}
-								class="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-md transition-colors"
-							>
-								Upload
-							</button>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-	</div>
-	
 	<!-- Hidden file inputs -->
 	<input
 		type="file"
@@ -2697,12 +3035,24 @@
 							<p class="text-sm text-gray-500 mt-0.5">Upload images for products below</p>
 						</div>
 					</div>
-					<button 
-						on:click={closeNoImageView}
-						class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
-					>
-						Close
-					</button>
+					<div class="flex gap-2">
+						<button 
+							on:click={exportMissingImagesToExcel}
+							class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							title="Export missing images to Excel"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+							</svg>
+							Export to Excel
+						</button>
+						<button 
+							on:click={closeNoImageView}
+							class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+						>
+							Close
+						</button>
+					</div>
 				</div>
 				
 				<!-- Search Bar -->
@@ -2914,12 +3264,33 @@
 							<p class="text-sm text-gray-500 mt-0.5">Browse and search all products</p>
 						</div>
 					</div>
-					<button 
-						on:click={closeAllProductsView}
-						class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
-					>
-						Close
-					</button>
+					<div class="flex gap-2">
+						<button 
+							on:click={findMissingImagesInStorage}
+							disabled={isFindingMissingImages}
+							class="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							title="Search storage for images matching products without image URLs"
+						>
+							{#if isFindingMissingImages}
+								<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Searching...
+							{:else}
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+								</svg>
+								Find Missing Images
+							{/if}
+						</button>
+						<button 
+							on:click={closeAllProductsView}
+							class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+						>
+							Close
+						</button>
+					</div>
 				</div>
 			</div>
 			
@@ -2971,9 +3342,26 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 						</svg>
 					</div>
-					<p class="text-sm text-gray-600 mt-2">
-						Showing {filteredAllProducts.length} of {allProductsList.length} products
-					</p>
+					<div class="flex items-center justify-between mt-2">
+						<p class="text-sm text-gray-600">
+							Showing {filteredAllProducts.length} of {allProductsList.length} products
+						</p>
+						<div class="flex items-center gap-2">
+							{#if loadedImages.size > 0 || loadingImages.size > 0}
+								{#if loadingImages.size > 0}
+									<svg class="animate-spin w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+								{:else}
+									<svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+								{/if}
+								<span class="text-sm font-medium {loadingImages.size > 0 ? 'text-blue-600' : 'text-green-600'}">
+									Images Loaded: {loadedImages.size} / {allProductsWithImages}
+								</span>
+							{/if}
+						</div>
+					</div>
 				</div>
 				
 				<!-- Products Table -->
@@ -2997,10 +3385,19 @@
 									Product Name (Arabic)
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Unit
+									Unit (EN)
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Category
+									Unit (AR)
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Category (EN)
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Category (AR)
+								</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Image Status
 								</th>
 							</tr>
 						</thead>
@@ -3008,11 +3405,11 @@
 							{#each filteredAllProducts as product (product.barcode)}
 								<tr class="hover:bg-gray-50 transition-colors">
 									<td class="px-6 py-4 whitespace-nowrap">
-										<div class="w-16 h-16 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden relative">
+										<div class="w-20 h-20 bg-gray-50 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden relative group cursor-pointer" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
 											{#if loadingImages.has(product.barcode)}
 												<!-- Loading Spinner -->
-												<div class="absolute inset-0 flex items-center justify-center bg-gray-100">
-													<svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
+												<div class="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
+													<svg class="animate-spin w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24">
 														<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 														<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 													</svg>
@@ -3023,16 +3420,18 @@
 													src={product.image_url}
 													alt={product.product_name_en || product.barcode}
 													data-barcode={product.barcode}
-													class="w-full h-full object-contain"
+													class="w-full h-full object-scale-down p-1 group-hover:opacity-80 transition-opacity"
+													loading="eager"
+													decoding="async"
 													on:loadstart={() => handleImageLoadStart(product.barcode)}
 													on:load={handleImageLoad}
 													on:error={handleImageError}
 												/>
-											{:else}
-												<svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-												</svg>
 											{/if}
+											<!-- Always show placeholder -->
+											<svg class="w-8 h-8 text-gray-400 absolute" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+											</svg>
 										</div>
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-center">
@@ -3072,9 +3471,21 @@
 											</svg>
 											Edit
 										</button>
+										<button
+											on:click={() => deleteProduct(product.barcode)}
+											class="px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1.5 mx-auto"
+											title="Delete product"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+											</svg>
+											Delete
+										</button>
 									</td>
 									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-										{product.barcode}
+										<span class="select-all cursor-copy hover:bg-blue-100 px-2 py-1 rounded transition-colors" title="Click to copy">
+											{product.barcode}
+										</span>
 									</td>
 									<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
 										{product.product_name_en || '-'}
@@ -3085,8 +3496,27 @@
 									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 										{product.unit_name || '-'}
 									</td>
+									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" dir="rtl">
+										{product.unit_name_ar || '-'}
+									</td>
 									<td class="px-6 py-4 text-sm text-gray-900">
 										{product.parent_category || '-'}
+									</td>
+									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
+										{product.parent_category_ar || '-'}
+									</td>
+									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+										{#if product.image_url}
+											<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+												<svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+												Has Image
+											</span>
+										{:else}
+											<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+												<svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>
+												No Image
+											</span>
+										{/if}
 									</td>
 						</tr>
 					{/each}
@@ -3201,13 +3631,13 @@
 									{product['Product name arabic'] || product['Product name_ar'] || product.Product_name_ar || ''}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{product['unit'] || product['Unit name'] || product.Unit_name || ''}
+									{product['Unit english'] || product['unit'] || product['Unit'] || product['Unit name'] || product.Unit_name || ''}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 									{product['Unit arabic'] || product['Unit name arabic'] || ''}
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Category'] || product['Category english'] || product['Category_en'] || ''}
+									{product['Category english'] || product['Category'] || product['category'] || product['Category_en'] || ''}
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
 									{product['Category arabic'] || product['Category_ar'] || ''}

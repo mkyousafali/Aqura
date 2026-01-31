@@ -408,7 +408,7 @@
 				});
 				
 				await loadVariationGroups();
-				await loadStats();
+				await loadProductsAndStats();
 				deselectAll();
 				closeGroupModal();
 			} else {
@@ -447,8 +447,8 @@
 				});
 				
 				// Reload and reset
-				await loadProducts();
-				await loadStats();
+				await loadVariationGroups();
+				await loadProductsAndStats();
 				deselectAll();
 				closeGroupModal();
 			} else {
@@ -515,7 +515,7 @@
 			});
 			
 			await loadVariationGroups();
-			await loadStats();
+			await loadProductsAndStats();
 		} catch (error) {
 			console.error('Error deleting group:', error);
 			notifications.add({
