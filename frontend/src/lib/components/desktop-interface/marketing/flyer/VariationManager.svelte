@@ -43,9 +43,68 @@
 	let totalProducts: number = 0;
 	let groupedProducts: number = 0;
 	let totalGroups: number = 0;
-	
+
+	// Realtime subscriptions
+	let realtimeSubscriptions: any[] = [];
+
+	// Subscribe to realtime changes
+	function subscribeToRealtimeChanges() {
+		try {
+			// Subscribe to variation_audit_log table changes
+			const auditLogChannel = supabase
+				.channel('variation-audit-log-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'variation_audit_log'
+					},
+					(payload) => {
+						handleAuditLogChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to variation_audit_log realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(auditLogChannel);
+		} catch (error) {
+			console.error('Error setting up realtime subscriptions:', error);
+		}
+	}
+
+	// Handle variation audit log changes - trigger data refresh
+	function handleAuditLogChange(payload: any) {
+		const { eventType } = payload;
+		
+		// On any audit log change, reload groups and products to show latest state
+		if (eventType === 'INSERT') {
+			console.log('✓ Variation group action recorded via realtime');
+			// Reload groups and products data in background
+			Promise.all([loadVariationGroups(), loadProductsAndStats()]);
+		}
+	}
+
+	// Cleanup subscriptions on unmount
+	function unsubscribeFromRealtimeChanges() {
+		realtimeSubscriptions.forEach((channel) => {
+			supabase.removeChannel(channel);
+		});
+		realtimeSubscriptions = [];
+		console.log('✓ Unsubscribed from realtime updates');
+	}
+
 	onMount(async () => {
 		await loadProductsAndStats();
+		subscribeToRealtimeChanges();
+
+		// Cleanup on unmount
+		return () => {
+			unsubscribeFromRealtimeChanges();
+		};
 	});
 	
 	async function loadProductsAndStats() {
@@ -407,10 +466,11 @@
 					duration: 3000
 				});
 				
-				await loadVariationGroups();
-				await loadProductsAndStats();
+				// Close modal and reset immediately for better UX
 				deselectAll();
 				closeGroupModal();
+				isCreatingGroup = false;
+				// Realtime subscription will reload groups and products automatically
 			} else {
 				// CREATE MODE: Create new group
 			// Get selected barcodes excluding parent
@@ -446,11 +506,11 @@
 					duration: 3000
 				});
 				
-				// Reload and reset
-				await loadVariationGroups();
-				await loadProductsAndStats();
+				// Close modal and reset immediately for better UX
 				deselectAll();
 				closeGroupModal();
+				isCreatingGroup = false;
+				// Realtime subscription will reload groups and products automatically
 			} else {
 				throw new Error(data?.[0]?.message || 'Failed to create group');
 			}
@@ -514,8 +574,7 @@
 				duration: 3000
 			});
 			
-			await loadVariationGroups();
-			await loadProductsAndStats();
+			// Realtime subscription will reload groups and products automatically
 		} catch (error) {
 			console.error('Error deleting group:', error);
 			notifications.add({
