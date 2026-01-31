@@ -60,8 +60,8 @@
 	let allCategories: any[] = [];
 	
 	// Image loading state
-	let loadingImages: Set<string> = new Set(); // Track which images are currently loading
-	let loadedImages: Set<string> = new Set(); // Track which images have loaded successfully
+	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
+	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs for cache checking
 	
 	// Find missing images in storage
 	let showFindMissingImagesPopup: boolean = false;
@@ -127,6 +127,24 @@
 	$: uniqueParentCategories = allCategories.map(c => c.name_en).filter(Boolean).sort();
 	$: uniqueParentSubCategories = []; // Not available in current schema
 	$: uniqueSubCategories = []; // Not available in current schema
+
+	// Check for cached images after each render
+	$: if ((filteredProducts && filteredProducts.length > 0) || (filteredAllProducts && filteredAllProducts.length > 0)) {
+		setTimeout(() => {
+			// Check regular filtered products
+			filteredProducts.forEach(product => {
+				if (product.image_url && imageRefs[product.barcode]) {
+					checkImageCache(imageRefs[product.barcode]);
+				}
+			});
+			// Check all products view
+			filteredAllProducts.forEach(product => {
+				if (product.image_url && imageRefs[product.barcode]) {
+					checkImageCache(imageRefs[product.barcode]);
+				}
+			});
+		}, 100);
+	}
 	
 	// Quota tracking
 	interface QuotaData {
@@ -628,9 +646,7 @@
 			alert(`Successfully updated ${savedCount} products with images!`);
 			showFindMissingImagesPopup = false;
 			foundMissingImages = [];
-			
-			// Refresh the products list
-			await loadAllProducts();
+			// Realtime subscription will update the product rows automatically
 		} catch (error) {
 			console.error('Error saving images:', error);
 			alert('Error saving images. Please try again.');
@@ -714,11 +730,7 @@
 			filteredAllProducts = allProducts;
 			
 			// Debug: Log first few products with image URLs
-			console.log('All products loaded:', allProducts.length);
-			console.log('Products with images:', allProducts.filter(p => p.image_url).length);
-			if (allProducts.length > 0) {
-				console.log('Sample product:', allProducts[0]);
-			}
+			console.log('✓ All products loaded:', allProducts.length, '| With images:', allProducts.filter(p => p.image_url).length);
 			
 			// Set count of products with images
 			allProductsWithImages = allProducts.filter(p => p.image_url).length;
@@ -735,6 +747,50 @@
 		allProductsList = [];
 		filteredAllProducts = [];
 		allProductsSearch = '';
+	}
+	
+	// Export all products to XLSX
+	function exportProductsToXLSX() {
+		try {
+			// Prepare data for export with proper formatting
+			const exportData = allProductsList.map(product => ({
+				'Barcode': product.barcode ? `'${product.barcode}` : '', // Prefix with apostrophe to preserve as text and avoid leading zero loss
+				'Product name english': product.product_name_en || '',
+				'Product name arabic': product.product_name_ar || '',
+				'Unit english': product.unit_name || '',
+				'Unit arabic': product.unit_name_ar || '',
+				'Category english': product.parent_category || '',
+				'Category arabic': product.parent_category_ar || ''
+			}));
+
+			// Create a new workbook
+			const ws = XLSX.utils.json_to_sheet(exportData);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Products');
+
+			// Set column widths for better readability
+			ws['!cols'] = [
+				{ wch: 18 }, // Barcode
+				{ wch: 30 }, // Product name english
+				{ wch: 30 }, // Product name arabic
+				{ wch: 20 }, // Unit english
+				{ wch: 20 }, // Unit arabic
+				{ wch: 25 }, // Category english
+				{ wch: 25 }  // Category arabic
+			];
+
+			// Generate filename with timestamp
+			const timestamp = new Date().toISOString().slice(0, 10);
+			const filename = `products_export_${timestamp}.xlsx`;
+
+			// Write the file
+			XLSX.writeFile(wb, filename);
+
+			alert(`Successfully exported ${allProductsList.length} products to ${filename}`);
+		} catch (error) {
+			console.error('Error exporting products:', error);
+			alert('Error exporting products. Please try again.');
+		}
 	}
 	
 	// Load all products for dropdown data (without showing the view)
@@ -778,20 +834,7 @@
 					)
 				`);
 			
-			if (!productsError && productsData) {
-				// Transform the data to include unit_name and category_name for backward compatibility
-				allProductsForDropdowns = productsData.map(item => ({
-					unit_name: item.product_units?.name_en || '',
-					category_id: item.category_id,
-					category_name: item.product_categories?.name_en || '',
-					parent_category: item.product_categories?.name_en || ''
-				}));
-				console.log('Loaded dropdown data:', {
-					total: productsData.length,
-					units: allUnits.length,
-					categories: allCategories.length
-				});
-			}
+			// Dropdown data loaded
 			dropdownsDataLoaded = true;
 		} catch (error) {
 			console.error('Error loading products for dropdowns:', error);
@@ -907,10 +950,9 @@
 			);
 		}
 		// Clear loaded images when search changes to reset loading counter
-		loadedImages.clear();
-		loadedImages = loadedImages;
+		successfullyLoadedImages = new Set();
 	}
-	
+
 	// Search for product images on the web
 	async function searchWebForImages(barcode: string, provider: 'google' | 'duckduckgo') {
 		searchingBarcode = barcode;
@@ -1044,9 +1086,7 @@
 				}
 				
 				// Use client-side AI to remove background (this runs in the browser)
-				console.log('Removing background using client-side AI...');
 				blob = await removeBackground(imageBlob);
-				console.log('Background removed successfully!');
 				
 				// Show preview popup instead of uploading directly
 				previewImageBlob = blob;
@@ -1252,15 +1292,27 @@
 		
 		isSavingEdit = true;
 		try {
+			// Map unit name to unit_id
+			let unit_id = null;
+			if (editingProduct.unit_name) {
+				const unit = allUnits.find(u => u.name_en === editingProduct.unit_name);
+				unit_id = unit?.id || null;
+			}
+			
+			// Map category name to category_id
+			let category_id = null;
+			if (editingProduct.parent_category) {
+				const category = allCategories.find(c => c.name_en === editingProduct.parent_category);
+				category_id = category?.id || null;
+			}
+			
 			const { error } = await supabase
 				.from('products')
 				.update({
 					product_name_en: editingProduct.product_name_en,
 					product_name_ar: editingProduct.product_name_ar,
-					unit_name: editingProduct.unit_name,
-					parent_category: editingProduct.parent_category || null,
-					parent_sub_category: editingProduct.parent_sub_category || null,
-					sub_category: editingProduct.sub_category || null,
+					unit_id: unit_id,
+					category_id: category_id,
 					updated_at: new Date().toISOString()
 				})
 				.eq('barcode', editingProduct.barcode);
@@ -1270,14 +1322,74 @@
 				alert('Failed to update product: ' + error.message);
 			} else {
 				alert('Product updated successfully!');
-				
-				// Reload the appropriate view
-				if (showNoImageProducts) {
-					await loadNoImageProducts();
-				}
-				if (showAllProducts) {
-					await loadAllProducts();
-				}
+				// Fetch updated product data and refresh the UI
+				const barcode = editingProduct.barcode;
+				supabase
+					.from('products')
+					.select(`
+						id,
+						barcode,
+						product_name_en,
+						product_name_ar,
+						image_url,
+						unit_id,
+						category_id,
+						product_units (id, name_en, name_ar),
+						product_categories (id, name_en, name_ar)
+					`)
+					.eq('barcode', barcode)
+					.single()
+					.then(({ data: updatedProduct, error: fetchError }) => {
+						if (!fetchError && updatedProduct) {
+							console.log('✓ Manually refreshed product after edit:', barcode);
+							
+							// Process the complete product data
+							const processedProduct = {
+								...updatedProduct,
+								unit_name: updatedProduct.product_units?.name_en || '',
+								unit_name_ar: updatedProduct.product_units?.name_ar || '',
+								parent_category: updatedProduct.product_categories?.name_en || '',
+								parent_category_ar: updatedProduct.product_categories?.name_ar || ''
+							};
+
+							// Update all arrays
+							const allProdIndex = allProductsList.findIndex(p => p.barcode === barcode);
+							if (allProdIndex !== -1) {
+								allProductsList[allProdIndex] = processedProduct;
+								allProductsList = allProductsList;
+							}
+
+							const filteredAllIndex = filteredAllProducts.findIndex(p => p.barcode === barcode);
+							if (filteredAllIndex !== -1) {
+								filteredAllProducts[filteredAllIndex] = processedProduct;
+								filteredAllProducts = filteredAllProducts;
+							}
+
+							const prodIndex = products.findIndex(p => p.barcode === barcode);
+							if (prodIndex !== -1) {
+								products[prodIndex] = updatedProduct;
+								products = products;
+							}
+
+							const filteredIndex = filteredProducts.findIndex(p => p.barcode === barcode);
+							if (filteredIndex !== -1) {
+								filteredProducts[filteredIndex] = updatedProduct;
+								filteredProducts = filteredProducts;
+							}
+
+							const noImageIndex = noImageProducts.findIndex(p => p.barcode === barcode);
+							if (noImageIndex !== -1) {
+								noImageProducts[noImageIndex] = updatedProduct;
+								noImageProducts = noImageProducts;
+
+								const filteredNoImageIndex = filteredNoImageProducts.findIndex(p => p.barcode === barcode);
+								if (filteredNoImageIndex !== -1) {
+									filteredNoImageProducts[filteredNoImageIndex] = updatedProduct;
+									filteredNoImageProducts = filteredNoImageProducts;
+								}
+							}
+						}
+					});
 				
 				closeEditPopup();
 			}
@@ -1371,18 +1483,7 @@
 				alert('Failed to create product: ' + error.message);
 			} else {
 				alert('Product created successfully!');
-				
-				// Reload the appropriate view
-				if (showNoImageProducts) {
-					await loadNoImageProducts();
-				}
-				if (showAllProducts) {
-					await loadAllProducts();
-				}
-				
-				// Reload database stats
-				await loadDatabaseStats();
-				
+				// Realtime subscription will add the product automatically
 				closeCreatePopup();
 			}
 		} catch (error) {
@@ -1860,11 +1961,6 @@
 		const img = event.target as HTMLImageElement;
 		const barcode = img.getAttribute('data-barcode');
 		const src = img.getAttribute('src');
-		console.error(`Image failed to load: barcode=${barcode}, src=${src}`);
-		if (barcode) {
-			loadingImages.delete(barcode);
-			loadingImages = loadingImages; // Trigger reactivity
-		}
 		// Hide the image element
 		img.style.display = 'none';
 		// Show the parent's no-image placeholder
@@ -1878,32 +1974,39 @@
 	}
 	
 	function handleImageLoad(event: Event) {
-		// Remove from loading state when image loads successfully
 		const img = event.target as HTMLImageElement;
 		const barcode = img.getAttribute('data-barcode');
-		console.log(`Image loaded successfully: barcode=${barcode}, naturalSize=${img.naturalWidth}x${img.naturalHeight}, displaySize=${img.width}x${img.height}, style.display=${img.style.display}`);
-		
-		// Hide the placeholder SVG when image loads
-		const parent = img.parentElement;
-		if (parent) {
-			const placeholder = parent.querySelector('svg');
-			if (placeholder) {
-				placeholder.style.display = 'none';
+		if (barcode) {
+			successfullyLoadedImages.add(barcode);
+			// Force Svelte reactivity by creating a new Set
+			successfullyLoadedImages = new Set(successfullyLoadedImages);
+			// Hide placeholder when image loads
+			const parent = img.parentElement;
+			if (parent) {
+				const placeholder = parent.querySelector('svg');
+				if (placeholder) {
+					placeholder.style.display = 'none';
+				}
 			}
 		}
-		
-		if (barcode) {
-			loadingImages.delete(barcode);
-			loadedImages.add(barcode);
-			loadingImages = loadingImages; // Trigger reactivity
-			loadedImages = loadedImages; // Trigger reactivity
-		}
 	}
-	
-	function handleImageLoadStart(barcode: string) {
-		// Add to loading state when image starts loading
-		loadingImages.add(barcode);
-		loadingImages = loadingImages; // Trigger reactivity
+
+	function checkImageCache(img: HTMLImageElement) {
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode && img.complete && img.naturalHeight !== 0) {
+			// Image is already cached/loaded
+			successfullyLoadedImages.add(barcode);
+			// Force Svelte reactivity by creating a new Set
+			successfullyLoadedImages = new Set(successfullyLoadedImages);
+			// Hide placeholder
+			const parent = img.parentElement;
+			if (parent) {
+				const placeholder = parent.querySelector('svg');
+				if (placeholder) {
+					placeholder.style.display = 'none';
+				}
+			}
+		}
 	}
 	
 	function handleSearch() {
@@ -1976,10 +2079,273 @@
 		handleSearch();
 	}
 	
+	// Realtime subscriptions
+	let realtimeSubscriptions: any[] = [];
+	
+	// Subscribe to realtime changes
+	function subscribeToRealtimeChanges() {
+		try {
+			// Subscribe to products table changes
+			const productsChannel = supabase
+				.channel('products-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'products'
+					},
+					(payload) => {
+						handleProductChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to products realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(productsChannel);
+
+			// Subscribe to product_units table changes
+			const unitsChannel = supabase
+				.channel('units-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'product_units'
+					},
+					(payload) => {
+						handleUnitsChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to product_units realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(unitsChannel);
+
+			// Subscribe to product_categories table changes
+			const categoriesChannel = supabase
+				.channel('categories-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'product_categories'
+					},
+					(payload) => {
+						handleCategoriesChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to product_categories realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(categoriesChannel);
+		} catch (error) {
+			console.error('Error setting up realtime subscriptions:', error);
+		}
+	}
+
+	// Handle product changes (INSERT, UPDATE, DELETE)
+	function handleProductChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+		const barcode = newRecord?.barcode || oldRecord?.barcode;
+		console.log('🔔 Product realtime event:', eventType, 'Barcode:', barcode);
+		console.log('   Current state - allProductsList.length:', allProductsList.length, 'filteredAllProducts.length:', filteredAllProducts.length);
+
+		if (eventType === 'INSERT') {
+			// Add new product to allProductsList
+			const newProduct = {
+				...newRecord,
+				unit_name: newRecord.product_units?.name_en || '',
+				unit_name_ar: newRecord.product_units?.name_ar || '',
+				parent_category: newRecord.product_categories?.name_en || '',
+				parent_category_ar: newRecord.product_categories?.name_ar || ''
+			};
+
+			allProductsList = [newProduct, ...allProductsList];
+			filteredAllProducts = [newProduct, ...filteredAllProducts];
+			products = [newRecord, ...products];
+			filteredProducts = [newRecord, ...filteredProducts];
+
+			console.log('✓ Product added via realtime:', newRecord.barcode);
+		} else if (eventType === 'UPDATE') {
+			// Update existing product
+			const barcode = newRecord.barcode;
+			console.log('🔄 Realtime UPDATE event received for barcode:', barcode);
+			console.log('   Payload:', newRecord);
+
+			// Fetch complete product data including relationships since realtime only sends changed columns
+			supabase
+				.from('products')
+				.select(`
+					id,
+					barcode,
+					product_name_en,
+					product_name_ar,
+					image_url,
+					unit_id,
+					category_id,
+					product_units (id, name_en, name_ar),
+					product_categories (id, name_en, name_ar)
+				`)
+				.eq('barcode', barcode)
+				.single()
+				.then(({ data: completeProduct, error }) => {
+					if (error) {
+						console.error('❌ Error fetching updated product:', error);
+						return;
+					}
+
+					if (!completeProduct) {
+						console.warn('⚠️ No product data returned for barcode:', barcode);
+						return;
+					}
+
+					console.log('✅ Fetched complete product data:', completeProduct);
+
+					// Process the complete product data
+					const processedProduct = {
+						...completeProduct,
+						unit_name: completeProduct.product_units?.name_en || '',
+						unit_name_ar: completeProduct.product_units?.name_ar || '',
+						parent_category: completeProduct.product_categories?.name_en || '',
+						parent_category_ar: completeProduct.product_categories?.name_ar || ''
+					};
+
+					// Update in allProductsList
+					const allProdIndex = allProductsList.findIndex(p => p.barcode === barcode);
+					console.log('   allProductsList index:', allProdIndex, '(total items:', allProductsList.length, ')');
+					if (allProdIndex !== -1) {
+						console.log('   📝 Updating allProductsList');
+						allProductsList[allProdIndex] = processedProduct;
+						allProductsList = allProductsList; // Trigger reactivity
+					}
+
+					// Update in filteredAllProducts
+					const filteredAllIndex = filteredAllProducts.findIndex(p => p.barcode === barcode);
+					console.log('   filteredAllProducts index:', filteredAllIndex, '(total items:', filteredAllProducts.length, ')');
+					if (filteredAllIndex !== -1) {
+						console.log('   📝 Updating filteredAllProducts');
+						filteredAllProducts[filteredAllIndex] = processedProduct;
+						filteredAllProducts = filteredAllProducts; // Trigger reactivity
+					}
+
+					// Update in main products list
+					const prodIndex = products.findIndex(p => p.barcode === barcode);
+					console.log('   products index:', prodIndex, '(total items:', products.length, ')');
+					if (prodIndex !== -1) {
+						console.log('   📝 Updating products');
+						products[prodIndex] = completeProduct;
+						products = products; // Trigger reactivity
+					}
+
+					// Update in filtered products
+					const filteredIndex = filteredProducts.findIndex(p => p.barcode === barcode);
+					console.log('   filteredProducts index:', filteredIndex, '(total items:', filteredProducts.length, ')');
+					if (filteredIndex !== -1) {
+						console.log('   📝 Updating filteredProducts');
+						filteredProducts[filteredIndex] = completeProduct;
+						filteredProducts = filteredProducts; // Trigger reactivity
+					}
+
+					// Update in no-image products if present
+					const noImageIndex = noImageProducts.findIndex(p => p.barcode === barcode);
+					if (noImageIndex !== -1) {
+						console.log('📝 Updating noImageProducts at index:', noImageIndex);
+						noImageProducts[noImageIndex] = completeProduct;
+						noImageProducts = noImageProducts; // Trigger reactivity
+
+						// Update filtered no-image products
+						const filteredNoImageIndex = filteredNoImageProducts.findIndex(p => p.barcode === barcode);
+						if (filteredNoImageIndex !== -1) {
+							console.log('📝 Updating filteredNoImageProducts at index:', filteredNoImageIndex);
+							filteredNoImageProducts[filteredNoImageIndex] = completeProduct;
+							filteredNoImageProducts = filteredNoImageProducts; // Trigger reactivity
+						}
+					}
+
+					console.log('✓ Product updated via realtime:', barcode);
+				})
+				.catch(err => {
+					console.error('❌ Error in realtime product fetch:', err);
+				});
+			return;
+		} else if (eventType === 'DELETE') {
+			// Remove deleted product
+			const barcode = oldRecord.barcode;
+
+			allProductsList = allProductsList.filter(p => p.barcode !== barcode);
+			filteredAllProducts = filteredAllProducts.filter(p => p.barcode !== barcode);
+			products = products.filter(p => p.barcode !== barcode);
+			filteredProducts = filteredProducts.filter(p => p.barcode !== barcode);
+			noImageProducts = noImageProducts.filter(p => p.barcode !== barcode);
+			filteredNoImageProducts = filteredNoImageProducts.filter(p => p.barcode !== barcode);
+
+			console.log('✓ Product deleted via realtime:', barcode);
+		}
+	}
+
+	// Handle product units changes
+	function handleUnitsChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'INSERT' || eventType === 'UPDATE') {
+			// Reload units data
+			loadAllProductsForDropdowns();
+			console.log('✓ Units updated via realtime');
+		} else if (eventType === 'DELETE') {
+			// Remove unit from allUnits
+			const unitId = oldRecord.id;
+			allUnits = allUnits.filter(u => u.id !== unitId);
+			console.log('✓ Unit deleted via realtime:', oldRecord.name_en);
+		}
+	}
+
+	// Handle product categories changes
+	function handleCategoriesChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'INSERT' || eventType === 'UPDATE') {
+			// Reload categories data
+			loadAllProductsForDropdowns();
+			console.log('✓ Categories updated via realtime');
+		} else if (eventType === 'DELETE') {
+			// Remove category from allCategories
+			const catId = oldRecord.id;
+			allCategories = allCategories.filter(c => c.id !== catId);
+			console.log('✓ Category deleted via realtime:', oldRecord.name_en);
+		}
+	}
+
+	// Cleanup subscriptions on unmount
+	function unsubscribeFromRealtimeChanges() {
+		realtimeSubscriptions.forEach((channel) => {
+			supabase.removeChannel(channel);
+		});
+		realtimeSubscriptions = [];
+		console.log('✓ Unsubscribed from all realtime updates');
+	}
+	
 	// Load quota data on mount
 	onMount(() => {
 		loadQuotaData();
 		loadAllProductsForDropdowns();
+		subscribeToRealtimeChanges();
+
+		// Cleanup on unmount
+		return () => {
+			unsubscribeFromRealtimeChanges();
+		};
 	});
 </script>
 
@@ -3266,6 +3632,16 @@
 					</div>
 					<div class="flex gap-2">
 						<button 
+							on:click={exportProductsToXLSX}
+							class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							title="Export all products to Excel"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+							Export to Excel
+						</button>
+						<button 
 							on:click={findMissingImagesInStorage}
 							disabled={isFindingMissingImages}
 							class="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
@@ -3347,17 +3723,10 @@
 							Showing {filteredAllProducts.length} of {allProductsList.length} products
 						</p>
 						<div class="flex items-center gap-2">
-							{#if loadedImages.size > 0 || loadingImages.size > 0}
-								{#if loadingImages.size > 0}
-									<svg class="animate-spin w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-									</svg>
-								{:else}
-									<svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
-								{/if}
-								<span class="text-sm font-medium {loadingImages.size > 0 ? 'text-blue-600' : 'text-green-600'}">
-									Images Loaded: {loadedImages.size} / {allProductsWithImages}
+							{#if successfullyLoadedImages.size > 0}
+								<svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+								<span class="text-sm font-medium text-green-600">
+									Images Loaded: {successfullyLoadedImages.size} / {allProductsWithImages}
 								</span>
 							{/if}
 						</div>
@@ -3379,25 +3748,16 @@
 									Barcode
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Product Name (English)
+									Product Name
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Product Name (Arabic)
+									Unit
 								</th>
 								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Unit (EN)
+									Category
 								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Unit (AR)
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Category (EN)
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Category (AR)
-								</th>
-								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-									Image Status
+								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Image URL
 								</th>
 							</tr>
 						</thead>
@@ -3406,24 +3766,15 @@
 								<tr class="hover:bg-gray-50 transition-colors">
 									<td class="px-6 py-4 whitespace-nowrap">
 										<div class="w-20 h-20 bg-gray-50 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden relative group cursor-pointer" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
-											{#if loadingImages.has(product.barcode)}
-												<!-- Loading Spinner -->
-												<div class="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
-													<svg class="animate-spin w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24">
-														<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-														<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-													</svg>
-												</div>
-											{/if}
 											{#if product.image_url}
 												<img 
+													bind:this={imageRefs[product.barcode]}
 													src={product.image_url}
 													alt={product.product_name_en || product.barcode}
 													data-barcode={product.barcode}
 													class="w-full h-full object-scale-down p-1 group-hover:opacity-80 transition-opacity"
 													loading="eager"
 													decoding="async"
-													on:loadstart={() => handleImageLoadStart(product.barcode)}
 													on:load={handleImageLoad}
 													on:error={handleImageError}
 												/>
@@ -3487,35 +3838,60 @@
 											{product.barcode}
 										</span>
 									</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
-										{product.product_name_en || '-'}
-									</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-										{product.product_name_ar || '-'}
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{product.unit_name || '-'}
-									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" dir="rtl">
-										{product.unit_name_ar || '-'}
+									<td class="px-6 py-4 text-sm text-gray-900">
+										<div dir="ltr" class="font-medium text-gray-900 block">{product.product_name_en || '-'}</div>
+										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.product_name_ar || ''}</div>
 									</td>
 									<td class="px-6 py-4 text-sm text-gray-900">
-										{product.parent_category || '-'}
+										<div class="font-medium text-gray-900 block">{product.unit_name || '-'}</div>
+										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.unit_name_ar || ''}</div>
 									</td>
-									<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-										{product.parent_category_ar || '-'}
+									<td class="px-6 py-4 text-sm text-gray-900">
+										<div class="font-medium text-gray-900 block">{product.parent_category || '-'}</div>
+										<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product.parent_category_ar || ''}</div>
 									</td>
-									<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-										{#if product.image_url}
-											<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-												<svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
-												Has Image
-											</span>
+									<td class="px-6 py-4 whitespace-nowrap text-center">
+										{#if !product.image_url}
+											<!-- No URL -->
+											<div class="flex items-center justify-center group relative cursor-help">
+												<svg class="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+												</svg>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+													No image URL
+												</div>
+											</div>
+										{:else if successfullyLoadedImages.has(product.barcode)}
+											<!-- Successfully loaded -->
+											<div class="flex items-center justify-center group relative cursor-help">
+												<svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+												</svg>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none max-w-xs">
+													<div class="break-all text-left">✓ Image loaded</div>
+												</div>
+											</div>
 										{:else}
-											<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-												<svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>
-												No Image
-											</span>
+											<!-- URL exists but not loaded yet or failed -->
+											<div class="flex items-center justify-center gap-2 group relative">
+												<svg class="w-5 h-5 text-orange-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M18.101 12.93l.9-1.559A1 1 0 0018.566 10H14V9l2-3H8v1H6V6h12a2 2 0 012 2v4a2 2 0 01-2 2h-.899zM5 8l2.351-3.521A1 1 0 0110 5h6a1 1 0 01.936 1.479l-1.948 3.87A1 1 0 0014 11h-4v1H8v-1H2a1 1 0 01-1-1V9a1 1 0 011-1h4V7a1 1 0 011-1zm10.151 2.968l1.948-3.87A1 1 0 0017 6h-6a1 1 0 00-.936 1.479l1.948 3.87a1 1 0 00.936.651h4a1 1 0 00.936-1.479z" clip-rule="evenodd" />
+												</svg>
+												<button
+													class="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+													on:click={() => {
+														const img = document.querySelector(`img[data-barcode="${product.barcode}"]`) as HTMLImageElement;
+														if (img) {
+															img.src = product.image_url + '?t=' + Date.now();
+														}
+													}}
+												>
+													Retry
+												</button>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+													⚠ Failed to load
+												</div>
+											</div>
 										{/if}
 									</td>
 						</tr>
@@ -3577,22 +3953,13 @@
 								Barcode
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Product Name (EN)
-							</th>
-							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Product Name (AR)
+								Product Name
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Unit
 							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Unit (AR)
-							</th>
-							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Category
-							</th>
-							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								Category (AR)
 							</th>
 						</tr>
 					</thead>
@@ -3601,20 +3968,10 @@
 							<tr class="hover:bg-gray-50 transition-colors">
 								<td class="px-6 py-4 whitespace-nowrap">
 									<div class="w-16 h-16 rounded-lg border border-gray-200 flex items-center justify-center overflow-hidden relative">
-										{#if loadingImages.has(product.Barcode)}
-											<!-- Loading Spinner -->
-											<div class="absolute inset-0 flex items-center justify-center bg-gray-100">
-												<svg class="animate-spin w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24">
-													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-												</svg>
-											</div>
-										{/if}
 										<img 
 											src={getImagePath(product.Barcode, product)} 
 											alt={product['Product name english'] || product['Product name_en'] || 'Product'}
 											data-barcode={product.Barcode}
-											on:loadstart={() => handleImageLoadStart(product.Barcode)}
 											on:load={handleImageLoad}
 											on:error={handleImageError}
 											class="w-full h-full object-cover"
@@ -3624,23 +3981,17 @@
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 									{product.Barcode || ''}
 								</td>
-								<td class="px-6 py-4 text-sm text-gray-900" dir="ltr">
-									{product['Product name english'] || product['Product name_en'] || product.Product_name_en || ''}
-								</td>
-								<td class="px-6 py-4 text-sm text-gray-900" dir="rtl">
-									{product['Product name arabic'] || product['Product name_ar'] || product.Product_name_ar || ''}
-								</td>
-								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{product['Unit english'] || product['unit'] || product['Unit'] || product['Unit name'] || product.Unit_name || ''}
-								</td>
-								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{product['Unit arabic'] || product['Unit name arabic'] || ''}
+								<td class="px-6 py-4 text-sm text-gray-900">
+									<div dir="ltr" class="font-medium text-gray-900 block">{product['Product name english'] || product['Product name_en'] || product.Product_name_en || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Product name arabic'] || product['Product name_ar'] || product.Product_name_ar || ''}</div>
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Category english'] || product['Category'] || product['category'] || product['Category_en'] || ''}
+									<div class="font-medium text-gray-900 block">{product['Unit english'] || product['unit'] || product['Unit'] || product['Unit name'] || product.Unit_name || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Unit arabic'] || product['Unit name arabic'] || ''}</div>
 								</td>
 								<td class="px-6 py-4 text-sm text-gray-900">
-									{product['Category arabic'] || product['Category_ar'] || ''}
+									<div class="font-medium text-gray-900 block">{product['Category english'] || product['Category'] || product['category'] || product['Category_en'] || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Category arabic'] || product['Category_ar'] || ''}</div>
 								</td>
 							</tr>
 						{/each}

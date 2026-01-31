@@ -8,6 +8,7 @@
 	let activeOffers: any[] = [];
 	let selectedOfferId: string | null = null;
 	let selectedProducts: any[] = [];
+	let originalProducts: Map<string, any> = new Map(); // Store original values to track changes
 	let productsVersion = 0; // Force reactivity counter
 	let searchQuery: string = '';
 	let isLoading: boolean = true;
@@ -24,19 +25,50 @@
 	let b4Executed: boolean = false;
 	let b5Executed: boolean = false;
 	
+	// Image loading tracking
+	let successfullyLoadedImages: Set<string> = new Set(); // Track which images loaded successfully
+	
 	// Success message modal
 	let showSuccessModal: boolean = false;
 	let successMessage: string = '';
 	
-	// Update price function - now saves all products at once
+	// Check if a product has been modified
+	function isProductModified(product: any): boolean {
+		const original = originalProducts.get(product.offer_product_id);
+		if (!original) return false; // New product, consider it modified
+		
+		return (
+			original.cost !== product.cost ||
+			original.sales_price !== product.sales_price ||
+			original.profit_amount !== product.profit_amount ||
+			original.profit_percent !== product.profit_percent ||
+			original.offer_qty !== product.offer_qty ||
+			original.limit_qty !== product.limit_qty ||
+			original.free_qty !== product.free_qty ||
+			original.offer_price !== product.offer_price ||
+			original.profit_after_offer !== product.profit_after_offer ||
+			original.decrease_amount !== product.decrease_amount
+		);
+	}
+	
+	// Update price function - now saves ONLY modified products
 	async function saveAllPrices() {
 		if (!selectedProducts.length) return;
+		
+		// Find only modified products
+		const modifiedProducts = selectedProducts.filter(isProductModified);
+		
+		if (modifiedProducts.length === 0) {
+			alert('No changes to save!');
+			hasUnsavedChanges = false;
+			return;
+		}
 		
 		isSavingPrices = true;
 		
 		try {
-			// Update all products
-			for (const product of selectedProducts) {
+			// Update only modified products
+			for (const product of modifiedProducts) {
 				const profitAmount = calculateProfitAmount(product.cost, product.sales_price, product.offer_qty);
 				const profitPercent = calculateProfitPercentage(product.cost, product.sales_price);
 				const profitAfterOffer = calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty);
@@ -66,8 +98,24 @@
 				}
 			}
 			
+			// Update original values for modified products so they won't be saved again
+			for (const product of modifiedProducts) {
+				originalProducts.set(product.offer_product_id, {
+					cost: product.cost,
+					sales_price: product.sales_price,
+					profit_amount: product.profit_amount,
+					profit_percent: product.profit_percent,
+					offer_qty: product.offer_qty,
+					limit_qty: product.limit_qty,
+					free_qty: product.free_qty,
+					offer_price: product.offer_price,
+					profit_after_offer: product.profit_after_offer,
+					decrease_amount: product.decrease_amount
+				});
+			}
+			
 			hasUnsavedChanges = false;
-			alert('All prices saved successfully!');
+			alert(`✓ Saved ${modifiedProducts.length} product${modifiedProducts.length !== 1 ? 's' : ''}!`);
 		} catch (error) {
 			console.error('Error saving prices:', error);
 			alert('Error saving prices. Please try again.');
@@ -350,6 +398,32 @@
 	function calculateProfitAmount(cost: number | null, salesPrice: number | null, offerQty: number = 1): number {
 		if (!cost || !salesPrice) return 0;
 		return (salesPrice - cost) * offerQty;
+	}
+	
+	// Image loading handlers
+	function handleImageLoad(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode) {
+			successfullyLoadedImages.add(barcode);
+			successfullyLoadedImages = successfullyLoadedImages;
+			// Hide placeholder when image loads
+			const parent = img.parentElement;
+			if (parent) {
+				const placeholder = parent.querySelector('svg');
+				if (placeholder) {
+					placeholder.style.display = 'none';
+				}
+			}
+		}
+	}
+	
+	function handleImageError(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode) {
+			console.log(`✗ Image failed: ${barcode}`);
+		}
 	}
 	
 	// Calculate profit percentage (not affected by qty)
@@ -1316,6 +1390,7 @@
 		isLoadingProducts = true;
 		selectedOfferId = offerId;
 		selectedProducts = [];
+		originalProducts.clear(); // Clear original values
 		hasUnsavedChanges = false; // Reset unsaved changes flag
 		
 		// Reset execution flags when loading new offer
@@ -1380,6 +1455,26 @@
 					profit_after_offer: item.profit_after_offer,
 					decrease_amount: item.decrease_amount
 				})) || [];
+				
+				// Store original values for change tracking
+				selectedProducts.forEach(product => {
+					originalProducts.set(product.offer_product_id, {
+						cost: product.cost,
+						sales_price: product.sales_price,
+						profit_amount: product.profit_amount,
+						profit_percent: product.profit_percent,
+						offer_qty: product.offer_qty,
+						limit_qty: product.limit_qty,
+						free_qty: product.free_qty,
+						offer_price: product.offer_price,
+						profit_after_offer: product.profit_after_offer,
+						decrease_amount: product.decrease_amount
+					});
+				});
+				
+				// Clear loading state
+				successfullyLoadedImages.clear();
+				successfullyLoadedImages = successfullyLoadedImages;
 			}
 		} catch (error) {
 			console.error('Error loading offer products:', error);
@@ -1690,6 +1785,9 @@
 								<th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Image
 								</th>
+								<th class="w-16 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+									Image URL
+								</th>
 								<th class="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Barcode
 								</th>
@@ -1749,24 +1847,72 @@
 						<tbody class="bg-white divide-y divide-gray-200">
 							{#each filteredProducts as product (product.barcode)}
 								<tr class="hover:bg-gray-50 transition-colors">
-									<td class="w-20 px-4 py-4 align-middle">
-										<div class="w-14 h-14 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
+									<td class="w-24 px-4 py-4 align-middle">
+										<div class="relative w-20 h-20 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center">
 											{#if product.image_url}
 												<img 
 													src={product.image_url}
 													alt={product.product_name_en || product.barcode}
-													class="w-full h-full object-contain"
-													on:error={(e) => {
-														const img = e.target;
-														img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect fill="%23f3f4f6" width="64" height="64"/><text x="32" y="32" font-size="10" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">No Image</text></svg>';
-													}}
+													data-barcode={product.barcode}
+													class="w-full h-full object-scale-down p-1"
+													loading="eager"
+													decoding="async"
+													on:load={handleImageLoad}
+													on:error={handleImageError}
 												/>
-											{:else}
-												<svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-												</svg>
 											{/if}
+											<!-- Placeholder (doesn't interfere with image) -->
+											<svg class="w-8 h-8 text-gray-400 absolute pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+											</svg>
 										</div>
+									</td>
+									<td class="w-16 px-4 py-4 align-middle text-center">
+										{#if !product.image_url}
+											<!-- No URL -->
+											<div class="flex items-center justify-center group relative cursor-help">
+												<svg class="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+												</svg>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+													No image URL
+												</div>
+											</div>
+										{:else if successfullyLoadedImages.has(product.barcode)}
+											<!-- Successfully loaded -->
+											<div class="flex items-center justify-center group relative cursor-help">
+												<svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+												</svg>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none max-w-xs">
+													<div class="break-all text-left">✓ Image loaded</div>
+												</div>
+											</div>
+										{:else}
+											<!-- URL exists but failed to load -->
+											<div class="flex items-center justify-center gap-2 group relative">
+												<svg class="w-5 h-5 text-orange-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+													<path fill-rule="evenodd" d="M18.101 12.93l.9-1.559A1 1 0 0018.566 10H14V9l2-3H8v1H6V6h12a2 2 0 012 2v4a2 2 0 01-2 2h-.899zM5 8l2.351-3.521A1 1 0 0110 5h6a1 1 0 01.936 1.479l-1.948 3.87A1 1 0 0014 11h-4v1H8v-1H2a1 1 0 01-1-1V9a1 1 0 011-1h4V7a1 1 0 011-1zm10.151 2.968l1.948-3.87A1 1 0 0017 6h-6a1 1 0 00-.936 1.479l1.948 3.87a1 1 0 00.936.651h4a1 1 0 00.936-1.479z" clip-rule="evenodd" />
+												</svg>
+												<button
+													class="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+													on:click={() => {
+														// Retry loading image
+														const img = document.querySelector(`img[data-barcode="${product.barcode}"]`) as HTMLImageElement;
+														if (img) {
+															// Force reload by adding timestamp to URL
+															img.src = product.image_url + '?t=' + Date.now();
+															console.log(`Retrying image load: ${product.barcode}`);
+														}
+													}}
+												>
+													Retry
+												</button>
+												<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+													⚠ Failed to load
+												</div>
+											</div>
+										{/if}
 									</td>
 									<td class="w-32 px-4 py-4 align-middle text-xs font-medium text-gray-900">
 										{product.barcode}
@@ -1815,6 +1961,7 @@
 											type="number"
 											bind:value={product.offer_qty}
 											on:input={markAsChanged}
+											on:change={markAsChanged}
 											step="1"
 											min="1"
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -1825,6 +1972,7 @@
 											type="number"
 											bind:value={product.free_qty}
 											on:input={markAsChanged}
+											on:change={markAsChanged}
 											step="1"
 											min="0"
 											placeholder="0"
@@ -1836,6 +1984,7 @@
 											type="number"
 											bind:value={product.limit_qty}
 											on:input={markAsChanged}
+											on:change={markAsChanged}
 											step="1"
 											min="1"
 											placeholder="No limit"
@@ -1847,6 +1996,7 @@
 											type="number"
 											bind:value={product.cost}
 											on:input={markAsChanged}
+											on:change={markAsChanged}
 											step="0.01"
 											min="0"
 											placeholder="0.00"
@@ -1861,6 +2011,7 @@
 											type="number"
 											bind:value={product.sales_price}
 											on:input={markAsChanged}
+											on:change={markAsChanged}
 											step="0.01"
 											min="0"
 											placeholder="0.00"
@@ -1891,6 +2042,7 @@
 														
 														// Sync price across variation group if applicable
 														syncGroupOfferPrice(product, perUnitPrice);
+														markAsChanged();
 													}
 												}}
 												step="0.01"
