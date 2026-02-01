@@ -13,6 +13,7 @@
     let violations: any[] = [];
     let mainCategories: any[] = [];
     let subCategories: any[] = [];
+    let branches: any[] = [];
 
     // Filters
     let mainCategoryFilter = '';
@@ -122,6 +123,15 @@
                 .order('name_en');
             if (empErr) throw empErr;
             employees = employeeData || [];
+
+            // Load branches
+            const { data: branchData, error: branchErr } = await supabase
+                .from('branches')
+                .select('id, name_en, name_ar, location_en, location_ar')
+                .eq('is_active', true)
+                .order('name_en');
+            if (branchErr) throw branchErr;
+            branches = branchData || [];
         } catch (err) {
             console.error('Error loading warning categories:', err);
             error = err instanceof Error ? err.message : 'Failed to load data';
@@ -236,7 +246,8 @@
             closable: true,
             props: {
                 violation: violation,
-                employees: employees
+                employees: employees,
+                branches: branches
             }
         });
     }
