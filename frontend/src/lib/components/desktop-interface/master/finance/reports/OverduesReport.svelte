@@ -127,17 +127,17 @@
 			const branchIds = [...new Set(vendorPayments.map(v => v.branch_id))];
 			const { data: branches } = await supabase
 				.from('branches')
-				.select('id, name_en')
+				.select('id, name_en, location_en')
 				.in('id', branchIds);
 
 			vendorLoadingPercent = 75;
 
-			const branchMap = new Map(branches?.map(b => [b.id, b.name_en]) || []);
+			const branchMap = new Map(branches?.map(b => [`${b.id}`, `${b.name_en} - ${b.location_en}`]) || []);
 			vendorData = vendorPayments
 				.filter(row => parseFloat(row.final_bill_amount) >= 0.01)
 				.map(row => ({
 					...row,
-					branch_name: branchMap.get(row.branch_id) || 'N/A'
+					branch_name: branchMap.get(`${row.branch_id}`) || 'N/A'
 				}));
 			filteredVendorData = vendorData;
 			vendorLoadingPercent = 100;
@@ -163,7 +163,7 @@
 
 		const { data: expenseSchedules, error } = await supabase
 			.from('expense_scheduler')
-			.select('id, description, amount, due_date, is_paid, payment_method, branch_id')
+			.select('id, description, amount, due_date, is_paid, payment_method, branch_id, expense_category_name_en')
 			.lte('due_date', dueDateLimit)
 			.eq('is_paid', false)
 			.order('due_date', { ascending: true })
@@ -175,17 +175,17 @@
 			const branchIds = [...new Set(expenseSchedules.map(e => e.branch_id))];
 			const { data: branches } = await supabase
 				.from('branches')
-				.select('id, name_en')
+				.select('id, name_en, location_en')
 				.in('id', branchIds);
 
 			expenseLoadingPercent = 75;
 
-			const branchMap = new Map(branches?.map(b => [b.id, b.name_en]) || []);
+			const branchMap = new Map(branches?.map(b => [`${b.id}`, `${b.name_en} - ${b.location_en}`]) || []);
 			expenseData = expenseSchedules
 				.filter(row => parseFloat(row.amount) >= 0.01)
 				.map(row => ({
 					...row,
-					branch_name: branchMap.get(row.branch_id) || 'N/A'
+					branch_name: branchMap.get(`${row.branch_id}`) || 'N/A'
 				}));
 				filteredExpenseData = expenseData;
 				expenseLoadingPercent = 100;
@@ -271,6 +271,43 @@
 		}
 	}
 
+	async function exportToExcel(data: any[], filename: string, tableType: 'vendor' | 'expense') {
+		try {
+			const XLSX = await import('xlsx');
+			
+			let exportData: any[] = [];
+			if (tableType === 'vendor') {
+				exportData = data.map(row => ({
+					'Vendor Name': row.vendor_name || 'N/A',
+					'Branch': row.branch_name || 'N/A',
+					'Bill Date': formatDate(row.bill_date || ''),
+					'Amount': row.final_bill_amount || 0,
+					'Due Date': formatDate(row.due_date || ''),
+					'Payment Method': row.payment_method || 'N/A',
+					'Status': getStatusDisplay(row.is_paid)
+				}));
+			} else {
+				exportData = data.map(row => ({
+					'Description': row.description || 'N/A',
+					'Category': row.expense_category_name_en || 'N/A',
+					'Branch': row.branch_name || 'N/A',
+					'Amount': row.amount || 0,
+					'Due Date': formatDate(row.due_date || ''),
+					'Payment Method': row.payment_method || 'N/A',
+					'Status': getStatusDisplay(row.is_paid)
+				}));
+			}
+
+			const ws = XLSX.utils.json_to_sheet(exportData);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Data');
+			XLSX.writeFile(wb, `${filename}.xlsx`);
+		} catch (err) {
+			console.error('Error exporting to Excel:', err);
+			alert('Failed to export to Excel');
+		}
+	}
+
 	// Filter vendor data based on selected branch
 	$: {
 		if (selectedVendorBranch) {
@@ -294,132 +331,170 @@
 	}
 </script>
 
-<div class="overdues-container">
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
 	{#if isLoading}
-		<div class="loading-state">
-			<div class="spinner"></div>
-			<p>Loading overdues data...</p>
+		<div class="flex flex-col items-center justify-center h-full gap-5">
+			<div class="w-10 h-10 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
+			<p class="text-slate-600 font-medium">Loading overdues data...</p>
 		</div>
 	{:else}
-		<div class="cards-grid">
-			<div class="card summary-card">
-				<div class="card-icon">📊</div>
-				<div class="card-title">Overdue Summary</div>
-				<div class="card-amount">{formatCurrency(vendorTotal + expenseTotal)}</div>
-				<div class="card-subtitle">Total Unpaid (All): {formatCurrency(vendorTotalUnpaid + expenseTotalUnpaid)}</div>
+		<div class="flex-1 p-8 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+			<!-- Cards Container with Glass Morphism -->
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+				<!-- Vendor Overdue Card -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
+					<!-- Header with Button -->
+					<div class="px-6 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
+						<button 
+							class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+							on:click={() => {
+								showVendorTable = !showVendorTable;
+								if (showVendorTable) {
+									showExpenseTable = false;
+									if (vendorData.length === 0) {
+										loadVendorTable();
+									}
+								}
+							}} 
+							disabled={loadingVendor}
+						>
+							{#if loadingVendor}
+								<span>⏳</span>
+								<span>Loading {vendorLoadingPercent}%</span>
+							{:else if showVendorTable}
+								<span>👁️</span>
+								<span>Vendor</span>
+							{:else}
+								<span>📊</span>
+								<span>Vendor</span>
+							{/if}
+						</button>
+						<div class="text-right">
+							<p class="text-xs text-slate-600 font-medium">Total Due</p>
+							<p class="text-lg font-bold text-slate-900">{formatCurrency(vendorTotal)}</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- Expense Overdue Card -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
+					<!-- Header with Button -->
+					<div class="px-6 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
+						<button 
+							class="inline-flex items-center gap-2 px-6 py-2 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+							on:click={() => {
+								showExpenseTable = !showExpenseTable;
+								if (showExpenseTable) {
+									showVendorTable = false;
+									if (expenseData.length === 0) {
+										loadExpenseTable();
+									}
+								}
+							}} 
+							disabled={loadingExpense}
+						>
+							{#if loadingExpense}
+								<span>⏳</span>
+								<span>Loading {expenseLoadingPercent}%</span>
+							{:else if showExpenseTable}
+								<span>👁️</span>
+								<span>Expense</span>
+							{:else}
+								<span>💸</span>
+								<span>Expense</span>
+							{/if}
+						</button>
+						<div class="text-right">
+							<p class="text-xs text-slate-600 font-medium">Total Due</p>
+							<p class="text-lg font-bold text-slate-900">{formatCurrency(expenseTotal)}</p>
+						</div>
+					</div>
+				</div>
 			</div>
-		</div>
-		<div class="cards-grid">
-			<div class="card">
-				<div class="card-icon">🏢</div>
-				<div class="card-title">Vendor Overdue</div>
-				<div class="card-amount">{formatCurrency(vendorTotal)}</div>
-				<div class="card-subtitle">Total Unpaid: {formatCurrency(vendorTotalUnpaid)}</div>
-				<button class="view-btn" on:click={() => {
-					if (showVendorTable) {
-						showVendorTable = false;
-					} else {
-						loadVendorTable();
-					}
-				}} disabled={loadingVendor}>
-					{#if loadingVendor}
-						Loading {vendorLoadingPercent}%
-					{:else if showVendorTable}
-						Hide
-					{:else}
-						View
-					{/if}
-				</button>
-			</div>
-			<div class="card">
-				<div class="card-icon">💸</div>
-				<div class="card-title">Expense Overdue</div>
-				<div class="card-amount">{formatCurrency(expenseTotal)}</div>
-				<div class="card-subtitle">Total Unpaid: {formatCurrency(expenseTotalUnpaid)}</div>
-				<button class="view-btn" on:click={() => {
-					if (showExpenseTable) {
-						showExpenseTable = false;
-					} else {
-						loadExpenseTable();
-					}
-				}} disabled={loadingExpense}>
-					{#if loadingExpense}
-						Loading {expenseLoadingPercent}%
-					{:else if showExpenseTable}
-						Hide
-					{:else}
-						View
-					{/if}
-				</button>
-			</div>
-		</div>
 
 		<!-- Vendor Table -->
 		{#if showVendorTable}
-			<div class="table-section">
-				<div class="table-header">
-					<h3>Vendor Overdue Details</h3>
-					<div class="filter-group">
-						<label for="vendor-branch">Filter by Branch:</label>
-						<select id="vendor-branch" bind:value={selectedVendorBranch} class="filter-select">
-							<option value={null}>All Branches</option>
-							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-							{/each}
-						</select>
+			<div class="bg-white rounded-lg shadow-md border border-slate-200 mb-8">
+				<div class="sticky top-0 z-20 bg-white border-b border-slate-200">
+					<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 pb-4">
+						<h3 class="text-lg font-semibold text-slate-900">Vendor Overdue Details</h3>
+					<div class="flex items-center justify-between gap-4">
+						<div class="flex items-center gap-2">
+							<label for="vendor-branch" class="text-sm font-medium text-slate-700">Filter by Branch:</label>
+							<select id="vendor-branch" bind:value={selectedVendorBranch} class="px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+								<option value={null}>All Branches</option>
+								{#each branches as branch}
+									<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+								{/each}
+							</select>
+						</div>
+						<button 
+							on:click={() => exportToExcel(filteredVendorData, 'Vendor_Overdue', 'vendor')}
+							class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-all duration-200 hover:shadow-md"
+						>
+							<span>📥</span>
+							<span>Export to Excel</span>
+						</button>
+						</div>
 					</div>
-				</div>
-				<div class="table-wrapper">
-					<table class="data-table">
-						<thead>
-							<tr>
-								<th>Vendor Name</th>
-								<th>Branch</th>
-								<th>Bill Date</th>
-								<th>Amount</th>
-								<th>Due Date</th>
-								<th>Payment Method</th>
-								<th>Status</th>
+					<table class="w-full text-sm table-fixed">
+						<thead class="bg-slate-50 shadow-sm">
+							<tr class="border-b border-slate-200">
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Vendor Name</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Branch</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Bill Date</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Amount</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Due Date</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Payment Method</th>
+								<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Status</th>
 							</tr>
 						</thead>
+					</table>
+				</div>
+				<div class="overflow-x-auto max-h-[60vh]">
+					<table class="w-full text-sm table-fixed">
 						<tbody>
 						{#each filteredVendorData as row (row.id)}
-							<tr>
-						<td>{row.vendor_name || 'N/A'}</td>
-						<td>{row.branch_name || 'N/A'}</td>
-						<td>{formatDate(row.bill_date || '')}</td>
-						<td>{formatCurrency(row.final_bill_amount || 0)}</td>
-						<td class="editable-cell" on:dblclick={() => {
-							editingVendorId = row.id;
-							editingVendorDate = row.due_date || '';
-						}}>
-							{#if editingVendorId === row.id}
-								<input 
-									type="date" 
-									bind:value={editingVendorDate}
-									on:blur={() => {
-										if (editingVendorDate && editingVendorDate !== row.due_date) {
-											updateVendorDueDate(row.id, editingVendorDate);
-										} else {
-											editingVendorId = null;
-										}
-									}}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											updateVendorDueDate(row.id, editingVendorDate);
-										} else if (e.key === 'Escape') {
-											editingVendorId = null;
-										}
-									}}
-									autoFocus
-									class="edit-input"
-								/>
-							{:else}
-								{formatDate(row.due_date || '')}
-							{/if}
-						</td>
-						<td>{row.payment_method || 'N/A'}</td>
-						<td>{getStatusDisplay(row.is_paid)}</td>
+							<tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+								<td class="px-4 py-3 text-slate-900 w-1/7">{row.vendor_name || 'N/A'}</td>
+								<td class="px-4 py-3 text-slate-700 w-1/7">{row.branch_name || 'N/A'}</td>
+								<td class="px-4 py-3 text-slate-700 w-1/7">{formatDate(row.bill_date || '')}</td>
+								<td class="px-4 py-3 text-slate-900 font-semibold w-1/7">{formatCurrency(row.final_bill_amount || 0)}</td>
+								<td class="px-4 py-3 cursor-pointer hover:bg-blue-50 rounded transition-colors w-1/7" on:dblclick={() => {
+									editingVendorId = row.id;
+									editingVendorDate = row.due_date || '';
+								}}>
+									{#if editingVendorId === row.id}
+										<input 
+											type="date" 
+											bind:value={editingVendorDate}
+											on:blur={() => {
+												if (editingVendorDate && editingVendorDate !== row.due_date) {
+													updateVendorDueDate(row.id, editingVendorDate);
+												} else {
+													editingVendorId = null;
+												}
+											}}
+											on:keydown={(e) => {
+												if (e.key === 'Enter') {
+													updateVendorDueDate(row.id, editingVendorDate);
+												} else if (e.key === 'Escape') {
+													editingVendorId = null;
+												}
+											}}
+											autoFocus
+											class="w-full px-2 py-1 border-2 border-blue-500 rounded focus:outline-none"
+										/>
+									{:else}
+										<span class="text-slate-700">{formatDate(row.due_date || '')}</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 text-slate-700 w-1/7">{row.payment_method || 'N/A'}</td>
+								<td class="px-4 py-3 w-1/7">
+									<span class={`px-2 py-1 rounded-full text-xs font-semibold ${row.is_paid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+										{getStatusDisplay(row.is_paid)}
+									</span>
+								</td>
 							</tr>
 						{/each}
 						</tbody>
@@ -430,68 +505,87 @@
 
 		<!-- Expense Table -->
 		{#if showExpenseTable}
-			<div class="table-section">
-				<div class="table-header">
-					<h3>Expense Overdue Details</h3>
-					<div class="filter-group">
-						<label for="expense-branch">Filter by Branch:</label>
-						<select id="expense-branch" bind:value={selectedExpenseBranch} class="filter-select">
-							<option value={null}>All Branches</option>
-							{#each branches as branch}
-								<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
-							{/each}
-						</select>
+			<div class="bg-white rounded-lg shadow-md border border-slate-200">
+				<div class="sticky top-0 z-20 bg-white border-b border-slate-200">
+					<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 pb-4">
+						<h3 class="text-lg font-semibold text-slate-900">Expense Overdue Details</h3>
+						<div class="flex items-center justify-between gap-4">
+							<div class="flex items-center gap-2">
+								<label for="expense-branch" class="text-sm font-medium text-slate-700">Filter by Branch:</label>
+								<select id="expense-branch" bind:value={selectedExpenseBranch} class="px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+									<option value={null}>All Branches</option>
+									{#each branches as branch}
+										<option value={branch.id}>{branch.name_en} - {branch.location_en}</option>
+									{/each}
+								</select>
+							</div>
+							<button 
+								on:click={() => exportToExcel(filteredExpenseData, 'Expense_Overdue', 'expense')}
+								class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-all duration-200 hover:shadow-md"
+							>
+								<span>📥</span>
+								<span>Export to Excel</span>
+							</button>
+						</div>
 					</div>
-				</div>
-				<div class="table-wrapper">
-					<table class="data-table">
-						<thead>
-							<tr>
-								<th>Description</th>
-								<th>Branch</th>
-								<th>Amount</th>
-								<th>Due Date</th>
-								<th>Payment Method</th>
-								<th>Status</th>
+					<table class="w-full text-sm table-fixed">
+						<thead class="bg-slate-50 shadow-sm">
+							<tr class="border-b border-slate-200">
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Description</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Category</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Branch</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Amount</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Due Date</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Payment Method</th>
+							<th class="px-4 py-3 text-left font-semibold text-slate-700 w-1/7">Status</th>
 							</tr>
 						</thead>
+					</table>
+				</div>
+				<div class="overflow-x-auto max-h-[60vh]">
+					<table class="w-full text-sm table-fixed">
 						<tbody>
 						{#each filteredExpenseData as row (row.id)}
-							<tr>
-						<td>{row.description || 'N/A'}</td>
-						<td>{row.branch_name || 'N/A'}</td>
-						<td>{formatCurrency(row.amount || 0)}</td>
-						<td class="editable-cell" on:dblclick={() => {
-							editingExpenseId = row.id;
-							editingExpenseDate = row.due_date || '';
-						}}>
-							{#if editingExpenseId === row.id}
-								<input 
-									type="date" 
-									bind:value={editingExpenseDate}
-									on:blur={() => {
-										if (editingExpenseDate && editingExpenseDate !== row.due_date) {
-											updateExpenseDueDate(row.id, editingExpenseDate);
-										} else {
-											editingExpenseId = null;
-										}
-									}}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											updateExpenseDueDate(row.id, editingExpenseDate);
-										} else if (e.key === 'Escape') {
-											editingExpenseId = null;
-										}
-									}}
-									autoFocus
-									class="edit-input"
-								/>
-							{:else}
-								{formatDate(row.due_date || '')}
-							{/if}
-						</td>
-						<td>{row.payment_method || 'N/A'}</td>
-						<td>{getStatusDisplay(row.is_paid)}</td>
+							<tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+							<td class="px-4 py-3 text-slate-900 w-1/7">{row.description || 'N/A'}</td>
+							<td class="px-4 py-3 text-slate-700 w-1/7">{row.expense_category_name_en || 'N/A'}</td>
+							<td class="px-4 py-3 text-slate-700 w-1/7">{row.branch_name || 'N/A'}</td>
+							<td class="px-4 py-3 text-slate-900 font-semibold w-1/7">{formatCurrency(row.amount || 0)}</td>
+							<td class="px-4 py-3 cursor-pointer hover:bg-blue-50 rounded transition-colors w-1/7" on:dblclick={() => {
+									editingExpenseId = row.id;
+									editingExpenseDate = row.due_date || '';
+								}}>
+									{#if editingExpenseId === row.id}
+										<input 
+											type="date" 
+											bind:value={editingExpenseDate}
+											on:blur={() => {
+												if (editingExpenseDate && editingExpenseDate !== row.due_date) {
+													updateExpenseDueDate(row.id, editingExpenseDate);
+												} else {
+													editingExpenseId = null;
+												}
+											}}
+											on:keydown={(e) => {
+												if (e.key === 'Enter') {
+													updateExpenseDueDate(row.id, editingExpenseDate);
+												} else if (e.key === 'Escape') {
+													editingExpenseId = null;
+												}
+											}}
+											autoFocus
+											class="w-full px-2 py-1 border-2 border-blue-500 rounded focus:outline-none"
+										/>
+									{:else}
+										<span class="text-slate-700">{formatDate(row.due_date || '')}</span>
+									{/if}
+								</td>
+							<td class="px-4 py-3 text-slate-700 w-1/7">{row.payment_method || 'N/A'}</td>
+							<td class="px-4 py-3 w-1/7">
+									<span class={`px-2 py-1 rounded-full text-xs font-semibold ${row.is_paid ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+										{getStatusDisplay(row.is_paid)}
+									</span>
+								</td>
 							</tr>
 						{/each}
 						</tbody>
@@ -499,237 +593,45 @@
 				</div>
 			</div>
 		{/if}
+		</div>
 	{/if}
 </div>
 
 <style>
-	.overdues-container {
-		width: 100%;
-		height: 100%;
-		padding: 20px;
-		background-color: #f5f5f5;
+	:global(body) {
+		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
 	}
 
-	.loading-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		gap: 20px;
-	}
-
-	.spinner {
-		width: 40px;
-		height: 40px;
-		border: 4px solid #e0e0e0;
-		border-top-color: #2196f3;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+	/* Spinner animation */
+	:global(.animate-spin) {
+		animation: spin 1s linear infinite;
 	}
 
 	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
 		to {
 			transform: rotate(360deg);
 		}
 	}
 
-	.cards-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-		gap: 10px;
-		margin-bottom: 10px;
+	/* Smooth transitions */
+	:global(.transition-colors) {
+		transition-property: background-color, border-color, color;
+		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+		transition-duration: 200ms;
 	}
 
-	.card {
-		background-color: white;
-		border-radius: 6px;
-		padding: 10px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-		cursor: pointer;
-		transition: transform 0.2s, box-shadow 0.2s;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 8px;
+	:global(.transition-shadow) {
+		transition-property: box-shadow;
+		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+		transition-duration: 200ms;
 	}
 
-	.summary-card {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
-		grid-column: 1 / -1;
-	}
-
-	.summary-card .card-title {
-		color: white;
-	}
-
-	.summary-card .card-amount {
-		color: #fff;
-	}
-
-	.card:hover {
-		transform: translateY(-3px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-	}
-
-	.card-icon {
-		font-size: 28px;
-	}
-
-	.card-title {
-		font-size: 12px;
-		font-weight: 600;
-		color: #333;
-		text-align: center;
-	}
-
-	.card-amount {
-		font-size: 14px;
-		font-weight: 700;
-		color: #d9534f;
-		text-align: center;
-	}
-
-	.card-subtitle {
-		font-size: 12px;
-		color: white;
-		text-align: center;
-		margin: 8px 0;
-		font-weight: 500;
-	}
-
-	.view-btn {
-		padding: 6px 12px;
-		background-color: #007bff;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 12px;
-		font-weight: 600;
-		transition: background-color 0.2s;
-	}
-
-	.view-btn:hover:not(:disabled) {
-		background-color: #0056b3;
-	}
-
-	.view-btn:disabled {
-		background-color: #6c757d;
-		cursor: not-allowed;
-	}
-
-	.table-section {
-		margin-top: 20px;
-		background-color: white;
-		border-radius: 8px;
-		padding: 15px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.table-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
-		flex-wrap: wrap;
-		gap: 1rem;
-	}
-
-	.table-header h3 {
-		margin: 0;
-		flex: 1;
-		min-width: 200px;
-		font-size: 16px;
-		font-weight: 600;
-		color: #333;
-	}
-
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.filter-group label {
-		font-weight: 500;
-		color: #333;
-		white-space: nowrap;
-	}
-
-	.filter-select {
-		padding: 0.5rem 0.75rem;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 0.95rem;
-		background-color: white;
-		cursor: pointer;
-		transition: border-color 0.2s;
-	}
-
-	.filter-select:hover {
-		border-color: #667eea;
-	}
-
-	.filter-select:focus {
-		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-	}
-
-	.editable-cell {
-		cursor: pointer;
-		position: relative;
-	}
-
-	.editable-cell:hover {
-		background-color: #e8f4f8;
-	}
-
-	.edit-input {
-		width: 100%;
-		padding: 4px 6px;
-		border: 2px solid #667eea;
-		border-radius: 4px;
-		font-size: 13px;
-		font-family: inherit;
-	}
-
-	.edit-input:focus {
-		outline: none;
-		border-color: #764ba2;
-		box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
-	}
-
-	.table-wrapper {
-		overflow-x: auto;
-	}
-
-	.data-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 13px;
-	}
-
-	.data-table thead {
-		background-color: #f8f9fa;
-	}
-
-	.data-table th {
-		padding: 10px;
-		text-align: left;
-		font-weight: 600;
-		color: #333;
-		border-bottom: 2px solid #dee2e6;
-	}
-
-	.data-table td {
-		padding: 10px;
-		border-bottom: 1px solid #dee2e6;
-	}
-
-	.data-table tbody tr:hover {
-		background-color: #f8f9fa;
+	:global(.transition-all) {
+		transition-property: all;
+		transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+		transition-duration: 200ms;
 	}
 </style>
