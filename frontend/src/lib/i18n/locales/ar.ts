@@ -1481,6 +1481,10 @@ export const arabicLocale: LocaleData = {
         selectMain: "اختر الفئة الرئيسية",
         selectSub: "اختر الفئة الفرعية",
       },
+      incidentManager: {
+        title: "مدير الحوادث",
+        description: "عرض وإدارة جميع تقارير الحوادث"
+      },
       branch: "الفرع",
       manager: "المدير",
       joinDate: "تاريخ الانضمام",

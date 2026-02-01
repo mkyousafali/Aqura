@@ -84,7 +84,13 @@
 						can_approve_leave_requests: false,
 						can_approve_purchase_vouchers: false,
 						can_add_missing_punches: false,
-						can_receive_incident_reports: false,
+						can_receive_customer_incidents: false,
+						can_receive_employee_incidents: false,
+						can_receive_maintenance_incidents: false,
+						can_receive_vendor_incidents: false,
+						can_receive_vehicle_incidents: false,
+						can_receive_government_incidents: false,
+						can_receive_other_incidents: false,
 						is_active: true
 					}
 				};
@@ -115,7 +121,13 @@
 				can_approve_leave_requests: user.permissions.can_approve_leave_requests === true,
 				can_approve_purchase_vouchers: user.permissions.can_approve_purchase_vouchers === true,
 				can_add_missing_punches: user.permissions.can_add_missing_punches === true,
-				can_receive_incident_reports: user.permissions.can_receive_incident_reports === true,
+				can_receive_customer_incidents: user.permissions.can_receive_customer_incidents === true,
+				can_receive_employee_incidents: user.permissions.can_receive_employee_incidents === true,
+				can_receive_maintenance_incidents: user.permissions.can_receive_maintenance_incidents === true,
+				can_receive_vendor_incidents: user.permissions.can_receive_vendor_incidents === true,
+				can_receive_vehicle_incidents: user.permissions.can_receive_vehicle_incidents === true,
+				can_receive_government_incidents: user.permissions.can_receive_government_incidents === true,
+				can_receive_other_incidents: user.permissions.can_receive_other_incidents === true,
 				is_active: user.permissions.is_active === true
 			};
 
@@ -162,8 +174,14 @@
 						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
-					can_add_missing_punches: permissionData.can_add_missing_punches,
-					can_receive_incident_reports: permissionData.can_receive_incident_reports,
+						can_add_missing_punches: permissionData.can_add_missing_punches,
+						can_receive_customer_incidents: permissionData.can_receive_customer_incidents,
+						can_receive_employee_incidents: permissionData.can_receive_employee_incidents,
+						can_receive_maintenance_incidents: permissionData.can_receive_maintenance_incidents,
+						can_receive_vendor_incidents: permissionData.can_receive_vendor_incidents,
+						can_receive_vehicle_incidents: permissionData.can_receive_vehicle_incidents,
+						can_receive_government_incidents: permissionData.can_receive_government_incidents,
+						can_receive_other_incidents: permissionData.can_receive_other_incidents,
 						updated_by: $currentUser?.id
 					})
 					.eq('user_id', user.id);
@@ -189,8 +207,14 @@
 						vendor_payment_amount_limit: permissionData.vendor_payment_amount_limit,
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
-					can_add_missing_punches: permissionData.can_add_missing_punches,
-					can_receive_incident_reports: permissionData.can_receive_incident_reports,
+						can_add_missing_punches: permissionData.can_add_missing_punches,
+						can_receive_customer_incidents: permissionData.can_receive_customer_incidents,
+						can_receive_employee_incidents: permissionData.can_receive_employee_incidents,
+						can_receive_maintenance_incidents: permissionData.can_receive_maintenance_incidents,
+						can_receive_vendor_incidents: permissionData.can_receive_vendor_incidents,
+						can_receive_vehicle_incidents: permissionData.can_receive_vehicle_incidents,
+						can_receive_government_incidents: permissionData.can_receive_government_incidents,
+						can_receive_other_incidents: permissionData.can_receive_other_incidents,
 						updated_at: new Date().toISOString(),
 						created_by: $currentUser?.id,
 						updated_by: $currentUser?.id
@@ -263,8 +287,16 @@
 			if (user.permissions.can_add_missing_punches) {
 				permissionsList.push('Add Missing Punches');
 			}
-			if (user.permissions.can_receive_incident_reports) {
-				permissionsList.push('Receive Incident Reports');
+			const incidentTypes = [];
+			if (user.permissions.can_receive_customer_incidents) incidentTypes.push('Customer');
+			if (user.permissions.can_receive_employee_incidents) incidentTypes.push('Employee');
+			if (user.permissions.can_receive_maintenance_incidents) incidentTypes.push('Maintenance');
+			if (user.permissions.can_receive_vendor_incidents) incidentTypes.push('Vendor');
+			if (user.permissions.can_receive_vehicle_incidents) incidentTypes.push('Vehicle');
+			if (user.permissions.can_receive_government_incidents) incidentTypes.push('Government');
+			if (user.permissions.can_receive_other_incidents) incidentTypes.push('Other');
+			if (incidentTypes.length > 0) {
+				permissionsList.push(`Receive Incidents: ${incidentTypes.join(', ')}`);
 			}
 
 			const message = permissionsList.length > 0
@@ -332,7 +364,13 @@
 			perms.can_approve_leave_requests ||
 			perms.can_approve_purchase_vouchers ||
 			perms.can_add_missing_punches ||
-			perms.can_receive_incident_reports
+			perms.can_receive_customer_incidents ||
+			perms.can_receive_employee_incidents ||
+			perms.can_receive_maintenance_incidents ||
+			perms.can_receive_vendor_incidents ||
+			perms.can_receive_vehicle_incidents ||
+			perms.can_receive_government_incidents ||
+			perms.can_receive_other_incidents
 		);
 	}
 
@@ -422,7 +460,13 @@
 							<th>🏖️ Leave Request</th>
 							<th>🎫 Purchase Voucher</th>
 							<th>⏱️ Add Missing Punch</th>
-							<th>📝 Incident Reports</th>
+							<th>� Customer Incidents</th>
+							<th>👤 Employee Incidents</th>
+							<th>🔧 Maintenance Incidents</th>
+							<th>🤝 Vendor Incidents</th>
+							<th>🚗 Vehicle Incidents</th>
+							<th>🏛️ Government Incidents</th>
+							<th>📌 Other Incidents</th>
 							<th class="action-col">Actions</th>
 						</tr>
 					</thead>
@@ -658,9 +702,93 @@
 										<label class="toggle-switch">
 											<input
 												type="checkbox"
-												checked={user.permissions.can_receive_incident_reports}
+												checked={user.permissions.can_receive_customer_incidents}
 												on:change={() =>
-													togglePermission(user, 'can_receive_incident_reports')}
+													togglePermission(user, 'can_receive_customer_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_employee_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_employee_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_maintenance_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_maintenance_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_vendor_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_vendor_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_vehicle_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_vehicle_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_government_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_government_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_other_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_other_incidents')}
 												disabled={saving}
 											/>
 											<span class="toggle-slider"></span>
@@ -680,7 +808,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="12" class="no-results">No users found matching filters</td>
+								<td colspan="19" class="no-results">No users found matching filters</td>
 							</tr>
 						{/each}
 					</tbody>

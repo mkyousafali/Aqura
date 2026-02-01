@@ -4,6 +4,7 @@
     import { openWindow } from '$lib/utils/windowManagerUtils';
     import ReportIncident from './ReportIncident.svelte';
     import IssueWarning from './IssueWarning.svelte';
+    import IncidentManager from './IncidentManager.svelte';
     
     let activeTab = 'Warning Categories Manager';
     let loading = false;
@@ -281,6 +282,25 @@
         await loadWarningCategories();
     }
 
+    function openIncidentManagerWindow() {
+        const windowId = `incident-manager-${Date.now()}`;
+        openWindow({
+            id: windowId,
+            title: 'Incident Manager',
+            component: IncidentManager,
+            icon: '📋',
+            size: { width: 1000, height: 650 },
+            position: { 
+                x: 100 + (Math.random() * 50),
+                y: 100 + (Math.random() * 50) 
+            },
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            closable: true
+        });
+    }
+
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
@@ -315,6 +335,13 @@
                     <div class="mb-6 space-y-4 animate-in">
                         <!-- Create Buttons Row -->
                         <div class="flex gap-3">
+                            <button 
+                                class="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-orange-700 hover:shadow-lg transition-all active:scale-95"
+                                on:click={openIncidentManagerWindow}
+                            >
+                                <span class="text-base">📋</span>
+                                Incident Manager
+                            </button>
                             <button 
                                 class="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-orange-700 hover:shadow-lg transition-all active:scale-95"
                                 on:click={openAddMainModal}

@@ -1,13 +1,112 @@
 <script lang="ts">
-    import { t } from '$lib/i18n';
+    import { t, locale } from '$lib/i18n';
+    import { currentUser } from '$lib/utils/persistentAuth';
     
     export let violation: any;
     export let employees: any[] = [];
+    export let employeeId: string | null = null;
+    export let branchId: string | null = null;
+    export let branchName: string | null = null;
+    export let incident: any = null;
     
-    let selectedEmployee = '';
+    let incidentDescription = '';
+    let witnessDetails = '';
+    let selectedEmployee = employeeId || '';
+    let selectedBranch = branchId || '';
+    let employeeSearchQuery = '';
+    let showEmployeeDropdown = false;
     let selectedEmployeeDetails: any = null;
     let isSaving = false;
     let loadingEmployee = false;
+    let warningNotes = '';
+    let branches: any[] = [];
+    let selectedLanguages: string[] = [];
+    let selectedRecourse = '';
+    let fineAmount = '';
+    
+    const availableLanguages = [
+        { code: 'ar', name: 'Arabic', nameAr: 'العربية' },
+        { code: 'en', name: 'English', nameAr: 'الإنجليزية' },
+        { code: 'ml', name: 'Malayalam', nameAr: 'الملايالامية' },
+        { code: 'bn', name: 'Bengali', nameAr: 'البنغالية' },
+        { code: 'hi', name: 'Hindi', nameAr: 'الهندية' },
+        { code: 'ur', name: 'Urdu', nameAr: 'الأردية' },
+        { code: 'ta', name: 'Tamil', nameAr: 'التاميلية' }
+    ];
+
+    const recourseOptions = [
+        { id: 'warning', label: 'Just Warning', labelAr: 'تحذير فقط' },
+        { id: 'warning_fine', label: 'Warning with Fine', labelAr: 'تحذير مع غرامة' },
+        { id: 'warning_fine_threat', label: 'Warning with Fine Threat', labelAr: 'تحذير مع غرامة وتهديد' }
+    ];
+
+    function toggleLanguage(langCode: string) {
+        if (selectedLanguages.includes(langCode)) {
+            selectedLanguages = selectedLanguages.filter(l => l !== langCode);
+        } else {
+            selectedLanguages = [...selectedLanguages, langCode];
+        }
+    }
+
+    async function loadBranches() {
+        try {
+            const { supabase } = await import('$lib/utils/supabase');
+            const { data, error } = await supabase
+                .from('branches')
+                .select('id, name_en, name_ar, location_en, location_ar')
+                .eq('is_active', true)
+                .order('name_en');
+            
+            if (error) throw error;
+            branches = data || [];
+        } catch (err) {
+            console.error('Error loading branches:', err);
+            branches = [];
+        }
+    }
+
+    // Auto-populate incident details
+    $: if (incident) {
+        if (incident.what_happened) {
+            const whatHappened = incident.what_happened;
+            incidentDescription = typeof whatHappened === 'string' 
+                ? whatHappened 
+                : whatHappened.description || '';
+        }
+        if (incident.witness_details) {
+            const witnesses = incident.witness_details;
+            witnessDetails = typeof witnesses === 'string' 
+                ? witnesses 
+                : witnesses.details || '';
+        }
+    }
+
+    onMount(async () => {
+        await loadBranches();
+    });
+
+    import { onMount } from 'svelte';
+
+    $: filteredEmployees = employees.filter(emp => {
+        if (!employeeSearchQuery.trim()) return true;
+        const query = employeeSearchQuery.toLowerCase();
+        return (emp.name_en?.toLowerCase().includes(query) || 
+                emp.name_ar?.toLowerCase().includes(query) ||
+                emp.id?.toLowerCase().includes(query) ||
+                emp.employee_id?.toLowerCase().includes(query));
+    });
+
+    function selectEmployee(emp: any) {
+        selectedEmployee = emp.id;
+        employeeSearchQuery = `${emp.name_en}${emp.name_ar ? ' / ' + emp.name_ar : ''}`;
+        showEmployeeDropdown = false;
+    }
+
+    function clearEmployee() {
+        selectedEmployee = '';
+        employeeSearchQuery = '';
+        selectedEmployeeDetails = null;
+    }
 
     async function loadEmployeeDetails() {
         if (!selectedEmployee) {
@@ -26,6 +125,11 @@
             
             if (error) throw error;
             selectedEmployeeDetails = data;
+            
+            // Update search query to show selected employee name
+            if (data && !employeeSearchQuery) {
+                employeeSearchQuery = `${data.name_en}${data.name_ar ? ' / ' + data.name_ar : ''}`;
+            }
         } catch (err) {
             console.error('Error loading employee details:', err);
             selectedEmployeeDetails = null;
@@ -39,14 +143,45 @@
     }
 
     async function handleIssueWarning() {
-        if (!selectedEmployee || !violation) return;
+        // Validate required fields
+        const needsFineAmount = selectedRecourse === 'warning_fine' || selectedRecourse === 'warning_fine_threat';
+        
+        if (!selectedLanguages.length || !selectedRecourse || !selectedEmployee || !selectedBranch || !violation || !warningNotes.trim()) {
+            alert($locale === 'ar' ? 'الرجاء ملء جميع الحقول المطلوبة' : 'Please fill all required fields');
+            return;
+        }
+        
+        if (needsFineAmount && !fineAmount) {
+            alert($locale === 'ar' ? 'الرجاء إدخال مبلغ الغرامة' : 'Please enter fine amount');
+            return;
+        }
         
         isSaving = true;
         try {
-            // TODO: Add your logic here to save the warning
-            console.log('Issuing warning for employee:', selectedEmployee, 'violation:', violation.id);
-            // After saving, close the window
+            // TODO: Save warning logic - will be implemented later
+            console.log('Issuing warning:', {
+                employee: selectedEmployee,
+                branch: selectedBranch,
+                violation: violation.id,
+                languages: selectedLanguages,
+                recourse: selectedRecourse,
+                fineAmount: needsFineAmount ? fineAmount : null,
+                reportAndAction: warningNotes
+            });
+            
+            // Clear form
+            selectedEmployee = '';
+            selectedEmployeeDetails = null;
+            selectedBranch = '';
+            employeeSearchQuery = '';
+            warningNotes = '';
+            selectedLanguages = [];
+            selectedRecourse = '';
+            fineAmount = '';
+            
+            alert($locale === 'ar' ? '✅ تم إصدار التحذير بنجاح' : '✅ Warning issued successfully');
         } catch (err) {
+            console.error('Error issuing warning:', err);
             alert('Error: ' + (err instanceof Error ? err.message : 'Failed to save'));
         } finally {
             isSaving = false;
@@ -54,81 +189,205 @@
     }
 </script>
 
-<div class="h-full flex flex-col bg-gradient-to-br from-yellow-50 to-slate-50 font-sans">
-    <div class="p-8 space-y-6 overflow-y-auto flex-1">
-        {#if violation}
-            <div class="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-6">
-                <p class="text-sm font-bold text-yellow-700 uppercase mb-3 tracking-wide">Selected Violation</p>
-                <div class="space-y-3">
-                    <div>
-                        <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">English</p>
-                        <p class="text-lg font-semibold text-slate-900">{violation.name_en}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">العربية</p>
-                        <p class="text-lg font-semibold text-slate-900" dir="rtl">{violation.name_ar}</p>
-                    </div>
-                    <div class="pt-3 border-t border-yellow-200">
-                        <p class="text-xs text-slate-500">
-                            <span class="font-semibold">Category:</span> {violation.main?.name_en} / {violation.sub?.name_en}
-                        </p>
-                    </div>
-                </div>
+<div class="h-full flex flex-col bg-gradient-to-br from-orange-50 to-slate-50 font-sans">
+    <div class="p-6 space-y-4 overflow-y-auto flex-1">
+        <!-- Language Selection -->
+        <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختر اللغات' : 'Select Languages'}</label>
+            <div class="flex flex-wrap gap-2">
+                {#each availableLanguages as lang}
+                    <button
+                        type="button"
+                        on:click={() => toggleLanguage(lang.code)}
+                        class="px-3 py-1.5 text-xs font-semibold rounded-lg transition border-2 {selectedLanguages.includes(lang.code) ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400'}"
+                    >
+                        {$locale === 'ar' ? lang.nameAr : lang.name}
+                    </button>
+                {/each}
+            </div>
+            {#if selectedLanguages.length === 0}
+                <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'يجب تحديد لغة واحدة على الأقل' : 'Select at least one language'}</p>
+            {/if}
+        </div>
+
+        <!-- Recourse Type Selection -->
+        <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'نوع الإجراء *' : 'Recourse Type *'}</label>
+            <div class="flex flex-wrap gap-2">
+                {#each recourseOptions as option}
+                    <button
+                        type="button"
+                        on:click={() => { selectedRecourse = option.id; fineAmount = ''; }}
+                        class="px-3 py-1.5 text-xs font-semibold rounded-lg transition border-2 {selectedRecourse === option.id ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-slate-700 border-slate-200 hover:border-orange-400'}"
+                    >
+                        {$locale === 'ar' ? option.labelAr : option.label}
+                    </button>
+                {/each}
+            </div>
+            {#if !selectedRecourse}
+                <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'يجب تحديد نوع الإجراء' : 'Select a recourse type'}</p>
+            {/if}
+        </div>
+
+        <!-- Fine Amount (if applicable) -->
+        {#if selectedRecourse === 'warning_fine' || selectedRecourse === 'warning_fine_threat'}
+            <div>
+                <label for="fine-amount" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'مبلغ الغرامة *' : 'Fine Amount *'}</label>
+                <input 
+                    id="fine-amount"
+                    type="number"
+                    bind:value={fineAmount}
+                    placeholder={$locale === 'ar' ? 'أدخل مبلغ الغرامة...' : 'Enter fine amount...'}
+                    min="0"
+                    step="0.01"
+                    class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                />
+                {#if !fineAmount}
+                    <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                {/if}
             </div>
         {/if}
 
-        <div class="space-y-3">
-            <label for="warning-employee" class="block text-sm font-bold text-slate-700 uppercase tracking-wide">Select Employee</label>
-            <select id="warning-employee" bind:value={selectedEmployee} class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none text-base hover:border-slate-300 transition">
-                <option value="">Choose an employee...</option>
-                {#each employees as emp}
-                    <option value={emp.id}>{emp.name_en} {emp.name_ar ? `/ ${emp.name_ar}` : ''}</option>
-                {/each}
-            </select>
+        <!-- Violation & Employee Selection -->
+        <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة واختيار الموظف' : 'Violation & Select Employee'}</label>
+            <div class="flex items-center gap-3">
+                {#if violation}
+                    <div class="bg-orange-50 border border-orange-200 rounded px-3 py-1.5 flex items-center gap-2 flex-shrink-0">
+                        <div class="w-1 h-6 bg-orange-500 rounded-full"></div>
+                        <div class="text-xs">
+                            <span class="font-medium text-slate-900">{$locale === 'ar' ? violation.name_ar : violation.name_en}</span>
+                        </div>
+                    </div>
+                {/if}
+                <div class="flex-1 relative">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            bind:value={employeeSearchQuery}
+                            on:focus={() => showEmployeeDropdown = true}
+                            placeholder={$locale === 'ar' ? 'بحث موظف...' : 'Search employee...'}
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition pr-8"
+                        />
+                        {#if selectedEmployee}
+                            <button 
+                                type="button"
+                                on:click={clearEmployee}
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg"
+                            >×</button>
+                        {:else}
+                            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+                        {/if}
+                    </div>
+                    {#if showEmployeeDropdown && !selectedEmployee}
+                        <div class="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {#if filteredEmployees.length === 0}
+                                <div class="px-3 py-2 text-sm text-slate-500">{$locale === 'ar' ? 'لم يتم العثور على موظفين' : 'No employees found'}</div>
+                            {:else}
+                                {#each filteredEmployees.slice(0, 10) as emp}
+                                    <button 
+                                        type="button"
+                                        on:click={() => selectEmployee(emp)}
+                                        class="w-full px-3 py-2 text-left text-sm hover:bg-orange-50 border-b border-slate-100 last:border-b-0 transition"
+                                    >
+                                        <span class="font-medium text-slate-900">{$locale === 'ar' ? (emp.name_ar || emp.name_en) : emp.name_en}</span>
+                                    </button>
+                                {/each}
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+            </div>
         </div>
 
         {#if selectedEmployee}
             {#if loadingEmployee}
-                <div class="bg-slate-100 border-2 border-slate-300 rounded-lg p-6 text-center">
-                    <div class="animate-spin inline-block mb-3">
-                        <div class="w-6 h-6 border-2 border-yellow-200 border-t-yellow-600 rounded-full"></div>
-                    </div>
-                    <p class="text-sm text-slate-600 font-semibold">Loading employee details...</p>
+                <div class="bg-slate-100 border border-slate-200 rounded px-3 py-1.5 flex items-center gap-2">
+                    <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full"></div>
+                    <span class="text-xs text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</span>
                 </div>
             {:else if selectedEmployeeDetails}
-                <div class="bg-green-50 border-2 border-green-200 rounded-lg p-6">
-                    <p class="text-sm font-bold text-green-700 uppercase mb-4 tracking-wide">Employee Details</p>
-                    <div class="space-y-3">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Name (English)</p>
-                                <p class="text-sm font-semibold text-slate-900">{selectedEmployeeDetails.name_en}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Name (Arabic)</p>
-                                <p class="text-sm font-semibold text-slate-900" dir="rtl">{selectedEmployeeDetails.name_ar || 'N/A'}</p>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4 pt-3 border-t border-green-200">
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resident/National ID</p>
-                                <p class="text-lg font-bold text-green-700">{selectedEmployeeDetails.id_number || 'Not provided'}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">ID Expiry Date</p>
-                                <p class="text-sm font-semibold text-slate-900">{selectedEmployeeDetails.id_expiry_date ? new Date(selectedEmployeeDetails.id_expiry_date).toLocaleDateString() : 'N/A'}</p>
-                            </div>
+                <!-- Employee Details -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'تفاصيل الموظف' : 'Employee Details'}</label>
+                    <div class="bg-orange-50 border border-orange-200 rounded px-3 py-1.5 flex items-center gap-3">
+                        <div class="w-1 h-6 bg-orange-500 rounded-full flex-shrink-0"></div>
+                        <span class="text-xs font-bold text-orange-600">{selectedEmployeeDetails.id || '-'}</span>
+                        <span class="text-slate-400">|</span>
+                        <span class="text-sm font-medium text-slate-900">{$locale === 'ar' ? (selectedEmployeeDetails.name_ar || selectedEmployeeDetails.name_en) : selectedEmployeeDetails.name_en}</span>
+                        <span class="text-slate-400">|</span>
+                        <span class="text-sm font-bold text-orange-700">{selectedEmployeeDetails.id_number || ($locale === 'ar' ? 'لا يوجد' : 'No ID')}</span>
+                    </div>
+                </div>
+
+                <!-- Incident: What Happened -->
+                {#if incidentDescription}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'ماذا حدث (من التقرير)' : 'What Happened (from Report)'}</label>
+                        <div class="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-sm text-slate-700">
+                            {incidentDescription}
                         </div>
                     </div>
+                {/if}
+
+                <!-- Incident: Witness Details -->
+                {#if witnessDetails}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'تفاصيل الشهود (من التقرير)' : 'Witness Details (from Report)'}</label>
+                        <div class="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-sm text-slate-700">
+                            {witnessDetails}
+                        </div>
+                    </div>
+                {/if}
+
+                <!-- Branch Selection -->
+                <div>
+                    <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع *' : 'Select Branch *'}</label>
+                    <select 
+                        id="branch-select"
+                        bind:value={selectedBranch}
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                    >
+                        <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
+                        {#each branches as branch}
+                            <option value={branch.id}>
+                                {$locale === 'ar' 
+                                    ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
+                                    : `${branch.name_en} - ${branch.location_en}`}
+                            </option>
+                        {/each}
+                    </select>
+                    {#if !selectedBranch}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
+                </div>
+
+                <!-- Report and Action -->
+                <div>
+                    <label for="warning-notes" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'التقرير والإجراء *' : 'Report and Action *'}</label>
+                    <textarea 
+                        id="warning-notes"
+                        bind:value={warningNotes}
+                        placeholder={$locale === 'ar' ? 'أدخل التقرير والإجراء المطلوب...' : 'Enter report and action required...'}
+                        rows="4"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition resize-none"
+                    ></textarea>
+                    {#if !warningNotes.trim()}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
+                    <button
+                        type="button"
+                        class="mt-2 px-4 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+                    >
+                        {$locale === 'ar' ? 'إنشاء' : 'Generate'}
+                    </button>
                 </div>
             {/if}
         {/if}
     </div>
 
-    <div class="px-8 py-5 bg-white border-t-2 border-slate-200 flex gap-4 justify-end flex-shrink-0 shadow-lg">
-        <button disabled={!selectedEmployee || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95">
-            {isSaving ? 'Saving...' : 'Issue Warning'}
-        </button>
+    <div class="px-6 py-4 bg-white border-t border-slate-200 flex gap-3 justify-end flex-shrink-0 shadow-lg">
+        <!-- Buttons will be added here later -->
     </div>
 </div>
 
