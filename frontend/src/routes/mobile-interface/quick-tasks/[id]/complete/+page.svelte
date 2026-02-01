@@ -473,6 +473,39 @@
 				}
 				
 				console.log('✅ Quick task completion submitted successfully:', completionId);
+				
+				// Update incident user status to acknowledged if this task is linked to an incident
+				if (taskDetails?.incident_id && currentUserData?.id) {
+					try {
+						const { data: incident } = await supabase
+							.from('incidents')
+							.select('user_statuses')
+							.eq('id', taskDetails.incident_id)
+							.single();
+						
+						if (incident) {
+							const userStatuses = typeof incident.user_statuses === 'string' 
+								? JSON.parse(incident.user_statuses)
+								: (incident.user_statuses || {});
+							
+							userStatuses[currentUserData.id] = {
+								...userStatuses[currentUserData.id],
+								status: 'acknowledged',
+								acknowledged_at: new Date().toISOString()
+							};
+							
+							await supabase
+								.from('incidents')
+								.update({ user_statuses: userStatuses })
+								.eq('id', taskDetails.incident_id);
+							
+							console.log('✅ Incident user status updated to acknowledged');
+						}
+					} catch (statusError) {
+						console.warn('Could not update incident status:', statusError);
+						// Non-blocking error - continue with success
+					}
+				}
 			} catch (completionError) {
 				console.error('Error creating quick task completion:', completionError);
 				throw completionError;

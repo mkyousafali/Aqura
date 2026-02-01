@@ -17,10 +17,55 @@
 	// User cache for displaying usernames and employee names
 	let userCache = {};
 
+	// Incident image cache for quick tasks
+	let incidentImageCache = {};
+
 	// Image preview modal variables
 	let showImagePreview = false;
 	let previewImageSrc = '';
 	let previewImageAlt = '';
+
+	onMount(async () => {
+		currentUserData = $currentUser;
+		if (currentUserData) {
+			await loadTasks();
+		}
+		isLoading = false;
+	});
+
+	// Function to fetch and cache incident image
+	async function loadIncidentImage(incidentId) {
+		if (!incidentId) return null;
+		
+		// Return from cache if already loaded
+		if (incidentImageCache[incidentId]) {
+			return incidentImageCache[incidentId];
+		}
+
+		try {
+			const { data: incident, error } = await supabase
+				.from('incidents')
+				.select('image_url')
+				.eq('id', incidentId)
+				.single();
+			
+			if (error) {
+				console.warn('Failed to fetch incident image:', error);
+				incidentImageCache[incidentId] = null;
+				return null;
+			}
+
+			if (incident?.image_url) {
+				incidentImageCache[incidentId] = incident.image_url;
+				return incident.image_url;
+			}
+		} catch (err) {
+			console.warn('Error loading incident image:', err);
+		}
+
+		incidentImageCache[incidentId] = null;
+		return null;
+	}
 
 	onMount(async () => {
 		currentUserData = $currentUser;
@@ -239,7 +284,7 @@
 				quickTaskIds.length > 0
 					? supabase
 						.from('quick_tasks')
-						.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by')
+						.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by, incident_id')
 						.in('id', quickTaskIds)
 					: Promise.resolve({ data: [] })
 			]);
@@ -335,7 +380,8 @@
 					require_erp_reference: false,
 					hasAttachments: attachments.length > 0,
 					attachments: attachments,
-					task_type: 'quick'
+					task_type: 'quick',
+					incident_id: quickTaskDetails.incident_id
 				};
 			});
 
@@ -737,26 +783,26 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 				quickTaskIds.length > 0
 					? supabase
 						.from('quick_tasks')
-						.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by')
-						.in('id', quickTaskIds)
-					: Promise.resolve({ data: [] })
-			]);
+					.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by, incident_id')
+					.in('id', quickTaskIds)
+				: Promise.resolve({ data: [] })
+		]);
 
-			// Create maps for O(1) lookup
-			const taskDetailsMap = new Map();
-			(tasksResult.data || []).forEach(task => {
-				taskDetailsMap.set(task.id, task);
-			});
+		// Create maps for O(1) lookup
+		const taskDetailsMap = new Map();
+		(tasksResult.data || []).forEach(task => {
+			taskDetailsMap.set(task.id, task);
+		});
 
-			const quickTaskDetailsMap = new Map();
-			(quickTasksResult.data || []).forEach(task => {
-				quickTaskDetailsMap.set(task.id, task);
-			});
+		const quickTaskDetailsMap = new Map();
+		(quickTasksResult.data || []).forEach(task => {
+			quickTaskDetailsMap.set(task.id, task);
+		});
 
-			// Process completed regular tasks
-			const completedRegularTasks = taskAssignments.map(assignment => {
-				const taskDetails = taskDetailsMap.get(assignment.task_id) || { title: 'Unknown Task', description: '' };
-				return {
+		// Process completed regular tasks
+		const completedRegularTasks = taskAssignments.map(assignment => {
+			const taskDetails = taskDetailsMap.get(assignment.task_id) || { title: 'Unknown Task', description: '' };
+			return {
 					...taskDetails,
 					assignment_id: assignment.id,
 					assignment_status: assignment.status,
@@ -996,6 +1042,16 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							tabindex="0"
 						>
 							<p class="task-description">{task.description}</p>
+							
+							{#if task.task_type === 'quick' && task.incident_id}
+								<div class="incident-image-section">
+									{#await loadIncidentImage(task.incident_id) then imageUrl}
+										{#if imageUrl}
+											<img src={imageUrl} alt="Incident" class="incident-image" on:click={() => { showImagePreview = true; previewImageSrc = imageUrl; previewImageAlt = 'Incident'; }} />
+										{/if}
+									{/await}
+								</div>
+							{/if}
 							
 							<div class="task-details">
 								{#if task.deadline_date}
@@ -1544,6 +1600,28 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
+	}
+
+	.incident-image-section {
+		margin: 0.75rem 0;
+		border-radius: 8px;
+		overflow: hidden;
+		border: 1px solid #E5E7EB;
+		background: #F9FAFB;
+	}
+
+	.incident-image {
+		width: 100%;
+		height: auto;
+		max-height: 200px;
+		object-fit: cover;
+		display: block;
+		cursor: pointer;
+		transition: opacity 0.2s ease;
+	}
+
+	.incident-image:hover {
+		opacity: 0.9;
 	}
 
 	.task-details {

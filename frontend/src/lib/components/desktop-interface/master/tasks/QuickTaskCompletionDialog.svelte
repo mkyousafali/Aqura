@@ -16,6 +16,8 @@
 	let selectedFiles = [];
 	let fileInput;
 	let uploadingFiles = false;
+	let incidentData = null;
+	let incidentImageUrl = null;
 
 	// Completion requirements
 	let requirePhotoUpload = false;
@@ -37,7 +39,8 @@
 						description,
 						priority,
 						issue_type,
-						price_tag
+						price_tag,
+						incident_id
 					)
 				`)
 				.eq('id', assignmentId)
@@ -51,6 +54,21 @@
 
 			console.log('📋 Assignment loaded:', assignment);
 			console.log('✅ Requirements:', { requirePhotoUpload, requireErpReference });
+
+			// Load incident data if linked
+			if (data.quick_tasks?.incident_id) {
+				const { data: incident, error: incidentError } = await supabase
+					.from('incidents')
+					.select('id, incident_types(incident_type_en, incident_type_ar), image_url, employee_id, branch_id')
+					.eq('id', data.quick_tasks.incident_id)
+					.single();
+				
+				if (incident && !incidentError) {
+					incidentData = incident;
+					incidentImageUrl = incident.image_url;
+					console.log('📸 [CompletionDialog] Incident image loaded:', incidentImageUrl);
+				}
+			}
 		} catch (error) {
 			console.error('Error loading assignment:', error);
 			alert('Error loading task details. Please try again.');
@@ -172,6 +190,41 @@
 			}
 
 			console.log('✅ Task completed successfully!');
+			
+			// Update incident user status to 'acknowledged' if this is an incident recovery task
+			if (assignment?.quick_tasks?.incident_id && $currentUser?.id) {
+				try {
+					const { data: incident, error: fetchError } = await supabase
+						.from('incidents')
+						.select('user_statuses')
+						.eq('id', assignment.quick_tasks.incident_id)
+						.single();
+					
+					if (!fetchError && incident) {
+						const userStatuses = typeof incident.user_statuses === 'string' 
+							? JSON.parse(incident.user_statuses)
+							: (incident.user_statuses || {});
+						
+						// Update current user's status to 'acknowledged'
+						userStatuses[$currentUser.id] = {
+							...userStatuses[$currentUser.id],
+							status: 'acknowledged',
+							acknowledged_at: new Date().toISOString()
+						};
+						
+						await supabase
+							.from('incidents')
+							.update({ user_statuses: userStatuses })
+							.eq('id', assignment.quick_tasks.incident_id);
+						
+						console.log('✅ Incident user status updated to acknowledged');
+					}
+				} catch (err) {
+					console.warn('⚠️ Could not update incident user status:', err);
+					// Don't fail the whole operation if this fails
+				}
+			}
+			
 			alert('✅ Quick Task completed successfully!');
 			
 			onComplete();
@@ -213,6 +266,22 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Incident Image (if attached) -->
+			{#if incidentImageUrl}
+				<div class="incident-image-section">
+					<h4>📸 Incident Image</h4>
+					<div class="incident-image-container">
+						<img src={incidentImageUrl} alt="Incident" class="incident-image" />
+						{#if incidentData}
+							<div class="incident-info">
+								<p><strong>Incident ID:</strong> {incidentData.id}</p>
+								<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Completion Requirements Notice -->
 			{#if requirePhotoUpload || requireErpReference}
@@ -600,6 +669,56 @@
 
 	@keyframes spin {
 		to { transform: rotate(360deg); }
+	}
+
+	.incident-image-section {
+		margin-top: 20px;
+		margin-bottom: 20px;
+		padding: 16px;
+		background: #f0f9ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+	}
+
+	.incident-image-section h4 {
+		margin: 0 0 12px 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #1e40af;
+	}
+
+	.incident-image-container {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.incident-image {
+		max-width: 100%;
+		max-height: 300px;
+		width: auto;
+		height: auto;
+		border-radius: 6px;
+		border: 1px solid #bfdbfe;
+		object-fit: contain;
+		background: white;
+	}
+
+	.incident-info {
+		padding: 8px 12px;
+		background: white;
+		border-radius: 4px;
+		border: 1px solid #bfdbfe;
+		font-size: 12px;
+		color: #1f2937;
+	}
+
+	.incident-info p {
+		margin: 4px 0;
+	}
+
+	.incident-info strong {
+		color: #1e40af;
 	}
 
 	.dialog-footer {

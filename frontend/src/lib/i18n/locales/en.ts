@@ -1377,6 +1377,10 @@ export const englishLocale: LocaleData = {
         selectMain: "Select Main Category",
         selectSub: "Select Sub Category",
       },
+      incidentManager: {
+        title: "Incident Manager",
+        description: "View and manage all incident reports"
+      },
       branch: "Branch",
       manager: "Manager",
       joinDate: "Join Date",

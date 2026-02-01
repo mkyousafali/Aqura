@@ -1,5 +1,6 @@
 <script lang="ts">
     import { t, locale } from '$lib/i18n';
+    import { currentUser } from '$lib/utils/persistentAuth';
     
     export let violation: any;
     export let employees: any[] = [];
@@ -14,6 +15,10 @@
     let showEmployeeDropdown = false;
     let whatHappened = '';
     let proofWitness = '';
+    let incidentType = 'IN2'; // Default to Employee Incidents since this is ReportIncident (employee-related)
+    let selectedImage: File | null = null;
+    let imagePreviewUrl: string | null = null;
+    let isUploadingImage = false;
 
     $: filteredEmployees = employees.filter(emp => {
         if (!employeeSearchQuery.trim()) return true;
@@ -65,15 +70,273 @@
         loadEmployeeDetails();
     }
 
+    function handleImageSelect(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        
+        if (file) {
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                alert($locale === 'ar' ? 'يرجى تحديد ملف صورة صحيح' : 'Please select a valid image file');
+                return;
+            }
+            
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert($locale === 'ar' ? 'حجم الصورة أكبر من 10 ميجابايت' : 'Image size exceeds 10MB');
+                return;
+            }
+            
+            selectedImage = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imagePreviewUrl = e.target?.result as string;
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function clearImage() {
+        selectedImage = null;
+        imagePreviewUrl = null;
+    }
+
     async function handleReportIncident() {
-        if (!selectedEmployee || !violation) return;
+        if (!selectedEmployee || !violation || !selectedBranch || !whatHappened.trim()) {
+            alert($locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+            return;
+        }
+        
+        if (!$currentUser || !$currentUser.id) {
+            alert($locale === 'ar' ? 'لم يتم تحديد المستخدم الحالي' : 'Current user not identified');
+            return;
+        }
         
         isSaving = true;
+        let uploadedImageUrl: string | null = null;
+        
         try {
-            // TODO: Add your logic here to save the incident report
-            console.log('Reporting incident for employee:', selectedEmployee, 'violation:', violation.id);
-            // After saving, close the window
+            const { supabase } = await import('$lib/utils/supabase');
+            
+            // Upload image if selected
+            if (selectedImage) {
+                isUploadingImage = true;
+                const fileName = `incident-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${selectedImage.name.split('.').pop()}`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('documents')
+                    .upload(`incidents/${fileName}`, selectedImage);
+                
+                if (uploadError) {
+                    throw new Error(`Image upload failed: ${uploadError.message}`);
+                }
+                
+                // Get the public URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('documents')
+                    .getPublicUrl(`incidents/${fileName}`);
+                
+                uploadedImageUrl = publicUrl;
+                isUploadingImage = false;
+            }
+            
+            // Get the next incident ID
+            const { data: lastIncident, error: lastError } = await supabase
+                .from('incidents')
+                .select('id')
+                .order('id', { ascending: false })
+                .limit(1)
+                .single();
+            
+            let nextIncidentNum = 1;
+            if (lastIncident && lastIncident.id) {
+                const lastNum = parseInt(lastIncident.id.replace('INS', ''));
+                nextIncidentNum = lastNum + 1;
+            }
+            const incidentId = `INS${nextIncidentNum}`;
+            
+            // Fetch users who can receive employee incidents
+            const { data: permissions, error: permError } = await supabase
+                .from('approval_permissions')
+                .select('user_id')
+                .eq('can_receive_employee_incidents', true)
+                .eq('is_active', true);
+            
+            if (permError) throw permError;
+            
+            const recipientUserIds = permissions?.map(p => p.user_id) || [];
+            
+            // Create user_statuses object with 'reported' status for each recipient
+            const userStatuses: any = {};
+            recipientUserIds.forEach(userId => {
+                userStatuses[userId] = {
+                    status: 'reported',
+                    notified_at: new Date().toISOString(),
+                    read_at: null
+                };
+            });
+            
+            // Create the incident report
+            const { error: insertError } = await supabase
+                .from('incidents')
+                .insert([{
+                    id: incidentId,
+                    incident_type_id: incidentType,
+                    employee_id: selectedEmployee,
+                    branch_id: selectedBranch,
+                    violation_id: violation.id,
+                    what_happened: {
+                        description: whatHappened,
+                        created_at: new Date().toISOString()
+                    },
+                    witness_details: proofWitness ? {
+                        details: proofWitness,
+                        recorded_at: new Date().toISOString()
+                    } : null,
+                    report_type: 'employee_related',
+                    reports_to_user_ids: recipientUserIds,
+                    resolution_status: 'reported',
+                    user_statuses: userStatuses,
+                    image_url: uploadedImageUrl,
+                    created_by: $currentUser.id,
+                    updated_by: $currentUser.id
+                }]);
+            
+            if (insertError) throw insertError;
+            
+            // Send notifications to recipients and employee
+            try {
+                // Get the name of the created user
+                const { data: createdUserData, error: createdUserError } = await supabase
+                    .from('hr_employee_master')
+                    .select('name_en, name_ar')
+                    .eq('user_id', $currentUser.id)
+                    .single();
+                
+                // Get the branch name and location (bilingual)
+                const { data: branchData, error: branchError } = await supabase
+                    .from('branches')
+                    .select('name_en, name_ar, location_en, location_ar')
+                    .eq('id', selectedBranch)
+                    .single();
+                
+                const createdByName = createdUserData?.name_en || $currentUser?.email || 'System User';
+                const createdByNameAr = createdUserData?.name_ar || $currentUser?.email || 'مستخدم النظام';
+                const employeeName = selectedEmployeeDetails?.name_en || 'Unknown';
+                const employeeNameAr = selectedEmployeeDetails?.name_ar || 'غير معروف';
+                
+                const branchNameEn = branchData?.name_en && branchData?.location_en 
+                    ? `${branchData.name_en} - ${branchData.location_en}`
+                    : branchData?.name_en || 'Unknown Branch';
+                const branchNameAr = branchData?.name_ar && branchData?.location_ar 
+                    ? `${branchData.name_ar} - ${branchData.location_ar}`
+                    : branchData?.name_ar || 'فرع غير معروف';
+                
+                const violationName = violation?.name_en || 'Unknown Violation';
+                const violationNameAr = violation?.name_ar || 'انتهاك غير معروف';
+                
+                // Get the user_id of the selected employee
+                const { data: employeeUser, error: empUserError } = await supabase
+                    .from('hr_employee_master')
+                    .select('user_id')
+                    .eq('id', selectedEmployee)
+                    .single();
+                
+                if (empUserError) {
+                    console.warn('⚠️ Could not fetch employee user_id:', empUserError);
+                }
+                
+                // Build notification array for recipients (bilingual - both at same time)
+                const notificationsList = recipientUserIds.map(userId => ({
+                    title: '📋 New Incident Report | تقرير حادثة جديد',
+                    message: `New incident report (${incidentId}) from ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}\n---\nتقرير حادثة جديد (${incidentId}) من ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`,
+                    type: 'info',
+                    priority: 'normal',
+                    target_type: 'specific_users',
+                    target_users: [userId],
+                    created_at: new Date().toISOString()
+                }));
+                
+                // Add notification for the employee (reporting employee) - bilingual
+                if (employeeUser?.user_id) {
+                    notificationsList.push({
+                        title: '✅ Incident Report Submitted | تم إرسال تقرير الحادثة',
+                        message: `Incident report (${incidentId}) submitted by ${createdByName} regarding you at ${branchNameEn} related to ${violationName}. Report ID: ${incidentId}\n---\nتم إرسال تقرير حادثة (${incidentId}) من ${createdByNameAr} بخصوصك في ${branchNameAr} المتعلق بـ ${violationNameAr}. رقم التقرير: ${incidentId}`,
+                        type: 'success',
+                        priority: 'normal',
+                        target_type: 'specific_users',
+                        target_users: [employeeUser.user_id],
+                        created_at: new Date().toISOString()
+                    });
+                }
+                
+                // Send all notifications
+                if (notificationsList.length > 0) {
+                    await supabase
+                        .from('notifications')
+                        .insert(notificationsList);
+                }
+                
+                // Create quick tasks for recipients to acknowledge the incident
+                if (recipientUserIds.length > 0) {
+                    try {
+                        // Create the quick task once
+                        const { data: quickTaskData, error: taskCreateError } = await supabase
+                            .from('quick_tasks')
+                            .insert({
+                                title: `Acknowledge Incident | تأكيد الحادثة: ${incidentId}`,
+                                description: `From ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}\n---\nمن ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`,
+                                priority: 'high',
+                                issue_type: 'incident_acknowledgement',
+                                assigned_by: $currentUser.id,
+                                assigned_to_branch_id: selectedBranch,
+                                incident_id: incidentId
+                            })
+                            .select()
+                            .single();
+
+                        if (taskCreateError) {
+                            console.warn('⚠️ Failed to create quick task:', taskCreateError);
+                        } else if (quickTaskData) {
+                            // Create assignments for each recipient
+                            const assignments = recipientUserIds.map(userId => ({
+                                quick_task_id: quickTaskData.id,
+                                assigned_to_user_id: userId,
+                                require_task_finished: true
+                            }));
+
+                            const { error: assignmentError } = await supabase
+                                .from('quick_task_assignments')
+                                .insert(assignments);
+
+                            if (assignmentError) {
+                                console.warn('⚠️ Failed to create quick task assignments:', assignmentError);
+                            } else {
+                                console.log('✅ Quick task assignments created successfully');
+                            }
+                        }
+                    } catch (taskErr) {
+                        console.warn('⚠️ Error creating quick tasks:', taskErr);
+                    }
+                }
+            } catch (notifErr) {
+                console.warn('⚠️ Failed to send notifications:', notifErr);
+                // Don't fail the save if notifications fail
+            }
+            
+            alert($locale === 'ar' ? `✅ تم الإبلاغ عن الحادثة بنجاح: ${incidentId}` : `✅ Incident reported successfully: ${incidentId}`);
+            
+            // Clear form
+            selectedEmployee = '';
+            selectedEmployeeDetails = null;
+            selectedBranch = '';
+            whatHappened = '';
+            proofWitness = '';
+            employeeSearchQuery = '';
+            selectedImage = null;
+            imagePreviewUrl = null;
+            
         } catch (err) {
+            console.error('Error saving incident:', err);
             alert('Error: ' + (err instanceof Error ? err.message : 'Failed to save'));
         } finally {
             isSaving = false;
@@ -157,7 +420,7 @@
 
                 <!-- Branch Selection -->
                 <div>
-                    <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع' : 'Select Branch'}</label>
+                    <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع *' : 'Select Branch *'}</label>
                     <select 
                         id="branch-select"
                         bind:value={selectedBranch}
@@ -172,11 +435,14 @@
                             </option>
                         {/each}
                     </select>
+                    {#if !selectedBranch}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
                 </div>
 
                 <div class="space-y-3">
                     <div>
-                        <label for="what-happened" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟' : 'What Happened?'}</label>
+                        <label for="what-happened" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟ *' : 'What Happened? *'}</label>
                         <textarea 
                             id="what-happened"
                             bind:value={whatHappened}
@@ -184,6 +450,9 @@
                             rows="3"
                             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
                         ></textarea>
+                        {#if !whatHappened.trim()}
+                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                        {/if}
                     </div>
                     <div>
                         <label for="proof-witness" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
@@ -195,13 +464,46 @@
                             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
                         ></textarea>
                     </div>
+                    
+                    <!-- Image Upload Section (Optional) -->
+                    <div>
+                        <label for="image-upload" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📸 {$locale === 'ar' ? 'تحميل صورة (اختياري)' : 'Upload Image (Optional)'}</label>
+                        <div class="flex gap-2">
+                            <input 
+                                id="image-upload"
+                                type="file" 
+                                accept="image/*"
+                                on:change={handleImageSelect}
+                                disabled={isUploadingImage}
+                                class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition cursor-pointer disabled:opacity-50"
+                            />
+                            {#if selectedImage}
+                                <button 
+                                    type="button"
+                                    on:click={clearImage}
+                                    disabled={isUploadingImage}
+                                    class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-bold disabled:opacity-50 transition"
+                                >
+                                    ✕
+                                </button>
+                            {/if}
+                        </div>
+                        {#if selectedImage}
+                            <p class="text-xs text-green-600 mt-1">✓ {selectedImage.name}</p>
+                        {/if}
+                        {#if imagePreviewUrl}
+                            <div class="mt-2 rounded-lg overflow-hidden border border-slate-200">
+                                <img src={imagePreviewUrl} alt="Preview" class="w-full h-48 object-cover" />
+                            </div>
+                        {/if}
+                    </div>
                 </div>
             {/if}
         {/if}
     </div>
 
     <div class="px-8 py-5 bg-white border-t-2 border-slate-200 flex gap-4 justify-end flex-shrink-0 shadow-lg">
-        <button disabled={!selectedEmployee || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95">
+        <button disabled={!selectedEmployee || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95" on:click={handleReportIncident}>
             {isSaving ? ($locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : ($locale === 'ar' ? 'الإبلاغ عن الحادثة' : 'Report Incident')}
         </button>
     </div>

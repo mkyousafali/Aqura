@@ -9,6 +9,8 @@
 
 	let loading = true;
 	let taskAttachments = []; // For FileDownload component
+	let incidentData = null;
+	let incidentImageUrl = null;
 
 	// Get current user data
 	$: currentUserData = $currentUser;
@@ -16,6 +18,21 @@
 	onMount(async () => {
 		if (task) {
 			try {
+				// Load incident data if this task is linked to an incident
+				if (task.incident_id) {
+					const { data: incident, error: incidentError } = await supabase
+						.from('incidents')
+						.select('id, incident_types(incident_type_en, incident_type_ar), image_url, employee_id, branch_id')
+						.eq('id', task.incident_id)
+						.single();
+					
+					if (incident && !incidentError) {
+						incidentData = incident;
+						incidentImageUrl = incident.image_url;
+						console.log('📸 [QuickTaskDetails] Incident image loaded:', incidentImageUrl);
+					}
+				}
+
 				// Load task attachments for FileDownload component - Quick Tasks use different file structure
 				if (task.files && task.files.length > 0) {
 					// Transform Quick Task files to match FileDownload component format
@@ -189,6 +206,22 @@
 				{/if}
 			</div>
 		</div>
+
+		<!-- Task Files Section -->
+		{#if incidentImageUrl}
+			<div class="space-y-4">
+				<h3 class="text-lg font-semibold text-gray-900 border-b pb-2">📸 Incident Image</h3>
+				<div class="rounded-lg overflow-hidden border border-gray-200 max-w-md">
+					<img src={incidentImageUrl} alt="Incident" class="w-full h-auto object-cover" />
+					{#if incidentData}
+						<div class="bg-gray-50 p-3 text-sm text-gray-600 border-t">
+							<p><strong>Incident:</strong> {incidentData.id}</p>
+							<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
 
 		<!-- Task Files Section -->
 		{#if taskAttachments && taskAttachments.length > 0}
