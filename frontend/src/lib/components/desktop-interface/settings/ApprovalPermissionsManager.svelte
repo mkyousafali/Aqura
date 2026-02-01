@@ -84,6 +84,7 @@
 						can_approve_leave_requests: false,
 						can_approve_purchase_vouchers: false,
 						can_add_missing_punches: false,
+						can_receive_incident_reports: false,
 						is_active: true
 					}
 				};
@@ -114,6 +115,7 @@
 				can_approve_leave_requests: user.permissions.can_approve_leave_requests === true,
 				can_approve_purchase_vouchers: user.permissions.can_approve_purchase_vouchers === true,
 				can_add_missing_punches: user.permissions.can_add_missing_punches === true,
+				can_receive_incident_reports: user.permissions.can_receive_incident_reports === true,
 				is_active: user.permissions.is_active === true
 			};
 
@@ -161,6 +163,7 @@
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
 					can_add_missing_punches: permissionData.can_add_missing_punches,
+					can_receive_incident_reports: permissionData.can_receive_incident_reports,
 						updated_by: $currentUser?.id
 					})
 					.eq('user_id', user.id);
@@ -187,6 +190,7 @@
 						can_approve_leave_requests: permissionData.can_approve_leave_requests,
 						can_approve_purchase_vouchers: permissionData.can_approve_purchase_vouchers,
 					can_add_missing_punches: permissionData.can_add_missing_punches,
+					can_receive_incident_reports: permissionData.can_receive_incident_reports,
 						updated_at: new Date().toISOString(),
 						created_by: $currentUser?.id,
 						updated_by: $currentUser?.id
@@ -259,6 +263,9 @@
 			if (user.permissions.can_add_missing_punches) {
 				permissionsList.push('Add Missing Punches');
 			}
+			if (user.permissions.can_receive_incident_reports) {
+				permissionsList.push('Receive Incident Reports');
+			}
 
 			const message = permissionsList.length > 0
 				? `Your approval permissions have been updated:\n\n${permissionsList.join('\n')}`
@@ -324,7 +331,8 @@
 			perms.can_approve_vendor_payments ||
 			perms.can_approve_leave_requests ||
 			perms.can_approve_purchase_vouchers ||
-			perms.can_add_missing_punches
+			perms.can_add_missing_punches ||
+			perms.can_receive_incident_reports
 		);
 	}
 
@@ -414,6 +422,7 @@
 							<th>🏖️ Leave Request</th>
 							<th>🎫 Purchase Voucher</th>
 							<th>⏱️ Add Missing Punch</th>
+							<th>📝 Incident Reports</th>
 							<th class="action-col">Actions</th>
 						</tr>
 					</thead>
@@ -644,6 +653,20 @@
 										</label>
 									</div>
 								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_incident_reports}
+												on:change={() =>
+													togglePermission(user, 'can_receive_incident_reports')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
 								<td class="action-col">
 									<button
 										class="btn-save-row"
@@ -657,7 +680,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="11" class="no-results">No users found matching filters</td>
+								<td colspan="12" class="no-results">No users found matching filters</td>
 							</tr>
 						{/each}
 					</tbody>

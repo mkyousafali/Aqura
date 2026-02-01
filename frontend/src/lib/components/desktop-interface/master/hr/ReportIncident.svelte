@@ -1,13 +1,40 @@
 <script lang="ts">
-    import { t } from '$lib/i18n';
+    import { t, locale } from '$lib/i18n';
     
     export let violation: any;
     export let employees: any[] = [];
+    export let branches: any[] = [];
     
     let selectedEmployee = '';
     let selectedEmployeeDetails: any = null;
+    let selectedBranch = '';
     let isSaving = false;
     let loadingEmployee = false;
+    let employeeSearchQuery = '';
+    let showEmployeeDropdown = false;
+    let whatHappened = '';
+    let proofWitness = '';
+
+    $: filteredEmployees = employees.filter(emp => {
+        if (!employeeSearchQuery.trim()) return true;
+        const query = employeeSearchQuery.toLowerCase();
+        return (emp.name_en?.toLowerCase().includes(query) || 
+                emp.name_ar?.toLowerCase().includes(query) ||
+                emp.id?.toLowerCase().includes(query) ||
+                emp.employee_id?.toLowerCase().includes(query));
+    });
+
+    function selectEmployee(emp: any) {
+        selectedEmployee = emp.id;
+        employeeSearchQuery = `${emp.name_en}${emp.name_ar ? ' / ' + emp.name_ar : ''}`;
+        showEmployeeDropdown = false;
+    }
+
+    function clearEmployee() {
+        selectedEmployee = '';
+        employeeSearchQuery = '';
+        selectedEmployeeDetails = null;
+    }
 
     async function loadEmployeeDetails() {
         if (!selectedEmployee) {
@@ -55,70 +82,118 @@
 </script>
 
 <div class="h-full flex flex-col bg-gradient-to-br from-blue-50 to-slate-50 font-sans">
-    <div class="p-8 space-y-6 overflow-y-auto flex-1">
-        {#if violation}
-            <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-6">
-                <p class="text-sm font-bold text-blue-700 uppercase mb-3 tracking-wide">Selected Violation</p>
-                <div class="space-y-3">
-                    <div>
-                        <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">English</p>
-                        <p class="text-lg font-semibold text-slate-900">{violation.name_en}</p>
+    <div class="p-6 space-y-4 overflow-y-auto flex-1">
+        <!-- Violation & Employee Selection -->
+        <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة واختيار الموظف' : 'Violation & Select Employee'}</label>
+            <div class="flex items-center gap-3">
+                {#if violation}
+                    <div class="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 flex items-center gap-2 flex-shrink-0">
+                        <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
+                        <div class="text-xs">
+                            <span class="font-medium text-slate-900">{$locale === 'ar' ? violation.name_ar : violation.name_en}</span>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">العربية</p>
-                        <p class="text-lg font-semibold text-slate-900" dir="rtl">{violation.name_ar}</p>
+                {/if}
+                <div class="flex-1 relative">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            bind:value={employeeSearchQuery}
+                            on:focus={() => showEmployeeDropdown = true}
+                            placeholder={$locale === 'ar' ? 'بحث موظف...' : 'Search employee...'}
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition pr-8"
+                        />
+                        {#if selectedEmployee}
+                            <button 
+                                type="button"
+                                on:click={clearEmployee}
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg"
+                            >×</button>
+                        {:else}
+                            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+                        {/if}
                     </div>
-                    <div class="pt-3 border-t border-blue-200">
-                        <p class="text-xs text-slate-500">
-                            <span class="font-semibold">Category:</span> {violation.main?.name_en} / {violation.sub?.name_en}
-                        </p>
-                    </div>
+                    {#if showEmployeeDropdown && !selectedEmployee}
+                        <div class="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {#if filteredEmployees.length === 0}
+                                <div class="px-3 py-2 text-sm text-slate-500">{$locale === 'ar' ? 'لم يتم العثور على موظفين' : 'No employees found'}</div>
+                            {:else}
+                                {#each filteredEmployees.slice(0, 10) as emp}
+                                    <button 
+                                        type="button"
+                                        on:click={() => selectEmployee(emp)}
+                                        class="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 border-b border-slate-100 last:border-b-0 transition"
+                                    >
+                                        <span class="font-medium text-slate-900">{$locale === 'ar' ? (emp.name_ar || emp.name_en) : emp.name_en}</span>
+                                    </button>
+                                {/each}
+                            {/if}
+                        </div>
+                    {/if}
                 </div>
             </div>
-        {/if}
-
-        <div class="space-y-3">
-            <label for="report-employee" class="block text-sm font-bold text-slate-700 uppercase tracking-wide">Select Employee</label>
-            <select id="report-employee" bind:value={selectedEmployee} class="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base hover:border-slate-300 transition">
-                <option value="">Choose an employee...</option>
-                {#each employees as emp}
-                    <option value={emp.id}>{emp.name_en} {emp.name_ar ? `/ ${emp.name_ar}` : ''}</option>
-                {/each}
-            </select>
         </div>
 
         {#if selectedEmployee}
             {#if loadingEmployee}
-                <div class="bg-slate-100 border-2 border-slate-300 rounded-lg p-6 text-center">
-                    <div class="animate-spin inline-block mb-3">
-                        <div class="w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full"></div>
-                    </div>
-                    <p class="text-sm text-slate-600 font-semibold">Loading employee details...</p>
+                <div class="bg-slate-100 border border-slate-200 rounded px-3 py-1.5 flex items-center gap-2">
+                    <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full"></div>
+                    <span class="text-xs text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</span>
                 </div>
             {:else if selectedEmployeeDetails}
-                <div class="bg-green-50 border-2 border-green-200 rounded-lg p-6">
-                    <p class="text-sm font-bold text-green-700 uppercase mb-4 tracking-wide">Employee Details</p>
-                    <div class="space-y-3">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Name (English)</p>
-                                <p class="text-sm font-semibold text-slate-900">{selectedEmployeeDetails.name_en}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Name (Arabic)</p>
-                                <p class="text-sm font-semibold text-slate-900" dir="rtl">{selectedEmployeeDetails.name_ar || 'N/A'}</p>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4 pt-3 border-t border-green-200">
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Resident/National ID</p>
-                                <p class="text-lg font-bold text-green-700">{selectedEmployeeDetails.id_number || 'Not provided'}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">ID Expiry Date</p>
-                                <p class="text-sm font-semibold text-slate-900">{selectedEmployeeDetails.id_expiry_date ? new Date(selectedEmployeeDetails.id_expiry_date).toLocaleDateString() : 'N/A'}</p>
-                            </div>
-                        </div>
+                <!-- Employee Details -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'تفاصيل الموظف' : 'Employee Details'}</label>
+                    <div class="bg-green-50 border border-green-200 rounded px-3 py-1.5 flex items-center gap-3">
+                        <div class="w-1 h-6 bg-green-500 rounded-full flex-shrink-0"></div>
+                        <span class="text-xs font-bold text-green-600">{selectedEmployeeDetails.id || '-'}</span>
+                        <span class="text-slate-400">|</span>
+                        <span class="text-sm font-medium text-slate-900">{$locale === 'ar' ? (selectedEmployeeDetails.name_ar || selectedEmployeeDetails.name_en) : selectedEmployeeDetails.name_en}</span>
+                        <span class="text-slate-400">|</span>
+                        <span class="text-sm font-bold text-green-700">{selectedEmployeeDetails.id_number || ($locale === 'ar' ? 'لا يوجد' : 'No ID')}</span>
+                    </div>
+                </div>
+
+                <!-- Branch Selection -->
+                <div>
+                    <label for="branch-select" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع' : 'Select Branch'}</label>
+                    <select 
+                        id="branch-select"
+                        bind:value={selectedBranch}
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
+                    >
+                        <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
+                        {#each branches as branch}
+                            <option value={branch.id}>
+                                {$locale === 'ar' 
+                                    ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
+                                    : `${branch.name_en} - ${branch.location_en}`}
+                            </option>
+                        {/each}
+                    </select>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label for="what-happened" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟' : 'What Happened?'}</label>
+                        <textarea 
+                            id="what-happened"
+                            bind:value={whatHappened}
+                            placeholder={$locale === 'ar' ? 'صف ما حدث...' : 'Describe what happened...'}
+                            rows="3"
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
+                        ></textarea>
+                    </div>
+                    <div>
+                        <label for="proof-witness" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
+                        <textarea 
+                            id="proof-witness"
+                            bind:value={proofWitness}
+                            placeholder={$locale === 'ar' ? 'أدخل تفاصيل الإثبات أو الشاهد...' : 'Enter proof or witness details...'}
+                            rows="2"
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
+                        ></textarea>
                     </div>
                 </div>
             {/if}
@@ -127,7 +202,7 @@
 
     <div class="px-8 py-5 bg-white border-t-2 border-slate-200 flex gap-4 justify-end flex-shrink-0 shadow-lg">
         <button disabled={!selectedEmployee || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95">
-            {isSaving ? 'Saving...' : 'Report Incident'}
+            {isSaving ? ($locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : ($locale === 'ar' ? 'الإبلاغ عن الحادثة' : 'Report Incident')}
         </button>
     </div>
 </div>
