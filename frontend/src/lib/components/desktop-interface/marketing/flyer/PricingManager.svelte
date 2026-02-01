@@ -140,6 +140,13 @@
 		);
 	});
 	
+	// Reactively count invalid products
+	$: invalidProductCount = filteredProducts.filter(product => {
+		const cost = product.cost || 0;
+		const price = product.sales_price || 0;
+		return cost <= 0 || cost >= price;
+	}).length;
+	
 	// Sync offer price across variation group
 	function syncGroupOfferPrice(product: any, newOfferPricePerUnit: number) {
 		// If product belongs to a variation group, update all products in that group
@@ -538,7 +545,14 @@
 	// Helper: Round down to nearest .95
 	function roundDownTo95(value: number): number {
 		const intPart = Math.floor(value);
-		return intPart + 0.95;
+		const candidate = intPart + 0.95;
+		// If the candidate is less than or equal to the value, use it
+		// Otherwise go to the previous .95
+		if (candidate <= value) {
+			return candidate;
+		} else {
+			return intPart - 1 + 0.95;
+		}
 	}
 	
 	// Helper: Get allowed quantities based on price
@@ -552,6 +566,7 @@
 	function generateOfferPriceButton1(product: any, targetProfit: number): any {
 		const cost = product.cost || 0;
 		const priceUnit = product.sales_price || 0;
+		const barcode = product.barcode || product.product_id || '';
 		
 		// Validation
 		if (cost <= 0 || priceUnit <= 0) {
@@ -581,64 +596,114 @@
 		
 		// Check if current profit is MORE than target profit
 		if (currentProfitPercent > targetProfit) {
-			// Option 1: Calculate offer with target profit
+			if (barcode === '6084012090420') {
+				console.log('B1 Debug 6084012090420: High-margin product detected');
+				console.log('  Cost:', cost, 'Price:', priceUnit, 'Current Profit:', currentProfitPercent.toFixed(2) + '%');
+			}
+			
+			// For qty=1, try to achieve target profit with 2.05 decrease
+			const candidates: any[] = [];
+			
+			// Try qty=1 first
 			const targetProfitAmount = cost * (targetProfit / 100);
 			let offerWithTargetProfit = cost + targetProfitAmount;
 			offerWithTargetProfit = roundDownTo95(offerWithTargetProfit);
 			
-			// Option 2: Calculate offer with 2.05 decrease
-			// Start with price - 2.05, then round DOWN to nearest .95
-			const priceAfter205 = priceUnit - 2.05;
-			let offerWith205Decrease = Math.floor(priceAfter205) + 0.95;
-			
-			// If that's higher than the target, go down by 1
-			if (offerWith205Decrease > priceAfter205) {
-				offerWith205Decrease = Math.floor(priceAfter205) - 1 + 0.95;
-			}
-			
-			// Choose the LOWER price (bigger discount) that still maintains target profit
-			let finalOfferPrice;
-			
-			// Check if 2.05 decrease maintains target profit (allow up to 1% below target)
-			const profitWith205 = ((offerWith205Decrease - cost) / cost) * 100;
-			const minAcceptableProfit = targetProfit - 1; // Allow 1% below target
-			
-			if (profitWith205 >= minAcceptableProfit && offerWith205Decrease > cost) {
-				// Can achieve 2.05 decrease within acceptable profit range - use it
-				finalOfferPrice = offerWith205Decrease;
+			// Check if qty=1 with target profit works (must have minimum 2.05 decrease)
+			const decreaseQty1 = priceUnit - offerWithTargetProfit;
+			if (offerWithTargetProfit > cost && offerWithTargetProfit < priceUnit && decreaseQty1 >= 2.05) {
+				const profitQty1 = ((offerWithTargetProfit - cost) / cost) * 100;
+				candidates.push({
+					qty: 1,
+					offerPrice: offerWithTargetProfit,
+					profitPercent: profitQty1,
+					decreaseAmount: decreaseQty1
+				});
+				if (barcode === '6084012090420') {
+					console.log('  Qty=1 candidate added: Price:', offerWithTargetProfit, 'Profit:', profitQty1.toFixed(2) + '%', 'Decrease:', decreaseQty1.toFixed(2));
+				}
 			} else {
-				// 2.05 decrease would go too far below target profit - use target profit price
-				finalOfferPrice = offerWithTargetProfit;
+				if (barcode === '6084012090420' && offerWithTargetProfit > cost && offerWithTargetProfit < priceUnit) {
+					console.log('  Qty=1 rejected: Decrease', decreaseQty1.toFixed(2), '< 2.05 minimum');
+				}
 			}
 			
-			// Final validations
-			if (finalOfferPrice <= cost) {
-				finalOfferPrice = Math.floor(cost) + 1.95;
+			// For high-margin products where qty=1 doesn't work well, try qty 2, 3, 4
+			// This is the B7 fallback built into B1
+			for (let qty of [2, 3, 4]) {
+				const priceTotal = priceUnit * qty;
+				const targetOfferTotal = priceTotal - 2.05;
+				const targetOfferUnit = targetOfferTotal / qty;
+				
+				let offerPrice = roundDownTo95(targetOfferUnit);
+				
+				if (barcode === '6084012090420') {
+					console.log(`  Qty=${qty}: priceTotal=${priceTotal}, targetTotal=${targetOfferTotal}, targetUnit=${targetOfferUnit.toFixed(4)}, rounded=${offerPrice}`);
+				}
+				
+				if (offerPrice > cost && offerPrice < priceUnit) {
+					const costTotal = cost * qty;
+					const offerTotal = offerPrice * qty;
+					const decreaseAmount = priceTotal - offerTotal;
+					const profitPercent = ((offerTotal - costTotal) / costTotal) * 100;
+					
+					// Must have at least 2.05 SAR decrease
+					if (decreaseAmount >= 2.05 && profitPercent >= 0) {
+						if (barcode === '6084012090420') {
+							console.log(`    Valid: costTotal=${costTotal}, offerTotal=${offerTotal}, profit=${profitPercent.toFixed(2)}%, decrease=${decreaseAmount.toFixed(2)}`);
+						}
+						candidates.push({
+							qty,
+							offerPrice,
+							profitPercent,
+							decreaseAmount
+						});
+					} else {
+						if (barcode === '6084012090420') {
+							console.log(`    Invalid: decrease=${decreaseAmount.toFixed(2)} < 2.05 or profit=${profitPercent.toFixed(2)}% < 0`);
+						}
+					}
+				} else {
+					if (barcode === '6084012090420') {
+						console.log(`    Invalid: offerPrice=${offerPrice}, cost=${cost}, priceUnit=${priceUnit}`);
+					}
+				}
 			}
 			
-			if (finalOfferPrice >= priceUnit) {
+			// Pick the best candidate
+			if (candidates.length > 0) {
+				// Prefer qty=1 if it exists and is good, otherwise pick highest profit
+				let best = candidates.find(c => c.qty === 1);
+				if (!best) {
+					candidates.sort((a, b) => b.profitPercent - a.profitPercent);
+					best = candidates[0];
+				}
+				
+				if (barcode === '6084012090420') {
+					console.log('  Best candidate:', best);
+				}
+				
+				return {
+					...product,
+					offer_qty: best.qty,
+					offer_price: best.offerPrice,
+					free_qty: 0,
+					limit_qty: null,
+					generation_status: `B1 Success (Qty: ${best.qty}, Profit: ${best.profitPercent.toFixed(2)}%, Decrease: ${best.decreaseAmount.toFixed(2)})`
+				};
+			} else {
+				if (barcode === '6084012090420') {
+					console.log('  No candidates found!');
+				}
 				return {
 					...product,
 					offer_qty: 1,
 					offer_price: 0,
 					free_qty: 0,
 					limit_qty: null,
-					generation_status: 'B1 Not Applicable (cannot create valid offer)'
+					generation_status: 'B1 Not Applicable (no valid qty found)'
 				};
 			}
-			
-			// Calculate final metrics
-			const actualProfit = ((finalOfferPrice - cost) / cost) * 100;
-			const finalDecrease = priceUnit - finalOfferPrice;
-			
-			return {
-				...product,
-				offer_qty: 1,
-				offer_price: finalOfferPrice,
-				free_qty: 0,
-				limit_qty: null,
-				generation_status: `B1 Success (Profit: ${actualProfit.toFixed(2)}%, Decrease: ${finalDecrease.toFixed(2)})`
-			};
 		} else {
 			// Current profit is NOT more than target - no offer
 			return {
@@ -658,6 +723,13 @@
 		const priceUnit = product.sales_price || 0;
 		const offerPrice = product.offer_price || 0;
 		const currentQty = product.offer_qty || 1;
+		const barcode = product.barcode || '';
+		
+		// Skip if B1 already created a valid offer with qty >= 3
+		if (product.generation_status?.includes('B1 Success')) {
+			console.log(`B2 for ${barcode}: Skip (B1 already created valid offer)`);
+			return product;
+		}
 		
 		// Only process products that have an offer
 		if (offerPrice <= 0) {
@@ -745,6 +817,7 @@
 		const priceUnit = product.sales_price || 0;
 		const offerPrice = product.offer_price || 0;
 		const offerQty = product.offer_qty || 1;
+		const currentStatus = product.generation_status || '';
 		
 		console.log(`B3 for ${product.barcode}: cost=${cost}, priceUnit=${priceUnit}, offerPrice=${offerPrice}, offerQty=${offerQty}`);
 		
@@ -770,7 +843,7 @@
 		if (offerPrice > 0 && currentDecreaseAmount >= 2.05) {
 			return {
 				...product,
-				generation_status: `B3 Skip (Already ${currentDecreaseAmount.toFixed(2)} decrease)`
+				generation_status: currentStatus ? currentStatus : `B3 Skip (Already ${currentDecreaseAmount.toFixed(2)} decrease)`
 			};
 		}
 		
@@ -786,7 +859,7 @@
 			// Can't achieve 2.05 decrease without going below cost
 			return {
 				...product,
-				generation_status: `B3 Not Applicable (would go below cost)`
+				generation_status: currentStatus ? currentStatus : `B3 Not Applicable (would go below cost)`
 			};
 		}
 		
@@ -795,14 +868,14 @@
 		const newDecreaseAmount = priceTotal - newOfferTotal;
 		const newProfitPercent = ((newOfferTotal - (cost * offerQty)) / (cost * offerQty)) * 100;
 		
-		// Determine if this was a creation or adjustment
-		const statusLabel = offerPrice <= 0 ? 'Created' : 'Adjusted';
+		// If status already has B1 Success, preserve it; otherwise set B3 status
+		const newStatus = currentStatus.includes('B1 Success') ? currentStatus : `B3 Adjusted (Decrease: ${newDecreaseAmount.toFixed(2)}, Profit: ${newProfitPercent.toFixed(2)}%)`;
 		
 		return {
 			...product,
 			offer_qty: offerQty,
 			offer_price: newOfferPrice,
-			generation_status: `B3 ${statusLabel} (Decrease: ${newDecreaseAmount.toFixed(2)}, Profit: ${newProfitPercent.toFixed(2)}%)`
+			generation_status: newStatus
 		};
 	}
 	
@@ -904,6 +977,15 @@
 		});
 	}
 	
+	// Check if any product has invalid cost/price (cost <= 0 or cost >= price)
+	function hasInvalidProducts(): boolean {
+		return filteredProducts.some(product => {
+			const cost = product.cost || 0;
+			const price = product.sales_price || 0;
+			return cost <= 0 || cost >= price;
+		});
+	}
+
 	// Generate offer prices for all products - BUTTON 1
 	function generateAllOfferPricesButton1() {
 		if (!selectedProducts.length) {
@@ -1011,6 +1093,20 @@
 			const priceUnit = product.sales_price || 0;
 			const currentQty = product.offer_qty || 1;
 			const offerPricePerUnit = product.offer_price || 0;
+			const currentStatus = product.generation_status || '';
+			const barcode = product.barcode || '';
+			
+			// Skip if created by B7 (don't modify B7 results)
+			if (currentStatus.includes('B7 Created')) {
+				console.log(`B4: Skipping ${barcode} - created by B7`);
+				return { ...product, generation_status: currentStatus }; // Keep B7 status
+			}
+			
+			// Skip if B1 already created a valid offer with qty >= 3
+			if (currentStatus.includes('B1 Success') && currentQty >= 3) {
+				console.log(`B4: Skipping ${barcode} - B1 already created valid offer with qty=${currentQty}`);
+				return { ...product, generation_status: currentStatus }; // Keep B1 status
+			}
 			
 			// Calculate current total offer price
 			const currentTotalOfferPrice = offerPricePerUnit * currentQty;
@@ -1110,6 +1206,13 @@
 			const priceUnit = product.sales_price || 0;
 			const currentQty = product.offer_qty || 1;
 			const oldOfferPrice = product.offer_price || 0;
+			const currentStatus = product.generation_status || '';
+			
+			// Skip if created by B7 (don't modify B7 results)
+			if (currentStatus.includes('B7 Created')) {
+				console.log(`B5: Skipping ${product.barcode} - created by B7`);
+				return { ...product, generation_status: currentStatus }; // Keep B7 status
+			}
 			
 			console.log(`B5: Processing ${product.barcode}`, {
 				cost,
@@ -1212,6 +1315,12 @@
 		const priceUnit = product.sales_price || 0;
 		const offerPrice = product.offer_price || 0;
 		const offerQty = product.offer_qty || 1;
+		const currentStatus = product.generation_status || '';
+		
+		// Skip if created by B7 (don't modify B7 results)
+		if (currentStatus.includes('B7 Created')) {
+			return product;
+		}
 		
 		// Only process products with qty=1 and existing offer
 		if (offerQty !== 1 || offerPrice <= 0) {
@@ -1290,7 +1399,110 @@
 		console.log(`B6 Complete - Adjusted: ${adjusted}, Skipped: ${skipped}, Not Applicable: ${notApplicable}`);
 	}
 	
-	// NEW: Single button to run all steps B1→B2→B3→B4→B5→B6 in sequence
+	// BUTTON 7: Cleanup for items that B1 couldn't handle - try multiple quantities with 2.05 decrease
+	function generateOfferPriceButton7(product: any, targetProfit: number): any {
+		const cost = product.cost || 0;
+		const priceUnit = product.sales_price || 0;
+		const currentStatus = product.generation_status || '';
+		
+		// Only process items that were skipped by B1 (high margin products)
+		if (!currentStatus.includes('No Step 1 possible') && !currentStatus.includes('Not Applicable (Current') && !currentStatus.includes('B1 Not Applicable')) {
+			return product; // Return unchanged if not a B1 skip
+		}
+		
+		// Validation
+		if (cost <= 0 || priceUnit <= 0) {
+			return {
+				...product,
+				generation_status: 'B7 Not Applicable (invalid cost/price)'
+			};
+		}
+		
+		if (cost >= priceUnit) {
+			return {
+				...product,
+				generation_status: 'B7 Not Applicable (cost >= price)'
+			};
+		}
+		
+		const candidates: any[] = [];
+		
+		// Try quantities 2, 3, 4 to find a viable offer with ≥2.05 SAR decrease
+		for (let qty of [2, 3, 4]) {
+			const priceTotal = priceUnit * qty;
+			
+			// Target offer total: price total - 2.05 SAR minimum decrease
+			const targetOfferTotal = priceTotal - 2.05;
+			const targetOfferUnit = targetOfferTotal / qty;
+			
+			// Round down to .95 ending
+			let offerPrice = roundDownTo95(targetOfferUnit);
+			
+			// Must be above cost
+			if (offerPrice <= cost) continue;
+			
+			// Must be below price (to give discount)
+			if (offerPrice >= priceUnit) continue;
+			
+			// Calculate metrics
+			const costTotal = cost * qty;
+			const offerTotal = offerPrice * qty;
+			const decreaseAmount = priceTotal - offerTotal;
+			const profitPercent = ((offerTotal - costTotal) / costTotal) * 100;
+			
+			// Must have profit (no loss)
+			if (profitPercent >= 0) {
+				candidates.push({
+					qty,
+					offerPrice,
+					decreaseAmount,
+					profitPercent,
+					costTotal,
+					offerTotal
+				});
+			}
+		}
+		
+		// Select the candidate with best profit
+		if (candidates.length > 0) {
+			candidates.sort((a, b) => b.profitPercent - a.profitPercent); // Highest profit first
+			const best = candidates[0];
+			
+			return {
+				...product,
+				offer_qty: best.qty,
+				offer_price: best.offerPrice,
+				free_qty: 0,
+				limit_qty: null,
+				generation_status: `B7 Created (Qty: ${best.qty}, Profit: ${best.profitPercent.toFixed(2)}%, Decrease: ${best.decreaseAmount.toFixed(2)})`
+			};
+		} else {
+			return {
+				...product,
+				generation_status: 'B7 No Valid Price (cannot create offer with qty 2-4)'
+			};
+		}
+	}
+	
+	// Generate all offer prices with B7 (cleanup for B1 leftovers)
+	function generateAllOfferPricesButton7() {
+		if (!selectedProducts.length) {
+			console.log('B7: No products to process');
+			return;
+		}
+		
+		selectedProducts = selectedProducts.map(product => generateOfferPriceButton7(product, targetProfitPercent));
+		hasUnsavedChanges = true;
+		
+		// Count results
+		const created = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B7 Created')).length;
+		const notValid = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B7 No Valid Price')).length;
+		const notApplicable = selectedProducts.filter(p => p.generation_status && p.generation_status.includes('B7 Not Applicable')).length;
+		
+		console.log(`B7 Complete - Created: ${created}, No Valid Price: ${notValid}, Not Applicable: ${notApplicable}`);
+	}
+	
+	// NEW: Single button to run all steps B1→B2→B3→B4→B5→B6→B7 in sequence
 	async function generateOffersAllSteps() {
 		if (!selectedProducts.length) {
 			alert('No products to generate offers for');
@@ -1317,6 +1529,9 @@
 			// Run B3
 			await generateAllOfferPricesButton3();
 			
+			// Run B7 FIRST (before B4) - cleanup for items B1 couldn't handle
+			await generateAllOfferPricesButton7();
+			
 			// Run B4
 			await generateAllOfferPricesButton4();
 			
@@ -1330,11 +1545,11 @@
 			await tick();
 			
 			// Show success modal instead of alert
-			successMessage = 'All offer generation steps completed successfully!';
+			successMessage = 'All offer generation steps (B1→B2→B3→B7→B4→B5→B6) completed successfully!';
 			showSuccessModal = true;
 		} catch (error) {
 			console.error('Error during offer generation:', error);
-			alert('An error occurred during offer generation. Please try again.');
+			alert('An error occurred during offer generation. Please try again();');
 		}
 	}
 	
@@ -1623,14 +1838,23 @@
 				<!-- Auto-Generation Buttons -->
 				<div class="flex items-center gap-2 border-l-2 border-gray-300 pl-4">
 					<!-- Single Generate Offers Button (runs B1→B2→B3→B4→B5) -->
-					<button
-						on:click={generateOffersAllSteps}
-						disabled={!selectedProducts.length || !allProductsHaveCostAndPrice()}
-						class="px-4 py-2 bg-gradient-to-r from-purple-600 via-blue-600 to-pink-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-						title={!allProductsHaveCostAndPrice() ? 'All products must have Cost (Unit) and Price (Unit)' : 'Generate offers using all 5 steps automatically'}
-					>
-						Generate Offers
-					</button>
+					<div class="relative">
+						<button
+							on:click={generateOffersAllSteps}
+							disabled={!selectedProducts.length || !allProductsHaveCostAndPrice() || hasInvalidProducts()}
+							class="px-4 py-2 bg-gradient-to-r from-purple-600 via-blue-600 to-pink-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+							title={!selectedProducts.length 
+								? 'Select products first'
+								: hasInvalidProducts()
+								? 'Fix invalid cost/price values first (red rows)'
+								: !allProductsHaveCostAndPrice() ? 'All products must have Cost (Unit) and Price (Unit)' : 'Generate offers using all 5 steps automatically'}
+						>
+							Generate Offers
+							<span style="display: inline-block; margin-left: 8px; padding: 4px 8px; background: #ef4444; color: white; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap;">
+								Invalid: {invalidProductCount}
+							</span>
+						</button>
+					</div>
 					
 					<!-- Individual B1-B6 buttons - Hidden by default, uncomment for debugging -->
 					<!-- 
@@ -1846,7 +2070,12 @@
 						</thead>
 						<tbody class="bg-white divide-y divide-gray-200">
 							{#each filteredProducts as product (product.barcode)}
-								<tr class="hover:bg-gray-50 transition-colors">
+								<tr 
+									class="hover:bg-gray-50 transition-colors"
+									class:bg-red-100={product.cost >= product.sales_price || product.cost <= 0}
+									class:border-l-4={product.cost >= product.sales_price || product.cost <= 0}
+									class:border-l-red-600={product.cost >= product.sales_price || product.cost <= 0}
+								>
 									<td class="w-24 px-4 py-4 align-middle">
 										<div class="relative w-20 h-20 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center">
 											{#if product.image_url}
@@ -1919,7 +2148,23 @@
 									</td>
 									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900">
 										<div class="flex flex-col gap-1">
-											<div>{product.product_name_en || '-'}</div>
+											<div class="flex items-center gap-2">
+												<span>{product.product_name_en || '-'}</span>
+												{#if product.cost >= product.sales_price || product.cost <= 0}
+													<div class="relative group inline-block">
+														<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-600 text-white shadow-md animate-pulse cursor-help">
+															⚠️ Invalid
+														</span>
+														<div class="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-red-700 text-white text-xs rounded px-3 py-2 whitespace-nowrap z-50 shadow-lg">
+															{#if product.cost <= 0}
+																Cost must be greater than 0
+															{:else}
+																Cost ({product.cost.toFixed(2)}) ≥ Price ({product.sales_price.toFixed(2)})
+															{/if}
+														</div>
+													</div>
+												{/if}
+											</div>
 											{#if product.is_variation && product.variation_group_name_en}
 												<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded font-medium inline-flex items-center gap-1 w-fit">
 													🔗 {product.variation_group_name_en}
