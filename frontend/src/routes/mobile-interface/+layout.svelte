@@ -1743,14 +1743,15 @@
 	}
 
 	.hr-submenu {
-		position: absolute;
+		position: fixed;
 		bottom: 3.8rem;
-		right: 0;
-		left: auto;
+		left: 50%;
+		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.15);
 		min-width: 180px;
+		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
@@ -1758,15 +1759,15 @@
 
 	@supports selector(:dir(rtl)) {
 		:dir(rtl) .hr-submenu {
-			right: auto;
-			left: 0;
+			left: 50%;
+			transform: translateX(-50%);
 		}
 	}
 
 	/* Fallback for RTL using locale */
 	:global([dir="rtl"]) .hr-submenu {
-		right: auto;
-		left: 0;
+		left: 50%;
+		transform: translateX(-50%);
 	}
 
 	@keyframes slideUp {
@@ -1826,14 +1827,15 @@
 	}
 
 	.emergencies-submenu {
-		position: absolute;
+		position: fixed;
 		bottom: 3.8rem;
-		right: 0;
-		left: auto;
+		left: 50%;
+		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 -2px 16px rgba(220, 38, 38, 0.2);
 		min-width: 180px;
+		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
@@ -1841,8 +1843,8 @@
 	}
 
 	:global([dir="rtl"]) .emergencies-submenu {
-		right: auto;
-		left: 0;
+		left: 50%;
+		transform: translateX(-50%);
 	}
 
 	.emergencies-submenu-item {
@@ -1892,14 +1894,15 @@
 	}
 
 	.tasks-submenu {
-		position: absolute;
+		position: fixed;
 		bottom: 3.8rem;
-		right: 0;
-		left: auto;
+		left: 50%;
+		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 -2px 16px rgba(59, 130, 246, 0.2);
 		min-width: 180px;
+		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
@@ -1907,8 +1910,8 @@
 	}
 
 	:global([dir="rtl"]) .tasks-submenu {
-		right: auto;
-		left: 0;
+		left: 50%;
+		transform: translateX(-50%);
 	}
 
 	.tasks-submenu-item {
