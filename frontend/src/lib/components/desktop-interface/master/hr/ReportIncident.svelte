@@ -33,9 +33,90 @@
     let customerName = '';
     let customerContact = '';
     
+    // Violation selector (for IN2 from sidebar - no violation passed)
+    let violations: any[] = [];
+    let violationSearchQuery = '';
+    let showViolationDropdown = false;
+    let selectedViolation: any = null;
+    
+    // Check if IN2 is selected from sidebar (no violation passed)
+    $: needsViolationSelector = incidentType === 'IN2' && !violation;
+    
+    // Load violations when IN2 is selected from sidebar
+    $: if (needsViolationSelector && violations.length === 0) {
+        loadViolations();
+    }
+    
+    async function loadViolations() {
+        try {
+            const { supabase } = await import('$lib/utils/supabase');
+            const { data, error } = await supabase
+                .from('warning_violation')
+                .select('id, name_en, name_ar')
+                .order('name_en');
+            
+            if (error) throw error;
+            violations = data || [];
+        } catch (err) {
+            console.error('Error loading violations:', err);
+            violations = [];
+        }
+    }
+    
+    // Filter violations based on search
+    $: filteredViolations = violations.filter(v => {
+        if (!violationSearchQuery.trim()) return true;
+        const query = violationSearchQuery.toLowerCase();
+        return (v.name_en?.toLowerCase().includes(query) || v.name_ar?.includes(query));
+    });
+    
+    function selectViolation(v: any) {
+        selectedViolation = v;
+        violationSearchQuery = $locale === 'ar' ? v.name_ar : v.name_en;
+        showViolationDropdown = false;
+    }
+    
+    function clearViolation() {
+        selectedViolation = null;
+        violationSearchQuery = '';
+    }
+    
+    // Local employees list (loaded from DB when employees prop is empty)
+    let localEmployees: any[] = [];
+    let localBranches: any[] = [];
+    
+    // Use passed employees/branches or load from DB
+    $: availableEmployees = employees.length > 0 ? employees : localEmployees;
+    $: availableBranches = branches.length > 0 ? branches : localBranches;
+    
+    // Load employees when needed
+    $: if (employees.length === 0 && localEmployees.length === 0) {
+        loadEmployees();
+    }
+    
+    async function loadEmployees() {
+        try {
+            const { supabase } = await import('$lib/utils/supabase');
+            const { data, error } = await supabase
+                .from('hr_employee_master')
+                .select('id, name_en, name_ar, id_number')
+                .order('name_en');
+            
+            if (error) throw error;
+            localEmployees = data || [];
+            console.log('Loaded employees:', localEmployees.length);
+        } catch (err) {
+            console.error('Error loading employees:', err);
+            localEmployees = [];
+        }
+    }
+    
     onMount(async () => {
         await loadIncidentTypes();
         await loadBranches();
+        if (employees.length === 0) {
+            await loadEmployees();
+        }
     });
     
     async function loadBranches() {
@@ -48,7 +129,7 @@
                 .order('name_en');
             
             if (error) throw error;
-            branches = data || [];
+            localBranches = data || [];
         } catch (err) {
             console.error('Error loading branches:', err);
         }
@@ -84,9 +165,6 @@
     }
     
     $: filteredIncidentTypes = incidentTypes.filter(type => {
-        // Hide Employee Incidents (IN2) when opened from sidebar (no violation)
-        if (!violation && type.id === 'IN2') return false;
-        
         if (!incidentTypeSearchQuery.trim()) return true;
         const query = incidentTypeSearchQuery.toLowerCase();
         return (type.incident_type_en?.toLowerCase().includes(query) || 
@@ -115,13 +193,13 @@
         incidentTypeSearchQuery = '';
     }
 
-    $: filteredEmployees = employees.filter(emp => {
+    $: filteredEmployees = availableEmployees.filter(emp => {
         if (!employeeSearchQuery.trim()) return true;
         const query = employeeSearchQuery.toLowerCase();
         return (emp.name_en?.toLowerCase().includes(query) || 
                 emp.name_ar?.toLowerCase().includes(query) ||
                 emp.id?.toLowerCase().includes(query) ||
-                emp.employee_id?.toLowerCase().includes(query));
+                emp.id_number?.toLowerCase().includes(query));
     });
 
     function selectEmployee(emp: any) {
@@ -220,8 +298,11 @@
     async function handleReportIncident() {
         const isEmployeeIncident = incidentType === 'IN2';
         
+        // Get the active violation (passed prop or selected from dropdown)
+        const activeViolation = violation || selectedViolation;
+        
         // Validation for employee incidents
-        if (isEmployeeIncident && (!selectedEmployee || !violation || !selectedBranch || !whatHappened.trim())) {
+        if (isEmployeeIncident && (!selectedEmployee || !activeViolation || !selectedBranch || !whatHappened.trim())) {
             alert($locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
             return;
         }
@@ -354,7 +435,7 @@
                     incident_type_id: incidentType,
                     employee_id: isEmployeeIncident ? selectedEmployee : null,
                     branch_id: selectedBranch,
-                    violation_id: isEmployeeIncident && violation ? violation.id : null,
+                    violation_id: isEmployeeIncident && activeViolation ? activeViolation.id : null,
                     what_happened: {
                         description: whatHappened,
                         created_at: new Date().toISOString()
@@ -411,8 +492,8 @@
                     ? `${branchData.name_ar} - ${branchData.location_ar}`
                     : branchData?.name_ar || 'فرع غير معروف';
                 
-                const violationName = violation?.name_en || 'Unknown Violation';
-                const violationNameAr = violation?.name_ar || 'انتهاك غير معروف';
+                const violationName = activeViolation?.name_en || 'Unknown Violation';
+                const violationNameAr = activeViolation?.name_ar || 'انتهاك غير معروف';
                 
                 // Build related party description for non-employee incidents
                 let relatedPartyDesc = '';
@@ -557,6 +638,8 @@
             relatedPartyDetails = '';
             customerName = '';
             customerContact = '';
+            selectedViolation = null;
+            violationSearchQuery = '';
             
         } catch (err) {
             console.error('Error saving incident:', err);
@@ -626,11 +709,51 @@
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة واختيار الموظف' : 'Violation & Select Employee'}</label>
             <div class="flex items-center gap-3">
                 {#if violation}
+                    <!-- Violation passed from Discipline - show as static badge -->
                     <div class="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 flex items-center gap-2 flex-shrink-0">
                         <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
                         <div class="text-xs">
                             <span class="font-medium text-slate-900">{$locale === 'ar' ? violation.name_ar : violation.name_en}</span>
                         </div>
+                    </div>
+                {:else if needsViolationSelector}
+                    <!-- IN2 selected from sidebar - show violation search -->
+                    <div class="flex-1 relative">
+                        <div class="relative">
+                            <input 
+                                type="text" 
+                                bind:value={violationSearchQuery}
+                                on:focus={() => showViolationDropdown = true}
+                                placeholder={$locale === 'ar' ? 'بحث عن مخالفة...' : 'Search violation...'}
+                                class="w-full px-3 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-orange-300 transition bg-orange-50 pr-8"
+                            />
+                            {#if selectedViolation}
+                                <button 
+                                    type="button"
+                                    on:click={clearViolation}
+                                    class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg"
+                                >×</button>
+                            {:else}
+                                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 text-sm">⚠</span>
+                            {/if}
+                        </div>
+                        {#if showViolationDropdown && !selectedViolation}
+                            <div class="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-orange-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                {#if filteredViolations.length === 0}
+                                    <div class="px-3 py-2 text-sm text-slate-500">{$locale === 'ar' ? 'لم يتم العثور على مخالفات' : 'No violations found'}</div>
+                                {:else}
+                                    {#each filteredViolations as v}
+                                        <button 
+                                            type="button"
+                                            on:click={() => selectViolation(v)}
+                                            class="w-full px-3 py-2 text-left text-sm hover:bg-orange-50 border-b border-slate-100 last:border-b-0 transition"
+                                        >
+                                            <span class="font-medium text-slate-900">{$locale === 'ar' ? (v.name_ar || v.name_en) : v.name_en}</span>
+                                        </button>
+                                    {/each}
+                                {/if}
+                            </div>
+                        {/if}
                     </div>
                 {/if}
                 <div class="flex-1 relative">
@@ -671,6 +794,12 @@
                     {/if}
                 </div>
             </div>
+            {#if selectedViolation}
+                <div class="mt-2 bg-orange-50 border border-orange-200 rounded px-3 py-1.5 flex items-center gap-2">
+                    <div class="w-1 h-6 bg-orange-500 rounded-full"></div>
+                    <span class="text-xs font-medium text-slate-900">{$locale === 'ar' ? selectedViolation.name_ar : selectedViolation.name_en}</span>
+                </div>
+            {/if}
         </div>
         {/if}
 
@@ -704,7 +833,7 @@
                         class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
                     >
                         <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
-                        {#each branches as branch}
+                        {#each availableBranches as branch}
                             <option value={branch.id}>
                                 {$locale === 'ar' 
                                     ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
@@ -867,7 +996,7 @@
                     class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
                 >
                     <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
-                    {#each branches as branch}
+                    {#each availableBranches as branch}
                         <option value={branch.id}>
                             {$locale === 'ar' 
                                 ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
