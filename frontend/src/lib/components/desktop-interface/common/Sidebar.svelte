@@ -99,6 +99,8 @@
 	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
 	import LeavesAndVacations from '$lib/components/desktop-interface/master/hr/LeavesAndVacations.svelte';
 	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
+	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
+	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
 	import LeaveRequest from '$lib/components/desktop-interface/master/hr/LeaveRequest.svelte';
 	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
 	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
@@ -858,6 +860,57 @@
 			minimizable: true,
 			maximizable: true,
 			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openIncidentManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('incident-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Incident Manager #${instanceNumber}`,
+			component: IncidentManager,
+			icon: '🚨',
+			size: { width: 1200, height: 750 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showHRSubmenu = false;
+	}
+
+	function openReportIncident() {
+		collapseAllMenus();
+		const windowId = generateWindowId('report-incident');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		
+		openWindow({
+			id: windowId,
+			title: `Report Incident #${instanceNumber}`,
+			component: ReportIncident,
+			icon: '📝',
+			size: { width: 900, height: 700 },
+			position: { 
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			props: {
+				violation: null,
+				employees: [],
+				branches: []
+			}
 		});
 		showHRSubmenu = false;
 	}
@@ -3521,6 +3574,22 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDiscipline}>
 								<span class="menu-icon">⚖️</span>
 								<span class="menu-text">{t('nav.discipline')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('INCIDENT_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openIncidentManager}>
+								<span class="menu-icon">🚨</span>
+								<span class="menu-text">{t('nav.incidentManager')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('REPORT_INCIDENT')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openReportIncident}>
+								<span class="menu-icon">📝</span>
+								<span class="menu-text">{t('nav.reportIncident')}</span>
 							</button>
 						</div>
 					{/if}

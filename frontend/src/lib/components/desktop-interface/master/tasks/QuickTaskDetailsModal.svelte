@@ -10,7 +10,7 @@
 	let loading = true;
 	let taskAttachments = []; // For FileDownload component
 	let incidentData = null;
-	let incidentImageUrl = null;
+	let incidentAttachments = [];
 
 	// Get current user data
 	$: currentUserData = $currentUser;
@@ -22,14 +22,14 @@
 				if (task.incident_id) {
 					const { data: incident, error: incidentError } = await supabase
 						.from('incidents')
-						.select('id, incident_types(incident_type_en, incident_type_ar), image_url, employee_id, branch_id')
+						.select('id, incident_types(incident_type_en, incident_type_ar), attachments, employee_id, branch_id')
 						.eq('id', task.incident_id)
 						.single();
 					
 					if (incident && !incidentError) {
 						incidentData = incident;
-						incidentImageUrl = incident.image_url;
-						console.log('📸 [QuickTaskDetails] Incident image loaded:', incidentImageUrl);
+						incidentAttachments = incident.attachments || [];
+						console.log('📎 [QuickTaskDetails] Incident attachments loaded:', incidentAttachments.length);
 					}
 				}
 
@@ -207,19 +207,36 @@
 			</div>
 		</div>
 
-		<!-- Task Files Section -->
-		{#if incidentImageUrl}
+		<!-- Incident Attachments Section -->
+		{#if incidentAttachments && incidentAttachments.length > 0}
 			<div class="space-y-4">
-				<h3 class="text-lg font-semibold text-gray-900 border-b pb-2">📸 Incident Image</h3>
-				<div class="rounded-lg overflow-hidden border border-gray-200 max-w-md">
-					<img src={incidentImageUrl} alt="Incident" class="w-full h-auto object-cover" />
-					{#if incidentData}
-						<div class="bg-gray-50 p-3 text-sm text-gray-600 border-t">
-							<p><strong>Incident:</strong> {incidentData.id}</p>
-							<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
-						</div>
-					{/if}
+				<h3 class="text-lg font-semibold text-gray-900 border-b pb-2">📎 Incident Attachments ({incidentAttachments.length})</h3>
+				<div class="flex flex-col gap-3">
+					{#each incidentAttachments as attachment}
+						{#if attachment.type === 'image'}
+							<div class="rounded-lg overflow-hidden border border-gray-200 group cursor-pointer hover:shadow-md transition bg-gray-50">
+								<img src={attachment.url} alt={attachment.name || 'Incident attachment'} class="w-full h-auto max-h-80 object-contain" />
+								<div class="bg-gray-50 p-2 text-xs text-gray-600 truncate border-t">{attachment.name || 'Image'}</div>
+							</div>
+						{:else}
+							<a 
+								href={attachment.url} 
+								target="_blank" 
+								rel="noopener noreferrer" 
+								class="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition"
+							>
+								<span class="text-2xl">{attachment.type === 'pdf' ? '📄' : '📁'}</span>
+								<span class="text-sm text-gray-700">{attachment.name || 'File'}</span>
+							</a>
+						{/if}
+					{/each}
 				</div>
+				{#if incidentData}
+					<div class="bg-gray-50 p-3 text-sm text-gray-600 border rounded-lg">
+						<p><strong>Incident:</strong> {incidentData.id}</p>
+						<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
+					</div>
+				{/if}
 			</div>
 		{/if}
 

@@ -17,7 +17,7 @@
 	let fileInput;
 	let uploadingFiles = false;
 	let incidentData = null;
-	let incidentImageUrl = null;
+	let incidentAttachments = [];
 
 	// Completion requirements
 	let requirePhotoUpload = false;
@@ -59,14 +59,14 @@
 			if (data.quick_tasks?.incident_id) {
 				const { data: incident, error: incidentError } = await supabase
 					.from('incidents')
-					.select('id, incident_types(incident_type_en, incident_type_ar), image_url, employee_id, branch_id')
+					.select('id, incident_types(incident_type_en, incident_type_ar), attachments, employee_id, branch_id')
 					.eq('id', data.quick_tasks.incident_id)
 					.single();
 				
 				if (incident && !incidentError) {
 					incidentData = incident;
-					incidentImageUrl = incident.image_url;
-					console.log('📸 [CompletionDialog] Incident image loaded:', incidentImageUrl);
+					incidentAttachments = incident.attachments || [];
+					console.log('📎 [CompletionDialog] Incident attachments loaded:', incidentAttachments.length);
 				}
 			}
 		} catch (error) {
@@ -267,19 +267,31 @@
 				{/if}
 			</div>
 
-			<!-- Incident Image (if attached) -->
-			{#if incidentImageUrl}
-				<div class="incident-image-section">
-					<h4>📸 Incident Image</h4>
-					<div class="incident-image-container">
-						<img src={incidentImageUrl} alt="Incident" class="incident-image" />
-						{#if incidentData}
-							<div class="incident-info">
-								<p><strong>Incident ID:</strong> {incidentData.id}</p>
-								<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
-							</div>
-						{/if}
+			<!-- Incident Attachments (if any) -->
+			{#if incidentAttachments && incidentAttachments.length > 0}
+				<div class="incident-attachments-section">
+					<h4>📎 Incident Attachments ({incidentAttachments.length})</h4>
+					<div class="attachments-grid">
+						{#each incidentAttachments as attachment}
+							{#if attachment.type === 'image'}
+								<div class="attachment-item image">
+									<img src={attachment.url} alt={attachment.name || 'Incident attachment'} class="attachment-image" />
+									<span class="attachment-name">{attachment.name || 'Image'}</span>
+								</div>
+							{:else}
+								<a href={attachment.url} target="_blank" rel="noopener noreferrer" class="attachment-item file">
+									<span class="file-icon">{attachment.type === 'pdf' ? '📄' : '📁'}</span>
+									<span class="attachment-name">{attachment.name || 'File'}</span>
+								</a>
+							{/if}
+						{/each}
 					</div>
+					{#if incidentData}
+						<div class="incident-info">
+							<p><strong>Incident ID:</strong> {incidentData.id}</p>
+							<p><strong>Type:</strong> {incidentData.incident_types?.incident_type_en || 'Unknown'}</p>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -671,7 +683,7 @@
 		to { transform: rotate(360deg); }
 	}
 
-	.incident-image-section {
+	.incident-attachments-section {
 		margin-top: 20px;
 		margin-bottom: 20px;
 		padding: 16px;
@@ -680,28 +692,64 @@
 		border-radius: 8px;
 	}
 
-	.incident-image-section h4 {
+	.incident-attachments-section h4 {
 		margin: 0 0 12px 0;
 		font-size: 14px;
 		font-weight: 600;
 		color: #1e40af;
 	}
 
-	.incident-image-container {
+	.attachments-grid {
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
+		margin-bottom: 12px;
 	}
 
-	.incident-image {
-		max-width: 100%;
-		max-height: 300px;
-		width: auto;
-		height: auto;
+	.attachment-item {
+		display: flex;
+		flex-direction: column;
 		border-radius: 6px;
-		border: 1px solid #bfdbfe;
-		object-fit: contain;
+		overflow: hidden;
 		background: white;
+		border: 1px solid #bfdbfe;
+		transition: box-shadow 0.2s;
+	}
+
+	.attachment-item:hover {
+		box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+	}
+
+	.attachment-item.image .attachment-image {
+		width: 100%;
+		height: auto;
+		max-height: 300px;
+		object-fit: contain;
+		background: #f9fafb;
+	}
+
+	.attachment-item.file {
+		flex-direction: row;
+		align-items: center;
+		gap: 12px;
+		padding: 12px;
+		text-decoration: none;
+		cursor: pointer;
+	}
+
+	.attachment-item .file-icon {
+		font-size: 1.5rem;
+		flex-shrink: 0;
+	}
+
+	.attachment-name {
+		font-size: 12px;
+		color: #374151;
+		padding: 8px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		border-top: 1px solid #e5e7eb;
 	}
 
 	.incident-info {

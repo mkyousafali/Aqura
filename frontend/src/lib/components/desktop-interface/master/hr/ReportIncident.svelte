@@ -1,6 +1,7 @@
 <script lang="ts">
     import { t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
+    import { onMount } from 'svelte';
     
     export let violation: any;
     export let employees: any[] = [];
@@ -15,10 +16,104 @@
     let showEmployeeDropdown = false;
     let whatHappened = '';
     let proofWitness = '';
-    let incidentType = 'IN2'; // Default to Employee Incidents since this is ReportIncident (employee-related)
+    let incidentType = ''; // Will be set to IN2 only if opened from Discipline (with violation)
     let attachments: File[] = [];
     let attachmentPreviews: { file: File; url: string; type: string }[] = [];
     let isUploadingAttachments = false;
+    
+    // Incident type selector
+    let incidentTypes: any[] = [];
+    let incidentTypeSearchQuery = '';
+    let showIncidentTypeDropdown = false;
+    let loadingIncidentTypes = false;
+    let selectedIncidentType: any = null;
+    
+    // Related party fields (for non-employee incidents)
+    let relatedPartyDetails = '';
+    let customerName = '';
+    let customerContact = '';
+    
+    onMount(async () => {
+        await loadIncidentTypes();
+        await loadBranches();
+    });
+    
+    async function loadBranches() {
+        try {
+            const { supabase } = await import('$lib/utils/supabase');
+            const { data, error } = await supabase
+                .from('branches')
+                .select('id, name_en, name_ar, location_en, location_ar')
+                .eq('is_active', true)
+                .order('name_en');
+            
+            if (error) throw error;
+            branches = data || [];
+        } catch (err) {
+            console.error('Error loading branches:', err);
+        }
+    }
+    
+    async function loadIncidentTypes() {
+        loadingIncidentTypes = true;
+        try {
+            const { supabase } = await import('$lib/utils/supabase');
+            const { data, error } = await supabase
+                .from('incident_types')
+                .select('*')
+                .eq('is_active', true)
+                .order('id');
+            
+            if (error) throw error;
+            incidentTypes = data || [];
+            
+            // Only auto-select incident type if opened from Discipline (violation is passed)
+            if (violation) {
+                incidentType = 'IN2'; // Employee Incidents
+                selectedIncidentType = incidentTypes.find(t => t.id === 'IN2') || null;
+                if (selectedIncidentType) {
+                    incidentTypeSearchQuery = $locale === 'ar' ? selectedIncidentType.incident_type_ar : selectedIncidentType.incident_type_en;
+                }
+            }
+        } catch (err) {
+            console.error('Error loading incident types:', err);
+            incidentTypes = [];
+        } finally {
+            loadingIncidentTypes = false;
+        }
+    }
+    
+    $: filteredIncidentTypes = incidentTypes.filter(type => {
+        // Hide Employee Incidents (IN2) when opened from sidebar (no violation)
+        if (!violation && type.id === 'IN2') return false;
+        
+        if (!incidentTypeSearchQuery.trim()) return true;
+        const query = incidentTypeSearchQuery.toLowerCase();
+        return (type.incident_type_en?.toLowerCase().includes(query) || 
+                type.incident_type_ar?.toLowerCase().includes(query) ||
+                type.id?.toLowerCase().includes(query));
+    }).sort((a, b) => {
+        // Customer-related types (IN1, IN9) at the top
+        const customerTypes = ['IN1', 'IN9'];
+        const aIsCustomer = customerTypes.includes(a.id);
+        const bIsCustomer = customerTypes.includes(b.id);
+        if (aIsCustomer && !bIsCustomer) return -1;
+        if (!aIsCustomer && bIsCustomer) return 1;
+        return a.id.localeCompare(b.id);
+    });
+    
+    function selectIncidentType(type: any) {
+        selectedIncidentType = type;
+        incidentType = type.id;
+        incidentTypeSearchQuery = $locale === 'ar' ? type.incident_type_ar : type.incident_type_en;
+        showIncidentTypeDropdown = false;
+    }
+    
+    function clearIncidentType() {
+        selectedIncidentType = null;
+        incidentType = '';
+        incidentTypeSearchQuery = '';
+    }
 
     $: filteredEmployees = employees.filter(emp => {
         if (!employeeSearchQuery.trim()) return true;
@@ -123,8 +218,23 @@
     }
 
     async function handleReportIncident() {
-        if (!selectedEmployee || !violation || !selectedBranch || !whatHappened.trim()) {
+        const isEmployeeIncident = incidentType === 'IN2';
+        
+        // Validation for employee incidents
+        if (isEmployeeIncident && (!selectedEmployee || !violation || !selectedBranch || !whatHappened.trim())) {
             alert($locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+            return;
+        }
+        
+        // Validation for non-employee incidents
+        if (!isEmployeeIncident && (!incidentType || !selectedBranch || !whatHappened.trim())) {
+            alert($locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+            return;
+        }
+        
+        // Validation for customer incidents - require name and contact
+        if ((incidentType === 'IN1' || incidentType === 'IN9') && (!customerName.trim() || !customerContact.trim())) {
+            alert($locale === 'ar' ? 'يرجى إدخال اسم العميل ورقم الاتصال' : 'Please enter customer name and contact number');
             return;
         }
         
@@ -185,11 +295,26 @@
             }
             const incidentId = `INS${nextIncidentNum}`;
             
-            // Fetch users who can receive employee incidents
+            // Map incident type to the correct permission column
+            const incidentTypeToPermission: Record<string, string> = {
+                'IN1': 'can_receive_customer_incidents',
+                'IN2': 'can_receive_employee_incidents',
+                'IN3': 'can_receive_maintenance_incidents',
+                'IN4': 'can_receive_vendor_incidents',
+                'IN5': 'can_receive_vehicle_incidents',
+                'IN6': 'can_receive_government_incidents',
+                'IN7': 'can_receive_other_incidents',
+                'IN8': 'can_receive_finance_incidents',
+                'IN9': 'can_receive_pos_incidents'
+            };
+            
+            const permissionColumn = incidentTypeToPermission[incidentType] || 'can_receive_other_incidents';
+            
+            // Fetch users who can receive this incident type
             const { data: permissions, error: permError } = await supabase
                 .from('approval_permissions')
                 .select('user_id')
-                .eq('can_receive_employee_incidents', true)
+                .eq(permissionColumn, true)
                 .eq('is_active', true);
             
             if (permError) throw permError;
@@ -206,15 +331,30 @@
                 };
             });
             
+            // Build related_party object based on incident type
+            let relatedParty = null;
+            if (incidentType === 'IN1' || incidentType === 'IN9') {
+                // Customer/POS incidents - store name and contact
+                relatedParty = {
+                    name: customerName.trim(),
+                    contact_number: customerContact.trim()
+                };
+            } else if (incidentType !== 'IN2' && relatedPartyDetails.trim()) {
+                // Other non-employee incidents - store details
+                relatedParty = {
+                    details: relatedPartyDetails.trim()
+                };
+            }
+            
             // Create the incident report
             const { error: insertError } = await supabase
                 .from('incidents')
                 .insert([{
                     id: incidentId,
                     incident_type_id: incidentType,
-                    employee_id: selectedEmployee,
+                    employee_id: isEmployeeIncident ? selectedEmployee : null,
                     branch_id: selectedBranch,
-                    violation_id: violation.id,
+                    violation_id: isEmployeeIncident && violation ? violation.id : null,
                     what_happened: {
                         description: whatHappened,
                         created_at: new Date().toISOString()
@@ -223,7 +363,8 @@
                         details: proofWitness,
                         recorded_at: new Date().toISOString()
                     } : null,
-                    report_type: 'employee_related',
+                    related_party: relatedParty,
+                    report_type: isEmployeeIncident ? 'employee_related' : 'general',
                     reports_to_user_ids: recipientUserIds,
                     resolution_status: 'reported',
                     user_statuses: userStatuses,
@@ -252,8 +393,16 @@
                 
                 const createdByName = createdUserData?.name_en || $currentUser?.email || 'System User';
                 const createdByNameAr = createdUserData?.name_ar || $currentUser?.email || 'مستخدم النظام';
-                const employeeName = selectedEmployeeDetails?.name_en || 'Unknown';
-                const employeeNameAr = selectedEmployeeDetails?.name_ar || 'غير معروف';
+                
+                // Get incident type name
+                const incidentTypeName = selectedIncidentType?.incident_type_en || 'Incident';
+                const incidentTypeNameAr = selectedIncidentType?.incident_type_ar || 'حادثة';
+                
+                // For employee incidents, use employee and violation info
+                // For non-employee incidents, use related party info
+                const isEmployeeIncident = incidentType === 'IN2';
+                const employeeName = isEmployeeIncident ? (selectedEmployeeDetails?.name_en || 'Unknown') : '';
+                const employeeNameAr = isEmployeeIncident ? (selectedEmployeeDetails?.name_ar || 'غير معروف') : '';
                 
                 const branchNameEn = branchData?.name_en && branchData?.location_en 
                     ? `${branchData.name_en} - ${branchData.location_en}`
@@ -265,21 +414,49 @@
                 const violationName = violation?.name_en || 'Unknown Violation';
                 const violationNameAr = violation?.name_ar || 'انتهاك غير معروف';
                 
-                // Get the user_id of the selected employee
-                const { data: employeeUser, error: empUserError } = await supabase
-                    .from('hr_employee_master')
-                    .select('user_id')
-                    .eq('id', selectedEmployee)
-                    .single();
+                // Build related party description for non-employee incidents
+                let relatedPartyDesc = '';
+                let relatedPartyDescAr = '';
+                if (incidentType === 'IN1' || incidentType === 'IN9') {
+                    relatedPartyDesc = `Customer: ${customerName}`;
+                    relatedPartyDescAr = `العميل: ${customerName}`;
+                } else if (!isEmployeeIncident && relatedPartyDetails.trim()) {
+                    relatedPartyDesc = relatedPartyDetails.trim().substring(0, 100);
+                    relatedPartyDescAr = relatedPartyDetails.trim().substring(0, 100);
+                }
                 
-                if (empUserError) {
-                    console.warn('⚠️ Could not fetch employee user_id:', empUserError);
+                // Get the user_id of the selected employee (only for employee incidents)
+                let employeeUserId = null;
+                if (isEmployeeIncident && selectedEmployee) {
+                    const { data: employeeUser, error: empUserError } = await supabase
+                        .from('hr_employee_master')
+                        .select('user_id')
+                        .eq('id', selectedEmployee)
+                        .single();
+                    
+                    if (empUserError) {
+                        console.warn('⚠️ Could not fetch employee user_id:', empUserError);
+                    } else {
+                        employeeUserId = employeeUser?.user_id;
+                    }
+                }
+                
+                // Build notification message based on incident type
+                let notificationMsgEn = '';
+                let notificationMsgAr = '';
+                
+                if (isEmployeeIncident) {
+                    notificationMsgEn = `New incident report (${incidentId}) from ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}`;
+                    notificationMsgAr = `تقرير حادثة جديد (${incidentId}) من ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`;
+                } else {
+                    notificationMsgEn = `New ${incidentTypeName} incident (${incidentId}) from ${createdByName} at ${branchNameEn}${relatedPartyDesc ? ` - ${relatedPartyDesc}` : ''}`;
+                    notificationMsgAr = `حادثة ${incidentTypeNameAr} جديدة (${incidentId}) من ${createdByNameAr} في ${branchNameAr}${relatedPartyDescAr ? ` - ${relatedPartyDescAr}` : ''}`;
                 }
                 
                 // Build notification array for recipients (bilingual - both at same time)
                 const notificationsList = recipientUserIds.map(userId => ({
                     title: '📋 New Incident Report | تقرير حادثة جديد',
-                    message: `New incident report (${incidentId}) from ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}\n---\nتقرير حادثة جديد (${incidentId}) من ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`,
+                    message: `${notificationMsgEn}\n---\n${notificationMsgAr}`,
                     type: 'info',
                     priority: 'normal',
                     target_type: 'specific_users',
@@ -287,15 +464,15 @@
                     created_at: new Date().toISOString()
                 }));
                 
-                // Add notification for the employee (reporting employee) - bilingual
-                if (employeeUser?.user_id) {
+                // Add notification for the employee (only for employee incidents)
+                if (isEmployeeIncident && employeeUserId) {
                     notificationsList.push({
                         title: '✅ Incident Report Submitted | تم إرسال تقرير الحادثة',
                         message: `Incident report (${incidentId}) submitted by ${createdByName} regarding you at ${branchNameEn} related to ${violationName}. Report ID: ${incidentId}\n---\nتم إرسال تقرير حادثة (${incidentId}) من ${createdByNameAr} بخصوصك في ${branchNameAr} المتعلق بـ ${violationNameAr}. رقم التقرير: ${incidentId}`,
                         type: 'success',
                         priority: 'normal',
                         target_type: 'specific_users',
-                        target_users: [employeeUser.user_id],
+                        target_users: [employeeUserId],
                         created_at: new Date().toISOString()
                     });
                 }
@@ -310,12 +487,24 @@
                 // Create quick tasks for recipients to acknowledge the incident
                 if (recipientUserIds.length > 0) {
                     try {
+                        // Build task description based on incident type
+                        let taskDescEn = '';
+                        let taskDescAr = '';
+                        
+                        if (isEmployeeIncident) {
+                            taskDescEn = `From ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}`;
+                            taskDescAr = `من ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`;
+                        } else {
+                            taskDescEn = `${incidentTypeName} incident from ${createdByName} at ${branchNameEn}${relatedPartyDesc ? ` - ${relatedPartyDesc}` : ''}`;
+                            taskDescAr = `حادثة ${incidentTypeNameAr} من ${createdByNameAr} في ${branchNameAr}${relatedPartyDescAr ? ` - ${relatedPartyDescAr}` : ''}`;
+                        }
+                        
                         // Create the quick task once
                         const { data: quickTaskData, error: taskCreateError } = await supabase
                             .from('quick_tasks')
                             .insert({
                                 title: `Acknowledge Incident | تأكيد الحادثة: ${incidentId}`,
-                                description: `From ${createdByName} regarding ${employeeName} at ${branchNameEn} related to ${violationName}\n---\nمن ${createdByNameAr} بخصوص ${employeeNameAr} في ${branchNameAr} المتعلق بـ ${violationNameAr}`,
+                                description: `${taskDescEn}\n---\n${taskDescAr}`,
                                 priority: 'high',
                                 issue_type: 'incident_acknowledgement',
                                 assigned_by: $currentUser.id,
@@ -365,6 +554,9 @@
             employeeSearchQuery = '';
             attachments = [];
             attachmentPreviews = [];
+            relatedPartyDetails = '';
+            customerName = '';
+            customerContact = '';
             
         } catch (err) {
             console.error('Error saving incident:', err);
@@ -377,7 +569,59 @@
 
 <div class="h-full flex flex-col bg-gradient-to-br from-blue-50 to-slate-50 font-sans">
     <div class="p-6 space-y-4 overflow-y-auto flex-1">
-        <!-- Violation & Employee Selection -->
+        <!-- Incident Type Selection -->
+        <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</label>
+            <div class="relative">
+                <div class="relative">
+                    <input 
+                        type="text" 
+                        bind:value={incidentTypeSearchQuery}
+                        on:focus={() => showIncidentTypeDropdown = true}
+                        placeholder={$locale === 'ar' ? 'اختر نوع الحادثة...' : 'Select incident type...'}
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition pr-8"
+                    />
+                    {#if selectedIncidentType}
+                        <button 
+                            type="button"
+                            on:click={clearIncidentType}
+                            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg"
+                        >×</button>
+                    {:else}
+                        <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">📌</span>
+                    {/if}
+                </div>
+                {#if showIncidentTypeDropdown && !selectedIncidentType}
+                    <div class="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {#if loadingIncidentTypes}
+                            <div class="px-3 py-2 text-sm text-slate-500">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</div>
+                        {:else if filteredIncidentTypes.length === 0}
+                            <div class="px-3 py-2 text-sm text-slate-500">{$locale === 'ar' ? 'لم يتم العثور على أنواع' : 'No types found'}</div>
+                        {:else}
+                            {#each filteredIncidentTypes as type}
+                                <button 
+                                    type="button"
+                                    on:click={() => selectIncidentType(type)}
+                                    class="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 border-b border-slate-100 last:border-b-0 transition flex items-center gap-2"
+                                >
+                                    <span class="text-blue-500 font-mono text-xs">{type.id}</span>
+                                    <span class="font-medium text-slate-900">{$locale === 'ar' ? type.incident_type_ar : type.incident_type_en}</span>
+                                </button>
+                            {/each}
+                        {/if}
+                    </div>
+                {/if}
+            </div>
+            {#if selectedIncidentType}
+                <div class="mt-2 bg-blue-50 border border-blue-200 rounded px-3 py-1.5 flex items-center gap-2">
+                    <span class="text-blue-600 font-mono text-xs font-bold">{selectedIncidentType.id}</span>
+                    <span class="text-sm text-slate-700">{$locale === 'ar' ? selectedIncidentType.incident_type_ar : selectedIncidentType.incident_type_en}</span>
+                </div>
+            {/if}
+        </div>
+        
+        <!-- Violation & Employee Selection - Only shown for Employee Incidents (IN2) or when opened from Discipline -->
+        {#if violation || incidentType === 'IN2'}
         <div>
             <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'المخالفة واختيار الموظف' : 'Violation & Select Employee'}</label>
             <div class="flex items-center gap-3">
@@ -428,8 +672,10 @@
                 </div>
             </div>
         </div>
+        {/if}
 
-        {#if selectedEmployee}
+        <!-- For Employee Incidents: Show form when employee is selected -->
+        {#if (violation || incidentType === 'IN2') && selectedEmployee}
             {#if loadingEmployee}
                 <div class="bg-slate-100 border border-slate-200 rounded px-3 py-1.5 flex items-center gap-2">
                     <div class="animate-spin w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full"></div>
@@ -557,10 +803,172 @@
                 </div>
             {/if}
         {/if}
+        
+        <!-- For Non-Employee Incidents (from sidebar): Show form directly when incident type is selected -->
+        {#if !violation && incidentType && incidentType !== 'IN2' && selectedIncidentType}
+            <!-- Related Party Details - Different fields based on incident type -->
+            {#if incidentType === 'IN1' || incidentType === 'IN9'}
+                <!-- Customer/POS Incidents: Show customer name and contact -->
+                <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-lg">👤</span>
+                        <span class="text-sm font-bold text-orange-700">{$locale === 'ar' ? 'تفاصيل العميل' : 'Customer Details'}</span>
+                    </div>
+                    <div>
+                        <label for="customer-name" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'اسم العميل *' : 'Customer Name *'}</label>
+                        <input 
+                            id="customer-name"
+                            type="text"
+                            bind:value={customerName}
+                            placeholder={$locale === 'ar' ? 'أدخل اسم العميل...' : 'Enter customer name...'}
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                        />
+                        {#if !customerName.trim()}
+                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                        {/if}
+                    </div>
+                    <div>
+                        <label for="customer-contact" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'رقم التواصل *' : 'Contact Number *'}</label>
+                        <input 
+                            id="customer-contact"
+                            type="tel"
+                            bind:value={customerContact}
+                            placeholder={$locale === 'ar' ? 'أدخل رقم التواصل...' : 'Enter contact number...'}
+                            class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-sm hover:border-slate-300 transition"
+                        />
+                        {#if !customerContact.trim()}
+                            <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                        {/if}
+                    </div>
+                </div>
+            {:else}
+                <!-- Other Incidents: Show general related party details -->
+                <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-lg">📋</span>
+                        <span class="text-sm font-bold text-purple-700">{$locale === 'ar' ? 'تفاصيل الطرف المعني' : 'Related Party Details'}</span>
+                    </div>
+                    <textarea 
+                        id="related-party-details"
+                        bind:value={relatedPartyDetails}
+                        placeholder={$locale === 'ar' ? 'أدخل تفاصيل الطرف المعني (الاسم، رقم التواصل، أي معلومات أخرى)...' : 'Enter related party details (name, contact, any other information)...'}
+                        rows="3"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm resize-none"
+                    ></textarea>
+                </div>
+            {/if}
+            
+            <!-- Branch Selection for Non-Employee Incidents -->
+            <div>
+                <label for="branch-select-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">{$locale === 'ar' ? 'اختيار الفرع *' : 'Select Branch *'}</label>
+                <select 
+                    id="branch-select-other"
+                    bind:value={selectedBranch}
+                    class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition"
+                >
+                    <option value="">{$locale === 'ar' ? 'اختر الفرع...' : 'Select Branch...'}</option>
+                    {#each branches as branch}
+                        <option value={branch.id}>
+                            {$locale === 'ar' 
+                                ? `${branch.name_ar || branch.name_en} - ${branch.location_ar || branch.location_en}` 
+                                : `${branch.name_en} - ${branch.location_en}`}
+                        </option>
+                    {/each}
+                </select>
+                {#if !selectedBranch}
+                    <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                {/if}
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label for="what-happened-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'ماذا حدث؟ *' : 'What Happened? *'}</label>
+                    <textarea 
+                        id="what-happened-other"
+                        bind:value={whatHappened}
+                        placeholder={$locale === 'ar' ? 'صف ما حدث...' : 'Describe what happened...'}
+                        rows="3"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
+                    ></textarea>
+                    {#if !whatHappened.trim()}
+                        <p class="text-xs text-red-600 mt-1">{$locale === 'ar' ? 'هذا الحقل مطلوب' : 'This field is required'}</p>
+                    {/if}
+                </div>
+                <div>
+                    <label for="proof-witness-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">{$locale === 'ar' ? 'الإثبات / الشاهد' : 'Proof / Witness'}</label>
+                    <textarea 
+                        id="proof-witness-other"
+                        bind:value={proofWitness}
+                        placeholder={$locale === 'ar' ? 'أدخل تفاصيل الإثبات أو الشاهد...' : 'Enter proof or witness details...'}
+                        rows="2"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
+                    ></textarea>
+                </div>
+                
+                <!-- Attachments Upload Section for Non-Employee Incidents -->
+                <div>
+                    <label for="attachments-upload-other" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📎 {$locale === 'ar' ? 'المرفقات (اختياري - غير محدود)' : 'Attachments (Optional - Unlimited)'}</label>
+                    <div class="flex gap-2">
+                        <input 
+                            id="attachments-upload-other"
+                            type="file" 
+                            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                            multiple
+                            on:change={handleAttachmentSelect}
+                            disabled={isUploadingAttachments}
+                            class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition cursor-pointer disabled:opacity-50"
+                        />
+                        {#if attachments.length > 0}
+                            <button 
+                                type="button"
+                                on:click={clearAllAttachments}
+                                disabled={isUploadingAttachments}
+                                class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-bold disabled:opacity-50 transition"
+                            >
+                                {$locale === 'ar' ? 'مسح الكل' : 'Clear All'}
+                            </button>
+                        {/if}
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">{$locale === 'ar' ? 'يمكنك رفع صور أو PDF أو مستندات (حد أقصى 10 ميجابايت لكل ملف)' : 'You can upload images, PDFs, or documents (max 10MB per file)'}</p>
+                    
+                    {#if attachments.length > 0}
+                        <div class="mt-2 space-y-2">
+                            <p class="text-xs font-bold text-green-600">✓ {attachments.length} {$locale === 'ar' ? 'ملف(ات) محددة' : 'file(s) selected'}</p>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                {#each attachmentPreviews as preview, index}
+                                    <div class="relative group border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                                        {#if preview.type === 'image' && preview.url}
+                                            <img src={preview.url} alt="Preview" class="w-full h-24 object-cover" />
+                                        {:else if preview.type === 'pdf'}
+                                            <div class="w-full h-24 flex items-center justify-center bg-red-50">
+                                                <span class="text-3xl">📄</span>
+                                            </div>
+                                        {:else}
+                                            <div class="w-full h-24 flex items-center justify-center bg-blue-50">
+                                                <span class="text-3xl">📁</span>
+                                            </div>
+                                        {/if}
+                                        <div class="p-1 bg-white border-t">
+                                            <p class="text-xs text-slate-600 truncate">{preview.file.name}</p>
+                                            <p class="text-xs text-slate-400">{(preview.file.size / 1024).toFixed(1)} KB</p>
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            on:click={() => removeAttachment(index)}
+                                            class="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                                        >×</button>
+                                    </div>
+                                {/each}
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+            </div>
+        {/if}
     </div>
 
     <div class="px-8 py-5 bg-white border-t-2 border-slate-200 flex gap-4 justify-end flex-shrink-0 shadow-lg">
-        <button disabled={!selectedEmployee || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95" on:click={handleReportIncident}>
+        <button disabled={(!selectedEmployee && (violation || incidentType === 'IN2')) || (!selectedBranch && incidentType && incidentType !== 'IN2') || isSaving} class="px-8 py-2.5 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105 active:scale-95" on:click={handleReportIncident}>
             {isSaving ? ($locale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : ($locale === 'ar' ? 'الإبلاغ عن الحادثة' : 'Report Incident')}
         </button>
     </div>
