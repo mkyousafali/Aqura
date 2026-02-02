@@ -16,9 +16,9 @@
     let whatHappened = '';
     let proofWitness = '';
     let incidentType = 'IN2'; // Default to Employee Incidents since this is ReportIncident (employee-related)
-    let selectedImage: File | null = null;
-    let imagePreviewUrl: string | null = null;
-    let isUploadingImage = false;
+    let attachments: File[] = [];
+    let attachmentPreviews: { file: File; url: string; type: string }[] = [];
+    let isUploadingAttachments = false;
 
     $: filteredEmployees = employees.filter(emp => {
         if (!employeeSearchQuery.trim()) return true;
@@ -70,35 +70,56 @@
         loadEmployeeDetails();
     }
 
-    function handleImageSelect(e: Event) {
+    function handleAttachmentSelect(e: Event) {
         const input = e.target as HTMLInputElement;
-        const file = input.files?.[0];
+        const files = input.files;
         
-        if (file) {
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                alert($locale === 'ar' ? 'يرجى تحديد ملف صورة صحيح' : 'Please select a valid image file');
-                return;
+        if (files && files.length > 0) {
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                
+                // Validate file size (max 10MB per file)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert($locale === 'ar' ? `حجم الملف "${file.name}" أكبر من 10 ميجابايت` : `File "${file.name}" exceeds 10MB`);
+                    continue;
+                }
+                
+                // Add to attachments array
+                attachments = [...attachments, file];
+                
+                // Create preview for images
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        attachmentPreviews = [...attachmentPreviews, {
+                            file,
+                            url: e.target?.result as string,
+                            type: 'image'
+                        }];
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    // Non-image file preview
+                    attachmentPreviews = [...attachmentPreviews, {
+                        file,
+                        url: '',
+                        type: file.type.includes('pdf') ? 'pdf' : 'file'
+                    }];
+                }
             }
-            
-            // Validate file size (max 10MB)
-            if (file.size > 10 * 1024 * 1024) {
-                alert($locale === 'ar' ? 'حجم الصورة أكبر من 10 ميجابايت' : 'Image size exceeds 10MB');
-                return;
-            }
-            
-            selectedImage = file;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                imagePreviewUrl = e.target?.result as string;
-            };
-            reader.readAsDataURL(file);
+            // Reset input to allow selecting the same file again
+            input.value = '';
         }
     }
 
-    function clearImage() {
-        selectedImage = null;
-        imagePreviewUrl = null;
+    function removeAttachment(index: number) {
+        attachments = attachments.filter((_, i) => i !== index);
+        attachmentPreviews = attachmentPreviews.filter((_, i) => i !== index);
+    }
+
+    function clearAllAttachments() {
+        attachments = [];
+        attachmentPreviews = [];
     }
 
     async function handleReportIncident() {
@@ -113,30 +134,40 @@
         }
         
         isSaving = true;
-        let uploadedImageUrl: string | null = null;
+        let uploadedAttachments: any[] = [];
         
         try {
             const { supabase } = await import('$lib/utils/supabase');
             
-            // Upload image if selected
-            if (selectedImage) {
-                isUploadingImage = true;
-                const fileName = `incident-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${selectedImage.name.split('.').pop()}`;
-                const { data: uploadData, error: uploadError } = await supabase.storage
-                    .from('documents')
-                    .upload(`incidents/${fileName}`, selectedImage);
+            // Upload all attachments if any
+            if (attachments.length > 0) {
+                isUploadingAttachments = true;
                 
-                if (uploadError) {
-                    throw new Error(`Image upload failed: ${uploadError.message}`);
+                for (const file of attachments) {
+                    const fileName = `incident-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${file.name.split('.').pop()}`;
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('documents')
+                        .upload(`incidents/${fileName}`, file);
+                    
+                    if (uploadError) {
+                        console.warn(`Failed to upload ${file.name}:`, uploadError.message);
+                        continue;
+                    }
+                    
+                    // Get the public URL
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('documents')
+                        .getPublicUrl(`incidents/${fileName}`);
+                    
+                    uploadedAttachments.push({
+                        url: publicUrl,
+                        name: file.name,
+                        type: file.type.startsWith('image/') ? 'image' : (file.type.includes('pdf') ? 'pdf' : 'file'),
+                        size: file.size,
+                        uploaded_at: new Date().toISOString()
+                    });
                 }
-                
-                // Get the public URL
-                const { data: { publicUrl } } = supabase.storage
-                    .from('documents')
-                    .getPublicUrl(`incidents/${fileName}`);
-                
-                uploadedImageUrl = publicUrl;
-                isUploadingImage = false;
+                isUploadingAttachments = false;
             }
             
             // Get the next incident ID
@@ -196,7 +227,7 @@
                     reports_to_user_ids: recipientUserIds,
                     resolution_status: 'reported',
                     user_statuses: userStatuses,
-                    image_url: uploadedImageUrl,
+                    attachments: uploadedAttachments,
                     created_by: $currentUser.id,
                     updated_by: $currentUser.id
                 }]);
@@ -332,8 +363,8 @@
             whatHappened = '';
             proofWitness = '';
             employeeSearchQuery = '';
-            selectedImage = null;
-            imagePreviewUrl = null;
+            attachments = [];
+            attachmentPreviews = [];
             
         } catch (err) {
             console.error('Error saving incident:', err);
@@ -465,35 +496,61 @@
                         ></textarea>
                     </div>
                     
-                    <!-- Image Upload Section (Optional) -->
+                    <!-- Attachments Upload Section (Optional - Unlimited) -->
                     <div>
-                        <label for="image-upload" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📸 {$locale === 'ar' ? 'تحميل صورة (اختياري)' : 'Upload Image (Optional)'}</label>
+                        <label for="attachments-upload" class="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">📎 {$locale === 'ar' ? 'المرفقات (اختياري - غير محدود)' : 'Attachments (Optional - Unlimited)'}</label>
                         <div class="flex gap-2">
                             <input 
-                                id="image-upload"
+                                id="attachments-upload"
                                 type="file" 
-                                accept="image/*"
-                                on:change={handleImageSelect}
-                                disabled={isUploadingImage}
+                                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                                multiple
+                                on:change={handleAttachmentSelect}
+                                disabled={isUploadingAttachments}
                                 class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm hover:border-slate-300 transition cursor-pointer disabled:opacity-50"
                             />
-                            {#if selectedImage}
+                            {#if attachments.length > 0}
                                 <button 
                                     type="button"
-                                    on:click={clearImage}
-                                    disabled={isUploadingImage}
+                                    on:click={clearAllAttachments}
+                                    disabled={isUploadingAttachments}
                                     class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-bold disabled:opacity-50 transition"
                                 >
-                                    ✕
+                                    {$locale === 'ar' ? 'مسح الكل' : 'Clear All'}
                                 </button>
                             {/if}
                         </div>
-                        {#if selectedImage}
-                            <p class="text-xs text-green-600 mt-1">✓ {selectedImage.name}</p>
-                        {/if}
-                        {#if imagePreviewUrl}
-                            <div class="mt-2 rounded-lg overflow-hidden border border-slate-200">
-                                <img src={imagePreviewUrl} alt="Preview" class="w-full h-48 object-cover" />
+                        <p class="text-xs text-slate-500 mt-1">{$locale === 'ar' ? 'يمكنك رفع صور أو PDF أو مستندات (حد أقصى 10 ميجابايت لكل ملف)' : 'You can upload images, PDFs, or documents (max 10MB per file)'}</p>
+                        
+                        {#if attachments.length > 0}
+                            <div class="mt-2 space-y-2">
+                                <p class="text-xs font-bold text-green-600">✓ {attachments.length} {$locale === 'ar' ? 'ملف(ات) محددة' : 'file(s) selected'}</p>
+                                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                    {#each attachmentPreviews as preview, index}
+                                        <div class="relative group border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                                            {#if preview.type === 'image' && preview.url}
+                                                <img src={preview.url} alt="Preview" class="w-full h-24 object-cover" />
+                                            {:else if preview.type === 'pdf'}
+                                                <div class="w-full h-24 flex items-center justify-center bg-red-50">
+                                                    <span class="text-3xl">📄</span>
+                                                </div>
+                                            {:else}
+                                                <div class="w-full h-24 flex items-center justify-center bg-blue-50">
+                                                    <span class="text-3xl">📁</span>
+                                                </div>
+                                            {/if}
+                                            <div class="p-1 bg-white border-t">
+                                                <p class="text-xs text-slate-600 truncate">{preview.file.name}</p>
+                                                <p class="text-xs text-slate-400">{(preview.file.size / 1024).toFixed(1)} KB</p>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                on:click={() => removeAttachment(index)}
+                                                class="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                                            >×</button>
+                                        </div>
+                                    {/each}
+                                </div>
                             </div>
                         {/if}
                     </div>

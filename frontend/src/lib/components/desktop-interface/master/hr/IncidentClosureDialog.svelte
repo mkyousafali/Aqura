@@ -105,9 +105,19 @@
                 updated_at: new Date().toISOString()
             };
             
-            // If this is the first image upload for the incident, update the incident's image_url
-            if (uploadedImageUrl && !incident.image_url) {
-                updateData.image_url = uploadedImageUrl;
+            // Append the acknowledgment image to the attachments array
+            if (uploadedImageUrl) {
+                const currentAttachments = Array.isArray(incident.attachments) ? incident.attachments : [];
+                currentAttachments.push({
+                    url: uploadedImageUrl,
+                    name: selectedImage?.name || 'acknowledgment-image',
+                    type: 'image',
+                    size: selectedImage?.size || 0,
+                    uploaded_at: new Date().toISOString(),
+                    uploaded_by: $currentUser.id,
+                    context: 'acknowledgment'
+                });
+                updateData.attachments = currentAttachments;
             }
 
             const { error: updateError } = await supabase
@@ -257,13 +267,6 @@
                         <img src={imagePreviewUrl} alt="Preview" class="w-full h-32 object-cover" />
                     </div>
                 {/if}
-            </div>
-                    placeholder={$locale === 'ar' 
-                        ? 'أضف ملاحظاتك حول الحادثة...' 
-                        : 'Add your notes about the incident...'}
-                    class="w-full p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    rows="3"
-                />
             </div>
         </div>
 
