@@ -18,12 +18,14 @@
 	let hasPVPermission = false;
 	let hasReportsPermission = false;
 	let hasBranchPerformancePermission = false;
+	let hasIncidentManagerPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
 	let notificationCount = 0;
 	let assignmentCount = 0;
 	let approvalCount = 0;
+	let incidentCount = 0;
 	
 	// Global header notification count (separate from bottom nav)
 	let headerNotificationCount = 0;
@@ -40,6 +42,12 @@
 	
 	// HR Menu state
 	let showHRMenu = false;
+	
+	// Tasks Menu state
+	let showTasksMenu = false;
+	
+	// Emergencies Menu state
+	let showEmergenciesMenu = false;
 	
 	// Mobile version - will be extracted from full version
 	let mobileVersion = 'AQ14';
@@ -279,6 +287,45 @@
 					approvalCount = 0;
 				}
 			}
+			
+			// Load unresolved incident count - check permission directly
+			try {
+				// First check if user has any incident receive permission
+				const { data: incidentPerms } = await supabase
+					.from('approval_permissions')
+					.select('can_receive_customer_incidents, can_receive_employee_incidents, can_receive_maintenance_incidents, can_receive_vendor_incidents, can_receive_vehicle_incidents, can_receive_government_incidents, can_receive_other_incidents, can_receive_finance_incidents, can_receive_pos_incidents')
+					.eq('user_id', currentUserData.id)
+					.eq('is_active', true)
+					.single();
+				
+				const hasAnyIncidentPerm = incidentPerms && (
+					incidentPerms.can_receive_customer_incidents ||
+					incidentPerms.can_receive_employee_incidents ||
+					incidentPerms.can_receive_maintenance_incidents ||
+					incidentPerms.can_receive_vendor_incidents ||
+					incidentPerms.can_receive_vehicle_incidents ||
+					incidentPerms.can_receive_government_incidents ||
+					incidentPerms.can_receive_other_incidents ||
+					incidentPerms.can_receive_finance_incidents ||
+					incidentPerms.can_receive_pos_incidents
+				);
+				
+				if (hasAnyIncidentPerm) {
+					hasIncidentManagerPermission = true;
+					const { count: incCount } = await supabase
+						.from('incidents')
+						.select('id', { count: 'exact', head: true })
+						.contains('reports_to_user_ids', [currentUserData.id])
+						.neq('resolution_status', 'resolved');
+					incidentCount = incCount || 0;
+				} else {
+					hasIncidentManagerPermission = false;
+					incidentCount = 0;
+				}
+			} catch (incErr) {
+				console.warn('Error loading incident count:', incErr);
+				incidentCount = 0;
+			}
 
 		} catch (error) {
 			if (!silent) {
@@ -490,10 +537,53 @@
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
 			}
+			
+			// Check for incident manager permission from approval_permissions
+			await loadIncidentManagerPermission();
 		} catch (err) {
 			console.error('Error loading button permissions:', err);
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
+		}
+	}
+	
+	async function loadIncidentManagerPermission() {
+		if (!currentUserData?.id) {
+			hasIncidentManagerPermission = false;
+			return;
+		}
+		
+		try {
+			// Check if user has any incident receive permission
+			const { data, error } = await supabase
+				.from('approval_permissions')
+				.select('can_receive_customer_incidents, can_receive_employee_incidents, can_receive_maintenance_incidents, can_receive_vendor_incidents, can_receive_vehicle_incidents, can_receive_government_incidents, can_receive_other_incidents, can_receive_finance_incidents, can_receive_pos_incidents')
+				.eq('user_id', currentUserData.id)
+				.eq('is_active', true)
+				.single();
+			
+			if (error || !data) {
+				hasIncidentManagerPermission = false;
+				return;
+			}
+			
+			// Check if any incident permission is true
+			hasIncidentManagerPermission = (
+				data.can_receive_customer_incidents ||
+				data.can_receive_employee_incidents ||
+				data.can_receive_maintenance_incidents ||
+				data.can_receive_vendor_incidents ||
+				data.can_receive_vehicle_incidents ||
+				data.can_receive_government_incidents ||
+				data.can_receive_other_incidents ||
+				data.can_receive_finance_incidents ||
+				data.can_receive_pos_incidents
+			);
+			
+			console.log('✅ Mobile incident manager permission:', hasIncidentManagerPermission);
+		} catch (err) {
+			console.error('Error checking incident manager permission:', err);
+			hasIncidentManagerPermission = false;
 		}
 	}
 	
@@ -665,6 +755,14 @@
 					</div>
 				</div>
 				<div class="header-actions">
+					<a href="/mobile-interface" class="header-nav-btn" class:active={$page.url.pathname === '/mobile-interface'} aria-label={getTranslation('mobile.home')}>
+						<div class="nav-icon-container">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+								<polyline points="9 22 9 12 15 12 15 22"/>
+							</svg>
+						</div>
+					</a>
 					<a href="/mobile-interface/notifications" class="header-nav-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/notifications')} aria-label={getTranslation('nav.viewNotifications')}>
 						<div class="nav-icon-container">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -730,26 +828,6 @@
 					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
 				</a>
 			{/if}
-			{#if hasBranchPerformancePermission}
-				<a href="/mobile-interface/branch-performance" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.dashboardContent.branchPerformance.title')}>
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M12 2v20M2 12h20M3 6h18M3 18h18"/>
-						<rect width="6" height="8" x="3" y="12" rx="1"/>
-						<rect width="6" height="12" x="9" y="8" rx="1"/>
-						<rect width="6" height="6" x="15" y="14" rx="1"/>
-					</svg>
-					<span class="menu-item-text">{getTranslation('mobile.dashboardContent.branchPerformance.title')}</span>
-				</a>
-			{/if}
-			<a href="/mobile-interface/assignments" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.assignments')}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-				</svg>
-				<span class="menu-item-text">{getTranslation('mobile.assignments')}</span>
-				{#if assignmentCount > 0}
-					<span class="menu-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
-				{/if}
-			</a>
 			<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
 				const languageBtn = e.currentTarget.querySelector('.language-btn');
 				if (languageBtn) languageBtn.click();
@@ -775,41 +853,110 @@
 		
 		<!-- Global Bottom Navigation Bar -->
 		<nav class="bottom-nav">
-			<a href="/mobile-interface" class="nav-item" class:active={$page.url.pathname === '/mobile-interface'}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-						<polyline points="9 22 9 12 15 12 15 22"/>
-					</svg>
-				</div>
-				<span class="nav-label">{getTranslation('mobile.home')}</span>
-			</a>
-			<a href="/mobile-interface/tasks" class="nav-item" class:active={$page.url.pathname.startsWith('/mobile-interface/tasks')}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
-						<rect x="9" y="7" width="6" height="5"/>
-					</svg>
+			<!-- Tasks Menu Button -->
+			<div class="nav-item-menu-container">
+				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showHRMenu = false; showEmergenciesMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/quick-task') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
 					{#if taskCount > 0}
 						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
 					{/if}
-				</div>
-				<span class="nav-label">{getTranslation('mobile.bottomNav.tasks')}</span>
-			</a>
-			
-			<a href="/mobile-interface/quick-task" class="nav-item quick-task-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/quick-task')}>
-				<div class="nav-icon quick-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-						<circle cx="12" cy="12" r="3"/>
-					</svg>
-				</div>
-				<span class="nav-label">{getTranslation('mobile.quickTask')}</span>
-			</a>
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
+							<rect x="9" y="7" width="6" height="5"/>
+						</svg>
+					</div>
+					<span class="nav-label">{getTranslation('mobile.bottomNav.tasks')}</span>
+				</button>
+				
+				<!-- Tasks Submenu -->
+				{#if showTasksMenu}
+					<div class="tasks-submenu-overlay" on:click={() => showTasksMenu = false}></div>
+					<div class="tasks-submenu">
+						<a href="/mobile-interface/tasks" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/tasks')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
+								<rect x="9" y="7" width="6" height="5"/>
+							</svg>
+							<span>{getTranslation('mobile.bottomNav.tasks')}</span>
+						</a>
+						<a href="/mobile-interface/quick-task" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/quick-task')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+								<circle cx="12" cy="12" r="3"/>
+							</svg>
+							<span>{getTranslation('mobile.quickTask')}</span>
+						</a>
+						<a href="/mobile-interface/assignments" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/assignments')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+							</svg>
+							<span>{getTranslation('mobile.assignments')}</span>
+							{#if assignmentCount > 0}
+								<span class="submenu-badge">{assignmentCount > 99 ? '99+' : assignmentCount}</span>
+							{/if}
+						</a>
+						{#if hasBranchPerformancePermission}
+							<a href="/mobile-interface/branch-performance" class="tasks-submenu-item" on:click={() => showTasksMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 2v20M2 12h20M3 6h18M3 18h18"/>
+									<rect width="6" height="8" x="3" y="12" rx="1"/>
+									<rect width="6" height="12" x="9" y="8" rx="1"/>
+									<rect width="6" height="6" x="15" y="14" rx="1"/>
+								</svg>
+								<span>{getTranslation('mobile.dashboardContent.branchPerformance.title')}</span>
+							</a>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Emergencies Menu Button -->
+			<div class="nav-item-menu-container">
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showHRMenu = false; showTasksMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
+					{#if incidentCount > 0}
+						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
+					{/if}
+					<div class="nav-icon">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+							<line x1="12" y1="9" x2="12" y2="13"/>
+							<line x1="12" y1="17" x2="12.01" y2="17"/>
+						</svg>
+					</div>
+					<span class="nav-label">{getTranslation('mobile.emergencies')}</span>
+				</button>
+				
+				<!-- Emergencies Submenu -->
+				{#if showEmergenciesMenu}
+					<div class="emergencies-submenu-overlay" on:click={() => showEmergenciesMenu = false}></div>
+					<div class="emergencies-submenu">
+						<a href="/mobile-interface/report-incident" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/report-incident')}>
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+								<line x1="12" y1="18" x2="12" y2="12"/>
+								<line x1="9" y1="15" x2="15" y2="15"/>
+							</svg>
+							<span>{getTranslation('mobile.reportIncident')}</span>
+						</a>
+						{#if hasIncidentManagerPermission}
+							<a href="/mobile-interface/incident-manager" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+									<rect x="9" y="3" width="6" height="4" rx="1"/>
+									<path d="M9 12h6"/>
+									<path d="M9 16h6"/>
+								</svg>
+								<span>{getTranslation('mobile.incidentManager')}</span>
+							</a>
+						{/if}
+					</div>
+				{/if}
+			</div>
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => showHRMenu = !showHRMenu} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showTasksMenu = false; showEmergenciesMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -1428,6 +1575,11 @@
 		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 	}
 
+	.nav-badge.incident-badge {
+		background: #DC2626;
+		box-shadow: 0 2px 4px rgba(220, 38, 38, 0.4);
+	}
+
 	.nav-label {
 		font-size: 0.6rem; /* Reduced from 0.75rem (20% smaller) */
 		font-weight: 500;
@@ -1520,6 +1672,40 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+	}
+
+	/* Emergencies Button Styles */
+	.nav-item.emergencies-btn {
+		color: #DC2626;
+	}
+
+	.nav-item.emergencies-btn {
+		border: none;
+		background: none;
+		cursor: pointer;
+	}
+
+	.nav-item.emergencies-btn:hover {
+		color: #B91C1C;
+		background: rgba(220, 38, 38, 0.05);
+	}
+
+	.nav-item.emergencies-btn.active {
+		color: #DC2626;
+	}
+
+	.nav-item.emergencies-btn.active .nav-icon {
+		background: rgba(220, 38, 38, 0.1);
+		color: #DC2626;
+	}
+
+	.nav-item.emergencies-btn .nav-icon {
+		color: #DC2626;
+	}
+
+	.nav-item.emergencies-btn .nav-label {
+		font-weight: 600;
+		color: #DC2626;
 	}
 
 	.nav-item.hr-menu-btn {
@@ -1627,6 +1813,170 @@
 
 	.hr-submenu-item svg {
 		flex-shrink: 0;
+	}
+
+	/* Emergencies Submenu Styles */
+	.emergencies-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.emergencies-submenu {
+		position: absolute;
+		bottom: 3.8rem;
+		right: 0;
+		left: auto;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(220, 38, 38, 0.2);
+		min-width: 180px;
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+		border: 1px solid rgba(220, 38, 38, 0.2);
+	}
+
+	:global([dir="rtl"]) .emergencies-submenu {
+		right: auto;
+		left: 0;
+	}
+
+	.emergencies-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.emergencies-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.emergencies-submenu-item:hover {
+		background: rgba(220, 38, 38, 0.05);
+		color: #DC2626;
+	}
+
+	.emergencies-submenu-item.active {
+		background: rgba(220, 38, 38, 0.1);
+		color: #DC2626;
+		font-weight: 600;
+	}
+
+	.emergencies-submenu-item svg {
+		flex-shrink: 0;
+		color: #DC2626;
+	}
+
+	/* Tasks Submenu Styles */
+	.tasks-submenu-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 95;
+	}
+
+	.tasks-submenu {
+		position: absolute;
+		bottom: 3.8rem;
+		right: 0;
+		left: auto;
+		background: white;
+		border-radius: 12px;
+		box-shadow: 0 -2px 16px rgba(59, 130, 246, 0.2);
+		min-width: 180px;
+		z-index: 100;
+		overflow: hidden;
+		animation: slideUp 0.2s ease;
+		border: 1px solid rgba(59, 130, 246, 0.2);
+	}
+
+	:global([dir="rtl"]) .tasks-submenu {
+		right: auto;
+		left: 0;
+	}
+
+	.tasks-submenu-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		color: #374151;
+		text-decoration: none;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		width: 100%;
+		text-align: left;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.tasks-submenu-item:last-child {
+		border-bottom: none;
+	}
+
+	.tasks-submenu-item:hover {
+		background: rgba(59, 130, 246, 0.05);
+		color: #3B82F6;
+	}
+
+	.tasks-submenu-item.active {
+		background: rgba(59, 130, 246, 0.1);
+		color: #3B82F6;
+		font-weight: 600;
+	}
+
+	.tasks-submenu-item svg {
+		flex-shrink: 0;
+		color: #3B82F6;
+	}
+
+	.submenu-badge {
+		background: #EF4444;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 2px 6px;
+		border-radius: 10px;
+		min-width: 18px;
+		height: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: auto;
+	}
+
+	.nav-item.tasks-btn {
+		color: #6B7280;
+	}
+
+	.nav-item.tasks-btn:hover {
+		color: #3B82F6;
+		background: rgba(59, 130, 246, 0.05);
+	}
+
+	.nav-item.tasks-btn.active {
+		color: #3B82F6;
+	}
+
+	.nav-item.tasks-btn.active .nav-icon {
+		color: #3B82F6;
 	}
 
 	.mobile-error {
