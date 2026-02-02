@@ -1,10 +1,12 @@
 <script lang="ts">
     import { _ as t } from '$lib/i18n';
     import { locale } from '$lib/i18n';
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { openWindow } from '$lib/utils/windowManagerUtils';
     import IssueWarning from './IssueWarning.svelte';
+    import Investigation from './Investigation.svelte';
+    import Resolution from './Resolution.svelte';
     
     let incidents: any[] = [];
     let isLoading = true;
@@ -19,6 +21,12 @@
     let isAssigning = false;
     let searchQuery = '';
     let filteredUsers: any[] = [];
+    let showImagePreview = false;
+    let previewImageUrl = '';
+    let previewImageName = '';
+    let realtimeSubscription: any = null;
+    let showPendingUsersModal = false;
+    let pendingUsersList: { name_en: string; name_ar: string }[] = [];
     
     async function loadIncidents() {
         try {
@@ -51,6 +59,8 @@
                     reports_to_user_ids,
                     resolution_status,
                     user_statuses,
+                    attachments,
+                    investigation_report,
                     created_at,
                     created_by,
                     incident_types(id, incident_type_en, incident_type_ar),
@@ -74,6 +84,8 @@
                     let employeeName = 'Unknown';
                     let branchName = 'Unknown';
                     let reportToNames: any[] = [];
+                    let incidentActions: any[] = [];
+                    let reporterName = 'Unknown';
                     
                     try {
                         // Get employee name
@@ -135,11 +147,45 @@
                         console.warn('Reports-to users fetch error:', e);
                     }
                     
+                    try {
+                        // Get incident actions (warnings, fines)
+                        const { data: actionsData } = await supabase
+                            .from('incident_actions')
+                            .select('*')
+                            .eq('incident_id', incident.id)
+                            .order('created_at', { ascending: false });
+                        
+                        if (actionsData && actionsData.length > 0) {
+                            incidentActions = actionsData;
+                        }
+                    } catch (e) {
+                        console.warn('Incident actions fetch error:', e);
+                    }
+                    
+                    try {
+                        // Get reporter name (who created the incident)
+                        if (incident.created_by) {
+                            const { data: reporterData } = await supabase
+                                .from('hr_employee_master')
+                                .select('name_en, name_ar')
+                                .eq('user_id', incident.created_by)
+                                .single();
+                            
+                            if (reporterData) {
+                                reporterName = $locale === 'ar' ? reporterData.name_ar : reporterData.name_en;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Reporter fetch error:', e);
+                    }
+                    
                     return {
                         ...incident,
                         employeeName,
                         branchName,
-                        reportToNames
+                        reportToNames,
+                        incidentActions,
+                        reporterName
                     };
                 })
             );
@@ -177,6 +223,58 @@
         return Object.values(userStatuses).some((status: any) => 
             status.status === 'Assigned' || status.status === 'acknowledged'
         );
+    }
+    
+    function isClaimedByCurrentUser(incident: any): boolean {
+        if (!incident.user_statuses || !currentUserID) return false;
+        
+        const userStatuses = typeof incident.user_statuses === 'string'
+            ? JSON.parse(incident.user_statuses)
+            : incident.user_statuses;
+        
+        const currentUserStatus = userStatuses[currentUserID];
+        // Check for both 'claimed' and 'Claimed' (case-insensitive)
+        return currentUserStatus?.status?.toLowerCase() === 'claimed';
+    }
+    
+    function hasWarningAction(incident: any): boolean {
+        if (!incident.incidentActions || !Array.isArray(incident.incidentActions)) return false;
+        return incident.incidentActions.some((a: any) => a.action_type === 'warning' || a.action_type === 'termination');
+    }
+    
+    function getWarningAction(incident: any): any {
+        if (!incident.incidentActions || !Array.isArray(incident.incidentActions)) return null;
+        return incident.incidentActions.find((a: any) => a.action_type === 'warning' || a.action_type === 'termination');
+    }
+    
+    async function toggleFinePaid(action: any) {
+        try {
+            const newPaidStatus = !action.is_paid;
+            
+            const { error } = await supabase
+                .from('incident_actions')
+                .update({
+                    is_paid: newPaidStatus,
+                    paid_at: newPaidStatus ? new Date().toISOString() : null,
+                    paid_by: newPaidStatus ? currentUserID : null
+                })
+                .eq('id', action.id);
+            
+            if (error) {
+                throw new Error(error.message);
+            }
+            
+            // Reload incidents to reflect the change
+            await loadIncidents();
+            
+            const message = newPaidStatus
+                ? ($locale === 'ar' ? '✅ تم تسجيل الغرامة كمدفوعة' : '✅ Fine marked as paid')
+                : ($locale === 'ar' ? 'تم إلغاء تسجيل الدفع' : 'Payment unmarked');
+            alert(message);
+        } catch (err) {
+            console.error('Error updating fine status:', err);
+            alert($locale === 'ar' ? 'خطأ في تحديث حالة الغرامة' : 'Error updating fine status');
+        }
     }
     
     function formatDate(dateString: string): string {
@@ -257,33 +355,217 @@
     
     async function handleResolveIncident(incident: any) {
         try {
-            const { error } = await supabase
-                .from('incidents')
-                .update({
-                    resolution_status: 'resolved'
-                })
-                .eq('id', incident.id);
+            // First, check if there are any pending quick_tasks for this incident
+            const { data: pendingTasks, error: taskError } = await supabase
+                .from('quick_tasks')
+                .select(`
+                    id,
+                    status,
+                    quick_task_assignments (
+                        id,
+                        assigned_to_user_id,
+                        status
+                    )
+                `)
+                .eq('incident_id', incident.id)
+                .neq('status', 'completed');
             
-            if (error) {
-                throw new Error(error.message);
+            if (taskError) {
+                console.error('Error checking tasks:', taskError);
             }
             
-            // Reload incidents
-            await loadIncidents();
-            alert($locale === 'ar' ? 'تم حل الحادثة بنجاح' : 'Incident resolved successfully');
+            console.log('🔍 Checking pending tasks for incident:', incident.id, pendingTasks);
+            
+            // Check for users who haven't completed their tasks
+            const pendingUsers: { name_en: string; name_ar: string }[] = [];
+            
+            if (pendingTasks && pendingTasks.length > 0) {
+                for (const task of pendingTasks) {
+                    const assignments = task.quick_task_assignments || [];
+                    for (const assignment of assignments) {
+                        // If assignment status is not 'completed'
+                        if (assignment.status !== 'completed') {
+                            // Get user name from users table with hr_employee_master join
+                            try {
+                                const { data: userData } = await supabase
+                                    .from('users')
+                                    .select(`
+                                        id,
+                                        username,
+                                        hr_employee_master (
+                                            name_en,
+                                            name_ar
+                                        )
+                                    `)
+                                    .eq('id', assignment.assigned_to_user_id)
+                                    .single();
+                                
+                                if (userData) {
+                                    const empData = userData.hr_employee_master;
+                                    const userObj = {
+                                        name_en: empData?.name_en || userData.username,
+                                        name_ar: empData?.name_ar || userData.username
+                                    };
+                                    // Check if already added
+                                    if (!pendingUsers.some(u => u.name_en === userObj.name_en)) {
+                                        pendingUsers.push(userObj);
+                                    }
+                                } else {
+                                    pendingUsers.push({ name_en: assignment.assigned_to_user_id, name_ar: assignment.assigned_to_user_id });
+                                }
+                            } catch {
+                                pendingUsers.push({ name_en: assignment.assigned_to_user_id, name_ar: assignment.assigned_to_user_id });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Also check user_statuses for any 'Assigned' status
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses || '{}')
+                : (incident.user_statuses || {});
+            
+            console.log('🔍 Checking user_statuses:', userStatuses);
+            
+            for (const [userId, statusObj] of Object.entries(userStatuses)) {
+                const status = (statusObj as any)?.status;
+                // If user is assigned but not acknowledged/completed, add to pending list
+                if (status === 'Assigned') {
+                    // Get user name from users table with hr_employee_master join
+                    try {
+                        const { data: userData } = await supabase
+                            .from('users')
+                            .select(`
+                                id,
+                                username,
+                                hr_employee_master (
+                                    name_en,
+                                    name_ar
+                                )
+                            `)
+                            .eq('id', userId)
+                            .single();
+                        
+                        if (userData) {
+                            const empData = userData.hr_employee_master;
+                            const userObj = {
+                                name_en: empData?.name_en || userData.username,
+                                name_ar: empData?.name_ar || userData.username
+                            };
+                            // Check if already added
+                            if (!pendingUsers.some(u => u.name_en === userObj.name_en)) {
+                                pendingUsers.push(userObj);
+                            }
+                        } else if (!pendingUsers.some(u => u.name_en === userId)) {
+                            pendingUsers.push({ name_en: userId, name_ar: userId });
+                        }
+                    } catch {
+                        if (!pendingUsers.some(u => u.name_en === userId)) {
+                            pendingUsers.push({ name_en: userId, name_ar: userId });
+                        }
+                    }
+                }
+            }
+            
+            console.log('🔍 Pending users:', pendingUsers);
+            
+            // If there are pending users, show modal
+            if (pendingUsers.length > 0) {
+                pendingUsersList = pendingUsers;
+                showPendingUsersModal = true;
+                return;
+            }
+            
+            // Open Resolution window
+            openResolutionModal(incident);
+            
         } catch (err) {
-            console.error('Error resolving incident:', err);
-            alert($locale === 'ar' ? 'خطأ في حل الحادثة' : 'Error resolving incident');
+            console.error('Error checking tasks:', err);
+            alert($locale === 'ar' ? 'خطأ في التحقق من المهام' : 'Error checking tasks');
         }
     }
     
+    function openResolutionModal(incident: any) {
+        const hasResolution = incident.resolution_status === 'resolved';
+        const windowId = `resolution-incident-${Date.now()}`;
+        openWindow({
+            id: windowId,
+            title: hasResolution
+                ? ($locale === 'ar' ? `عرض تقرير الحل - حادثة #${incident.id}` : `View Resolution - Incident #${incident.id}`)
+                : ($locale === 'ar' ? `حل الحادثة - #${incident.id}` : `Resolve Incident - #${incident.id}`),
+            component: Resolution,
+            icon: hasResolution ? '📋' : '✅',
+            size: { width: 800, height: 600 },
+            position: { 
+                x: 150 + (Math.random() * 50),
+                y: 150 + (Math.random() * 50) 
+            },
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            closable: true,
+            props: {
+                incident: incident,
+                viewMode: hasResolution,
+                onResolved: () => loadIncidents()
+            }
+        });
+    }
+
+    function openInvestigationModal(incident: any) {
+        const hasInvestigation = !!incident.investigation_report;
+        const windowId = `investigation-incident-${Date.now()}`;
+        openWindow({
+            id: windowId,
+            title: hasInvestigation
+                ? ($locale === 'ar' ? `عرض التحقيق - حادثة #${incident.id}` : `View Investigation - Incident #${incident.id}`)
+                : `Investigation - Incident #${incident.id}`,
+            component: Investigation,
+            icon: hasInvestigation ? '📋' : '🔍',
+            size: { width: 900, height: 650 },
+            position: { 
+                x: 150 + (Math.random() * 50),
+                y: 150 + (Math.random() * 50) 
+            },
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            closable: true,
+            props: {
+                violation: incident.warning_violation,
+                incident: incident,
+                viewMode: hasInvestigation,
+                employees: incidents.reduce((empList: any[], inc) => {
+                    const existingEmp = empList.find(e => e.id === inc.employee_id);
+                    if (!existingEmp && inc.employeeName) {
+                        empList.push({
+                            id: inc.employee_id,
+                            name_en: inc.employeeName,
+                            name_ar: inc.employeeName
+                        });
+                    }
+                    return empList;
+                }, []),
+                employeeId: incident.employee_id,
+                branchId: incident.branch_id,
+                branchName: incident.branch_name
+            }
+        });
+    }
+    
     function openWarningModal(incident: any) {
+        const existingWarning = getWarningAction(incident);
+        const isViewMode = !!existingWarning;
+        
         const windowId = `issue-warning-incident-${Date.now()}`;
         openWindow({
             id: windowId,
-            title: `Issue Warning - Incident #${incident.id}`,
+            title: isViewMode 
+                ? ($locale === 'ar' ? `عرض التحذير - حادثة #${incident.id}` : `View Warning - Incident #${incident.id}`)
+                : ($locale === 'ar' ? `إصدار تحذير - حادثة #${incident.id}` : `Issue Warning - Incident #${incident.id}`),
             component: IssueWarning,
-            icon: '⚠️',
+            icon: isViewMode ? '📋' : '⚠️',
             size: { width: 900, height: 650 },
             position: { 
                 x: 150 + (Math.random() * 50),
@@ -309,7 +591,9 @@
                 }, []),
                 employeeId: incident.employee_id,
                 branchId: incident.branch_id,
-                branchName: incident.branchName
+                branchName: incident.branchName,
+                viewMode: isViewMode,
+                savedAction: existingWarning
             }
         });
     }
@@ -510,8 +794,56 @@
         filteredUsers = [];
     }
     
-    onMount(() => {
-        loadIncidents();
+    function handleAttachmentClick(attachment: any) {
+        if (attachment.type === 'image') {
+            // Show image preview modal
+            previewImageUrl = attachment.url;
+            previewImageName = attachment.name || 'Image';
+            showImagePreview = true;
+        } else {
+            // Download/open file in new tab
+            window.open(attachment.url, '_blank');
+        }
+    }
+    
+    function closeImagePreview() {
+        showImagePreview = false;
+        previewImageUrl = '';
+        previewImageName = '';
+    }
+    
+    onMount(async () => {
+        await loadIncidents();
+        setupRealtime();
+    });
+    
+    function setupRealtime() {
+        if (!supabase) {
+            console.log('⚠️ Supabase not initialized, cannot set up realtime');
+            return;
+        }
+        
+        console.log('🔄 Setting up realtime subscription for incidents and incident_actions...');
+        realtimeSubscription = supabase.channel('incidents-realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, (payload: any) => {
+                console.log('🔔 Incidents realtime update:', payload.eventType, payload);
+                loadIncidents();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'incident_actions' }, (payload: any) => {
+                console.log('🔔 Incident actions realtime update:', payload.eventType, payload);
+                loadIncidents();
+            })
+            .subscribe((status: string) => {
+                console.log('📡 Realtime subscription status:', status);
+            });
+    }
+    
+    onDestroy(() => {
+        // Clean up realtime subscription
+        if (realtimeSubscription && supabase) {
+            supabase.removeChannel(realtimeSubscription);
+            console.log('🔌 Realtime subscription cleaned up');
+        }
     });
 </script>
 
@@ -575,7 +907,16 @@
                             {$locale === 'ar' ? 'الحالة' : 'Status'}
                         </th>
                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
+                            {$locale === 'ar' ? 'المرفقات' : 'Attachments'}
+                        </th>
+                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
+                            {$locale === 'ar' ? 'الغرامة' : 'Fine'}
+                        </th>
+                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
                             {$locale === 'ar' ? 'التاريخ' : 'Date'}
+                        </th>
+                        <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
+                            {$locale === 'ar' ? 'أبلغ بواسطة' : 'Reported By'}
                         </th>
                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
                             {$locale === 'ar' ? 'الإجراءات' : 'Actions'}
@@ -635,14 +976,67 @@
                                         : incident.resolution_status.charAt(0).toUpperCase() + incident.resolution_status.slice(1)}
                                 </span>
                             </td>
+                            <td class="px-4 py-3 text-sm">
+                                {#if incident.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0}
+                                    <div class="flex flex-wrap gap-1">
+                                        {#each incident.attachments as attachment, idx}
+                                            <button
+                                                type="button"
+                                                on:click={() => handleAttachmentClick(attachment)}
+                                                class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition {attachment.type === 'image' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                                                title={attachment.name || (attachment.type === 'image' ? 'Image' : 'File')}
+                                            >
+                                                <span>{attachment.type === 'image' ? '🖼️' : attachment.type === 'pdf' ? '📄' : '📁'}</span>
+                                                <span class="max-w-16 truncate">{idx + 1}</span>
+                                            </button>
+                                        {/each}
+                                    </div>
+                                {:else}
+                                    <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا مرفقات' : 'None'}</span>
+                                {/if}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {#if incident.incidentActions && incident.incidentActions.length > 0}
+                                    {#each incident.incidentActions.filter((a: any) => a.has_fine) as action}
+                                        <div class="flex flex-col gap-1">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-red-600 font-semibold">
+                                                    {action.fine_amount > 0 ? `${action.fine_amount} SAR` : `${action.fine_threat_amount} SAR ⚠️`}
+                                                </span>
+                                            </div>
+                                            <label class="flex items-center gap-1 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={action.is_paid}
+                                                    on:change={() => toggleFinePaid(action)}
+                                                    class="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                                />
+                                                <span class="text-xs {action.is_paid ? 'text-green-600' : 'text-red-500'}">
+                                                    {action.is_paid 
+                                                        ? ($locale === 'ar' ? 'مدفوعة ✓' : 'Paid ✓')
+                                                        : ($locale === 'ar' ? 'غير مدفوعة' : 'Unpaid')}
+                                                </span>
+                                            </label>
+                                        </div>
+                                    {/each}
+                                    {#if !incident.incidentActions.some((a: any) => a.has_fine)}
+                                        <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا غرامة' : 'No fine'}</span>
+                                    {/if}
+                                {:else}
+                                    <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا غرامة' : 'No fine'}</span>
+                                {/if}
+                            </td>
                             <td class="px-4 py-3 text-sm text-slate-600">
                                 {formatDate(incident.created_at)}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-slate-700">
+                                {incident.reporterName || '-'}
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <div class="flex gap-2">
                                     <button
                                         on:click={() => handleClaimIncident(incident)}
-                                        disabled={incident.resolution_status === 'claimed'}
+                                        disabled={incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved'}
                                         class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
                                         title={$locale === 'ar' ? 'مطالبة بالحادثة' : 'Claim incident'}
                                     >
@@ -650,27 +1044,43 @@
                                     </button>
                                     <button
                                         on:click={() => openAssignModal(incident)}
-                                        disabled={incident.resolution_status !== 'claimed' || hasAnyAssignedUser(incident)}
+                                        disabled={!isClaimedByCurrentUser(incident) || hasAnyAssignedUser(incident) || !!incident.investigation_report}
                                         class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
                                         title={$locale === 'ar' ? 'تعيين مهمة' : 'Assign task'}
                                     >
                                         {$locale === 'ar' ? 'تعيين' : 'Assign'}
                                     </button>
                                     <button
-                                        on:click={() => openWarningModal(incident)}
-                                        disabled={incident.resolution_status !== 'claimed'}
-                                        class="px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
-                                        title={$locale === 'ar' ? 'إصدار تحذير' : 'Issue warning'}
+                                        on:click={() => openInvestigationModal(incident)}
+                                        disabled={!incident.investigation_report && !isClaimedByCurrentUser(incident)}
+                                        class="px-3 py-1 {incident.investigation_report ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        title={$locale === 'ar' ? (incident.investigation_report ? 'عرض التقرير' : 'التحقيق') : (incident.investigation_report ? 'View Report' : 'Investigation')}
                                     >
-                                        {$locale === 'ar' ? 'تحذير' : 'Warning'}
+                                        {$locale === 'ar' ? (incident.investigation_report ? 'تقرير ✓' : 'تحقيق') : (incident.investigation_report ? 'Report ✓' : 'Investigate')}
                                     </button>
                                     <button
-                                        on:click={() => handleResolveIncident(incident)}
-                                        disabled={incident.resolution_status === 'resolved'}
-                                        class="px-3 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
-                                        title={$locale === 'ar' ? 'حل الحادثة' : 'Resolve incident'}
+                                        on:click={() => openWarningModal(incident)}
+                                        disabled={!hasWarningAction(incident) && (!isClaimedByCurrentUser(incident) || !incident.investigation_report || incident.resolution_status === 'resolved')}
+                                        class="px-3 py-1 {hasWarningAction(incident) ? 'bg-teal-600 hover:bg-teal-700' : 'bg-orange-600 hover:bg-orange-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        title={hasWarningAction(incident) 
+                                            ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
+                                            : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
                                     >
-                                        {$locale === 'ar' ? 'حل' : 'Resolve'}
+                                        {hasWarningAction(incident)
+                                            ? ($locale === 'ar' ? 'تحذير ✓' : 'Warning ✓')
+                                            : ($locale === 'ar' ? 'تحذير' : 'Warning')}
+                                    </button>
+                                    <button
+                                        on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
+                                        disabled={incident.resolution_status !== 'resolved' && !incident.investigation_report}
+                                        class="px-3 py-1 {incident.resolution_status === 'resolved' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-purple-600 hover:bg-purple-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        title={incident.resolution_status === 'resolved' 
+                                            ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
+                                            : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}
+                                    >
+                                        {incident.resolution_status === 'resolved'
+                                            ? ($locale === 'ar' ? 'حل ✓' : 'Resolved ✓')
+                                            : ($locale === 'ar' ? 'حل' : 'Resolve')}
                                     </button>
                                 </div>
                             </td>
@@ -774,6 +1184,97 @@
                     {$locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </button>
             </div>
+        </div>
+    </div>
+{/if}
+
+{#if showImagePreview}
+    <div 
+        class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[100]"
+        on:click={closeImagePreview}
+        on:keydown={(e) => e.key === 'Escape' && closeImagePreview()}
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+    >
+        <div class="relative max-w-4xl max-h-[90vh] p-4" on:click|stopPropagation>
+            <button
+                on:click={closeImagePreview}
+                class="absolute top-2 right-2 w-10 h-10 bg-white rounded-full flex items-center justify-center text-gray-700 hover:bg-gray-100 shadow-lg z-10"
+                aria-label="Close preview"
+            >
+                ✕
+            </button>
+            <img 
+                src={previewImageUrl} 
+                alt={previewImageName} 
+                class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            />
+            <p class="text-white text-center mt-2 text-sm">{previewImageName}</p>
+        </div>
+    </div>
+{/if}
+
+{#if showPendingUsersModal}
+    <div class="modal-overlay" on:click={() => showPendingUsersModal = false}>
+        <div class="modal-content" on:click|stopPropagation>
+            <!-- Header with warning icon -->
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                    <span class="text-2xl">⚠️</span>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-slate-800">
+                        Cannot Resolve Incident | <span dir="rtl">لا يمكن حل الحادثة</span>
+                    </h3>
+                    <p class="text-sm text-slate-500">
+                        Pending Tasks | <span dir="rtl">المهام المعلقة</span>
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Message -->
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <p class="text-amber-800 text-sm mb-2">
+                    The following users have not completed their assigned tasks. Please inform them to close their tasks before resolving the incident.
+                </p>
+                <p class="text-amber-800 text-sm" dir="rtl">
+                    لم يقم المستخدمون التاليون بإتمام المهام المعينة لهم. يرجى إبلاغهم بإغلاق مهامهم قبل حل الحادثة.
+                </p>
+            </div>
+            
+            <!-- Users list -->
+            <div class="mb-6">
+                <p class="text-sm font-semibold text-slate-700 mb-2">
+                    Users who have not acknowledged: | <span dir="rtl">المستخدمون الذين لم يكملوا المهام:</span>
+                </p>
+                <ul class="space-y-2">
+                    {#each pendingUsersList as user, index}
+                        <li class="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg">
+                            <span class="w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-xs font-bold">
+                                {index + 1}
+                            </span>
+                            <div class="flex flex-col">
+                                <span class="text-slate-700 font-medium">{user.name_en}</span>
+                                <span class="text-slate-500 text-sm" dir="rtl">{user.name_ar}</span>
+                            </div>
+                            <span class="text-xs text-red-500 ml-auto whitespace-nowrap">
+                                <span>Not completed</span>
+                                <span class="mx-1">|</span>
+                                <span dir="rtl">لم يكتمل</span>
+                            </span>
+                        </li>
+                    {/each}
+                </ul>
+            </div>
+            
+            <!-- Action button -->
+            <button
+                on:click={() => showPendingUsersModal = false}
+                class="w-full px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-semibold"
+            >
+                OK, I understand | <span dir="rtl">حسناً، فهمت</span>
+            </button>
         </div>
     </div>
 {/if}

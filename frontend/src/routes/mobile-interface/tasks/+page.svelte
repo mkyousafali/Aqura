@@ -17,8 +17,8 @@
 	// User cache for displaying usernames and employee names
 	let userCache = {};
 
-	// Incident image cache for quick tasks
-	let incidentImageCache = {};
+	// Incident attachments cache for quick tasks
+	let incidentAttachmentsCache = {};
 
 	// Image preview modal variables
 	let showImagePreview = false;
@@ -33,38 +33,38 @@
 		isLoading = false;
 	});
 
-	// Function to fetch and cache incident image
-	async function loadIncidentImage(incidentId) {
-		if (!incidentId) return null;
+	// Function to fetch and cache incident attachments
+	async function loadIncidentAttachments(incidentId) {
+		if (!incidentId) return [];
 		
 		// Return from cache if already loaded
-		if (incidentImageCache[incidentId]) {
-			return incidentImageCache[incidentId];
+		if (incidentAttachmentsCache[incidentId]) {
+			return incidentAttachmentsCache[incidentId];
 		}
 
 		try {
 			const { data: incident, error } = await supabase
 				.from('incidents')
-				.select('image_url')
+				.select('attachments')
 				.eq('id', incidentId)
 				.single();
 			
 			if (error) {
-				console.warn('Failed to fetch incident image:', error);
-				incidentImageCache[incidentId] = null;
-				return null;
+				console.warn('Failed to fetch incident attachments:', error);
+				incidentAttachmentsCache[incidentId] = [];
+				return [];
 			}
 
-			if (incident?.image_url) {
-				incidentImageCache[incidentId] = incident.image_url;
-				return incident.image_url;
+			if (incident?.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0) {
+				incidentAttachmentsCache[incidentId] = incident.attachments;
+				return incident.attachments;
 			}
 		} catch (err) {
-			console.warn('Error loading incident image:', err);
+			console.warn('Error loading incident attachments:', err);
 		}
 
-		incidentImageCache[incidentId] = null;
-		return null;
+		incidentAttachmentsCache[incidentId] = [];
+		return [];
 	}
 
 	onMount(async () => {
@@ -1044,10 +1044,31 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							<p class="task-description">{task.description}</p>
 							
 							{#if task.task_type === 'quick' && task.incident_id}
-								<div class="incident-image-section">
-									{#await loadIncidentImage(task.incident_id) then imageUrl}
-										{#if imageUrl}
-											<img src={imageUrl} alt="Incident" class="incident-image" on:click={() => { showImagePreview = true; previewImageSrc = imageUrl; previewImageAlt = 'Incident'; }} />
+								<div class="incident-attachments-section">
+									{#await loadIncidentAttachments(task.incident_id) then attachments}
+										{#if attachments && attachments.length > 0}
+											<div class="attachments-grid">
+												{#each attachments as attachment, idx}
+													{#if attachment.type === 'image'}
+														<img 
+															src={attachment.url} 
+															alt={attachment.name || 'Incident attachment'} 
+															class="incident-image" 
+															on:click={() => { showImagePreview = true; previewImageSrc = attachment.url; previewImageAlt = attachment.name || 'Incident'; }} 
+														/>
+													{:else}
+														<a 
+															href={attachment.url} 
+															target="_blank" 
+															rel="noopener noreferrer" 
+															class="attachment-file"
+														>
+															<span class="attachment-icon">{attachment.type === 'pdf' ? '📄' : '📁'}</span>
+															<span class="attachment-name">{attachment.name}</span>
+														</a>
+													{/if}
+												{/each}
+											</div>
 										{/if}
 									{/await}
 								</div>
@@ -1602,26 +1623,64 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 		overflow: hidden;
 	}
 
-	.incident-image-section {
+	.incident-attachments-section {
 		margin: 0.75rem 0;
-		border-radius: 8px;
-		overflow: hidden;
-		border: 1px solid #E5E7EB;
-		background: #F9FAFB;
+	}
+
+	.attachments-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 	}
 
 	.incident-image {
 		width: 100%;
 		height: auto;
-		max-height: 200px;
-		object-fit: cover;
+		max-height: 250px;
+		object-fit: contain;
 		display: block;
 		cursor: pointer;
 		transition: opacity 0.2s ease;
+		border-radius: 8px;
+		border: 1px solid #E5E7EB;
+		background: #F9FAFB;
 	}
 
 	.incident-image:hover {
 		opacity: 0.9;
+	}
+
+	.attachment-file {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		height: auto;
+		padding: 0.75rem 1rem;
+		background: #F9FAFB;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		text-decoration: none;
+		gap: 0.75rem;
+		transition: background 0.2s ease;
+	}
+
+	.attachment-file:hover {
+		background: #F3F4F6;
+	}
+
+	.attachment-icon {
+		font-size: 1.5rem;
+		flex-shrink: 0;
+	}
+
+	.attachment-name {
+		font-size: 0.8rem;
+		color: #374151;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
 	}
 
 	.task-details {

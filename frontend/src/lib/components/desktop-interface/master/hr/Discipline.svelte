@@ -457,13 +457,6 @@
                                                     <span>📝</span>
                                                     {$t('hr.discipline.reportIncident')}
                                                 </button>
-                                                <button
-                                                    class="flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs font-bold hover:bg-yellow-700 transition-all active:scale-95"
-                                                    on:click={() => openWarningModal(violation)}
-                                                >
-                                                    <span>⚠️</span>
-                                                    {$t('hr.discipline.issueWarning')}
-                                                </button>
                                             </td>
                                         </tr>
                                     {/each}

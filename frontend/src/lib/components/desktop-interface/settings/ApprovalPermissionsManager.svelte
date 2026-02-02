@@ -91,6 +91,8 @@
 						can_receive_vehicle_incidents: false,
 						can_receive_government_incidents: false,
 						can_receive_other_incidents: false,
+						can_receive_finance_incidents: false,
+						can_receive_pos_incidents: false,
 						is_active: true
 					}
 				};
@@ -128,6 +130,8 @@
 				can_receive_vehicle_incidents: user.permissions.can_receive_vehicle_incidents === true,
 				can_receive_government_incidents: user.permissions.can_receive_government_incidents === true,
 				can_receive_other_incidents: user.permissions.can_receive_other_incidents === true,
+				can_receive_finance_incidents: user.permissions.can_receive_finance_incidents === true,
+				can_receive_pos_incidents: user.permissions.can_receive_pos_incidents === true,
 				is_active: user.permissions.is_active === true
 			};
 
@@ -182,6 +186,8 @@
 						can_receive_vehicle_incidents: permissionData.can_receive_vehicle_incidents,
 						can_receive_government_incidents: permissionData.can_receive_government_incidents,
 						can_receive_other_incidents: permissionData.can_receive_other_incidents,
+						can_receive_finance_incidents: permissionData.can_receive_finance_incidents,
+						can_receive_pos_incidents: permissionData.can_receive_pos_incidents,
 						updated_by: $currentUser?.id
 					})
 					.eq('user_id', user.id);
@@ -215,6 +221,8 @@
 						can_receive_vehicle_incidents: permissionData.can_receive_vehicle_incidents,
 						can_receive_government_incidents: permissionData.can_receive_government_incidents,
 						can_receive_other_incidents: permissionData.can_receive_other_incidents,
+						can_receive_finance_incidents: permissionData.can_receive_finance_incidents,
+						can_receive_pos_incidents: permissionData.can_receive_pos_incidents,
 						updated_at: new Date().toISOString(),
 						created_by: $currentUser?.id,
 						updated_by: $currentUser?.id
@@ -295,6 +303,8 @@
 			if (user.permissions.can_receive_vehicle_incidents) incidentTypes.push('Vehicle');
 			if (user.permissions.can_receive_government_incidents) incidentTypes.push('Government');
 			if (user.permissions.can_receive_other_incidents) incidentTypes.push('Other');
+			if (user.permissions.can_receive_finance_incidents) incidentTypes.push('Finance');
+			if (user.permissions.can_receive_pos_incidents) incidentTypes.push('Customer/POS');
 			if (incidentTypes.length > 0) {
 				permissionsList.push(`Receive Incidents: ${incidentTypes.join(', ')}`);
 			}
@@ -370,7 +380,9 @@
 			perms.can_receive_vendor_incidents ||
 			perms.can_receive_vehicle_incidents ||
 			perms.can_receive_government_incidents ||
-			perms.can_receive_other_incidents
+			perms.can_receive_other_incidents ||
+			perms.can_receive_finance_incidents ||
+			perms.can_receive_pos_incidents
 		);
 	}
 
@@ -467,6 +479,8 @@
 							<th>🚗 Vehicle Incidents</th>
 							<th>🏛️ Government Incidents</th>
 							<th>📌 Other Incidents</th>
+							<th>💼 Finance Incidents</th>
+							<th>🛒 Customer/POS Incidents</th>
 							<th class="action-col">Actions</th>
 						</tr>
 					</thead>
@@ -795,6 +809,34 @@
 										</label>
 									</div>
 								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_finance_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_finance_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
+								<td>
+									<div class="permission-cell">
+										<label class="toggle-switch">
+											<input
+												type="checkbox"
+												checked={user.permissions.can_receive_pos_incidents}
+												on:change={() =>
+													togglePermission(user, 'can_receive_pos_incidents')}
+												disabled={saving}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+									</div>
+								</td>
 								<td class="action-col">
 									<button
 										class="btn-save-row"
@@ -808,7 +850,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="19" class="no-results">No users found matching filters</td>
+								<td colspan="21" class="no-results">No users found matching filters</td>
 							</tr>
 						{/each}
 					</tbody>
