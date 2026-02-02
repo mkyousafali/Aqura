@@ -26,12 +26,12 @@
 
 	$: statusLabel = statusLabels[approvalStatus] || 'Unknown Status';
 	$: statusColor = statusColors[approvalStatus] || 'bg-gray-500';
-	$: showButton = approvalStatus === 'pending';
+	$: showButton = approvalStatus === 'pending' || approvalStatus === 'rejected';
 </script>
 
 <div class="approval-mask-container">
-	<!-- Only show button when pending -->
-	{#if showButton}
+	<!-- Show button when pending or rejected (to allow resend) -->
+	{#if approvalStatus === 'pending'}
 		<button
 			class="approval-send-button"
 			on:click={onRequestApproval}
@@ -40,6 +40,15 @@
 		>
 			Send
 		</button>
+	{:else if approvalStatus === 'rejected'}
+		<button
+			class="approval-resend-button"
+			on:click={onRequestApproval}
+			disabled={disabled}
+			title="Resend for Approval - Previously Rejected"
+		>
+			🔄 Resend
+		</button>
 	{:else if approvalStatus === 'sent_for_approval'}
 		<span class="approval-status-text waiting" title="{statusLabel}">
 			⏳ Waiting
@@ -47,10 +56,6 @@
 	{:else if approvalStatus === 'approved'}
 		<span class="approval-status-text approved" title="{statusLabel}">
 			✓ Approved
-		</span>
-	{:else if approvalStatus === 'rejected'}
-		<span class="approval-status-text rejected" title="{statusLabel}">
-			✗ Rejected
 		</span>
 	{/if}
 </div>
@@ -95,6 +100,37 @@
 		cursor: not-allowed;
 	}
 
+	.approval-resend-button {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+		color: white;
+		font-weight: 600;
+		font-size: 0.875rem;
+		border: none;
+		border-radius: 0.375rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+		white-space: nowrap;
+		z-index: 105;
+		position: relative;
+	}
+
+	.approval-resend-button:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+		background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+	}
+
+	.approval-resend-button:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.approval-resend-button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.approval-status-text {
 		padding: 0.5rem 1rem;
 		font-weight: 600;
@@ -113,11 +149,6 @@
 
 	.approval-status-text.approved {
 		background: #10b981;
-		color: white;
-	}
-
-	.approval-status-text.rejected {
-		background: #ef4444;
 		color: white;
 	}
 </style>
