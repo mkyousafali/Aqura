@@ -360,7 +360,7 @@
 			console.error('Download error:', error);
 			notifications.add({
 				type: 'error',
-				message: 'Failed to download file',
+				message: 'Failed to download file / فشل تنزيل الملف',
 				duration: 3000
 			});
 		}
@@ -434,6 +434,29 @@
 	
 	async function submitCompletion() {
 		if (!currentUserData || !canSubmit) return;
+		
+		// Check if this is an incident follow-up task that requires incident resolution first
+		if (taskDetails?.issue_type === 'incident_followup' && taskDetails?.incident_id) {
+			try {
+				const { data: incident, error } = await supabase
+					.from('incidents')
+					.select('resolution_status')
+					.eq('id', taskDetails.incident_id)
+					.single();
+				
+				if (!error && incident && incident.resolution_status !== 'resolved') {
+					errorMessage = 'Cannot complete this task until the linked incident is resolved. / لا يمكن إكمال هذه المهمة حتى يتم حل الحادثة المرتبطة.';
+					notifications.add({
+						type: 'error',
+						message: 'Incident must be resolved first. / يجب حل الحادثة أولاً.',
+						duration: 4000
+					});
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking incident status:', err);
+			}
+		}
 		
 		isSubmitting = true;
 		errorMessage = '';
@@ -511,11 +534,11 @@
 				throw completionError;
 			}
 			
-			successMessage = 'Quick Task completed successfully!';
+			successMessage = 'Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!';
 			
 			notifications.add({
 				type: 'success',
-				message: 'Quick Task completed successfully!',
+				message: 'Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!',
 				duration: 3000
 			});
 			
@@ -525,11 +548,11 @@
 			
 		} catch (error) {
 			console.error('Error submitting completion:', error);
-			errorMessage = error.message || 'Failed to complete task';
+			errorMessage = error.message || 'Failed to complete task / فشل إكمال المهمة';
 			
 			notifications.add({
 				type: 'error',
-				message: 'Failed to complete task. Please try again.',
+				message: 'Failed to complete task. Please try again. / فشل إكمال المهمة. يرجى المحاولة مرة أخرى.',
 				duration: 4000
 			});
 		} finally {

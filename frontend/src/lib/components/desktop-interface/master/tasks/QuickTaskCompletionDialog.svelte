@@ -115,14 +115,32 @@
 	}
 
 	async function handleSubmit() {
+		// Check if this is an incident follow-up task that requires incident resolution first
+		if (assignment?.quick_tasks?.issue_type === 'incident_followup' && assignment?.quick_tasks?.incident_id) {
+			try {
+				const { data: incident, error } = await supabase
+					.from('incidents')
+					.select('resolution_status')
+					.eq('id', assignment.quick_tasks.incident_id)
+					.single();
+				
+				if (!error && incident && incident.resolution_status !== 'resolved') {
+					alert('⚠️ Cannot complete this task until the linked incident is resolved.\n\nالا يمكن إكمال هذه المهمة حتى يتم حل الحادثة المرتبطة.');
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking incident status:', err);
+			}
+		}
+		
 		// Validate completion requirements
 		if (requirePhotoUpload && selectedFiles.length === 0) {
-			alert('⚠️ Photo upload is required for this task. Please upload at least one photo.');
+			alert('⚠️ Photo upload is required for this task. Please upload at least one photo.\n\nتحميل الصورة مطلوب لهذه المهمة. يرجى تحميل صورة واحدة على الأقل.');
 			return;
 		}
 
 		if (requireErpReference && (!erpReference || erpReference.trim() === '')) {
-			alert('⚠️ ERP reference is required for this task. Please provide an ERP reference.');
+			alert('⚠️ ERP reference is required for this task. Please provide an ERP reference.\n\nمرجع ERP مطلوب لهذه المهمة. يرجى تقديم مرجع ERP.');
 			return;
 		}
 
@@ -225,13 +243,13 @@
 				}
 			}
 			
-			alert('✅ Quick Task completed successfully!');
+			alert('✅ Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!');
 			
 			onComplete();
 			dispatch('complete');
 		} catch (error) {
 			console.error('Error completing task:', error);
-			alert(`❌ Error completing task: ${error.message}`);
+			alert(`❌ Error completing task / خطأ في إكمال المهمة: ${error.message}`);
 		} finally {
 			loading = false;
 			uploadingFiles = false;

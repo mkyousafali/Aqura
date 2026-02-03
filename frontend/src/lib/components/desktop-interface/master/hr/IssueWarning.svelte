@@ -405,6 +405,101 @@
             
             console.log('Warning saved:', data);
             
+            // Send notifications
+            try {
+                const recourseLabel = recourseOptions.find(r => r.id === selectedRecourse);
+                const recourseText = $locale === 'ar' ? recourseLabel?.labelAr : recourseLabel?.label;
+                const fineText = hasFine || hasFineThreat ? ` - ${$locale === 'ar' ? 'غرامة' : 'Fine'}: ${fineAmount} SAR` : '';
+                
+                // Get employee's user_id for notification
+                const { data: empUserData } = await supabase
+                    .from('hr_employee_master')
+                    .select('user_id, name_en, name_ar')
+                    .eq('id', selectedEmployee)
+                    .single();
+                
+                const employeeName = $locale === 'ar' 
+                    ? (selectedEmployeeDetails?.name_ar || empUserData?.name_ar) 
+                    : (selectedEmployeeDetails?.name_en || empUserData?.name_en);
+                
+                const violationName = $locale === 'ar' ? activeViolation.name_ar : activeViolation.name_en;
+                const issuerName = ($currentUser as any)?.employeeName || ($currentUser as any)?.name || $currentUser?.email;
+                
+                // Notification to employee
+                if (empUserData?.user_id) {
+                    const employeeNotificationTitle = '⚠️ Official Warning Issued / تحذير رسمي صدر لك';
+                    
+                    const recourseTextAr = selectedRecourse === 'fine' ? 'غرامة مالية' : selectedRecourse === 'warning' ? 'تحذير' : 'إنهاء خدمة';
+                    const violationNameAr = activeViolation.name_ar || violationName;
+                    const fineTextAr = selectedRecourse === 'fine' && fineAmount ? ` - المبلغ: ${fineAmount} ريال` : '';
+                    
+                    // Build comprehensive notification with all details
+                    let incidentDescSection = incidentDescription ? `\n\n📝 INCIDENT DESCRIPTION:\n${incidentDescription}` : '';
+                    let witnessSection = witnessDetails ? `\n\n👥 WITNESS DETAILS:\n${witnessDetails}` : '';
+                    let investigationSection = investigationReport ? `\n\n🔍 INVESTIGATION REPORT:\n${investigationReport}` : '';
+                    let warningReportSection = warningNotes ? `\n\n📄 WARNING REPORT:\n${warningNotes}` : '';
+                    
+                    let incidentDescSectionAr = incidentDescription ? `\n\n📝 وصف الحادثة:\n${incidentDescription}` : '';
+                    let witnessSectionAr = witnessDetails ? `\n\n👥 تفاصيل الشهود:\n${witnessDetails}` : '';
+                    let investigationSectionAr = investigationReport ? `\n\n🔍 تقرير التحقيق:\n${investigationReport}` : '';
+                    let warningReportSectionAr = warningNotes ? `\n\n📄 تقرير الإنذار:\n${warningNotes}` : '';
+                    
+                    const employeeNotificationMessage = `A ${recourseText} has been issued regarding: ${violationName}${fineText}
+${incidentDescSection}${witnessSection}${investigationSection}${warningReportSection}
+
+📋 IMPORTANT NOTICE:
+• Please collect the printed warning from HR Department.
+• This is an electronically issued warning and does not require a physical signature.
+• This acknowledgment confirms that you were given an opportunity to explain your side, and the final decision was made by management.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+تم إصدار ${recourseTextAr} بشأن: ${violationNameAr}${fineTextAr}
+${incidentDescSectionAr}${witnessSectionAr}${investigationSectionAr}${warningReportSectionAr}
+
+📋 ملاحظة هامة:
+• يرجى استلام التحذير المطبوع من قسم الموارد البشرية.
+• هذا تحذير صادر إلكترونياً ولا يتطلب توقيعاً ورقياً.
+• هذا الإقرار يثبت أنه تم منحك فرصة لتوضيح موقفك، والقرار النهائي تم اتخاذه من قبل الإدارة.`;
+                    
+                    await supabase.from('notifications').insert({
+                        title: employeeNotificationTitle,
+                        message: employeeNotificationMessage,
+                        type: 'warning',
+                        priority: 'high',
+                        target_type: 'specific_users',
+                        target_users: [empUserData.user_id],
+                        created_at: new Date().toISOString()
+                    });
+                    console.log('📧 Notification sent to employee:', empUserData.user_id);
+                }
+                
+                // Notification to all users in reports_to_user_ids
+                if (incident?.reports_to_user_ids && Array.isArray(incident.reports_to_user_ids) && incident.reports_to_user_ids.length > 0) {
+                    const reportsToNotificationTitle = `✅ Action Taken - Incident #${incident.id} / تم اتخاذ إجراء - حادثة #${incident.id}`;
+                    
+                    const recourseTextAr = selectedRecourse === 'fine' ? 'غرامة مالية' : selectedRecourse === 'warning' ? 'تحذير' : 'إنهاء خدمة';
+                    const violationNameAr = activeViolation.name_ar || violationName;
+                    const fineTextAr = selectedRecourse === 'fine' && fineAmount ? ` - المبلغ: ${fineAmount} ريال` : '';
+                    
+                    const reportsToNotificationMessage = `A ${recourseText} has been issued to employee: ${employeeName}\n\nViolation: ${violationName}${fineText}\n\nIssued by: ${issuerName}\n\nReport Summary:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}\n\n---\n\nتم إصدار ${recourseTextAr} للموظف: ${employeeName}\n\nالمخالفة: ${violationNameAr}${fineTextAr}\n\nصدر بواسطة: ${issuerName}\n\nملخص التقرير:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}`;
+                    
+                    await supabase.from('notifications').insert({
+                        title: reportsToNotificationTitle,
+                        message: reportsToNotificationMessage,
+                        type: 'info',
+                        priority: 'normal',
+                        target_type: 'specific_users',
+                        target_users: incident.reports_to_user_ids,
+                        created_at: new Date().toISOString()
+                    });
+                    console.log('📧 Notification sent to reports_to users:', incident.reports_to_user_ids);
+                }
+            } catch (notifError) {
+                console.warn('Failed to send notifications:', notifError);
+                // Don't fail the whole operation if notifications fail
+            }
+            
             // For non-employee incidents, update the incident with the selected employee and violation
             if (isNonEmployeeIncident && incident?.id) {
                 const { error: updateError } = await supabase

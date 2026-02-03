@@ -28,6 +28,68 @@
     let showPendingUsersModal = false;
     let pendingUsersList: { name_en: string; name_ar: string }[] = [];
     
+    // Filter state
+    let filterIncidentType = '';
+    let filterBranch = '';
+    let filterEmployee = '';
+    let filterReportedBy = '';
+    let filterDateStart = '';
+    let filterDateEnd = '';
+    
+    // Unique options for filters (derived from loaded incidents)
+    $: incidentTypeOptions = [...new Map(incidents.map(i => [i.incident_types?.id, {
+        id: i.incident_types?.id,
+        name_en: i.incident_types?.incident_type_en,
+        name_ar: i.incident_types?.incident_type_ar
+    }])).values()].filter(o => o.id);
+    
+    $: branchOptions = [...new Map(incidents.map(i => [i.branch_id, {
+        id: i.branch_id,
+        name: i.branchName
+    }])).values()].filter(o => o.id);
+    
+    $: employeeOptions = [...new Map(incidents.map(i => [i.employee_id, {
+        id: i.employee_id,
+        name: i.employeeName
+    }])).values()].filter(o => o.id);
+    
+    $: reporterOptions = [...new Map(incidents.map(i => [i.created_by, {
+        id: i.created_by,
+        name: i.reporterName
+    }])).values()].filter(o => o.id && o.name !== 'Unknown');
+    
+    // Filtered incidents
+    $: filteredIncidents = incidents.filter(incident => {
+        if (filterIncidentType && incident.incident_types?.id !== filterIncidentType) return false;
+        if (filterBranch && incident.branch_id !== filterBranch) return false;
+        if (filterEmployee && incident.employee_id !== filterEmployee) return false;
+        if (filterReportedBy && incident.created_by !== filterReportedBy) return false;
+        
+        // Date range filter
+        if (filterDateStart || filterDateEnd) {
+            const incidentDate = new Date(incident.created_at).setHours(0, 0, 0, 0);
+            if (filterDateStart) {
+                const startDate = new Date(filterDateStart).setHours(0, 0, 0, 0);
+                if (incidentDate < startDate) return false;
+            }
+            if (filterDateEnd) {
+                const endDate = new Date(filterDateEnd).setHours(23, 59, 59, 999);
+                if (incidentDate > endDate) return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    function clearFilters() {
+        filterIncidentType = '';
+        filterBranch = '';
+        filterEmployee = '';
+        filterReportedBy = '';
+        filterDateStart = '';
+        filterDateEnd = '';
+    }
+    
     async function loadIncidents() {
         try {
             isLoading = true;
@@ -58,6 +120,7 @@
                     report_type,
                     reports_to_user_ids,
                     resolution_status,
+                    resolution_report,
                     user_statuses,
                     attachments,
                     investigation_report,
@@ -226,15 +289,38 @@
     }
     
     function isClaimedByCurrentUser(incident: any): boolean {
-        if (!incident.user_statuses || !currentUserID) return false;
+        if (!currentUserID) return false;
         
-        const userStatuses = typeof incident.user_statuses === 'string'
-            ? JSON.parse(incident.user_statuses)
-            : incident.user_statuses;
+        // Check if user is in reports_to_user_ids
+        let reportsToIds = incident.reports_to_user_ids;
+        if (typeof reportsToIds === 'string') {
+            try {
+                reportsToIds = JSON.parse(reportsToIds);
+            } catch (e) {
+                reportsToIds = [];
+            }
+        }
+        const isInReportsTo = Array.isArray(reportsToIds) && reportsToIds.includes(currentUserID);
         
-        const currentUserStatus = userStatuses[currentUserID];
-        // Check for both 'claimed' and 'Claimed' (case-insensitive)
-        return currentUserStatus?.status?.toLowerCase() === 'claimed';
+        // Check user_statuses for claimed status
+        if (incident.user_statuses) {
+            const userStatuses = typeof incident.user_statuses === 'string'
+                ? JSON.parse(incident.user_statuses)
+                : incident.user_statuses;
+            
+            const currentUserStatus = userStatuses[currentUserID];
+            // Check for both 'claimed' and 'Claimed' (case-insensitive)
+            if (currentUserStatus?.status?.toLowerCase() === 'claimed') {
+                return true;
+            }
+        }
+        
+        // Also consider claimed if resolution_status is 'claimed' and user is in reports_to list
+        if (incident.resolution_status === 'claimed' && isInReportsTo) {
+            return true;
+        }
+        
+        return false;
     }
     
     function hasWarningAction(incident: any): boolean {
@@ -342,6 +428,56 @@
             
             if (updateError) {
                 throw new Error(updateError.message);
+            }
+            
+            // Create a quick task for the claiming user
+            try {
+                const incidentTypeName = $locale === 'ar' 
+                    ? incident.incident_types?.incident_type_ar 
+                    : incident.incident_types?.incident_type_en;
+                
+                const { data: quickTaskData, error: taskError } = await supabase
+                    .from('quick_tasks')
+                    .insert({
+                        title: $locale === 'ar' 
+                            ? `متابعة الحادثة #${incident.id}` 
+                            : `Follow up Incident #${incident.id}`,
+                        description: $locale === 'ar'
+                            ? `تم مطالبتك بمتابعة الحادثة #${incident.id} (${incidentTypeName}). يرجى التحقيق واتخاذ الإجراء المناسب. لا يمكن إغلاق هذه المهمة حتى يتم حل الحادثة.`
+                            : `You have claimed incident #${incident.id} (${incidentTypeName}). Please investigate and take appropriate action. This task cannot be closed until the incident is resolved.`,
+                        issue_type: 'incident_followup',
+                        priority: 'high',
+                        assigned_by: currentUserID,
+                        incident_id: incident.id,
+                        status: 'pending',
+                        deadline_datetime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() // 3 days deadline
+                    })
+                    .select()
+                    .single();
+                
+                if (taskError) {
+                    console.warn('Failed to create quick task:', taskError);
+                } else {
+                    // Create assignment for the claiming user
+                    const { error: assignmentError } = await supabase
+                        .from('quick_task_assignments')
+                        .insert({
+                            quick_task_id: quickTaskData.id,
+                            assigned_to_user_id: currentUserID,
+                            require_task_finished: true,
+                            require_photo_upload: false,
+                            require_erp_reference: false
+                        });
+                    
+                    if (assignmentError) {
+                        console.warn('Failed to create task assignment:', assignmentError);
+                    } else {
+                        console.log('✅ Quick task created for claiming user:', quickTaskData.id);
+                    }
+                }
+            } catch (taskErr) {
+                console.warn('Error creating quick task:', taskErr);
+                // Don't fail the claim if task creation fails
             }
             
             // Reload incidents
@@ -847,43 +983,151 @@
     });
 </script>
 
-<div class="h-full w-full flex flex-col bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-    <div class="mb-6">
-        <h2 class="text-3xl font-bold text-slate-800 flex items-center gap-2">
-            <span>📋</span>
-            {$t('hr.incidentManager.title') || 'Incident Manager'}
-        </h2>
-        <p class="text-slate-600 mt-1">{$t('hr.incidentManager.description') || 'View and manage all incident reports'}</p>
+<div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+    <!-- Header/Navigation -->
+    <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div class="flex flex-wrap items-center gap-4">
+            <!-- Incident Type Filter -->
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'نوع الحادثة' : 'Incident Type'}</label>
+                <select
+                    bind:value={filterIncidentType}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                >
+                    <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
+                    {#each incidentTypeOptions as opt}
+                        <option value={opt.id}>{$locale === 'ar' ? opt.name_ar : opt.name_en}</option>
+                    {/each}
+                </select>
+            </div>
+            
+            <!-- Branch Filter -->
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'الفرع' : 'Branch'}</label>
+                <select
+                    bind:value={filterBranch}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                >
+                    <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
+                    {#each branchOptions as opt}
+                        <option value={opt.id}>{opt.name}</option>
+                    {/each}
+                </select>
+            </div>
+            
+            <!-- Employee Filter -->
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'الموظف' : 'Employee'}</label>
+                <select
+                    bind:value={filterEmployee}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                >
+                    <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
+                    {#each employeeOptions as opt}
+                        <option value={opt.id}>{opt.name}</option>
+                    {/each}
+                </select>
+            </div>
+            
+            <!-- Reported By Filter -->
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'أبلغ بواسطة' : 'Reported By'}</label>
+                <select
+                    bind:value={filterReportedBy}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[160px] shadow-sm transition-all"
+                >
+                    <option value="">{$locale === 'ar' ? 'الكل' : 'All'}</option>
+                    {#each reporterOptions as opt}
+                        <option value={opt.id}>{opt.name}</option>
+                    {/each}
+                </select>
+            </div>
+            
+            <!-- Date Range Filter -->
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'من تاريخ' : 'From Date'}</label>
+                <input
+                    type="date"
+                    bind:value={filterDateStart}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[140px] shadow-sm transition-all"
+                />
+            </div>
+            
+            <div class="flex flex-col">
+                <label class="text-xs font-medium text-slate-500 mb-1">{$locale === 'ar' ? 'إلى تاريخ' : 'To Date'}</label>
+                <input
+                    type="date"
+                    bind:value={filterDateEnd}
+                    class="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-w-[140px] shadow-sm transition-all"
+                />
+            </div>
+            
+            <!-- Clear Filters Button -->
+            <div class="flex flex-col">
+                <label class="text-xs text-transparent mb-1">Clear</label>
+                <button
+                    on:click={clearFilters}
+                    class="px-4 py-2 bg-slate-100 text-slate-600 text-sm rounded-lg hover:bg-slate-200 transition-all flex items-center gap-2 font-medium shadow-sm"
+                    title={$locale === 'ar' ? 'مسح الفلاتر' : 'Clear Filters'}
+                >
+                    <span>✕</span>
+                    {$locale === 'ar' ? 'مسح' : 'Clear'}
+                </button>
+            </div>
+        </div>
+        
+        <!-- Refresh Button -->
+        <button
+            on:click={loadIncidents}
+            disabled={isLoading}
+            class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center gap-2 font-semibold shadow-md hover:shadow-lg"
+            title={$locale === 'ar' ? 'تحديث' : 'Refresh'}
+        >
+            <span class={isLoading ? 'animate-spin' : ''}>🔄</span>
+            {$locale === 'ar' ? 'تحديث' : 'Refresh'}
+        </button>
     </div>
+    
+    <!-- Main Content Area -->
+    <div class="flex-1 p-6 relative overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
     
     {#if isLoading}
         <div class="flex items-center justify-center flex-1">
-            <div class="text-center">
-                <div class="animate-spin text-4xl mb-4">⏳</div>
-                <p class="text-slate-600">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading incidents...'}</p>
+            <div class="text-center bg-white/80 backdrop-blur-sm rounded-2xl p-10 shadow-lg">
+                <div class="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center animate-pulse">
+                    <span class="text-3xl">📋</span>
+                </div>
+                <p class="text-slate-600 font-medium">{$locale === 'ar' ? 'جاري التحميل...' : 'Loading incidents...'}</p>
             </div>
         </div>
     {:else if error}
-        <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <p class="text-red-800 font-semibold">{$locale === 'ar' ? 'خطأ' : 'Error'}: {error}</p>
+        <div class="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-xl p-6 mb-4 shadow-lg">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span class="text-xl">⚠️</span>
+                </div>
+                <p class="text-red-800 font-semibold">{$locale === 'ar' ? 'خطأ' : 'Error'}: {error}</p>
+            </div>
             <button 
                 on:click={loadIncidents}
-                class="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                class="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 font-medium shadow-md transition-all"
             >
                 {$locale === 'ar' ? 'إعادة محاولة' : 'Retry'}
             </button>
         </div>
     {:else if incidents.length === 0}
         <div class="flex items-center justify-center flex-1">
-            <div class="text-center">
-                <div class="text-5xl mb-4">📭</div>
-                <p class="text-slate-600 text-lg">{$locale === 'ar' ? 'لا توجد حوادث مسجلة' : 'No incidents found'}</p>
+            <div class="text-center bg-white/80 backdrop-blur-sm rounded-2xl p-10 shadow-lg">
+                <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-slate-200 to-slate-300 rounded-full flex items-center justify-center">
+                    <span class="text-4xl">📭</span>
+                </div>
+                <p class="text-slate-600 text-lg font-medium">{$locale === 'ar' ? 'لا توجد حوادث مسجلة' : 'No incidents found'}</p>
             </div>
         </div>
     {:else}
-        <div class="bg-white rounded-lg shadow overflow-hidden flex-1 overflow-y-auto">
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden flex-1 overflow-y-auto border border-slate-200/50">
             <table class="w-full">
-                <thead class="bg-slate-200 sticky top-0">
+                <thead class="bg-gradient-to-r from-slate-100 to-slate-50 sticky top-0 border-b border-slate-200">
                     <tr>
                         <th class="px-4 py-3 text-left text-sm font-semibold text-slate-700">
                             {$locale === 'ar' ? 'رقم التقرير' : 'Report ID'}
@@ -924,28 +1168,30 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each incidents as incident (incident.id)}
-                        <tr class="border-b border-slate-200 hover:bg-slate-50 transition">
-                            <td class="px-4 py-3 text-sm font-mono text-blue-600">
-                                {incident.id}
+                    {#each filteredIncidents as incident (incident.id)}
+                        <tr class="hover:bg-gradient-to-r hover:from-emerald-50/30 hover:to-teal-50/30 transition-all duration-200">
+                            <td class="px-4 py-3.5">
+                                <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 font-mono text-sm font-semibold border border-emerald-200/50">
+                                    #{incident.id}
+                                </span>
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
                                 {$locale === 'ar' 
                                     ? incident.incident_types?.incident_type_ar 
                                     : incident.incident_types?.incident_type_en}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
                                 {incident.employeeName}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-600">
                                 {incident.branchName}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-700">
                                 {$locale === 'ar' 
                                     ? incident.warning_violation?.name_ar 
                                     : incident.warning_violation?.name_en}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-700">
                                 {#if incident.reportToNames && incident.reportToNames.length > 0}
                                     <div class="space-y-2">
                                         {#each incident.reportToNames as user}
@@ -966,8 +1212,8 @@
                                     <span class="text-slate-400 italic">{$locale === 'ar' ? 'لا أحد' : 'None'}</span>
                                 {/if}
                             </td>
-                            <td class="px-4 py-3 text-sm">
-                                <span class="px-2 py-1 rounded-full text-xs font-semibold {getStatusBadgeColor(incident.resolution_status)}">
+                            <td class="px-4 py-3.5 text-sm">
+                                <span class="px-2.5 py-1.5 rounded-full text-xs font-semibold shadow-sm {getStatusBadgeColor(incident.resolution_status)}">
                                     {$locale === 'ar'
                                         ? incident.resolution_status === 'reported' ? 'مبلغ عنه'
                                         : incident.resolution_status === 'claimed' ? 'مطالب به'
@@ -976,14 +1222,14 @@
                                         : incident.resolution_status.charAt(0).toUpperCase() + incident.resolution_status.slice(1)}
                                 </span>
                             </td>
-                            <td class="px-4 py-3 text-sm">
+                            <td class="px-4 py-3.5 text-sm">
                                 {#if incident.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0}
-                                    <div class="flex flex-wrap gap-1">
+                                    <div class="flex flex-wrap gap-1.5">
                                         {#each incident.attachments as attachment, idx}
                                             <button
                                                 type="button"
                                                 on:click={() => handleAttachmentClick(attachment)}
-                                                class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition {attachment.type === 'image' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm {attachment.type === 'image' ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 hover:from-blue-100 hover:to-indigo-100 border border-blue-200/50' : 'bg-gradient-to-r from-slate-50 to-slate-100 text-slate-700 hover:from-slate-100 hover:to-slate-200 border border-slate-200/50'}"
                                                 title={attachment.name || (attachment.type === 'image' ? 'Image' : 'File')}
                                             >
                                                 <span>{attachment.type === 'image' ? '🖼️' : attachment.type === 'pdf' ? '📄' : '📁'}</span>
@@ -995,7 +1241,7 @@
                                     <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا مرفقات' : 'None'}</span>
                                 {/if}
                             </td>
-                            <td class="px-4 py-3 text-sm">
+                            <td class="px-4 py-3.5 text-sm">
                                 {#if incident.incidentActions && incident.incidentActions.length > 0}
                                     {#each incident.incidentActions.filter((a: any) => a.has_fine) as action}
                                         <div class="flex flex-col gap-1">
@@ -1026,18 +1272,18 @@
                                     <span class="text-slate-400 italic text-xs">{$locale === 'ar' ? 'لا غرامة' : 'No fine'}</span>
                                 {/if}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-600">
+                            <td class="px-4 py-3.5 text-sm text-slate-600 font-medium">
                                 {formatDate(incident.created_at)}
                             </td>
-                            <td class="px-4 py-3 text-sm text-slate-700">
+                            <td class="px-4 py-3.5 text-sm text-slate-700 font-medium">
                                 {incident.reporterName || '-'}
                             </td>
-                            <td class="px-4 py-3 text-sm">
-                                <div class="flex gap-2">
+                            <td class="px-4 py-3.5 text-sm">
+                                <div class="flex flex-wrap gap-1.5">
                                     <button
                                         on:click={() => handleClaimIncident(incident)}
                                         disabled={incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved'}
-                                        class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        class="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
                                         title={$locale === 'ar' ? 'مطالبة بالحادثة' : 'Claim incident'}
                                     >
                                         {$locale === 'ar' ? 'مطالبة' : 'Claim'}
@@ -1045,7 +1291,7 @@
                                     <button
                                         on:click={() => openAssignModal(incident)}
                                         disabled={!isClaimedByCurrentUser(incident) || hasAnyAssignedUser(incident) || !!incident.investigation_report}
-                                        class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        class="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-xs rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
                                         title={$locale === 'ar' ? 'تعيين مهمة' : 'Assign task'}
                                     >
                                         {$locale === 'ar' ? 'تعيين' : 'Assign'}
@@ -1053,15 +1299,15 @@
                                     <button
                                         on:click={() => openInvestigationModal(incident)}
                                         disabled={!incident.investigation_report && !isClaimedByCurrentUser(incident)}
-                                        class="px-3 py-1 {incident.investigation_report ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        class="px-3 py-1.5 {incident.investigation_report ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
                                         title={$locale === 'ar' ? (incident.investigation_report ? 'عرض التقرير' : 'التحقيق') : (incident.investigation_report ? 'View Report' : 'Investigation')}
                                     >
                                         {$locale === 'ar' ? (incident.investigation_report ? 'تقرير ✓' : 'تحقيق') : (incident.investigation_report ? 'Report ✓' : 'Investigate')}
                                     </button>
                                     <button
                                         on:click={() => openWarningModal(incident)}
-                                        disabled={!hasWarningAction(incident) && (!isClaimedByCurrentUser(incident) || !incident.investigation_report || incident.resolution_status === 'resolved')}
-                                        class="px-3 py-1 {hasWarningAction(incident) ? 'bg-teal-600 hover:bg-teal-700' : 'bg-orange-600 hover:bg-orange-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        disabled={!hasWarningAction(incident) && (!isClaimedByCurrentUser(incident) || incident.resolution_status === 'resolved')}
+                                        class="px-3 py-1.5 {hasWarningAction(incident) ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
                                         title={hasWarningAction(incident) 
                                             ? ($locale === 'ar' ? 'عرض التحذير' : 'View Warning')
                                             : ($locale === 'ar' ? 'إصدار تحذير' : 'Issue warning')}
@@ -1073,7 +1319,7 @@
                                     <button
                                         on:click={() => incident.resolution_status === 'resolved' ? openResolutionModal(incident) : handleResolveIncident(incident)}
                                         disabled={incident.resolution_status !== 'resolved' && !incident.investigation_report}
-                                        class="px-3 py-1 {incident.resolution_status === 'resolved' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-purple-600 hover:bg-purple-700'} text-white text-xs rounded transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        class="px-3 py-1.5 {incident.resolution_status === 'resolved' ? 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'} text-white text-xs rounded-lg transition-all shadow-sm hover:shadow disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed font-medium"
                                         title={incident.resolution_status === 'resolved' 
                                             ? ($locale === 'ar' ? 'عرض تقرير الحل' : 'View Resolution')
                                             : ($locale === 'ar' ? 'حل الحادثة' : 'Resolve incident')}
@@ -1090,6 +1336,7 @@
             </table>
         </div>
     {/if}
+    </div>
 </div>
 
 <style>
@@ -1103,22 +1350,48 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: rgba(0, 0, 0, 0.5);
+        background-color: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 50;
+        animation: fadeIn 0.2s ease-out;
     }
     
     .modal-content {
         background: white;
-        border-radius: 0.5rem;
-        padding: 1.5rem;
+        border-radius: 1rem;
+        padding: 1.75rem;
         max-width: 500px;
         width: 90%;
         max-height: 80vh;
         overflow-y: auto;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        animation: scaleIn 0.2s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    @keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+    
+    /* RTL fixes for dropdown arrows */
+    :global([dir="rtl"] select) {
+        background-position: left 0.5rem center;
+        padding-left: 2rem;
+        padding-right: 0.75rem;
     }
 </style>
 
