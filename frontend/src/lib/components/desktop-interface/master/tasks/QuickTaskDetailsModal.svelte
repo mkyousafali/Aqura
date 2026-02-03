@@ -86,9 +86,27 @@
 		return priceTag.toUpperCase();
 	}
 
-	function openQuickTaskCompletion() {
+	async function openQuickTaskCompletion() {
+		// Check if this is an incident follow-up task that requires incident resolution first
+		if (task.issue_type === 'incident_followup' && task.incident_id) {
+			try {
+				const { data: incident, error } = await supabase
+					.from('incidents')
+					.select('resolution_status')
+					.eq('id', task.incident_id)
+					.single();
+				
+				if (!error && incident && incident.resolution_status !== 'resolved') {
+					alert('⚠️ Cannot complete this task until the linked incident is resolved.\n\nالا يمكن إكمال هذه المهمة حتى يتم حل الحادثة المرتبطة.');
+					return;
+				}
+			} catch (err) {
+				console.error('Error checking incident status:', err);
+			}
+		}
+		
 		// For Quick Tasks, we use a simplified completion process similar to MyTasksView
-		if (confirm('Are you sure you want to mark this Quick Task as completed?')) {
+		if (confirm('Are you sure you want to mark this Quick Task as completed?\n\nهل أنت متأكد أنك تريد وضع علامة مكتملة على هذه المهمة السريعة؟')) {
 			completeQuickTask();
 		}
 	}
@@ -107,7 +125,7 @@
 
 			if (error) {
 				console.error('❌ [QuickTaskDetails] Error completing quick task:', error);
-				alert('Error completing task: ' + (error.message || 'Unknown error'));
+				alert('Error completing task / خطأ في إكمال المهمة: ' + (error.message || 'Unknown error'));
 				return;
 			}
 
@@ -122,10 +140,10 @@
 				onTaskCompleted();
 			}
 
-			alert('Quick Task completed successfully!');
+			alert('Quick Task completed successfully! / تم إكمال المهمة السريعة بنجاح!');
 		} catch (error) {
 			console.error('❌ [QuickTaskDetails] Error completing quick task:', error);
-			alert('Error completing task: ' + (error.message || 'Unknown error'));
+			alert('Error completing task / خطأ في إكمال المهمة: ' + (error.message || 'Unknown error'));
 		}
 	}
 </script>
