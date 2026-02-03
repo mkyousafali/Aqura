@@ -2,6 +2,14 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
 
+	// Cache configuration (shared across all flyer components)
+	const CACHE_KEY = 'flyer_products_cache';
+	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+	// Image loading tracking
+	let successfullyLoadedImages: Set<string> = new Set();
+	let imageRefs: Record<string, HTMLImageElement> = {};
+
 	let offerTemplates: any[] = [];
 	let selectedTemplate: any = null;
 	let allProducts: any[] = [];
@@ -44,9 +52,25 @@
 		isLoadingProducts = true;
 		selectedProducts.clear();
 
+		// Try to load products from cache first
+		let cachedProducts: any[] | null = null;
 		try {
-			// Load everything in parallel for better performance
-			const [categoriesResult, unitsResult, productsResult, selectedResult] = await Promise.all([
+			const cached = localStorage.getItem(CACHE_KEY);
+			if (cached) {
+				const { data, timestamp } = JSON.parse(cached);
+				const age = Date.now() - timestamp;
+				
+				if (age < CACHE_DURATION) {
+					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
+					cachedProducts = data;
+				}
+			}
+		} catch (err) {
+			console.warn('Cache read error:', err);
+		}
+
+		try {
+			const loadTasks = [
 				// Load categories
 				supabase
 					.from('product_categories')
@@ -56,17 +80,26 @@
 				supabase
 					.from('product_units')
 					.select('id, name_en'),
-				// Load only essential product columns (not *)
-				supabase
-					.from('products')
-					.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en')
-					.order('barcode', { ascending: true }),
 				// Load selected products for this template
 				supabase
 					.from('flyer_offer_products')
 					.select('product_barcode')
 					.eq('offer_id', templateId)
-			]);
+			];
+			
+			// Only load products from DB if not cached
+			if (!cachedProducts) {
+				loadTasks.push(
+					supabase
+						.from('products')
+						.select('barcode, product_name_en, product_name_ar, unit_id, category_id, image_url, is_variation, variation_group_name_en')
+						.order('barcode', { ascending: true })
+				);
+			}
+			
+			// Load everything in parallel for better performance
+			const results = await Promise.all(loadTasks);
+			const [categoriesResult, unitsResult, selectedResult, productsResult] = results;
 
 			// Process categories
 			if (categoriesResult.error) {
@@ -87,15 +120,32 @@
 				});
 			}
 
-			// Process products
-			if (productsResult.error) {
-				console.error('Error loading products:', productsResult.error);
-				alert('Error loading products. Please try again.');
-				isLoadingProducts = false;
-				return;
-			}
+			// Process products - use cache or fresh data
+			if (cachedProducts) {
+				// Use cached products
+				allProducts = cachedProducts;
+			} else if (productsResult) {
+				// Fresh load from database
+				if (productsResult.error) {
+					console.error('Error loading products:', productsResult.error);
+					alert('Error loading products. Please try again.');
+					isLoadingProducts = false;
+					return;
+				}
 
-			allProducts = productsResult.data || [];
+				allProducts = productsResult.data || [];
+				
+				// Cache the loaded data
+				try {
+					localStorage.setItem(CACHE_KEY, JSON.stringify({
+						data: allProducts,
+						timestamp: Date.now()
+					}));
+					console.log('✓ Products cached to localStorage');
+				} catch (err) {
+					console.warn('Cache write error:', err);
+				}
+			}
 
 			// Process selected products
 			if (selectedResult.error) {
@@ -145,6 +195,25 @@
 			const bSelected = selectedProducts.has(b.barcode) ? 0 : 1;
 			return aSelected - bSelected;
 		});
+	}
+
+	// Image loading handlers
+	function handleImageLoad(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode) {
+			successfullyLoadedImages.add(barcode);
+			successfullyLoadedImages = successfullyLoadedImages; // Trigger reactivity
+		}
+	}
+
+	function handleImageError(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode) {
+			successfullyLoadedImages.delete(barcode);
+			successfullyLoadedImages = successfullyLoadedImages; // Trigger reactivity
+		}
 	}
 
 	// Handle search input and filters
@@ -450,8 +519,9 @@
 									</th>
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Barcode
-									</th>
-									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+									</th>								<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+									Image URL
+								</th>									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 										Product Name (EN)
 									</th>
 									<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -483,13 +553,15 @@
 											<div class="w-14 h-14 bg-gray-100 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden">
 												{#if product.image_url}
 													<img 
+														bind:this={imageRefs[product.barcode]}
 														src={product.image_url}
 														alt={product.product_name_en || product.barcode}
+														data-barcode={product.barcode}
 														class="w-full h-full object-contain"
-														on:error={(e) => {
-															const img = e.target;
-															img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect fill="%23f3f4f6" width="64" height="64"/><text x="32" y="32" font-size="10" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">No Image</text></svg>';
-														}}
+														loading="lazy"
+														decoding="async"
+														on:load={handleImageLoad}
+														on:error={handleImageError}
 													/>
 												{:else}
 													<svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -500,6 +572,51 @@
 										</td>
 										<td class="px-6 py-4 text-sm font-medium text-gray-900">
 											{product.barcode}
+										</td>
+										<td class="px-6 py-4 whitespace-nowrap text-center">
+											{#if !product.image_url}
+												<!-- No URL -->
+												<div class="flex items-center justify-center group relative cursor-help">
+													<svg class="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+													</svg>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														No image URL
+													</div>
+												</div>
+											{:else if successfullyLoadedImages.has(product.barcode)}
+												<!-- Successfully loaded -->
+												<div class="flex items-center justify-center group relative cursor-help">
+													<svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+													</svg>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														✓ Image loaded
+													</div>
+												</div>
+											{:else}
+												<!-- URL exists but not loaded yet or failed -->
+												<div class="flex items-center justify-center gap-2 group relative">
+													<svg class="w-5 h-5 text-orange-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+													</svg>
+													<button
+														class="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+														on:click={() => {
+															const img = imageRefs[product.barcode];
+															if (img && product.image_url) {
+																successfullyLoadedImages.delete(product.barcode);
+																img.src = product.image_url + '?t=' + Date.now();
+															}
+														}}
+													>
+														Retry
+													</button>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														⚠ Failed to load
+													</div>
+												</div>
+											{/if}
 										</td>
 										<td class="px-6 py-4 text-sm text-gray-900">
 											{product.product_name_en || '-'}

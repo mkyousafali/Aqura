@@ -12,8 +12,14 @@
 	let sortBy: 'name' | 'price' | 'date' = 'name';
 	let isLoading: boolean = false;
 	let selectedProducts: Set<string> = new Set();
-	let currentPage: number = 1;
-	let itemsPerPage: number = 50;
+	
+	// Image loading state
+	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
+	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs
+	
+	// Cache configuration (shared across all flyer components)
+	const CACHE_KEY = 'flyer_products_cache';
+	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 	
 	// Group creation/edit modal
 	let showGroupModal: boolean = false;
@@ -83,7 +89,12 @@
 		// On any audit log change, reload groups and products to show latest state
 		if (eventType === 'INSERT') {
 			console.log('✓ Variation group action recorded via realtime');
-			// Reload groups and products data in background
+			// Clear cache and reload fresh data
+			try {
+				localStorage.removeItem(CACHE_KEY);
+			} catch (err) {
+				console.warn('Cache clear error:', err);
+			}
 			Promise.all([loadVariationGroups(), loadProductsAndStats()]);
 		}
 	}
@@ -109,24 +120,98 @@
 	
 	async function loadProductsAndStats() {
 		isLoading = true;
+		products = [];
+		
+		// Try to load from cache first
 		try {
-			// Load only essential columns for products list to reduce data transfer
-			const { data: productsData, error: productsError } = await supabase
-				.from('products')
-				.select('barcode, product_name_en, product_name_ar, is_variation, parent_product_barcode, created_at, image_url')
-				.order('product_name_en', { ascending: true });
+			const cached = localStorage.getItem(CACHE_KEY);
+			if (cached) {
+				const { data, timestamp } = JSON.parse(cached);
+				const age = Date.now() - timestamp;
+				
+				if (age < CACHE_DURATION) {
+					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
+					products = data;
+					
+					// Calculate stats from cached data
+					totalProducts = data.length;
+					groupedProducts = data.filter((p: any) => p.is_variation).length;
+					const parents = data.filter((p: any) => p.is_variation && !p.parent_product_barcode) || [];
+					totalGroups = parents.length;
+					
+					isLoading = false;
+					return;
+				}
+			}
+		} catch (err) {
+			console.warn('Cache read error:', err);
+		}
+		
+		try {
+			let allProducts: any[] = [];
+			let parents: any[] = [];
+			let offset = 0;
+			const limit = 500; // Load 500 at a time
+			let hasMore = true;
 			
-			if (productsError) throw productsError;
+			// Load products in chunks without blocking UI
+			while (hasMore) {
+				const { data: productsData, error: productsError } = await supabase
+					.from('products')
+					.select('barcode, product_name_en, product_name_ar, is_variation, parent_product_barcode, created_at, image_url')
+					.order('product_name_en', { ascending: true })
+					.range(offset, offset + limit - 1);
+				
+				if (productsError) {
+					console.error('Error loading products chunk:', productsError);
+					break;
+				}
+				
+				if (!productsData || productsData.length === 0) {
+					hasMore = false;
+					break;
+				}
+				
+				allProducts = [...allProducts, ...productsData];
+				
+				// Update UI with loaded products so far - triggers reactive display
+				products = allProducts;
+				
+				// Calculate stats progressively
+				totalProducts = allProducts.length;
+				groupedProducts = allProducts.filter(p => p.is_variation).length;
+				parents = allProducts.filter(p => p.is_variation && !p.parent_product_barcode) || [];
+				totalGroups = parents.length;
+				
+				// Small delay to allow UI to render between chunks
+				await new Promise(resolve => setTimeout(resolve, 10));
+				
+				offset += limit;
+				if (productsData.length < limit) {
+					hasMore = false;
+				}
+			}
 			
-			products = productsData || [];
+			products = allProducts;
 			
-			// Calculate stats from the products data we already loaded (avoid second query)
-			totalProducts = products.length;
-			groupedProducts = products.filter(p => p.is_variation).length;
-			const parents = products.filter(p => p.is_variation && !p.parent_product_barcode) || [];
+			// Calculate final stats
+			totalProducts = allProducts.length;
+			groupedProducts = allProducts.filter(p => p.is_variation).length;
+			parents = allProducts.filter(p => p.is_variation && !p.parent_product_barcode) || [];
 			totalGroups = parents.length;
 			
-			applyFilters();
+			// Cache the loaded data
+			try {
+				localStorage.setItem(CACHE_KEY, JSON.stringify({
+					data: allProducts,
+					timestamp: Date.now()
+				}));
+				console.log('✓ Products cached to localStorage');
+			} catch (err) {
+				console.warn('Cache write error:', err);
+			}
+			
+			console.log('✓ All products loaded:', allProducts.length);
 		} catch (error) {
 			console.error('Error loading products and stats:', error);
 			notifications.add({
@@ -203,7 +288,8 @@
 		}
 	}
 	
-	function applyFilters() {
+	// Reactive filtering - updates automatically when products, searchQuery, filterStatus, or sortBy change
+	$: filteredProducts = (() => {
 		let filtered = [...products];
 		
 		// Search filter
@@ -233,22 +319,27 @@
 			return 0;
 		});
 		
-		filteredProducts = filtered;
+		return filtered;
+	})();
+	
+	// Image loading handlers
+	function handleImageLoad(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.dataset.barcode;
+		if (barcode) {
+			successfullyLoadedImages.add(barcode);
+			successfullyLoadedImages = successfullyLoadedImages; // Trigger reactivity
+		}
 	}
 	
-	$: {
-		searchQuery;
-		filterStatus;
-		sortBy;
-		applyFilters();
+	function handleImageError(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.dataset.barcode;
+		if (barcode && successfullyLoadedImages.has(barcode)) {
+			successfullyLoadedImages.delete(barcode);
+			successfullyLoadedImages = successfullyLoadedImages; // Trigger reactivity
+		}
 	}
-	
-	$: paginatedProducts = filteredProducts.slice(
-		(currentPage - 1) * itemsPerPage,
-		currentPage * itemsPerPage
-	);
-	
-	$: totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 	
 	// Group pagination computed values
 	$: totalGroupPages = Math.ceil((variationGroups.length > 0 ? Math.max(...variationGroups.map(() => 1)) * groupsItemsPerPage : groupsItemsPerPage) / groupsItemsPerPage);
@@ -947,7 +1038,7 @@
 				<!-- Quick actions -->
 				<div class="mb-4 flex items-center justify-between">
 					<div class="text-sm text-gray-600">
-						Showing {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredProducts.length)} of {filteredProducts.length} products
+						Showing {filteredProducts.length} products
 					</div>
 					<button
 						on:click={selectAll}
@@ -963,6 +1054,7 @@
 						<table class="w-full">
 							<thead class="bg-gray-50 border-b border-gray-200">
 								<tr>
+									<th class="px-4 py-3 text-center w-16">#</th>
 									<th class="px-4 py-3 text-left w-12">
 										<input
 											type="checkbox"
@@ -976,15 +1068,19 @@
 									<th class="px-4 py-3 text-left w-32">Barcode</th>
 									<th class="px-4 py-3 text-left w-32">Status</th>
 									<th class="px-4 py-3 text-left">Group</th>
+									<th class="px-4 py-3 text-center w-24">Image URL</th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-gray-200">
-								{#each paginatedProducts as product}
+								{#each filteredProducts as product, index (product.barcode)}
 									<tr
 										class="hover:bg-gray-50 cursor-pointer transition-colors
 											{selectedProducts.has(product.barcode) ? 'bg-blue-50' : ''}"
 										on:click={() => toggleProductSelection(product.barcode)}
 									>
+										<td class="px-4 py-3 text-center text-sm font-medium text-gray-700">
+											{index + 1}
+										</td>
 										<td class="px-4 py-3">
 											<input
 												type="checkbox"
@@ -997,9 +1093,15 @@
 										<td class="px-4 py-3">
 											{#if product.image_url}
 												<img
+													bind:this={imageRefs[product.barcode]}
 													src={product.image_url}
 													alt={product.product_name_en}
+													data-barcode={product.barcode}
 													class="w-16 h-16 object-contain cursor-zoom-in"
+													loading="lazy"
+													decoding="async"
+													on:load={handleImageLoad}
+													on:error={handleImageError}
 													on:click|stopPropagation={() => previewImage(product.image_url)}
 												/>
 											{:else}
@@ -1037,48 +1139,57 @@
 												<span class="text-gray-400">—</span>
 											{/if}
 										</td>
+										<td class="px-4 py-3 text-center" on:click|stopPropagation>
+											{#if !product.image_url}
+												<!-- No URL -->
+												<div class="flex items-center justify-center group relative cursor-help">
+													<svg class="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+													</svg>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														No image URL
+													</div>
+												</div>
+											{:else if successfullyLoadedImages.has(product.barcode)}
+												<!-- Successfully loaded -->
+												<div class="flex items-center justify-center group relative cursor-help">
+													<svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+													</svg>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														✓ Image loaded
+													</div>
+												</div>
+											{:else}
+												<!-- URL exists but not loaded yet or failed -->
+												<div class="flex items-center justify-center gap-2 group relative">
+													<svg class="w-5 h-5 text-orange-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+														<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+													</svg>
+													<button
+														class="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+														on:click={() => {
+															const img = imageRefs[product.barcode];
+															if (img && product.image_url) {
+																successfullyLoadedImages.delete(product.barcode);
+																img.src = product.image_url + '?t=' + Date.now();
+															}
+														}}
+													>
+														Retry
+													</button>
+													<div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+														⚠ Failed to load
+													</div>
+												</div>
+											{/if}
+										</td>
 									</tr>
 								{/each}
 							</tbody>
 						</table>
 					</div>
 				</div>
-				
-				<!-- Pagination -->
-				{#if totalPages > 1}
-					<div class="flex items-center justify-center gap-2">
-						<button
-							on:click={() => currentPage = Math.max(1, currentPage - 1)}
-							disabled={currentPage === 1}
-							class="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-						>
-							Previous
-						</button>
-						
-						<div class="flex gap-1">
-							{#each Array(Math.min(7, totalPages)) as _, i}
-								{@const pageNum = i + Math.max(1, currentPage - 3)}
-								{#if pageNum <= totalPages}
-									<button
-										on:click={() => currentPage = pageNum}
-										class="px-3 py-2 rounded transition-colors
-											{currentPage === pageNum ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 hover:bg-gray-50'}"
-									>
-										{pageNum}
-									</button>
-								{/if}
-							{/each}
-						</div>
-						
-						<button
-							on:click={() => currentPage = Math.min(totalPages, currentPage + 1)}
-							disabled={currentPage === totalPages}
-							class="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-						>
-							Next
-						</button>
-					</div>
-				{/if}
 			{/if}
 		{/if}
 	</div>
