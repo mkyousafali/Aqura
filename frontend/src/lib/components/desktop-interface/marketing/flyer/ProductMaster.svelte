@@ -63,6 +63,10 @@
 	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
 	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs for cache checking
 	
+	// Cache configuration (shared across all flyer components)
+	const CACHE_KEY = 'flyer_products_cache';
+	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+	
 	// Find missing images in storage
 	let showFindMissingImagesPopup: boolean = false;
 	let isFindingMissingImages: boolean = false;
@@ -115,6 +119,17 @@
 	$: filteredNoImageProducts = noImageProducts.filter(product => {
 		if (!noImageSearchQuery.trim()) return true;
 		const query = noImageSearchQuery.toLowerCase();
+		return (
+			product.barcode?.toLowerCase().includes(query) ||
+			product.product_name_en?.toLowerCase().includes(query) ||
+			product.product_name_ar?.includes(query)
+		);
+	});
+	
+	// Filter all products based on search query - displays progressively as they load
+	$: filteredAllProducts = allProductsList.filter(product => {
+		if (!allProductsSearch.trim()) return true;
+		const query = allProductsSearch.toLowerCase();
 		return (
 			product.barcode?.toLowerCase().includes(query) ||
 			product.product_name_en?.toLowerCase().includes(query) ||
@@ -509,6 +524,13 @@
 					// Add to cache
 					storageImageCache.add(barcode);
 					
+					// Clear product list cache
+					try {
+						localStorage.removeItem(CACHE_KEY);
+					} catch (err) {
+						console.warn('Cache clear error:', err);
+					}
+					
 					// Reload the products without images
 					await loadNoImageProducts();
 					await loadDatabaseStats();
@@ -668,6 +690,25 @@
 		allProductsList = [];
 		filteredAllProducts = [];
 		
+		// Try to load from cache first
+		try {
+			const cached = localStorage.getItem(CACHE_KEY);
+			if (cached) {
+				const { data, timestamp } = JSON.parse(cached);
+				const age = Date.now() - timestamp;
+				
+				if (age < CACHE_DURATION) {
+					console.log('✓ Loading products from cache (age: ' + Math.round(age / 1000) + 's)');
+					allProductsList = data;
+					allProductsWithImages = data.filter((p: any) => p.image_url).length;
+					isLoadingAllProducts = false;
+					return;
+				}
+			}
+		} catch (err) {
+			console.warn('Cache read error:', err);
+		}
+		
 		try {
 			let allProducts: any[] = [];
 			let offset = 0;
@@ -715,11 +756,7 @@
 				
 				// Update UI with loaded products so far
 				allProductsList = allProducts;
-				filteredAllProducts = allProducts;
-				
-				// Allow UI to update between chunks
-				await new Promise(resolve => setTimeout(resolve, 100));
-				
+
 				offset += limit;
 				if (data.length < limit) {
 					hasMore = false;
@@ -727,13 +764,20 @@
 			}
 			
 			allProductsList = allProducts;
-			filteredAllProducts = allProducts;
-			
-			// Debug: Log first few products with image URLs
-			console.log('✓ All products loaded:', allProducts.length, '| With images:', allProducts.filter(p => p.image_url).length);
-			
+
 			// Set count of products with images
 			allProductsWithImages = allProducts.filter(p => p.image_url).length;
+			
+			// Cache the loaded data
+			try {
+				localStorage.setItem(CACHE_KEY, JSON.stringify({
+					data: allProducts,
+					timestamp: Date.now()
+				}));
+				console.log('✓ Products cached to localStorage');
+			} catch (err) {
+				console.warn('Cache write error:', err);
+			}
 		} catch (error) {
 			console.error('Error loading all products:', error);
 			alert('Error loading products. Please try again.');
@@ -745,7 +789,6 @@
 	function closeAllProductsView() {
 		showAllProducts = false;
 		allProductsList = [];
-		filteredAllProducts = [];
 		allProductsSearch = '';
 	}
 	
@@ -1272,6 +1315,13 @@
 			} else {
 				alert('Product deleted successfully!');
 				
+				// Clear cache
+				try {
+					localStorage.removeItem(CACHE_KEY);
+				} catch (err) {
+					console.warn('Cache clear error:', err);
+				}
+				
 				// Reload the appropriate views
 				await loadAllProducts();
 				if (showNoImageProducts) {
@@ -1322,6 +1372,14 @@
 				alert('Failed to update product: ' + error.message);
 			} else {
 				alert('Product updated successfully!');
+				
+				// Clear cache
+				try {
+					localStorage.removeItem(CACHE_KEY);
+				} catch (err) {
+					console.warn('Cache clear error:', err);
+				}
+				
 				// Fetch updated product data and refresh the UI
 				const barcode = editingProduct.barcode;
 				supabase
@@ -1483,6 +1541,14 @@
 				alert('Failed to create product: ' + error.message);
 			} else {
 				alert('Product created successfully!');
+				
+				// Clear cache
+				try {
+					localStorage.removeItem(CACHE_KEY);
+				} catch (err) {
+					console.warn('Cache clear error:', err);
+				}
+				
 				// Realtime subscription will add the product automatically
 				closeCreatePopup();
 			}
@@ -3762,8 +3828,11 @@
 							</tr>
 						</thead>
 						<tbody class="bg-white divide-y divide-gray-200">
-							{#each filteredAllProducts as product (product.barcode)}
+							{#each filteredAllProducts as product, index (product.barcode)}
 								<tr class="hover:bg-gray-50 transition-colors">
+									<td class="px-4 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-700">
+										{index + 1}
+									</td>
 									<td class="px-6 py-4 whitespace-nowrap">
 										<div class="w-20 h-20 bg-gray-50 rounded-lg border-2 border-gray-200 flex items-center justify-center overflow-hidden relative group cursor-pointer" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
 											{#if product.image_url}
@@ -3943,6 +4012,9 @@
 				<table class="min-w-full divide-y divide-gray-200">
 					<thead class="bg-gray-50">
 						<tr>
+							<th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+								#
+							</th>
 							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								Image
 							</th>
