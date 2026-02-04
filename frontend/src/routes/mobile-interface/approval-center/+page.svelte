@@ -140,7 +140,7 @@
 				.order('created_at', { ascending: false })
 				.limit(200),
 			
-			// 3. Vendor payments requiring approval (only if user has permission)
+			// 3. Vendor payments requiring approval (only if user has permission and is assigned)
 			(approvalPerms && approvalPerms.can_approve_vendor_payments) ? 
 				supabase
 					.from('vendor_payment_schedule')
@@ -152,6 +152,7 @@
 						)
 					`)
 					.eq('approval_status', 'sent_for_approval')
+					.eq('assigned_approver_id', $currentUser.id)  // Filter by assigned approver
 					.order('approval_requested_at', { ascending: false })
 					.limit(200) :
 				Promise.resolve({ data: [], error: null }),
